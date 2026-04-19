@@ -338,23 +338,12 @@ export class ConversationGraphMemory {
       if (!this.initialized || this.needsReload) {
         const recentSummaries = this.fetchRecentSummaries();
         const firstUserText = extractUserText(lastMessage);
-        const turn1Bias =
-          config.memory.retrieval.injection.contextLoad.turn1UserQueryBias;
-
-        let userQuery: string | undefined;
-        if (firstUserText) {
-          if (turn1Bias) {
-            userQuery = firstUserText;
-          } else {
-            recentSummaries.unshift(firstUserText);
-          }
-        }
 
         return await this.runContextLoad(
           messages,
           config,
           recentSummaries,
-          userQuery,
+          firstUserText ?? undefined,
           abortSignal,
           onEvent,
         );

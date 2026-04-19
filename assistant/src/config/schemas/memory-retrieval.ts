@@ -230,9 +230,9 @@ const MemoryContextLoadInjectionSchema = z
         error:
           "memory.retrieval.injection.contextLoad.turn1UserQueryBias must be a boolean",
       })
-      .default(false)
+      .default(true)
       .describe(
-        "When true, embed the first user message as a dedicated query vector used to rank skill/CLI capability reserve slots on turn 1, instead of relying on the summary-based query. Summaries still drive organic memory retrieval.",
+        "When true (default), embed the first user message as a dedicated query vector used to rank skill/CLI capability reserve slots on turn 1, instead of relying on the summary-based query. Summaries still drive organic memory retrieval. Set false to revert to summary-dominant ranking.",
       ),
   })
   .describe("Memory injection limits at conversation start");
