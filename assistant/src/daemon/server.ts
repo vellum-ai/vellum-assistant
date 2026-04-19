@@ -1649,10 +1649,17 @@ export class DaemonServer {
     const resolvedContent = slashResult.content;
 
     const requestId = crypto.randomUUID();
+    // Slack inbound metadata captured at the channel ingress boundary is
+    // forwarded into the persistence call so `persistQueuedMessageBody` can
+    // emit a `slackMeta` envelope on the row's metadata column.
+    const persistMetadata = options?.slackInbound
+      ? { slackInbound: options.slackInbound }
+      : undefined;
     const messageId = await conversation.persistUserMessage(
       resolvedContent,
       attachments,
       requestId,
+      persistMetadata,
     );
 
     // Register pending interactions so channel approval interception can

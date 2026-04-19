@@ -31,6 +31,7 @@ import { deliverChannelReply } from "../../gateway-client.js";
 import type {
   ApprovalCopyGenerator,
   MessageProcessor,
+  SlackInboundMessageMetadata,
 } from "../../http-types.js";
 import { resolveRoutingState } from "../../trust-context-resolver.js";
 import { deliverReplyViaCallback } from "../channel-delivery-routes.js";
@@ -78,6 +79,12 @@ export interface BackgroundProcessingParams {
   sourceLanguageCode?: string;
   /** Chat type from the gateway (e.g. "private", "group", "supergroup"). */
   chatType?: string;
+  /**
+   * Slack-specific inbound metadata extracted at the HTTP boundary. Threaded
+   * through to `persistUserMessage` so the row can be tagged with a
+   * `slackMeta` envelope for the chronological renderer.
+   */
+  slackInbound?: SlackInboundMessageMetadata;
 }
 
 /**
@@ -106,6 +113,7 @@ export function processChannelMessageInBackground(
     commandIntent,
     sourceLanguageCode,
     chatType,
+    slackInbound,
   } = params;
 
   (async () => {
@@ -200,6 +208,7 @@ export function processChannelMessageInBackground(
           trustContext: trustCtx,
           isInteractive: resolveRoutingState(trustCtx).promptWaitingAllowed,
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
+          ...(slackInbound ? { slackInbound } : {}),
         },
         sourceChannel,
         sourceInterface,

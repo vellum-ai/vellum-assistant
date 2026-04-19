@@ -828,6 +828,32 @@ export async function handleChannelInbound(
         heartbeatService?.resetTimer();
       }
 
+      // Slack inbound metadata captured for thread-aware persistence. The
+      // gateway forwards `thread_ts` under `sourceMetadata.threadId` (PR 2)
+      // and the message's own ts under `sourceMetadata.messageId`. Persistence
+      // turns this into a `slackMeta` sub-object in the row's metadata column
+      // so the chronological renderer in later PRs can reconstruct thread
+      // structure without re-fetching from Slack.
+      const slackThreadTs =
+        sourceChannel === "slack" &&
+        typeof sourceMetadata?.threadId === "string"
+          ? sourceMetadata.threadId
+          : undefined;
+      const slackInbound =
+        sourceChannel === "slack"
+          ? {
+              channelId: conversationExternalId,
+              channelTs: sourceMessageId ?? externalMessageId,
+              ...(slackThreadTs ? { threadTs: slackThreadTs } : {}),
+              ...(body.actorDisplayName ?? body.actorUsername
+                ? {
+                    displayName:
+                      body.actorDisplayName ?? body.actorUsername!,
+                  }
+                : {}),
+            }
+          : undefined;
+
       // Fire-and-forget: process the message and deliver the reply in the background.
       // The HTTP response returns immediately so the gateway webhook is not blocked.
       // The onEvent callback in processMessage registers pending interactions, and
@@ -851,6 +877,7 @@ export async function handleChannelInbound(
         assistantId: canonicalAssistantId,
         approvalCopyGenerator,
         chatType: sourceChatType,
+        slackInbound,
       });
     }
   }
