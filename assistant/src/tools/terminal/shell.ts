@@ -306,6 +306,7 @@ class ShellTool implements Tool {
     }
 
     const env = buildSanitizedEnv();
+    env.__CONVERSATION_ID = context.conversationId;
     if (proxyEnv) {
       Object.assign(env, proxyEnv);
     }

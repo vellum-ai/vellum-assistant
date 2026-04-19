@@ -152,6 +152,7 @@ function spawnRunner(
       workingDir: context.workingDir,
       conversationId: context.conversationId,
     });
+    env.__CONVERSATION_ID = context.conversationId;
 
     const child = spawn(wrapped.command, wrapped.args, {
       cwd: runDir,
@@ -219,7 +220,8 @@ function spawnRunner(
       if (code !== 0) {
         const truncatedStderr =
           stderr.length > MAX_OUTPUT_CHARS
-            ? safeStringSlice(stderr, 0, MAX_OUTPUT_CHARS) + "\n[stderr truncated]"
+            ? safeStringSlice(stderr, 0, MAX_OUTPUT_CHARS) +
+              "\n[stderr truncated]"
             : stderr;
         resolve({
           content: `Skill tool script "${executorPath}" exited with code ${code}:\n${truncatedStderr}`,
@@ -230,7 +232,8 @@ function spawnRunner(
 
       const truncatedStdout =
         stdout.length > MAX_OUTPUT_CHARS
-          ? safeStringSlice(stdout, 0, MAX_OUTPUT_CHARS) + "\n[stdout truncated]"
+          ? safeStringSlice(stdout, 0, MAX_OUTPUT_CHARS) +
+            "\n[stdout truncated]"
           : stdout;
       resolve({ content: truncatedStdout, isError: false });
     });

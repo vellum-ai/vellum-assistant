@@ -42,7 +42,8 @@ const IPC_TIMEOUT_BUFFER_MS = 10_000; // 10s
  * Resolve the conversation ID by precedence:
  *   1. Explicit `--conversation-id` flag
  *   2. `__SKILL_CONTEXT_JSON` env var (set by skill sandbox runner)
- *   3. Fail with an actionable error
+ *   3. `__CONVERSATION_ID` env var (set by bash tool subprocess)
+ *   4. Fail with an actionable error
  */
 function resolveConversationId(explicit?: string): string {
   if (explicit) return explicit;
@@ -55,14 +56,19 @@ function resolveConversationId(explicit?: string): string {
         return parsed.conversationId;
       }
     } catch {
-      // Fall through to the error below.
+      // Fall through
     }
+  }
+
+  const envConvId = process.env.__CONVERSATION_ID;
+  if (envConvId && typeof envConvId === "string") {
+    return envConvId;
   }
 
   throw new Error(
     "No conversation ID available.\n" +
       "Provide --conversation-id explicitly (run 'assistant conversations list' to find it),\n" +
-      "or run this command from a skill context where __SKILL_CONTEXT_JSON is set.",
+      "or run this command from a skill or bash tool context.",
   );
 }
 
@@ -171,7 +177,8 @@ forms) to the user via the running assistant and block until the user
 responds or the request times out.
 
 The conversation ID is resolved automatically when running inside a skill
-context (__SKILL_CONTEXT_JSON). Override with --conversation-id if needed.
+or bash tool context (__SKILL_CONTEXT_JSON or __CONVERSATION_ID).
+Override with --conversation-id if needed.
 
 Examples:
   $ echo '{"message":"Delete all logs?"}' | assistant ui request --json
@@ -194,7 +201,7 @@ Examples:
     .option("--title <title>", "Title displayed on the surface")
     .option(
       "--conversation-id <id>",
-      "Conversation ID — run 'assistant conversations list' to find it (auto-resolved from skill context if omitted)",
+      "Conversation ID — run 'assistant conversations list' to find it (auto-resolved from skill or bash tool context if omitted)",
     )
     .option(
       "--timeout <ms>",
@@ -362,7 +369,7 @@ Examples:
     )
     .option(
       "--conversation-id <id>",
-      "Conversation ID — run 'assistant conversations list' to find it (auto-resolved from skill context if omitted)",
+      "Conversation ID — run 'assistant conversations list' to find it (auto-resolved from skill or bash tool context if omitted)",
     )
     .option(
       "--timeout <ms>",
