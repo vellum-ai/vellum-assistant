@@ -482,7 +482,7 @@ struct TeleportSection: View {
                 path: "migrations/import",
                 body: bundleData,
                 contentType: "application/octet-stream",
-                timeout: 120
+                timeout: 3600
             )
         }
         guard importResponse.isSuccess else {
@@ -626,13 +626,13 @@ struct TeleportSection: View {
         if let onProgress {
             response = try await GatewayHTTPClient.post(
                 path: "migrations/export",
-                timeout: 300,
+                timeout: 3600,
                 onProgress: onProgress
             )
         } else {
             response = try await GatewayHTTPClient.post(
                 path: "migrations/export",
-                timeout: 300
+                timeout: 3600
             )
         }
         guard response.isSuccess else {
@@ -674,7 +674,7 @@ struct TeleportSection: View {
             }
 
             let pollInterval: UInt64 = 5_000_000_000 // 5 seconds
-            let timeout: TimeInterval = 600 // 10 minutes
+            let timeout: TimeInterval = 3600 // 60 minutes
             let start = Date()
 
             while Date().timeIntervalSince(start) < timeout {
@@ -705,7 +705,7 @@ struct TeleportSection: View {
                     throw TeleportError.importFailed(message: status.error ?? "Import job failed")
                 }
             }
-            throw TeleportError.importFailed(message: "Import timed out after 10 minutes")
+            throw TeleportError.importFailed(message: "Import timed out after 60 minutes")
         }
 
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
