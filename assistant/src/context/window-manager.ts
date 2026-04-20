@@ -31,7 +31,7 @@ const SUMMARY_SYSTEM_PROMPT = [
   "Focus on actionable state, not prose.",
   "Preserve concrete facts: goals, constraints, decisions, pending questions, file paths, commands, errors, and TODOs.",
   "Remove repetition and stale details that were superseded.",
-  'Thread anchors: when a compacted message is the parent of a thread whose replies survive in the retained context, preserve the parent\'s text verbatim — do not summarize or paraphrase it. Reactions on such anchors may be aggregated (e.g., "three users reacted").',
+  'Thread anchors: when a "Retained Thread References" section is present, each listed reply cites its parent via `→ Mxxxxxx`. If that parent appears in the Transcript, preserve its text verbatim (reactions may be aggregated as "N users reacted"). Omit when the section is absent.',
   "Return concise markdown using these section headers exactly:",
   "## Goals",
   "## Constraints",
@@ -40,6 +40,17 @@ const SUMMARY_SYSTEM_PROMPT = [
   "## Key Artifacts",
   "## Recent Progress",
 ].join("\n");
+
+/**
+ * Pattern matching a Slack-style reply tag-line's parent-alias reference.
+ * The chronological renderer emits reply lines as
+ * `[MM/DD/YY HH:MM @sender → Mxxxxxx]: body`, where `Mxxxxxx` is the first 6
+ * hex chars of sha256(threadTs). A retained-tail text block that contains
+ * this pattern is carrying a live reference to a parent that may still live
+ * in the compactable region — the summarizer needs to know about it to act
+ * on the Thread-anchors clause of SUMMARY_SYSTEM_PROMPT.
+ */
+const THREAD_REPLY_REFERENCE_PATTERN = /→ M[0-9a-f]{6}]/;
 
 export interface ContextWindowResult {
   messages: Message[];
@@ -457,13 +468,18 @@ export class ContextWindowManager {
       };
     }
 
+    const retainedThreadRefs = collectRetainedThreadReferences(
+      messages.slice(keepPlan.keepFromIndex),
+    );
     const transcriptBlocks = this.capTranscriptBlocksToTokenBudget(
       serializeMessagesToContentBlocks(compactableMessages),
       existingSummary ?? "No previous summary.",
+      retainedThreadRefs,
     );
     const summaryUpdate = await this.updateSummary(
       existingSummary ?? "No previous summary.",
       transcriptBlocks,
+      retainedThreadRefs,
       signal,
     );
     const summary = summaryUpdate.summary;
@@ -674,10 +690,13 @@ export class ContextWindowManager {
   private capTranscriptBlocksToTokenBudget(
     blocks: ContentBlock[],
     currentSummary: string,
+    retainedThreadRefs: string[],
   ): ContentBlock[] {
+    const retainedRefsText = retainedThreadRefs.join("\n");
     const overheadTokens =
       estimateTextTokens(SUMMARY_SYSTEM_PROMPT) +
       estimateTextTokens(currentSummary) +
+      estimateTextTokens(retainedRefsText) +
       // Scaffolding text in buildSummaryContentBlocks ("Update the summary...",
       // section headers, etc.) — generous fixed estimate.
       200 +
@@ -778,6 +797,7 @@ export class ContextWindowManager {
   private async updateSummary(
     currentSummary: string,
     transcriptBlocks: ContentBlock[],
+    retainedThreadRefs: string[],
     signal?: AbortSignal,
   ): Promise<{
     summary: string;
@@ -791,6 +811,7 @@ export class ContextWindowManager {
     const contentBlocks = buildSummaryContentBlocks(
       currentSummary,
       transcriptBlocks,
+      retainedThreadRefs,
     );
     const summaryMessage: Message = { role: "user", content: contentBlocks };
     try {
@@ -992,24 +1013,66 @@ export function createContextSummaryMessage(summary: string): Message {
 function buildSummaryContentBlocks(
   currentSummary: string,
   transcriptBlocks: ContentBlock[],
+  retainedThreadRefs: string[],
 ): ContentBlock[] {
+  const lines = [
+    "Update the summary with new transcript data.",
+    "If new information conflicts with older notes, keep the most recent and explicit detail.",
+    "Keep all unresolved asks and next steps.",
+    "For any images included below, describe their visual content in the summary so the information is preserved after compaction.",
+    "",
+    "### Existing Summary",
+    currentSummary.trim().length > 0 ? currentSummary.trim() : "None.",
+    "",
+  ];
+  if (retainedThreadRefs.length > 0) {
+    lines.push(
+      "### Retained Thread References",
+      "These reply tag lines remain in the live context after compaction. Each `→ Mxxxxxx` cites a parent message by alias; if that parent appears in the Transcript below, preserve its text verbatim.",
+      ...retainedThreadRefs.map((ref) => `- ${ref}`),
+      "",
+    );
+  }
+  lines.push("### Transcript");
   return [
     {
       type: "text",
-      text: [
-        "Update the summary with new transcript data.",
-        "If new information conflicts with older notes, keep the most recent and explicit detail.",
-        "Keep all unresolved asks and next steps.",
-        "For any images included below, describe their visual content in the summary so the information is preserved after compaction.",
-        "",
-        "### Existing Summary",
-        currentSummary.trim().length > 0 ? currentSummary.trim() : "None.",
-        "",
-        "### Transcript",
-      ].join("\n"),
+      text: lines.join("\n"),
     } as ContentBlock,
     ...transcriptBlocks,
   ];
+}
+
+/**
+ * Scan retained-tail messages for Slack-style reply tag lines that cite a
+ * thread parent via the `→ Mxxxxxx` alias convention. Returns the full tag
+ * line for each match (de-duplicated, order-preserved) so the summarizer
+ * has a concrete list of parents whose text must be preserved verbatim.
+ *
+ * Non-slack conversations and retained tails without any reply markers
+ * produce an empty list — in that case the summarizer is told explicitly
+ * that no verbatim preservation is required.
+ */
+function collectRetainedThreadReferences(
+  retainedMessages: Message[],
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const msg of retainedMessages) {
+    for (const block of msg.content) {
+      if (block.type !== "text") continue;
+      const text = (block as { text: string }).text;
+      for (const line of text.split("\n")) {
+        if (!THREAD_REPLY_REFERENCE_PATTERN.test(line)) continue;
+        const trimmed = line.trim();
+        if (trimmed.length === 0) continue;
+        if (seen.has(trimmed)) continue;
+        seen.add(trimmed);
+        out.push(trimmed);
+      }
+    }
+  }
+  return out;
 }
 
 /**

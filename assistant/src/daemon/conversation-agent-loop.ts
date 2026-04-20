@@ -904,6 +904,7 @@ export async function runAgentLoopImpl(
       ? loadSlackChronologicalMessages(
           ctx.conversationId,
           ctx.channelCapabilities!,
+          { trustClass: ctx.trustContext?.trustClass },
         )
       : null;
 
@@ -918,8 +919,17 @@ export async function runAgentLoopImpl(
       ? loadSlackActiveThreadFocusBlock(
           ctx.conversationId,
           ctx.channelCapabilities!,
+          { trustClass: ctx.trustContext?.trustClass },
         )
       : null;
+
+    // Guards the chronological-transcript override on re-injection after
+    // the reducer compacts `ctx.messages`. The captured transcript is the
+    // full persisted history; blindly replaying it on every re-inject would
+    // overwrite the reducer's compacted messages and undo compaction. Flip
+    // to `true` after any compaction so subsequent re-injections fall back
+    // to the reduced `ctx.messages`.
+    let reducerCompacted = compactedThisTurn;
 
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
@@ -1064,12 +1074,18 @@ export async function runAgentLoopImpl(
             step.compactionResult.compactedPersistedMessages,
           );
           shouldInjectWorkspace = true;
+          reducerCompacted = true;
         }
 
         // Re-inject with potentially downgraded injection mode.
         // When compaction ran it strips existing NOW.md / PKB blocks, so we
         // must re-inject the current content. Otherwise rely on the deduplicated
         // value from injectionOpts to avoid duplicate injection.
+        // Drop the Slack chronological override: the reducer has already
+        // shaped ctx.messages, and the transcript is rebuilt from ALL
+        // persisted rows (compaction doesn't delete rows), so re-applying
+        // it here would overwrite the reducer's output and the overflow
+        // loop would never converge.
         runMessages = await applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
           ...(step.compactionResult?.compacted && {
@@ -1081,6 +1097,13 @@ export async function runAgentLoopImpl(
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
             : null,
+          // Once the reducer has compacted `ctx.messages`, the captured
+          // `slackChronologicalMessages` snapshot (built from the full
+          // persisted transcript) would overwrite the compacted history
+          // and undo compaction. Suppress the override from here on.
+          slackChronologicalMessages: reducerCompacted
+            ? null
+            : injectionOpts.slackChronologicalMessages,
           mode: currentInjectionMode,
         });
         if (isTrustedActor && currentInjectionMode !== "minimal") {
@@ -1249,6 +1272,7 @@ export async function runAgentLoopImpl(
       );
       if (midLoopCompact.compacted) {
         ctx.messages = midLoopCompact.messages;
+        reducerCompacted = true;
         ctx.contextCompactedMessageCount +=
           midLoopCompact.compactedPersistedMessages;
         ctx.contextCompactedAt = Date.now();
@@ -1295,6 +1319,8 @@ export async function runAgentLoopImpl(
       // stripInjectionsForCompaction() unconditionally removed the existing
       // NOW.md block from ctx.messages above, so we must always re-inject
       // the current content regardless of whether compaction actually ran.
+      // Drop the Slack chronological override here too — see the preflight
+      // reducer loop above for the rationale.
       runMessages = await applyRuntimeInjections(ctx.messages, {
         ...injectionOpts,
         pkbContext: currentPkbContent,
@@ -1302,6 +1328,12 @@ export async function runAgentLoopImpl(
         workspaceTopLevelContext: shouldInjectWorkspace
           ? ctx.workspaceTopLevelContext
           : null,
+        // Suppress the chronological-transcript snapshot once the reducer
+        // has collapsed `ctx.messages`; the captured snapshot reflects the
+        // full persisted transcript and would overwrite compaction.
+        slackChronologicalMessages: reducerCompacted
+          ? null
+          : injectionOpts.slackChronologicalMessages,
         mode: currentInjectionMode,
       });
       if (isTrustedActor && currentInjectionMode !== "minimal") {
@@ -1517,11 +1549,13 @@ export async function runAgentLoopImpl(
             step.compactionResult.compactedPersistedMessages,
           );
           shouldInjectWorkspace = true;
+          reducerCompacted = true;
         }
 
         // Only re-inject NOW.md when ctx.messages was actually stripped;
         // otherwise the existing NOW.md block is still present and
-        // re-injecting would duplicate it.
+        // re-injecting would duplicate it. Drop the Slack chronological
+        // override — the reducer has already shaped ctx.messages.
         runMessages = await applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
           pkbContext: currentPkbContent,
@@ -1529,6 +1563,9 @@ export async function runAgentLoopImpl(
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
             : null,
+          slackChronologicalMessages: reducerCompacted
+            ? null
+            : injectionOpts.slackChronologicalMessages,
           mode: currentInjectionMode,
         });
         if (isTrustedActor && currentInjectionMode !== "minimal") {
@@ -1612,6 +1649,7 @@ export async function runAgentLoopImpl(
               );
             if (emergencyCompact.compacted) {
               ctx.messages = emergencyCompact.messages;
+              reducerCompacted = true;
               ctx.contextCompactedMessageCount +=
                 emergencyCompact.compactedPersistedMessages;
               ctx.contextCompactedAt = Date.now();
@@ -1657,7 +1695,9 @@ export async function runAgentLoopImpl(
             }
 
             // Only re-inject NOW.md when ctx.messages was actually stripped;
-            // otherwise the existing block is still present.
+            // otherwise the existing block is still present. Drop the Slack
+            // chronological override — emergency compaction has already
+            // shaped ctx.messages.
             runMessages = await applyRuntimeInjections(ctx.messages, {
               ...injectionOpts,
               pkbContext: currentPkbContent,
@@ -1665,6 +1705,9 @@ export async function runAgentLoopImpl(
               workspaceTopLevelContext: shouldInjectWorkspace
                 ? ctx.workspaceTopLevelContext
                 : null,
+              slackChronologicalMessages: reducerCompacted
+                ? null
+                : injectionOpts.slackChronologicalMessages,
               mode: currentInjectionMode,
             });
             if (isTrustedActor && currentInjectionMode !== "minimal") {
@@ -1744,6 +1787,7 @@ export async function runAgentLoopImpl(
           );
           if (emergencyCompact.compacted) {
             ctx.messages = emergencyCompact.messages;
+            reducerCompacted = true;
             ctx.contextCompactedMessageCount +=
               emergencyCompact.compactedPersistedMessages;
             ctx.contextCompactedAt = Date.now();
@@ -1789,7 +1833,9 @@ export async function runAgentLoopImpl(
           }
 
           // Only re-inject NOW.md when ctx.messages was actually stripped;
-          // otherwise the existing block is still present.
+          // otherwise the existing block is still present. Drop the Slack
+          // chronological override — auto-compress has already shaped
+          // ctx.messages.
           runMessages = await applyRuntimeInjections(ctx.messages, {
             ...injectionOpts,
             pkbContext: currentPkbContent,
@@ -1797,6 +1843,9 @@ export async function runAgentLoopImpl(
             workspaceTopLevelContext: shouldInjectWorkspace
               ? ctx.workspaceTopLevelContext
               : null,
+            slackChronologicalMessages: reducerCompacted
+              ? null
+              : injectionOpts.slackChronologicalMessages,
             mode: currentInjectionMode,
           });
           if (isTrustedActor && currentInjectionMode !== "minimal") {

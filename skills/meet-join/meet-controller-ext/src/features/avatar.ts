@@ -68,6 +68,12 @@ export const AVATAR_PAGE_PATH = "avatar/avatar.html";
 export const AVATAR_MODEL_QUERY_PARAM = "model";
 
 /**
+ * Query-string key the avatar page reads at load time to determine the
+ * capture cadence. When absent, the page uses its default target fps.
+ */
+export const AVATAR_FPS_QUERY_PARAM = "fps";
+
+/**
  * Minimal slice of the Chrome tabs API the feature actually uses.
  * Exposed as a type so unit tests can inject a fake without needing
  * `@types/chrome` at the test-site.
@@ -190,11 +196,18 @@ export function startAvatarFeature(
     return false;
   });
 
-  async function openAvatarTab(modelUrl: string | undefined): Promise<void> {
+  async function openAvatarTab(
+    modelUrl: string | undefined,
+    targetFps: number | undefined,
+  ): Promise<void> {
     const base = runtime.getURL(AVATAR_PAGE_PATH);
-    const url = modelUrl
-      ? `${base}?${AVATAR_MODEL_QUERY_PARAM}=${encodeURIComponent(modelUrl)}`
-      : base;
+    const params = new URLSearchParams();
+    if (modelUrl) params.set(AVATAR_MODEL_QUERY_PARAM, modelUrl);
+    if (typeof targetFps === "number") {
+      params.set(AVATAR_FPS_QUERY_PARAM, String(targetFps));
+    }
+    const query = params.toString();
+    const url = query ? `${base}?${query}` : base;
     try {
       const tab = await tabs.create({ url, active: false, pinned: true });
       if (typeof tab.id !== "number") {
@@ -251,7 +264,7 @@ export function startAvatarFeature(
       if (avatarTabId !== null) {
         await closeAvatarTab();
       }
-      await openAvatarTab(msg.modelUrl);
+      await openAvatarTab(msg.modelUrl, msg.targetFps);
       return;
     }
     if (msg.type === "avatar.stop") {

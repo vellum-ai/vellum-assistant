@@ -66,6 +66,22 @@ const ENSURE_PANEL_OPEN_TIMEOUT_MS = 2000;
  */
 export const MEET_CHAT_MAX_LENGTH = 2000;
 
+/**
+ * Per-character wait (ms) after emitting `trusted_type` so xdotool's
+ * X-server keystrokes finish landing in the composer before we dispatch
+ * the send-button click. Must match `xdotool --delay` (25ms/char) inside
+ * the bot — see `bot/src/browser/xdotool-type.ts`'s `DEFAULT_DELAY_MS`.
+ */
+const TRUSTED_TYPE_PER_CHAR_MS = 25;
+
+/**
+ * Fixed overhead added on top of the per-character scaling to cover
+ * xdotool startup + the native-messaging round-trip from extension →
+ * bot → X server. Sized from observed production latency (emit → first
+ * keystroke dispatched) plus a small safety margin.
+ */
+const TRUSTED_TYPE_OVERHEAD_MS = 250;
+
 /** Options passed to {@link startChatReader}. */
 export interface ChatReaderOptions {
   /** Meeting ID stamped on every emitted event. */
@@ -208,13 +224,20 @@ export function startChatReader(opts: ChatReaderOptions): ChatReader {
  * events (required by any Meet build that enforces `event.isTrusted` on
  * the corresponding controls):
  *
- * 1. After the native-setter `.value = text` + synthetic `input` event,
- *    the composer is focused and a `trusted_type` event is emitted so the
- *    bot can xdotool-type the text as real keystrokes. This is
- *    belt-and-suspenders: if Meet accepts the synthetic path, the
- *    xdotool-typed text lands in the same focused field and is harmless;
- *    if not, xdotool fills the gap. We wait ~250ms after emitting so the
- *    (async) keystrokes have time to land before clicking send.
+ * 1. The composer is focused and a `trusted_type` event is emitted so the
+ *    bot can xdotool-type the text as real keystrokes. We deliberately
+ *    skip the native-setter `.value = text` + synthetic `input` path when
+ *    `onEvent` is wired: xdotool types on top of whatever is already in
+ *    the composer, so populating it synthetically first would produce
+ *    doubled text ("hellohello"). The native-setter path is kept as a
+ *    fallback only for the `onEvent`-less case (jsdom tests and any Meet
+ *    build where synthetic input is accepted).
+ *
+ *    After emitting, we wait `text.length * TRUSTED_TYPE_PER_CHAR_MS +
+ *    TRUSTED_TYPE_OVERHEAD_MS` so the (async) xdotool keystrokes have
+ *    time to land before the send-button click is dispatched. A fixed
+ *    250ms window was too short for messages longer than ~10 characters
+ *    (xdotool's default per-keystroke delay is 25ms).
  *
  * 2. Before the send-button `.click()`, a `trusted_click` is emitted for
  *    the button's screen coordinates. This mirrors the panel-toggle fix
@@ -244,53 +267,74 @@ export async function sendChat(
     );
   }
 
-  // Meet's composer is a React-controlled textarea. React 16+ installs an
-  // instance-level property-descriptor interceptor (`inputValueTracking`)
-  // that hijacks `.value = ...`: when the synthetic `input` event fires,
-  // React compares the DOM value to its internal tracker and — because the
-  // interceptor updated the tracker in lockstep with the assignment —
-  // observes no change and skips the onChange dispatch. The result is a
-  // composer that visually shows the text but never commits to React state,
-  // so Send posts empty/stale content.
-  //
-  // The workaround is Playwright's `page.fill` trick: grab the native
-  // setter off `HTMLTextAreaElement.prototype` (which the React interceptor
-  // shadows at the instance level) and invoke it with `.call(input, text)`.
-  // That routes through the prototype setter without touching React's
-  // tracker, so the subsequent `input` event fires with a genuine value
-  // change and onChange runs normally. We still dispatch the synthetic
-  // `input` event ourselves — React relies on it as the trigger for
-  // onChange even after the value has been updated.
-  //
-  // If the native setter isn't resolvable for any reason (e.g. a jsdom
-  // build that doesn't expose the prototype descriptor), fall back to the
-  // direct `.value = ...` assignment. That path is adequate for the test
-  // harness and any pre-React-tracker Meet build.
-  const nativeSetter = Object.getOwnPropertyDescriptor(
-    HTMLTextAreaElement.prototype,
-    "value",
-  )?.set;
-  if (nativeSetter) {
-    nativeSetter.call(input, text);
-  } else {
-    input.value = text;
-  }
-  input.dispatchEvent(new Event("input", { bubbles: true }));
-
-  // If the caller wired up an `onEvent` sink, also drive the composer via
-  // xdotool-type. Focus the field first so xdotool's X-server keystrokes
-  // land on the right element, then emit the trusted_type event and give
-  // the bot a short window to type before we click send. No coord math
-  // here — the bot types into whatever is focused on the Xvfb display.
   if (opts?.onEvent) {
+    // When an `onEvent` sink is wired we drive the composer entirely via
+    // xdotool-type: focus the field first so the X-server keystrokes land
+    // on the right element, then emit `trusted_type` and wait for the
+    // bot's async typing to complete before we dispatch the send click.
+    //
+    // We deliberately do NOT take the synthetic-setter path below in this
+    // branch. xdotool appends to whatever is in the focused field, so if
+    // we pre-populated the composer with `.value = text` the xdotool-
+    // typed text would land on top and produce doubled output
+    // ("hellohello"). Relying solely on xdotool keeps the produced text
+    // correct on any Meet build that enforces `event.isTrusted` on the
+    // composer — which is the only reason we invoke xdotool in the first
+    // place.
+    //
+    // The wait scales with text length because xdotool's per-keystroke
+    // delay (25ms) dominates: a 100-char message takes ~2.5s of real-time
+    // typing. A fixed 250ms was too short for anything longer than ~10
+    // characters — the send button fired mid-type and posted a partial
+    // message.
     try {
       input.focus();
     } catch {
-      // Some jsdom / degraded DOM builds throw on .focus(); fall through
-      // and let the synthetic-setter path carry the composer.
+      // Some jsdom / degraded DOM builds throw on .focus(); the native-
+      // messaging emit below is still safe (the bot will type into
+      // whatever is focused on the Xvfb display) and the test harness
+      // does not require focus to succeed.
     }
     opts.onEvent({ type: "trusted_type", text });
-    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    const waitMs =
+      text.length * TRUSTED_TYPE_PER_CHAR_MS + TRUSTED_TYPE_OVERHEAD_MS;
+    await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
+  } else {
+    // No `onEvent` sink — we can't drive xdotool, so fall back to the
+    // synthetic-setter path. Meet's composer is a React-controlled
+    // textarea. React 16+ installs an instance-level property-descriptor
+    // interceptor (`inputValueTracking`) that hijacks `.value = ...`:
+    // when the synthetic `input` event fires, React compares the DOM
+    // value to its internal tracker and — because the interceptor
+    // updated the tracker in lockstep with the assignment — observes no
+    // change and skips the onChange dispatch. The result is a composer
+    // that visually shows the text but never commits to React state, so
+    // Send posts empty/stale content.
+    //
+    // The workaround is Playwright's `page.fill` trick: grab the native
+    // setter off `HTMLTextAreaElement.prototype` (which the React
+    // interceptor shadows at the instance level) and invoke it with
+    // `.call(input, text)`. That routes through the prototype setter
+    // without touching React's tracker, so the subsequent `input` event
+    // fires with a genuine value change and onChange runs normally. We
+    // still dispatch the synthetic `input` event ourselves — React
+    // relies on it as the trigger for onChange even after the value has
+    // been updated.
+    //
+    // If the native setter isn't resolvable for any reason (e.g. a jsdom
+    // build that doesn't expose the prototype descriptor), fall back to
+    // the direct `.value = ...` assignment. That path is adequate for
+    // the test harness and any pre-React-tracker Meet build.
+    const nativeSetter = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set;
+    if (nativeSetter) {
+      nativeSetter.call(input, text);
+    } else {
+      input.value = text;
+    }
+    input.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
   const sendButton = document.querySelector<HTMLButtonElement>(

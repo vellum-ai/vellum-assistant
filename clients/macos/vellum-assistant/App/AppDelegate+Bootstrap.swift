@@ -229,6 +229,14 @@ extension AppDelegate {
     /// to re-provision from scratch. Intended as a recovery primitive for
     /// stale/invalid credentials (see `GatewayConnectionManager.attemptRePair()`).
     ///
+    /// In Docker/cloud hatches, the CLI-persisted `guardian-token.json` on
+    /// disk can still contain the same revoked token that produced the auth
+    /// failures. `performInitialBootstrap()` imports that file ahead of any
+    /// HTTP path, so without deleting it we would silently re-arm the bad
+    /// credential and the re-pair would "succeed" only to fall right back
+    /// into 401s. Delete the file here so the bootstrap is forced down a
+    /// genuine reprovision path.
+    ///
     /// - Parameter resetBootstrapLock: When `true`, asks the loopback gateway
     ///   to clear `guardian-init.lock` before bootstrapping. Required when
     ///   `POST /v1/guardian/init` would otherwise be 403'd by the bare-metal
@@ -244,6 +252,9 @@ extension AppDelegate {
     ) async {
         log.info("forceReBootstrap: clearing stored credentials and re-running bootstrap (resetLock=\(resetBootstrapLock), maxHttpRetries=\(maxHttpRetries.map(String.init) ?? "unbounded"))")
         ActorTokenManager.deleteAllCredentials()
+        if let assistantId = LockfileAssistant.loadActiveAssistantId() {
+            GuardianTokenFileReader.deleteTokenFile(assistantId: assistantId)
+        }
         if resetBootstrapLock {
             let ok = await GuardianClient().resetBootstrapLock()
             if !ok {

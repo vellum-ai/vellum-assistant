@@ -37,10 +37,14 @@ export interface RenderableSlackMessage {
   /**
    * Full structured content blocks parsed from the persisted row, when
    * available. Optional so existing fixtures and callers that only need the
-   * flattened `content` string continue to compile. The current
-   * `renderSlackTranscript` implementation ignores this field — it exists so
-   * downstream consumers (tool-block preservation) can access the original
-   * `tool_use` / `tool_result` blocks without re-parsing the row.
+   * flattened `content` string continue to compile. `renderSlackTranscript`
+   * consumes this field to preserve replayable Anthropic blocks
+   * (`tool_use`, `tool_result`, `thinking`, `redacted_thinking`, `image`,
+   * `file`) in their original order, emitting the tag line inline at the
+   * position of the first `text` block. Non-replayable blocks
+   * (`ui_surface`, `server_tool_use`, `web_search_tool_result`, unknown
+   * types) are stripped; when stripping empties the row entirely, a
+   * fallback tag-line text block is emitted so chronology is preserved.
    */
   readonly contentBlocks?: readonly ContentBlock[];
 }
@@ -200,6 +204,12 @@ function renderReaction(msg: RenderableSlackMessage): string | null {
  * - **Pure tool-only rows** (`contentBlocks` present but no `text` block):
  *   emit only the replayable blocks — no tag line. Anthropic accepts role-
  *   correct messages with only tool blocks.
+ * - **All-non-replayable rows** (`contentBlocks` present but every block is
+ *   filtered out — e.g. a row whose only blocks are `server_tool_use` or
+ *   `ui_surface`): emit a single fallback tag-line text block annotated
+ *   with the stripped block types/names. Dropping the row entirely would
+ *   silently alter chronology and can orphan adjacent tool_result context
+ *   in later repair/conversion steps.
  */
 function buildMessageContentBlocks(
   msg: RenderableSlackMessage,
@@ -220,6 +230,7 @@ function buildMessageContentBlocks(
 
   const out: ContentBlock[] = [];
   let tagEmitted = false;
+  const strippedLabels: string[] = [];
   for (const block of blocks) {
     if (block.type === "text") {
       if (!tagEmitted) {
@@ -234,7 +245,23 @@ function buildMessageContentBlocks(
       continue;
     }
     // Non-replayable (ui_surface, server_tool_use, web_search_tool_result,
-    // unknown) — drop silently.
+    // unknown) — drop, but remember what we saw in case we need a fallback.
+    if (block.type === "server_tool_use") {
+      strippedLabels.push(`server_tool_use(${block.name})`);
+    } else {
+      strippedLabels.push(block.type);
+    }
+  }
+
+  // Non-empty source fully filtered to nothing: emit a fallback tag line so
+  // the turn still appears in chronology. Annotate with the stripped block
+  // types/names so the model has a hint about what was there.
+  if (out.length === 0) {
+    const suffix =
+      strippedLabels.length > 0
+        ? ` [stripped non-replayable: ${strippedLabels.join(", ")}]`
+        : "";
+    return [{ type: "text", text: `${tagLine}${suffix}` }];
   }
   return out;
 }
@@ -353,18 +380,21 @@ export function renderSlackTranscript(
 }
 
 /**
- * Final safety pass that drops unpaired tool-call blocks of either shape:
- * locally-executed (`tool_use` ↔ `tool_result`) and server-side web search
- * (`server_tool_use` ↔ `web_search_tool_result`).
+ * Final safety pass that drops unpaired `tool_use` ↔ `tool_result` blocks.
  *
- * Anthropic's API requires every producing block in an assistant turn to be
- * matched by its consuming block in the following user turn (and vice versa).
+ * Anthropic's API requires every `tool_use` in an assistant turn to be
+ * matched by a `tool_result` in the following user turn (and vice versa).
  * In normal operation `renderSlackTranscript` emits fully-paired turns
  * because the persisted transcript reflects completed tool exchanges, but
  * edge cases (mid-turn compaction, partial failures, a race between
  * producer persistence and consumer persistence) can leave an orphan in
  * the rendered output. Sending an orphan to the provider hard-fails the
  * entire request, so we defensively prune any unpaired block here.
+ *
+ * Server-side block types (`server_tool_use`, `web_search_tool_result`) are
+ * stripped earlier by `buildMessageContentBlocks` — they carry stale
+ * provider-specific `encrypted_content` and are never replayed — so they
+ * cannot reach this filter.
  *
  * A message that becomes empty after filtering (e.g. an assistant row that
  * carried only an orphaned `tool_use`) is dropped entirely rather than
@@ -376,32 +406,16 @@ function filterOrphanToolPairs(messages: Message[]): Message[] {
   const consumed = new Set<string>();
   for (const msg of messages) {
     for (const b of msg.content) {
-      if (b.type === "tool_use" || b.type === "server_tool_use") {
-        produced.add(b.id);
-      } else if (
-        b.type === "tool_result" ||
-        b.type === "web_search_tool_result"
-      ) {
-        consumed.add(b.tool_use_id);
-      }
+      if (b.type === "tool_use") produced.add(b.id);
+      else if (b.type === "tool_result") consumed.add(b.tool_use_id);
     }
   }
   const out: Message[] = [];
   for (const msg of messages) {
     const kept: ContentBlock[] = [];
     for (const b of msg.content) {
-      if (
-        (b.type === "tool_use" || b.type === "server_tool_use") &&
-        !consumed.has(b.id)
-      ) {
-        continue;
-      }
-      if (
-        (b.type === "tool_result" || b.type === "web_search_tool_result") &&
-        !produced.has(b.tool_use_id)
-      ) {
-        continue;
-      }
+      if (b.type === "tool_use" && !consumed.has(b.id)) continue;
+      if (b.type === "tool_result" && !produced.has(b.tool_use_id)) continue;
       kept.push(b);
     }
     if (kept.length > 0) out.push({ role: msg.role, content: kept });

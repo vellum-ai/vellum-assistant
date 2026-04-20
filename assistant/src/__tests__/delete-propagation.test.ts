@@ -396,12 +396,12 @@ describe("Slack delete propagation", () => {
 
   test("delete from non-member actor is rejected by ACL and does not apply", async () => {
     // Use a channel where NO active member is seeded so the actor cannot
-    // resolve via the channel's externalChatId either. This is the
-    // regression check for the gap where the delete short-circuit ran
-    // before ingress ACL — under the fix the ACL must reject the delete
-    // so no row is mutated. Also clear the C0123CHANNEL seed for the
-    // alt channel below since beforeEach wires the seed on C0123CHANNEL
-    // only.
+    // resolve via the channel's externalChatId either. Verifies that ACL
+    // enforcement rejects delete events from non-members before the delete
+    // handler processes them — the delete must not apply and no row should
+    // be mutated when the actor is not an active member of the target
+    // channel. Also clear the C0123CHANNEL seed for the alt channel below
+    // since beforeEach wires the seed on C0123CHANNEL only.
     const altChannel = "C0_NON_MEMBER_CHAN";
     const seeded = seedSlackMessage({
       externalChatId: altChannel,

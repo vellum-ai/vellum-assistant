@@ -841,20 +841,19 @@ describe("extractTagLineTexts", () => {
   });
 });
 
-// ── contentBlocks preservation (PR 3 behavioural change) ─────────────────────
+// ── contentBlocks preservation ───────────────────────────────────────────────
 
 describe("renderSlackTranscript — replayable content-block preservation", () => {
-  // PR 3 flips the behaviour established in PR 2: when `contentBlocks` is
-  // populated, the renderer preserves replayable Anthropic blocks
-  // (tool_use, tool_result, thinking, redacted_thinking, image, file)
-  // verbatim alongside the tag line. Non-replayable blocks (ui_surface,
-  // server_tool_use, web_search_tool_result, unknown types) are stripped.
-  // Legacy rows (no contentBlocks field) continue to render as a single
-  // text block.
+  // When `contentBlocks` is populated, the renderer preserves replayable
+  // Anthropic blocks (tool_use, tool_result, thinking, redacted_thinking,
+  // image, file) verbatim alongside the tag line. Non-replayable blocks
+  // (ui_surface, server_tool_use, web_search_tool_result, unknown types) are
+  // stripped. Legacy rows (no contentBlocks field) render as a single text
+  // block.
 
   test("[text, tool_use] assistant row preserves tool_use after tag line", () => {
     // Assistant tool_use is paired with a follow-up user tool_result so the
-    // PR 4 orphan filter leaves both blocks intact.
+    // orphan-pair filter leaves both blocks intact.
     const assistantRow: RenderableSlackMessage = {
       ...userMsg(TS_14_25, null, "looking it up", {
         role: "assistant",
@@ -882,7 +881,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
 
   test("[tool_result] user row emits only tool_result — no tag line", () => {
     // Pair the user tool_result with a preceding assistant tool_use so the
-    // PR 4 orphan filter leaves the row intact; the assertion still pins
+    // orphan-pair filter leaves the row intact; the assertion still pins
     // the shape of the user row specifically (no tag line, single block).
     const assistantRow: RenderableSlackMessage = {
       ...userMsg(TS_14_24, null, "", { role: "assistant" }),
@@ -1053,6 +1052,40 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
     ]);
   });
 
+  test("row with only non-replayable blocks emits fallback tag line annotated with what was stripped", () => {
+    // Regression: previously `buildMessageContentBlocks` returned an empty
+    // array when every block was filtered out (e.g. a row whose only
+    // blocks are `server_tool_use` and `ui_surface`), causing the caller
+    // to drop the turn entirely — silently altering chronology and
+    // potentially orphaning adjacent tool_result context. The renderer
+    // now preserves the turn by emitting a single fallback text block
+    // annotated with the stripped block types/names.
+    const base: RenderableSlackMessage = {
+      ...userMsg(TS_14_25, null, "ran a web search", { role: "assistant" }),
+      contentBlocks: [
+        {
+          type: "server_tool_use",
+          id: "st_1",
+          name: "web_search",
+          input: { q: "x" },
+        },
+        { type: "ui_surface", foo: "bar" } as unknown as never,
+      ] as never,
+    };
+    const out = renderSlackTranscript([base]);
+    expect(out).toEqual([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "[11/14/23 14:25]: ran a web search [stripped non-replayable: server_tool_use(web_search), ui_surface]",
+          },
+        ],
+      },
+    ]);
+  });
+
   test("legacy row (contentBlocks undefined) renders as single tag line — unchanged", () => {
     const base = userMsg(TS_14_25, "@alice", "legacy plain");
     // No `contentBlocks` field assigned — emulates a row whose JSON content
@@ -1094,13 +1127,13 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
   });
 });
 
-// ── orphan tool_use / tool_result filter (PR 4) ──────────────────────────────
+// ── orphan tool_use / tool_result filter ─────────────────────────────────────
 
 describe("renderSlackTranscript — orphan tool_use / tool_result filter", () => {
-  // PR 4 adds a final safety pass that strips any tool_use without a
-  // matching tool_result (and vice versa) before returning. Messages that
-  // become empty after filtering are dropped entirely so the caller never
-  // sees `{role, content: []}`.
+  // A final safety pass strips any tool_use without a matching tool_result
+  // (and vice versa) before returning. Messages that become empty after
+  // filtering are dropped entirely so the caller never sees
+  // `{role, content: []}`.
 
   test("orphan tool_use is dropped; surrounding tag line survives", () => {
     // Assistant row has [text, tool_use] but no follower tool_result exists

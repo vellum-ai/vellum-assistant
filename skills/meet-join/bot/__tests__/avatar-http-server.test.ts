@@ -336,6 +336,37 @@ describe("avatar HTTP routes", () => {
       expect(openCalls).toBe(1);
     });
 
+    test("when renderer.start() throws a non-Unavailable error, renderer.stop() runs before rethrow", async () => {
+      // Renderer partially initializes (GPU session, WebRTC tab) then
+      // crashes. The handler must call stop() so those resources don't
+      // linger — avatarRenderer is still null so no /avatar/disable
+      // retry could clean them up.
+      class ExplodingStartRenderer extends FakeAvatarRenderer {
+        override async start(): Promise<void> {
+          this.startCount += 1;
+          throw new TypeError("gpu context lost mid-init");
+        }
+      }
+      const fake = new ExplodingStartRenderer({ id: "fake" });
+      const { server: s } = makeServer({
+        config: { enabled: true, renderer: "fake" },
+        resolveRenderer: () => fake,
+      });
+      server = s;
+      const base = await startOnRandomPort(server);
+
+      const res = await fetch(`${base}/avatar/enable`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${API_TOKEN}` },
+      });
+      // Non-Unavailable error bubbles as a 500 from hono's default
+      // error boundary. The assertion that matters here is the cleanup
+      // below.
+      expect(res.status).toBeGreaterThanOrEqual(500);
+      expect(fake.startCount).toBe(1);
+      expect(fake.stopCount).toBe(1);
+    });
+
     test("when the renderer starts but the device open fails, returns 503 and tears the renderer down", async () => {
       const fake = new FakeAvatarRenderer({ id: "fake" });
       const { server: s } = makeServer({

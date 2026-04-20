@@ -25,13 +25,18 @@ import {
 } from "../messaging/providers/slack/render-transcript.js";
 import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
 import type { ContentBlock, Message } from "../providers/types.js";
-import type { ActorTrustContext } from "../runtime/actor-trust-resolver.js";
+import {
+  type ActorTrustContext,
+  isUntrustedTrustClass,
+  type TrustClass,
+} from "../runtime/actor-trust-resolver.js";
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
+import { filterMessagesForUntrustedActor } from "./conversation-lifecycle.js";
 import {
   getInContextPkbPaths,
   type PkbContextConversation,
@@ -1185,8 +1190,15 @@ export function stripTransportHints(messages: Message[]): Message[] {
 /**
  * True when the channel capabilities describe a Slack non-DM conversation
  * (group/channel/mpim). Used to gate thread-only behavior such as the
- * `<active_thread>` focus block. DMs (`chatType === "im"`) are excluded
- * because they have no threads.
+ * `<active_thread>` focus block. DMs are excluded because they have no
+ * threads.
+ *
+ * The gateway normalizer sets `chatType: "channel"` for every non-DM Slack
+ * conversation (public, private, and mpim alike — see
+ * `gateway/src/slack/normalize.ts`) and omits the field entirely for DMs.
+ * We therefore accept on `chatType === "channel"` rather than negating
+ * against `"im"` — the prior `!== "im"` check incorrectly classified DMs
+ * (where the gateway-omitted field is `undefined`) as channels.
  *
  * The chronological-transcript override applies to ALL Slack
  * conversations (channels and DMs) — gate that on
@@ -1197,7 +1209,7 @@ export function isSlackChannelConversation(
 ): boolean {
   return (
     channelCapabilities?.channel === "slack" &&
-    channelCapabilities.chatType !== "im"
+    channelCapabilities.chatType === "channel"
   );
 }
 
@@ -1217,29 +1229,21 @@ export interface SlackTranscriptInputRow {
 }
 
 /**
- * Extract the user-facing plain text from a persisted message row's content
- * column. The persisted shape is a JSON-encoded `ContentBlock[]`; only `text`
- * blocks contribute to the rendered transcript line. Tool-use / tool-result /
- * thinking blocks are intentionally elided — they would clutter the
- * Slack-style transcript and the model can already recall them from the
+ * Extract the user-facing plain text from an already-parsed `ContentBlock[]`.
+ * Only `text` blocks contribute to the rendered transcript line. Tool-use /
+ * tool-result / thinking blocks are intentionally elided — they would clutter
+ * the Slack-style transcript and the model can already recall them from the
  * surrounding turn structure.
  *
- * Falls back to the raw column value when JSON parsing fails so legacy /
- * non-JSON-encoded rows still surface their text content.
+ * Rows with no text blocks (e.g. images, file uploads, pure tool turns) would
+ * otherwise render as an empty transcript line like `[14:25 @alice]: `;
+ * surface the attachment/tool context instead so the model can tell something
+ * was actually said on that turn.
  */
-function extractPlainText(rawContent: string): string {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawContent);
-  } catch {
-    return rawContent;
-  }
-  if (!Array.isArray(parsed)) {
-    return typeof parsed === "string" ? parsed : rawContent;
-  }
+function extractPlainTextFromBlocks(blocks: ContentBlock[]): string {
   const parts: string[] = [];
   const placeholderLabels: string[] = [];
-  for (const block of parsed as ContentBlock[]) {
+  for (const block of blocks) {
     if (!block || typeof block !== "object") continue;
     if (block.type === "text") {
       parts.push(block.text);
@@ -1253,10 +1257,6 @@ function extractPlainText(rawContent: string): string {
   if (parts.length > 0) {
     return parts.join("\n");
   }
-  // Rows with no text blocks (e.g. images, file uploads, pure tool turns)
-  // would otherwise render as an empty transcript line like
-  // `[14:25 @alice]: `. Surface the attachment/tool context instead so the
-  // model can tell something was actually said on that turn.
   return placeholderLabels.join(" ");
 }
 
@@ -1323,17 +1323,27 @@ function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
     senderLabel = slackMeta?.displayName ?? null;
   }
 
+  // Parse `row.content` once and derive both the structured `contentBlocks`
+  // view (for downstream tool-block preservation) and the flattened
+  // `plainText` view (used for tag-line rendering) from the same parsed
+  // result. Large Slack histories with many tool payloads would otherwise
+  // pay a double JSON-parse cost per row.
   let contentBlocks: ContentBlock[] = [];
+  let plainText: string;
   try {
     const parsed = JSON.parse(row.content);
     if (Array.isArray(parsed)) {
       contentBlocks = parsed as ContentBlock[];
+      plainText = extractPlainTextFromBlocks(contentBlocks);
+    } else if (typeof parsed === "string") {
+      plainText = parsed;
+    } else {
+      plainText = row.content;
     }
   } catch {
     // Plain string row (legacy) — no structured blocks to preserve.
+    plainText = row.content;
   }
-
-  const plainText = extractPlainText(row.content);
 
   // Attachment-only rows (images, files) carry no text block, so the
   // transcript renderer would normally emit them *without* a tag line —
@@ -1395,19 +1405,33 @@ export function assembleSlackChronologicalMessages(
  * The loader is exposed as a parameter so tests can substitute a stub. In
  * production it defaults to `getMessages` from `conversation-crud.ts`.
  *
+ * When `trustClass` identifies an untrusted actor (guardian-scoped rows
+ * must not leak into the model context), rows are passed through
+ * `filterMessagesForUntrustedActor` before assembly — mirroring the
+ * filtering applied in `loadFromDb` so the chronological transcript
+ * respects the same per-actor scoping as the default history path.
+ *
  * Returns `null` when the channel is not Slack — callers should fall
  * through to the default in-memory message history.
  */
 export function loadSlackChronologicalMessages(
   conversationId: string,
   capabilities: ChannelCapabilities,
-  loader: (id: string) => MessageRow[] = defaultGetMessages,
+  options: {
+    loader?: (id: string) => MessageRow[];
+    trustClass?: TrustClass;
+  } = {},
 ): Message[] | null {
   if (capabilities.channel !== "slack") {
     return null;
   }
+  const loader = options.loader ?? defaultGetMessages;
+  const allRows = loader(conversationId);
+  const scopedRows = isUntrustedTrustClass(options.trustClass)
+    ? filterMessagesForUntrustedActor(allRows)
+    : allRows;
   // Coerce MessageRow.role (string) to the structural row's stricter union.
-  const rows: SlackTranscriptInputRow[] = loader(conversationId).map((row) => ({
+  const rows: SlackTranscriptInputRow[] = scopedRows.map((row) => ({
     role: row.role === "assistant" ? "assistant" : "user",
     content: row.content,
     createdAt: row.createdAt,
@@ -1546,8 +1570,11 @@ export function assembleSlackActiveThreadFocusBlock(
 ): string | null {
   if (capabilities.channel !== "slack") return null;
   // DMs do not have threads, so the focus block is always a no-op.
-  // Short-circuit explicitly to avoid scanning rows on every turn.
-  if (capabilities.chatType === "im") return null;
+  // The gateway sets `chatType: "channel"` for every non-DM Slack
+  // conversation and omits the field for DMs, so gate the focus block
+  // on the positive match rather than negating against `"im"` (which
+  // leaks through when `chatType` is `undefined`).
+  if (capabilities.chatType !== "channel") return null;
   const renderable = rows.map(rowToRenderable);
   const activeThreadTs = detectActiveThreadTs(renderable);
   if (!activeThreadTs) return null;
@@ -1563,11 +1590,19 @@ export function assembleSlackActiveThreadFocusBlock(
 export function loadSlackActiveThreadFocusBlock(
   conversationId: string,
   capabilities: ChannelCapabilities,
-  loader: (id: string) => MessageRow[] = defaultGetMessages,
+  options: {
+    loader?: (id: string) => MessageRow[];
+    trustClass?: TrustClass;
+  } = {},
 ): string | null {
   if (capabilities.channel !== "slack") return null;
-  if (capabilities.chatType === "im") return null;
-  const rows: SlackTranscriptInputRow[] = loader(conversationId).map((row) => ({
+  if (capabilities.chatType !== "channel") return null;
+  const loader = options.loader ?? defaultGetMessages;
+  const allRows = loader(conversationId);
+  const scopedRows = isUntrustedTrustClass(options.trustClass)
+    ? filterMessagesForUntrustedActor(allRows)
+    : allRows;
+  const rows: SlackTranscriptInputRow[] = scopedRows.map((row) => ({
     role: row.role === "assistant" ? "assistant" : "user",
     content: row.content,
     createdAt: row.createdAt,
@@ -1754,10 +1789,8 @@ export async function applyRuntimeInjections(
   const mode = options.mode ?? "full";
   const slackChannel = isSlackChannelConversation(options.channelCapabilities);
   // Slack DMs and channels both assemble context from persisted message
-  // rows now (PR 25 removed the gateway-side `fetchThreadContext` /
-  // `fetchDmContext` helpers that produced `<transport_hints>` entries),
-  // so suppress hint injection for any Slack conversation. Other channels
-  // (telegram, email, etc.) keep the generic hint pipeline.
+  // rows, so suppress hint injection for any Slack conversation. Other
+  // channels (telegram, email, etc.) keep the generic hint pipeline.
   const slackConversation = options.channelCapabilities?.channel === "slack";
   let result = runMessages;
   // Slack channels AND DMs both override `runMessages` with a pre-rendered
@@ -1995,6 +2028,7 @@ export async function applyRuntimeInjections(
   // interleaved. Stripped on subsequent rebuilds via the
   // `RUNTIME_INJECTION_PREFIXES` list so focus blocks never accumulate.
   if (
+    mode === "full" &&
     slackChannel &&
     typeof options.slackActiveThreadFocusBlock === "string" &&
     options.slackActiveThreadFocusBlock.length > 0

@@ -305,6 +305,47 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     expect(backfillDmMock).toHaveBeenCalledTimes(0);
   });
 
+  test("concurrent cold DMs share a single backfill (no double-write)", async () => {
+    // Two near-simultaneous DMs into the same cold conversation must not
+    // each trigger their own backfill — the in-flight lock dedupes them so
+    // Slack history is fetched once and rows are written once.
+    let resolveBackfill: ((messages: Message[]) => void) | null = null;
+    backfillDmMock.mockImplementation(
+      () =>
+        new Promise<Message[]>((resolve) => {
+          resolveBackfill = resolve;
+        }),
+    );
+
+    const first = handleChannelInbound(
+      buildDmRequest("first concurrent DM"),
+      noopProcessMessage,
+      TEST_BEARER_TOKEN,
+    );
+    const second = handleChannelInbound(
+      buildDmRequest("second concurrent DM"),
+      noopProcessMessage,
+      TEST_BEARER_TOKEN,
+    );
+
+    // Wait for both handlers to register their await on the in-flight
+    // promise before resolving the underlying backfill fetch.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(resolveBackfill).not.toBeNull();
+    resolveBackfill!([
+      makeBackfilledMessage({ id: "1700000000.000001", text: "older A" }),
+      makeBackfilledMessage({ id: "1700000000.000002", text: "older B" }),
+    ]);
+
+    await Promise.all([first, second]);
+
+    expect(backfillDmMock).toHaveBeenCalledTimes(1);
+    const rows = readPersistedSlackRows();
+    expect(rows.length).toBe(2);
+    const texts = rows.map((r) => r.content).sort();
+    expect(texts).toEqual(["older A", "older B"]);
+  });
+
   test("backfill skips channelTs values already stored", async () => {
     // First DM: backfill returns three rows.
     backfillDmMock.mockImplementation(async () => [

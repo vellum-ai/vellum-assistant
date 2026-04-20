@@ -10,20 +10,26 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import type { BotToExtensionMessage } from "../../../contracts/native-messaging.js";
+import type {
+  BotToExtensionMessage,
+  ExtensionToBotMessage,
+} from "../../../contracts/native-messaging.js";
 
 import { startContentBridge } from "../messaging/content-bridge.js";
 import type { NativePort } from "../messaging/native-port.js";
 
 interface FakePort extends NativePort {
   emitFromBot(msg: BotToExtensionMessage): void;
+  posted: ExtensionToBotMessage[];
 }
 
 function makeFakePort(): FakePort {
   const messageCallbacks: Array<(msg: BotToExtensionMessage) => void> = [];
+  const posted: ExtensionToBotMessage[] = [];
   return {
-    post() {
-      /* no-op: these tests only exercise bot→extension fan-out */
+    posted,
+    post(msg: ExtensionToBotMessage) {
+      posted.push(msg);
     },
     onMessage(cb) {
       messageCallbacks.push(cb);
@@ -43,12 +49,20 @@ function makeFakePort(): FakePort {
   };
 }
 
+type RuntimeOnMessageListener = (
+  raw: unknown,
+  sender: unknown,
+  sendResponse: (response?: unknown) => void,
+) => boolean;
+
 interface FakeChrome {
   sendMessageCalls: Array<{ tabId: number; msg: unknown }>;
   queryCalls: Array<chrome.tabs.QueryInfo>;
+  runtimeListeners: RuntimeOnMessageListener[];
+  emitFromContent(msg: unknown): void;
   runtime: {
     onMessage: {
-      addListener: (cb: (...args: unknown[]) => boolean) => void;
+      addListener: (cb: RuntimeOnMessageListener) => void;
     };
   };
   tabs: {
@@ -60,13 +74,19 @@ interface FakeChrome {
 function installFakeChrome(): FakeChrome {
   const sendMessageCalls: FakeChrome["sendMessageCalls"] = [];
   const queryCalls: FakeChrome["queryCalls"] = [];
+  const runtimeListeners: RuntimeOnMessageListener[] = [];
   const fake: FakeChrome = {
     sendMessageCalls,
     queryCalls,
+    runtimeListeners,
+    emitFromContent(msg) {
+      for (const cb of runtimeListeners.slice())
+        cb(msg, undefined, () => {});
+    },
     runtime: {
       onMessage: {
-        addListener() {
-          /* content→bot direction is not exercised here */
+        addListener(cb) {
+          runtimeListeners.push(cb);
         },
       },
     },
@@ -138,5 +158,52 @@ describe("startContentBridge bot→content fan-out", () => {
       tabId: 1,
       msg: leave,
     });
+  });
+});
+
+describe("startContentBridge content→bot forwarding", () => {
+  let fake: FakeChrome;
+  let port: FakePort;
+
+  beforeEach(() => {
+    fake = installFakeChrome();
+    port = makeFakePort();
+    startContentBridge(port);
+  });
+
+  afterEach(() => {
+    uninstallFakeChrome();
+  });
+
+  test("avatar.frame from runtime is NOT relayed to the native port", () => {
+    // The avatar feature owns this forwarding path; relaying here would
+    // double every frame.
+    fake.emitFromContent({
+      type: "avatar.frame",
+      bytes: "AA==",
+      width: 320,
+      height: 240,
+      format: "jpeg",
+      ts: 0,
+    });
+    expect(port.posted).toHaveLength(0);
+  });
+
+  test("avatar.started from runtime is NOT relayed to the native port", () => {
+    fake.emitFromContent({ type: "avatar.started" });
+    expect(port.posted).toHaveLength(0);
+  });
+
+  test("non-avatar content→bot messages still forward to the native port", () => {
+    const msg: ExtensionToBotMessage = {
+      type: "chat.inbound",
+      meetingId: "abc",
+      timestamp: "2026-04-15T00:00:00Z",
+      fromId: "p-1",
+      fromName: "Alice",
+      text: "hey",
+    };
+    fake.emitFromContent(msg);
+    expect(port.posted).toContainEqual(msg);
   });
 });

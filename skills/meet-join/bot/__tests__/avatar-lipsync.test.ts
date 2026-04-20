@@ -148,13 +148,11 @@ describe("TalkingHead renderer lip-sync alignment", () => {
     // The full pipeline under test: viseme events stream in 100 ms
     // ahead of the corresponding audio, the bot queues PCM into the
     // audio-playback handle, and the handle's playback-timestamp
-    // stream drives the renderer's flush cadence. We inject a
-    // deterministic clock so the playback timestamps evolve in
-    // controlled increments instead of depending on real wall time.
-    let nowMs = 0;
-    const advance = (delta: number): void => {
-      nowMs += delta;
-    };
+    // stream drives the renderer's flush cadence. The playback clock
+    // is utterance-relative and seeded to 0 on `startAudioPlayback`,
+    // advancing by `byteCount / bytesPerMs` on every non-empty write —
+    // so deterministic PCM writes produce deterministic playback
+    // timestamps without any wall-clock dependence.
 
     const nativeMessaging = new FakeNativeMessaging();
     const renderer = await startRenderer(nativeMessaging);
@@ -162,7 +160,6 @@ describe("TalkingHead renderer lip-sync alignment", () => {
     const shim = makePacatShim();
     const handle = startAudioPlayback({
       spawn: () => shim.proc,
-      now: () => nowMs,
     });
 
     // Wire the playback-timestamp stream into the renderer. This is
@@ -173,21 +170,21 @@ describe("TalkingHead renderer lip-sync alignment", () => {
       renderer.notifyPlaybackTimestamp(ts);
     });
 
-    // Capture every viseme the renderer forwards to the extension,
-    // tagged with the playback clock at forwarding time. A perfectly
-    // aligned pipeline emits each viseme at the moment audio for that
-    // viseme's timestamp actually plays out — NOT at the moment the
-    // viseme was pushed into the renderer.
-    const flushed: Array<{ phoneme: string; atMs: number }> = [];
+    // Capture every viseme the renderer forwards to the extension.
+    // A perfectly aligned pipeline emits each viseme at the moment
+    // audio for that viseme's utterance-relative timestamp actually
+    // plays out — NOT at the moment the viseme was pushed into the
+    // renderer.
+    const flushed: string[] = [];
     nativeMessaging.sendToExtension = (msg: BotAvatarMsg): void => {
       if (msg.type === "avatar.push_viseme") {
-        flushed.push({ phoneme: msg.phoneme, atMs: nowMs });
+        flushed.push(msg.phoneme);
       }
     };
 
     // Step 1: visemes arrive ahead of audio. The renderer MUST hold
     // them. Push three visemes with timestamps 100, 200, 300 (ms).
-    // They arrive at wall-clock time 0 — 100 ms before their
+    // They arrive before any PCM is written — 100 ms before their
     // declared audio timestamp, exactly the drift scenario from the
     // PR description.
     renderer.pushViseme({ phoneme: "ah", weight: 0.8, timestamp: 100 });
@@ -195,14 +192,14 @@ describe("TalkingHead renderer lip-sync alignment", () => {
     renderer.pushViseme({ phoneme: "oh", weight: 0.4, timestamp: 300 });
 
     // None of the visemes should be forwarded yet — the audio-
-    // playback clock is still at time 0 and none of them has come
-    // due. This is the whole point of the buffering: the extension
-    // must not see the visemes ahead of the audio.
+    // playback clock is still at utterance-offset 0 and none of them
+    // has come due. This is the whole point of the buffering: the
+    // extension must not see the visemes ahead of the audio.
     expect(flushed).toEqual([]);
 
     // Step 2: audio starts flowing. Queue 100 ms worth of PCM. At
     // 48000 Hz mono s16le that's 9600 bytes (96 bytes/ms). Writing
-    // 9600 bytes with a now() of 0 advances the playback clock to
+    // 9600 bytes advances the utterance-relative playback clock to
     // 100 ms — the first viseme comes due.
     const BYTES_PER_MS = handle.bytesPerMs;
     const chunk100ms = new Uint8Array(100 * BYTES_PER_MS);
@@ -211,34 +208,22 @@ describe("TalkingHead renderer lip-sync alignment", () => {
     // The "ah" viseme (timestamp 100) should now have been forwarded
     // because the playback clock advanced to exactly 100. The other
     // two remain buffered.
-    expect(flushed.map((f) => f.phoneme)).toEqual(["ah"]);
-    expect(flushed[0]!.atMs).toBe(0); // wall-clock at forwarding time
+    expect(flushed).toEqual(["ah"]);
 
-    // Step 3: simulate real time passing — 50 ms go by with no new
-    // audio. The audio buffer drains to real time but the playback
-    // clock does NOT advance (we don't emit playback timestamps in
-    // the drain direction — only on writes), so the second viseme
-    // stays buffered.
-    advance(50);
-    expect(flushed.map((f) => f.phoneme)).toEqual(["ah"]);
-
-    // Step 4: queue another 150 ms of audio. The `max(nowMs,
-    // effectivePlaybackMs)` rebase kicks in here because real time
-    // (50 ms) is past our previous estimate (100 ms)? No — 50 < 100,
-    // so the clock baselines off effectivePlaybackMs. New estimate:
+    // Step 3: queue another 150 ms of audio. The clock advances to
     // 100 + 150 = 250 ms. Viseme "ee" (t=200) comes due; "oh" (t=300)
     // stays.
     const chunk150ms = new Uint8Array(150 * BYTES_PER_MS);
     await handle.write(chunk150ms);
 
-    expect(flushed.map((f) => f.phoneme)).toEqual(["ah", "ee"]);
+    expect(flushed).toEqual(["ah", "ee"]);
 
-    // Step 5: queue the remaining 50 ms — clock reaches 300 ms, the
+    // Step 4: queue the remaining 50 ms — clock reaches 300 ms, the
     // last viseme drains.
     const chunk50ms = new Uint8Array(50 * BYTES_PER_MS);
     await handle.write(chunk50ms);
 
-    expect(flushed.map((f) => f.phoneme)).toEqual(["ah", "ee", "oh"]);
+    expect(flushed).toEqual(["ah", "ee", "oh"]);
 
     unsubscribe();
   });
@@ -249,13 +234,11 @@ describe("TalkingHead renderer lip-sync alignment", () => {
     // additionally delayed. Once a viseme's timestamp is already in
     // the past relative to the playback clock, the renderer must
     // release it as soon as pushViseme is called.
-    let nowMs = 0;
     const nativeMessaging = new FakeNativeMessaging();
     const renderer = await startRenderer(nativeMessaging);
     const shim = makePacatShim();
     const handle = startAudioPlayback({
       spawn: () => shim.proc,
-      now: () => nowMs,
     });
     const unsubscribe = handle.onPlaybackTimestamp((ts) => {
       renderer.notifyPlaybackTimestamp(ts);
