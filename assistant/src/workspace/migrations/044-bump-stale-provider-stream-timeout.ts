@@ -38,27 +38,14 @@ export const bumpStaleProviderStreamTimeoutMigration: WorkspaceMigration = {
     timeoutsObj.providerStreamTimeoutSec = 1800;
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
   },
-  down(workspaceDir: string): void {
-    const configPath = join(workspaceDir, "config.json");
-    if (!existsSync(configPath)) return;
-
-    let config: Record<string, unknown>;
-    try {
-      const raw = JSON.parse(readFileSync(configPath, "utf-8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
-      config = raw as Record<string, unknown>;
-    } catch {
-      return;
-    }
-
-    const timeouts = config.timeouts;
-    if (!timeouts || typeof timeouts !== "object" || Array.isArray(timeouts))
-      return;
-    const timeoutsObj = timeouts as Record<string, unknown>;
-
-    if (timeoutsObj.providerStreamTimeoutSec !== 1800) return;
-
-    timeoutsObj.providerStreamTimeoutSec = 300;
-    writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+  down(_workspaceDir: string): void {
+    // Forward-only: the runner marks migrations as applied even when `run()`
+    // was a no-op (e.g. workspaces that already had 1800 from the new schema
+    // default, or that never had the key at all). A `down()` that blindly
+    // rewrote 1800 → 300 would silently downgrade those workspaces and
+    // resurrect the "stream timed out after 300s" bug this migration fixes.
+    // We can't distinguish "this migration set 1800" from "the value was
+    // always 1800" without an extra state marker, so we treat the bump as
+    // irreversible. Users who genuinely want 300s can set it in config.
   },
 };
