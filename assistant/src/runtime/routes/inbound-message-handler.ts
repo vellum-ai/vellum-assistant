@@ -952,11 +952,11 @@ export async function handleChannelInbound(
       }
 
       // Slack inbound metadata captured for thread-aware persistence. The
-      // gateway forwards `thread_ts` under `sourceMetadata.threadId` (PR 2)
-      // and the message's own ts under `sourceMetadata.messageId`. Persistence
-      // turns this into a `slackMeta` sub-object in the row's metadata column
-      // so the chronological renderer in later PRs can reconstruct thread
-      // structure without re-fetching from Slack.
+      // gateway forwards `thread_ts` under `sourceMetadata.threadId` and the
+      // message's own ts under `sourceMetadata.messageId`. Persistence turns
+      // this into a `slackMeta` sub-object in the row's metadata column so
+      // the chronological renderer can reconstruct thread structure without
+      // re-fetching from Slack.
       const slackThreadTs =
         sourceChannel === "slack" &&
         typeof sourceMetadata?.threadId === "string"

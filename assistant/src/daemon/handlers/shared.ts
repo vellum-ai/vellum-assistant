@@ -105,7 +105,7 @@ export interface RenderedHistoryContent {
 /**
  * Slack-specific metadata extracted at the inbound HTTP boundary and threaded
  * through to user-message persistence so the row can be tagged with a
- * `slackMeta` envelope (consumed by the chronological renderer in later PRs).
+ * `slackMeta` envelope for the chronological renderer.
  */
 export interface SlackInboundMessageMetadata {
   /** Slack channel id (conversation external id) — recorded as `channelId`. */

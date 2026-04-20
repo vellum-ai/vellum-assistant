@@ -227,7 +227,7 @@ function extractTurnInterfaceContext(
  * voice, etc.) never get a `slackMeta` key even if a stale plumbing field
  * leaks through.
  */
-function buildSlackMetaForPersistence(params: {
+export function buildSlackMetaForPersistence(params: {
   slackInbound: unknown;
   turnChannel: string | undefined;
 }): string | null {
