@@ -676,7 +676,7 @@ describe("ensurePromptFiles", () => {
     // SOUL.md and IDENTITY.md are absent (they will be freshly seeded from
     // templates, but onboarding should not re-trigger).
     mkdirSync(join(TEST_DIR, "users"), { recursive: true });
-    writeFileSync(join(TEST_DIR, "users", "sidd.md"), "# Sidd persona");
+    writeFileSync(join(TEST_DIR, "users", "alice.md"), "# Alice persona");
 
     ensurePromptFiles();
 

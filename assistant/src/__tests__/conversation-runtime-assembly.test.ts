@@ -2589,7 +2589,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       slackChronologicalMessages: [
         {
           role: "user",
-          content: [{ type: "text", text: "[19:55 sidd]: transcript line" }],
+          content: [{ type: "text", text: "[19:55 alice]: transcript line" }],
         },
       ],
     });
@@ -2606,7 +2606,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(allText).toContain("<memory_image __injected>");
     expect(allText).toContain("</memory_image>");
     expect(allText).toContain("<memory __injected>");
-    expect(allText).toContain("[19:55 sidd]: transcript line");
+    expect(allText).toContain("[19:55 alice]: transcript line");
     // The original turn text (before the Slack replacement) must NOT
     // leak through — only the memory prefix + transcript tail are kept.
     expect(allText).not.toContain("original turn text");
@@ -2627,7 +2627,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
         slackChronologicalMessages: [
           {
             role: "user",
-            content: [{ type: "text", text: "[19:55 sidd]: only transcript" }],
+            content: [{ type: "text", text: "[19:55 alice]: only transcript" }],
           },
         ],
       },
@@ -2638,7 +2638,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       .map((b) => b.text)
       .join("\n");
     expect(allText).not.toContain("<memory __injected>");
-    expect(allText).toContain("[19:55 sidd]: only transcript");
+    expect(allText).toContain("[19:55 alice]: only transcript");
   });
 
   // ── transport_hints suppression for slack channels ────────────────────

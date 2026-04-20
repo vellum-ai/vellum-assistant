@@ -28,7 +28,7 @@ final class ToolCallDataDisplayTests: XCTestCase {
     /// so `interpretBashCommand` saw a final token like `"pkb/N..."` and produced
     /// `"Listed N..."`. Sourcing from `inputRawValue` avoids that.
     func testBashActionDescriptionUsesInputRawValueNotTruncatedSummary() {
-        let fullCmd = #"cd ~/.vellum/workspace && ls pkb/sidd/ 2>/dev/null && echo "---" && cat pkb/NOW.md 2>/dev/null | head -50"#
+        let fullCmd = #"cd ~/.vellum/workspace && ls pkb/alice/ 2>/dev/null && echo "---" && cat pkb/NOW.md 2>/dev/null | head -50"#
         let truncatedSummary = String(fullCmd.prefix(77)) + "..."
         let tc = ToolCallData(
             toolName: "bash",

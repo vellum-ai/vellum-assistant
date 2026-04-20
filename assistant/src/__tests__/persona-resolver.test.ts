@@ -103,12 +103,12 @@ describe("resolveGuardianPersonaPath", () => {
 
   test("returns absolute path when guardian has userFile set", () => {
     mockVellumGuardian = {
-      contact: { userFile: "sidd.md" },
+      contact: { userFile: "alice.md" },
       channel: {},
     };
 
     const result = resolveGuardianPersonaPath();
-    expect(result).toBe(join(mockWorkspaceDir, "users", "sidd.md"));
+    expect(result).toBe(join(mockWorkspaceDir, "users", "alice.md"));
   });
 });
 
@@ -116,7 +116,7 @@ describe("resolveGuardianPersonaPath", () => {
 
 describe("ensureGuardianPersonaFile", () => {
   test("writes the template when the file is missing", () => {
-    const userFile = "sidd.md";
+    const userFile = "alice.md";
     const filePath = join(mockWorkspaceDir, "users", userFile);
 
     expect(existsSync(filePath)).toBe(false);
@@ -135,7 +135,7 @@ describe("ensureGuardianPersonaFile", () => {
   });
 
   test("is a no-op when the file already exists (does not clobber)", () => {
-    const userFile = "sidd.md";
+    const userFile = "alice.md";
     const dir = join(mockWorkspaceDir, "users");
     const filePath = join(dir, userFile);
     const existingContent = "# Existing user notes\n\n- Likes sparkling water\n";
@@ -162,11 +162,11 @@ describe("resolveGuardianPersonaStrict", () => {
 
   test("returns null when the guardian's own file is missing, even if default.md exists", () => {
     mockVellumGuardian = {
-      contact: { userFile: "sidd.md" },
+      contact: { userFile: "alice.md" },
       channel: {},
     };
 
-    // default.md is populated but sidd.md is not on disk.
+    // default.md is populated but alice.md is not on disk.
     const usersDir = join(mockWorkspaceDir, "users");
     mkdirSync(usersDir, { recursive: true });
     writeFileSync(
@@ -184,19 +184,19 @@ describe("resolveGuardianPersonaStrict", () => {
 
   test("returns guardian file content when present", () => {
     mockVellumGuardian = {
-      contact: { userFile: "sidd.md" },
+      contact: { userFile: "alice.md" },
       channel: {},
     };
 
     const usersDir = join(mockWorkspaceDir, "users");
     mkdirSync(usersDir, { recursive: true });
     writeFileSync(
-      join(usersDir, "sidd.md"),
-      "- Preferred name/reference: Sidd\n",
+      join(usersDir, "alice.md"),
+      "- Preferred name/reference: Alice\n",
       "utf-8",
     );
 
-    expect(resolveGuardianPersonaStrict()).toContain("Sidd");
+    expect(resolveGuardianPersonaStrict()).toContain("Alice");
   });
 });
 
@@ -209,7 +209,7 @@ describe("isGuardianPersonaCustomized", () => {
   });
 
   test("returns false for the bare scaffold template (no user edits)", () => {
-    const userFile = "sidd.md";
+    const userFile = "alice.md";
     const filePath = join(mockWorkspaceDir, "users", userFile);
 
     // ensureGuardianPersonaFile writes the canonical template — the
@@ -220,7 +220,7 @@ describe("isGuardianPersonaCustomized", () => {
   });
 
   test("returns false when the file contains only comment lines", () => {
-    const userFile = "sidd.md";
+    const userFile = "alice.md";
     const dir = join(mockWorkspaceDir, "users");
     const filePath = join(dir, userFile);
 
@@ -235,7 +235,7 @@ describe("isGuardianPersonaCustomized", () => {
   });
 
   test("returns true when the file has user-authored content", () => {
-    const userFile = "sidd.md";
+    const userFile = "alice.md";
     const dir = join(mockWorkspaceDir, "users");
     const filePath = join(dir, userFile);
 

@@ -161,7 +161,7 @@ export async function computeRelationshipState(): Promise<RelationshipState> {
   //   1. The guardian contact's per-user file (`users/<slug>.md`), resolved
   //      via `resolveGuardianPersonaPath()` — this is the canonical location
   //      after workspace migration 031 and handles slugged userFiles like
-  //      `users/sidd.md` that were invisible to a hardcoded `default.md`
+  //      `users/alice.md` that were invisible to a hardcoded `default.md`
   //      lookup.
   //   2. Legacy workspace-root `USER.md` as a last-ditch fallback for very
   //      old workspaces that never ran migration 031.
@@ -361,7 +361,7 @@ export async function backfillRelationshipStateIfMissing(): Promise<void> {
  * user content:
  *
  *   1. `resolveGuardianPersonaPath()` via contact-store — the canonical
- *      per-guardian slugged file (e.g. `users/sidd.md`).
+ *      per-guardian slugged file (e.g. `users/alice.md`).
  *   2. `users/default.md` — the default-guardian persona file that the
  *      workspace migration leaves in place. Catches the window where
  *      the resolver throws or returns null but the file-backed content

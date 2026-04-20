@@ -3,13 +3,13 @@
  * judgement path. Unlike `consent-monitor.test.ts`, this suite drives the
  * REAL `defaultLLMAsk` — backed by `getConfiguredProvider` under the
  * `meetConsentMonitor` call site — against a small fixture set of
- * transcript/chat excerpts so Sidd can calibrate the model's rationale by
- * eye.
+ * transcript/chat excerpts so a maintainer can calibrate the model's
+ * rationale by eye.
  *
  * **Gating.** The entire suite is gated on `MEET_CONSENT_MONITOR_LIVE=1`.
  * CI and every other test run must leave the env flag unset; the suite
  * then skips cleanly without ever constructing a provider or hitting the
- * network. Sidd invokes it manually:
+ * network. A maintainer invokes it manually:
  *
  *     MEET_CONSENT_MONITOR_LIVE=1 bun test daemon/__tests__/consent-monitor-live.test.ts
  *

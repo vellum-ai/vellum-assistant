@@ -324,8 +324,8 @@ export function getWorkspaceDir(): string {
  * so paths stay concise and portable across machines.
  *
  * Examples:
- *   /Users/sidd/.vellum/workspace → ~/.vellum/workspace
- *   /data/.vellum/workspace       → /data/.vellum/workspace
+ *   /Users/alice/.vellum/workspace → ~/.vellum/workspace
+ *   /data/.vellum/workspace        → /data/.vellum/workspace
  */
 export function getWorkspaceDirDisplay(): string {
   const abs = getWorkspaceDir();

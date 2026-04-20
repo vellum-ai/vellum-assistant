@@ -520,7 +520,7 @@ describe("BotJoinCommandSchema", () => {
       meetingUrl: "https://meet.google.com/abc-defg-hij",
       displayName: "Vellum Bot",
       consentMessage:
-        "Hi, I'm here on behalf of Sidd to take notes. Reply STOP to have me leave.",
+        "Hi, I'm here on behalf of Alice to take notes. Reply STOP to have me leave.",
     };
     const parsed = BotJoinCommandSchema.parse(input);
     expect(parsed).toEqual(input);
