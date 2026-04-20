@@ -4,22 +4,23 @@ import VellumAssistantShared
 /// Pure body content for the Home detail side panel's email composer
 /// variant.
 ///
-/// Matches Figma node `3216:63021` — formatting toolbar, divider,
-/// To/Subject labeled fields, editable body text, and a horizontal
-/// scroll of attachment chips at the bottom. The enclosing
-/// `HomeDetailPanel` chrome supplies the header, title, action buttons,
-/// and dismiss affordance, so this component takes no header / title /
-/// action / dismiss props — it's slotted directly into the panel's
-/// `content:` closure.
+/// Matches Figma node `3496:72522` — formatting toolbar, To/Subject
+/// labeled fields, editable body text, and at the bottom a two-row
+/// footer: a horizontal scroll of attachment chips (only when
+/// attachments are present) followed by a primary `Send` button. The
+/// enclosing `HomeDetailPanel` chrome supplies the header title +
+/// optional dismiss; the `Send` action lives on this component rather
+/// than on the panel header because the mock puts it at the bottom of
+/// the panel, not in the header.
 ///
 /// The body text field expands to fill all vertical space between the
-/// subject divider and the attachments footer, so the attachments row
+/// subject divider and the attachments/send footer, so the footer
 /// always anchors to the bottom of the panel regardless of how much
 /// body text is present. This requires the enclosing `HomeDetailPanel`
 /// to be constructed with `scrollable: false` so that the editor's own
 /// vertical growth can be honored. With the default `scrollable: true`
 /// the body falls back to its intrinsic height (no fill), which reads
-/// fine but leaves whitespace between the body and the attachments.
+/// fine but leaves whitespace between the body and the footer.
 struct HomeEmailEditor: View {
 
     struct Attachment: Identifiable, Hashable {
@@ -33,6 +34,8 @@ struct HomeEmailEditor: View {
     @Binding var bodyText: String
     let attachments: [Attachment]
     let onAttachmentTap: (Attachment) -> Void
+    /// Fired when the user taps the footer `Send` button.
+    let onSend: () -> Void
     var onFormatAction: (VFormattingToolbar.Action) -> Void = { _ in }
 
     var body: some View {
@@ -69,39 +72,74 @@ struct HomeEmailEditor: View {
                     .frame(height: 1)
                     .accessibilityHidden(true)
 
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
-                    Text("Attachments")
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentTertiary)
-                        .accessibilityAddTraits(.isHeader)
+                attachmentsRow
+            }
 
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: VSpacing.sm) {
-                            ForEach(attachments) { att in
-                                Button {
-                                    onAttachmentTap(att)
-                                } label: {
-                                    HomeLinkFileRow(
-                                        icon: .file,
-                                        fileName: att.fileName,
-                                        fileSize: att.fileSize
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityElement(children: .combine)
-                                .accessibilityLabel("\(att.fileName), \(att.fileSize)")
-                            }
+            VColor.borderBase
+                .frame(height: 1)
+                .accessibilityHidden(true)
+
+            sendFooter
+        }
+    }
+
+    // MARK: - Footer sub-views
+
+    /// Horizontal chip row matching Figma node `3496:72524-29`. Rendered
+    /// above the send button when `attachments` is non-empty.
+    private var attachmentsRow: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Attachments")
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentTertiary)
+                .accessibilityAddTraits(.isHeader)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: VSpacing.sm) {
+                    ForEach(attachments) { att in
+                        Button {
+                            onAttachmentTap(att)
+                        } label: {
+                            HomeLinkFileRow(
+                                icon: .file,
+                                fileName: att.fileName,
+                                fileSize: att.fileSize
+                            )
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("\(att.fileName), \(att.fileSize)")
                     }
                 }
-                .padding(EdgeInsets(
-                    top: VSpacing.sm,
-                    leading: VSpacing.lg,
-                    bottom: VSpacing.lg,
-                    trailing: VSpacing.lg
-                ))
             }
         }
+        .padding(EdgeInsets(
+            top: VSpacing.sm,
+            leading: VSpacing.lg,
+            bottom: VSpacing.sm,
+            trailing: VSpacing.lg
+        ))
+    }
+
+    /// Primary send action anchored to the bottom of the panel. Uses
+    /// `VButton.Size.regular` (32pt tall, 8pt corners) to match the
+    /// Figma spec exactly (node `3496:72533`).
+    private var sendFooter: some View {
+        HStack(spacing: 0) {
+            VButton(
+                label: "Send",
+                style: .primary,
+                size: .regular,
+                action: onSend
+            )
+            Spacer(minLength: 0)
+        }
+        .padding(EdgeInsets(
+            top: VSpacing.md,
+            leading: VSpacing.lg,
+            bottom: VSpacing.lg,
+            trailing: VSpacing.lg
+        ))
     }
 
     // MARK: - Labeled field

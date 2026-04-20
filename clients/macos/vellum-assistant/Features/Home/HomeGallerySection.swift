@@ -385,7 +385,6 @@ private struct HomeEmailEditorDemo: View {
         HomeDetailPanel(
             icon: nil,
             title: "Thread Name Here",
-            primaryAction: .init(label: "Send", action: {}),
             onDismiss: {},
             scrollable: false
         ) {
@@ -394,7 +393,8 @@ private struct HomeEmailEditorDemo: View {
                 subject: $subject,
                 bodyText: $bodyText,
                 attachments: Self.sampleAttachments,
-                onAttachmentTap: { _ in }
+                onAttachmentTap: { _ in },
+                onSend: {}
             )
         }
         .frame(height: 640)
@@ -471,7 +471,6 @@ private struct HomeSplitLayoutDemo: View {
             HomeDetailPanel(
                 icon: nil,
                 title: "Thread Name Here",
-                primaryAction: .init(label: "Send", action: {}),
                 onDismiss: {},
                 scrollable: false
             ) {
@@ -480,7 +479,8 @@ private struct HomeSplitLayoutDemo: View {
                     subject: $subject,
                     bodyText: $bodyText,
                     attachments: Self.sampleAttachments,
-                    onAttachmentTap: { _ in }
+                    onAttachmentTap: { _ in },
+                    onSend: {}
                 )
             }
         case .invoice:
