@@ -40,6 +40,7 @@ import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../../messaging/providers/slack/message-metadata.js";
+import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
@@ -1061,6 +1062,16 @@ export async function handleChannelInbound(
         });
       }
 
+      // Wrap non-guardian inbound content in external_content boundaries so
+      // the model can distinguish external channel messages from instructions.
+      const contentForProcessing =
+        trustCtx.trustClass !== "guardian"
+          ? wrapUntrustedContent(trimmedContent, {
+              source: "webhook",
+              sourceDetail: trustCtx.requesterIdentifier,
+            })
+          : trimmedContent;
+
       // Fire-and-forget: process the message and deliver the reply in the background.
       // The HTTP response returns immediately so the gateway webhook is not blocked.
       // The onEvent callback in processMessage registers pending interactions, and
@@ -1069,7 +1080,7 @@ export async function handleChannelInbound(
         processMessage,
         conversationId: result.conversationId,
         eventId: result.eventId,
-        content: trimmedContent,
+        content: contentForProcessing,
         attachmentIds: hasAttachments ? attachmentIds : undefined,
         sourceChannel,
         sourceInterface,
