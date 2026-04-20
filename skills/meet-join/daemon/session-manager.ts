@@ -956,7 +956,7 @@ class MeetSessionManagerImpl {
     // Avatar config → bot env.
     //
     // When the avatar feature is enabled we thread the config down to the
-    // bot via a trio of env vars:
+    // bot via four env vars:
     //
     //   - `AVATAR_ENABLED` — flips the bot's Chrome flags into
     //     v4l2loopback mode (added in PR 3) and mounts the `/avatar/*`
@@ -969,10 +969,16 @@ class MeetSessionManagerImpl {
     //     passes through to its Chrome launcher and `/avatar/enable`
     //     handler.
     //
-    // Credential fields inside the config are resolved to raw values in
-    // the daemon (via the vault) before being handed off — the bot has
-    // no vault access. Concrete renderer PRs extend this serialization
-    // step to substitute in their own vault-resolved credentials.
+    // Credential IDs in `services.meet.avatar.*CredentialId` fields are
+    // passed through as-is by the `JSON.stringify(meet.avatar)` below —
+    // this code does NOT resolve them to raw secrets. Today this is inert
+    // because the only shipping renderers (`noop`, `talking-head`) have no
+    // credential fields. TODO — when hosted-renderer PRs (Simli/HeyGen/
+    // Tavus) land, they MUST extend this serialization step to resolve
+    // `*CredentialId` values via the vault and substitute raw secrets
+    // into the config before stringifying. The bot has no vault access
+    // and will fail to reach hosted APIs otherwise. Do not ship a hosted
+    // renderer without first extending this.
     if (meet.avatar.enabled) {
       env.AVATAR_ENABLED = "1";
       env.AVATAR_RENDERER = meet.avatar.renderer;
