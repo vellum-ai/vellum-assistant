@@ -9,6 +9,7 @@ import {
   getSummaryFromContextMessage,
 } from "../context/window-manager.js";
 import type {
+  ContentBlock,
   Message,
   Provider,
   ProviderResponse,
@@ -1225,6 +1226,95 @@ describe("ContextWindowManager", () => {
     expect(seenPrompt).toBeDefined();
     expect(seenPrompt).toContain("Thread anchors");
     expect(seenPrompt).toContain("verbatim");
+  });
+
+  test("summary prompt lists retained-tail thread-reply references", async () => {
+    const capturedMessages: Message[][] = [];
+    const provider: Provider = {
+      name: "mock",
+      async sendMessage(messages: Message[]): Promise<ProviderResponse> {
+        capturedMessages.push(messages);
+        return {
+          content: [{ type: "text", text: "## Goals\n- ok" }],
+          model: "mock-model",
+          usage: { inputTokens: 60, outputTokens: 12 },
+          stopReason: "end_turn",
+        };
+      },
+    };
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({ maxInputTokens: 600 }),
+    });
+    const long = "x".repeat(240);
+    // Compactable region ends before the retained tail, which contains a
+    // Slack-style reply line that cites its parent via `→ M1a2b3c`. The
+    // summary prompt must surface that reference so the Thread-anchors
+    // instruction has something to act on.
+    const history: Message[] = [
+      message("user", `[11/14/23 14:25 @alice]: parent kickoff ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+      message("user", `[11/14/23 14:28 @bob → M1a2b3c]: reply ${long}`),
+      message("assistant", `a3 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+    expect(result.compacted).toBe(true);
+    expect(capturedMessages.length).toBeGreaterThan(0);
+    const userPromptText = capturedMessages[0]
+      .flatMap((m) => m.content)
+      .filter(
+        (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text",
+      )
+      .map((b) => b.text)
+      .join("\n");
+    expect(userPromptText).toContain("### Retained Thread References");
+    expect(userPromptText).toContain("→ M1a2b3c");
+  });
+
+  test("summary prompt omits retained references when retained tail has no thread markers", async () => {
+    const capturedMessages: Message[][] = [];
+    const provider: Provider = {
+      name: "mock",
+      async sendMessage(messages: Message[]): Promise<ProviderResponse> {
+        capturedMessages.push(messages);
+        return {
+          content: [{ type: "text", text: "## Goals\n- ok" }],
+          model: "mock-model",
+          usage: { inputTokens: 60, outputTokens: 12 },
+          stopReason: "end_turn",
+        };
+      },
+    };
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({ maxInputTokens: 600 }),
+    });
+    const long = "x".repeat(240);
+    const history: Message[] = [
+      message("user", `u1 ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+      message("user", `u3 ${long}`),
+      message("assistant", `a3 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+    expect(result.compacted).toBe(true);
+    const userPromptText = capturedMessages[0]
+      .flatMap((m) => m.content)
+      .filter(
+        (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text",
+      )
+      .map((b) => b.text)
+      .join("\n");
+    expect(userPromptText).not.toContain("### Retained Thread References");
+    expect(userPromptText).not.toMatch(/→ M[0-9a-f]{6}]/);
   });
 
   test("does not subtract summaryOffset when summary at index 0 is child-owned from prior compaction", async () => {
