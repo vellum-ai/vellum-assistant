@@ -614,6 +614,23 @@ class IOSConversationStore: ObservableObject {
             }
         }
 
+        // Refetch the conversation list whenever the iOS app becomes active
+        // (user returns from another app — on the Simulator, this fires when
+        // focus moves away from the Simulator window and back). This covers
+        // the case where a mutation on another device (pin/rename/archive)
+        // didn't produce a `conversation_list_invalidated` SSE event on this
+        // device — either because the server didn't broadcast it or because
+        // our SSE stream was between reconnects when it fired.
+        // `scheduleInvalidationRefetch` debounces, so rapid activations
+        // coalesce into a single fetch.
+        NotificationCenter.default
+            .publisher(for: UIApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in
+                guard let self, self.isConnectedMode else { return }
+                self.scheduleInvalidationRefetch(daemon: daemon)
+            }
+            .store(in: &cancellables)
+
         // Fetch conversation list once connected. Try immediately if already connected,
         // otherwise wait for the daemonDidReconnect notification.
         if daemon.isConnected {
