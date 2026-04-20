@@ -55,6 +55,7 @@ const TELEMETRY_PATH = "/v1/telemetry/ingest/";
 // ---------------------------------------------------------------------------
 
 export class UsageTelemetryReporter {
+  private initialFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private activeFlush: Promise<void> | null = null;
 
@@ -63,7 +64,8 @@ export class UsageTelemetryReporter {
     // handshake) to complete. Without this delay, VellumPlatformClient.create()
     // returns null because the credential backend hasn't resolved yet, causing
     // telemetry to fall back to anonymous mode permanently.
-    setTimeout(() => {
+    this.initialFlushTimer = setTimeout(() => {
+      this.initialFlushTimer = null;
       this.flush().catch((err) => {
         log.warn({ err }, "Initial usage telemetry flush failed");
       });
@@ -76,6 +78,10 @@ export class UsageTelemetryReporter {
   }
 
   async stop(): Promise<void> {
+    if (this.initialFlushTimer) {
+      clearTimeout(this.initialFlushTimer);
+      this.initialFlushTimer = null;
+    }
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;

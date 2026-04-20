@@ -13,6 +13,8 @@ import { getLogger } from "../util/logger.js";
 
 const log = getLogger("platform-client");
 
+let _missingPrereqsWarned = false;
+
 export class VellumPlatformClient {
   private readonly platformBaseUrl: string;
   private readonly apiKey: string;
@@ -70,7 +72,9 @@ export class VellumPlatformClient {
     }
 
     if (!baseUrl || !apiKey) {
-      log.warn(
+      const level = _missingPrereqsWarned ? "debug" : "warn";
+      _missingPrereqsWarned = true;
+      log[level](
         {
           hasBaseUrl: !!baseUrl,
           hasApiKey: !!apiKey,
