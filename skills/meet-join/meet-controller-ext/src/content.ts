@@ -191,6 +191,23 @@ function startMeetingSession(
  */
 let activeSession: MeetingSessionHandle | null = null;
 
+/**
+ * Monotonic counter that invalidates in-flight `handleJoin` invocations.
+ *
+ * `runJoinFlow` can take up to ~125s (5s media-prompt + 30s prejoin + 90s
+ * admission) and `handleJoin` is fire-and-forget. Without a guard, a
+ * `leave` or a second `join` arriving mid-flow has no way to cancel the
+ * pending flow: the `leave` handler sees `activeSession === null` (cleared
+ * at the top of `handleJoin`) and no-ops, then when `runJoinFlow`
+ * eventually resolves the original invocation installs scrapers the
+ * daemon already thinks are gone — or clobbers the scrapers that a newer
+ * `join` installed. Every mutation that should invalidate the current
+ * join increments this counter; `handleJoin` captures the value at entry
+ * and skips its post-await side effects (session install, `joined` event)
+ * once the counter has moved on.
+ */
+let joinGeneration = 0;
+
 chrome.runtime.onMessage.addListener(
   (
     raw: unknown,
@@ -231,6 +248,10 @@ chrome.runtime.onMessage.addListener(
     }
 
     if (msg.type === "leave") {
+      // Bump the generation so any in-flight `handleJoin` awaiting
+      // `runJoinFlow` aborts its post-await session install instead of
+      // resurrecting scrapers after the daemon has asked the bot to leave.
+      joinGeneration += 1;
       activeSession?.stop();
       activeSession = null;
       return false;
@@ -269,9 +290,14 @@ chrome.runtime.onMessage.addListener(
  *   - `error` is emitted if the flow rejects; the session factory is
  *     NOT installed because the scrapers require an admitted meeting.
  *
- * The prior session (if any) is torn down synchronously before the
- * new flow kicks off so overlapping joins cannot double-install
- * scrapers against the same DOM.
+ * Cancellation: `runJoinFlow` can take up to ~125s, during which a
+ * `leave` or a second `join` command may arrive. Both paths bump
+ * {@link joinGeneration}; when the in-flight invocation's captured
+ * generation no longer matches, it skips the session install, the
+ * `joined` emit, and (for errors) the `error` emit — leaving whatever
+ * the newer command installed untouched. The prior session (if any)
+ * is still torn down synchronously at the top of each join so a fresh
+ * join does not overlap scrapers with the previous meeting's DOM.
  */
 async function handleJoin(
   meetingUrl: string,
@@ -279,6 +305,8 @@ async function handleJoin(
   consentMessage: string,
 ): Promise<void> {
   const meetingId = deriveMeetingId();
+  joinGeneration += 1;
+  const generation = joinGeneration;
   activeSession?.stop();
   activeSession = null;
 
@@ -305,6 +333,11 @@ async function handleJoin(
       },
     });
   } catch (err) {
+    // A newer leave/join has already bumped the generation and
+    // emitted its own lifecycle — swallow the stale error instead of
+    // confusing the daemon with a late `error` for an invocation it
+    // no longer cares about.
+    if (generation !== joinGeneration) return;
     const detail =
       err instanceof Error ? err.message : String(err ?? "unknown error");
     try {
@@ -314,6 +347,13 @@ async function handleJoin(
     }
     return;
   }
+
+  // If a leave or newer join landed while runJoinFlow was awaiting,
+  // the daemon no longer expects us to install scrapers for this
+  // meeting. Bailing out here avoids both (a) resurrecting a session
+  // after `leave` and (b) clobbering the session that a newer `join`
+  // installed.
+  if (generation !== joinGeneration) return;
 
   // Join succeeded — install per-meeting scrapers and emit "joined".
   activeSession = startMeetingSession({ meetingId, displayName });
