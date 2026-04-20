@@ -139,6 +139,20 @@ function resolveModelUrl(): string {
 }
 
 /**
+ * Resolve the target capture cadence. `?fps=<n>` in the page URL wins
+ * when present and parses as a finite positive integer; otherwise we
+ * fall back to {@link DEFAULT_TARGET_FPS}.
+ */
+function resolveTargetFps(): number {
+  const params = new URLSearchParams(location.search);
+  const raw = params.get("fps");
+  if (!raw) return DEFAULT_TARGET_FPS;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_TARGET_FPS;
+  return parsed;
+}
+
+/**
  * Render-loop context. Keeps the active canvas and the TalkingHead.js
  * instance so the viseme handler and capture loop share state.
  *
@@ -149,6 +163,18 @@ function resolveModelUrl(): string {
  * `avatar/README.md` for the operator replacement procedure.
  */
 interface AvatarContext {
+  /**
+   * Container element handed to TalkingHead.js. TalkingHead.js mounts
+   * its own three.js renderer canvas as a child; the capture loop
+   * composites that child canvas into {@link canvas} each tick.
+   */
+  container: HTMLDivElement;
+  /**
+   * The canvas we read out via `toBlob` for the JPEG frame stream.
+   * When TalkingHead.js is live we paint its internal canvas into
+   * this one each frame; otherwise it shows the neutral background
+   * filled at boot.
+   */
   canvas: HTMLCanvasElement;
   head: TalkingHeadInstance | null;
   targetFps: number;
@@ -212,17 +238,33 @@ async function bootAvatar(): Promise<AvatarContext> {
   const statusEl = document.getElementById("avatar-status");
   if (statusEl) statusEl.remove();
 
-  const canvas = document.createElement("canvas");
-  canvas.width = CANVAS_WIDTH;
-  canvas.height = CANVAS_HEIGHT;
-  canvas.style.width = "100%";
-  canvas.style.height = "100%";
-  root.appendChild(canvas);
+  // TalkingHead.js expects a container element and creates its own
+  // three.js-backed canvas inside it. Handing it a raw <canvas>
+  // would cause it either to reject the element or to mount a child
+  // canvas that `captureCanvas.toBlob` can't see. Give it a sized
+  // <div> and keep a separate `captureCanvas` we paint into for the
+  // placeholder background and capture loop; when TalkingHead.js is
+  // live we draw its internal canvas into `captureCanvas` each tick.
+  const container = document.createElement("div");
+  container.style.position = "relative";
+  container.style.width = `${CANVAS_WIDTH}px`;
+  container.style.height = `${CANVAS_HEIGHT}px`;
+  root.appendChild(container);
 
-  // Fill the canvas with a neutral background up-front so early
-  // frames (before TalkingHead.js finishes loading) don't stream a
-  // transparent/black frame that Chrome's camera encoder may drop.
-  const ctx = canvas.getContext("2d");
+  const captureCanvas = document.createElement("canvas");
+  captureCanvas.width = CANVAS_WIDTH;
+  captureCanvas.height = CANVAS_HEIGHT;
+  captureCanvas.style.position = "absolute";
+  captureCanvas.style.inset = "0";
+  captureCanvas.style.width = "100%";
+  captureCanvas.style.height = "100%";
+  container.appendChild(captureCanvas);
+
+  // Fill the capture canvas with a neutral background up-front so
+  // early frames (before TalkingHead.js finishes loading) don't
+  // stream a transparent/black frame that Chrome's camera encoder
+  // may drop.
+  const ctx = captureCanvas.getContext("2d");
   if (ctx) {
     ctx.fillStyle = "#1a1a2e";
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -243,7 +285,7 @@ async function bootAvatar(): Promise<AvatarContext> {
   let head: TalkingHeadInstance | null = null;
   if (TalkingHeadCtor) {
     try {
-      head = new TalkingHeadCtor(canvas, {
+      head = new TalkingHeadCtor(container, {
         modelRoot: modelUrl.replace(/\/[^/]+$/, "/"),
         cameraView: "upper",
       });
@@ -260,9 +302,10 @@ async function bootAvatar(): Promise<AvatarContext> {
   }
 
   return {
-    canvas,
+    container,
+    canvas: captureCanvas,
     head,
-    targetFps: DEFAULT_TARGET_FPS,
+    targetFps: resolveTargetFps(),
     glbProbe,
   };
 }
@@ -301,12 +344,33 @@ function startCaptureLoop(ctx: AvatarContext): () => void {
   let lastEmitTs = 0;
 
   const minInterval = Math.floor(1000 / ctx.targetFps);
+  const captureCtx = ctx.canvas.getContext("2d");
 
   const emitFrame = async (): Promise<void> => {
     if (!running) return;
     const now = performance.now();
     if (now - lastEmitTs < minInterval) return;
     lastEmitTs = now;
+
+    // TalkingHead.js renders into its own child <canvas> inside the
+    // container. Composite that canvas into our capture surface so
+    // toBlob reflects the live avatar rather than the static fill.
+    if (captureCtx && ctx.head) {
+      const live = ctx.container.querySelector("canvas");
+      if (live && live !== ctx.canvas) {
+        try {
+          captureCtx.drawImage(
+            live,
+            0,
+            0,
+            ctx.canvas.width,
+            ctx.canvas.height,
+          );
+        } catch (err) {
+          console.warn("[avatar-tab] drawImage from talkinghead failed:", err);
+        }
+      }
+    }
 
     const blob: Blob | null = await new Promise((resolve) =>
       ctx.canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY),
