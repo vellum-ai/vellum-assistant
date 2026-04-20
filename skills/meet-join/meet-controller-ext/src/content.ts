@@ -65,6 +65,31 @@ function deriveMeetingId(): string {
 }
 
 /**
+ * Extract the meeting id from a Meet join URL.
+ *
+ * The background bridge fans every bot command out to every open
+ * `https://meet.google.com/*` tab, so a stray lobby tab in the same
+ * Chrome profile would otherwise start its own speaker scraper and mix
+ * `speaker.change` events from an unrelated meeting into the session
+ * stream. Tabs self-filter by comparing this value against
+ * {@link deriveMeetingId} before acting on a `join` command.
+ *
+ * Returns `null` when the URL cannot be parsed or has no path segment;
+ * callers treat that as "does not match any tab" so a malformed command
+ * cannot inadvertently drive every Meet tab.
+ */
+function extractMeetingIdFromUrl(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  const segment = parsed.pathname.replace(/^\/+/, "").split("/")[0] ?? "";
+  return segment || null;
+}
+
+/**
  * Build a timestamped, meeting-scoped lifecycle message.
  *
  * Extracted to a helper so every lifecycle emit site (joining, joined,
@@ -188,6 +213,21 @@ chrome.runtime.onMessage.addListener(
     const msg: BotToExtensionMessage = parsed.data;
 
     if (msg.type === "join") {
+      // The background bridge broadcasts every bot command to every open
+      // Meet tab. Only the tab whose URL matches the target meeting
+      // should start a session — otherwise a stray lobby tab in the same
+      // Chrome profile would spin up its own speaker scraper and mix
+      // telemetry from unrelated meetings into the bot's event stream.
+      const targetMeetingId = extractMeetingIdFromUrl(msg.meetingUrl);
+      const currentMeetingId = deriveMeetingId();
+      if (targetMeetingId === null || targetMeetingId !== currentMeetingId) {
+        console.debug(
+          "[meet-ext] ignoring join for non-matching tab:",
+          `target=${targetMeetingId ?? "<unparseable>"}`,
+          `current=${currentMeetingId}`,
+        );
+        return false;
+      }
       void handleJoin(msg.meetingUrl, msg.displayName, msg.consentMessage);
       return false;
     }
