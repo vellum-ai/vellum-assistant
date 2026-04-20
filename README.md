@@ -14,21 +14,6 @@ It learns how you work, remembers what matters, and acts before you ask. Yours t
 
 ---
 
-## Get started
-
-**1. [Download the latest release](https://vellum.ai/download)**
-
-**2. Open the app and pick your mode**
-  - **Local** — everything runs on your machine
-  - **Managed** — sign in via Vellum Cloud, no local runtime required
-
-**3. Hatch your assistant**
-  - Give it a name, a personality, and the keys to your work
-
-<sub>Prefer the terminal? See <a href="#cli">CLI install</a> below.</sub>
-
----
-
 ## What it does
 
 <table>
@@ -71,6 +56,21 @@ Talk to it from the macOS app, Telegram, or Slack. Shared memory and identity ac
   &nbsp;
   <img src="assets/screenshot-skills.png" alt="Skills view" width="48%">
 </p>
+
+---
+
+## Get started
+
+**1. [Download the latest release](https://vellum.ai/download)**
+
+**2. Open the app and pick your mode**
+  - **Local** — everything runs on your machine
+  - **Managed** — sign in via Vellum Cloud, no local runtime required
+
+**3. Hatch your assistant**
+  - Give it a name, a personality, and the keys to your work
+
+<sub>Prefer the terminal? See <a href="#cli">CLI install</a> below.</sub>
 
 ---
 
