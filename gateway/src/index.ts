@@ -782,7 +782,8 @@ async function main() {
     {
       path: "/v1/integrations/slack/channel/oauth-install",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => slackControlPlaneProxy.handleSlackOAuthInstall(req),
     },
 
