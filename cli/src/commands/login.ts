@@ -200,17 +200,18 @@ export async function login(): Promise<void> {
         // 1. Use fresh key from registration (first-time only)
         // 2. Use existing key from the daemon's credential store
         // 3. Reprovision (rotate) as a last resort — this revokes the
-        //    old key server-side, so we avoid it when possible.
+        //    old key server-side, so we only do it when the gateway
+        //    confirms no key exists (not when it's merely unreachable).
         let assistantApiKey = registration.assistant_api_key;
         if (!assistantApiKey) {
-          const existingKey = await readGatewayCredential(
+          const cached = await readGatewayCredential(
             entry.runtimeUrl,
             "vellum:assistant_api_key",
             entry.bearerToken,
           );
-          if (existingKey) {
-            assistantApiKey = existingKey;
-          } else {
+          if (cached.value) {
+            assistantApiKey = cached.value;
+          } else if (!cached.unreachable) {
             console.log("No API key available locally — reprovisioning...");
             const reprovision = await reprovisionAssistantApiKey(
               token,

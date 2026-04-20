@@ -1139,16 +1139,18 @@ async function tryInjectPlatformCredentials(
 
     // Resolve the API key: 1) fresh from registration, 2) existing from
     // daemon credential store, 3) reprovision as last resort (revokes old key).
+    // Only reprovision when the gateway confirms no key exists — not when
+    // the gateway is merely unreachable (would revoke without injecting).
     let assistantApiKey = registration.assistant_api_key;
     if (!assistantApiKey) {
-      const existingKey = await readGatewayCredential(
+      const cached = await readGatewayCredential(
         entry.runtimeUrl,
         "vellum:assistant_api_key",
         entry.bearerToken,
       );
-      if (existingKey) {
-        assistantApiKey = existingKey;
-      } else {
+      if (cached.value) {
+        assistantApiKey = cached.value;
+      } else if (!cached.unreachable) {
         const reprovision = await reprovisionAssistantApiKey(
           token,
           orgId,
