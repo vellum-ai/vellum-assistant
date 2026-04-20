@@ -44,15 +44,16 @@ final class ChatMessagesCollectionViewController: UIViewController {
     /// sends a new message (matching iMessage/WhatsApp behaviour).
     private var lastIsSending: Bool = false
 
-    /// Observation handle used to rebuild the snapshot whenever any observed
-    /// property on `ChatViewModel` (or the managers it forwards to) changes.
-    /// Re-armed after every tracked read.
+    /// Token used to invalidate a previous `withObservationTracking` arming
+    /// when a new one is installed (e.g. on viewModel rebind). Ensures stale
+    /// `onChange` closures don't schedule rebuilds against the new observation
+    /// target.
     private var observationRearmToken: UUID = UUID()
-    /// Coalescing handle for `rebuildSnapshot` — at most one rebuild per
-    /// `rebuildCoalescingWindowNanos` window is actually applied, so
-    /// per-token `@Observable` firings during streaming don't drive
-    /// unbounded diff churn. See `clients/AGENTS.md` → "Coalesce
-    /// high-frequency Combine publishes" (100 ms minimum default).
+    /// Coalesces snapshot rebuilds: at most one rebuild per
+    /// `rebuildCoalescingWindowNanos` is applied, so property-level
+    /// `@Observable` firings during LLM token streaming don't drive a full
+    /// diff + apply on every character. See
+    /// [`clients/AGENTS.md` → High-Frequency Updates](../AGENTS.md#high-frequency-updates).
     private var pendingRebuildTask: Task<Void, Never>?
     private static let rebuildCoalescingWindowNanos: UInt64 = 100_000_000
     private var pendingAnchorTask: Task<Void, Never>?
@@ -223,10 +224,11 @@ final class ChatMessagesCollectionViewController: UIViewController {
 
     // MARK: - Observation
 
-    /// Observes any read from `viewModel` (via `@Observable` tracking through
-    /// the SwiftUI `@Bindable` binding surface) and rebuilds the diffable
-    /// snapshot when any relevant property changes. Re-arms after every fire
-    /// so tracking continues across subsequent mutations.
+    /// Arms a one-shot [`withObservationTracking`](https://developer.apple.com/documentation/observation/withobservationtracking(_:onchange:))
+    /// over the properties the diffable snapshot depends on, then re-arms
+    /// itself from the `onChange` handler so tracking continues across every
+    /// subsequent mutation. The handler schedules a coalesced rebuild rather
+    /// than rebuilding synchronously; see `scheduleCoalescedRebuild`.
     private func observeViewModel() {
         let token = UUID()
         observationRearmToken = token
@@ -248,10 +250,10 @@ final class ChatMessagesCollectionViewController: UIViewController {
         }
     }
 
-    /// Schedules a `rebuildSnapshot` at most once per coalescing window.
-    /// Streaming text updates fire `@Observable` tracking on every token;
-    /// without coalescing each fire runs the full diff + apply pipeline
-    /// even though row identities haven't changed.
+    /// Schedules a `rebuildSnapshot` at most once per
+    /// `rebuildCoalescingWindowNanos`. Synchronous callers (`viewDidLoad`,
+    /// `syncFromSwiftUI`, the scroll-to-latest trigger) cancel any pending
+    /// task before running so the two paths cannot race.
     private func scheduleCoalescedRebuild() {
         guard pendingRebuildTask == nil else { return }
         pendingRebuildTask = Task { @MainActor [weak self] in
@@ -298,18 +300,15 @@ final class ChatMessagesCollectionViewController: UIViewController {
 
     private func rebuildSnapshot(animated: Bool) {
         guard isViewLoaded, dataSource != nil else { return }
-        // Cancel any pending coalesced rebuild — we're rebuilding now, so a
-        // queued one would be redundant.
         pendingRebuildTask?.cancel()
         pendingRebuildTask = nil
         let snapshot = buildSnapshot()
 
-        // When the user sends a new message (`isSending` flips false -> true),
-        // re-engage auto-follow so the sent message and streaming response
-        // appear on-screen — even if the user had scrolled up to read earlier
-        // history. Matches iMessage/WhatsApp send behaviour. Skip while a
-        // pending-anchor (deep-link / fork) resolution is active so we don't
-        // yank the user off the historical anchor.
+        // Re-engage auto-follow on the `isSending` false -> true transition
+        // so a newly sent message and its streaming response appear on-screen
+        // even if the user had scrolled up. Skipped while a pending-anchor
+        // resolution is active so deep-link / fork navigation isn't yanked
+        // off the historical target.
         let isSendingNow = viewModel.isSending
         if isSendingNow && !lastIsSending && lastPendingAnchorRequestId == nil {
             shouldAutoFollow = true
@@ -336,10 +335,10 @@ final class ChatMessagesCollectionViewController: UIViewController {
                     )
                 }
             } else if wasAutoFollowing {
-                // Non-animated to match the legacy `ScrollView` behaviour on
-                // streaming updates — animating every token produces subtle
-                // jitter when already pinned at the bottom. The first-time
-                // initial scroll also lands non-animated, handled below.
+                // Non-animated: animating every streaming token produces
+                // visible jitter when already pinned at the bottom. The
+                // initial scroll below also lands non-animated for the same
+                // reason.
                 self.scrollToLatestItem(animated: false)
             }
             self.isApplyingSnapshot = false
@@ -359,10 +358,12 @@ final class ChatMessagesCollectionViewController: UIViewController {
         pendingAnchorDaemonMessageId: String?,
         scrollToLatestTrigger: Int
     ) {
-        // SwiftUI may re-invoke the representable with a different ChatViewModel
-        // instance (e.g. a conversation switch that reuses the same detail
-        // view). Rebind the stored reference and re-arm observation so snapshot
-        // generation and observation read from the current model.
+        // SwiftUI may deliver a new `ChatViewModel` instance to the same
+        // controller (e.g. a conversation switch that reuses the detail
+        // view). Rebind the stored reference and re-arm observation so
+        // snapshot generation reads from the current model; reset per-
+        // conversation scroll state so the new conversation gets a fresh
+        // initial-scroll and auto-follow engagement.
         let viewModelChanged = ObjectIdentifier(viewModel) != ObjectIdentifier(self.viewModel)
         if viewModelChanged {
             self.viewModel = viewModel
@@ -384,13 +385,13 @@ final class ChatMessagesCollectionViewController: UIViewController {
         }
         lastConversationId = .some(currentConversationId)
 
-        // Handle explicit "scroll to latest" taps from the overlay button.
-        // `snapWindowToLatest()` mutates `paginatedVisibleMessages`, which
-        // fires observation and schedules an asynchronous rebuild. Scrolling
-        // immediately would target the pre-snap snapshot; rebuilding
-        // synchronously ensures the snapshot reflects the post-snap window
-        // before the `wasAutoFollowing` branch in `rebuildSnapshot` performs
-        // the scroll.
+        // Explicit "scroll to latest" tap. `snapWindowToLatest()` mutates
+        // `paginatedVisibleMessages`, which fires observation and would
+        // otherwise be serviced by the asynchronous coalesced rebuild — by
+        // that point we'd already have scrolled against the stale snapshot.
+        // Rebuilding synchronously ensures the snapshot reflects the
+        // post-snap window before the auto-follow scroll inside
+        // `rebuildSnapshot` runs.
         if scrollToLatestTrigger != lastScrollToLatestTrigger {
             lastScrollToLatestTrigger = scrollToLatestTrigger
             shouldAutoFollow = true
@@ -424,11 +425,11 @@ final class ChatMessagesCollectionViewController: UIViewController {
     // MARK: - Pending anchor resolution
 
     private func startPendingAnchorResolution(requestId: UUID, daemonMessageId: String) {
-        // `[weak self]` is re-resolved inside the loop so the strong binding
-        // is scoped to a single iteration. Without this, the outer
-        // `guard let self` would pin `self` for the lifetime of the task;
-        // because the task is stored on `self` (`pendingAnchorTask`), that
-        // forms a retain cycle that blocks `deinit` and prevents cancellation.
+        // The task is stored on `self` via `pendingAnchorTask`, so a strong
+        // binding that spans the loop would form a retain cycle that blocks
+        // `deinit` and prevents cancellation. Re-resolving `[weak self]`
+        // inside the loop scopes the strong binding to a single iteration.
+        // See AGENTS.md → Memory Management.
         pendingAnchorTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
@@ -444,9 +445,8 @@ final class ChatMessagesCollectionViewController: UIViewController {
                     hasMoreMessages: self.viewModel.hasMoreMessages
                 ) {
                 case let .scroll(localMessageId):
-                    // Clear auto-follow so subsequent streaming/snapshot
-                    // rebuilds don't yank the user back to the bottom after
-                    // landing on a historical anchor.
+                    // Clear auto-follow so subsequent streaming / snapshot
+                    // rebuilds don't yank the user off a historical anchor.
                     self.shouldAutoFollow = false
                     self.scrollToMessage(id: localMessageId, animated: true)
                     self.onPendingAnchorHandled?(requestId)
@@ -461,8 +461,8 @@ final class ChatMessagesCollectionViewController: UIViewController {
                         self.onPendingAnchorHandled?(requestId)
                         return
                     }
-                    // Wait for the load to complete, then fall through to
-                    // the next outer iteration (which re-resolves weak self).
+                    // Wait for the load to complete; the next outer
+                    // iteration re-resolves `weak self` and retries.
                     while self.viewModel.isLoadingMoreMessages && !Task.isCancelled {
                         try? await Task.sleep(nanoseconds: 50_000_000)
                     }
@@ -494,8 +494,9 @@ final class ChatMessagesCollectionViewController: UIViewController {
 
     // MARK: - Visibility state
 
-    /// Updates SwiftUI's cached `isNearBottom` / `contentExceedsViewport` flags
-    /// which drive the "Scroll to latest" overlay button visibility.
+    /// Pushes the current scroll position classification back up to SwiftUI
+    /// via `onVisibilityStateChanged`. The parent view uses the two booleans
+    /// to drive the "Scroll to latest" overlay button's visibility.
     private func updateVisibilityState() {
         let contentHeight = collectionView.contentSize.height
         let viewportHeight = collectionView.bounds.height
@@ -526,9 +527,9 @@ extension ChatMessagesCollectionViewController: UICollectionViewDelegate {
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        // Update auto-follow based on the user's position only when the user is
-        // actively dragging/decelerating. Programmatic scrolls (initial scroll,
-        // auto-follow scroll, pending-anchor scroll) must not reset the flag.
+        // Only reclassify auto-follow while the user is actively dragging or
+        // decelerating. Programmatic scrolls (initial scroll, auto-follow
+        // scroll, pending-anchor scroll) must not mutate the flag.
         guard isUserInteracting else {
             updateVisibilityState()
             return

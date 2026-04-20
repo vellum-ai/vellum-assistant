@@ -4,13 +4,14 @@ import UIKit
 import VellumAssistantShared
 
 /// Stable identifier for a row in the chat list. Used as the `ItemIdentifierType`
-/// of `UICollectionViewDiffableDataSource` — only *structural* changes drive
-/// diffs, while per-cell SwiftUI content updates through `@Observable` tracking
-/// on `ChatViewModel`. Every case's associated value is a stable identity (a
-/// message UUID, a subagent id string, or nothing for single-instance rows).
-/// The queued-marker row is a singleton — its cell reads `queuedMessages.count`
-/// directly from the view model so queue mutations update the displayed count
-/// without invalidating the row's diffable identity.
+/// of [`UICollectionViewDiffableDataSource`](https://developer.apple.com/documentation/uikit/uicollectionviewdiffabledatasource)
+/// so only *structural* changes drive diffs, while per-cell SwiftUI content
+/// updates through `@Observable` tracking on `ChatViewModel`. Each associated
+/// value is a stable identity (a message UUID, a subagent id string, or
+/// nothing for single-instance rows). The queued-marker row is a singleton —
+/// its cell reads `queuedMessages.count` directly from the view model so queue
+/// mutations update the displayed count without invalidating the row's
+/// diffable identity.
 enum ChatListItem: Hashable {
     case paginationHeader
     case queuedMarker
@@ -21,20 +22,21 @@ enum ChatListItem: Hashable {
 
 /// UIKit-backed chat message list.
 ///
-/// Replaces the `ScrollView { LazyVStack { ... } }` + `ScrollViewProxy.scrollTo`
-/// pattern, which is unreliable on iOS 17: `LazyVStack` only materializes visible
-/// rows so `scrollTo(_:anchor:)` targets an estimated, non-materialized position
-/// and produces blank frames or partial scrolls on re-entry and streaming
-/// (see [Apple Developer Forums #741406](https://developer.apple.com/forums/thread/741406)).
+/// Backed by [`UICollectionView`](https://developer.apple.com/documentation/uikit/uicollectionview)
+/// and [`UICollectionViewDiffableDataSource`](https://developer.apple.com/documentation/uikit/uicollectionviewdiffabledatasource)
+/// so scroll targets are deterministic regardless of which rows have been
+/// materialized: `scrollToItem(at:at:animated:)` works on any index, not just
+/// realized cells. This is required for the chat UX contracts — "scroll to
+/// the latest message on streaming updates", "restore position when older
+/// pages are prepended", and "scroll to a specific historical message on a
+/// deep link / fork resolution" — which all depend on being able to target
+/// non-visible rows reliably.
 ///
-/// `UICollectionView` + `UICollectionViewDiffableDataSource` gives deterministic
-/// scroll targets via `scrollToItem(at:at:animated:)` regardless of which rows
-/// have been materialized, a first-class "prepend older page without jump"
-/// contract via captured `contentSize`, and interactive keyboard dismissal that
-/// matches iMessage. Cells host existing SwiftUI chat views via
+/// Row content is rendered as SwiftUI hosted inside list cells via
 /// [`UIHostingConfiguration`](https://developer.apple.com/documentation/uikit/uihostingconfiguration)
-/// (WWDC23), so row content is unchanged from the previous SwiftUI
-/// implementation.
+/// (WWDC23: [What's new in UIKit](https://developer.apple.com/videos/play/wwdc2023/10055/)),
+/// so every row view is a plain SwiftUI view that reads the `@Bindable
+/// ChatViewModel` directly.
 struct ChatMessagesCollectionView: UIViewControllerRepresentable {
     var viewModel: ChatViewModel
     var pendingAnchorRequestId: UUID?
