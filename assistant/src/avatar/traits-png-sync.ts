@@ -7,6 +7,7 @@ import { AVATAR_IMAGE_FILENAME, getAvatarDir } from "../util/platform.js";
 import { renderCharacterAscii } from "./ascii-renderer.js";
 import { getCharacterComponents } from "./character-components.js";
 import { renderCharacterPng } from "./png-renderer.js";
+import { isResvgAvailable } from "./resvg-lazy.js";
 
 const log = getLogger("traits-png-sync");
 
@@ -20,7 +21,7 @@ export type TraitsSyncResult =
   | { ok: true; asciiWritten: boolean }
   | {
       ok: false;
-      reason: "invalid_traits" | "render_error";
+      reason: "invalid_traits" | "render_error" | "native_unavailable";
       message: string;
     };
 
@@ -141,6 +142,25 @@ export function writeTraitsAndRenderAvatar(
       ok: false,
       reason: "invalid_traits",
       message: `Unknown color: "${traits.color}". Valid IDs: ${validColors.join(", ")}`,
+    };
+  }
+
+  // Short-circuit before touching disk when the native rasterizer is missing.
+  // Both PNG and ASCII rendering route through @resvg/resvg-js, so without it
+  // we cannot produce either artifact. Callers translate this into a 503 so
+  // the HTTP route returns an actionable status rather than a 500.
+  if (!isResvgAvailable()) {
+    log.warn(
+      { traits },
+      "Skipping avatar render — native @resvg/resvg-js binding is unavailable",
+    );
+    return {
+      ok: false,
+      reason: "native_unavailable",
+      message:
+        "Avatar PNG rendering is unavailable on this platform because the " +
+        "@resvg/resvg-js native binding failed to load. Reinstall dependencies " +
+        "to pull the platform-specific optional package.",
     };
   }
 
