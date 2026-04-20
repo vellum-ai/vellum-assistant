@@ -478,6 +478,15 @@ struct InputBarView: View {
         cancelRecognitionTask = nativeCancelTask
         isSTTOnlyMode = useSTTOnly || nativeRequest == nil
 
+        // Discard any stale hardware format cached on inputNode from a prior session so
+        // outputFormat(forBus:) reflects the current route (Bluetooth/wired/AirPods mode
+        // switches otherwise raise a format-mismatch NSException in installTap). See
+        // AGENTS.md §"AVAudio route-change resilience" and the canonical macOS impl in
+        // AudioEngineController.installTapAndStartImpl.
+        audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
+        audioEngine.reset()
+
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
 
