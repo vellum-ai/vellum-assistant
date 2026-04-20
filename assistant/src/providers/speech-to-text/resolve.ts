@@ -381,6 +381,8 @@ async function createStreamingTranscriber(
         pcmSampleRate: options.sampleRate,
       });
     }
+    case "xai":
+      return null;
     default: {
       const _exhaustive: never = providerId;
       return null;

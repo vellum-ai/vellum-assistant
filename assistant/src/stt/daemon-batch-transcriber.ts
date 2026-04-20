@@ -185,6 +185,8 @@ export function createDaemonBatchTranscriber(
       return new DeepgramBatchTranscriber(apiKey);
     case "google-gemini":
       return new GoogleGeminiBatchTranscriber(apiKey);
+    case "xai":
+      return null;
     default: {
       // Exhaustive check — compile error if a new SttProviderId is added
       // without a corresponding case here.
