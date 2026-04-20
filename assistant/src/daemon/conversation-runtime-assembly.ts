@@ -1459,7 +1459,20 @@ function buildActiveThreadBlockFromRenderable(
 
   if (members.length === 0) return null;
 
-  const rendered = renderSlackTranscript(members);
+  // The active-thread block is flattened to plain text below, which discards
+  // `Message.role`. Force a role-derived sender label on any member whose
+  // `rowToRenderable` emitted `null` (assistant rows, user rows without a
+  // real Slack displayName) so speaker attribution survives the flattening.
+  const labeledMembers = members.map((m) =>
+    m.senderLabel
+      ? m
+      : {
+          ...m,
+          senderLabel: m.role === "assistant" ? "@assistant" : "@user",
+        },
+  );
+
+  const rendered = renderSlackTranscript(labeledMembers);
   if (rendered.length === 0) return null;
   const lines = extractTagLineTexts(rendered).join("\n");
   return `<active_thread>\n${lines}\n</active_thread>`;

@@ -2765,9 +2765,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
   // Re-run a Slack-channel turn through the public assembly path with the
   // active-thread focus block plumbed in (mirrors production wiring in
   // conversation-agent-loop.ts).
-  async function runSlackChannelAssemblyWithFocus(
-    rows: MessageRow[],
-  ): Promise<{
+  async function runSlackChannelAssemblyWithFocus(rows: MessageRow[]): Promise<{
     messages: Message[];
     focusBlock: string | null;
   }> {
@@ -2840,9 +2838,8 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       }),
     ];
 
-    const { messages, focusBlock } = await runSlackChannelAssemblyWithFocus(
-      rows,
-    );
+    const { messages, focusBlock } =
+      await runSlackChannelAssemblyWithFocus(rows);
 
     // Block was built and is non-empty.
     expect(focusBlock).not.toBeNull();
@@ -2976,9 +2973,8 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       }),
     ];
 
-    const { messages, focusBlock } = await runSlackChannelAssemblyWithFocus(
-      rows,
-    );
+    const { messages, focusBlock } =
+      await runSlackChannelAssemblyWithFocus(rows);
     expect(focusBlock).toBeNull();
     const allText = messages
       .flatMap((m) => m.content)
@@ -3095,8 +3091,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
           supportsDynamicUi: true,
           supportsVoiceInput: true,
         },
-        slackActiveThreadFocusBlock:
-          "<active_thread>\nbogus\n</active_thread>",
+        slackActiveThreadFocusBlock: "<active_thread>\nbogus\n</active_thread>",
       },
     );
     const allText = result
@@ -3122,8 +3117,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
           supportsVoiceInput: false,
           chatType: "im",
         },
-        slackActiveThreadFocusBlock:
-          "<active_thread>\nbogus\n</active_thread>",
+        slackActiveThreadFocusBlock: "<active_thread>\nbogus\n</active_thread>",
       },
     );
     const allText = result
@@ -3345,6 +3339,41 @@ describe("assembleSlackActiveThreadFocusBlock", () => {
     expect(result!).not.toContain("Sibling top-level");
   });
 
+  test("preserves speaker attribution when flattening to plain text", () => {
+    // The `<active_thread>` block is rendered as newline-joined plain text,
+    // discarding `Message.role`. Assistant rows and unnamed user rows must
+    // therefore carry an explicit `@assistant` / `@user` label so the model
+    // can still tell turns apart inside the flattened block.
+    const rows: SlackTranscriptInputRow[] = [
+      buildRow(
+        "user",
+        "Parent from alice",
+        1_000,
+        buildMeta({ channelTs: PARENT_TS, displayName: "@alice" }),
+      ),
+      buildRow(
+        "assistant",
+        "Assistant reply",
+        2_000,
+        buildMeta({
+          channelTs: "1700000005.000001",
+          threadTs: PARENT_TS,
+        }),
+      ),
+      buildRow(
+        "user",
+        "Unnamed follow-up",
+        3_000,
+        buildMeta({ channelTs: REPLY_TS, threadTs: PARENT_TS }),
+      ),
+    ];
+    const result = assembleSlackActiveThreadFocusBlock(rows, SLACK_CAPS);
+    expect(result).not.toBeNull();
+    expect(result!).toContain("@alice");
+    expect(result!).toContain("@assistant");
+    expect(result!).toContain("@user");
+  });
+
   test("emits a block even when the parent has not been backfilled yet", () => {
     // The inbound reply detects an `activeThreadTs` from its own
     // `threadTs`, but the parent (`channelTs === activeThreadTs`) has not
@@ -3499,7 +3528,9 @@ describe("assembleSlackChronologicalMessages", () => {
     expect(result).toEqual([
       {
         role: "user",
-        content: [{ type: "text", text: "[11/14/23 14:25 @alice]: hi assistant" }],
+        content: [
+          { type: "text", text: "[11/14/23 14:25 @alice]: hi assistant" },
+        ],
       },
       {
         role: "assistant",
@@ -3507,7 +3538,9 @@ describe("assembleSlackChronologicalMessages", () => {
       },
       {
         role: "user",
-        content: [{ type: "text", text: "[11/14/23 14:28 @alice]: another one" }],
+        content: [
+          { type: "text", text: "[11/14/23 14:28 @alice]: another one" },
+        ],
       },
     ]);
     // Sanity: no thread-tag arrow ever appears in DM output.
