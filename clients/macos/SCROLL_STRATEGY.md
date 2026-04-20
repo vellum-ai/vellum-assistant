@@ -85,24 +85,14 @@ Older history still renders through the existing `displayedItems.reversed()` pat
 
 When `pinnedLatestTurnAnchorMessageId` is set, the newest turn is carved out into a dedicated `PinnedLatestTurnSection`:
 
-- latest-edge sentinel
-- computed spacer
+- anchor user row
 - response cluster (assistant rows, placeholder, latest-edge indicators, orphan subagents, queued marker content)
-- anchor user row
+- `Spacer(minLength: 0)`
+- latest-edge sentinel
 
-The section is flipped as a single unit, so the visual order becomes:
+The section is flipped as a single unit (cancelling the outer ScrollView flip), so the visual order matches source order: anchor at the visual top, response below, the spacer fills the rest, sentinel at the bottom.
 
-- anchor user row
-- assistant response cluster
-- spacer
-
-`LatestTurnSpacerCalculator` computes:
-
-```swift
-max(0, viewportHeight - anchorHeight - responseHeight)
-```
-
-The response cluster is measured after the single anchor-to-response gap is applied, so the formula stays exact without reviving `turnMinHeight` or any height estimates.
+The section's height is bound to the scroll viewport via SwiftUI's `containerRelativeFrame(.vertical, alignment: .top) { length, _ in length - VSpacing.md * 2 }` (subtracting the outer LazyVStack's vertical padding). Because `containerRelativeFrame` reads the nearest scroll container's visible height during layout, the section resizes in the **same** layout pass as composer-induced viewport changes. The remaining empty space is absorbed by the `Spacer`, eliminating the previous `LatestTurnSpacerCalculator` + `viewportHeight` `@State` pipeline (which lagged one frame and caused the anchor row to briefly clip on every Enter keystroke in the composer).
 
 ---
 

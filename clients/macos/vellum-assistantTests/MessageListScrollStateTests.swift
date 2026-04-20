@@ -465,55 +465,6 @@ final class MessageListScrollStateTests: XCTestCase {
         XCTAssertEqual(state.scrollContentHeight, 0)
     }
 
-    // MARK: - Latest-turn spacer
-
-    func testLatestTurnSpacerLeavesRemainingViewportForShortResponse() {
-        let spacerHeight = LatestTurnSpacerCalculator.spacerHeight(
-            viewportHeight: 600,
-            anchorHeight: 120,
-            responseHeight: 180
-        )
-
-        XCTAssertEqual(spacerHeight, 300)
-    }
-
-    func testLatestTurnSpacerShrinksAsResponseGrows() {
-        let shortResponseSpacer = LatestTurnSpacerCalculator.spacerHeight(
-            viewportHeight: 600,
-            anchorHeight: 120,
-            responseHeight: 100
-        )
-        let tallResponseSpacer = LatestTurnSpacerCalculator.spacerHeight(
-            viewportHeight: 600,
-            anchorHeight: 120,
-            responseHeight: 240
-        )
-
-        XCTAssertGreaterThan(shortResponseSpacer, tallResponseSpacer)
-        XCTAssertEqual(shortResponseSpacer, 380)
-        XCTAssertEqual(tallResponseSpacer, 240)
-    }
-
-    func testLatestTurnSpacerClampsToZeroForTallResponse() {
-        let spacerHeight = LatestTurnSpacerCalculator.spacerHeight(
-            viewportHeight: 500,
-            anchorHeight: 150,
-            responseHeight: 480
-        )
-
-        XCTAssertEqual(spacerHeight, 0)
-    }
-
-    func testLatestTurnSpacerUsesFullRemainingViewportForEmptyResponse() {
-        let spacerHeight = LatestTurnSpacerCalculator.spacerHeight(
-            viewportHeight: 480,
-            anchorHeight: 140,
-            responseHeight: 0
-        )
-
-        XCTAssertEqual(spacerHeight, 340)
-    }
-
     // MARK: - Latest-turn pinning lifecycle
 
     func testPinnedLatestTurnAnchorSetOnRealUserSend() {
