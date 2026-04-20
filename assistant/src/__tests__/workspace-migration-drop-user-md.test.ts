@@ -144,8 +144,8 @@ function customizedContent(): string {
 
 # USER.md
 
-- Preferred name/reference: Sidd
-- Pronouns: he/him
+- Preferred name/reference: Chris
+- Pronouns: they/them
 - Work role: Engineer
 - Daily tools: Vellum, vim, tmux
 `;
@@ -195,7 +195,7 @@ describe("workspace migration 031-drop-user-md", () => {
     mockVellumGuardian = {
       contact: {
         id: "guardian-1",
-        displayName: "Sidd",
+        displayName: "Chris",
         userFile: null,
       },
       channel: { type: "vellum" },
@@ -210,10 +210,10 @@ describe("workspace migration 031-drop-user-md", () => {
     // Backfill happened: drizzle update was called with the generated slug.
     expect(updatedUserFiles).toHaveLength(1);
     expect(updatedUserFiles[0].contactId).toBe("guardian-1");
-    expect(updatedUserFiles[0].userFile).toBe("sidd.md");
+    expect(updatedUserFiles[0].userFile).toBe("chris.md");
 
-    // Content was migrated into users/sidd.md.
-    const destPath = join(workspaceDir, "users", "sidd.md");
+    // Content was migrated into users/chris.md.
+    const destPath = join(workspaceDir, "users", "chris.md");
     expect(existsSync(destPath)).toBe(true);
     expect(readFileSync(destPath, "utf-8")).toBe(content);
 
@@ -226,8 +226,8 @@ describe("workspace migration 031-drop-user-md", () => {
     mockVellumGuardian = {
       contact: {
         id: "guardian-2",
-        displayName: "Sidd",
-        userFile: "sidd.md",
+        displayName: "Chris",
+        userFile: "chris.md",
       },
       channel: { type: "vellum" },
     };
@@ -235,8 +235,8 @@ describe("workspace migration 031-drop-user-md", () => {
     // Pre-populated persona file (post-017 state).
     const usersDir = join(workspaceDir, "users");
     mkdirSync(usersDir, { recursive: true });
-    const destPath = join(usersDir, "sidd.md");
-    const existingPersona = "# Sidd's Profile\n\n- Loves kayaking\n";
+    const destPath = join(usersDir, "chris.md");
+    const existingPersona = "# Chris's Profile\n\n- Loves kayaking\n";
     writeFileSync(destPath, existingPersona, "utf-8");
 
     // Leftover template-shape USER.md at workspace root.
@@ -245,7 +245,7 @@ describe("workspace migration 031-drop-user-md", () => {
 
     dropUserMdMigration.run(workspaceDir);
 
-    // users/sidd.md is untouched.
+    // users/chris.md is untouched.
     expect(readFileSync(destPath, "utf-8")).toBe(existingPersona);
 
     // USER.md is gone.
