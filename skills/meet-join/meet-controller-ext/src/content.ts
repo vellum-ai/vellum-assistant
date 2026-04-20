@@ -212,7 +212,7 @@ chrome.runtime.onMessage.addListener(
   (
     raw: unknown,
     _sender: chrome.runtime.MessageSender,
-    _sendResponse: (response?: unknown) => void,
+    sendResponse: (response?: unknown) => void,
   ): boolean => {
     const parsed = BotToExtensionMessageSchema.safeParse(raw);
     if (!parsed.success) {
@@ -241,6 +241,13 @@ chrome.runtime.onMessage.addListener(
           `target=${targetMeetingId ?? "<unparseable>"}`,
           `current=${currentMeetingId}`,
         );
+        // Respond with an explicit rejection so the background bridge
+        // does not treat this silent drop as a successful delivery. If
+        // a stray Meet tab in the same Chrome profile received the
+        // `join` and we returned undefined, `chrome.tabs.sendMessage`
+        // would resolve and the bridge would stop retrying before the
+        // real tab's content script mounted.
+        sendResponse({ ok: false, reason: "non-matching-tab" });
         return false;
       }
       void handleJoin(msg.meetingUrl, msg.displayName, msg.consentMessage);
