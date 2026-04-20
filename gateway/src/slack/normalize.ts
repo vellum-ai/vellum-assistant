@@ -877,7 +877,12 @@ export function normalizeSlackMessageDelete(
   // back to a synthetic identifier so routing/trust still has something to key on.
   const actorId = event.previous_message?.user ?? "slack-system";
 
-  const isDm = event.channel_type === "im";
+  // Slack's `message_deleted` payload frequently omits `channel_type`, but DM
+  // channel IDs always start with "D". Fall back to the ID prefix so deletes
+  // from DMs still take the defaultAssistantId routing branch.
+  const isDm =
+    event.channel_type === "im" ||
+    (event.channel_type === undefined && event.channel.startsWith("D"));
   let routing = resolveAssistant(config, event.channel, actorId);
   if (isRejection(routing) && isDm && config.defaultAssistantId) {
     routing = {

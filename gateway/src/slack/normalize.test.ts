@@ -1106,6 +1106,25 @@ describe("normalizeSlackMessageDelete", () => {
     expect(result).not.toBeNull();
     expect(result!.routing.assistantId).toBe("ast-1");
   });
+
+  it("infers DM from channel ID prefix when channel_type is absent", () => {
+    const config = makeConfig({ unmappedPolicy: "reject" });
+    const event = makeMessageDeletedEvent({
+      channel: "D789",
+      channel_type: undefined,
+    });
+    const result = normalizeSlackMessageDelete(
+      event,
+      "evt-del-dm-infer",
+      config,
+    );
+
+    // Without the DM-prefix fallback this would be null (unmapped + reject).
+    expect(result).not.toBeNull();
+    expect(result!.routing.assistantId).toBe("ast-1");
+    // DMs should not be tagged as channel chat even when inferred.
+    expect(result!.event.source.chatType).toBeUndefined();
+  });
 });
 
 // --- source.threadId propagation ---
