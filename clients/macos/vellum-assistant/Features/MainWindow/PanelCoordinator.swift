@@ -164,22 +164,6 @@ extension MainWindowView {
             store: homeStore,
             feedStore: feedStore,
             meetStatusViewModel: meetStatusViewModel,
-            onPrimaryCTA: { capability in
-                let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .primary)
-                conversationManager.openConversation(message: seed, forceNew: true)
-                onDismiss()
-                if let id = conversationManager.activeConversationId {
-                    windowState.selection = .conversation(id)
-                }
-            },
-            onShortcutCTA: { capability in
-                let seed = CapabilityCTAContext.setupSeedMessage(for: capability, kind: .shortcut)
-                conversationManager.openConversation(message: seed, forceNew: true)
-                onDismiss()
-                if let id = conversationManager.activeConversationId {
-                    windowState.selection = .conversation(id)
-                }
-            },
             onFeedConversationOpened: { conversationId in
                 // Daemon already created the conversation in response to
                 // `store.triggerAction`; the client just needs to navigate.
@@ -196,13 +180,23 @@ extension MainWindowView {
                 onDismiss()
                 windowState.selection = .conversation(uuid)
             },
-            onSubmitMessage: { message in
-                // Home inline composer: start a brand-new conversation
-                // pre-seeded with the user's text and navigate into it.
-                // `forceNew: true` is critical — we always want the
-                // Home composer to create a fresh thread rather than
-                // append to whatever was last active.
-                conversationManager.openConversation(message: message, forceNew: true)
+            onStartNewChat: {
+                // Route the greeting-header "New Chat" pill through the
+                // same code path the sidebar's New-chat button uses so
+                // draft/app-editing state stays consistent.
+                startNewConversation()
+                onDismiss()
+            },
+            onDismissSuggestions: {
+                // Server-side persistence of the dismissal is a follow-up
+                // — the view hides the bar locally via its own @State.
+            },
+            onSuggestionSelected: { suggestion in
+                // Home suggestion pill: start a brand-new conversation
+                // pre-seeded with the suggestion's label and navigate
+                // into it. `forceNew: true` is critical — we always want
+                // the Home suggestion bar to create a fresh thread.
+                conversationManager.openConversation(message: suggestion.label, forceNew: true)
                 onDismiss()
                 if let id = conversationManager.activeConversationId {
                     windowState.selection = .conversation(id)

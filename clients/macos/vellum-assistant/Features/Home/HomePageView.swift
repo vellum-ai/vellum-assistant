@@ -1,26 +1,26 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Assembles the Home page: a centered editorial column with a hero
-/// greeting, an inline chat input, and three prioritized sections —
-/// attention, capabilities, activity.
+/// Assembles the redesigned Home page: a centered editorial column with
+/// three blocks — a greeting header (avatar + title + "New Chat" CTA), an
+/// optional dismissible "have you tried…" suggestion bar, and a
+/// time-grouped feed of recap rows (Today / Yesterday / Older).
 ///
-/// This view is rendered inside the Home panel's `VPageContainer` in
-/// ``PanelCoordinator``, so it does NOT wrap itself in another page
-/// container.
+/// This view is rendered inside the Home panel in ``PanelCoordinator``, so
+/// it does NOT wrap itself in another page container.
 ///
-/// The parent owns all navigation decisions — every CTA is a plain
-/// closure plumbed through from the ``PanelCoordinator``. Loading is
-/// driven by `store.load()` / `feedStore.load()` on appear; on transport
-/// failure both stores keep the last-good state so we never blank the UI
-/// between refreshes.
+/// The parent owns all navigation decisions — every CTA is a plain closure
+/// plumbed through from the ``PanelCoordinator``. Loading is driven by
+/// `store.load()` / `feedStore.load()` on appear; on transport failure
+/// both stores keep the last-good state so we never blank the UI between
+/// refreshes.
 ///
 /// The view is generic over an optional trailing detail panel. When
 /// `isDetailPanelVisible` is true and a non-empty `detailPanel` is
 /// supplied, the body splits into a two-pane layout with the main home
 /// content on the leading side and the supplied panel anchored to the
-/// trailing edge (601pt — the default `HomeDetailPanel` width). When
-/// false, the layout renders identically to the single-column original.
+/// trailing edge. When false, the layout renders identically to the
+/// single-column original.
 struct HomePageView<DetailPanel: View>: View {
     @Bindable var store: HomeStore
     @Bindable var feedStore: HomeFeedStore
@@ -28,15 +28,20 @@ struct HomePageView<DetailPanel: View>: View {
     /// gallery. Owned by the parent so the panel survives panel-dismiss
     /// cycles and keeps its SSE subscription live for the whole session.
     @Bindable var meetStatusViewModel: MeetStatusViewModel
-    let onPrimaryCTA: (Capability) -> Void
-    let onShortcutCTA: (Capability) -> Void
     /// Fired when a feed action resolves to a daemon-created conversation
     /// — the receiver (usually `PanelCoordinator`) navigates into it.
     let onFeedConversationOpened: (String) -> Void
-    /// Fired when the user submits text through the inline composer. The
-    /// parent opens a fresh conversation pre-seeded with the message and
-    /// navigates into it.
-    let onSubmitMessage: (String) -> Void
+    /// Fired when the "New Chat" pill in the greeting header is tapped.
+    /// Routes to the same code path the sidebar's New-chat button hits.
+    let onStartNewChat: () -> Void
+    /// Fired when the user dismisses the suggestion bar. The view also
+    /// hides the bar locally via `suggestionsDismissed`; this closure is
+    /// a hook for future server-side persistence (currently a no-op at
+    /// the call site — see PR note in the plan).
+    let onDismissSuggestions: () -> Void
+    /// Fired when the user taps one of the suggestion pills. The parent
+    /// opens a fresh conversation seeded with the suggestion label.
+    let onSuggestionSelected: (HomeSuggestion) -> Void
     /// Drives the two-pane split. When false, the home content renders in
     /// its original single-column layout and the `detailPanel` slot is
     /// ignored.
@@ -46,10 +51,16 @@ struct HomePageView<DetailPanel: View>: View {
     /// state stays with the caller.
     @ViewBuilder let detailPanel: () -> DetailPanel
 
-    /// Editorial column width. Narrower than the previous two-column
-    /// layout (920pt) on purpose — the redesigned Home reads as a single
-    /// focused stream, not a dashboard.
-    private let maxContentWidth: CGFloat = 600
+    /// Local hide flag for the "have you tried…" bar. Flipped to `true`
+    /// when the user taps the X affordance; stays true for the rest of
+    /// this view's lifecycle so the bar doesn't reappear on state
+    /// refresh. Persistent per-account dismissal is a follow-up.
+    @State private var suggestionsDismissed: Bool = false
+
+    /// Editorial column width. Bumped from 600pt to 960pt to match the
+    /// Figma redesign — the new three-block layout reads as a wider page,
+    /// not a narrow column.
+    private let maxContentWidth: CGFloat = 960
 
     var body: some View {
         HStack(alignment: .top, spacing: isDetailPanelVisible ? VSpacing.lg : 0) {
@@ -81,49 +92,46 @@ struct HomePageView<DetailPanel: View>: View {
 
     private func content(for state: RelationshipState) -> some View {
         ScrollView {
-            VStack(alignment: .center, spacing: VSpacing.xxl) {
+            VStack(alignment: .leading, spacing: VSpacing.xxl) {
                 // "In meeting" status banner — returns EmptyView when idle,
                 // so when no meeting is active the layout collapses to the
-                // prior hero-first appearance.
+                // greeting-first appearance.
                 MeetStatusPanel(viewModel: meetStatusViewModel)
 
-                HomeHeroView(state: state)
-                    .padding(.top, VSpacing.xxl)
+                HomeGreetingHeader(
+                    greeting: "Here's what's been going on",
+                    onStartNewChat: onStartNewChat
+                ) {
+                    // Reuse the same avatar resolution HomeHeroView uses,
+                    // inlined so this view owns its own avatar rendering.
+                    greetingAvatar
+                }
+                .padding(.top, VSpacing.xxl)
 
-                HomeInlineComposer(onSubmit: onSubmitMessage)
-
-                if !attentionItems.isEmpty {
-                    section(title: "These need your attention") {
-                        ForEach(attentionItems, id: \.id) { item in
-                            HomeListRow {
-                                HomeActivityRow(
-                                    item: item,
-                                    onTap: { openItem(item) },
-                                    onComplete: item.status != .actedOn
-                                        ? { Task { await feedStore.dismiss(itemId: item.id) } }
-                                        : nil
-                                )
-                            }
+                if !suggestionsDismissed, !currentSuggestions.isEmpty {
+                    HomeSuggestionPillBar(
+                        headline: "By the way, have you tried one of these:",
+                        suggestions: currentSuggestions,
+                        onSelect: onSuggestionSelected,
+                        onDismiss: {
+                            suggestionsDismissed = true
+                            onDismissSuggestions()
                         }
-                    }
+                    )
                 }
 
-                if !state.capabilities.isEmpty {
-                    section(title: "Here's what I can do for you") {
-                        HomeCapabilitiesSection(
-                            capabilities: state.capabilities,
-                            onPrimaryCTA: onPrimaryCTA,
-                            onShortcutCTA: onShortcutCTA
-                        )
-                    }
-                }
-
-                if !activityItems.isEmpty {
-                    section(title: "Here's what I've been up to") {
-                        ForEach(activityItems, id: \.id) { item in
-                            HomeListRow {
-                                HomeActivityRow(
-                                    item: item,
+                ForEach(Array(groupedFeed.enumerated()), id: \.element.group) { _, bucket in
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        HomeFeedGroupHeader(label: bucket.group.label)
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            ForEach(bucket.items, id: \.id) { item in
+                                HomeRecapRow(
+                                    icon: icon(for: item),
+                                    iconForeground: iconForeground(for: item),
+                                    iconBackground: iconBackground(for: item),
+                                    title: item.title,
+                                    actionLabel: actionLabel(for: item),
+                                    onAction: actionLabel(for: item) == nil ? nil : { openItem(item) },
                                     onTap: { openItem(item) }
                                 )
                             }
@@ -140,53 +148,162 @@ struct HomePageView<DetailPanel: View>: View {
         }
     }
 
-    // MARK: - Section wrapper
+    // MARK: - Greeting avatar
 
-    /// A centered title label followed by its content. The label uses
-    /// `bodySmallDefault` on `contentSecondary` to read as a quiet
-    /// editorial lede rather than a heavy header.
+    /// Mirrors ``HomeHeroView.avatarView`` — inline instead of nested so
+    /// this view doesn't depend on HomeHeroView's internals. 40pt sizing
+    /// matches the Figma spec for the new greeting row.
     @ViewBuilder
-    private func section<Content: View>(
-        title: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text(title)
-                .font(VFont.bodySmallDefault)
-                .foregroundStyle(VColor.contentSecondary)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .accessibilityAddTraits(.isHeader)
-
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                content()
-            }
+    private var greetingAvatar: some View {
+        let appearance = AvatarAppearanceManager.shared
+        let avatarSize: CGFloat = 40
+        if appearance.customAvatarImage != nil {
+            VAvatarImage(
+                image: appearance.fullAvatarImage,
+                size: avatarSize,
+                showBorder: false
+            )
+        } else if let bodyShape = appearance.characterBodyShape,
+                  let eyes = appearance.characterEyeStyle,
+                  let color = appearance.characterColor {
+            AnimatedAvatarView(
+                bodyShape: bodyShape,
+                eyeStyle: eyes,
+                color: color,
+                size: avatarSize,
+                entryAnimationEnabled: false
+            )
+            .frame(width: avatarSize, height: avatarSize)
+        } else {
+            VAvatarImage(
+                image: appearance.fullAvatarImage,
+                size: avatarSize,
+                showBorder: false
+            )
         }
     }
 
-    // MARK: - Feed partitioning
+    // MARK: - Feed grouping
 
-    /// Items that belong in "These need your attention" — nudges the
-    /// assistant is surfacing and actions it's suggesting. Priority
-    /// desc, then newest within ties.
-    private var attentionItems: [FeedItem] {
-        feedStore.items
-            .filter { $0.type == .nudge || $0.type == .action }
-            .sorted { a, b in
-                if a.priority != b.priority { return a.priority > b.priority }
-                return a.createdAt > b.createdAt
-            }
+    /// Sorts the feed by `priority desc, createdAt desc`, then delegates
+    /// to `HomeFeedTimeGroup.bucket(_:)` for day-bucketing. Replaces the
+    /// prior `attentionItems` / `activityItems` partitioning.
+    private var groupedFeed: [(group: HomeFeedTimeGroup, items: [FeedItem])] {
+        let sorted = feedStore.items.sorted { a, b in
+            if a.priority != b.priority { return a.priority > b.priority }
+            return a.createdAt > b.createdAt
+        }
+        return HomeFeedTimeGroup.bucket(sorted)
     }
 
-    /// Items that belong in "Here's what I've been up to" — passive
-    /// digests of work the assistant did, and threads it started or
-    /// participated in.
-    private var activityItems: [FeedItem] {
-        feedStore.items
-            .filter { $0.type == .digest || $0.type == .thread }
-            .sorted { a, b in
-                if a.priority != b.priority { return a.priority > b.priority }
-                return a.createdAt > b.createdAt
-            }
+    // MARK: - Suggestions
+
+    /// Stopgap source of suggestion pills: the first three capabilities
+    /// the daemon surfaced for this relationship. The long-term source is
+    /// a dedicated `HomeFeedResponse.suggestions` field on the feed
+    /// payload.
+    /// TODO: swap to `HomeFeedResponse.suggestions` once the daemon
+    /// contract lands (tracked by the Home redesign plan).
+    private var currentSuggestions: [HomeSuggestion] {
+        guard let capabilities = store.state?.capabilities else { return [] }
+        return capabilities.prefix(3).map { capability in
+            HomeSuggestion(
+                id: capability.id,
+                icon: capabilityIcon(capability),
+                label: capability.name
+            )
+        }
+    }
+
+    /// Picks an icon for a capability suggestion pill. We don't have a
+    /// per-capability icon field, so fall back to a small rotating set of
+    /// generic "action" glyphs. Safe default is `.sparkles` — matches the
+    /// suggestion bar preview.
+    private func capabilityIcon(_ capability: Capability) -> VIcon {
+        switch capability.tier {
+        case .unlocked: return .sparkles
+        case .nextUp:   return .wand
+        case .earned:   return .star
+        }
+    }
+
+    // MARK: - Recap row styling
+
+    /// Icon glyph for a feed item, driven by type + source. Mapping
+    /// follows the Figma spec:
+    ///   nudge + assistant   → heart
+    ///   action              → arrow-left (inbound intent)
+    ///   digest              → bell
+    ///   thread              → message-circle
+    private func icon(for item: FeedItem) -> VIcon {
+        switch item.type {
+        case .nudge:
+            // Assistant-authored nudges are the canonical heart case; any
+            // other source falls through to the same glyph — there is no
+            // non-assistant nudge variant in the spec today.
+            return .heart
+        case .action:
+            return .arrowLeft
+        case .digest:
+            return .bell
+        case .thread:
+            return .messageCircle
+        }
+    }
+
+    /// Foreground (glyph) color for the recap icon. The plan referenced
+    /// raw Danger/Forest 500-scale colors, which do not exist in this
+    /// codebase — the closest semantic tokens live in `VColor` (see
+    /// `ColorTokens.swift`). No raw hex values are used.
+    private func iconForeground(for item: FeedItem) -> Color {
+        switch item.type {
+        case .nudge:
+            // Plan: Danger._500. Closest existing token.
+            return VColor.systemNegativeStrong
+        case .action:
+            return VColor.primaryBase
+        case .digest:
+            // Plan: Forest._500. Closest existing token.
+            return VColor.systemPositiveStrong
+        case .thread:
+            return VColor.contentSecondary
+        }
+    }
+
+    /// Background (circle fill) color for the recap icon.
+    private func iconBackground(for item: FeedItem) -> Color {
+        switch item.type {
+        case .nudge:
+            // Plan: Danger._900. Closest existing weak-negative tint.
+            return VColor.systemNegativeWeak
+        case .action:
+            // Plan called for "a muted surface" paired with a blue/primary
+            // tint. `surfaceActive` is the muted surface token; the glyph
+            // picks up `primaryBase` for the blue/primary accent.
+            return VColor.surfaceActive
+        case .digest:
+            // Plan: Forest._900. Closest existing weak-positive tint.
+            return VColor.systemPositiveWeak
+        case .thread:
+            return VColor.surfaceActive
+        }
+    }
+
+    /// Trailing Action button label for a recap row, or nil to hide the
+    /// button entirely. Nudges are tap-to-open (no button); actions
+    /// always show a button; digests show a button only if the daemon
+    /// attached explicit actions; threads are tap-to-open.
+    private func actionLabel(for item: FeedItem) -> String? {
+        switch item.type {
+        case .nudge:
+            return nil
+        case .action:
+            return "Action"
+        case .digest:
+            return (item.actions?.isEmpty == false) ? "Action" : nil
+        case .thread:
+            return nil
+        }
     }
 
     // MARK: - Actions
@@ -208,22 +325,32 @@ struct HomePageView<DetailPanel: View>: View {
 
     // MARK: - Skeleton
 
+    /// Skeleton silhouette that mirrors the new three-block layout:
+    /// a greeting row (avatar + title bone), the "have you tried…"
+    /// suggestion bar (rounded 16pt pill bar, ~60pt tall), and a single
+    /// "Today" group header with three 48pt recap bones. Designed so the
+    /// first paint doesn't shift when real data lands.
     private var skeleton: some View {
-        VStack(alignment: .center, spacing: VSpacing.xxl) {
+        VStack(alignment: .leading, spacing: VSpacing.xxl) {
+            // Greeting row
             HStack(spacing: VSpacing.md) {
-                VSkeletonBone(width: 44, height: 44, radius: 22)
-                VSkeletonBone(width: 280, height: 28)
+                VSkeletonBone(width: 40, height: 40, radius: 20)
+                VSkeletonBone(width: 280, height: 24)
+                Spacer()
             }
             .padding(.top, VSpacing.xxl)
 
-            VSkeletonBone(height: 52, radius: VRadius.window)
+            // Suggestion bar
+            VSkeletonBone(height: 60, radius: VRadius.xl)
 
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
-                VSkeletonBone(width: 180, height: 12)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                VSkeletonBone(height: 64, radius: VRadius.window)
-                VSkeletonBone(height: 64, radius: VRadius.window)
-                VSkeletonBone(height: 64, radius: VRadius.window)
+            // First time group
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                VSkeletonBone(width: 60, height: 12)
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    VSkeletonBone(height: 48, radius: VRadius.md)
+                    VSkeletonBone(height: 48, radius: VRadius.md)
+                    VSkeletonBone(height: 48, radius: VRadius.md)
+                }
             }
         }
         .frame(maxWidth: maxContentWidth, alignment: .top)
@@ -244,19 +371,19 @@ extension HomePageView where DetailPanel == EmptyView {
         store: HomeStore,
         feedStore: HomeFeedStore,
         meetStatusViewModel: MeetStatusViewModel,
-        onPrimaryCTA: @escaping (Capability) -> Void,
-        onShortcutCTA: @escaping (Capability) -> Void,
         onFeedConversationOpened: @escaping (String) -> Void,
-        onSubmitMessage: @escaping (String) -> Void
+        onStartNewChat: @escaping () -> Void,
+        onDismissSuggestions: @escaping () -> Void,
+        onSuggestionSelected: @escaping (HomeSuggestion) -> Void
     ) {
         self.init(
             store: store,
             feedStore: feedStore,
             meetStatusViewModel: meetStatusViewModel,
-            onPrimaryCTA: onPrimaryCTA,
-            onShortcutCTA: onShortcutCTA,
             onFeedConversationOpened: onFeedConversationOpened,
-            onSubmitMessage: onSubmitMessage,
+            onStartNewChat: onStartNewChat,
+            onDismissSuggestions: onDismissSuggestions,
+            onSuggestionSelected: onSuggestionSelected,
             isDetailPanelVisible: false,
             detailPanel: { EmptyView() }
         )
