@@ -65,6 +65,7 @@ public enum VSemanticColorToken: String, CaseIterable {
     case borderHover
     case borderActive
     case borderElement
+    case borderOverlay
 
     case contentEmphasized
     case contentDefault
@@ -134,6 +135,8 @@ private enum FigmaRawColor {
     static let borderDarkActive = Color(hex: 0xF6F5F4)
     static let borderLightElement = Color(hex: 0xCFCCC9)
     static let borderDarkElement = Color(hex: 0x5A6672)
+    static let borderLightOverlay = Color(hex: 0xE9E6E2)
+    static let borderDarkOverlay = Color(hex: 0x2D3339)
 
     // Content
     static let contentLightEmphasized = Color(hex: 0x161616)
@@ -187,6 +190,7 @@ public enum VColor {
         .borderHover: .init(lightHex: "#F6F5F4", darkHex: "#2D3339"),
         .borderActive: .init(lightHex: "#2D3339", darkHex: "#F6F5F4"),
         .borderElement: .init(lightHex: "#CFCCC9", darkHex: "#5A6672"),
+        .borderOverlay: .init(lightHex: "#E9E6E2", darkHex: "#2D3339"),
 
         .contentEmphasized: .init(lightHex: "#161616", darkHex: "#FDFDFC"),
         .contentDefault: .init(lightHex: "#24292E", darkHex: "#F6F5F4"),
@@ -227,6 +231,7 @@ public enum VColor {
     public static let borderHover = adaptiveColor(light: FigmaRawColor.borderLightHover, dark: FigmaRawColor.borderDarkHover)
     public static let borderActive = adaptiveColor(light: FigmaRawColor.borderLightActive, dark: FigmaRawColor.borderDarkActive)
     public static let borderElement = adaptiveColor(light: FigmaRawColor.borderLightElement, dark: FigmaRawColor.borderDarkElement)
+    public static let borderOverlay = adaptiveColor(light: FigmaRawColor.borderLightOverlay, dark: FigmaRawColor.borderDarkOverlay)
 
     // Content
     public static let contentEmphasized = adaptiveColor(light: FigmaRawColor.contentLightEmphasized, dark: FigmaRawColor.contentDarkEmphasized)
