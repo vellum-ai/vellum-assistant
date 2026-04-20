@@ -737,7 +737,7 @@ export async function postHostBrowserResult(
 
   // self-hosted: POST to the local daemon. The base URL is whatever
   // `buildRelayModeConfig` resolved at connect time (usually
-  // `http://127.0.0.1:<relayPort>`).
+  // `http://127.0.0.1:<port>`).
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (mode.token) headers.authorization = `Bearer ${mode.token}`;
   const url = `${mode.baseUrl.replace(/\/$/, '')}/v1/host-browser-result`;

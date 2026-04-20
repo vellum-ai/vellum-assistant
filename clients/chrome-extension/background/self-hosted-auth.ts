@@ -38,9 +38,9 @@ export interface StoredLocalToken {
   /**
    * Assistant runtime HTTP port echoed by the native messaging helper.
    * When present the chrome extension uses this as the base URL for the
-   * self-hosted relay WebSocket instead of the hard-coded
-   * `DEFAULT_RELAY_PORT`. Optional for forward/back-compat with older
-   * native helpers that predate PR 3 of the browser-remediation plan.
+   * self-hosted relay WebSocket instead of the default port (7830).
+   * Optional for forward/back-compat with older native helpers that
+   * predate PR 3 of the browser-remediation plan.
    */
   assistantPort?: number;
   /**

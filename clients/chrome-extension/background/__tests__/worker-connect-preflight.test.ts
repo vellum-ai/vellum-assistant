@@ -66,6 +66,8 @@ function missingTokenMessage(profile: AssistantAuthProfile | null): string {
   return 'Select an assistant before connecting';
 }
 
+const DEFAULT_RELAY_PORT = 7830;
+
 // ── Controllable fakes ──────────────────────────────────────────────
 
 /**
@@ -77,7 +79,6 @@ interface PreflightDeps {
   signInCloud: (assistantId: string, config: { webBaseUrl: string; clientId: string }) => Promise<StoredCloudToken>;
   refreshCloudToken: (assistantId: string, config: { webBaseUrl: string; clientId: string }) => Promise<StoredCloudToken | null>;
   getStoredCloudToken: (assistantId: string) => Promise<StoredCloudToken | null>;
-  getRelayPort: () => Promise<number>;
   /** The effective environment used to resolve cloud URLs. Defaults to build default. */
   effectiveEnvironment: ExtensionEnvironment;
 }
@@ -118,7 +119,7 @@ async function connectPreflight(
     }
     const assistantId = assistant?.assistantId ?? null;
     const stored = await deps.bootstrapLocalToken(assistantId);
-    const port = stored.assistantPort ?? assistant?.daemonPort ?? (await deps.getRelayPort());
+    const port = stored.assistantPort ?? assistant?.daemonPort ?? DEFAULT_RELAY_PORT;
     return {
       kind: 'self-hosted',
       baseUrl: `http://127.0.0.1:${port}`,
@@ -223,7 +224,6 @@ function makeDeps(overrides: Partial<PreflightDeps> = {}): PreflightDeps {
     },
     refreshCloudToken: async () => null,
     getStoredCloudToken: async () => null,
-    getRelayPort: async () => 7830,
     // Default to the build-time default environment (typically 'dev' in tests)
     effectiveEnvironment: resolveBuildDefaultEnvironment(),
     ...overrides,

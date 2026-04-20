@@ -3,7 +3,7 @@
  *
  * Connects to either
  *   - the local assistant's browser-relay endpoint
- *     (`ws://127.0.0.1:<relayPort>/v1/browser-relay`), or
+ *     (`ws://127.0.0.1:<port>/v1/browser-relay`), or
  *   - the cloud gateway's browser-relay endpoint
  *     (`wss://<cloud-gateway>/v1/browser-relay`)
  *
@@ -534,7 +534,7 @@ async function dispatchHostBrowserResult(
     ? await getStoredLocalToken(selectedId)
     : await getLegacyLocalToken();
   if (local) {
-    const fallbackPort = local.assistantPort ?? (await getRelayPort());
+    const fallbackPort = local.assistantPort ?? DEFAULT_RELAY_PORT;
     const fallbackMode: RelayMode = {
       kind: 'self-hosted',
       baseUrl: `http://127.0.0.1:${fallbackPort}`,
@@ -587,17 +587,6 @@ const hostBrowserDispatcher: HostBrowserDispatcher = createHostBrowserDispatcher
 });
 
 // ── Storage helpers ─────────────────────────────────────────────────
-
-async function getRelayPort(): Promise<number> {
-  const result = await chrome.storage.local.get('relayPort');
-  const stored = result.relayPort;
-  if (typeof stored === 'number' && stored > 0 && stored <= 65535) return stored;
-  if (typeof stored === 'string') {
-    const parsed = parseInt(stored, 10);
-    if (!isNaN(parsed) && parsed > 0 && parsed <= 65535) return parsed;
-  }
-  return DEFAULT_RELAY_PORT;
-}
 
 /**
  * Read a cloud auth token from the legacy unscoped storage key
@@ -660,7 +649,7 @@ async function buildRelayModeForAssistant(
     // first (matches the pre-PR4 default of `self-hosted`).
     const local = await getLegacyLocalToken();
     if (local) {
-      const port = local.assistantPort ?? (await getRelayPort());
+      const port = local.assistantPort ?? DEFAULT_RELAY_PORT;
       return {
         kind: 'self-hosted',
         baseUrl: `http://127.0.0.1:${port}`,
@@ -678,7 +667,7 @@ async function buildRelayModeForAssistant(
     }
     // No token at all — return a token-less self-hosted mode so the
     // caller can surface a missing-token error.
-    const port = await getRelayPort();
+    const port = DEFAULT_RELAY_PORT;
     return {
       kind: 'self-hosted',
       baseUrl: `http://127.0.0.1:${port}`,
@@ -716,7 +705,7 @@ async function buildRelayModeForAssistant(
     }
 
     if (local) {
-      const port = local.assistantPort ?? assistant.daemonPort ?? (await getRelayPort());
+      const port = local.assistantPort ?? assistant.daemonPort ?? DEFAULT_RELAY_PORT;
       return {
         kind: 'self-hosted',
         baseUrl: `http://127.0.0.1:${port}`,
@@ -724,7 +713,7 @@ async function buildRelayModeForAssistant(
       };
     }
     // No local token yet — return token-less mode for the error path.
-    const port = assistant.daemonPort ?? (await getRelayPort());
+    const port = assistant.daemonPort ?? DEFAULT_RELAY_PORT;
     return {
       kind: 'self-hosted',
       baseUrl: `http://127.0.0.1:${port}`,
@@ -751,7 +740,7 @@ async function buildRelayModeForAssistant(
   // actionable error.
   return {
     kind: 'self-hosted',
-    baseUrl: `http://127.0.0.1:${await getRelayPort()}`,
+    baseUrl: `http://127.0.0.1:${DEFAULT_RELAY_PORT}`,
     token: null,
   };
 }
@@ -1098,7 +1087,7 @@ async function connectPreflight(
     const assistantId = assistant?.assistantId ?? null;
     const environment = await getEffectiveEnvironment();
     const stored = await bootstrapLocalToken(assistantId, { environment });
-    const port = stored.assistantPort ?? assistant?.daemonPort ?? (await getRelayPort());
+    const port = stored.assistantPort ?? assistant?.daemonPort ?? DEFAULT_RELAY_PORT;
     return {
       kind: 'self-hosted',
       baseUrl: `http://127.0.0.1:${port}`,
