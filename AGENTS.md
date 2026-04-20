@@ -123,6 +123,8 @@ Never include personal user data — real names, emails, phone numbers, account 
 
 This applies even when the data is the author's own — examples get copied by future contributors, and real data propagates through forks, screenshots, and logs.
 
+**Enforcement:** the pre-commit hook runs `scripts/check-generic-examples.ts` against staged changes. The in-repo patterns are shape-based (non-example emails, phones outside `555-01xx`). Contributors who want to block additional project-specific terms on their own machine can drop them into a local config — see `scripts/generic-examples/README.md`. Inline suppression: add `// generic-examples:ignore-next-line — reason: <why>` on the line above.
+
 ## Backwards Compatibility
 
 We have real users — maintain backwards compatibility for all interfaces, persisted state, and data. Never ship a change that silently breaks existing behavior. When a change alters workspace file paths, directory structure, data shapes, namespaces, column schemas, or storage formats, include a migration in the same PR.

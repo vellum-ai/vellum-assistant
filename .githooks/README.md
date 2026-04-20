@@ -24,10 +24,11 @@ Automatically checks for plain text keys and secrets before allowing a commit.
 **What it checks:**
 
 1. **Secret scanning** — Detects plain text keys, tokens, passwords, and other sensitive information
-2. **Prettier formatting** — Runs `prettier --check` on staged files in `assistant/`, `cli/`, and `gateway/`
-3. **ESLint** — Runs `eslint` on staged source files in `assistant/`, `cli/`, and `gateway/`
-4. **Message contract verification** — When message contract files are staged, verifies generated Swift models, inventory snapshot, and decoder sync are up to date
-5. **Tool registration guard** — Blocks new tool registrations in `assistant/src/tools/` (requires Team Jarvis approval, see `assistant/src/tools/AGENTS.md`)
+2. **Generic-examples rule** — Runs `scripts/check-generic-examples.ts` against staged changes. Enforces the AGENTS.md "Generic Examples" rule: test fixtures and illustrative content must use generic placeholders, not real personal data. See `scripts/generic-examples/README.md` for patterns and optional per-developer private config.
+3. **Prettier formatting** — Runs `prettier --check` on staged files in `assistant/`, `cli/`, and `gateway/`
+4. **ESLint** — Runs `eslint` on staged source files in `assistant/`, `cli/`, and `gateway/`
+5. **Message contract verification** — When message contract files are staged, verifies generated Swift models, inventory snapshot, and decoder sync are up to date
+6. **Tool registration guard** — Blocks new tool registrations in `assistant/src/tools/` (requires Team Jarvis approval, see `assistant/src/tools/AGENTS.md`)
 
 **Behavior:**
 - Blocks commits containing potential secrets
