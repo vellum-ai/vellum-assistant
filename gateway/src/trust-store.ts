@@ -27,6 +27,8 @@ import type {
 import {
   parseTrustFileData,
   parseTrustRule,
+  ruleScope,
+  SCOPED_TOOLS,
 } from "@vellumai/ces-contracts/trust-rules";
 
 import { getLogger } from "./logger.js";
@@ -35,6 +37,9 @@ import { getGatewaySecurityDir } from "./paths.js";
 export type { TrustDecision, TrustRule };
 
 const log = getLogger("trust-store");
+
+/** Set for O(1) lookup when determining if a tool is scoped. */
+const SCOPED_TOOLS_SET: ReadonlySet<string> = new Set(SCOPED_TOOLS);
 
 const TRUST_FILE_VERSION = 3;
 
@@ -354,11 +359,11 @@ export function addRule(
 
   // Canonicalize through the shared parser so fields invalid for the tool's
   // family are stripped before persistence, regardless of callsite.
-  const { rule: canonical } = parseTrustRule({
+  // Only include scope for scoped tools — non-scoped tools don't carry scope.
+  const rawRule: Record<string, unknown> = {
     id: uuid(),
     tool,
     pattern,
-    scope,
     decision,
     priority,
     createdAt: Date.now(),
@@ -368,7 +373,11 @@ export function addRule(
     ...(options?.executionTarget != null
       ? { executionTarget: options.executionTarget }
       : {}),
-  });
+  };
+  if (SCOPED_TOOLS_SET.has(tool)) {
+    rawRule.scope = scope;
+  }
+  const { rule: canonical } = parseTrustRule(rawRule);
   const rule = canonical;
   rules.push(rule);
   rules.sort(ruleOrder);
@@ -402,7 +411,11 @@ export function updateRule(
   const merged = { ...rules[index] };
   if (updates.tool != null) merged.tool = updates.tool;
   if (updates.pattern != null) merged.pattern = updates.pattern;
-  if (updates.scope != null) merged.scope = updates.scope;
+  // Only apply scope updates for scoped tools — non-scoped tools ignore scope.
+  const effectiveTool = updates.tool ?? merged.tool;
+  if (updates.scope != null && SCOPED_TOOLS_SET.has(effectiveTool)) {
+    merged.scope = updates.scope;
+  }
   if (updates.decision != null) merged.decision = updates.decision;
   if (updates.priority != null) merged.priority = updates.priority;
 
@@ -452,7 +465,7 @@ export function findMatchingRule(
     if (rule.tool !== tool) continue;
     const compiled = getCompiledPattern(rule.pattern);
     if (!compiled || !compiled.match(command)) continue;
-    if (!matchesScope(rule.scope, scope)) continue;
+    if (!matchesScope(ruleScope(rule), scope)) continue;
     return rule;
   }
   return null;
@@ -470,7 +483,7 @@ export function findHighestPriorityRule(
   const rules = getRules();
   for (const rule of rules) {
     if (rule.tool !== tool) continue;
-    if (!matchesScope(rule.scope, scope)) continue;
+    if (!matchesScope(ruleScope(rule), scope)) continue;
     const compiled = getCompiledPattern(rule.pattern);
     if (!compiled) continue;
     for (const command of commands) {
@@ -512,15 +525,19 @@ export function acceptStarterBundle(): AcceptStarterBundleResult {
 
   for (const template of getStarterBundleRules()) {
     if (existingIds.has(template.id)) continue;
-    rules.push({
+    const newRule: TrustRule = {
       id: template.id,
       tool: template.tool,
       pattern: template.pattern,
-      scope: template.scope,
       decision: template.decision,
       priority: template.priority,
       createdAt: Date.now(),
-    });
+    } as TrustRule;
+    // Only set scope on the pushed rule if the template has a defined scope.
+    if (template.scope !== undefined) {
+      (newRule as unknown as Record<string, unknown>).scope = template.scope;
+    }
+    rules.push(newRule);
     added++;
   }
 
