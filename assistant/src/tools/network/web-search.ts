@@ -93,7 +93,7 @@ function formatBraveResults(
     lines.push("");
   }
 
-  return lines.join("\n") + CITATION_INSTRUCTION;
+  return lines.join("\n");
 }
 
 function formatPerplexityResults(
@@ -115,7 +115,7 @@ function formatPerplexityResults(
     }
   }
 
-  return lines.join("\n") + CITATION_INSTRUCTION;
+  return lines.join("\n");
 }
 
 async function executeBraveSearch(
@@ -153,10 +153,11 @@ async function executeBraveSearch(
       const data = (await response.json()) as BraveSearchResponse;
       const results = data.web?.results ?? [];
       return {
-        content: wrapUntrustedContent(formatBraveResults(results, query), {
-          source: "search",
-          sourceDetail: "brave",
-        }),
+        content:
+          wrapUntrustedContent(formatBraveResults(results, query), {
+            source: "search",
+            sourceDetail: "brave",
+          }) + CITATION_INSTRUCTION,
         isError: false,
       };
     }
@@ -227,10 +228,11 @@ async function executePerplexitySearch(
     if (response.ok) {
       const data = (await response.json()) as PerplexityResponse;
       return {
-        content: wrapUntrustedContent(formatPerplexityResults(data, query), {
-          source: "search",
-          sourceDetail: "perplexity",
-        }),
+        content:
+          wrapUntrustedContent(formatPerplexityResults(data, query), {
+            source: "search",
+            sourceDetail: "perplexity",
+          }) + CITATION_INSTRUCTION,
         isError: false,
       };
     }
