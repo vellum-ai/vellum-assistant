@@ -1084,7 +1084,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
       pattern: canonical.pattern,
       // Only send scope for scoped tools — non-scoped tools omit it.
       ...(SCOPED_TOOLS_SET.has(canonical.tool)
-        ? { scope: canonical.scope || "everywhere" }
+        ? { scope: ruleScope(canonical) }
         : {}),
       decision: canonical.decision,
       priority: canonical.priority,
