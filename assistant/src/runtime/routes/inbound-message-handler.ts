@@ -1243,6 +1243,10 @@ function countSlackMetaMessages(conversationId: string): number {
     if (typeof raw !== "string") continue;
     if (readSlackMetadata(raw)) {
       count++;
+      // Early-return: callers only need to know if the count meets the
+      // warm threshold. Avoids parsing every row on warm conversations
+      // that would otherwise full-scan on each Slack DM.
+      if (count >= SLACK_DM_BACKFILL_WARM_THRESHOLD) return count;
     }
   }
   return count;
@@ -1311,6 +1315,17 @@ async function persistBackfilledSlackMessage(params: {
 }
 
 /**
+ * In-memory map of in-flight DM cold-start backfills keyed by conversationId.
+ * Concurrent inbound DMs to the same cold conversation share a single
+ * backfill promise instead of each issuing their own Slack history fetch and
+ * write — without this, two near-simultaneous DMs would both observe a cold
+ * count, both fetch the same history window, and both insert duplicate rows
+ * (channelTs lives inside a JSON metadata blob, so the DB has no uniqueness
+ * constraint to fall back on).
+ */
+const _dmBackfillInFlight = new Map<string, Promise<void>>();
+
+/**
  * One-shot DM cold-start backfill. When a Slack DM lands in a conversation
  * with fewer than `SLACK_DM_BACKFILL_WARM_THRESHOLD` stored Slack-tagged
  * messages, fetch a window of recent history via `backfillDm` and persist
@@ -1322,6 +1337,22 @@ async function persistBackfilledSlackMessage(params: {
  * proceeds with only the new message.
  */
 async function tryBackfillSlackDmIfCold(params: {
+  conversationId: string;
+  channelId: string;
+}): Promise<void> {
+  const existing = _dmBackfillInFlight.get(params.conversationId);
+  if (existing) {
+    await existing;
+    return;
+  }
+  const promise = runBackfillSlackDmIfCold(params).finally(() => {
+    _dmBackfillInFlight.delete(params.conversationId);
+  });
+  _dmBackfillInFlight.set(params.conversationId, promise);
+  await promise;
+}
+
+async function runBackfillSlackDmIfCold(params: {
   conversationId: string;
   channelId: string;
 }): Promise<void> {
