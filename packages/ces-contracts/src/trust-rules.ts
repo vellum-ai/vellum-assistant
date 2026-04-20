@@ -83,7 +83,6 @@ export interface TrustRuleBase {
   id: string;
   tool: string;
   pattern: string;
-  scope?: string;
   decision: TrustDecision;
   priority: number;
   createdAt: number;
@@ -140,11 +139,13 @@ export interface SkillLoadTrustRule extends TrustRuleBase {
 /**
  * A trust rule for any tool that doesn't belong to a known family.
  *
- * Generic rules preserve `executionTarget` and `allowHighRisk` for backward
- * compatibility — existing rules for unknown/new tools may carry these fields.
+ * Generic rules preserve `scope`, `executionTarget`, and `allowHighRisk` for
+ * forward compatibility — existing rules for unknown/new tools may carry these
+ * fields.
  */
 export interface GenericTrustRule extends TrustRuleBase {
   tool: string;
+  scope?: string;
   executionTarget?: string;
   allowHighRisk?: boolean;
 }

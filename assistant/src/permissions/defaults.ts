@@ -13,12 +13,13 @@ import { getWorkspaceDir } from "../util/platform.js";
  * A default rule template is structurally identical to TrustRuleBase
  * minus `createdAt` (set at backfill time) and `userModifiedAt` (set
  * when users explicitly override defaults), plus the optional
- * `allowHighRisk` field that some tool families support.
+ * `scope` and `allowHighRisk` fields that some tool families support.
  */
 export type DefaultRuleTemplate = Omit<
   TrustRuleBase,
   "createdAt" | "userModifiedAt"
 > & {
+  scope?: string;
   allowHighRisk?: boolean;
 };
 

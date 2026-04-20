@@ -10,6 +10,7 @@ import type { TrustRuleBase } from "@vellumai/ces-contracts";
  * we flatten the union here by intersecting the base with the optional fields.
  */
 export type TrustRule = TrustRuleBase & {
+  scope?: string;
   executionTarget?: string;
   allowHighRisk?: boolean;
 };
