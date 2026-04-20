@@ -409,7 +409,10 @@ export class Conversation {
         );
       }
     });
-    this.secretPrompter = new SecretPrompter(sendToClient);
+    this.secretPrompter = new SecretPrompter(
+      sendToClient,
+      broadcastToAllClients,
+    );
 
     // Register watch/call notifiers (reads ctx properties lazily)
     registerConversationNotifiers(conversationId, this);
@@ -1244,6 +1247,14 @@ export class Conversation {
 
   setChannelCapabilities(caps: ChannelCapabilities | null): void {
     this.channelCapabilities = caps ?? undefined;
+    this.secretPrompter.setChannelContext(
+      caps
+        ? {
+            channel: caps.channel,
+            supportsDynamicUi: caps.supportsDynamicUi,
+          }
+        : undefined,
+    );
   }
 
   setTrustContext(ctx: TrustContext | null): void {
