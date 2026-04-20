@@ -135,6 +135,18 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                     keywords: ["home", "split", "side by side", "layout"],
                     description: "Composite demo: home + right-side HomeDetailPanel showing the side-by-side layout."
                 ),
+                GalleryComponent(
+                    "homeSuggestionPillBar",
+                    "HomeSuggestionPillBar",
+                    keywords: ["suggestion", "pill", "bar", "have you tried", "home"],
+                    description: "Dismissible \"by the way, have you tried…\" container with a headline and horizontal row of icon+label suggestion pills."
+                ),
+                GalleryComponent(
+                    "homeGreetingHeader",
+                    "HomeGreetingHeader",
+                    keywords: ["greeting", "header", "home", "avatar", "new chat"],
+                    description: "Home feed header with a leading avatar, a greeting title, and a trailing New Chat pill CTA."
+                ),
             ]
         case .icons:
             return [

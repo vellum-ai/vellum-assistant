@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 /// Greeting header for the Home feed.
 ///

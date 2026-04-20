@@ -398,6 +398,79 @@ struct HomeGallerySection: View {
 
                 HomeSplitLayoutDemo()
             }
+
+            // MARK: - HomeSuggestionPillBar
+
+            if filter == nil || filter == "homeSuggestionPillBar" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "HomeSuggestionPillBar",
+                    description: "Dismissible \"by the way, have you tried…\" container with a headline and horizontal row of icon+label suggestion pills. Renders no pills when the suggestions array is empty."
+                )
+
+                VCard(background: VColor.surfaceBase) {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("With suggestions")
+                            .font(VFont.bodySmallEmphasised)
+                            .foregroundStyle(VColor.contentSecondary)
+
+                        HomeSuggestionPillBar(
+                            headline: "By the way, have you tried one of these:",
+                            suggestions: [
+                                HomeSuggestion(id: "baby", icon: .gamepad, label: "App for baby names"),
+                                HomeSuggestion(id: "car", icon: .car, label: "Get your cars spring-ready"),
+                                HomeSuggestion(id: "vacation", icon: .plane, label: "Plan your next vacation"),
+                            ],
+                            onSelect: { _ in },
+                            onDismiss: {}
+                        )
+
+                        Divider().background(VColor.borderBase)
+
+                        Text("Empty suggestions (edge case — renders no pills)")
+                            .font(VFont.bodySmallEmphasised)
+                            .foregroundStyle(VColor.contentSecondary)
+
+                        HomeSuggestionPillBar(
+                            headline: "By the way, have you tried one of these:",
+                            suggestions: [],
+                            onSelect: { _ in },
+                            onDismiss: {}
+                        )
+                    }
+                }
+            }
+
+            // MARK: - HomeGreetingHeader
+
+            if filter == nil || filter == "homeGreetingHeader" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "HomeGreetingHeader",
+                    description: "Home feed header with a leading avatar, a greeting title, and a trailing New Chat pill CTA."
+                )
+
+                VCard(background: VColor.surfaceBase) {
+                    HomeGreetingHeader(
+                        greeting: "Here's what's been going on",
+                        onStartNewChat: {}
+                    ) {
+                        if let image = NSImage(systemSymbolName: "person.circle.fill", accessibilityDescription: nil) {
+                            VAvatarImage(image: image, size: 40)
+                        } else {
+                            Circle()
+                                .fill(VColor.surfaceActive)
+                                .frame(width: 40, height: 40)
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -562,6 +635,8 @@ extension HomeGallerySection {
         case "homeEmailEditor": HomeGallerySection(filter: "homeEmailEditor")
         case "homeInvoicePreview": HomeGallerySection(filter: "homeInvoicePreview")
         case "homeSplitLayout": HomeGallerySection(filter: "homeSplitLayout")
+        case "homeSuggestionPillBar": HomeGallerySection(filter: "homeSuggestionPillBar")
+        case "homeGreetingHeader": HomeGallerySection(filter: "homeGreetingHeader")
         default: EmptyView()
         }
     }
