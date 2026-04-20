@@ -190,7 +190,7 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
 
   const parsedMessages: Message[] = dbMessages
     .slice(ctx.contextCompactedMessageCount)
-    .map((m) => {
+    .map((m, index, arr) => {
       const role = m.role as "user" | "assistant";
       let content: ContentBlock[];
       try {
@@ -213,6 +213,9 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
       if (role === "user" && m.metadata) {
         try {
           const meta = JSON.parse(m.metadata);
+          const isTail = index === arr.length - 1;
+
+          // Memory remains rehydrated on all rows (existing behavior).
           if (typeof meta.memoryInjectedBlock === "string") {
             content = [
               {
@@ -221,6 +224,27 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
               },
               ...content,
             ];
+          }
+
+          // turn_context and system_reminder rehydrate for historical rows
+          // only. The tail gets fresh blocks via applyRuntimeInjections on
+          // the next turn. Ordering: memory was prepended first above, so
+          // prepending turn_context here places it at index 0, matching the
+          // documented shape:
+          //   [<turn_context>, <memory __injected>, ...original, <system_reminder>]
+          if (!isTail) {
+            if (typeof meta.turnContextBlock === "string") {
+              content = [
+                { type: "text" as const, text: meta.turnContextBlock },
+                ...content,
+              ];
+            }
+            if (typeof meta.pkbSystemReminderBlock === "string") {
+              content = [
+                ...content,
+                { type: "text" as const, text: meta.pkbSystemReminderBlock },
+              ];
+            }
           }
         } catch {
           /* ignore parse errors — metadata may be malformed */
