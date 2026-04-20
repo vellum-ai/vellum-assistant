@@ -944,6 +944,84 @@ describe("reapOrphanedMeetBots", () => {
     expect(result.kept).toEqual([]);
   });
 
+  test("skips containers created at or after createdBefore cutoff", async () => {
+    const killCalls: Array<{ id: string; signal: string | undefined }> = [];
+    const docker: FakeDocker = {
+      listContainers: async () => [
+        {
+          Id: "c-old",
+          Created: 1000,
+          Labels: {
+            [MEET_BOT_LABEL]: "true",
+            [MEET_BOT_MEETING_ID_LABEL]: "meeting-old",
+          },
+        },
+        {
+          Id: "c-new",
+          Created: 2500,
+          Labels: {
+            [MEET_BOT_LABEL]: "true",
+            [MEET_BOT_MEETING_ID_LABEL]: "meeting-new",
+          },
+        },
+      ],
+      kill: async (id, signal) => {
+        killCalls.push({ id, signal });
+      },
+    };
+
+    const result = await reapOrphanedMeetBots({
+      docker,
+      activeMeetingIds: new Set(),
+      createdBefore: 2000,
+      logger: silentLogger(),
+    });
+
+    expect(result.killed).toEqual(["c-old"]);
+    expect(result.kept).toEqual(["c-new"]);
+    expect(killCalls.filter((c) => c.signal === "SIGTERM")).toEqual([
+      { id: "c-old", signal: "SIGTERM" },
+    ]);
+  });
+
+  test("consults activeMeetingIds getter per-container so mid-sweep joins are observed", async () => {
+    const killCalls: Array<{ id: string; signal: string | undefined }> = [];
+    const live = new Set<string>();
+    const docker: FakeDocker = {
+      listContainers: async () => [
+        {
+          Id: "c-a",
+          Labels: {
+            [MEET_BOT_LABEL]: "true",
+            [MEET_BOT_MEETING_ID_LABEL]: "meeting-a",
+          },
+        },
+        {
+          Id: "c-b",
+          Labels: {
+            [MEET_BOT_LABEL]: "true",
+            [MEET_BOT_MEETING_ID_LABEL]: "meeting-b",
+          },
+        },
+      ],
+      kill: async (id, signal) => {
+        killCalls.push({ id, signal });
+        // Simulate a concurrent join that lands between the two iterations:
+        // once c-a has been reaped, meeting-b becomes active.
+        if (id === "c-a" && signal === "SIGTERM") live.add("meeting-b");
+      },
+    };
+
+    const result = await reapOrphanedMeetBots({
+      docker,
+      activeMeetingIds: () => live,
+      logger: silentLogger(),
+    });
+
+    expect(result.killed).toEqual(["c-a"]);
+    expect(result.kept).toEqual(["c-b"]);
+  });
+
   test("returns empty result and logs a warning if listContainers throws", async () => {
     const docker: FakeDocker = {
       listContainers: async () => {

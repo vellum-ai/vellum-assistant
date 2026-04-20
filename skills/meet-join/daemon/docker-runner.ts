@@ -192,6 +192,13 @@ export interface ContainerListEntry {
   Labels?: Record<string, string>;
   State?: string;
   Status?: string;
+  /**
+   * Container creation time as Unix epoch seconds (Docker's
+   * `/containers/json` returns this as the `Created` field). Used by the
+   * orphan reaper to skip containers created after the daemon started, so
+   * joins that race the startup sweep are never misidentified as orphans.
+   */
+  Created?: number;
   [key: string]: unknown;
 }
 
@@ -918,9 +925,13 @@ export const REAPER_TERM_KILL_GRACE_MS = 10_000;
  *
  * @param opts.docker Docker client — typically a {@link DockerRunner}.
  * @param opts.activeMeetingIds Meeting IDs that currently map to a live
- *   in-process session. On boot this is an empty set (no sessions yet),
- *   but the signature accepts any set so the same helper can be called
- *   from a later "cleanup unexpected orphans" sweep during runtime.
+ *   in-process session. Accepts either a static set or a zero-arg getter;
+ *   the getter is consulted per-container so a join that lands mid-sweep
+ *   is observed before its container is evaluated.
+ * @param opts.createdBefore Optional Unix-epoch-seconds cutoff. Containers
+ *   with `Created >= createdBefore` are kept unconditionally. Pass the
+ *   daemon's start time during the startup sweep so new joins launched
+ *   concurrently can never be misidentified as orphans from a prior run.
  * @param opts.logger Structured logger — one INFO line per kill.
  * @returns Summary of which container ids were killed vs kept.
  */
@@ -939,10 +950,15 @@ export interface ReaperLogger {
 
 export async function reapOrphanedMeetBots(opts: {
   docker: DockerClientForReaper;
-  activeMeetingIds: ReadonlySet<string>;
+  activeMeetingIds: ReadonlySet<string> | (() => ReadonlySet<string>);
+  createdBefore?: number;
   logger: ReaperLogger;
 }): Promise<{ killed: string[]; kept: string[] }> {
-  const { docker, activeMeetingIds, logger } = opts;
+  const { docker, activeMeetingIds, createdBefore, logger } = opts;
+  const resolveActive =
+    typeof activeMeetingIds === "function"
+      ? activeMeetingIds
+      : () => activeMeetingIds;
   const killed: string[] = [];
   const kept: string[] = [];
 
@@ -962,7 +978,18 @@ export async function reapOrphanedMeetBots(opts: {
     const labels = container.Labels ?? {};
     const meetingId = labels[MEET_BOT_MEETING_ID_LABEL];
 
-    if (meetingId && activeMeetingIds.has(meetingId)) {
+    // Skip containers created after the cutoff — they belong to this
+    // daemon's lifetime (or later) and cannot be orphans from a prior run.
+    if (
+      createdBefore !== undefined &&
+      typeof container.Created === "number" &&
+      container.Created >= createdBefore
+    ) {
+      kept.push(containerId);
+      continue;
+    }
+
+    if (meetingId && resolveActive().has(meetingId)) {
       kept.push(containerId);
       continue;
     }
