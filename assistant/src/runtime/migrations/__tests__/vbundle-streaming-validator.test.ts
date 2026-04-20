@@ -191,15 +191,39 @@ describe("readAndValidateManifest — negative paths", () => {
     expect(err?.code).toBe("manifest_not_first");
   });
 
-  test("throws manifest_too_large when manifest body exceeds 1 MiB", async () => {
-    // 1 MiB + 1 byte of filler — cheap to build, sails past the cap.
-    const oversize = new Uint8Array(1 * 1024 * 1024 + 1);
-    oversize.fill(0x20); // spaces — still triggers JSON parse failure too,
-    // but the size cap is checked first, so we never reach JSON parsing.
-    const archive = buildRawVBundle([
-      { name: "manifest.json", data: oversize },
-    ]);
-    const { entry, drainRest } = await firstEntryOf(archive);
+  test("throws manifest_too_large and fails fast before draining the whole body", async () => {
+    // Fake a tar entry whose body would emit 5 MiB if fully drained. The
+    // validator must destroy() the stream and throw the moment the running
+    // byte count crosses the 1 MiB cap — it must NOT keep pulling chunks.
+    //
+    // We count bytes emitted via a _read implementation, and after the
+    // throw assert both that destroy() fired and that far fewer than 5 MiB
+    // were ever pulled out of the stream.
+    const CHUNK = 512 * 1024; // 512 KiB
+    const TOTAL_CHUNKS = 10; // 5 MiB worth — way past the 1 MiB cap
+    let chunksEmitted = 0;
+    let bytesEmitted = 0;
+    const body = new Readable({
+      read() {
+        if (chunksEmitted >= TOTAL_CHUNKS) {
+          this.push(null);
+          return;
+        }
+        const buf = Buffer.alloc(CHUNK, 0x20);
+        chunksEmitted += 1;
+        bytesEmitted += buf.length;
+        this.push(buf);
+      },
+    });
+
+    const entry: StreamedTarEntry = {
+      header: {
+        name: "manifest.json",
+        size: CHUNK * TOTAL_CHUNKS,
+        type: "file",
+      },
+      body,
+    };
 
     let err: StreamingValidationError | null = null;
     try {
@@ -207,10 +231,15 @@ describe("readAndValidateManifest — negative paths", () => {
     } catch (e) {
       err = e as StreamingValidationError;
     }
-    await drainRest();
 
     expect(err).toBeInstanceOf(StreamingValidationError);
     expect(err?.code).toBe("manifest_too_large");
+    // Fail-fast assertions: destroy() was called, and we didn't drain past
+    // ~1 MiB + one chunk. If the validator had drained to EOF we'd see the
+    // full 5 MiB / 10 chunks here.
+    expect(body.destroyed).toBe(true);
+    expect(chunksEmitted).toBeLessThanOrEqual(3);
+    expect(bytesEmitted).toBeLessThan(2 * 1024 * 1024);
   });
 
   test("throws manifest_malformed when manifest body is not valid JSON", async () => {

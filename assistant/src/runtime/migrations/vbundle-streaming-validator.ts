@@ -97,26 +97,24 @@ export async function readAndValidateManifest(
     );
   }
 
-  // Drain the entry body into a Buffer, enforcing the size cap as we go
-  // so a pathological entry can't OOM us before we notice.
+  // Drain the entry body into a Buffer, enforcing the size cap as we go.
+  // The moment we cross the cap we destroy the entry stream — this signals
+  // the tar extractor (and therefore gunzip + upstream source) to abort,
+  // so a malicious archive whose "manifest" is a multi-GB decompressed
+  // stream can't force us to read through all of it before rejecting.
   const chunks: Buffer[] = [];
   let total = 0;
-  let tooLarge = false;
   for await (const chunk of first.body) {
     const buf = chunk instanceof Buffer ? chunk : Buffer.from(chunk);
     total += buf.length;
     if (total > MANIFEST_MAX_BYTES) {
-      tooLarge = true;
-      // Keep draining so the extractor can advance; we just stop buffering.
-      continue;
+      first.body.destroy();
+      throw new StreamingValidationError(
+        "manifest_too_large",
+        `manifest.json exceeds ${MANIFEST_MAX_BYTES} byte limit (read ${total} bytes before aborting)`,
+      );
     }
     chunks.push(buf);
-  }
-  if (tooLarge) {
-    throw new StreamingValidationError(
-      "manifest_too_large",
-      `manifest.json exceeds ${MANIFEST_MAX_BYTES} byte limit (read ${total} bytes)`,
-    );
   }
 
   const bodyBuf = Buffer.concat(chunks, total);
