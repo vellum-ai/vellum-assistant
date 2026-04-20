@@ -358,7 +358,9 @@ class IOSConversationStore: ObservableObject {
         conversation.originChannel = restored.originChannel ?? conversation.originChannel
         conversation.forkParent = restored.forkParent
         let hasLocalPinEdit = conversation.conversationId.map { locallyEditedPinConversationIds.contains($0) } ?? false
-        pinDebugLog.info("[pin-debug] mergeConversationMetadata conv=\(conversation.conversationId ?? "nil", privacy: .public) hasLocalPinEdit=\(hasLocalPinEdit, privacy: .public) restored.isPinned=\(restored.isPinned, privacy: .public) conversation.isPinned=\(conversation.isPinned, privacy: .public)")
+        let pinDebugConvId = conversation.conversationId ?? "nil"
+        let pinDebugCurrentIsPinned = conversation.isPinned
+        pinDebugLog.info("[pin-debug] mergeConversationMetadata conv=\(pinDebugConvId, privacy: .public) hasLocalPinEdit=\(hasLocalPinEdit, privacy: .public) restored.isPinned=\(restored.isPinned, privacy: .public) conversation.isPinned=\(pinDebugCurrentIsPinned, privacy: .public)")
         if !hasLocalPinEdit {
             conversation.isPinned = restored.isPinned
             conversation.displayOrder = restored.displayOrder
