@@ -129,27 +129,13 @@ describe("Trust Store", () => {
       expect(userRules[2].priority).toBe(0);
     });
 
-    test("accepts allowHighRisk option and persists it", () => {
-      const rule = addRule("bash", "sudo *", "everywhere", "allow", 100, {
-        allowHighRisk: true,
-      });
-      expect(rule.allowHighRisk).toBe(true);
-      // Verify it persists to disk
-      clearCache();
-      const rules = getAllRules();
-      const found = rules.find((r) => r.id === rule.id);
-      expect(found).toBeDefined();
-      expect(found!.allowHighRisk).toBe(true);
-    });
-
-    test("addRule without allowHighRisk option does not set the field", () => {
-      const rule = addRule("bash", "git *", "/tmp");
-      expect(rule.allowHighRisk).toBeUndefined();
-      // Verify on disk
-      const raw = JSON.parse(readFileSync(trustPath, "utf-8"));
-      const diskRule = raw.rules.find((r: { id: string }) => r.id === rule.id);
-      expect(diskRule).toBeDefined();
-      expect(diskRule).not.toHaveProperty("allowHighRisk");
+    test("allowHighRisk option is stripped during normalization", () => {
+      // allowHighRisk is no longer persisted — the parser strips it.
+      const rule = addRule("bash", "sudo *", "everywhere", "allow", 100);
+      // Verify the field is not on the rule
+      expect(
+        (rule as unknown as Record<string, unknown>).allowHighRisk,
+      ).toBeUndefined();
     });
 
     test("at same priority deny rules sort before allow rules", () => {
@@ -176,7 +162,7 @@ describe("Trust Store", () => {
       expect(found!.executionTarget).toBe("sandbox");
     });
 
-    test("accepts all contextual options together (target, allowHighRisk)", () => {
+    test("accepts executionTarget option (allowHighRisk no longer supported)", () => {
       const rule = addRule(
         "risky_tool",
         "risky_tool:*",
@@ -184,18 +170,16 @@ describe("Trust Store", () => {
         "allow",
         100,
         {
-          allowHighRisk: true,
           executionTarget: "host",
         },
       );
-      expect(rule.allowHighRisk).toBe(true);
       expect(rule.executionTarget).toBe("host");
 
-      // Verify on disk
+      // Verify on disk — allowHighRisk should not appear
       const raw = JSON.parse(readFileSync(trustPath, "utf-8"));
       const diskRule = raw.rules.find((r: { id: string }) => r.id === rule.id);
       expect(diskRule).toBeDefined();
-      expect(diskRule.allowHighRisk).toBe(true);
+      expect(diskRule).not.toHaveProperty("allowHighRisk");
       expect(diskRule.executionTarget).toBe("host");
     });
 
@@ -944,7 +928,6 @@ describe("Trust Store", () => {
       expect(match).not.toBeNull();
       expect(match!.id).toBe("default:allow-bash-rm-bootstrap");
       expect(match!.decision).toBe("allow");
-      expect(match!.allowHighRisk).toBe(true);
       // Outside workspace, the bootstrap rule doesn't match — without
       // IS_CONTAINERIZED there is no catch-all bash allow rule either.
       const other = findHighestPriorityRule(
@@ -965,7 +948,6 @@ describe("Trust Store", () => {
       expect(match).not.toBeNull();
       expect(match!.id).toBe("default:allow-bash-rm-updates");
       expect(match!.decision).toBe("allow");
-      expect(match!.allowHighRisk).toBe(true);
       // Outside workspace, should NOT match the updates rule — without
       // IS_CONTAINERIZED there is no catch-all bash allow rule either.
       const other = findHighestPriorityRule(
@@ -1218,11 +1200,10 @@ describe("Trust Store", () => {
   // ── trust rule schema v3 (PR 14) ──────────────────────────────
 
   describe("trust rule schema v3 (PR 14)", () => {
-    test("new rules can include v3 optional fields", () => {
+    test("new rules can include v3 optional fields (executionTarget)", () => {
       const rule = addRule("bash", "git *", "/tmp");
-      // Manually set v3 optional fields on the rule and persist
+      // Manually set v3 optional field on the rule and persist
       rule.executionTarget = "/usr/local/bin/node";
-      rule.allowHighRisk = true;
       // Re-persist the updated rules
       const rules = getAllRules().map((r) => (r.id === rule.id ? rule : r));
       // Write directly to verify round-trip
@@ -1233,7 +1214,6 @@ describe("Trust Store", () => {
       const found = reloaded.find((r) => r.id === rule.id);
       expect(found).toBeDefined();
       expect(found!.executionTarget).toBe("/usr/local/bin/node");
-      expect(found!.allowHighRisk).toBe(true);
     });
 
     test("trust file persists with version 3", () => {
@@ -1268,7 +1248,6 @@ describe("Trust Store", () => {
           priority: 100,
           createdAt: 7000,
           executionTarget: "/usr/bin/node",
-          allowHighRisk: false,
         },
         {
           id: "v3-without-options",
@@ -1288,7 +1267,6 @@ describe("Trust Store", () => {
       const withOptions = rules.find((r) => r.id === "v3-with-options");
       expect(withOptions).toBeDefined();
       expect(withOptions!.executionTarget).toBe("/usr/bin/node");
-      expect(withOptions!.allowHighRisk).toBe(false);
 
       // Rule without optional fields should remain without them
       const withoutOptions = rules.find((r) => r.id === "v3-without-options");
@@ -1775,7 +1753,7 @@ describe("canonical parser normalization-on-load", () => {
     expect(diskRule).not.toHaveProperty("executionTarget");
   });
 
-  test("URL rule with allowHighRisk is preserved on load", () => {
+  test("URL rule with allowHighRisk is stripped on load (normalized)", () => {
     mkdirSync(dirname(trustPath), { recursive: true });
     writeFileSync(
       trustPath,
@@ -1799,10 +1777,13 @@ describe("canonical parser normalization-on-load", () => {
     const rules = getAllRules();
     const found = rules.find((r) => r.id === "url-rule-with-ahr");
     expect(found).toBeDefined();
-    expect((found as { allowHighRisk?: boolean }).allowHighRisk).toBe(true);
+    // allowHighRisk is stripped during normalization
+    expect(
+      (found as unknown as Record<string, unknown>).allowHighRisk,
+    ).toBeUndefined();
   });
 
-  test("scoped rule preserves executionTarget and allowHighRisk on load", () => {
+  test("scoped rule preserves executionTarget but strips allowHighRisk on load", () => {
     mkdirSync(dirname(trustPath), { recursive: true });
     writeFileSync(
       trustPath,
@@ -1830,7 +1811,10 @@ describe("canonical parser normalization-on-load", () => {
     expect((found as { executionTarget?: string }).executionTarget).toBe(
       "/usr/local/bin/node",
     );
-    expect((found as { allowHighRisk?: boolean }).allowHighRisk).toBe(true);
+    // allowHighRisk is stripped during normalization
+    expect(
+      (found as unknown as Record<string, unknown>).allowHighRisk,
+    ).toBeUndefined();
   });
 
   test("normalization on v2 file triggers re-save as v3", () => {

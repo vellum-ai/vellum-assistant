@@ -1,13 +1,7 @@
 import { join } from "node:path";
 
-import type {
-  ScopedTrustRule,
-  TrustRuleBase,
-} from "@vellumai/ces-contracts";
-import {
-  MANAGED_SKILL_TOOLS,
-  SKILL_LOAD_TOOL,
-} from "@vellumai/ces-contracts";
+import type { ScopedTrustRule, TrustRuleBase } from "@vellumai/ces-contracts";
+import { MANAGED_SKILL_TOOLS, SKILL_LOAD_TOOL } from "@vellumai/ces-contracts";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
@@ -18,15 +12,12 @@ import { getWorkspaceDir } from "../util/platform.js";
 /**
  * A default rule template is structurally identical to TrustRuleBase
  * minus `createdAt` (set at backfill time) and `userModifiedAt` (set
- * when users explicitly override defaults), plus the optional
- * `allowHighRisk` field that some tool families support.
+ * when users explicitly override defaults).
  */
 export type DefaultRuleTemplate = Omit<
   TrustRuleBase,
   "createdAt" | "userModifiedAt"
-> & {
-  allowHighRisk?: boolean;
-};
+>;
 
 /**
  * Escape minimatch metacharacters so a literal path is matched literally when
@@ -91,8 +82,9 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   };
 
   // When running inside a container (IS_CONTAINERIZED=true), bash commands
-  // execute in an isolated environment — auto-allow all of them (including
-  // high-risk) so the user is never prompted.  Outside a container, bash
+  // execute in an isolated environment — auto-allow all of them so the user
+  // is never prompted. High-risk operations are handled by
+  // shouldAutoAllowHighRisk() in checker.ts. Outside a container, bash
   // commands run on the host and go through normal permission checks.
   const bashShellRule: DefaultRuleTemplate | null = getIsContainerized()
     ? {
@@ -102,7 +94,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
         scope: "everywhere",
         decision: "allow",
         priority: 50,
-        allowHighRisk: true,
       }
     : null;
 
@@ -198,7 +189,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     scope: workspaceDir,
     decision: "allow",
     priority: 100,
-    allowHighRisk: true,
   };
 
   const updatesDeleteRule: DefaultRuleTemplate = {
@@ -208,7 +198,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     scope: workspaceDir,
     decision: "allow",
     priority: 100,
-    allowHighRisk: true,
   };
 
   // Skill source directories — writing or editing skill source files should

@@ -35,7 +35,7 @@ function handleListTrustRules(): Response {
 /**
  * POST /v1/trust-rules/manage — add a trust rule (standalone, not approval-flow).
  *
- * Body: { toolName, pattern, scope, decision, allowHighRisk?, executionTarget? }
+ * Body: { toolName, pattern, scope, decision, executionTarget? }
  *
  * Legacy payloads that include fields invalid for the tool's family (e.g.
  * `executionTarget` on a `web_fetch` rule) are accepted but canonicalized:
@@ -49,12 +49,10 @@ export async function handleAddTrustRuleManage(
     pattern?: string;
     scope?: string;
     decision?: string;
-    allowHighRisk?: boolean;
     executionTarget?: string;
   };
 
-  const { toolName, pattern, scope, decision, allowHighRisk, executionTarget } =
-    body;
+  const { toolName, pattern, scope, decision, executionTarget } = body;
 
   if (!toolName || typeof toolName !== "string") {
     return httpError("BAD_REQUEST", "toolName is required", 400);
@@ -95,7 +93,6 @@ export async function handleAddTrustRuleManage(
       decision as "allow" | "deny" | "ask",
       undefined,
       {
-        ...(allowHighRisk != null ? { allowHighRisk } : {}),
         ...(executionTarget != null ? { executionTarget } : {}),
       },
     );
@@ -213,10 +210,6 @@ export function trustRulesRouteDefinitions(): RouteDefinition[] {
         pattern: z.string().describe("Allowlist pattern"),
         scope: z.string().describe("Scope"),
         decision: z.string().describe("allow, deny, or ask"),
-        allowHighRisk: z
-          .boolean()
-          .describe("Allow high-risk invocations")
-          .optional(),
         executionTarget: z.string().describe("Execution target").optional(),
       }),
       responseBody: z.object({

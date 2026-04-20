@@ -12,14 +12,14 @@ Because skills can introduce arbitrary tool behavior, they are subject to strict
 
 Skill-origin tools follow a stricter default permission policy than core tools:
 
-| Scenario                                              | Core tool behavior            | Skill tool behavior |
-| ----------------------------------------------------- | ----------------------------- | ------------------- |
-| Low risk, no matching rule                            | Auto-allowed (workspace mode) | **Prompted**        |
-| Medium risk, no matching rule                         | Prompted                      | Prompted            |
-| High risk, no matching rule                           | Prompted                      | Prompted            |
-| Allow rule matches, non-high risk                     | Auto-allowed                  | Auto-allowed        |
-| Allow rule matches, high risk, `allowHighRisk: true`  | Auto-allowed                  | Auto-allowed        |
-| Allow rule matches, high risk, `allowHighRisk` absent | Prompted                      | Prompted            |
+| Scenario                                          | Core tool behavior            | Skill tool behavior |
+| ------------------------------------------------- | ----------------------------- | ------------------- |
+| Low risk, no matching rule                        | Auto-allowed (workspace mode) | **Prompted**        |
+| Medium risk, no matching rule                     | Prompted                      | Prompted            |
+| High risk, no matching rule                       | Prompted                      | Prompted            |
+| Allow rule matches, non-high risk                 | Auto-allowed                  | Auto-allowed        |
+| Allow rule matches, high risk, containerized bash | Auto-allowed (runtime check)  | Auto-allowed        |
+| Allow rule matches, high risk, other              | Prompted                      | Prompted            |
 
 Even if a skill's `TOOLS.json` declares `"risk": "low"` for one of its tools, the permission checker will prompt the user unless an explicit trust rule in `~/.vellum/protected/trust.json` allows it. This prevents third-party skill tools from silently auto-executing.
 
@@ -73,7 +73,7 @@ Writing to skill source files is treated as a **high-risk** operation by the ris
 - **Workspace skills**: Project-local skill directories
 - **Extra skills**: Additional roots configured by the user
 
-When `file_write`, `file_edit`, `host_file_write`, or `host_file_edit` targets a path inside any of these directories, the risk level is escalated from its normal level (typically Medium) to **High**. High-risk operations always require user approval unless a matching trust rule with `allowHighRisk: true` exists.
+When `file_write`, `file_edit`, `host_file_write`, or `host_file_edit` targets a path inside any of these directories, the risk level is escalated from its normal level (typically Medium) to **High**. High-risk operations always require user approval (only containerized bash is auto-allowed at runtime for high-risk operations).
 
 This escalation prevents the agent from modifying skill code without explicit user consent. Since modifying a skill's source could grant the agent new capabilities or alter existing tool behavior, such mutations are treated as a privilege-escalation vector.
 
@@ -135,7 +135,7 @@ When you modify any file in a skill's directory, the version hash changes. If yo
 
 Writing to skill source paths is classified as high risk because it could alter the agent's capabilities. This is a deliberate security measure.
 
-**Fix**: If you trust the operation, approve it. To permanently allow it, select "Always allow" and choose the `allowHighRisk` option if offered.
+**Fix**: If you trust the operation, approve it. To permanently allow it, select "Always allow". Note that high-risk file operations will still prompt for each invocation since runtime auto-allow only applies to containerized bash.
 
 ### "Why is strict mode prompting for everything?"
 

@@ -341,7 +341,6 @@ export function addRule(
   decision: TrustDecision = "allow",
   priority: number = 100,
   options?: {
-    allowHighRisk?: boolean;
     executionTarget?: string;
   },
 ): TrustRule {
@@ -362,9 +361,6 @@ export function addRule(
     decision,
     priority,
     createdAt: Date.now(),
-    ...(options?.allowHighRisk != null
-      ? { allowHighRisk: options.allowHighRisk }
-      : {}),
     ...(options?.executionTarget != null
       ? { executionTarget: options.executionTarget }
       : {}),

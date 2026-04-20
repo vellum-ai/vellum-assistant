@@ -8,8 +8,6 @@ export interface AddTrustRule {
   pattern: string;
   scope: string;
   decision: "allow" | "deny" | "ask";
-  /** When true, the rule also covers high-risk invocations. */
-  allowHighRisk?: boolean;
   /** Execution target override for this rule. */
   executionTarget?: "host" | "sandbox";
 }
