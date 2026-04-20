@@ -683,7 +683,6 @@ describe("ToolExecutor contextual rule creation", () => {
     expect(spy).toHaveBeenCalledTimes(1);
     const [, , , , , options] = spy.mock.calls[0];
     expect(options).toBeDefined();
-    expect(options.executionTarget).toBeDefined();
     // No execution target for core tools
     expect(options.executionTarget).toBeUndefined();
   });

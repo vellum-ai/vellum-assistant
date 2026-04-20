@@ -77,7 +77,11 @@ export async function handleConfirm(
     selectedScope?: string;
   };
 
-  const { requestId, decision, selectedPattern, selectedScope } = body;
+  const { requestId, selectedPattern, selectedScope } = body;
+  // Normalize legacy decision: older clients may still send
+  // "always_allow_high_risk" for high-risk prompts.
+  const decision =
+    body.decision === "always_allow_high_risk" ? "always_allow" : body.decision;
 
   if (!requestId || typeof requestId !== "string") {
     return httpError("BAD_REQUEST", "requestId is required", 400);

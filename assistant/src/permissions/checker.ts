@@ -168,10 +168,7 @@ const LOW_RISK_PROGRAMS = new Set([
  * special handling here.
  */
 function shouldAutoAllowHighRisk(toolName: string): boolean {
-  if (
-    (toolName === "bash" || toolName === "host_bash") &&
-    getIsContainerized()
-  ) {
+  if (toolName === "bash" && getIsContainerized()) {
     return true;
   }
   return false;

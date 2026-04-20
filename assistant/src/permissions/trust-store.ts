@@ -315,8 +315,7 @@ function loadFromDisk(): TrustRule[] {
 
         // Apply canonical parser for family-aware normalization.
         // The parser strips fields that are invalid for a rule's tool family
-        // (e.g. executionTarget on URL rules), preserves compatible optional
-        // fields (e.g. executionTarget on URL rules), and coerces malformed values.
+        // (e.g. executionTarget on URL rules) and coerces malformed values.
         const { data: parsedData, normalized } = parseTrustFileData({
           ...data,
           rules: sanitizedRules,
