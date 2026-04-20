@@ -1334,7 +1334,13 @@ class IOSConversationStore: ObservableObject {
             locallyEditedPinConversationIds.insert(sid)
         }
         recompactPinnedDisplayOrders()
-        sendReorderConversations()
+        if let sid = conversations[idx].conversationId {
+            sendPinChange(
+                conversationId: sid,
+                isPinned: true,
+                displayOrder: conversations[idx].displayOrder
+            )
+        }
         saveConnectedCache()
     }
 
@@ -1353,7 +1359,9 @@ class IOSConversationStore: ObservableObject {
             locallyEditedPinConversationIds.insert(sid)
         }
         recompactPinnedDisplayOrders()
-        sendReorderConversations()
+        if let sid = conversations[idx].conversationId {
+            sendPinChange(conversationId: sid, isPinned: false, displayOrder: nil)
+        }
         saveConnectedCache()
     }
 
@@ -1588,6 +1596,29 @@ class IOSConversationStore: ObservableObject {
             for id in affectedIds {
                 self.locallyEditedPinConversationIds.remove(id)
             }
+        }
+    }
+
+    /// Send a single-conversation pin change delta. Used by `pinConversation`
+    /// and `unpinConversation` instead of the full-list `sendReorderConversations()`.
+    ///
+    /// The full-list endpoint submits every conversation's `isPinned` from the
+    /// local cache, so if this client's view is stale (e.g. another device
+    /// changed pin state and we haven't synced yet), the POST clobbers the
+    /// other device's changes. Sending only the single conversation whose pin
+    /// state actually changed makes concurrent pin edits on different devices
+    /// naturally safe — each client's POST touches only what it actually
+    /// toggled, so the other client's unrelated changes survive.
+    private func sendPinChange(conversationId: String, isPinned: Bool, displayOrder: Int?) {
+        let update = ReorderConversationsRequestUpdate(
+            conversationId: conversationId,
+            displayOrder: displayOrder.map(Double.init),
+            isPinned: isPinned
+        )
+        Task { [weak self] in
+            _ = await self?.conversationListClient.reorderConversations(updates: [update])
+            guard let self else { return }
+            self.locallyEditedPinConversationIds.remove(conversationId)
         }
     }
 
