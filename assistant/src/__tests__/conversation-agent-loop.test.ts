@@ -124,10 +124,14 @@ mock.module("../hooks/manager.js", () => ({
   }),
 }));
 
+const updateMessageMetadataMock = mock(
+  (_id: string, _metadata: Record<string, unknown>) => {},
+);
 mock.module("../memory/conversation-crud.js", () => ({
   getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationUsage: () => {},
+  updateMessageMetadata: updateMessageMetadataMock,
   getMessages: () => [],
   getConversation: () => ({
     id: "conv-1",
@@ -206,11 +210,16 @@ mock.module("../daemon/conversation-memory.js", () => ({
   }),
 }));
 
+let mockInjectionBlocks: Record<string, string> = {};
+let mockInjectionCallCount = 0;
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
-  applyRuntimeInjections: async (msgs: Message[]) => ({
-    messages: msgs,
-    blocks: {},
-  }),
+  applyRuntimeInjections: async (msgs: Message[]) => {
+    mockInjectionCallCount += 1;
+    return {
+      messages: msgs,
+      blocks: { ...mockInjectionBlocks },
+    };
+  },
   stripInjectionsForCompaction: (msgs: Message[]) => msgs,
   findLastInjectedNowContent: () => null,
   readNowScratchpad: () => null,
@@ -498,10 +507,14 @@ beforeEach(() => {
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
   mockApprovalResult = { approved: false };
+  mockInjectionBlocks = {};
+  mockInjectionCallCount = 0;
   recordUsageMock.mockClear();
   recordRequestLogMock.mockClear();
   syncMessageToDiskMock.mockClear();
   rebuildConversationDiskViewFromDbStateMock.mockClear();
+  updateMessageMetadataMock.mockClear();
+  updateMessageMetadataMock.mockImplementation(() => {});
 });
 
 describe("session-agent-loop", () => {
@@ -2114,6 +2127,106 @@ describe("session-agent-loop", () => {
       expect(ctx.processing).toBe(false);
       expect(ctx.abortController).toBeNull();
       expect(ctx.currentRequestId).toBeUndefined();
+    });
+  });
+
+  describe("turnContextBlock metadata persistence", () => {
+    test("persists turnContextBlock when unifiedTurnContext is captured", async () => {
+      const turnContext = "<turn_context>\nctx payload\n</turn_context>";
+      mockInjectionBlocks = { unifiedTurnContext: turnContext };
+
+      const ctx = makeCtx();
+      await runAgentLoopImpl(ctx, "hello", "user-msg-123", () => {});
+
+      const turnContextCalls = updateMessageMetadataMock.mock.calls.filter(
+        (call) => {
+          const payload = call[1] as Record<string, unknown>;
+          return (
+            payload != null &&
+            Object.prototype.hasOwnProperty.call(payload, "turnContextBlock")
+          );
+        },
+      );
+      expect(turnContextCalls).toHaveLength(1);
+      expect(turnContextCalls[0]![0]).toBe("user-msg-123");
+      expect(turnContextCalls[0]![1]).toEqual({
+        turnContextBlock: turnContext,
+      });
+    });
+
+    test("skips persistence when unifiedTurnContext is not captured", async () => {
+      mockInjectionBlocks = {};
+
+      const ctx = makeCtx();
+      await runAgentLoopImpl(ctx, "hello", "user-msg-456", () => {});
+
+      const turnContextCalls = updateMessageMetadataMock.mock.calls.filter(
+        (call) => {
+          const payload = call[1] as Record<string, unknown>;
+          return (
+            payload != null &&
+            Object.prototype.hasOwnProperty.call(payload, "turnContextBlock")
+          );
+        },
+      );
+      expect(turnContextCalls).toHaveLength(0);
+    });
+
+    test("only persists at first call site, even when overflow re-entry fires", async () => {
+      const turnContext = "<turn_context>\nctx\n</turn_context>";
+      mockInjectionBlocks = { unifiedTurnContext: turnContext };
+
+      // Force preflight overflow path so applyRuntimeInjections is called
+      // again inside the overflow-recovery re-entry loop.
+      mockEstimateTokens = 96000;
+      mockReducerStepFn = (msgs: Message[]) => ({
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: true,
+        },
+        estimatedTokens: 50000,
+      });
+
+      const ctx = makeCtx();
+      await runAgentLoopImpl(ctx, "hello", "user-msg-789", () => {});
+
+      // Sanity check: overflow re-entry did fire (call count > 1).
+      expect(mockInjectionCallCount).toBeGreaterThan(1);
+
+      const turnContextCalls = updateMessageMetadataMock.mock.calls.filter(
+        (call) => {
+          const payload = call[1] as Record<string, unknown>;
+          return (
+            payload != null &&
+            Object.prototype.hasOwnProperty.call(payload, "turnContextBlock")
+          );
+        },
+      );
+      expect(turnContextCalls).toHaveLength(1);
+      expect(turnContextCalls[0]![0]).toBe("user-msg-789");
+    });
+
+    test("non-fatal when updateMessageMetadata throws", async () => {
+      mockInjectionBlocks = {
+        unifiedTurnContext: "<turn_context>x</turn_context>",
+      };
+      updateMessageMetadataMock.mockImplementation(() => {
+        throw new Error("simulated DB failure");
+      });
+
+      const events: ServerMessage[] = [];
+      const ctx = makeCtx();
+
+      // Should not throw; agent loop continues and emits message_complete.
+      await runAgentLoopImpl(ctx, "hello", "user-msg-err", (msg) =>
+        events.push(msg),
+      );
+
+      const complete = events.find((e) => e.type === "message_complete");
+      expect(complete).toBeDefined();
     });
   });
 

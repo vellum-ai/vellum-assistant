@@ -966,6 +966,24 @@ export async function runAgentLoopImpl(
     });
     runMessages = injection.messages;
 
+    // Persist the injected <turn_context> block in message metadata so it
+    // survives conversation reloads (eviction, restart, fork). loadFromDb
+    // re-injects from metadata. Only the first call site persists — the
+    // overflow-recovery re-entry sites send identical bytes and the tail
+    // row may not correspond to `userMessageId`.
+    if (injection.blocks.unifiedTurnContext) {
+      try {
+        updateMessageMetadata(userMessageId, {
+          turnContextBlock: injection.blocks.unifiedTurnContext,
+        });
+      } catch (err) {
+        rlog.warn(
+          { err },
+          "Failed to persist turnContextBlock metadata (non-fatal)",
+        );
+      }
+    }
+
     // ── Preflight budget evaluation ──────────────────────────────
     // After runtime injections are applied, estimate the prompt token count
     // and proactively invoke the reducer if already above budget. This avoids
