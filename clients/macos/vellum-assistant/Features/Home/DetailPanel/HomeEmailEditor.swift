@@ -169,6 +169,6 @@ struct HomeEmailEditor: View {
                 .foregroundStyle(VColor.contentSecondary)
                 .accessibilityLabel(Text(label))
         }
-        .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.md, bottom: VSpacing.sm, trailing: VSpacing.md))
+        .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.lg, bottom: VSpacing.sm, trailing: VSpacing.lg))
     }
 }
