@@ -1217,29 +1217,21 @@ export interface SlackTranscriptInputRow {
 }
 
 /**
- * Extract the user-facing plain text from a persisted message row's content
- * column. The persisted shape is a JSON-encoded `ContentBlock[]`; only `text`
- * blocks contribute to the rendered transcript line. Tool-use / tool-result /
- * thinking blocks are intentionally elided — they would clutter the
- * Slack-style transcript and the model can already recall them from the
+ * Extract the user-facing plain text from an already-parsed `ContentBlock[]`.
+ * Only `text` blocks contribute to the rendered transcript line. Tool-use /
+ * tool-result / thinking blocks are intentionally elided — they would clutter
+ * the Slack-style transcript and the model can already recall them from the
  * surrounding turn structure.
  *
- * Falls back to the raw column value when JSON parsing fails so legacy /
- * non-JSON-encoded rows still surface their text content.
+ * Rows with no text blocks (e.g. images, file uploads, pure tool turns) would
+ * otherwise render as an empty transcript line like `[14:25 @alice]: `;
+ * surface the attachment/tool context instead so the model can tell something
+ * was actually said on that turn.
  */
-function extractPlainText(rawContent: string): string {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawContent);
-  } catch {
-    return rawContent;
-  }
-  if (!Array.isArray(parsed)) {
-    return typeof parsed === "string" ? parsed : rawContent;
-  }
+function extractPlainTextFromBlocks(blocks: ContentBlock[]): string {
   const parts: string[] = [];
   const placeholderLabels: string[] = [];
-  for (const block of parsed as ContentBlock[]) {
+  for (const block of blocks) {
     if (!block || typeof block !== "object") continue;
     if (block.type === "text") {
       parts.push(block.text);
@@ -1253,10 +1245,6 @@ function extractPlainText(rawContent: string): string {
   if (parts.length > 0) {
     return parts.join("\n");
   }
-  // Rows with no text blocks (e.g. images, file uploads, pure tool turns)
-  // would otherwise render as an empty transcript line like
-  // `[14:25 @alice]: `. Surface the attachment/tool context instead so the
-  // model can tell something was actually said on that turn.
   return placeholderLabels.join(" ");
 }
 
@@ -1323,17 +1311,27 @@ function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
     senderLabel = slackMeta?.displayName ?? null;
   }
 
+  // Parse `row.content` once and derive both the structured `contentBlocks`
+  // view (for downstream tool-block preservation) and the flattened
+  // `plainText` view (used for tag-line rendering) from the same parsed
+  // result. Large Slack histories with many tool payloads would otherwise
+  // pay a double JSON-parse cost per row.
   let contentBlocks: ContentBlock[] = [];
+  let plainText: string;
   try {
     const parsed = JSON.parse(row.content);
     if (Array.isArray(parsed)) {
       contentBlocks = parsed as ContentBlock[];
+      plainText = extractPlainTextFromBlocks(contentBlocks);
+    } else if (typeof parsed === "string") {
+      plainText = parsed;
+    } else {
+      plainText = row.content;
     }
   } catch {
     // Plain string row (legacy) — no structured blocks to preserve.
+    plainText = row.content;
   }
-
-  const plainText = extractPlainText(row.content);
 
   // Attachment-only rows (images, files) carry no text block, so the
   // transcript renderer would normally emit them *without* a tag line —

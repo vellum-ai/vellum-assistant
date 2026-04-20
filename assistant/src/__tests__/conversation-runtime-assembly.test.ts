@@ -3694,13 +3694,13 @@ describe("assembleSlackChronologicalMessages", () => {
     }
   });
 
-  test("row content with interleaved text + tool_use preserves tool_use alongside tag line (PR 3)", () => {
-    // PR 3 preserves replayable content blocks (tool_use, tool_result,
-    // thinking, etc.) alongside the tag line. A row persisted with
-    // `[text, tool_use]` now renders as `[{type:text, tag-line}, {type:tool_use}]`.
+  test("row content with interleaved text + tool_use preserves tool_use alongside tag line", () => {
+    // Replayable content blocks (tool_use, tool_result, thinking, etc.) are
+    // preserved alongside the tag line. A row persisted with
+    // `[text, tool_use]` renders as `[{type:text, tag-line}, {type:tool_use}]`.
     //
     // The assistant tool_use is paired with a follow-up user tool_result so
-    // the PR 4 orphan-pair filter leaves both blocks intact.
+    // the orphan-pair filter leaves both blocks intact.
     const userMeta: SlackMessageMetadata = {
       source: "slack",
       channelId: DM_CHANNEL_ID,
