@@ -256,7 +256,26 @@ export class TalkingHeadRenderer implements AvatarRenderer {
       sender: this.nativeMessaging,
       onExtensionMessage: this.nativeMessaging.onExtensionMessage,
       handlers: {
-        onStarted: () => {
+        onStarted: (msg) => {
+          // The extension tells us whether its configured GLB was the
+          // committed 0-byte placeholder (or another sub-threshold
+          // file). When it was, fail the start() promise with a
+          // pointer to the README so the session-manager can fall
+          // back to the noop renderer and the operator gets a clear
+          // error rather than a blank camera feed.
+          if (msg.placeholderDetected) {
+            this.rejectStartedWaiter(
+              new AvatarRendererUnavailableError(
+                TALKING_HEAD_RENDERER_ID,
+                `avatar tab reported placeholder GLB (size=${msg.glbSize ?? 0} bytes); ` +
+                  "replace skills/meet-join/meet-controller-ext/avatar/default-avatar.glb " +
+                  "with a real Ready Player Me GLB or set " +
+                  "services.meet.avatar.talkingHead.modelUrl — see " +
+                  "skills/meet-join/meet-controller-ext/avatar/README.md",
+              ),
+            );
+            return;
+          }
           this.resolveStartedWaiter();
         },
         onFrame: (msg) => {
@@ -446,6 +465,20 @@ export class TalkingHeadRenderer implements AvatarRenderer {
     if (!this.startedWaiter) return;
     clearTimeout(this.startedWaiter.timer);
     this.startedWaiter.resolve();
+    this.startedWaiter = null;
+  }
+
+  /**
+   * Reject the pending start-ack waiter with a structured error. Used
+   * when the extension reports that the resolved GLB was the placeholder
+   * (or sub-threshold) — the session-manager catches the resulting
+   * `AvatarRendererUnavailableError` and falls back to the noop
+   * renderer so the meeting continues with a clear diagnostic.
+   */
+  private rejectStartedWaiter(err: Error): void {
+    if (!this.startedWaiter) return;
+    clearTimeout(this.startedWaiter.timer);
+    this.startedWaiter.reject(err);
     this.startedWaiter = null;
   }
 
