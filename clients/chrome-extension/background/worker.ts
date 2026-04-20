@@ -38,6 +38,7 @@ import {
   refreshCloudToken,
   getStoredToken as getStoredCloudToken,
   getStoredTokenRaw as getStoredCloudTokenRaw,
+
   validateCloudToken,
   isCloudTokenStale,
   CLOUD_AUTH_FAILURE_CLOSE_CODES,
@@ -50,6 +51,12 @@ import {
   decideCloudReconnectAction,
 } from './cloud-reconnect-decision.js';
 import {
+  type ExtensionEnvironment,
+  parseExtensionEnvironment,
+  resolveBuildDefaultEnvironment,
+  cloudUrlsForEnvironment,
+} from './extension-environment.js';
+import {
   listAssistants,
   type AssistantDescriptor,
   type AssistantCatalog,
@@ -61,6 +68,7 @@ import {
 import {
   bootstrapLocalToken,
   getStoredLocalToken,
+
   validateLocalToken,
   isLocalTokenStale,
   LEGACY_LOCAL_STORAGE_KEY,
@@ -85,12 +93,84 @@ import {
   type RelayReconnectDecision,
 } from './relay-connection.js';
 
-// Cloud OAuth defaults — kept here so the popup can stay a thin client and the
-// service worker is the single owner of the launchWebAuthFlow lifecycle. This
-// avoids the MV3 popup teardown race where closing the popup mid-auth kills
-// the awaited promise before the token is persisted.
-const CLOUD_GATEWAY_BASE_URL = 'https://api.vellum.ai';
-const CLOUD_WEB_BASE_URL = 'https://www.vellum.ai';
+// ── Environment resolution ──────────────────────────────────────────
+//
+// The effective environment drives all cloud auth URLs. Precedence:
+//   1. Popup override persisted in chrome.storage.local
+//   2. Build-time default injected via `--define` at bundle time
+//   3. Fallback to 'dev' (see resolveBuildDefaultEnvironment)
+//
+// The popup can read and write the override via `environment-get` and
+// `environment-set` worker messages without requiring an extension reload.
+
+const ENVIRONMENT_OVERRIDE_KEY = 'vellum.environmentOverride';
+
+/**
+ * Resolve the effective environment by checking for a popup-persisted
+ * override first, then falling back to the build-time default.
+ */
+async function getEffectiveEnvironment(): Promise<ExtensionEnvironment> {
+  const result = await chrome.storage.local.get(ENVIRONMENT_OVERRIDE_KEY);
+  const override = result[ENVIRONMENT_OVERRIDE_KEY];
+  if (typeof override === 'string') {
+    const parsed = parseExtensionEnvironment(override);
+    if (parsed) return parsed;
+  }
+  return resolveBuildDefaultEnvironment();
+}
+
+/**
+ * Read the raw override value from storage (null when unset).
+ */
+async function getOverrideEnvironment(): Promise<ExtensionEnvironment | null> {
+  const result = await chrome.storage.local.get(ENVIRONMENT_OVERRIDE_KEY);
+  const override = result[ENVIRONMENT_OVERRIDE_KEY];
+  if (typeof override === 'string') {
+    return parseExtensionEnvironment(override);
+  }
+  return null;
+}
+
+/**
+ * Persist an environment override. Pass `null` to clear.
+ */
+async function setOverrideEnvironment(env: ExtensionEnvironment | null): Promise<void> {
+  if (env === null) {
+    await chrome.storage.local.remove(ENVIRONMENT_OVERRIDE_KEY);
+  } else {
+    await chrome.storage.local.set({ [ENVIRONMENT_OVERRIDE_KEY]: env });
+  }
+}
+
+/**
+ * Remove all stored auth tokens (cloud and local) for every assistant.
+ * Called when the effective environment changes so stale tokens minted
+ * against the previous environment are not reused on the next connect.
+ * Token storage keys use a well-known prefix (`vellum.cloudAuthToken` /
+ * `vellum.localCapabilityToken`) — we enumerate all storage keys and
+ * remove those matching either prefix.
+ */
+async function invalidateAuthTokens(): Promise<void> {
+  const all = await chrome.storage.local.get(null);
+  const keysToRemove = Object.keys(all).filter(
+    (k) => k.startsWith('vellum.cloudAuthToken') || k.startsWith('vellum.localCapabilityToken'),
+  );
+  if (keysToRemove.length > 0) {
+    await chrome.storage.local.remove(keysToRemove);
+  }
+}
+
+/**
+ * Resolve cloud URLs for the current effective environment.
+ * Replaces the old hardcoded CLOUD_GATEWAY_BASE_URL / CLOUD_WEB_BASE_URL
+ * constants — every call site now gets environment-appropriate URLs.
+ */
+async function getCloudUrls(): Promise<{ apiBaseUrl: string; webBaseUrl: string }> {
+  const env = await getEffectiveEnvironment();
+  return cloudUrlsForEnvironment(env);
+}
+
+// Cloud OAuth client ID — not environment-dependent.
 const CLOUD_OAUTH_CLIENT_ID = 'vellum-chrome-extension';
 
 const DEFAULT_RELAY_PORT = 7830;
@@ -275,7 +355,8 @@ async function getAssistantCatalogAndSelection(): Promise<{
   selected: AssistantDescriptor | null;
   authProfile: AssistantAuthProfile | null;
 }> {
-  const catalog = await listAssistants();
+  const environment = await getEffectiveEnvironment();
+  const catalog = await listAssistants({ environment });
   const selected = await resolveSelectedAssistant(catalog);
   const authProfile = selected
     ? resolveAuthProfile({ cloud: selected.cloud, runtimeUrl: selected.runtimeUrl })
@@ -588,9 +669,10 @@ async function buildRelayModeForAssistant(
     }
     const cloud = await getLegacyCloudToken();
     if (cloud) {
+      const { apiBaseUrl } = await getCloudUrls();
       return {
         kind: 'cloud',
-        baseUrl: CLOUD_GATEWAY_BASE_URL,
+        baseUrl: apiBaseUrl,
         token: cloud.token,
       };
     }
@@ -619,7 +701,8 @@ async function buildRelayModeForAssistant(
     // without a manual re-pair click in startup/reconnect flows.
     if (isLocalTokenStale(local)) {
       try {
-        local = await bootstrapLocalToken(assistant.assistantId);
+        const environment = await getEffectiveEnvironment();
+        local = await bootstrapLocalToken(assistant.assistantId, { environment });
       } catch (err) {
         // Non-recoverable native-host failures (missing host, forbidden
         // origin, pair endpoint failure) — leave the original `local`
@@ -653,8 +736,9 @@ async function buildRelayModeForAssistant(
     const stored = await getStoredCloudToken(assistant.assistantId);
     // Use the assistant's runtime URL as the relay base when available.
     // This allows cloud-managed assistants to point to their specific
-    // gateway endpoint. Fall back to the default cloud gateway.
-    const baseUrl = assistant.runtimeUrl || CLOUD_GATEWAY_BASE_URL;
+    // gateway endpoint. Fall back to the environment-resolved cloud gateway.
+    const { apiBaseUrl } = await getCloudUrls();
+    const baseUrl = assistant.runtimeUrl || apiBaseUrl;
     return {
       kind: 'cloud',
       baseUrl,
@@ -756,9 +840,10 @@ async function cloudReconnectHook(
   // token under the correct scoped key. When no assistant is selected
   // we can't scope the refresh, so we skip it — the user will be
   // prompted to sign in again (abort path on the next reconnect).
+  const { webBaseUrl } = await getCloudUrls();
   const refreshed = selectedId
     ? await refreshCloudToken(selectedId, {
-        webBaseUrl: CLOUD_WEB_BASE_URL,
+        webBaseUrl,
         clientId: CLOUD_OAUTH_CLIENT_ID,
       })
     : null;
@@ -874,7 +959,8 @@ function createRelayConnection(
       // silently refresh tokens without user interaction.
       if (isLocalTokenStale(local) && selectedId) {
         try {
-          local = await bootstrapLocalToken(selectedId);
+          const environment = await getEffectiveEnvironment();
+          local = await bootstrapLocalToken(selectedId, { environment });
         } catch (err) {
           // Leave original `local` value unchanged so a stale-but-not-expired
           // token can still be used on reconnect.
@@ -1010,7 +1096,8 @@ async function connectPreflight(
     }
     // Interactive: auto-bootstrap the local capability token.
     const assistantId = assistant?.assistantId ?? null;
-    const stored = await bootstrapLocalToken(assistantId);
+    const environment = await getEffectiveEnvironment();
+    const stored = await bootstrapLocalToken(assistantId, { environment });
     const port = stored.assistantPort ?? assistant?.daemonPort ?? (await getRelayPort());
     return {
       kind: 'self-hosted',
@@ -1025,15 +1112,17 @@ async function connectPreflight(
       throw new MissingTokenError(missingTokenMessage(null));
     }
 
+    const { apiBaseUrl, webBaseUrl } = await getCloudUrls();
+
     if (!options.interactive) {
       // Non-interactive: attempt a silent refresh first.
       const refreshed = await refreshCloudToken(assistantId, {
-        webBaseUrl: CLOUD_WEB_BASE_URL,
+        webBaseUrl,
         runtimeBaseUrl: assistant?.runtimeUrl,
         clientId: CLOUD_OAUTH_CLIENT_ID,
       });
       if (refreshed) {
-        const baseUrl = assistant?.runtimeUrl || CLOUD_GATEWAY_BASE_URL;
+        const baseUrl = assistant?.runtimeUrl || apiBaseUrl;
         return { kind: 'cloud', baseUrl, token: refreshed.token };
       }
       // If the token is stale but still technically valid, fall back to
@@ -1047,11 +1136,11 @@ async function connectPreflight(
 
     // Interactive: launch the full OAuth sign-in flow.
     const stored = await signInCloud(assistantId, {
-      webBaseUrl: CLOUD_WEB_BASE_URL,
+      webBaseUrl,
       runtimeBaseUrl: assistant?.runtimeUrl,
       clientId: CLOUD_OAUTH_CLIENT_ID,
     });
-    const baseUrl = assistant?.runtimeUrl || CLOUD_GATEWAY_BASE_URL;
+    const baseUrl = assistant?.runtimeUrl || apiBaseUrl;
     return { kind: 'cloud', baseUrl, token: stored.token };
   }
 
@@ -1264,8 +1353,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
         }
         const descriptor =
           assistants.find((assistant) => assistant.assistantId === resolvedId) ?? null;
+        const { webBaseUrl } = await getCloudUrls();
         const config: CloudAuthConfig = {
-          webBaseUrl: CLOUD_WEB_BASE_URL,
+          webBaseUrl,
           runtimeBaseUrl: descriptor?.runtimeUrl,
           clientId:
             typeof message.clientId === 'string' ? message.clientId : CLOUD_OAUTH_CLIENT_ID,
@@ -1293,7 +1383,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       : loadSelectedAssistantId()
     )
       .then(async (resolvedId) => {
-        const stored = await bootstrapLocalToken(resolvedId);
+        const environment = await getEffectiveEnvironment();
+        const stored = await bootstrapLocalToken(resolvedId, { environment });
 
         // If the relay is intended to be connected, rotate the live socket
         // so the fresh paired token is applied immediately. Without this,
@@ -1347,7 +1438,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     // Fetch a fresh catalog so the selected ID is validated against the
     // current lockfile state — a stale ID from a previous session
     // should not be persisted.
-    listAssistants()
+    getEffectiveEnvironment()
+      .then((environment) => listAssistants({ environment }))
       .then(async (catalog) => {
         const match = catalog.assistants.find(
           (a) => a.assistantId === assistantId,
@@ -1415,6 +1507,100 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
           error: err instanceof Error ? err.message : String(err),
         }),
       );
+    return true; // async
+  }
+  if (message.type === 'environment-get') {
+    // Returns the effective environment and its components so the popup
+    // can display which environment is active and whether an override is
+    // in effect.
+    Promise.all([getEffectiveEnvironment(), getOverrideEnvironment()])
+      .then(([effectiveEnvironment, overrideEnvironment]) => {
+        sendResponseFn({
+          ok: true,
+          effectiveEnvironment,
+          overrideEnvironment,
+          buildDefaultEnvironment: resolveBuildDefaultEnvironment(),
+        });
+      })
+      .catch((err) =>
+        sendResponseFn({
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    return true; // async
+  }
+  if (message.type === 'environment-set') {
+    // Validates and persists an environment override. Pass
+    // `environment: null` to clear the override and revert to the
+    // build default.
+    //
+    // NOTE: This handler only persists the override and invalidates
+    // stale auth tokens — it does NOT disconnect or reconnect the
+    // active relay connection. The caller (popup) is responsible for
+    // orchestrating disconnect/reconnect after receiving the response
+    // if it wants the new environment to take effect immediately.
+    // `getCloudUrls()` is called fresh on each connect/reconnect cycle,
+    // so the persisted override is picked up automatically on the next
+    // connection without any additional plumbing.
+    const rawEnv = message.environment;
+    if (rawEnv === null || rawEnv === undefined) {
+      // Clear override
+      (async () => {
+        const previousEnv = await getEffectiveEnvironment();
+        await setOverrideEnvironment(null);
+        const effectiveEnvironment = await getEffectiveEnvironment();
+        // Invalidate cached auth tokens when the effective environment
+        // actually changes so stale credentials from the previous
+        // environment are not reused on the next connect cycle.
+        if (effectiveEnvironment !== previousEnv) {
+          await invalidateAuthTokens();
+        }
+        sendResponseFn({
+          ok: true,
+          effectiveEnvironment,
+          overrideEnvironment: null,
+          buildDefaultEnvironment: resolveBuildDefaultEnvironment(),
+        });
+      })().catch((err) =>
+        sendResponseFn({
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
+      return true; // async
+    }
+    if (typeof rawEnv !== 'string') {
+      sendResponseFn({ ok: false, error: 'environment must be a string or null' });
+      return false;
+    }
+    const parsed = parseExtensionEnvironment(rawEnv);
+    if (!parsed) {
+      sendResponseFn({
+        ok: false,
+        error: `Invalid environment: "${rawEnv}". Must be one of: local, dev, staging, production`,
+      });
+      return false;
+    }
+    (async () => {
+      const previousEnv = await getEffectiveEnvironment();
+      await setOverrideEnvironment(parsed);
+      const effectiveEnvironment = await getEffectiveEnvironment();
+      if (effectiveEnvironment !== previousEnv) {
+        await invalidateAuthTokens();
+      }
+      sendResponseFn({
+        ok: true,
+        effectiveEnvironment,
+        overrideEnvironment: parsed,
+        buildDefaultEnvironment: resolveBuildDefaultEnvironment(),
+      });
+    })().catch((err) =>
+      sendResponseFn({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
     return true; // async
   }
 });

@@ -253,6 +253,7 @@ jobs:
         working-directory: clients/chrome-extension
         env:
           VERSION: ${{ needs.extract-version.outputs.version }}
+          VELLUM_ENVIRONMENT: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
         run: bash build.sh
 
       - name: Verify manifest version
