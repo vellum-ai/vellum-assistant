@@ -14,7 +14,7 @@ It learns how you work, remembers what matters, and acts before you ask. Yours t
 
 ---
 
-## Personality and intelligence
+## What it does
 
 | Area | Summary |
 |------|---------|
