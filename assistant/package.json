@@ -35,6 +35,8 @@
     "@modelcontextprotocol/sdk": "1.27.1",
     "@qdrant/js-client-rest": "1.17.0",
     "@resvg/resvg-js": "2.6.2",
+    "@resvg/resvg-js-darwin-arm64": "2.6.2",
+    "@resvg/resvg-js-darwin-x64": "2.6.2",
     "@sentry/node": "10.43.0",
     "@vellumai/ces-contracts": "file:../packages/ces-contracts",
     "@vellumai/credential-storage": "file:../packages/credential-storage",
