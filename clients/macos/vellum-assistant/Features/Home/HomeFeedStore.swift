@@ -247,6 +247,7 @@ public final class HomeFeedStore {
             expiresAt: item.expiresAt,
             minTimeAway: item.minTimeAway,
             actions: item.actions,
+            urgency: item.urgency,
             author: item.author,
             createdAt: item.createdAt
         )
