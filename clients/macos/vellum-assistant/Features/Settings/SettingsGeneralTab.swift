@@ -345,7 +345,7 @@ struct SettingsGeneralTab: View {
     private var accountSection: some View {
         SettingsCard(
             title: "Vellum Platform",
-            subtitle: authManager.currentUser?.email ?? authManager.currentUser?.display ?? "Log in to your account"
+            subtitle: accountSectionSubtitle
         ) {
             if authManager.isLoading {
                 HStack(spacing: VSpacing.sm) {
@@ -388,5 +388,13 @@ struct SettingsGeneralTab: View {
                 }
             }
         }
+    }
+
+    private var accountSectionSubtitle: String {
+        if let email = authManager.currentUser?.email { return email }
+        if let display = authManager.currentUser?.display { return display }
+        if authManager.isLoading { return "Checking session..." }
+        if authManager.isValidationFailed { return "Reconnecting to Vellum..." }
+        return "Log in to your account"
     }
 }
