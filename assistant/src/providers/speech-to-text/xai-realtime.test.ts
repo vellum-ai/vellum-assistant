@@ -390,4 +390,126 @@ describe("XAIRealtimeTranscriber", () => {
     expect(transcriber.providerId).toBe("xai");
     expect(transcriber.boundaryId).toBe("daemon-streaming");
   });
+
+  // ─────────────────────────────────────────────────────────────────
+  // Lifecycle: stop() cancels inactivity timer so the CLOSE_GRACE
+  // window can't emit a spurious timeout error.
+  // ─────────────────────────────────────────────────────────────────
+
+  test("stop() cancels inactivity timer so the close-grace window can't emit a timeout error", async () => {
+    const { transcriber, events } = await startSession({
+      // Short inactivity timeout — would fire within the CLOSE_GRACE
+      // window if stop() failed to cancel it.
+      inactivityTimeoutMs: 30,
+    });
+
+    transcriber.stop();
+
+    // Wait longer than the inactivity window but less than CLOSE_GRACE
+    // (5s) to confirm the timer doesn't fire during the grace period.
+    await new Promise((r) => setTimeout(r, 80));
+
+    // No timeout-category error must have been emitted — stop() is
+    // an intentional teardown.
+    const timeoutErrors = events.filter(
+      (e) => e.type === "error" && e.category === "timeout",
+    );
+    expect(timeoutErrors).toHaveLength(0);
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  // Lifecycle: connect-phase listeners are removed after the Promise
+  // settles — they must not fire alongside session-lifetime handlers.
+  // ─────────────────────────────────────────────────────────────────
+
+  test("connect-phase listeners are detached after start() resolves", async () => {
+    const { events } = await startSession();
+
+    // After the connect Promise resolves, only the session handlers
+    // (attachSessionHandlers) should be attached. A stray connect-phase
+    // `onClose` listener would also fire on simulateClose and could
+    // reject a (dead) Promise or run stale cleanup code.
+    //
+    // We can't introspect the mock's listener map via the public API,
+    // but we can verify the session-level handler is the only one that
+    // reacts: simulating close under `stopping=true` and code=1000 must
+    // produce exactly one closed event, and simulating a transcript
+    // frame before that must behave normally.
+    mockWs.simulateMessage(partialFrame("ok", { is_final: true }));
+    expect(events.filter((e) => e.type === "final")).toHaveLength(1);
+
+    // Drive a direct inspection: the MockWebSocket exposes a private
+    // listeners map; asserting size === 1 for each type after start()
+    // confirms connect-phase listeners were removed.
+    const listenersByType = (
+      mockWs as unknown as { listeners: Map<string, unknown[]> }
+    ).listeners;
+    expect(listenersByType.get("open")?.length ?? 0).toBe(0);
+    expect(listenersByType.get("error")?.length ?? 0).toBe(1);
+    expect(listenersByType.get("close")?.length ?? 0).toBe(1);
+    expect(listenersByType.get("message")?.length ?? 0).toBe(1);
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  // Lifecycle: connect-phase error/close paths null out this.ws so
+  // a retry can reuse the same transcriber instance.
+  // ─────────────────────────────────────────────────────────────────
+
+  test("start() allows retry after connect-phase close rejects", async () => {
+    const transcriber = new XAIRealtimeTranscriber(TEST_API_KEY, {
+      connectTimeoutMs: 1_000,
+    });
+    const { onEvent } = createEventCollector();
+
+    // First attempt: socket closes before opening.
+    const firstAttempt = transcriber.start(onEvent);
+    mockWs.simulateClose(4001, "unauthorized");
+    await expect(firstAttempt).rejects.toThrow(
+      /xAI WebSocket closed before open/,
+    );
+
+    // Second attempt with a fresh mock — must not throw
+    // "start() called twice" because the first attempt null'd out
+    // this.ws.
+    mockWs = new MockWebSocket();
+    (globalThis as Record<string, unknown>).WebSocket = class {
+      constructor(
+        _url: string,
+        _options?: { headers?: Record<string, string> },
+      ) {
+        return mockWs;
+      }
+    };
+
+    const secondAttempt = transcriber.start(onEvent);
+    mockWs.simulateOpen();
+    await expect(secondAttempt).resolves.toBeUndefined();
+  });
+
+  test("start() allows retry after connect-phase error rejects", async () => {
+    const transcriber = new XAIRealtimeTranscriber(TEST_API_KEY, {
+      connectTimeoutMs: 1_000,
+    });
+    const { onEvent } = createEventCollector();
+
+    // First attempt: transport-level error before open.
+    const firstAttempt = transcriber.start(onEvent);
+    mockWs.simulateError(new Error("ECONNREFUSED"));
+    await expect(firstAttempt).rejects.toThrow(/xAI realtime connect error/);
+
+    // Second attempt — instance must be reusable.
+    mockWs = new MockWebSocket();
+    (globalThis as Record<string, unknown>).WebSocket = class {
+      constructor(
+        _url: string,
+        _options?: { headers?: Record<string, string> },
+      ) {
+        return mockWs;
+      }
+    };
+
+    const secondAttempt = transcriber.start(onEvent);
+    mockWs.simulateOpen();
+    await expect(secondAttempt).resolves.toBeUndefined();
+  });
 });

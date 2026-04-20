@@ -237,12 +237,26 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
     this.ws = ws;
 
     // Wait for the WebSocket to open or fail.
+    //
+    // The connect-phase listeners below are removed in every settle path
+    // (resolve, reject, timeout) so they can't fire alongside the
+    // session-lifetime handlers attached after this Promise resolves.
+    // Leaving them attached would leak stale closures for the life of
+    // the session — they'd be no-ops (short-circuited by `settled`),
+    // but would still run on every message/error/close dispatch.
     await new Promise<void>((resolve, reject) => {
       let settled = false;
+
+      const cleanup = () => {
+        ws.removeEventListener("open", onOpen);
+        ws.removeEventListener("error", onError);
+        ws.removeEventListener("close", onClose);
+      };
 
       const connectTimer = setTimeout(() => {
         if (settled) return;
         settled = true;
+        cleanup();
         this.forceClose();
         reject(new Error("xAI realtime connect timeout"));
       }, this.connectTimeoutMs);
@@ -251,6 +265,7 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
         if (settled) return;
         settled = true;
         clearTimeout(connectTimer);
+        cleanup();
         resolve();
       };
 
@@ -258,12 +273,19 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
         if (settled) return;
         settled = true;
         clearTimeout(connectTimer);
+        cleanup();
         const msg =
           ev instanceof Error
             ? ev.message
             : typeof ev === "object" && ev !== null && "message" in ev
               ? String((ev as { message: unknown }).message)
               : "WebSocket error during connect";
+        // Match the connect-timeout path — null out this.ws (via
+        // forceClose) so the instance can be reused for a retry.
+        // Without this, a subsequent start() call would throw
+        // "start() called twice" even though no session was ever
+        // established.
+        this.forceClose();
         reject(new Error(`xAI realtime connect error: ${msg}`));
       };
 
@@ -271,10 +293,15 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
         if (settled) return;
         settled = true;
         clearTimeout(connectTimer);
+        cleanup();
         // 401 / 403 on connect arrive as WebSocket close codes 4001 /
         // 4003 in most runtimes (or 1008 policy-violation in others).
         // We surface the underlying code in the message — callers that
         // need granular auth handling can branch on the rejection text.
+        //
+        // Null out this.ws so the instance can be reused for a retry
+        // (see onError above for the same rationale).
+        this.forceClose();
         reject(
           new Error(
             `xAI WebSocket closed before open (code=${ev.code}, reason=${ev.reason})`,
@@ -319,6 +346,18 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
   stop(): void {
     if (this.closed || this.stopping) return;
     this.stopping = true;
+
+    // Cancel the inactivity timer immediately. If it were left running,
+    // it could fire inside the CLOSE_GRACE window (waiting on xAI to
+    // flush finals after `audio.done`) and spuriously emit a
+    // `{type:"error", category:"timeout"}` event on an intentional stop.
+    // The inactivity callback also double-checks `this.stopping` as a
+    // safety net against any future code path that re-arms the timer
+    // after stop() runs.
+    if (this.inactivityTimer !== null) {
+      clearTimeout(this.inactivityTimer);
+      this.inactivityTimer = null;
+    }
 
     log.info("Stopping xAI realtime session");
 
@@ -643,7 +682,11 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
     }
 
     this.inactivityTimer = setTimeout(() => {
-      if (this.closed) return;
+      // Belt-and-suspenders guard. stop() clears this timer before the
+      // CLOSE_GRACE window starts, but a future refactor that re-arms
+      // or forgets to clear it must not resurrect the spurious-timeout
+      // bug where an intentional stop emits a timeout error event.
+      if (this.closed || this.stopping) return;
 
       log.warn("xAI realtime inactivity timeout");
       this.emitEvent({
