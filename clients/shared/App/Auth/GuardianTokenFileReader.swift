@@ -135,14 +135,6 @@ public enum GuardianTokenFileReader {
         return decision.isImport
     }
 
-    /// Reports whether a guardian-token file exists on disk for `assistantId`.
-    /// Callers use this to short-circuit the post-hatch poll in recovery flows:
-    /// on bare-metal the CLI writes the file synchronously during hatch, so an
-    /// absent file at launch means no amount of polling will produce one.
-    public static func fileExists(assistantId: String) -> Bool {
-        return FileManager.default.fileExists(atPath: guardianTokenPath(for: assistantId))
-    }
-
     /// Pure decision function used by the public entry point and by tests.
     /// Reads the token file at `path`, parses it, and returns whether the
     /// client should import the credentials (and in which mode). Does not
