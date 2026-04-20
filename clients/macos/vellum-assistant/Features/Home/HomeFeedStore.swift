@@ -151,10 +151,10 @@ public final class HomeFeedStore {
         }
     }
 
-    /// Wrapper around `updateStatus(..., .actedOn)`. Used by the feed
+    /// Wrapper around `updateStatus(..., .dismissed)`. Used by the feed
     /// card's explicit dismiss affordance.
     public func dismiss(itemId: String) async {
-        await updateStatus(itemId: itemId, status: .actedOn)
+        await updateStatus(itemId: itemId, status: .dismissed)
     }
 
     /// Batches status updates to `.seen` for every item still in the
