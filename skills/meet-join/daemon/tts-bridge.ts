@@ -32,7 +32,7 @@
 
 import { spawn as nodeSpawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { PassThrough, Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 
 import { getLogger } from "../../../assistant/src/util/logger.js";
 import type {
@@ -520,15 +520,14 @@ export class MeetTtsBridge {
     // Node's undici-backed fetch accepts a `ReadableStream` body; convert
     // the node-stream `ffmpeg.stdout` into a web stream so we can hand it
     // off to fetch with `duplex: "half"`. When the amplitude fallback is
-    // active we splice a PassThrough into the pipeline so we can observe
-    // every PCM byte without buffering the whole stream ourselves — the
-    // tap runs RMS over 50 ms windows and emits viseme events without
-    // delaying the outbound HTTP body.
+    // active we splice a pass-through Transform into the pipeline so the
+    // tap observes every PCM byte without diverting it — a `data` listener
+    // on a PassThrough would put it in flowing mode and race with the
+    // fetch body reader, truncating the audio that reaches the bot.
     let httpBodySource: NodeJS.ReadableStream = ffmpeg.stdout;
     if (useAmplitudeFallback) {
-      const tap = new PassThrough();
+      const tap = this.createAmplitudeTap(abort.signal);
       ffmpeg.stdout.pipe(tap);
-      this.attachAmplitudeTap(tap, abort.signal);
       httpBodySource = tap;
     }
     const bodyStream = Readable.toWeb(
@@ -665,22 +664,28 @@ export class MeetTtsBridge {
   }
 
   /**
-   * Wire an amplitude-envelope extractor over a PCM stream. The stream is
-   * expected to be `s16le` mono at {@link BOT_AUDIO_SAMPLE_RATE_HZ}, matching
-   * the ffmpeg transcode pipeline's stdout. For every 50 ms window of bytes
-   * the tap computes a normalized RMS and emits a `{ phoneme: "amp", ... }`
-   * viseme event with the window's start timestamp (milliseconds from the
-   * beginning of this utterance).
+   * Build a pass-through Transform that observes PCM bytes flowing to the
+   * bot and emits amplitude-envelope viseme events without diverting the
+   * stream. The input is expected to be `s16le` mono at
+   * {@link BOT_AUDIO_SAMPLE_RATE_HZ}, matching the ffmpeg transcode
+   * pipeline's stdout. For every 50 ms window of bytes the tap computes a
+   * normalized RMS and emits a `{ phoneme: "amp", ... }` viseme event with
+   * the window's start timestamp (milliseconds from the beginning of this
+   * utterance).
+   *
+   * Implementing the tap as a Transform (rather than a `data` listener on
+   * a PassThrough) is load-bearing: the Transform forwards every chunk
+   * downstream via `callback(null, chunk)` so `Readable.toWeb` sees the
+   * full audio, while a `data` listener would switch the PassThrough into
+   * flowing mode and race with the fetch body reader, causing truncated
+   * or dropped audio at the bot.
    *
    * The tap tolerates any amount of trailing bytes that don't fill a full
    * window — leftover audio under 50 ms just doesn't emit a final event,
    * which keeps the calculation self-consistent and spares consumers a
    * ragged-edge weight.
    */
-  private attachAmplitudeTap(
-    stream: NodeJS.ReadableStream,
-    signal: AbortSignal,
-  ): void {
+  private createAmplitudeTap(signal: AbortSignal): Transform {
     let totalBytesConsumed = 0;
     let windowBuffer = Buffer.alloc(0);
 
@@ -713,20 +718,25 @@ export class MeetTtsBridge {
       }
     };
 
-    stream.on("data", (chunk: Buffer) => {
-      if (signal.aborted) return;
-      windowBuffer =
-        windowBuffer.length === 0
-          ? Buffer.from(chunk)
-          : Buffer.concat([windowBuffer, chunk]);
-      try {
-        flushWindow();
-      } catch (err) {
-        log.warn(
-          { err, meetingId: this.meetingId },
-          "amplitude tap window flush threw — suppressing",
-        );
-      }
+    const meetingId = this.meetingId;
+    return new Transform({
+      transform(chunk: Buffer, _encoding, callback): void {
+        if (!signal.aborted) {
+          windowBuffer =
+            windowBuffer.length === 0
+              ? Buffer.from(chunk)
+              : Buffer.concat([windowBuffer, chunk]);
+          try {
+            flushWindow();
+          } catch (err) {
+            log.warn(
+              { err, meetingId },
+              "amplitude tap window flush threw — suppressing",
+            );
+          }
+        }
+        callback(null, chunk);
+      },
     });
   }
 
