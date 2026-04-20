@@ -18,28 +18,28 @@ All operations use CLI scripts that return JSON:
 - **Success**: `{ "ok": true, "data": ... }`
 - **Failure**: `{ "ok": false, "error": "..." }`
 
-| Script             | Operation          | Description                                                                  |
-| ------------------ | ------------------ | ---------------------------------------------------------------------------- |
-| `gmail-email.ts`   | `draft`            | Create email drafts in the Drafts folder (including reply drafts)            |
-| `gmail-email.ts`   | `send-draft`       | Send an existing draft (**requires explicit user confirmation**)             |
-| `gmail-email.ts`   | `forward`          | Create forward drafts, preserving attachments                                |
-| `gmail-email.ts`   | `trash`            | Move messages to Trash                                                       |
-| `gmail-manage.ts`  | `label`            | Add or remove labels on messages                                             |
-| `gmail-manage.ts`  | `follow-up`        | Track/untrack messages for follow-up using a dedicated "Follow-up" label     |
-| `gmail-manage.ts`  | `attachments`      | List and download email attachments                                          |
-| `gmail-manage.ts`  | `filters`          | Create, list, and delete Gmail filters                                       |
-| `gmail-manage.ts`  | `vacation`         | Get, enable, or disable the vacation auto-responder                          |
-| `gmail-manage.ts`  | `unsubscribe`      | Unsubscribe from mailing lists (**requires explicit user confirmation**)     |
-| `gmail-scan.ts`    | `sender-digest`    | Scan inbox and group messages by sender for declutter workflows              |
-| `gmail-scan.ts`    | `outreach-scan`    | Identify cold outreach senders (no List-Unsubscribe header)                  |
-| `gmail-archive.ts` | `archive`          | Archive messages (single, batch message_ids, cache_key+sender-emails, query) |
-| `gmail-prefs.ts`   | `list`             | List blocklist and safelist preferences                                      |
-| `gmail-prefs.ts`   | `add-blocklist`    | Add sender emails to the blocklist                                           |
-| `gmail-prefs.ts`   | `add-safelist`     | Add sender emails to the safelist                                            |
-| `gmail-prefs.ts`   | `remove-blocklist` | Remove sender emails from the blocklist                                      |
-| `gmail-prefs.ts`   | `remove-safelist`  | Remove sender emails from the safelist                                       |
-| `gmail-prefs.ts`   | `get-management-config` | Get inbox management config (stage, interrupt threshold, last run)      |
-| `gmail-prefs.ts`   | `set-management-config` | Update inbox management config (--stage, --interrupt-threshold, --last-run) |
+| Script             | Operation               | Description                                                                  |
+| ------------------ | ----------------------- | ---------------------------------------------------------------------------- |
+| `gmail-email.ts`   | `draft`                 | Create email drafts in the Drafts folder (including reply drafts)            |
+| `gmail-email.ts`   | `send-draft`            | Send an existing draft (**requires explicit user confirmation**)             |
+| `gmail-email.ts`   | `forward`               | Create forward drafts, preserving attachments                                |
+| `gmail-email.ts`   | `trash`                 | Move messages to Trash                                                       |
+| `gmail-manage.ts`  | `label`                 | Add or remove labels on messages                                             |
+| `gmail-manage.ts`  | `follow-up`             | Track/untrack messages for follow-up using a dedicated "Follow-up" label     |
+| `gmail-manage.ts`  | `attachments`           | List and download email attachments                                          |
+| `gmail-manage.ts`  | `filters`               | Create, list, and delete Gmail filters                                       |
+| `gmail-manage.ts`  | `vacation`              | Get, enable, or disable the vacation auto-responder                          |
+| `gmail-manage.ts`  | `unsubscribe`           | Unsubscribe from mailing lists (**requires explicit user confirmation**)     |
+| `gmail-scan.ts`    | `sender-digest`         | Scan inbox and group messages by sender for declutter workflows              |
+| `gmail-scan.ts`    | `outreach-scan`         | Identify cold outreach senders (no List-Unsubscribe header)                  |
+| `gmail-archive.ts` | `archive`               | Archive messages (single, batch message_ids, cache_key+sender-emails, query) |
+| `gmail-prefs.ts`   | `list`                  | List blocklist and safelist preferences                                      |
+| `gmail-prefs.ts`   | `add-blocklist`         | Add sender emails to the blocklist                                           |
+| `gmail-prefs.ts`   | `add-safelist`          | Add sender emails to the safelist                                            |
+| `gmail-prefs.ts`   | `remove-blocklist`      | Remove sender emails from the blocklist                                      |
+| `gmail-prefs.ts`   | `remove-safelist`       | Remove sender emails from the safelist                                       |
+| `gmail-prefs.ts`   | `get-management-config` | Get inbox management config (stage, interrupt threshold, last run)           |
+| `gmail-prefs.ts`   | `set-management-config` | Update inbox management config (--stage, --interrupt-threshold, --last-run)  |
 
 ### Email Operations
 
