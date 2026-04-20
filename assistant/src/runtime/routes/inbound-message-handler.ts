@@ -1028,6 +1028,18 @@ export async function handleChannelInbound(
             }
           : undefined;
 
+      // Account identifier threaded into backfill so `resolveConnection()`
+      // can pick the right workspace in multi-account setups. Best-effort:
+      // the gateway forwards `sourceMetadata.account` when it knows which
+      // Slack workspace the event came from; when absent, both helpers
+      // fall back to the default-active connection.
+      const slackAccount =
+        sourceChannel === "slack" &&
+        typeof sourceMetadata?.account === "string" &&
+        sourceMetadata.account.length > 0
+          ? sourceMetadata.account
+          : undefined;
+
       // ── DM cold-start backfill ──
       // First time a Slack DM lands in a conversation that has fewer than
       // SLACK_DM_BACKFILL_WARM_THRESHOLD stored slackMeta messages, fetch a
@@ -1039,6 +1051,7 @@ export async function handleChannelInbound(
         await tryBackfillSlackDmIfCold({
           conversationId: result.conversationId,
           channelId: conversationExternalId,
+          account: slackAccount,
         });
       }
 
@@ -1059,6 +1072,7 @@ export async function handleChannelInbound(
           channelId: conversationExternalId,
           threadTs: slackThreadTs,
           excludeChannelTs: slackInbound?.channelTs,
+          account: slackAccount,
         });
       }
 
@@ -1350,6 +1364,7 @@ const _dmBackfillInFlight = new Map<string, Promise<void>>();
 async function tryBackfillSlackDmIfCold(params: {
   conversationId: string;
   channelId: string;
+  account?: string;
 }): Promise<void> {
   const existing = _dmBackfillInFlight.get(params.conversationId);
   if (existing) {
@@ -1366,6 +1381,7 @@ async function tryBackfillSlackDmIfCold(params: {
 async function runBackfillSlackDmIfCold(params: {
   conversationId: string;
   channelId: string;
+  account?: string;
 }): Promise<void> {
   try {
     const storedCount = countSlackMetaMessages(params.conversationId);
@@ -1373,7 +1389,10 @@ async function runBackfillSlackDmIfCold(params: {
       return;
     }
 
-    const fetched = await backfillDm(params.channelId, { limit: 50 });
+    const fetched = await backfillDm(params.channelId, {
+      limit: 50,
+      account: params.account,
+    });
     if (fetched.length === 0) {
       log.debug(
         { conversationId: params.conversationId, channelId: params.channelId },
@@ -1422,14 +1441,30 @@ async function runBackfillSlackDmIfCold(params: {
       "DM cold-start backfill complete",
     );
   } catch (err) {
-    log.warn(
-      {
-        err,
-        conversationId: params.conversationId,
-        channelId: params.channelId,
-      },
-      "DM cold-start backfill failed; proceeding without history",
-    );
+    // `channel_not_found` almost always means the resolved connection is
+    // pointing at the wrong Slack workspace (a real config bug), so log it
+    // at ERROR to match backfill's rethrow contract. Other failures
+    // (timeout, auth, ratelimited, …) stay at WARN — they're expected
+    // transient blips and the caller proceeds without backfilled history.
+    const channelNotFound =
+      err instanceof Error && /channel_not_found/i.test(err.message);
+    const payload = {
+      err,
+      conversationId: params.conversationId,
+      channelId: params.channelId,
+      account: params.account,
+    };
+    if (channelNotFound) {
+      log.error(
+        payload,
+        "DM cold-start backfill hit channel_not_found — connection likely points at the wrong Slack workspace",
+      );
+    } else {
+      log.warn(
+        payload,
+        "DM cold-start backfill failed; proceeding without history",
+      );
+    }
   }
 }
 
@@ -1521,8 +1556,16 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
    * in the DB when `readStoredSlackChannelTs` snapshots the conversation.
    */
   excludeChannelTs?: string;
+  /**
+   * OAuth account identifier used to disambiguate which Slack workspace the
+   * backfill should read from in multi-account setups. Passed through to
+   * `backfillThread` → `resolveConnection`. Best-effort: if omitted, the
+   * resolver falls back to the default-active connection.
+   */
+  account?: string;
 }): Promise<void> {
-  const { conversationId, channelId, threadTs, excludeChannelTs } = params;
+  const { conversationId, channelId, threadTs, excludeChannelTs, account } =
+    params;
   const cacheKey = `${conversationId}:${threadTs}`;
 
   try {
@@ -1549,7 +1592,7 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
     _backfillTriggerCache.set(cacheKey, Date.now());
     pruneBackfillCacheIfNeeded();
 
-    const fetched = await backfillThread(channelId, threadTs);
+    const fetched = await backfillThread(channelId, threadTs, { account });
     if (fetched.length === 0) {
       log.debug(
         { conversationId, channelId, threadTs },
@@ -1589,9 +1632,21 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
       "Slack thread backfill persisted ancestor messages",
     );
   } catch (err) {
-    log.warn(
-      { err, conversationId, channelId, threadTs },
-      "Slack thread backfill failed; proceeding without it",
-    );
+    // `channel_not_found` almost always means the resolved connection is
+    // pointing at the wrong Slack workspace (a real config bug), so log it
+    // at ERROR to match backfill's rethrow contract. Other failures
+    // (timeout, auth, ratelimited, …) stay at WARN — they're expected
+    // transient blips and dispatch proceeds without the ancestors.
+    const channelNotFound =
+      err instanceof Error && /channel_not_found/i.test(err.message);
+    const payload = { err, conversationId, channelId, threadTs, account };
+    if (channelNotFound) {
+      log.error(
+        payload,
+        "Slack thread backfill hit channel_not_found — connection likely points at the wrong Slack workspace",
+      );
+    } else {
+      log.warn(payload, "Slack thread backfill failed; proceeding without it");
+    }
   }
 }
