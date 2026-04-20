@@ -100,7 +100,7 @@ Confirm cadence with user. Overnight: urgent-scan only.
 
 ### 5. Voice profile
 
-Run `messaging_analyze_style` on the user's recent sent mail. Store the style profile in PKB for draft generation.
+Run `messaging_analyze_style` on the user's recent sent mail. Store the style profile in the Personal Knowledge Base for draft generation.
 
 ### 6. Draft preference
 
@@ -167,7 +167,7 @@ For each remaining email from real humans expecting a response:
 1. Check for existing draft in the thread — call `list_drafts`, filter results by thread ID. If draft exists, skip.
 2. Read full thread context via `get_thread`.
 3. Decide: does this need a reply? If no, skip.
-4. Create draft in-thread via `gmail-email.ts draft --thread-id "..." --in-reply-to "..."`. Draft must be fully written in the user's voice (use PKB style profile), substantive, no placeholders. **Never auto-send.**
+4. Create draft in-thread via `gmail-email.ts draft --thread-id "..." --in-reply-to "..."`. Draft must be fully written in the user's voice (use Personal Knowledge Base style profile), substantive, no placeholders. **Never auto-send.**
 
 After the pass, send one summary:
 - **Slack:** `[N] drafts ready for review:` + per-item bullets
