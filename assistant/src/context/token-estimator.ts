@@ -103,7 +103,9 @@ function estimateAnthropicImageTokens(width: number, height: number): number {
     scaledHeight = Math.round(scaledHeight * mpScale);
   }
 
-  return Math.ceil(scaledWidth * scaledHeight * ANTHROPIC_IMAGE_TOKENS_PER_PIXEL);
+  return Math.ceil(
+    scaledWidth * scaledHeight * ANTHROPIC_IMAGE_TOKENS_PER_PIXEL,
+  );
 }
 
 function estimateImageTokens(
@@ -139,13 +141,28 @@ export function estimateContentBlockTokens(
         estimateTextTokens(stableJson(block.input))
       );
     case "tool_result": {
+      // Mirror the Anthropic serializer in providers/anthropic/client.ts
+      // (toAnthropicBlockSafe): block.content is always sent as the first
+      // text part, and contentBlocks are appended — but only `image` and
+      // `text` sub-blocks survive, and `image` is filtered out when
+      // is_error is true. Counting every contentBlocks entry regardless
+      // of type overestimates the wire size and can trigger spurious
+      // compaction on conversations that carry e.g. thinking sub-blocks.
+      // OpenAI and Gemini forward error-result images normally, so the
+      // is_error image drop is Anthropic-specific.
+      const anthropicDropsErrorImage =
+        options?.providerName === "anthropic" && block.is_error === true;
       let tokens =
         TOOL_BLOCK_OVERHEAD_TOKENS +
         estimateTextTokens(block.tool_use_id) +
         estimateTextTokens(block.content);
       if (block.contentBlocks) {
         for (const cb of block.contentBlocks) {
-          tokens += estimateContentBlockTokens(cb, options);
+          if (cb.type === "text") {
+            tokens += estimateContentBlockTokens(cb, options);
+          } else if (cb.type === "image" && !anthropicDropsErrorImage) {
+            tokens += estimateContentBlockTokens(cb, options);
+          }
         }
       }
       return tokens;

@@ -223,6 +223,140 @@ export async function ensureSelfHostedLocalRegistration(
 }
 
 // ---------------------------------------------------------------------------
+// API key reprovisioning
+// ---------------------------------------------------------------------------
+
+export interface ReprovisionApiKeyResponse {
+  provisioning: {
+    assistant_api_key: string;
+  };
+}
+
+/**
+ * Reprovision (rotate) the API key for a self-hosted local assistant.
+ *
+ * Calls `POST /v1/assistants/self-hosted-local/reprovision-api-key/`.
+ * Returns a fresh API key. The previous key is revoked server-side.
+ */
+export async function reprovisionAssistantApiKey(
+  token: string,
+  organizationId: string,
+  clientInstallationId: string,
+  runtimeAssistantId: string,
+  clientPlatform: string,
+  assistantVersion?: string,
+  platformUrl?: string,
+): Promise<ReprovisionApiKeyResponse> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const body: Record<string, string> = {
+    client_installation_id: clientInstallationId,
+    runtime_assistant_id: runtimeAssistantId,
+    client_platform: clientPlatform,
+  };
+  if (assistantVersion) {
+    body.assistant_version = assistantVersion;
+  }
+
+  const response = await fetch(
+    `${resolvedUrl}/v1/assistants/self-hosted-local/reprovision-api-key/`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "X-Session-Token": token,
+        "Vellum-Organization-Id": organizationId,
+      },
+      body: JSON.stringify(body),
+    },
+  );
+
+  if (response.status === 401 || response.status === 403) {
+    throw new Error("Authentication required for API key reprovisioning.");
+  }
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `API key reprovisioning failed (${response.status}): ${detail || response.statusText}`,
+    );
+  }
+
+  return (await response.json()) as ReprovisionApiKeyResponse;
+}
+
+// ---------------------------------------------------------------------------
+// Credential reading from running assistant via gateway
+// ---------------------------------------------------------------------------
+
+export interface GatewayCredentialResult {
+  /** The credential value, if found. */
+  value: string | null;
+  /** True when the gateway/daemon was unreachable (network error, timeout, etc.). */
+  unreachable: boolean;
+}
+
+/**
+ * Read an existing credential from the assistant's secret store via the
+ * gateway-proxied `POST /v1/secrets/read` endpoint (with `reveal: true`).
+ *
+ * Returns a result distinguishing "key not found" (`value: null,
+ * unreachable: false`) from "gateway unreachable" (`value: null,
+ * unreachable: true`). Callers should only reprovision when the gateway
+ * is reachable but the key is genuinely missing — reprovisioning while
+ * the gateway is down would revoke the old key server-side without being
+ * able to inject the replacement.
+ *
+ * Never throws.
+ */
+export async function readGatewayCredential(
+  gatewayUrl: string,
+  name: string,
+  bearerToken?: string,
+): Promise<GatewayCredentialResult> {
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    };
+    if (bearerToken) {
+      headers["Authorization"] = `Bearer ${bearerToken}`;
+    }
+
+    const response = await fetch(`${gatewayUrl}/v1/secrets/read`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ type: "credential", name, reveal: true }),
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!response.ok) {
+      // 5xx means the gateway/daemon backend is down — treat as unreachable
+      // so callers don't revoke a potentially valid key.
+      return { value: null, unreachable: response.status >= 500 };
+    }
+
+    const json = (await response.json()) as {
+      found: boolean;
+      value?: string;
+      unreachable?: boolean;
+    };
+    // The daemon's /v1/secrets/read returns `unreachable: true` when the
+    // credential backend (CES) can't be reached. Respect that signal.
+    if (json.unreachable) {
+      return { value: null, unreachable: true };
+    }
+    return {
+      value: json.found && json.value ? json.value : null,
+      unreachable: false,
+    };
+  } catch {
+    // Network error, timeout, or gateway down
+    return { value: null, unreachable: true };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Credential injection into running assistant via gateway
 // ---------------------------------------------------------------------------
 

@@ -1,6 +1,7 @@
 import { join, resolve, sep } from "node:path";
 
 import { enqueuePkbIndexJob } from "../../memory/jobs/embed-pkb-file.js";
+import { PKB_WORKSPACE_SCOPE } from "../../memory/pkb/types.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
@@ -116,11 +117,15 @@ class FileWriteTool implements Tool {
     // was written successfully and that is the user-facing contract.
     try {
       const pkbRoot = join(getWorkspaceDir(), "pkb");
-      if (isInsidePkbRoot(filePath, pkbRoot)) {
+      // Gate on `.md` to match `scanPkbFiles`, which only walks markdown.
+      // Indexing `pkb/*.json` (or any other extension) here would produce
+      // chunks the reconciler can't see, leading to orphaned vectors and
+      // pointless embedding work.
+      if (filePath.toLowerCase().endsWith(".md") && isInsidePkbRoot(filePath, pkbRoot)) {
         enqueuePkbIndexJob({
           pkbRoot,
           absPath: filePath,
-          memoryScopeId: context.memoryScopeId ?? "default",
+          memoryScopeId: PKB_WORKSPACE_SCOPE,
         });
       }
     } catch (err) {

@@ -27,6 +27,7 @@ import type { CesProcessManager } from "../credential-execution/process-manager.
 import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { CliIpcServer } from "../ipc/cli-server.js";
+import { registerBrowserIpcContextResolver } from "../ipc/routes/browser-context.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import {
@@ -61,6 +62,7 @@ import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
+import { registerInteractiveUiResolver } from "../runtime/interactive-ui.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { redactSecrets } from "../security/secret-scanner.js";
@@ -91,10 +93,14 @@ import {
 } from "./conversation.js";
 import { ConversationEvictor } from "./conversation-evictor.js";
 import { registerLaunchConversationDeps } from "./conversation-launch.js";
+import { buildSlackMetaForPersistence } from "./conversation-messaging.js";
 import { formatCompactResult } from "./conversation-process.js";
 import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
 import { resolveSlash, type SlashContext } from "./conversation-slash.js";
-import { refreshSurfacesForApp } from "./conversation-surfaces.js";
+import {
+  refreshSurfacesForApp,
+  showStandaloneSurface,
+} from "./conversation-surfaces.js";
 import { undoLastMessage } from "./handlers/conversations.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import type {
@@ -830,6 +836,59 @@ export class DaemonServer {
       }
     });
 
+    // Install the interactive UI resolver so skills and IPC handlers can
+    // present ad-hoc UI surfaces (confirmations, forms) to the user via
+    // `requestInteractiveUi()`. Interactive UI requires a client to be
+    // actively connected to the conversation (via SSE), which means the
+    // conversation must be in the in-memory map. If the conversation was
+    // evicted from memory the client is definitely disconnected, so
+    // hydration from persistent storage is pointless — the hydrated
+    // conversation would have hasNoClient=true, causing
+    // canShowInteractiveUi() to return false and the surface to be
+    // cancelled with no_interactive_surface. We skip that wasted work
+    // and return conversation_not_found directly.
+    registerInteractiveUiResolver(async (request) => {
+      const conversation = this.conversations.get(request.conversationId);
+
+      if (!conversation) {
+        log.warn(
+          {
+            conversationId: request.conversationId,
+            surfaceType: request.surfaceType,
+          },
+          "interactive-ui resolver: conversation not in memory (client not connected); failing closed",
+        );
+        return {
+          status: "cancelled" as const,
+          surfaceId: `ui-resolver-${Date.now()}`,
+          cancellationReason: "conversation_not_found" as const,
+        };
+      }
+
+      // Generate a unique surface ID and delegate to the conversation's
+      // standalone surface lifecycle. The returned Promise blocks until
+      // the user submits, cancels, or the timeout elapses.
+      const surfaceId = `ui-standalone-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      return showStandaloneSurface(conversation, request, surfaceId);
+    });
+
+    // Allow `browser_execute` IPC calls to reuse live conversation browser
+    // proxy wiring (when a caller passes a conversationId from
+    // __CONVERSATION_ID / __SKILL_CONTEXT_JSON). This keeps nested
+    // `assistant browser status` checks consistent with the parent turn's
+    // extension connectivity instead of always falling back to a synthetic
+    // browser-cli session that has no hostBrowserProxy.
+    registerBrowserIpcContextResolver((conversationId) => {
+      const conversation = this.conversations.get(conversationId);
+      if (!conversation) return null;
+      return {
+        conversationId,
+        trustClass: conversation.trustContext?.trustClass ?? "guardian",
+        hostBrowserProxy: conversation.hostBrowserProxy,
+        transportInterface: conversation.transportInterface,
+      };
+    });
+
     // Start the CLI IPC server. Built-in methods (wake_conversation) are
     // registered by the constructor; CLI commands connect to this socket to
     // invoke daemon-side operations that require in-process state.
@@ -1464,6 +1523,16 @@ export class DaemonServer {
     };
     const slashResult = await resolveSlash(content, slashContext);
 
+    // Slack inbound metadata is materialized once here so every persistence
+    // branch below (slash-command bypass paths and the agent-loop path) writes
+    // the same `slackMeta` envelope. Without this, unknown-slash and /compact
+    // rows land without the envelope and the chronological renderer sees
+    // inconsistent metadata across a single conversation.
+    const slackMeta = buildSlackMetaForPersistence({
+      slackInbound: options?.slackInbound,
+      turnChannel: conversation.getTurnChannelContext()?.userMessageChannel,
+    });
+
     if (slashResult.kind === "unknown") {
       const serverTurnCtx = conversation.getTurnChannelContext();
       const serverProvenance = provenanceFromTrustContext(
@@ -1495,13 +1564,20 @@ export class DaemonServer {
           ? { imageSourcePaths }
           : {}),
       };
+      // slackMeta encodes the inbound user message's ts/thread — it attaches
+      // to the user row only. The assistant's slash-command response does not
+      // originate from Slack and must not inherit the user's channelTs, which
+      // would break ordering in the chronological renderer.
+      const userMetaWithSlack = slackMeta
+        ? { ...serverChannelMeta, slackMeta }
+        : serverChannelMeta;
       const cleanMsg = createUserMessage(content, attachments);
       const llmMsg = enrichMessageWithSourcePaths(cleanMsg, attachments);
       const persisted = await addMessage(
         conversationId,
         "user",
         JSON.stringify(cleanMsg.content),
-        serverChannelMeta,
+        userMetaWithSlack,
       );
       conversation.getMessages().push(llmMsg);
 
@@ -1579,12 +1655,15 @@ export class DaemonServer {
             }
           : {}),
       };
+      const compactUserMeta = slackMeta
+        ? { ...compactChannelMeta, slackMeta }
+        : compactChannelMeta;
       const cleanMsg = createUserMessage(content, attachments);
       const persisted = await addMessage(
         conversationId,
         "user",
         JSON.stringify(cleanMsg.content),
-        compactChannelMeta,
+        compactUserMeta,
       );
       conversation.getMessages().push(cleanMsg);
 
@@ -1609,10 +1688,17 @@ export class DaemonServer {
     const resolvedContent = slashResult.content;
 
     const requestId = crypto.randomUUID();
+    // Slack inbound metadata captured at the channel ingress boundary is
+    // forwarded into the persistence call so `persistQueuedMessageBody` can
+    // emit a `slackMeta` envelope on the row's metadata column.
+    const persistMetadata = options?.slackInbound
+      ? { slackInbound: options.slackInbound }
+      : undefined;
     const messageId = await conversation.persistUserMessage(
       resolvedContent,
       attachments,
       requestId,
+      persistMetadata,
     );
 
     // Register pending interactions so channel approval interception can

@@ -8,6 +8,7 @@ import { isEmailEnabled } from "../email/feature-gate.js";
 import { registerHooksCommand } from "../hooks/cli.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
+import { registerAttachmentCommand } from "./commands/attachment.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerAuthCommand } from "./commands/auth.js";
 import { registerAutonomyCommand } from "./commands/autonomy.js";
@@ -26,6 +27,8 @@ import { registerCredentialsCommand } from "./commands/credentials.js";
 import { registerDefaultAction } from "./commands/default-action.js";
 import { registerDomainCommand } from "./commands/domain.js";
 import { registerEmailCommand } from "./commands/email.js";
+import { registerImageGenerationCommand } from "./commands/image-generation.js";
+import { registerInferenceCommand } from "./commands/inference.js";
 import { registerKeysCommand } from "./commands/keys.js";
 import { registerMcpCommand } from "./commands/mcp.js";
 import { registerMemoryCommand } from "./commands/memory.js";
@@ -36,8 +39,13 @@ import { registerRoutesCommand } from "./commands/routes.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
 import { registerShotgunCommand } from "./commands/shotgun.js";
 import { registerSkillsCommand } from "./commands/skills.js";
+import { registerSttCommand } from "./commands/stt.js";
+import { registerTaskCommand } from "./commands/task.js";
 import { registerTrustCommand } from "./commands/trust.js";
+import { registerTtsCommand } from "./commands/tts.js";
+import { registerUiCommand } from "./commands/ui.js";
 import { registerUsageCommand } from "./commands/usage.js";
+import { registerWatchersCommand } from "./commands/watchers.js";
 import { log } from "./logger.js";
 
 /**
@@ -68,6 +76,7 @@ Examples:
   registerBashCommand(program);
   registerBrowserCommand(program);
   registerCacheCommand(program);
+  registerTaskCommand(program);
   registerConversationsCommand(program);
   registerConfigCommand(program);
   registerKeysCommand(program);
@@ -77,6 +86,7 @@ Examples:
   registerMemoryCommand(program);
   registerAuditCommand(program);
   registerAuthCommand(program);
+  registerAttachmentCommand(program);
   registerAvatarCommand(program);
   registerHooksCommand(program);
   registerMcpCommand(program);
@@ -94,9 +104,17 @@ Examples:
   registerRoutesCommand(program);
   registerSkillsCommand(program);
   registerUsageCommand(program);
+  registerWatchersCommand(program);
+
+  registerImageGenerationCommand(program);
+  registerUiCommand(program);
 
   registerShotgunCommand(program);
   registerSequenceCommand(program);
+  registerSttCommand(program);
+  registerTtsCommand(program);
+
+  registerInferenceCommand(program);
 
   // Fail fast when no assistant workspace exists on disk. The workspace is
   // created by `vellum hatch` and must be present for any command to work.

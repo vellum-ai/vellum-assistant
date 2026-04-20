@@ -332,6 +332,37 @@ describe("renderHistoryContent", () => {
     expect(output.textSegments).toEqual(["Now let me try something else."]);
     expect(output.contentOrder).toEqual(["tool:0", "text:0", "tool:1"]);
   });
+
+  test("drops Anthropic placeholder sentinel text blocks from history", () => {
+    // Sentinels are injected into outbound API requests for role alternation
+    // and must never render to the UI. Guards against any leak path that
+    // bypasses cleanAssistantContent (bug-prone stored rows, historical
+    // data predating migration 222, future regressions).
+    const output = renderHistoryContent([
+      { type: "text", text: "Real response before." },
+      { type: "text", text: "\x00__PLACEHOLDER__[empty assistant turn]" },
+      { type: "text", text: "__PLACEHOLDER__[empty assistant turn]" },
+      { type: "text", text: "\x00__PLACEHOLDER__[internal blocks omitted]" },
+      { type: "text", text: "__PLACEHOLDER__[internal blocks omitted]" },
+      { type: "text", text: "Real response after." },
+    ]);
+
+    expect(output.text).toBe("Real response before. Real response after.");
+    expect(output.textSegments).toEqual([
+      "Real response before. Real response after.",
+    ]);
+    expect(output.contentOrder).toEqual(["text:0"]);
+  });
+
+  test("yields empty output when content is only a placeholder sentinel", () => {
+    const output = renderHistoryContent([
+      { type: "text", text: "\x00__PLACEHOLDER__[empty assistant turn]" },
+    ]);
+
+    expect(output.text).toBe("");
+    expect(output.textSegments).toEqual([]);
+    expect(output.contentOrder).toEqual([]);
+  });
 });
 
 describe("getAttachmentsForMessage", () => {

@@ -472,7 +472,9 @@ describe("token estimator", () => {
       },
     ];
 
-    const total = estimateMessagesTokens(messages, { providerName: "anthropic" });
+    const total = estimateMessagesTokens(messages, {
+      providerName: "anthropic",
+    });
 
     // Each image: ~73 tokens. 100 images + message overhead ≈ 7,304
     // Old behavior: 100 * ~1,043 = ~104,300 (14x overestimate)
@@ -520,5 +522,193 @@ describe("token estimator", () => {
     // With overhead: 16 + 3 + 1601 = 1620
     expect(tallTokens).toBeGreaterThan(1_400);
     expect(tallTokens).toBeLessThan(1_800);
+  });
+});
+
+describe("tool_result estimation mirrors Anthropic wire format", () => {
+  test("plain text tool_result counts overhead + id + content", () => {
+    const tokens = estimateContentBlockTokens({
+      type: "tool_result",
+      tool_use_id: "call_1",
+      content: "operation complete",
+    });
+    // Sanity bounds — small string, small overhead.
+    expect(tokens).toBeGreaterThan(estimateTextTokens("operation complete"));
+    expect(tokens).toBeLessThan(estimateTextTokens("operation complete") + 50);
+  });
+
+  test("image sub-block is counted when is_error is false", () => {
+    const pngBase64 = makePngBase64(512, 512);
+    const withImage = estimateContentBlockTokens(
+      {
+        type: "tool_result",
+        tool_use_id: "call_img",
+        content: "screenshot captured",
+        contentBlocks: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/png",
+              data: pngBase64,
+            },
+          },
+        ],
+      },
+      { providerName: "anthropic" },
+    );
+    const withoutImage = estimateContentBlockTokens(
+      {
+        type: "tool_result",
+        tool_use_id: "call_img",
+        content: "screenshot captured",
+      },
+      { providerName: "anthropic" },
+    );
+    // 512x512 = 262144 pixels, tokens ≈ ceil(262144/750) ≈ 350.
+    expect(withImage - withoutImage).toBeGreaterThan(300);
+    expect(withImage - withoutImage).toBeLessThan(500);
+  });
+
+  test("image sub-block is NOT counted when is_error is true", () => {
+    // The Anthropic serializer filters image parts out of error tool results
+    // (client.ts:1398), so the estimator must match.
+    const pngBase64 = makePngBase64(512, 512);
+    const errorWithImage = estimateContentBlockTokens(
+      {
+        type: "tool_result",
+        tool_use_id: "call_err",
+        content: "operation failed",
+        is_error: true,
+        contentBlocks: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/png",
+              data: pngBase64,
+            },
+          },
+        ],
+      },
+      { providerName: "anthropic" },
+    );
+    const errorNoImage = estimateContentBlockTokens(
+      {
+        type: "tool_result",
+        tool_use_id: "call_err",
+        content: "operation failed",
+        is_error: true,
+      },
+      { providerName: "anthropic" },
+    );
+    expect(errorWithImage).toBe(errorNoImage);
+  });
+
+  test("image sub-block IS counted on error for non-Anthropic providers", () => {
+    // OpenAI and Gemini serializers forward error-result images (as a
+    // follow-up user message / parts entry), so the estimator must count
+    // them regardless of is_error under those providers.
+    const pngBase64 = makePngBase64(512, 512);
+    const build = (providerName: string) =>
+      estimateContentBlockTokens(
+        {
+          type: "tool_result",
+          tool_use_id: "call_err_img",
+          content: "operation failed",
+          is_error: true,
+          contentBlocks: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: "image/png",
+                data: pngBase64,
+              },
+            },
+          ],
+        },
+        { providerName },
+      );
+    const buildPlain = (providerName: string) =>
+      estimateContentBlockTokens(
+        {
+          type: "tool_result",
+          tool_use_id: "call_err_img",
+          content: "operation failed",
+          is_error: true,
+        },
+        { providerName },
+      );
+    for (const providerName of ["openai", "gemini"]) {
+      const withImage = build(providerName);
+      const withoutImage = buildPlain(providerName);
+      expect(withImage - withoutImage).toBeGreaterThan(0);
+    }
+  });
+
+  test("unknown sub-block types are NOT counted", () => {
+    // The Anthropic serializer only forwards image/text sub-blocks. Anything
+    // else (thinking, tool_use, etc.) is dropped — the estimator must not
+    // add tokens for content that never reaches the wire.
+    const withThinking = estimateContentBlockTokens({
+      type: "tool_result",
+      tool_use_id: "call_think",
+      content: "done",
+      contentBlocks: [
+        {
+          type: "thinking",
+          thinking: "a".repeat(4000),
+          signature: "sig_stub",
+        },
+      ],
+    });
+    const plain = estimateContentBlockTokens({
+      type: "tool_result",
+      tool_use_id: "call_think",
+      content: "done",
+    });
+    expect(withThinking).toBe(plain);
+  });
+
+  test("text sub-block beyond block.content is counted once", () => {
+    // Handlers (e.g. secret-detection) may populate contentBlocks with an
+    // additional text entry distinct from block.content. The serializer
+    // forwards both, so the estimator counts block.content once and each
+    // text sub-block once — never doubling the content string against an
+    // echoing text sub-block.
+    const extraText = "x".repeat(4000);
+    const tokens = estimateContentBlockTokens({
+      type: "tool_result",
+      tool_use_id: "call_dual_text",
+      content: "short summary",
+      contentBlocks: [{ type: "text", text: extraText }],
+    });
+    // Estimate should be roughly:
+    //   overhead + id + "short summary" + (text overhead + 1000 tokens for extraText)
+    // The extra text is ~1000 tokens on its own; overhead is small.
+    expect(tokens).toBeGreaterThan(1000);
+    expect(tokens).toBeLessThan(1100);
+  });
+
+  test("regression: tool_result with thinking sub-block does not inflate estimate by 3x+", () => {
+    // A modest tool_result whose contentBlocks carry a large sub-block the
+    // serializer discards must not inflate the estimate: the estimator
+    // skips the thinking payload, matching the plain wire shape.
+    const content = "y".repeat(2000);
+    const inflated = estimateContentBlockTokens({
+      type: "tool_result",
+      tool_use_id: "call_regress",
+      content,
+      contentBlocks: [
+        { type: "thinking", thinking: "z".repeat(8000), signature: "s" },
+      ],
+    });
+    const wireShape = estimateContentBlockTokens({
+      type: "tool_result",
+      tool_use_id: "call_regress",
+      content,
+    });
+    expect(inflated).toBe(wireShape);
   });
 });

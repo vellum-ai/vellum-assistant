@@ -27,6 +27,7 @@ const fullDefault = {
       nonInteractiveLatestTurnCompression: "truncate" as const,
     },
   },
+  openrouter: { only: [] as string[] },
 };
 
 describe("resolveCallSiteConfig", () => {

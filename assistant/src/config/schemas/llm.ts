@@ -55,6 +55,8 @@ export const LLMCallSiteEnum = z.enum([
   "notificationDecision",
   "preferenceExtraction",
   "guardianQuestionCopy",
+  "approvalCopy",
+  "approvalConversation",
   "watchCommentary",
   "watchSummary",
   "interactionClassifier",
@@ -63,6 +65,7 @@ export const LLMCallSiteEnum = z.enum([
   "skillCategoryInference",
   "meetConsentMonitor",
   "meetChatOpportunity",
+  "inference",
 ]);
 export type LLMCallSite = z.infer<typeof LLMCallSiteEnum>;
 
@@ -196,6 +199,28 @@ const ContextWindowDeepPartialSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// OpenRouter provider-routing preferences
+//
+// OpenRouter's `/v1/chat/completions` and `/v1/messages` endpoints both accept
+// a `provider: { only: [...] }` body field that restricts which upstream
+// providers (Anthropic, Google, etc.) may fulfill a request. Exposed here so
+// users can pin routing via config without touching the wire-format knobs
+// directly. Nested shape keeps room for sibling OpenRouter knobs (`order`,
+// `allow_fallbacks`, …) to be added later without another schema reshape.
+// ---------------------------------------------------------------------------
+
+const OpenRouterOnlyItemSchema = z.string().min(1);
+
+export const OpenRouterSchema = z.object({
+  only: z.array(OpenRouterOnlyItemSchema).default([]),
+});
+export type OpenRouter = z.infer<typeof OpenRouterSchema>;
+
+const OpenRouterDeepPartialSchema = z.object({
+  only: z.array(OpenRouterOnlyItemSchema).optional(),
+});
+
+// ---------------------------------------------------------------------------
 // Pricing overrides
 // ---------------------------------------------------------------------------
 
@@ -226,6 +251,7 @@ export const LLMConfigBase = z.object({
   temperature: TemperatureSchema.default(null),
   thinking: ThinkingSchema.default(ThinkingSchema.parse({})),
   contextWindow: ContextWindowSchema.default(ContextWindowSchema.parse({})),
+  openrouter: OpenRouterSchema.default(OpenRouterSchema.parse({})),
 });
 export type LLMConfigBase = z.infer<typeof LLMConfigBase>;
 
@@ -244,6 +270,7 @@ export const LLMConfigFragment = z.object({
   temperature: TemperatureSchema.optional(),
   thinking: ThinkingFragmentSchema.optional(),
   contextWindow: ContextWindowDeepPartialSchema.optional(),
+  openrouter: OpenRouterDeepPartialSchema.optional(),
 });
 export type LLMConfigFragment = z.infer<typeof LLMConfigFragment>;
 
@@ -271,9 +298,7 @@ export const LLMSchema = z
     // every call site). Latency-optimized defaults for background call sites
     // are seeded into the user's on-disk config by migration 040, not at
     // schema level, so `LLMSchema.parse({})` yields an empty map.
-    callSites: z
-      .partialRecord(LLMCallSiteEnum, LLMCallSiteConfig)
-      .default({}),
+    callSites: z.partialRecord(LLMCallSiteEnum, LLMCallSiteConfig).default({}),
     pricingOverrides: z.array(PricingOverrideSchema).default([]),
   })
   .superRefine((config, ctx) => {

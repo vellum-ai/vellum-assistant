@@ -10,14 +10,20 @@ import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { deleteConversation } from "../memory/conversation-crud.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { getLogger } from "../util/logger.js";
-import { getWorkspacePromptPath } from "../util/platform.js";
+import {
+  getWorkspaceDirDisplay,
+  getWorkspacePromptPath,
+} from "../util/platform.js";
 
 const log = getLogger("update-bulletin-job");
 
 const HASH_CHECKPOINT_KEY = "updates:last_processed_hash";
 const EMPTY_HASH = "empty";
-const UPDATE_BULLETIN_HINT =
-  "Check ~/.vellum/workspace/UPDATES.md — new release notes are present. Apply any assistant-facing behavior changes (new tools, deprecations, memory updates). If the user would benefit from knowing about a user-facing change, surface it only when the next topic makes it relevant — do not interrupt them with a proactive message. When you're done processing, delete the file by running `cd ~/.vellum/workspace && rm UPDATES.md` (the bare-filename `rm UPDATES.md` is auto-allowed; path-qualified deletes are not). A silent no-op is preferable to low-signal chatter.";
+
+function updateBulletinHint(): string {
+  const workspace = getWorkspaceDirDisplay();
+  return `Check ${workspace}/UPDATES.md — new release notes are present. Apply any assistant-facing behavior changes (new tools, deprecations, memory updates). If the user would benefit from knowing about a user-facing change, surface it only when the next topic makes it relevant — do not interrupt them with a proactive message. When you're done processing, delete the file by running \`cd "${workspace}" && rm UPDATES.md\` (the bare-filename \`rm UPDATES.md\` is auto-allowed; path-qualified deletes are not). A silent no-op is preferable to low-signal chatter.`;
+}
 
 type ReadResult =
   | { kind: "missing" }
@@ -40,7 +46,7 @@ function readTrimmedContent(path: string): ReadResult {
 /**
  * Fire-and-forget background processor for the release-notes bulletin.
  *
- * If `~/.vellum/workspace/UPDATES.md` has new (unprocessed) content, this
+ * If `<workspace>/UPDATES.md` has new (unprocessed) content, this
  * bootstraps a background conversation and wakes the agent loop with a hint
  * pointing at the file. De-duplication uses a sha256 content hash stored in
  * the `updates:last_processed_hash` memory checkpoint — an `"empty"` sentinel
@@ -65,32 +71,32 @@ export async function runUpdateBulletinJobIfNeeded(): Promise<void> {
     return;
   }
 
-  const updatesPath = getWorkspacePromptPath("UPDATES.md");
-  const initial = readTrimmedContent(updatesPath);
-
-  if (initial.kind === "error") {
-    log.warn(
-      { err: initial.err, path: updatesPath },
-      "update-bulletin-job: failed to read UPDATES.md; leaving checkpoint unchanged so next startup retries",
-    );
-    return;
-  }
-
-  if (initial.kind === "missing" || initial.content.length === 0) {
-    const stored = getMemoryCheckpoint(HASH_CHECKPOINT_KEY);
-    if (stored !== EMPTY_HASH) {
-      setMemoryCheckpoint(HASH_CHECKPOINT_KEY, EMPTY_HASH);
-    }
-    return;
-  }
-
-  const currentHash = computeHash(initial.content);
-  const stored = getMemoryCheckpoint(HASH_CHECKPOINT_KEY);
-  if (stored === currentHash) {
-    return;
-  }
-
   try {
+    const updatesPath = getWorkspacePromptPath("UPDATES.md");
+    const initial = readTrimmedContent(updatesPath);
+
+    if (initial.kind === "error") {
+      log.warn(
+        { err: initial.err, path: updatesPath },
+        "update-bulletin-job: failed to read UPDATES.md; leaving checkpoint unchanged so next startup retries",
+      );
+      return;
+    }
+
+    if (initial.kind === "missing" || initial.content.length === 0) {
+      const stored = getMemoryCheckpoint(HASH_CHECKPOINT_KEY);
+      if (stored !== EMPTY_HASH) {
+        setMemoryCheckpoint(HASH_CHECKPOINT_KEY, EMPTY_HASH);
+      }
+      return;
+    }
+
+    const currentHash = computeHash(initial.content);
+    const stored = getMemoryCheckpoint(HASH_CHECKPOINT_KEY);
+    if (stored === currentHash) {
+      return;
+    }
+
     const conv = bootstrapConversation({
       conversationType: "background",
       source: "updates_bulletin",
@@ -100,22 +106,20 @@ export async function runUpdateBulletinJobIfNeeded(): Promise<void> {
     });
     const wakeResult = await wakeAgentForOpportunity({
       conversationId: conv.id,
-      hint: UPDATE_BULLETIN_HINT,
+      hint: updateBulletinHint(),
       source: "updates_bulletin",
     });
 
     if (!wakeResult.invoked) {
       log.warn(
-        { conversationId: conv.id },
+        { conversationId: conv.id, reason: wakeResult.reason },
         "Update bulletin wake silently no-op'd (invoked=false); cleaning up orphan background conversation and leaving checkpoint unchanged so next startup retries",
       );
-      // Belt-and-suspenders cleanup: even though `runUpdateBulletinJobIfNeeded`
-      // is now dispatched after `server.start()` (so the default wake
-      // resolver is registered before we wake), `wakeAgentForOpportunity()`
-      // can still return `{invoked: false}` for other reasons (resolver
-      // returns null because the conversation cannot be hydrated, a future
-      // regression, etc.). Without this cleanup each such occurrence leaks
-      // a conversation DB row.
+      // Belt-and-suspenders cleanup: `wakeAgentForOpportunity()` can return
+      // `{invoked: false}` for reasons unrelated to the wake-resolver
+      // registration order (resolver returns null because the conversation
+      // cannot be hydrated, etc.). Without this cleanup each such occurrence
+      // leaks a conversation DB row.
       //
       // Wrapped in its own try/catch so a cleanup failure never propagates
       // out of this fire-and-forget task.
@@ -126,8 +130,7 @@ export async function runUpdateBulletinJobIfNeeded(): Promise<void> {
       // writing, but the LLM sidechain call itself still runs against the
       // now-deleted conversation id. Adding a cancellation/existence hook
       // in `conversation-title-service.ts` would plug this one-call waste,
-      // but this code path is rare (resolver race is fixed by the primary
-      // change in `lifecycle.ts`), so we accept the one-time cost.
+      // but this code path is rare, so we accept the one-time cost.
       try {
         deleteConversation(conv.id);
       } catch (err) {

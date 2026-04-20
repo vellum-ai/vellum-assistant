@@ -19,6 +19,11 @@ else
   EXT_VERSION=$(jq -r '.version' "$SCRIPT_DIR/manifest.json")
 fi
 
+# Resolve environment for bundle-time injection. The release workflow sets
+# VELLUM_ENVIRONMENT to 'staging' or 'production'; local dev builds
+# default to 'dev' when the variable is unset.
+VELLUM_ENV="${VELLUM_ENVIRONMENT:-dev}"
+
 # Chrome manifest requires 1-4 dot-separated integers. Strip any
 # prerelease suffix (e.g. "0.6.0-staging.3" -> "0.6.0") so staging
 # builds produce a valid extension zip.
@@ -40,12 +45,14 @@ mkdir -p "$DIST_DIR/icons"
 
 # Build service worker
 echo "Bundling service worker with bun build..."
+echo "  Environment: $VELLUM_ENV"
 bun build \
   "$SCRIPT_DIR/background/worker.ts" \
   --outdir "$DIST_DIR/background" \
   --target browser \
   --format esm \
-  --minify
+  --minify \
+  --define "process.env.VELLUM_ENVIRONMENT=\"$VELLUM_ENV\""
 
 # Build popup script
 echo "Bundling popup script with bun build..."
@@ -54,7 +61,8 @@ bun build \
   --outdir "$DIST_DIR/popup" \
   --target browser \
   --format esm \
-  --minify
+  --minify \
+  --define "process.env.VELLUM_ENVIRONMENT=\"$VELLUM_ENV\""
 
 # Copy static assets
 cp "$SCRIPT_DIR/manifest.json" "$DIST_DIR/manifest.json"

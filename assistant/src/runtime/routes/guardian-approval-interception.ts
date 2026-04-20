@@ -31,6 +31,7 @@ import type {
   ApprovalCopyGenerator,
 } from "../http-types.js";
 import { parseApprovalIntent } from "../nl-approval-parser.js";
+import { isTrackedApprovalPromptTs } from "./approval-prompt-ts-tracker.js";
 import { handleGuardianCallbackDecision } from "./approval-strategies/guardian-callback-strategy.js";
 import { handleGuardianTextEngineDecision } from "./approval-strategies/guardian-text-engine-strategy.js";
 import {
@@ -139,13 +140,38 @@ export async function handleApprovalInterception(
   // so getChannelApprovalPrompt(conversationId) would return null.
   // Only guardians can approve via reaction — non-guardian reactions are
   // silently ignored to prevent self-approval.
-  if (callbackData?.startsWith("reaction:")) {
+  //
+  // `reaction_removed:` callbackData never expresses an approval intent, and
+  // `isSlackReactionEvent` short-circuits before reaching here for removals,
+  // but guard explicitly so a future refactor can't turn an un-react into an
+  // unintended approval.
+  if (
+    callbackData?.startsWith("reaction:") &&
+    !callbackData.startsWith("reaction_removed:")
+  ) {
     if (trustCtx.trustClass !== "guardian" || !actorExternalId) {
       return { handled: true, type: "stale_ignored" };
     }
     const reactionDecision = parseReactionCallbackData(callbackData);
     if (!reactionDecision) {
       // Unknown emoji — ignore silently
+      return { handled: true, type: "stale_ignored" };
+    }
+
+    // Require the reacted-to message to be a tracked approval prompt. Without
+    // this check, any unrelated 👍 reaction from the guardian in a subscribed
+    // channel would approve the outstanding pending request (now that
+    // reactions are admitted from any subscribed channel, not just tracked
+    // bot threads). `approvalMessageTs` is `item.ts` of the reacted-to
+    // Slack message, propagated from `sourceMetadata.messageId`.
+    if (
+      !approvalMessageTs ||
+      !isTrackedApprovalPromptTs(
+        sourceChannel,
+        conversationExternalId,
+        approvalMessageTs,
+      )
+    ) {
       return { handled: true, type: "stale_ignored" };
     }
 
@@ -493,8 +519,12 @@ export async function handleApprovalInterception(
   // ── Slack reaction path ──
   // Reactions produce `callbackData` of the form `reaction:<emoji_name>`.
   // Only guardians can approve via reaction — non-guardian reactions are
-  // silently ignored to prevent self-approval.
-  if (callbackData?.startsWith("reaction:")) {
+  // silently ignored to prevent self-approval. `reaction_removed:` never
+  // expresses an approval intent.
+  if (
+    callbackData?.startsWith("reaction:") &&
+    !callbackData.startsWith("reaction_removed:")
+  ) {
     if (trustCtx.trustClass !== "guardian") {
       return { handled: true, type: "stale_ignored" };
     }

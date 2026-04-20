@@ -27,9 +27,11 @@
  *      pointer / call messages (see `assistant/src/calls/call-pointer-messages.ts`).
  *
  *   4. **Participant changes** (`participant.change`) are persisted as
- *      short `"assistant"`-role lines (`"<name> joined"` / `"<name> left"`)
- *      with `automated: true` in metadata so they don't pollute memory
- *      indexing.
+ *      short `"user"`-role lines (`"[Meeting] <name> joined"` /
+ *      `"[Meeting] <name> left"`) with `automated: true` in metadata so
+ *      they don't pollute memory indexing. Using `"user"` role keeps
+ *      untrusted participant names from carrying assistant-level
+ *      authority in model context.
  *
  * `speaker.change` and `lifecycle` are intentionally consumed elsewhere
  * (PR 18 storage writer, PR 19 lifecycle listener, PR 21 speaker

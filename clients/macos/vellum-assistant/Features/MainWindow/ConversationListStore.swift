@@ -521,7 +521,7 @@ final class ConversationListStore {
             let hadOrder = conversation.displayOrder != nil
             if hadOrder { conversation.displayOrder = nil }
             conversations[index] = conversation
-            if hadOrder { sendReorderConversations() }
+            if hadOrder { sendPinChange(for: conversation) }
         } else {
             conversations[index] = conversation
         }
@@ -540,7 +540,7 @@ final class ConversationListStore {
             .compactMap(\.displayOrder).max() ?? -1
         conversation.displayOrder = maxOrder + 1
         conversations[index] = conversation
-        sendReorderConversations()
+        sendPinChange(for: conversation)
     }
 
     func unpinConversation(id: UUID) {
@@ -563,7 +563,7 @@ final class ConversationListStore {
         }
         conversation.displayOrder = nil
         conversations[index] = conversation
-        sendReorderConversations()
+        sendPinChange(for: conversation)
     }
 
     /// Move a conversation to a specific group. When moving to a group, assigns
@@ -591,7 +591,7 @@ final class ConversationListStore {
             conversation.displayOrder = maxOrder + 1
         }
         conversations[index] = conversation
-        sendReorderConversations()
+        sendPinChange(for: conversation)
     }
 
     /// Move a conversation to a new position in the visible list (for drag-and-drop reorder).
@@ -678,6 +678,33 @@ final class ConversationListStore {
         conversations = draft
         sendReorderConversations()
         return true
+    }
+
+    /// Send a single-conversation pin/group/order change delta. Used by
+    /// `pinConversation`, `unpinConversation`, `moveConversationToGroup`, and
+    /// the recency-clear path instead of the full-list `sendReorderConversations()`.
+    ///
+    /// The full-list endpoint submits every visible conversation's state from
+    /// this client's local cache, so if our view is stale (e.g. another device
+    /// changed pin state and we haven't synced yet), the POST clobbers the
+    /// other device's changes. Sending only the single conversation whose
+    /// state actually changed makes concurrent edits on different devices
+    /// naturally safe — each client's POST touches only what it toggled.
+    func sendPinChange(for conversation: ConversationModel) {
+        guard let conversationId = conversation.conversationId else { return }
+        let update = ReorderConversationsRequestUpdate(
+            conversationId: conversationId,
+            displayOrder: conversation.displayOrder.map { Double($0) },
+            isPinned: conversation.isPinned,
+            groupId: conversation.groupId
+        )
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let success = await self.conversationListClient.reorderConversations(updates: [update])
+            if !success {
+                log.error("Failed to send pin change for conversation \(conversationId)")
+            }
+        }
     }
 
     /// Send the current conversation ordering to the daemon so it persists across restarts.

@@ -23,6 +23,7 @@ import { CHANNEL_IDS, INTERFACE_IDS, isChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import { UserError } from "../util/errors.js";
+import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import { getConversationsDir } from "../util/platform.js";
 import { createRowMapper } from "../util/row-mapper.js";
@@ -420,9 +421,7 @@ export function findAnalysisConversationFor(
  * not found. Tiny convenience used by the recursion guard in the
  * auto-analyze loop.
  */
-export function getConversationSource(
-  conversationId: string,
-): string | null {
+export function getConversationSource(conversationId: string): string | null {
   const db = getDb();
   const row = db
     .select({ source: conversations.source })
@@ -1044,6 +1043,22 @@ export function getMessages(conversationId: string): MessageRow[] {
     .map(parseMessage);
 }
 
+/**
+ * Efficient existence check — returns true if the conversation has at least
+ * one message row. Uses `LIMIT 1` + `select({ 1 })` to avoid loading and
+ * parsing any message content.
+ */
+export function hasMessages(conversationId: string): boolean {
+  const db = getDb();
+  const row = db
+    .select({ one: sql`1` })
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .limit(1)
+    .get();
+  return row !== undefined;
+}
+
 export interface PaginatedMessagesResult {
   messages: MessageRow[];
   hasMore: boolean;
@@ -1454,6 +1469,39 @@ export function updateMessageMetadata(
     .set({ metadata: JSON.stringify({ ...existing, ...updates }) })
     .where(eq(messages.id, messageId))
     .run();
+}
+
+/**
+ * Atomically update both `content` and (shallow-merged) `metadata` for a
+ * message. Used by edit-propagation paths that need to update the message
+ * body and stamp metadata (e.g. `slackMeta.editedAt`) in a single
+ * transaction so a partial write cannot leak.
+ *
+ * `metadataUpdates` is shallow-merged into the existing top-level metadata
+ * object. To merge into a nested sub-key (e.g. `slackMeta`), the caller
+ * must compute the merged sub-value first and pass `{ slackMeta: merged }`.
+ */
+export function updateMessageContentAndMetadata(
+  messageId: string,
+  newContent: string,
+  metadataUpdates: Record<string, unknown>,
+): void {
+  const db = getDb();
+  db.transaction((tx) => {
+    const row = tx
+      .select({ metadata: messages.metadata })
+      .from(messages)
+      .where(eq(messages.id, messageId))
+      .get();
+    const existing = row?.metadata ? safeParseRecord(row.metadata) : {};
+    tx.update(messages)
+      .set({
+        content: newContent,
+        metadata: JSON.stringify({ ...existing, ...metadataUpdates }),
+      })
+      .where(eq(messages.id, messageId))
+      .run();
+  });
 }
 
 /**

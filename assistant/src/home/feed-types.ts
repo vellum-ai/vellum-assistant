@@ -25,7 +25,7 @@ import { z } from "zod";
 export type FeedItemType = "nudge" | "digest" | "action" | "thread";
 
 /** User-facing lifecycle of a feed item. */
-export type FeedItemStatus = "new" | "seen" | "acted_on";
+export type FeedItemStatus = "new" | "seen" | "acted_on" | "dismissed";
 
 /**
  * Origin of the underlying event.
@@ -45,6 +45,9 @@ export type FeedItemSource = "gmail" | "slack" | "calendar" | "assistant";
  * overrides can win over platform defaults for the same source.
  */
 export type FeedItemAuthor = "assistant" | "platform";
+
+/** Visual urgency treatment — controls badge color independently of sort priority. */
+export type FeedItemUrgency = "low" | "medium" | "high" | "critical";
 
 /**
  * A single action button attached to a feed item.
@@ -89,6 +92,8 @@ export interface FeedItem {
   /** Minimum seconds the user must be away before the item is shown. */
   minTimeAway?: number;
   actions?: FeedAction[];
+  /** Visual urgency treatment — controls badge color independently of sort priority. */
+  urgency?: FeedItemUrgency;
   /** Internal: who authored this item. */
   author: FeedItemAuthor;
   /** Internal: ISO-8601 writer-record time, used for ordering + TTL. */
@@ -114,7 +119,7 @@ export interface HomeFeedFile {
 
 const feedItemTypeSchema = z.enum(["nudge", "digest", "action", "thread"]);
 
-const feedItemStatusSchema = z.enum(["new", "seen", "acted_on"]);
+const feedItemStatusSchema = z.enum(["new", "seen", "acted_on", "dismissed"]);
 
 const feedItemSourceSchema = z.enum([
   "gmail",
@@ -124,6 +129,8 @@ const feedItemSourceSchema = z.enum([
 ]);
 
 const feedItemAuthorSchema = z.enum(["assistant", "platform"]);
+
+const feedItemUrgencySchema = z.enum(["low", "medium", "high", "critical"]);
 
 const feedActionSchema = z.object({
   id: z.string(),
@@ -157,6 +164,7 @@ export const feedItemSchema = z.object({
   expiresAt: z.string().optional(),
   minTimeAway: z.number().int().min(0).optional(),
   actions: z.array(feedActionSchema).optional(),
+  urgency: feedItemUrgencySchema.optional(),
   author: feedItemAuthorSchema,
   createdAt: z.string(),
 });

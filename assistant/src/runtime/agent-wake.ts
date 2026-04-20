@@ -119,9 +119,19 @@ export interface WakeOptions {
   source: string;
 }
 
+/**
+ * Reason a wake returned `invoked: false`. Callers (CLI, update-bulletin
+ * job) need to distinguish "conversation doesn't exist" from "conversation
+ * exists but stayed busy past the wait-until-idle timeout" — the former is
+ * a user-visible error, the latter is an expected transient condition.
+ */
+export type WakeSkipReason = "not_found" | "timeout" | "no_resolver";
+
 export interface WakeResult {
   invoked: boolean;
   producedToolCalls: boolean;
+  /** Present only when `invoked: false`; identifies why the wake was skipped. */
+  reason?: WakeSkipReason;
 }
 
 /**
@@ -299,7 +309,7 @@ export async function wakeAgentForOpportunity(
       { conversationId, source },
       "agent-wake: no resolver available (default resolver not registered and no deps passed); skipping",
     );
-    return { invoked: false, producedToolCalls: false };
+    return { invoked: false, producedToolCalls: false, reason: "no_resolver" };
   }
   const nowFn = deps?.now ?? Date.now;
   const startedAt = nowFn();
@@ -311,7 +321,7 @@ export async function wakeAgentForOpportunity(
         { conversationId, source },
         "agent-wake: conversation not found; skipping",
       );
-      return { invoked: false, producedToolCalls: false };
+      return { invoked: false, producedToolCalls: false, reason: "not_found" };
     }
 
     const idle = await waitUntilIdle(target, nowFn);
@@ -320,7 +330,7 @@ export async function wakeAgentForOpportunity(
         { conversationId, source },
         "agent-wake: conversation still processing after timeout; skipping",
       );
-      return { invoked: false, producedToolCalls: false };
+      return { invoked: false, producedToolCalls: false, reason: "timeout" };
     }
 
     const baseline = target.getMessages();

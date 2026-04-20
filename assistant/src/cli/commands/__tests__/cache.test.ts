@@ -294,9 +294,9 @@ describe("TTL parsing", () => {
     mockStdinContent = "1";
     mockIpcResult = { ok: true, result: { key: "k" } };
 
-    await runCommand(["cache", "set", "--ttl", "500ms"]);
+    await runCommand(["cache", "set", "--ttl", "1000ms"]);
 
-    expect(lastIpcCall!.params!.ttl_ms).toBe(500);
+    expect(lastIpcCall!.params!.ttl_ms).toBe(1000);
   });
 
   test("parses seconds", async () => {
@@ -359,6 +359,92 @@ describe("TTL parsing", () => {
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("Invalid --ttl");
+  });
+
+  test("rejects sub-second TTL (100ms)", async () => {
+    mockStdinContent = "1";
+    const { exitCode } = await runCommand(["cache", "set", "--ttl", "100ms"]);
+    expect(exitCode).toBe(1);
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("rejects sub-second TTL (500ms)", async () => {
+    mockStdinContent = "1";
+    const { exitCode } = await runCommand(["cache", "set", "--ttl", "500ms"]);
+    expect(exitCode).toBe(1);
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("rejects sub-second TTL (999ms)", async () => {
+    mockStdinContent = "1";
+    const { exitCode } = await runCommand(["cache", "set", "--ttl", "999ms"]);
+    expect(exitCode).toBe(1);
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("accepts exactly 1000ms", async () => {
+    mockStdinContent = "1";
+    mockIpcResult = { ok: true, result: { key: "k" } };
+    await runCommand(["cache", "set", "--ttl", "1000ms"]);
+    expect(lastIpcCall!.params!.ttl_ms).toBe(1000);
+  });
+
+  test("accepts 1s", async () => {
+    mockStdinContent = "1";
+    mockIpcResult = { ok: true, result: { key: "k" } };
+    await runCommand(["cache", "set", "--ttl", "1s"]);
+    expect(lastIpcCall!.params!.ttl_ms).toBe(1000);
+  });
+
+  test("accepts 1500ms (resolves to >= 1s)", async () => {
+    mockStdinContent = "1";
+    mockIpcResult = { ok: true, result: { key: "k" } };
+    await runCommand(["cache", "set", "--ttl", "1500ms"]);
+    expect(lastIpcCall!.params!.ttl_ms).toBe(1500);
+  });
+
+  test("--json outputs error on sub-second TTL", async () => {
+    mockStdinContent = "1";
+    const { exitCode, stdout } = await runCommand([
+      "cache",
+      "set",
+      "--ttl",
+      "500ms",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("at least 1s");
+  });
+
+  test("rejects empty string TTL", async () => {
+    mockStdinContent = "1";
+    const { exitCode } = await runCommand(["cache", "set", "--ttl", ""]);
+    expect(exitCode).toBe(1);
+    expect(lastIpcCall).toBeNull();
+  });
+
+  test("--json outputs error on empty string TTL", async () => {
+    mockStdinContent = "1";
+    const { exitCode, stdout } = await runCommand([
+      "cache",
+      "set",
+      "--ttl",
+      "",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain('Invalid --ttl value ""');
+  });
+
+  test("rejects whitespace-only TTL", async () => {
+    mockStdinContent = "1";
+    const { exitCode } = await runCommand(["cache", "set", "--ttl", " "]);
+    expect(exitCode).toBe(1);
+    expect(lastIpcCall).toBeNull();
   });
 });
 
@@ -467,7 +553,7 @@ describe("cache get", () => {
 
 describe("cache delete", () => {
   test("sends cache/delete IPC and succeeds", async () => {
-    mockIpcResult = { ok: true, result: {} };
+    mockIpcResult = { ok: true, result: { deleted: true } };
 
     const { exitCode } = await runCommand(["cache", "delete", "my-key"]);
 
@@ -476,8 +562,14 @@ describe("cache delete", () => {
     expect(lastIpcCall!.params).toEqual({ key: "my-key" });
   });
 
-  test("--json outputs { ok: true } on success", async () => {
-    mockIpcResult = { ok: true, result: {} };
+  test("succeeds with exit 0 when key did not exist", async () => {
+    mockIpcResult = { ok: true, result: { deleted: false } };
+    const { exitCode } = await runCommand(["cache", "delete", "missing-key"]);
+    expect(exitCode).toBe(0);
+  });
+
+  test("--json outputs { ok: true, deleted: true } on success", async () => {
+    mockIpcResult = { ok: true, result: { deleted: true } };
 
     const { exitCode, stdout } = await runCommand([
       "cache",
@@ -488,7 +580,22 @@ describe("cache delete", () => {
 
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
-    expect(parsed).toEqual({ ok: true });
+    expect(parsed).toEqual({ ok: true, deleted: true });
+  });
+
+  test("--json outputs { ok: true, deleted: false } when key did not exist", async () => {
+    mockIpcResult = { ok: true, result: { deleted: false } };
+
+    const { exitCode, stdout } = await runCommand([
+      "cache",
+      "delete",
+      "missing-key",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed).toEqual({ ok: true, deleted: false });
   });
 
   test("exits with error on IPC failure", async () => {

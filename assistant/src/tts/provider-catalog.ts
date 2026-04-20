@@ -158,6 +158,24 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
       },
     ],
   },
+  {
+    id: "xai",
+    displayName: "xAI",
+    callMode: "synthesized-play",
+    allowNativeFallback: false,
+    capabilities: {
+      supportsStreaming: false,
+      supportedFormats: ["mp3", "wav"],
+    },
+    secretRequirements: [
+      {
+        credentialStoreKey: "credential/xai/api_key",
+        displayName: "xAI API Key",
+        setCommand:
+          "assistant credentials set --service xai --field api_key <key>",
+      },
+    ],
+  },
 ] as const;
 
 /** Index for O(1) lookup by provider ID. */

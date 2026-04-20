@@ -92,6 +92,15 @@ The fastest way to build and launch the app locally:
 
 The managed sign-in platform host is resolved from `VELLUM_ENVIRONMENT` (`local`, `dev`, `test`, `staging`, `production`) — set the environment to target a different platform host. See `VellumEnvironment.platformURL` in `clients/shared/App/VellumEnvironment.swift`.
 
+Defaulting behavior for local development:
+
+- `./build.sh` and `./build.sh run` default to `dev` (so local source builds point at the dev cloud stack).
+- If either `VELLUM_PLATFORM_URL` or `VELLUM_WEB_URL` is set to a loopback `http://...` URL (for example when running via `vel up`), the build defaults to `local`.
+- `./build.sh test` defaults to `test`.
+- `./build.sh release` / `./build.sh release-application` derive `staging` vs `production` from the release version (`*-staging*` => `staging`, otherwise `production`).
+
+`VELLUM_ENVIRONMENT` always takes precedence when explicitly exported.
+
 To point in-app docs links at a staging or local docs server for a local run:
 
 ```bash

@@ -222,6 +222,29 @@ extension AppDelegate {
         }
     }
 
+    /// Clears any stored actor-token credentials and re-runs the initial
+    /// bootstrap flow. Unlike `ensureActorCredentials()`, which short-circuits
+    /// when a stored token is already present, this method deliberately wipes
+    /// the existing credential first so `performInitialBootstrap()` is forced
+    /// to re-provision from scratch. Intended as a recovery primitive for
+    /// stale/invalid credentials (see `GatewayConnectionManager.attemptRePair()`).
+    ///
+    /// In Docker/cloud hatches, the CLI-persisted `guardian-token.json` on
+    /// disk can still contain the same revoked token that produced the auth
+    /// failures. `performInitialBootstrap()` imports that file ahead of any
+    /// HTTP path, so without deleting it we would silently re-arm the bad
+    /// credential and the re-pair would "succeed" only to fall right back
+    /// into 401s. Delete the file here so the bootstrap is forced down a
+    /// genuine reprovision path.
+    func forceReBootstrap() async {
+        log.info("forceReBootstrap: clearing stored credentials and re-running bootstrap")
+        ActorTokenManager.deleteAllCredentials()
+        if let assistantId = LockfileAssistant.loadActiveAssistantId() {
+            GuardianTokenFileReader.deleteTokenFile(assistantId: assistantId)
+        }
+        await performInitialBootstrap()
+    }
+
     /// Performs the initial actor token bootstrap, reactively waiting for a
     /// gateway connection before each attempt. Called only when no actor token
     /// exists (first launch or after credential wipe).
@@ -261,6 +284,35 @@ extension AppDelegate {
 
         let deviceId = PairingQRCodeSheet.computeHostId()
         let retryDelay: UInt64 = 500_000_000
+
+        // Self-heal path: if a refresh token survives in the keychain (e.g.
+        // from a slightly-stale CLI file import or a prior run), try to
+        // rotate it into a fresh access/refresh pair before hitting the
+        // bootstrap-lockfile-guarded init endpoint. The lockfile permanently
+        // 403s /v1/guardian/init after first use, so init alone has no path
+        // to recover — whereas refresh succeeds whenever the server still
+        // recognizes the refresh token, covering the common
+        // "access-expired-but-refresh-still-valid" case.
+        if ActorTokenManager.getRefreshToken() != nil {
+            if !connectionManager.isConnected {
+                await awaitConnectionEstablished()
+                guard !Task.isCancelled else { return }
+            }
+            let refreshResult = await ActorCredentialRefresher.refresh(
+                platform: "macos",
+                deviceId: deviceId
+            )
+            switch refreshResult {
+            case .success:
+                log.info("Initial actor token bootstrap recovered via refresh")
+                return
+            case .terminalError(let reason):
+                log.warning("Refresh terminal error (\(reason, privacy: .public)) — clearing credentials and falling back to /v1/guardian/init")
+                ActorTokenManager.deleteAllCredentials()
+            case .transientError:
+                log.info("Refresh transient error — falling back to /v1/guardian/init")
+            }
+        }
 
         while !Task.isCancelled {
             if !connectionManager.isConnected {

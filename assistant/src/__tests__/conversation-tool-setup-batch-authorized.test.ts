@@ -4,7 +4,7 @@
  * required_tools contain underlying tool names (e.g. "gmail_archive"), so a
  * regression here would silently break batch authorization for every
  * skill-dispatched batch tool (gmail_archive, gmail_unsubscribe,
- * messaging_archive_by_sender, outlook_unsubscribe).
+ * messaging_archive_by_sender).
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";

@@ -6,10 +6,6 @@ enum UserDefaultsKeys {
     static let gatewayBaseURL = "gateway_base_url"
     static let conversationKey = "conversation_key"
 
-    // Voice mode settings
-    static let voiceListeningTimeout = "voice_listening_timeout"
-    static let voiceSilenceThreshold = "voice_silence_threshold"
-
     // Media embed settings
     static let mediaEmbedsEnabled = "media_embeds_enabled"
     static let mediaEmbedVideoAllowlistDomains = "media_embed_video_allowlist_domains"

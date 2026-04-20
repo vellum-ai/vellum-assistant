@@ -202,6 +202,9 @@ function backfillDefaults(rules: TrustRule[]): boolean {
   // or allowHighRisk has changed in the template (e.g. host_bash pattern
   // changed from '*' to '**', host tool priorities changed from 1000 to 50,
   // workspace scope changed from getRootDir()+workspace to getWorkspaceDir()).
+  //
+  // Rules with `userModifiedAt` set are skipped — the user explicitly
+  // customized them and their override should be preserved across upgrades.
   for (const template of getDefaultRuleTemplates()) {
     if (existingIds.has(template.id)) {
       const rule = rules.find((r) => r.id === template.id);
@@ -213,6 +216,13 @@ function backfillDefaults(rules: TrustRule[]): boolean {
           rule.decision !== template.decision ||
           rule.allowHighRisk !== template.allowHighRisk)
       ) {
+        if (rule.userModifiedAt != null) {
+          log.info(
+            { ruleId: rule.id, userModifiedAt: rule.userModifiedAt },
+            "Skipping migration of user-modified default rule",
+          );
+          continue;
+        }
         log.info(
           {
             ruleId: rule.id,
@@ -241,21 +251,13 @@ function backfillDefaults(rules: TrustRule[]): boolean {
 
   for (const template of getDefaultRuleTemplates()) {
     if (!existingIds.has(template.id)) {
-      // Default rules may carry allowHighRisk (e.g. bash container rules).
-      // Build as GenericTrustRule to accommodate all optional fields.
-      const rule: TrustRule = {
-        id: template.id,
-        tool: template.tool,
-        pattern: template.pattern,
-        scope: template.scope,
-        decision: template.decision,
-        priority: template.priority,
+      // Canonicalize through parseTrustRule so family-specific field
+      // validation is applied (consistent with fileAddRule/fileUpdateRule).
+      const { rule } = parseTrustRule({
+        ...template,
         createdAt: Date.now(),
-        ...(template.allowHighRisk != null
-          ? { allowHighRisk: template.allowHighRisk }
-          : {}),
-      };
-      rules.push(rule);
+      });
+      rules.push(rule as TrustRule);
       changed = true;
       log.info({ ruleId: template.id }, "Backfilled default trust rule");
     }
@@ -469,9 +471,6 @@ function fileUpdateRule(
     priority?: number;
   },
 ): TrustRule {
-  const defaultIds = new Set(getDefaultRuleTemplates().map((t) => t.id));
-  if (defaultIds.has(id))
-    throw new Error(`Cannot modify default trust rule: ${id}`);
   if (updates.tool?.startsWith("__internal:"))
     throw new Error(
       `Cannot update tool to internal pseudo-rule: ${updates.tool}`,
@@ -488,6 +487,30 @@ function fileUpdateRule(
   if (updates.scope != null) merged.scope = updates.scope;
   if (updates.decision != null) merged.decision = updates.decision;
   if (updates.priority != null) merged.priority = updates.priority;
+
+  // Mark default rules with userModifiedAt so backfillDefaults() preserves
+  // the user's customization across upgrades instead of overwriting it.
+  // Only set the timestamp when the merged result actually diverges from the
+  // template — a no-op PATCH (same values) should not permanently opt a rule
+  // out of future template migrations.
+  const templates = getDefaultRuleTemplates();
+  const template = templates.find((t) => t.id === id);
+  if (template) {
+    const diverges =
+      merged.tool !== template.tool ||
+      merged.pattern !== template.pattern ||
+      merged.scope !== template.scope ||
+      merged.decision !== template.decision ||
+      merged.priority !== template.priority ||
+      merged.allowHighRisk !== template.allowHighRisk;
+    if (diverges) {
+      merged.userModifiedAt = Date.now();
+    } else {
+      // Rule matches the template again — clear the override marker so
+      // future template changes are applied normally.
+      delete merged.userModifiedAt;
+    }
+  }
 
   // Canonicalize through parseTrustRule so that fields invalid for the
   // (potentially changed) tool family are stripped. For example, if a rule's

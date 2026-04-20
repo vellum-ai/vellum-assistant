@@ -20,6 +20,10 @@ enum MarkdownSegment: Hashable {
     case codeBlock(language: String?, code: String)
     case horizontalRule
     case list(items: [MarkdownListItem])
+    /// Block-level LaTeX math (delimited by `$$...$$`). `display: true` means
+    /// block/display math; the field is plumbed through now so a future
+    /// inline-math (`$...$`) pass can reuse the same case with `display: false`.
+    case math(latex: String, display: Bool)
 }
 
 /// Returns true if `line` is a markdown heading (1-6 `#` chars followed by a space).
@@ -119,6 +123,65 @@ func parseMarkdownSegments(_ text: String) -> [MarkdownSegment] {
             codeBlockLanguage = lang.isEmpty ? nil : lang
             i += 1
             continue
+        }
+
+        // --- Block math detection (`$$...$$`) ---
+        //
+        // Handled BEFORE tables/headings/etc. but AFTER fenced-code handling so
+        // `$$` inside a fenced code block stays verbatim. Two forms:
+        //   1. Single-line: `$$<expr>$$` on one trimmed line (length > 4 and
+        //      at least one non-`$` between the delimiters — guards against
+        //      the degenerate `$$$$` input).
+        //   2. Multi-line: a line that is exactly `$$` opens a block; the
+        //      next line that is exactly `$$` closes it. Contents between
+        //      are taken verbatim. If EOF is reached without a closing `$$`,
+        //      we revert the collected lines back to plain text.
+        if trimmed.hasPrefix("$$") && trimmed.hasSuffix("$$")
+            && trimmed.count > 4
+            && trimmed.dropFirst(2).dropLast(2).contains(where: { $0 != "$" }) {
+            flushText()
+            let inner = String(trimmed.dropFirst(2).dropLast(2))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            segments.append(.math(latex: inner, display: true))
+            i += 1
+            continue
+        }
+        if trimmed == "$$" {
+            // Multi-line block — scan forward for the closing `$$` BEFORE
+            // flushing `currentText`. If we flushed eagerly and the close
+            // never came, the preceding prose would ship as one `.text`
+            // segment and the verbatim fallback as another, which the
+            // renderer joins with a blank line — producing a visible
+            // streaming regression each tick before the close arrives.
+            var mathLines: [String] = []
+            var j = i + 1
+            var closed = false
+            while j < lines.count {
+                if lines[j].trimmingCharacters(in: .whitespaces) == "$$" {
+                    closed = true
+                    break
+                }
+                mathLines.append(lines[j])
+                j += 1
+            }
+            if closed {
+                flushText()
+                let latex = mathLines.joined(separator: "\n")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                segments.append(.math(latex: latex, display: true))
+                i = j + 1
+                continue
+            } else {
+                // Unclosed — fold the opening `$$` and any collected lines
+                // back into `currentText` so the whole run flushes as one
+                // contiguous `.text` segment with whatever came before.
+                currentText.append(lines[i])
+                for line in mathLines {
+                    currentText.append(line)
+                }
+                i = j
+                continue
+            }
         }
 
         // --- Table detection ---

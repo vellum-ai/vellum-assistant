@@ -58,6 +58,39 @@ function camelToSnake(camel: string): string {
 }
 
 /**
+ * Resolve conversation ID from CLI execution context.
+ *
+ * Precedence:
+ *   1. `__SKILL_CONTEXT_JSON.conversationId`
+ *   2. `__CONVERSATION_ID`
+ *
+ * Returns undefined when neither source is available.
+ */
+function resolveContextConversationId(): string | undefined {
+  const contextJson = process.env.__SKILL_CONTEXT_JSON;
+  if (contextJson) {
+    try {
+      const parsed = JSON.parse(contextJson) as { conversationId?: unknown };
+      if (
+        typeof parsed.conversationId === "string" &&
+        parsed.conversationId.length > 0
+      ) {
+        return parsed.conversationId;
+      }
+    } catch {
+      // Ignore malformed skill context and fall through.
+    }
+  }
+
+  const envConversationId = process.env.__CONVERSATION_ID;
+  if (envConversationId && envConversationId.length > 0) {
+    return envConversationId;
+  }
+
+  return undefined;
+}
+
+/**
  * Parse a CLI option value according to its field type.
  */
 function parseFieldValue(
@@ -134,6 +167,7 @@ function buildSubcommand(parent: Command, meta: BrowserOperationMeta): void {
     };
     const sessionId = parentOpts.session ?? "default";
     const jsonMode = parentOpts.json ?? false;
+    const conversationId = resolveContextConversationId();
 
     // Map Commander camelCase options back to snake_case input keys,
     // filtering out parent-level options (session, json, browserMode)
@@ -170,6 +204,7 @@ function buildSubcommand(parent: Command, meta: BrowserOperationMeta): void {
         operation: meta.operation,
         input,
         sessionId,
+        ...(conversationId ? { conversationId } : {}),
       },
       { timeoutMs: 180_000 },
     );

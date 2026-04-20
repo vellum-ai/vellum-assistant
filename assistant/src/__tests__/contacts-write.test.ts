@@ -70,13 +70,13 @@ describe("createGuardianBinding seeds users/<slug>.md", () => {
   test("writes the persona template scaffold on first creation", () => {
     createGuardianBinding({
       channel: "telegram",
-      guardianExternalUserId: "Sidd",
-      guardianDeliveryChatId: "chat-sidd",
-      guardianPrincipalId: "principal-sidd",
+      guardianExternalUserId: "Chris",
+      guardianDeliveryChatId: "chat-chris",
+      guardianPrincipalId: "principal-chris",
       verifiedVia: "challenge",
     });
 
-    const expectedPath = userFilePath("sidd.md");
+    const expectedPath = userFilePath("chris.md");
     expect(existsSync(expectedPath)).toBe(true);
 
     const content = readFileSync(expectedPath, "utf-8");

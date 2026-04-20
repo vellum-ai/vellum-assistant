@@ -102,6 +102,15 @@ export async function handleGuardianCallbackDecision(
     approvalMessageTs,
   } = params;
 
+  // Reactions have their own deterministic emoji-to-action mapping in
+  // `handleApprovalInterception`. Return null immediately so reaction
+  // callbackData never enters the conversational engine below, which would
+  // misclassify `reaction:white_check_mark` etc. as plain text and only
+  // ever produce `approve_once`/`reject`.
+  if (callbackData?.startsWith("reaction:")) {
+    return null;
+  }
+
   // Callback/button path: deterministic and takes priority.
   let callbackDecision: ApprovalDecisionResult | null = null;
   if (callbackData) {

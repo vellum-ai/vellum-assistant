@@ -498,6 +498,13 @@ private struct VFileBrowserTreeRow<RowContextMenu: View>: View {
         return "Tap to \(isExpanded ? "collapse" : "expand")"
     }
 
+    /// Whether a directory chevron should be shown. Suppress the chevron for
+    /// directories that have no loaded children — they appear as leaf rows
+    /// until the user expands them and content loads.
+    private var showChevron: Bool {
+        node.isDirectory && (!node.children.isEmpty || isExpanded)
+    }
+
     /// Selected state always wins over hovered state, and drop-targeted state
     /// wins over hover so the user gets the strongest feedback for the action
     /// they're performing.
@@ -506,10 +513,10 @@ private struct VFileBrowserTreeRow<RowContextMenu: View>: View {
             return VColor.surfaceActive
         }
         if isDropTargeted {
-            return VColor.surfaceBase
+            return VColor.surfaceActive.opacity(0.6)
         }
         if isHovered {
-            return VColor.surfaceBase
+            return VColor.surfaceActive.opacity(0.5)
         }
         return Color.clear
     }
@@ -517,8 +524,8 @@ private struct VFileBrowserTreeRow<RowContextMenu: View>: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: VSpacing.xs) {
-                // Expand/collapse chevron for directories, spacer for files
-                if node.isDirectory {
+                // Expand/collapse chevron for directories with children, spacer otherwise
+                if showChevron {
                     VIconView(isExpanded ? .chevronDown : .chevronRight, size: 9)
                         .foregroundStyle(VColor.contentTertiary)
                         .frame(width: 12)
@@ -556,9 +563,10 @@ private struct VFileBrowserTreeRow<RowContextMenu: View>: View {
                 bottom: VSpacing.xs,
                 trailing: VSpacing.sm
             ))
+            .padding(.horizontal, VSpacing.xs)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: VRadius.sm)
+                RoundedRectangle(cornerRadius: VRadius.md)
                     .fill(rowBackground)
             )
             .opacity(node.isDimmed ? 0.6 : 1.0)

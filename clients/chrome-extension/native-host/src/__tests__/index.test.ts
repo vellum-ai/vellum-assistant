@@ -27,6 +27,7 @@
 
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -524,6 +525,106 @@ describe("native host — list_assistants response framing", () => {
     expect(frame.activeAssistantId).toBeNull();
     expect(frame.protocolVersion).toBe(1);
   });
+
+  test("list_assistants with environment override reads from the correct lockfile", async () => {
+    // Write a dev lockfile under an XDG-style path.
+    const devDir = join(lockfileDir, "vellum-dev");
+    mkdirSync(devDir, { recursive: true });
+    writeFileSync(
+      join(devDir, "lockfile.json"),
+      JSON.stringify({
+        assistants: [
+          {
+            assistantId: "dev-one",
+            cloud: "local",
+            runtimeUrl: "http://localhost:7830",
+            resources: { daemonPort: 7821 },
+          },
+        ],
+        activeAssistant: "dev-one",
+      }),
+    );
+
+    // Also write a production lockfile — the override should bypass it.
+    writeFileSync(
+      join(lockfileDir, ".vellum.lock.json"),
+      JSON.stringify({
+        assistants: [
+          {
+            assistantId: "prod-one",
+            cloud: "local",
+            runtimeUrl: "http://localhost:7840",
+            resources: { daemonPort: 7831 },
+          },
+        ],
+        activeAssistant: "prod-one",
+      }),
+    );
+
+    const result = await runHelper({
+      extensionOrigin: ALLOWED_ORIGIN,
+      assistantPort: pair!.port,
+      stdinBytes: encodeFrame({
+        type: "list_assistants",
+        environment: "dev",
+      }),
+      timeoutMs: 2000,
+      env: {
+        XDG_CONFIG_HOME: lockfileDir,
+        // Clear VELLUM_LOCKFILE_DIR so XDG path is used for non-prod
+        VELLUM_LOCKFILE_DIR: undefined,
+      },
+    });
+
+    expect(result.exitCode, `helper stderr: ${result.stderr}`).toBe(0);
+    expect(result.frames).toHaveLength(1);
+
+    const frame = result.frames[0] as {
+      type: string;
+      assistants: Array<{ assistantId: string }>;
+      activeAssistantId: string | null;
+    };
+    expect(frame.type).toBe("assistants_response");
+    expect(frame.assistants).toHaveLength(1);
+    expect(frame.assistants[0]!.assistantId).toBe("dev-one");
+    expect(frame.activeAssistantId).toBe("dev-one");
+  });
+
+  test("list_assistants with invalid environment override falls back to production", async () => {
+    // Write only a production lockfile.
+    writeFileSync(
+      join(lockfileDir, ".vellum.lock.json"),
+      JSON.stringify({
+        assistants: [
+          {
+            assistantId: "prod-fallback",
+            cloud: "local",
+            runtimeUrl: "http://localhost:7830",
+          },
+        ],
+      }),
+    );
+
+    const result = await runHelper({
+      extensionOrigin: ALLOWED_ORIGIN,
+      assistantPort: pair!.port,
+      stdinBytes: encodeFrame({
+        type: "list_assistants",
+        environment: "foobar",
+      }),
+      timeoutMs: 2000,
+      env: { VELLUM_LOCKFILE_DIR: lockfileDir },
+    });
+
+    expect(result.exitCode, `helper stderr: ${result.stderr}`).toBe(0);
+    const frame = result.frames[0] as {
+      type: string;
+      assistants: Array<{ assistantId: string }>;
+    };
+    expect(frame.type).toBe("assistants_response");
+    expect(frame.assistants).toHaveLength(1);
+    expect(frame.assistants[0]!.assistantId).toBe("prod-fallback");
+  });
 });
 
 describe("native host — assistant-scoped token request", () => {
@@ -720,6 +821,134 @@ describe("native host — assistant-scoped token request", () => {
     const frame = result.frames[0] as { type: string; token: string };
     expect(frame.type).toBe("token_response");
     expect(frame.token).toBe("tok-unknown-fallback");
+    expect(srvA.requests).toHaveLength(1);
+  });
+
+  test("request_token with environment override resolves port from the correct lockfile", async () => {
+    const srvA = pairA!;
+    const srvB = pairB!;
+    srvA.requests.length = 0;
+    srvB.requests.length = 0;
+
+    srvA.nextResponseBody = () => ({
+      token: "tok-prod",
+      expiresAt: "2026-12-31T00:00:00Z",
+      guardianId: "g-prod",
+    });
+    srvB.nextResponseBody = () => ({
+      token: "tok-dev",
+      expiresAt: "2026-12-31T00:00:00Z",
+      guardianId: "g-dev",
+    });
+
+    // Write a dev lockfile with assistant pointing to srvB.
+    const devDir = join(lockfileDir, "vellum-dev");
+    mkdirSync(devDir, { recursive: true });
+    writeFileSync(
+      join(devDir, "lockfile.json"),
+      JSON.stringify({
+        assistants: [
+          {
+            assistantId: "dev-assistant",
+            cloud: "local",
+            runtimeUrl: "http://localhost:7831",
+            resources: { daemonPort: srvB.port },
+          },
+        ],
+      }),
+    );
+
+    // Write a prod lockfile with assistant pointing to srvA.
+    writeFileSync(
+      join(lockfileDir, ".vellum.lock.json"),
+      JSON.stringify({
+        assistants: [
+          {
+            assistantId: "dev-assistant",
+            cloud: "local",
+            runtimeUrl: "http://localhost:7830",
+            resources: { daemonPort: srvA.port },
+          },
+        ],
+      }),
+    );
+
+    // Send a request_token with environment=dev and assistantId=dev-assistant.
+    // The helper should resolve the daemon port from the dev lockfile.
+    const result = await runHelper({
+      extensionOrigin: ALLOWED_ORIGIN,
+      assistantPort: srvA.port,
+      stdinBytes: encodeFrame({
+        type: "request_token",
+        assistantId: "dev-assistant",
+        environment: "dev",
+      }),
+      timeoutMs: 2000,
+      env: {
+        XDG_CONFIG_HOME: lockfileDir,
+        VELLUM_LOCKFILE_DIR: undefined,
+      },
+    });
+
+    expect(result.exitCode, `helper stderr: ${result.stderr}`).toBe(0);
+    expect(result.frames).toHaveLength(1);
+
+    const frame = result.frames[0] as {
+      type: string;
+      token: string;
+      assistantPort: number;
+    };
+    expect(frame.type).toBe("token_response");
+    expect(frame.token).toBe("tok-dev");
+    expect(frame.assistantPort).toBe(srvB.port);
+
+    // srvB received the request (from the dev lockfile), not srvA.
+    expect(srvB.requests).toHaveLength(1);
+    expect(srvA.requests).toHaveLength(0);
+  });
+
+  test("request_token with 'prod' environment normalizes to 'production'", async () => {
+    const srvA = pairA!;
+    srvA.requests.length = 0;
+
+    srvA.nextResponseBody = () => ({
+      token: "tok-prod-short",
+      expiresAt: "2026-12-31T00:00:00Z",
+      guardianId: "g-prod-short",
+    });
+
+    // Write a production lockfile with an assistant pointing to srvA.
+    writeFileSync(
+      join(lockfileDir, ".vellum.lock.json"),
+      JSON.stringify({
+        assistants: [
+          {
+            assistantId: "prod-assistant",
+            cloud: "local",
+            runtimeUrl: "http://localhost:7830",
+            resources: { daemonPort: srvA.port },
+          },
+        ],
+      }),
+    );
+
+    // Send environment="prod" — should be normalized to "production".
+    const result = await runHelper({
+      extensionOrigin: ALLOWED_ORIGIN,
+      assistantPort: srvA.port,
+      stdinBytes: encodeFrame({
+        type: "request_token",
+        assistantId: "prod-assistant",
+        environment: "prod",
+      }),
+      timeoutMs: 2000,
+      env: { VELLUM_LOCKFILE_DIR: lockfileDir },
+    });
+
+    expect(result.exitCode, `helper stderr: ${result.stderr}`).toBe(0);
+    const frame = result.frames[0] as { type: string; token: string };
+    expect(frame.type).toBe("token_response");
+    expect(frame.token).toBe("tok-prod-short");
     expect(srvA.requests).toHaveLength(1);
   });
 });

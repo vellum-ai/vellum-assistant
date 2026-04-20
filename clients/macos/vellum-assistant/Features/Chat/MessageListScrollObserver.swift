@@ -89,6 +89,15 @@ struct MessageListScrollObserver: NSViewRepresentable {
         /// materialization — or any other concurrent source — cannot fight
         /// the user's gesture with a mid-gesture `setBoundsOrigin` shift.
         private var isLiveScrolling: Bool = false
+        /// Guards against synchronous re-entry of
+        /// `emitCurrentSnapshotIfPossible`. `clipView.setBoundsOrigin(_:)`
+        /// synchronously posts `NSView.boundsDidChangeNotification`, which our
+        /// `queue: .main` observer dispatches synchronously via
+        /// `MainActor.assumeIsolated`. Without this guard, the
+        /// anchor-preservation branch would re-enter and call
+        /// `setBoundsOrigin` again before `lastContentHeight` is updated,
+        /// producing unbounded recursion until the main-thread stack overflows.
+        private var isEmitting: Bool = false
         /// In inverted-scroll coords, `contentOffsetY ≈ 0` means the user is
         /// pinned to the visual bottom (latest messages). Below this small
         /// epsilon we treat the user as pinned and let streaming growth
@@ -126,6 +135,14 @@ struct MessageListScrollObserver: NSViewRepresentable {
             // conversation switch destroys + recreates the ScrollView) does
             // not treat the new content height as a delta over the old.
             self.lastContentHeight = 0
+            // Reset live-scroll tracking: if the old scroll view emitted
+            // `willStartLiveScrollNotification` but was replaced before
+            // `didEndLiveScrollNotification` fired, the flag would stay
+            // stuck `true` on the coordinator and suppress anchor
+            // compensation in the new view until the user performed a
+            // fresh full scroll cycle.
+            self.isLiveScrolling = false
+            self.lastSnapshot = nil
             installObservers()
         }
 
@@ -141,6 +158,10 @@ struct MessageListScrollObserver: NSViewRepresentable {
         }
 
         func emitCurrentSnapshotIfPossible() {
+            guard !isEmitting else { return }
+            isEmitting = true
+            defer { isEmitting = false }
+
             guard let scrollView,
                   let documentView = scrollView.documentView
             else { return }
@@ -188,6 +209,13 @@ struct MessageListScrollObserver: NSViewRepresentable {
                     at: Date()
                 ))
             }
+            // Advance the baseline on every emit, including jitter-skipped
+            // frames. Leaving the baseline stale on a sub-threshold skip lets
+            // subsequent bounds/scroll notifications (which don't change the
+            // document height) still compute a non-zero `contentHDelta` against
+            // the old baseline, producing inflated `onAnchorDecision` events
+            // and false "missed compensation" entries in the debug overlay's
+            // CSV. The SKIP decision itself is unchanged — only the bookkeeping.
             lastContentHeight = currentContentHeight
 
             let snapshot = ScrollGeometrySnapshot(
@@ -323,8 +351,17 @@ enum ScrollAnchorPreserver {
         case userLiveScrolling
         case firstLayout
         case contentHUnchanged
+        case jitterBelowThreshold
         case pinnedToLatest
     }
+
+    /// Subpixel layout oscillations (transient relayouts below the viewport,
+    /// font-metric rounding, etc.) produce tiny non-zero deltas that are
+    /// invisible to the user but still trigger `setBoundsOrigin`. Compensating
+    /// on every such delta can accumulate upward drift even when net height is
+    /// unchanged (e.g. `+0.2, -0.2, +0.2` sequences). Gate compensation on a
+    /// minimum delta magnitude so jitter is treated as noise.
+    static let minCompensationDelta: CGFloat = 1
 
     /// Outcome of a single `decide(...)` call.
     enum Decision {
@@ -357,6 +394,9 @@ enum ScrollAnchorPreserver {
         if isUserLiveScrolling { return .skipped(.userLiveScrolling) }
         if lastContentHeight <= 0 { return .skipped(.firstLayout) }
         if currentContentHeight == lastContentHeight { return .skipped(.contentHUnchanged) }
+        if abs(currentContentHeight - lastContentHeight) < Self.minCompensationDelta {
+            return .skipped(.jitterBelowThreshold)
+        }
         if contentOffsetY <= pinnedToLatestEpsilon { return .skipped(.pinnedToLatest) }
         return .applied(delta: currentContentHeight - lastContentHeight)
     }

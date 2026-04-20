@@ -16,6 +16,11 @@
 # than `.dockerignore`) so it takes precedence over the existing repo-root
 # `.dockerignore` file, which targets other images.
 #
+# --platform linux/amd64 is required because the inner DinD engine only
+# runs bot containers under that platform and Chromium's amd64 apt package
+# is the tested baseline. On arm64 Macs Docker would otherwise pick arm64
+# and the meet-bot image would not match the assistant container's platform.
+#
 # Usage:
 #   ./scripts/build-meet-bot-image.sh
 
@@ -24,4 +29,4 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-docker build -t vellum-meet-bot:dev -f skills/meet-join/bot/Dockerfile .
+docker build --platform linux/amd64 -t vellum-meet-bot:dev -f skills/meet-join/bot/Dockerfile .

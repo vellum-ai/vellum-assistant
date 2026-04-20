@@ -133,8 +133,8 @@ jobs:
           # subpackage has its own package.json and runs separately below.
           if [ "$SKILL_NAME" = "meet-join" ]; then
             (cd "$SKILL_DIR" && bun install)
-            # Run bot/ subpackage tests
-            for sub in bot; do
+            # Run subpackage tests (each has its own package.json and deps)
+            for sub in bot meet-controller-ext; do
               if [ -f "$SKILL_DIR/$sub/package.json" ]; then
                 echo "Running tests for skills/$SKILL_NAME/$sub ..."
                 (cd "$SKILL_DIR/$sub" && bun install && bun test)
@@ -149,6 +149,7 @@ jobs:
             (cd assistant && bun run -b ../meta/feature-flags/sync-bundled-copies.ts || true)
             TEST_FILES=$(find "$SKILL_DIR" \
               -path "$SKILL_DIR/bot" -prune -o \
+              -path "$SKILL_DIR/meet-controller-ext" -prune -o \
               -path "$SKILL_DIR/contracts" -prune -o \
               -path "$SKILL_DIR/node_modules" -prune -o \
               -type f -name '*.test.ts' -print | sort)

@@ -366,7 +366,7 @@
       "scope": "macos",
       "key": "message-height-cache",
       "label": "Message Height Cache",
-      "description": "Render the transcript with a plain VStack instead of LazyVStack so scrollContentHeight is always the true sum of row heights. Fixes the estimator drift that caused jerky scroll near the top of a conversation. Tradeoff: eager layout, slower first paint on very long conversations.",
+      "description": "Swap the transcript's LazyVStack for a plain VStack so scrollContentHeight is the true sum of row heights (no LazyVStack estimator drift). Row frames are not pinned — the earlier frame-pinning approach was removed because it caused overlap when rows grew past their first measurement (streaming, expanding thinking blocks). Tradeoff: eager layout — every row measures up-front, which can stall for many seconds to minutes on very long conversations.",
       "defaultEnabled": true
     }
   ]

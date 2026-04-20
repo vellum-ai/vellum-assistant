@@ -35,6 +35,14 @@ let mockDeepgramConfig = {
   format: "mp3" as "mp3" | "wav" | "opus",
 };
 
+let mockXaiConfig = {
+  voiceId: "eve",
+  language: "auto",
+  format: "mp3" as "mp3" | "wav",
+  sampleRate: 24000,
+  bitRate: 128000,
+};
+
 mock.module("../../config/loader.js", () => ({
   getConfig: () => ({
     services: {
@@ -43,6 +51,7 @@ mock.module("../../config/loader.js", () => ({
           elevenlabs: mockElevenLabsConfig,
           "fish-audio": mockFishAudioConfig,
           deepgram: mockDeepgramConfig,
+          xai: mockXaiConfig,
         },
       },
     },
@@ -53,9 +62,13 @@ mock.module("../../config/loader.js", () => ({
 
 let mockApiKey: string | null = "test-elevenlabs-api-key";
 let mockDeepgramApiKey: string | null = "test-deepgram-api-key";
+let mockXaiApiKey: string | null = "test-xai-api-key";
 
 mock.module("../../security/secure-keys.js", () => ({
-  getSecureKeyAsync: async () => mockApiKey,
+  getSecureKeyAsync: async (key?: string) => {
+    if (key === "credential/xai/api_key") return mockXaiApiKey;
+    return mockApiKey;
+  },
   getProviderKeyAsync: async (provider: string) => {
     if (provider === "deepgram") return mockDeepgramApiKey;
     return mockApiKey;
@@ -110,6 +123,7 @@ import {
   _resetBuiltinRegistration,
   registerBuiltinTtsProviders,
 } from "../providers/register-builtins.js";
+import { createXaiProvider, XaiTtsError } from "../providers/xai-provider.js";
 import type { TtsSynthesisRequest } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -140,6 +154,14 @@ beforeEach(() => {
   mockDeepgramConfig = {
     model: "aura-asteria-en",
     format: "mp3",
+  };
+  mockXaiApiKey = "test-xai-api-key";
+  mockXaiConfig = {
+    voiceId: "eve",
+    language: "auto",
+    format: "mp3",
+    sampleRate: 24000,
+    bitRate: 128000,
   };
   mockSynthesizeWithFishAudio.mockClear();
 });
@@ -760,31 +782,236 @@ describe("Deepgram TTS provider adapter", () => {
 });
 
 // ===========================================================================
+// xAI TTS provider adapter
+// ===========================================================================
+
+describe("xAI TTS provider adapter", () => {
+  // -- Interface conformance -----------------------------------------------
+
+  test("has correct provider ID", () => {
+    const provider = createXaiProvider();
+    expect(provider.id).toBe("xai");
+  });
+
+  test("advertises mp3 and wav format support without streaming", () => {
+    const provider = createXaiProvider();
+    expect(provider.capabilities).toEqual({
+      supportsStreaming: false,
+      supportedFormats: ["mp3", "wav"],
+    });
+  });
+
+  // -- Request mapping -----------------------------------------------------
+
+  test("synthesize posts to /v1/tts with correct auth and default body", async () => {
+    const audioPayload = new Uint8Array([0x49, 0x44, 0x33]);
+    let capturedUrl = "";
+    let capturedHeaders: Headers | null = null;
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        capturedUrl = typeof input === "string" ? input : input.toString();
+        capturedHeaders = new Headers(init?.headers);
+        capturedBody = init?.body as string;
+        return new Response(audioPayload, {
+          status: 200,
+          headers: { "Content-Type": "audio/mpeg" },
+        });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createXaiProvider();
+    await provider.synthesize(makeRequest());
+
+    expect(capturedUrl).toBe("https://api.x.ai/v1/tts");
+    expect(capturedHeaders!.get("Authorization")).toBe(
+      "Bearer test-xai-api-key",
+    );
+    expect(capturedHeaders!.get("Content-Type")).toBe("application/json");
+
+    const body = JSON.parse(capturedBody);
+    expect(body.text).toBe("Hello world");
+    expect(body.voice_id).toBe("eve");
+    expect(body.language).toBe("auto");
+    expect(body.output_format).toEqual({
+      codec: "mp3",
+      sample_rate: 24000,
+      bit_rate: 128000,
+    });
+  });
+
+  test("request voiceId overrides config voiceId", async () => {
+    const audioPayload = new Uint8Array([0x49, 0x44, 0x33]);
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(audioPayload, { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createXaiProvider();
+    await provider.synthesize(makeRequest({ voiceId: "rex" }));
+
+    const body = JSON.parse(capturedBody);
+    expect(body.voice_id).toBe("rex");
+  });
+
+  test("uses configured voiceId when request has none", async () => {
+    mockXaiConfig.voiceId = "ara";
+    const audioPayload = new Uint8Array([0x49, 0x44, 0x33]);
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(audioPayload, { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createXaiProvider();
+    await provider.synthesize(makeRequest());
+
+    const body = JSON.parse(capturedBody);
+    expect(body.voice_id).toBe("ara");
+  });
+
+  test("wav config format produces codec=wav without bit_rate", async () => {
+    mockXaiConfig.format = "wav";
+    const audioPayload = new Uint8Array([0x52, 0x49, 0x46, 0x46]);
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(audioPayload, { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createXaiProvider();
+    const result = await provider.synthesize(makeRequest());
+
+    const body = JSON.parse(capturedBody);
+    expect(body.output_format).toEqual({
+      codec: "wav",
+      sample_rate: 24000,
+    });
+    expect(body.output_format.bit_rate).toBeUndefined();
+    expect(result.contentType).toBe("audio/wav");
+  });
+
+  test("outputFormat=pcm uses codec=pcm and 16 kHz sample rate", async () => {
+    const audioPayload = new Uint8Array([0x00, 0x01, 0x02]);
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(audioPayload, { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createXaiProvider();
+    const result = await provider.synthesize(
+      makeRequest({ outputFormat: "pcm" }),
+    );
+
+    const body = JSON.parse(capturedBody);
+    expect(body.output_format).toEqual({
+      codec: "pcm",
+      sample_rate: 16000,
+    });
+    expect(body.output_format.bit_rate).toBeUndefined();
+    expect(result.contentType).toBe("audio/pcm");
+  });
+
+  // -- Content type / format -----------------------------------------------
+
+  test("returns audio/mpeg content type for mp3 format", async () => {
+    const audioPayload = new Uint8Array([0x49, 0x44, 0x33]);
+    mockFetchReturning(audioPayload);
+
+    const provider = createXaiProvider();
+    const result = await provider.synthesize(makeRequest());
+
+    expect(result.contentType).toBe("audio/mpeg");
+    expect(result.audio.byteLength).toBeGreaterThan(0);
+  });
+
+  // -- Required config validation ------------------------------------------
+
+  test("throws XAI_TTS_NO_API_KEY when API key is missing", async () => {
+    mockXaiApiKey = null;
+
+    const provider = createXaiProvider();
+
+    try {
+      await provider.synthesize(makeRequest());
+      throw new Error("Expected synthesize to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(XaiTtsError);
+      expect((err as XaiTtsError).code).toBe("XAI_TTS_NO_API_KEY");
+      expect((err as XaiTtsError).message).toContain("API key not configured");
+    }
+  });
+
+  // -- Error handling ------------------------------------------------------
+
+  test("throws XAI_TTS_HTTP_ERROR on non-200 response", async () => {
+    mockFetchError(401, "Unauthorized");
+
+    const provider = createXaiProvider();
+
+    try {
+      await provider.synthesize(makeRequest());
+      throw new Error("Expected synthesize to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(XaiTtsError);
+      expect((err as XaiTtsError).code).toBe("XAI_TTS_HTTP_ERROR");
+      expect((err as XaiTtsError).statusCode).toBe(401);
+      expect((err as XaiTtsError).message).toContain("Unauthorized");
+    }
+  });
+
+  test("throws XAI_TTS_EMPTY_RESPONSE on empty audio body", async () => {
+    mockFetchReturning(new Uint8Array(0));
+
+    const provider = createXaiProvider();
+
+    try {
+      await provider.synthesize(makeRequest());
+      throw new Error("Expected synthesize to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(XaiTtsError);
+      expect((err as XaiTtsError).code).toBe("XAI_TTS_EMPTY_RESPONSE");
+    }
+  });
+});
+
+// ===========================================================================
 // Built-in registration
 // ===========================================================================
 
 describe("registerBuiltinTtsProviders", () => {
-  test("registers elevenlabs, fish-audio, and deepgram providers", () => {
+  test("registers every catalog provider ID", () => {
     registerBuiltinTtsProviders();
 
     const providers = listTtsProviders();
     const ids = providers.map((p) => p.id);
-    expect(ids).toContain("elevenlabs");
-    expect(ids).toContain("fish-audio");
-    expect(ids).toContain("deepgram");
+    for (const id of listCatalogProviderIds()) {
+      expect(ids).toContain(id);
+    }
   });
 
   test("providers are discoverable via getTtsProvider after registration", () => {
     registerBuiltinTtsProviders();
 
-    const el = getTtsProvider("elevenlabs");
-    expect(el.id).toBe("elevenlabs");
-
-    const fa = getTtsProvider("fish-audio");
-    expect(fa.id).toBe("fish-audio");
-
-    const dg = getTtsProvider("deepgram");
-    expect(dg.id).toBe("deepgram");
+    for (const id of listCatalogProviderIds()) {
+      const provider = getTtsProvider(id);
+      expect(provider.id).toBe(id);
+    }
   });
 
   test("idempotent — calling twice does not throw", () => {

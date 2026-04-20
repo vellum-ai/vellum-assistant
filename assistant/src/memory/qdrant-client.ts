@@ -503,12 +503,15 @@ export class VellumQdrantClient {
   }
 
   /**
-   * Delete all vectors matching both a target_type and a payload path.
-   * Used to remove every chunk belonging to a single PKB file.
+   * Delete all vectors matching target_type, payload path, and memory scope.
+   * Used to remove every chunk belonging to a single PKB file within a scope.
+   * The memory_scope_id filter is required — omitting it would wipe that
+   * path's chunks across every scope that happens to index the same relpath.
    */
   async deleteByTargetTypeAndPath(
     targetType: string,
     path: string,
+    memoryScopeId: string,
   ): Promise<void> {
     await this.ensureCollection();
 
@@ -519,6 +522,7 @@ export class VellumQdrantClient {
           must: [
             { key: "target_type", match: { value: targetType } },
             { key: "path", match: { value: path } },
+            { key: "memory_scope_id", match: { value: memoryScopeId } },
           ],
         },
       });
@@ -645,6 +649,10 @@ export class VellumQdrantClient {
         field_name: "memory_scope_id",
         field_schema: "keyword",
       }),
+      this.client.createPayloadIndex(this.collection, {
+        field_name: "path",
+        field_schema: "keyword",
+      }),
     ]);
   }
 
@@ -689,7 +697,11 @@ export class VellumQdrantClient {
    */
   async scrollByTargetType(
     targetType: string,
-    options?: { memoryScopeId?: string; batchSize?: number },
+    options?: {
+      memoryScopeId?: string;
+      path?: string;
+      batchSize?: number;
+    },
   ): Promise<Array<{ id: string; payload: Record<string, unknown> }>> {
     await this.ensureCollection();
 
@@ -703,34 +715,50 @@ export class VellumQdrantClient {
         match: { value: options.memoryScopeId },
       });
     }
+    if (options?.path) {
+      must.push({ key: "path", match: { value: options.path } });
+    }
     const filter = {
       must,
       must_not: [{ key: "_meta", match: { value: true } }],
     };
 
-    const out: Array<{ id: string; payload: Record<string, unknown> }> = [];
-    let offset: string | number | undefined = undefined;
     // Guard against a pathological pagination loop.
     const maxIterations = 10_000;
-    for (let i = 0; i < maxIterations; i++) {
-      const result = await this.client.scroll(this.collection, {
-        filter,
-        limit: batchSize,
-        with_payload: true,
-        with_vector: false,
-        ...(offset !== undefined ? { offset } : {}),
-      });
-      for (const point of result.points) {
-        const id =
-          typeof point.id === "string" ? point.id : String(point.id);
-        const payload = (point.payload ?? {}) as Record<string, unknown>;
-        out.push({ id, payload });
+    const doScroll = async () => {
+      const out: Array<{ id: string; payload: Record<string, unknown> }> = [];
+      let offset: string | number | undefined = undefined;
+      for (let i = 0; i < maxIterations; i++) {
+        const result = await this.client.scroll(this.collection, {
+          filter,
+          limit: batchSize,
+          with_payload: true,
+          with_vector: false,
+          ...(offset !== undefined ? { offset } : {}),
+        });
+        for (const point of result.points) {
+          const id =
+            typeof point.id === "string" ? point.id : String(point.id);
+          const payload = (point.payload ?? {}) as Record<string, unknown>;
+          out.push({ id, payload });
+        }
+        const next = result.next_page_offset;
+        if (next == null) break;
+        offset = typeof next === "string" ? next : (next as number);
       }
-      const next = result.next_page_offset;
-      if (next == null) break;
-      offset = typeof next === "string" ? next : (next as number);
+      return out;
+    };
+
+    try {
+      return await doScroll();
+    } catch (err) {
+      if (this.isCollectionMissing(err)) {
+        this.collectionReady = false;
+        await this.ensureCollection();
+        return await doScroll();
+      }
+      throw err;
     }
-    return out;
   }
 
   private async findByTarget(

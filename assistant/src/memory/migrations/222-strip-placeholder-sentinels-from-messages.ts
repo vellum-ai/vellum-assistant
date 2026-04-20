@@ -64,6 +64,7 @@ export function migrateStripPlaceholderSentinelsFromMessages(
           }
 
           const stripped = blocks.filter((b) => {
+            if (typeof b !== "object" || b === null) return false;
             if (b.type !== "text") return true;
             const text = typeof b.text === "string" ? b.text : "";
             return !isPlaceholderSentinelText(text);

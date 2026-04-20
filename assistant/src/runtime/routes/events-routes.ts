@@ -10,6 +10,16 @@
  * When `conversationKey` is provided, subscribers receive events scoped to
  * that conversation. When omitted, subscribers receive events from ALL
  * conversations for this assistant (unfiltered).
+ *
+ * If the conversationKey has no server-side mapping yet (e.g. a client-
+ * generated draft UUID that has not been sent a first message), this
+ * handler eagerly materialises the conversation so the subscriber's
+ * `filter.conversationId` matches the id under which the first turn's
+ * scoped events (text deltas, tool calls, message_complete) will be
+ * published by `handleSendMessage`. The `conversation_list_invalidated`
+ * notification for other clients is driven by `handleSendMessage`'s
+ * first-message check, so eager materialisation here is safe and does
+ * not hide the first-message notification from other clients.
  */
 
 import { getOrCreateConversation } from "../../memory/conversation-key-store.js";
@@ -75,6 +85,12 @@ export function handleSubscribeAssistantEvents(
     assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
   };
   if (conversationKey) {
+    // Eagerly resolve (and if necessary create) the conversation so the
+    // subscriber's filter matches the id under which first-turn scoped
+    // events will be published. The `conversation_list_invalidated`
+    // publish is driven by `handleSendMessage`'s first-message check,
+    // so eager materialisation here is safe and does not suppress the
+    // cross-client notification.
     const mapping = getOrCreateConversation(conversationKey);
     filter.conversationId = mapping.conversationId;
   }

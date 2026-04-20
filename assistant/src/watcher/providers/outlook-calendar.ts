@@ -8,8 +8,6 @@
  * token has expired (410 Gone).
  */
 
-import { OutlookCalendarApiError } from "../../config/bundled-skills/outlook-calendar/calendar-client.js";
-import type { OutlookCalendarEvent } from "../../config/bundled-skills/outlook-calendar/types.js";
 import type { OAuthConnection } from "../../oauth/connection.js";
 import { resolveOAuthConnection } from "../../oauth/connection-resolver.js";
 import { getLogger } from "../../util/logger.js";
@@ -18,6 +16,48 @@ import type {
   WatcherItem,
   WatcherProvider,
 } from "../provider-types.js";
+
+// ---------------------------------------------------------------------------
+// Local types & helpers used by the watcher provider
+// ---------------------------------------------------------------------------
+
+/** Microsoft Graph date+time pair. timeZone may be omitted when dateTime carries an offset. */
+interface OutlookDateTimeZone {
+  dateTime: string;
+  timeZone?: string;
+}
+
+/** A single calendar event from Microsoft Graph (subset used by watcher). */
+interface OutlookCalendarEvent {
+  id: string;
+  subject?: string;
+  bodyPreview?: string;
+  start?: OutlookDateTimeZone;
+  end?: OutlookDateTimeZone;
+  location?: { displayName?: string };
+  attendees?: Array<{
+    emailAddress: { address: string };
+    status?: { response: string };
+  }>;
+  organizer?: { emailAddress: { address: string; name?: string } };
+  isAllDay?: boolean;
+  isCancelled?: boolean;
+  showAs?: string;
+  webLink?: string;
+  createdDateTime?: string;
+  lastModifiedDateTime?: string;
+}
+
+class OutlookCalendarApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly statusText: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "OutlookCalendarApiError";
+  }
+}
 
 const CREDENTIAL_SERVICE = "outlook";
 const log = getLogger("watcher:outlook-calendar");

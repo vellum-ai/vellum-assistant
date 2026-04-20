@@ -110,7 +110,10 @@ export async function searchGraphNodes(
     denseMusts.push({ key: "created_at", range: { lte: dateRange.beforeMs } });
   }
 
-  const filter: Record<string, unknown> = { must: denseMusts };
+  const filter: Record<string, unknown> = {
+    must: denseMusts,
+    must_not: [{ key: "_meta", match: { value: true } }],
+  };
 
   const results: QdrantSearchResult[] = await withQdrantBreaker(async () => {
     return client.search(queryVector, limit, filter);

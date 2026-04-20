@@ -1,5 +1,7 @@
 import { loadConfig } from "../config/loader.js";
+import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
 import { getProvider, listProviders } from "../providers/registry.js";
+import type { Provider } from "../providers/types.js";
 import {
   APPROVAL_COPY_MAX_TOKENS,
   APPROVAL_COPY_SYSTEM_PROMPT,
@@ -89,12 +91,15 @@ const VALID_DISPOSITIONS: ReadonlySet<string> = new Set([
 export function createApprovalCopyGenerator(): ApprovalCopyGenerator {
   return async (context, options = {}) => {
     const config = loadConfig();
-    let provider;
+    let baseProvider: Provider;
     try {
-      provider = getProvider(config.llm.default.provider);
+      baseProvider = getProvider(config.llm.default.provider);
     } catch {
       return null;
     }
+    // Wrap so per-call `callSite` can route to an alternative provider
+    // transport when `llm.callSites.<id>.provider` overrides the default.
+    const provider = wrapWithCallSiteRouting(baseProvider);
 
     const fallbackText =
       options.fallbackText?.trim() || getFallbackMessage(context);
@@ -114,6 +119,7 @@ export function createApprovalCopyGenerator(): ApprovalCopyGenerator {
       {
         config: {
           max_tokens: options.maxTokens ?? APPROVAL_COPY_MAX_TOKENS,
+          callSite: "approvalCopy",
         },
         signal: AbortSignal.timeout(
           options.timeoutMs ?? APPROVAL_COPY_TIMEOUT_MS,
@@ -145,7 +151,9 @@ export function createApprovalConversationGenerator(): ApprovalConversationGener
     if (!listProviders().includes(config.llm.default.provider)) {
       throw new Error("No provider available for approval conversation");
     }
-    const provider = getProvider(config.llm.default.provider);
+    const provider = wrapWithCallSiteRouting(
+      getProvider(config.llm.default.provider),
+    );
 
     const pendingDescription = context.pendingApprovals
       .map((p) => `- Request ${p.requestId}: tool "${p.toolName}"`)
@@ -166,6 +174,7 @@ export function createApprovalConversationGenerator(): ApprovalConversationGener
       {
         config: {
           max_tokens: APPROVAL_CONVERSATION_MAX_TOKENS,
+          callSite: "approvalConversation",
         },
         signal: AbortSignal.timeout(APPROVAL_CONVERSATION_TIMEOUT_MS),
       },
@@ -214,4 +223,20 @@ export function createApprovalConversationGenerator(): ApprovalConversationGener
     }
     return result;
   };
+}
+
+/**
+ * Wrap a base Provider so per-call `callSite` metadata can route the actual
+ * transport to a different provider when `llm.callSites.<id>.provider`
+ * differs from the default. Without this wrapper, only request metadata
+ * reflects the callSite — the HTTP transport stays bound to the default.
+ */
+function wrapWithCallSiteRouting(base: Provider): Provider {
+  return new CallSiteRoutingProvider(base, (name) => {
+    try {
+      return getProvider(name);
+    } catch {
+      return undefined;
+    }
+  });
 }

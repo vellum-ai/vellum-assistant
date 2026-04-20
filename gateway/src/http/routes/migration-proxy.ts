@@ -14,8 +14,8 @@ import { stripHopByHop } from "../../util/strip-hop-by-hop.js";
 
 const log = getLogger("migration-proxy");
 
-/** Timeout for migration requests (5 minutes) — exports/imports can be large. */
-const MIGRATION_TIMEOUT_MS = 300_000;
+/** Timeout for migration requests (60 minutes) — exports/imports can be large (up to 8 GB bundles). */
+const MIGRATION_TIMEOUT_MS = 3_600_000;
 
 export function createMigrationExportProxyHandler(config: GatewayConfig) {
   return async function handleMigrationExport(req: Request): Promise<Response> {

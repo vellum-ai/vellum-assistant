@@ -313,6 +313,37 @@ describe("classifyConversationError", () => {
     });
   });
 
+  describe("stale web-search encrypted_content errors", () => {
+    const cases = [
+      "messages.205.content.0: Invalid `encrypted_content` in `search_result` block",
+      "Invalid encrypted_content in search_result block",
+      "Invalid `encrypted_content` in `web_search_result` block",
+    ];
+
+    for (const msg of cases) {
+      it(`classifies "${msg.slice(0, 50)}…" as PROVIDER_WEB_SEARCH / stale_web_search_content`, () => {
+        const result = classifyConversationError(new Error(msg), baseCtx);
+        expect(result.code).toBe("PROVIDER_WEB_SEARCH");
+        expect(result.retryable).toBe(true);
+        expect(result.errorCategory).toBe("stale_web_search_content");
+        expect(result.userMessage).toBe(
+          "Stale web-search results in conversation history. Please try again.",
+        );
+      });
+    }
+
+    it("classifies 400 ProviderError with stale encrypted_content payload", () => {
+      const err = new ProviderError(
+        'Anthropic API error (400): 400 {"error":{"message":"Provider returned error","code":400,"metadata":{"raw":"{\\"type\\":\\"error\\",\\"error\\":{\\"type\\":\\"invalid_request_error\\",\\"message\\":\\"messages.205.content.0: Invalid `encrypted_content` in `search_result` block\\"}}","provider_name":"Anthropic","is_byok":false}}}',
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_WEB_SEARCH");
+      expect(result.errorCategory).toBe("stale_web_search_content");
+    });
+  });
+
   describe("provider not configured errors", () => {
     it("classifies ProviderNotConfiguredError as PROVIDER_NOT_CONFIGURED", () => {
       const err = new ProviderNotConfiguredError("anthropic", []);

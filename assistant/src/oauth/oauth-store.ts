@@ -223,6 +223,7 @@ export function seedProviders(
           tokenExchangeBodyFormat,
           userinfoUrl,
           baseUrl: sql`COALESCE(${oauthProviders.baseUrl}, ${baseUrl})`,
+          defaultScopes,
           scopeSeparator,
           authorizeParams,
           pingUrl,

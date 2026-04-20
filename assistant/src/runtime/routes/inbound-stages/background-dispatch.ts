@@ -14,6 +14,7 @@ import * as deliveryChannels from "../../../memory/delivery-channels.js";
 import * as deliveryCrud from "../../../memory/delivery-crud.js";
 import * as deliveryStatus from "../../../memory/delivery-status.js";
 import {
+  clearThreadTs,
   extractChannelFromCallbackUrl,
   extractMessageTsFromCallbackUrl,
   extractThreadTsFromCallbackUrl,
@@ -31,6 +32,7 @@ import { deliverChannelReply } from "../../gateway-client.js";
 import type {
   ApprovalCopyGenerator,
   MessageProcessor,
+  SlackInboundMessageMetadata,
 } from "../../http-types.js";
 import { resolveRoutingState } from "../../trust-context-resolver.js";
 import { deliverReplyViaCallback } from "../channel-delivery-routes.js";
@@ -78,6 +80,12 @@ export interface BackgroundProcessingParams {
   sourceLanguageCode?: string;
   /** Chat type from the gateway (e.g. "private", "group", "supergroup"). */
   chatType?: string;
+  /**
+   * Slack-specific inbound metadata extracted at the HTTP boundary. Threaded
+   * through to `persistUserMessage` so the row can be tagged with a
+   * `slackMeta` envelope for the chronological renderer.
+   */
+  slackInbound?: SlackInboundMessageMetadata;
 }
 
 /**
@@ -106,6 +114,7 @@ export function processChannelMessageInBackground(
     commandIntent,
     sourceLanguageCode,
     chatType,
+    slackInbound,
   } = params;
 
   (async () => {
@@ -163,12 +172,19 @@ export function processChannelMessageInBackground(
         })
       : undefined;
 
-    // Track Slack thread mapping so replies go to the correct thread
+    // Align the Slack thread mapping with this turn's inbound state:
+    // set it when the inbound arrived in a thread, clear it when the
+    // inbound arrived at the channel root. `getThreadTs` is consulted
+    // at outbound-persistence time, so the mapping must reflect the
+    // current turn — a lingering mapping from a prior thread turn
+    // would otherwise be stamped onto a channel-root reply.
     if (sourceChannel === "slack" && replyCallbackUrl) {
       const inboundThreadTs = extractThreadTsFromCallbackUrl(replyCallbackUrl);
       const inboundChannel = extractChannelFromCallbackUrl(replyCallbackUrl);
       if (inboundThreadTs && inboundChannel) {
         setThreadTs(conversationId, inboundChannel, inboundThreadTs);
+      } else {
+        clearThreadTs(conversationId);
       }
     }
 
@@ -200,6 +216,7 @@ export function processChannelMessageInBackground(
           trustContext: trustCtx,
           isInteractive: resolveRoutingState(trustCtx).promptWaitingAllowed,
           ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
+          ...(slackInbound ? { slackInbound } : {}),
         },
         sourceChannel,
         sourceInterface,
@@ -343,7 +360,10 @@ export function setSlackThinkingStatus(
       },
       mintBearerToken(),
     ).catch((err) => {
-      log.debug({ err, chatId, messageTs }, "Failed to add Slack eyes reaction");
+      log.debug(
+        { err, chatId, messageTs },
+        "Failed to add Slack eyes reaction",
+      );
     });
 
     const clearReaction = () => {
@@ -368,7 +388,10 @@ export function setSlackThinkingStatus(
       );
     };
 
-    const safetyTimer = setTimeout(clearReaction, SLACK_THINKING_MAX_DURATION_MS);
+    const safetyTimer = setTimeout(
+      clearReaction,
+      SLACK_THINKING_MAX_DURATION_MS,
+    );
     (safetyTimer as { unref?: () => void }).unref?.();
 
     return clearReaction;

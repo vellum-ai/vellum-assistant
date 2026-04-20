@@ -87,6 +87,13 @@ export interface TrustRuleBase {
   decision: TrustDecision;
   priority: number;
   createdAt: number;
+  /**
+   * Set when a user explicitly modifies a default trust rule.
+   * When present, `backfillDefaults()` will not overwrite the rule
+   * with updated template values on upgrade — preserving the user's
+   * customization.
+   */
+  userModifiedAt?: number;
 }
 
 /**
@@ -236,6 +243,8 @@ export function parseTrustRule(raw: Record<string, unknown>): ParsedTrustRule {
     typeof raw.createdAt === "number"
       ? raw.createdAt
       : ((normalized = true), 0);
+  const userModifiedAt =
+    typeof raw.userModifiedAt === "number" ? raw.userModifiedAt : undefined;
 
   // Build the base rule
   const base: TrustRuleBase = {
@@ -246,6 +255,7 @@ export function parseTrustRule(raw: Record<string, unknown>): ParsedTrustRule {
     decision,
     priority,
     createdAt,
+    ...(userModifiedAt != null ? { userModifiedAt } : {}),
   };
 
   // Determine the family and strip invalid fields

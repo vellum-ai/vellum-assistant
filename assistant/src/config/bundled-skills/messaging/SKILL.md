@@ -177,7 +177,7 @@ Medium and high risk tools require a confidence score between 0 and 1:
 
 When a user asks to declutter, clean up, or organize their email:
 
-- **Gmail connected**: Load the **gmail** skill, which has the full decluttering workflow with `gmail_sender_digest`, `gmail_archive`, `gmail_unsubscribe`, and `gmail_filters`.
+- **Gmail connected**: Load the **gmail** skill, which has the full decluttering workflow with sender-digest scanning, batch archiving, unsubscribe support, and filter management.
 - **Non-Gmail email connected**: Use the generic tools (`messaging_sender_digest`, `messaging_archive_by_sender`) - they work with any provider that supports these operations. Skip unsubscribe and filter offers since they are Gmail-specific.
 - **Nothing connected**: Ask which email provider they use. If it's Gmail, go straight into the Gmail connection flow. For other providers, let the user know only Gmail is supported right now and offer to set up Gmail instead. Don't present a menu of options or explain what OAuth is.
 
@@ -195,4 +195,4 @@ When a user asks to declutter, clean up, or organize their email:
 
 ### Query-Based Archiving
 
-Unlike Gmail's `gmail_archive` (which supports `scan_id` + `sender_ids`), `messaging_archive_by_sender` is query-based. Build `from:<email>` queries from the sender digest results to target specific senders. Include the same date/category filters used in the original scan to keep the scope consistent.
+Unlike the Gmail skill's archive script (which supports `cache_key` + sender emails), `messaging_archive_by_sender` is query-based. Build `from:<email>` queries from the sender digest results to target specific senders. Include the same date/category filters used in the original scan to keep the scope consistent.

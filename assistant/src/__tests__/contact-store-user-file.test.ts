@@ -67,7 +67,7 @@ describe("upsertContact user_file selection", () => {
 
   test("reuses an existing sibling's userFile when principalId matches", () => {
     const primary = upsertContact({
-      displayName: "Sidd",
+      displayName: "Chris",
       role: "guardian",
       principalId: "principal-abc",
       channels: [
@@ -78,12 +78,12 @@ describe("upsertContact user_file selection", () => {
         },
       ],
     });
-    expect(primary.userFile).toBe("sidd.md");
+    expect(primary.userFile).toBe("chris.md");
 
     // Second contact for the same principal on Slack — must inherit the
-    // first contact's userFile, NOT auto-increment to sidd-2.md.
+    // first contact's userFile, NOT auto-increment to chris-2.md.
     const slack = upsertContact({
-      displayName: "sidd",
+      displayName: "chris",
       role: "guardian",
       principalId: "principal-abc",
       channels: [
@@ -95,7 +95,7 @@ describe("upsertContact user_file selection", () => {
         },
       ],
     });
-    expect(slack.userFile).toBe("sidd.md");
+    expect(slack.userFile).toBe("chris.md");
     expect(slack.id).not.toBe(primary.id);
   });
 
@@ -118,31 +118,31 @@ describe("upsertContact user_file selection", () => {
 
   test("still auto-increments when principalId is not set and displayName collides", () => {
     const first = upsertContact({
-      displayName: "Akash",
+      displayName: "Bob",
       role: "contact",
       channels: [
         {
           type: "slack",
-          address: "uakash1",
-          externalUserId: "UAKASH1",
-          externalChatId: "DAKASH1",
+          address: "ubob1",
+          externalUserId: "UBOB1",
+          externalChatId: "DBOB1",
         },
       ],
     });
     const second = upsertContact({
-      displayName: "Akash",
+      displayName: "Bob",
       role: "contact",
       channels: [
         {
           type: "slack",
-          address: "uakash2",
-          externalUserId: "UAKASH2",
-          externalChatId: "DAKASH2",
+          address: "ubob2",
+          externalUserId: "UBOB2",
+          externalChatId: "DBOB2",
         },
       ],
     });
-    expect(first.userFile).toBe("akash.md");
-    expect(second.userFile).toBe("akash-2.md");
+    expect(first.userFile).toBe("bob.md");
+    expect(second.userFile).toBe("bob-2.md");
   });
 
   test("ignores a sibling whose userFile is null and generates a new slug", () => {
@@ -203,18 +203,18 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     const now = Date.now();
     insertContact({
       id: "c1",
-      displayName: "sidd",
+      displayName: "chris",
       role: "guardian",
       principalId: "principal-x",
-      userFile: "sidd.md",
+      userFile: "chris.md",
       createdAt: now - 1000,
     });
     insertContact({
       id: "c2",
-      displayName: "sidd",
+      displayName: "chris",
       role: "guardian",
       principalId: "principal-x",
-      userFile: "sidd-2.md",
+      userFile: "chris-2.md",
       createdAt: now,
     });
 
@@ -222,23 +222,23 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
 
     const rows = fetchUserFilesByPrincipal("principal-x");
     expect(rows).toHaveLength(2);
-    expect(rows[0]?.user_file).toBe("sidd.md");
-    expect(rows[1]?.user_file).toBe("sidd.md");
+    expect(rows[0]?.user_file).toBe("chris.md");
+    expect(rows[1]?.user_file).toBe("chris.md");
   });
 
   test("propagates a sibling's user_file to NULL rows", () => {
     const now = Date.now();
     insertContact({
       id: "c1",
-      displayName: "sidd",
+      displayName: "chris",
       role: "guardian",
       principalId: "principal-y",
-      userFile: "sidd.md",
+      userFile: "chris.md",
       createdAt: now - 1000,
     });
     insertContact({
       id: "c2",
-      displayName: "sidd",
+      displayName: "chris",
       role: "guardian",
       principalId: "principal-y",
       userFile: null,
@@ -248,8 +248,8 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     migrateNormalizeUserFileByPrincipal(getDb());
 
     const rows = fetchUserFilesByPrincipal("principal-y");
-    expect(rows[0]?.user_file).toBe("sidd.md");
-    expect(rows[1]?.user_file).toBe("sidd.md");
+    expect(rows[0]?.user_file).toBe("chris.md");
+    expect(rows[1]?.user_file).toBe("chris.md");
   });
 
   test("prefers non-auto-incremented candidate over auto-incremented older row", () => {
@@ -258,26 +258,26 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     const now = Date.now();
     insertContact({
       id: "c1",
-      displayName: "sidd",
+      displayName: "chris",
       role: "guardian",
       principalId: "principal-z",
-      userFile: "sidd-3.md",
+      userFile: "chris-3.md",
       createdAt: now - 2000,
     });
     insertContact({
       id: "c2",
-      displayName: "sidd",
+      displayName: "chris",
       role: "guardian",
       principalId: "principal-z",
-      userFile: "sidd.md",
+      userFile: "chris.md",
       createdAt: now,
     });
 
     migrateNormalizeUserFileByPrincipal(getDb());
 
     const rows = fetchUserFilesByPrincipal("principal-z");
-    expect(rows[0]?.user_file).toBe("sidd.md");
-    expect(rows[1]?.user_file).toBe("sidd.md");
+    expect(rows[0]?.user_file).toBe("chris.md");
+    expect(rows[1]?.user_file).toBe("chris.md");
   });
 
   test("leaves untouched when only one contact exists for a principal", () => {
@@ -298,25 +298,25 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
   });
 
   test("does not classify dated-slug filenames as auto-incremented", () => {
-    // A display name containing a 4-digit year (e.g. "Alex 2024") produces
-    // `alex-2024.md`. The auto-increment suffix only ever appends 1–3 digits
-    // (starting at 2), so `alex-2024.md` must be treated as a normal filename
+    // A display name containing a 4-digit year (e.g. "Dana 2024") produces
+    // `dana-2024.md`. The auto-increment suffix only ever appends 1–3 digits
+    // (starting at 2), so `dana-2024.md` must be treated as a normal filename
     // and not deprioritized in favor of an older sibling.
     const now = Date.now();
     insertContact({
       id: "c1",
-      displayName: "Alex 2024",
+      displayName: "Dana 2024",
       role: "guardian",
       principalId: "principal-dated",
-      userFile: "alex-2024.md",
+      userFile: "dana-2024.md",
       createdAt: now,
     });
     insertContact({
       id: "c2",
-      displayName: "Alex",
+      displayName: "Dana",
       role: "guardian",
       principalId: "principal-dated",
-      userFile: "alex.md",
+      userFile: "dana.md",
       createdAt: now - 1000,
     });
 
@@ -324,9 +324,9 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
 
     const rows = fetchUserFilesByPrincipal("principal-dated");
     // Neither candidate looks auto-incremented, so tiebreaker is oldest
-    // created_at — c2 (`alex.md`) wins. Crucially, `alex-2024.md` was NOT
+    // created_at — c2 (`dana.md`) wins. Crucially, `dana-2024.md` was NOT
     // classified as auto-incremented and penalized.
-    expect(rows.map((r) => r.user_file).sort()).toEqual(["alex.md", "alex.md"]);
+    expect(rows.map((r) => r.user_file).sort()).toEqual(["dana.md", "dana.md"]);
   });
 
   test("excludes year-like 4-digit tails from the auto-increment class", () => {
@@ -389,117 +389,116 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
   });
 
   test("excludes full date-shaped tails from the auto-increment class", () => {
-    // `alex-2025-04-13.md` ends with `-13.md` (which otherwise looks like a
+    // `dana-2025-04-13.md` ends with `-13.md` (which otherwise looks like a
     // small counter), but the preceding `-2025-04` marks the whole tail as a
     // date. Must NOT be classified as auto-incremented.
     const now = Date.now();
     insertContact({
       id: "c1",
-      displayName: "Alex 2025 04 13",
+      displayName: "Dana 2025 04 13",
       role: "guardian",
       principalId: "principal-datefull",
-      userFile: "alex-2025-04-13.md",
+      userFile: "dana-2025-04-13.md",
       createdAt: now - 2000,
     });
     insertContact({
       id: "c2",
-      displayName: "Alex",
+      displayName: "Dana",
       role: "guardian",
       principalId: "principal-datefull",
-      userFile: "alex-2.md",
+      userFile: "dana-2.md",
       createdAt: now - 1000,
     });
 
     migrateNormalizeUserFileByPrincipal(getDb());
 
     const rows = fetchUserFilesByPrincipal("principal-datefull");
-    // `alex-2.md` is auto-incremented; `alex-2025-04-13.md` is a date-shaped
+    // `dana-2.md` is auto-incremented; `dana-2025-04-13.md` is a date-shaped
     // slug and wins as canonical.
-    for (const row of rows)
-      expect(row.user_file).toBe("alex-2025-04-13.md");
+    for (const row of rows) expect(row.user_file).toBe("dana-2025-04-13.md");
   });
 
   test("treats year-prefixed single-digit counter slug as auto-incremented", () => {
-    // `alex-2025-2.md` is `generateUserFileSlug` output when the base
-    // `alex-2025.md` was already taken — it is a collision counter, NOT a
+    // `dana-2025-2.md` is `generateUserFileSlug` output when the base
+    // `dana-2025.md` was already taken — it is a collision counter, NOT a
     // date. Counters are emitted without leading zeros (`-2`, `-3`, ...)
     // while ISO date components are always 2 digits (`-02`, `-04`), so
     // single-digit trailing segments mark the tail as a counter.
     const now = Date.now();
     insertContact({
       id: "c1",
-      displayName: "Alex 2025",
+      displayName: "Dana 2025",
       role: "guardian",
       principalId: "principal-yc",
-      userFile: "alex-2025-2.md",
+      userFile: "dana-2025-2.md",
       createdAt: now - 2000,
     });
     insertContact({
       id: "c2",
-      displayName: "Alex 2025",
+      displayName: "Dana 2025",
       role: "guardian",
       principalId: "principal-yc",
-      userFile: "alex-2025.md",
+      userFile: "dana-2025.md",
       createdAt: now,
     });
 
     migrateNormalizeUserFileByPrincipal(getDb());
 
     const rows = fetchUserFilesByPrincipal("principal-yc");
-    // Despite being older, `alex-2025-2.md` is auto-incremented, so
-    // `alex-2025.md` (the clean base) wins as canonical.
-    for (const row of rows) expect(row.user_file).toBe("alex-2025.md");
+    // Despite being older, `dana-2025-2.md` is auto-incremented, so
+    // `dana-2025.md` (the clean base) wins as canonical.
+    for (const row of rows) expect(row.user_file).toBe("dana-2025.md");
   });
 
   test("treats year-prefixed single-digit tail as base slug when display name generates it", () => {
-    // Ambiguous filename: `alex-2025-4.md` could be either a collision counter
-    // on base `alex-2025.md` OR the direct base slug from display name
-    // "Alex 2025 4". The classifier must cross-reference the row's display
+    // Ambiguous filename: `dana-2025-4.md` could be either a collision counter
+    // on base `dana-2025.md` OR the direct base slug from display name
+    // "Dana 2025 4". The classifier must cross-reference the row's display
     // name — if `generateUserFileSlug`'s pure slug transform maps the name to
     // the filename, treat it as a base slug, not an auto-incremented counter.
     const now = Date.now();
     insertContact({
       id: "c1",
-      displayName: "Alex 2025 4",
+      displayName: "Dana 2025 4",
       role: "guardian",
       principalId: "principal-yb",
-      userFile: "alex-2025-4.md",
+      userFile: "dana-2025-4.md",
       createdAt: now,
     });
     insertContact({
       id: "c2",
-      displayName: "Alex",
+      displayName: "Dana",
       role: "guardian",
       principalId: "principal-yb",
-      userFile: "alex-2.md",
+      userFile: "dana-2.md",
       createdAt: now - 1000,
     });
 
     migrateNormalizeUserFileByPrincipal(getDb());
 
     const rows = fetchUserFilesByPrincipal("principal-yb");
-    // `alex-2025-4.md` is a legitimate base slug (disambiguated by display
-    // name), while `alex-2.md` is auto-incremented. The base slug must win
+    // `dana-2025-4.md` is a legitimate base slug (disambiguated by display
+    // name), while `dana-2.md` is auto-incremented. The base slug must win
     // as canonical, otherwise canonical would point at a collision counter.
-    for (const row of rows) expect(row.user_file).toBe("alex-2025-4.md");
+    for (const row of rows) expect(row.user_file).toBe("dana-2025-4.md");
   });
 
   test("is idempotent", () => {
     const now = Date.now();
     insertContact({
       id: "c1",
-      displayName: "sidd",
+      displayName: "chris",
       role: "guardian",
       principalId: "principal-i",
-      userFile: "sidd.md",
+      userFile: "chris.md",
       createdAt: now - 1000,
     });
     insertContact({
       id: "c2",
-      displayName: "sidd",
+      displayName: "chris",
       role: "guardian",
       principalId: "principal-i",
-      userFile: "sidd-2.md",
+      userFile: "chris-2.md",
       createdAt: now,
     });
 
@@ -507,6 +506,6 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     migrateNormalizeUserFileByPrincipal(getDb());
 
     const rows = fetchUserFilesByPrincipal("principal-i");
-    for (const row of rows) expect(row.user_file).toBe("sidd.md");
+    for (const row of rows) expect(row.user_file).toBe("chris.md");
   });
 });

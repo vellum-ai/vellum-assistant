@@ -6,6 +6,13 @@ import { dirname, join } from "path";
 // Direct import — bun embeds this at compile time so it works in compiled binaries.
 import cliPkg from "../../package.json";
 
+// Pulled from skills/ — the Meet avatar device-path default is owned by the
+// meet-join skill; importing here keeps the CLI's Docker wiring locked to the
+// same value the bot and config schema use. The shared module is deliberately
+// zero-dep so this import cannot drag unrelated surface into the compiled CLI
+// binary.
+import { AVATAR_DEVICE_PATH_DEFAULT } from "../../../skills/meet-join/shared/avatar-device-path.js";
+
 import {
   findAssistantByName,
   saveAssistantEntry,
@@ -45,6 +52,64 @@ export const GATEWAY_INTERNAL_PORT = 7830;
 
 /** Max time to wait for the assistant container to emit the readiness sentinel. */
 export const DOCKER_READY_TIMEOUT_MS = 3 * 60 * 1000;
+
+/**
+ * Default virtual-camera device path when the Meet avatar feature is
+ * enabled. Re-exports the shared
+ * {@link ../../../skills/meet-join/shared/avatar-device-path.js AVATAR_DEVICE_PATH_DEFAULT}
+ * so the CLI's device-passthrough wiring cannot drift from the bot's
+ * Chrome-flag wiring or the workspace config default. Matches the
+ * `video_nr=10` value in the README's host-setup section
+ * (`skills/meet-join/bot/README.md`). Operators can override the path by
+ * setting `VELLUM_MEET_AVATAR_DEVICE` to something other than the default
+ * (e.g. `/dev/video11` if a different `video_nr` was used).
+ */
+export const DEFAULT_MEET_AVATAR_DEVICE_PATH = AVATAR_DEVICE_PATH_DEFAULT;
+
+/**
+ * Env-var opt-in for bind-mounting the v4l2loopback virtual-camera device
+ * into the assistant container. Set to a truthy value (`1`, `true`, `yes`)
+ * to enable; unset or falsy disables the passthrough entirely.
+ *
+ * Kept as an env-var rather than a config-schema field because the Meet
+ * avatar config schema lands in a later PR (PR 5 of the phase-4 plan) —
+ * threading the config through the CLI's boot flow now would force a
+ * forward dependency. Once the schema lands, the CLI can either keep this
+ * env-var as a pre-config override or move the opt-in into the workspace
+ * config.
+ */
+export const MEET_AVATAR_ENV_VAR = "VELLUM_MEET_AVATAR";
+
+/**
+ * Override for the virtual-camera device path. Defaults to
+ * {@link DEFAULT_MEET_AVATAR_DEVICE_PATH}.
+ */
+export const MEET_AVATAR_DEVICE_ENV_VAR = "VELLUM_MEET_AVATAR_DEVICE";
+
+/**
+ * Resolve the Meet avatar device path to pass through to the assistant
+ * container, or `null` if the feature is not opted into. Exported so tests
+ * can assert against the env-var parsing without reaching into the shell.
+ */
+export function resolveMeetAvatarDevicePath(
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  const flag = env[MEET_AVATAR_ENV_VAR];
+  if (!flag) return null;
+  const normalized = flag.trim().toLowerCase();
+  if (
+    normalized === "" ||
+    normalized === "0" ||
+    normalized === "false" ||
+    normalized === "no"
+  ) {
+    return null;
+  }
+  const override = env[MEET_AVATAR_DEVICE_ENV_VAR];
+  return override && override.length > 0
+    ? override
+    : DEFAULT_MEET_AVATAR_DEVICE_PATH;
+}
 
 /** Default memory (GiB) allocated to the Colima VM. */
 const COLIMA_DEFAULT_MEMORY_GIB = 8;
@@ -660,6 +725,24 @@ export function serviceDockerRunArgs(opts: {
         for (const [key, value] of Object.entries(extraAssistantEnv)) {
           args.push("-e", `${key}=${value}`);
         }
+      }
+      // Optional Meet avatar (v4l2loopback) passthrough. When
+      // `VELLUM_MEET_AVATAR=1` is set in the caller's environment, bind the
+      // virtual-camera device node (default `/dev/video10`) into the
+      // assistant container so the nested `dockerd` can in turn pass it
+      // through to the Meet-bot container. The daemon-side equivalent of
+      // this opt-in lives on `DockerRunner.run()`'s `avatarDevicePath`
+      // option (see `skills/meet-join/daemon/docker-runner.ts`).
+      const avatarDevice = resolveMeetAvatarDevicePath();
+      if (avatarDevice) {
+        args.push(
+          "--device",
+          `${avatarDevice}:${avatarDevice}`,
+          "-e",
+          `${MEET_AVATAR_ENV_VAR}=1`,
+          "-e",
+          `${MEET_AVATAR_DEVICE_ENV_VAR}=${avatarDevice}`,
+        );
       }
       args.push(imageTags.assistant);
       return args;
