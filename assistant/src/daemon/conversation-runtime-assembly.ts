@@ -14,7 +14,10 @@ import {
   getMessages as defaultGetMessages,
   type MessageRow,
 } from "../memory/conversation-crud.js";
-import { extractMemoryPrefixBlocks } from "../memory/graph/conversation-graph-memory.js";
+import {
+  countMemoryPrefixBlocks,
+  extractMemoryPrefixBlocks,
+} from "../memory/graph/conversation-graph-memory.js";
 import { searchPkbFiles } from "../memory/pkb/pkb-search.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
@@ -1951,13 +1954,19 @@ export async function applyRuntimeInjections(
 
       const reminder = buildPkbReminder(hints);
       pkbSystemReminderCaptured = reminder;
+      // Splice the reminder in right after the memory prefix blocks so it
+      // lands above the user's typed text, producing the tail shape
+      // `[<turn_context>, <memory __injected>, <system_reminder>, ...your_text, ...later_appends]`
+      // after `unifiedTurnContext` later prepends `<turn_context>` at index 0.
+      const memoryPrefixCount = countMemoryPrefixBlocks(userTail.content);
       result = [
         ...result.slice(0, -1),
         {
           ...userTail,
           content: [
-            ...userTail.content,
+            ...userTail.content.slice(0, memoryPrefixCount),
             { type: "text" as const, text: reminder },
+            ...userTail.content.slice(memoryPrefixCount),
           ],
         },
       ];

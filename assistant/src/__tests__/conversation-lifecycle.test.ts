@@ -216,7 +216,7 @@ describe("loadFromDb metadata injection rehydration", () => {
 
     expect(messages).toHaveLength(3);
     // m1 is historical (not tail) — all three blocks should rehydrate in the
-    // documented shape: [<turn_context>, <memory __injected>, ...original, <system_reminder>]
+    // documented shape: [<turn_context>, <memory __injected>, <system_reminder>, ...original]
     expect(messages[0].role).toBe("user");
     expect(messages[0].content).toEqual([
       {
@@ -227,11 +227,11 @@ describe("loadFromDb metadata injection rehydration", () => {
         type: "text",
         text: "<memory __injected>\nmem payload\n</memory>",
       },
-      { type: "text", text: "First turn" },
       {
         type: "text",
         text: "<system_reminder>\npkb payload\n</system_reminder>",
       },
+      { type: "text", text: "First turn" },
     ]);
   });
 

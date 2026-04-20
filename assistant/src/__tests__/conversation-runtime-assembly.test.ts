@@ -2003,6 +2003,26 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     expect(reminder).toContain("- topics/alpha.md");
   });
 
+  test("<system_reminder> is injected immediately before the user's typed text (above, not below)", async () => {
+    pkbSearchResults = [];
+    pkbSearchThrows = null;
+
+    const { messages: result } = await applyRuntimeInjections(
+      baseMessages,
+      makePkbOptions(),
+    );
+    const texts = extractTexts(result);
+    const reminderIdx = texts.findIndex((t) =>
+      t.startsWith("<system_reminder>"),
+    );
+    const userTextIdx = texts.findIndex(
+      (t) => t === "Tell me about project foo",
+    );
+    expect(reminderIdx).toBeGreaterThanOrEqual(0);
+    expect(userTextIdx).toBeGreaterThanOrEqual(0);
+    expect(reminderIdx).toBeLessThan(userTextIdx);
+  });
+
   test("in-context paths are filtered out of hints", async () => {
     pkbSearchResults = [
       { path: "topics/alpha.md", score: 0.9 },
