@@ -482,6 +482,13 @@ function formatWebFetchOutput(params: {
     lines.push(`Markdown-Tokens: ${params.markdownTokens}`);
   }
 
+  if (params.title) {
+    lines.push(`Title: ${params.title}`);
+  }
+  if (params.description) {
+    lines.push(`Description: ${params.description}`);
+  }
+
   if (params.notices.length > 0) {
     lines.push("Notices:");
     for (const notice of params.notices) {
