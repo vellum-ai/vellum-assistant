@@ -243,6 +243,7 @@ extension HomePageView where DetailPanel == EmptyView {
     init(
         store: HomeStore,
         feedStore: HomeFeedStore,
+        meetStatusViewModel: MeetStatusViewModel,
         onPrimaryCTA: @escaping (Capability) -> Void,
         onShortcutCTA: @escaping (Capability) -> Void,
         onFeedConversationOpened: @escaping (String) -> Void,
@@ -251,6 +252,7 @@ extension HomePageView where DetailPanel == EmptyView {
         self.init(
             store: store,
             feedStore: feedStore,
+            meetStatusViewModel: meetStatusViewModel,
             onPrimaryCTA: onPrimaryCTA,
             onShortcutCTA: onShortcutCTA,
             onFeedConversationOpened: onFeedConversationOpened,
