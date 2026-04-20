@@ -395,7 +395,7 @@ extension AppDelegate {
             guard let chars = event.charactersIgnoringModifiers else { return event }
             switch chars {
             case "[":
-                guard self?.mainWindow?.windowState.navigationHistory.canGoBack == true else { return event }
+                guard self?.mainWindow?.windowState.canGoBack == true else { return event }
                 Task { @MainActor in
                     self?.mainWindow?.windowState.navigateBack()
                 }
