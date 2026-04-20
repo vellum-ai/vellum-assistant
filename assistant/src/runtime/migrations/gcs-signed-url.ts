@@ -12,6 +12,8 @@
  *   - The string parses as a URL.
  *   - The scheme is `https:` (no `http:`, `file:`, `data:`, etc.).
  *   - The hostname is exactly `storage.googleapis.com`.
+ *   - No explicit port is present (the default HTTPS port is required;
+ *     WHATWG URL normalizes `:443` to an empty port string for HTTPS).
  *   - The URL carries a signature query param — either `X-Goog-Signature`
  *     (V4 signing) or `Signature` (V2 signing). If neither is present
  *     the URL is not a signed URL and we refuse it.
@@ -42,6 +44,15 @@ export function validateGcsSignedUrl(raw: string): GcsUrlValidation {
 
   if (parsed.hostname !== EXPECTED_HOST) {
     return { ok: false, reason: "host" };
+  }
+
+  // Reject any explicit port. GCS signed URLs use the default HTTPS
+  // port (443), and WHATWG URL normalizes `:443` to an empty port
+  // string for HTTPS — so a correctly-issued signed URL always has
+  // `parsed.port === ""`. A non-empty port indicates an attacker is
+  // trying to redirect the fetch to a non-default port (SSRF vector).
+  if (parsed.port !== "") {
+    return { ok: false, reason: "port" };
   }
 
   const hasV4 = parsed.searchParams.has("X-Goog-Signature");

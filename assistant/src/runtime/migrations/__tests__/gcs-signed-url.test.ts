@@ -9,6 +9,10 @@
  * - A non-GCS host is rejected with reason `host`.
  * - A GCS URL with no signature query param is rejected with reason
  *   `missing_signature`.
+ * - A GCS URL with a non-default explicit port (e.g. `:1234`, `:80`) is
+ *   rejected with reason `port`. A URL with `:443` is accepted because
+ *   WHATWG URL normalizes the default HTTPS port to an empty port
+ *   string.
  * - Path traversal (`/bucket/../foo`) is rejected with reason
  *   `path_traversal`, even though the URL parser would normalize it.
  * - Encoded-slash traversal (`%2e%2e%2fother`), backslash-separator
@@ -77,6 +81,44 @@ describe("validateGcsSignedUrl", () => {
 
     const result = validateGcsSignedUrl(url);
     expect(result).toEqual({ ok: false, reason: "missing_signature" });
+  });
+
+  test("rejects a GCS URL with a non-default port (1234)", () => {
+    const url =
+      "https://storage.googleapis.com:1234/bucket/key" +
+      "?X-Goog-Signature=deadbeef";
+
+    const result = validateGcsSignedUrl(url);
+    expect(result).toEqual({ ok: false, reason: "port" });
+  });
+
+  test("rejects a GCS URL with HTTP default port (:80)", () => {
+    const url =
+      "https://storage.googleapis.com:80/bucket/key" +
+      "?X-Goog-Signature=deadbeef";
+
+    const result = validateGcsSignedUrl(url);
+    expect(result).toEqual({ ok: false, reason: "port" });
+  });
+
+  test("accepts a GCS URL with explicit :443 (normalized to empty port)", () => {
+    // WHATWG URL normalizes `:443` to an empty port string for HTTPS,
+    // so the port check (`parsed.port !== ""`) does not reject it.
+    // A correctly-issued signed URL with an explicit default port is
+    // therefore unaffected by the port guard.
+    const url =
+      "https://storage.googleapis.com:443/my-bucket/object.tgz" +
+      "?X-Goog-Signature=deadbeef";
+
+    // Sanity-check the WHATWG normalization assumption.
+    expect(new URL(url).port).toBe("");
+
+    const result = validateGcsSignedUrl(url);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.host).toBe("storage.googleapis.com");
+      expect(result.path).toBe("/my-bucket/object.tgz");
+    }
   });
 
   test("rejects path traversal", () => {
