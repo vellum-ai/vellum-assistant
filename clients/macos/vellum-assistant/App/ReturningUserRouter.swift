@@ -74,8 +74,13 @@ public final class ReturningUserRouter {
         self.platformTimeout = platformTimeout
     }
 
+    /// Fast path: the lockfile alone can answer only for non-managed
+    /// assistants. Managed entries can be revoked or deleted on the
+    /// platform, so they must be validated via the async `route()` path
+    /// before we auto-connect.
     public func decideFast() -> RoutingDecision? {
-        lockfileProvider().contains(where: \.isCurrentEnvironment) ? .autoConnect : nil
+        let hasLocalCurrentEnv = lockfileProvider().contains { $0.isCurrentEnvironment && !$0.isManaged }
+        return hasLocalCurrentEnv ? .autoConnect : nil
     }
 
     public func decide(for landscape: AssistantLandscape) -> RoutingDecision {

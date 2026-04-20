@@ -37,6 +37,18 @@ final class ReturningUserRouterTests: XCTestCase {
         XCTAssertNil(router.decideFast())
     }
 
+    /// Managed entries can be stale (revoked/deleted on the platform), so
+    /// the fast path must defer to the async `route()` path.
+    func testDecideFast_onlyManagedEntries_returnsNil() {
+        // GIVEN a lockfile whose only current-env entry is a managed assistant
+        let router = makeRouter(lockfile: [makeManagedAssistant(id: "a")])
+
+        // WHEN decideFast is called
+        // THEN the fast path is inconclusive so the async path can validate
+        // the managed entry against the platform before we auto-connect
+        XCTAssertNil(router.decideFast())
+    }
+
     // MARK: - decide(for:)
 
     /// An authoritatively empty landscape escalates to the hosting picker.
