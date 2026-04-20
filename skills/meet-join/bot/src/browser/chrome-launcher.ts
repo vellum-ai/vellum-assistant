@@ -24,6 +24,8 @@
 
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 
+import { AVATAR_DEVICE_PATH_DEFAULT } from "../../../shared/avatar-device-path.js";
+
 export interface ChromeLauncherLogger {
   info: (message: string) => void;
   error: (message: string) => void;
@@ -76,10 +78,12 @@ export interface LaunchChromeOptions {
   /**
    * Absolute path to the v4l2loopback character-device node consumed when
    * `avatarEnabled` is true. Defaults to {@link DEFAULT_AVATAR_DEVICE_PATH}
-   * (`/dev/video10`), matching PR 2's `DEFAULT_VIDEO_DEVICE_PATH` in
-   * `src/media/video-device.ts` and the CLI's `VELLUM_MEET_AVATAR_DEVICE`
-   * default (see `cli/src/lib/docker.ts:resolveMeetAvatarDevicePath`).
-   * Only consulted when `avatarEnabled` is true.
+   * (`/dev/video10`), which is the shared
+   * {@link ../../../shared/avatar-device-path.js AVATAR_DEVICE_PATH_DEFAULT}
+   * — the same source of truth used by `src/media/video-device.ts` and the
+   * CLI's `VELLUM_MEET_AVATAR_DEVICE` default (see
+   * `cli/src/lib/docker.ts:resolveMeetAvatarDevicePath`). Only consulted
+   * when `avatarEnabled` is true.
    */
   avatarDevicePath?: string;
 }
@@ -103,13 +107,14 @@ const DEFAULT_SIGKILL_GRACE_MS = 5_000;
 /**
  * Default v4l2loopback device path consumed when `avatarEnabled` is true.
  *
- * Kept as a local constant rather than imported from
- * `src/media/video-device.ts` so the launcher stays independent of the
- * video-device module's `node:fs` / `v4l2-ctl` surface. The two modules
- * must agree on the string; see {@link LaunchChromeOptions.avatarDevicePath}
- * and `DEFAULT_VIDEO_DEVICE_PATH` in `video-device.ts` for the mirror.
+ * Re-exports the zero-dependency constant from
+ * {@link ../../../shared/avatar-device-path.js AVATAR_DEVICE_PATH_DEFAULT}
+ * so the launcher stays independent of `src/media/video-device.ts`'s
+ * `node:fs` / `v4l2-ctl` surface while still guaranteeing the two modules
+ * (and the workspace config default, and the CLI device-passthrough
+ * default) cannot drift.
  */
-export const DEFAULT_AVATAR_DEVICE_PATH = "/dev/video10";
+export const DEFAULT_AVATAR_DEVICE_PATH = AVATAR_DEVICE_PATH_DEFAULT;
 
 /** No-op logger used when caller doesn't supply one. */
 const NOOP_LOGGER: ChromeLauncherLogger = {

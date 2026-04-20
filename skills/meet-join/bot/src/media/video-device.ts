@@ -36,8 +36,16 @@ import { stat, open as fsOpen, type FileHandle } from "node:fs/promises";
 import type { WriteStream } from "node:fs";
 import type { Subprocess } from "bun";
 
-/** Default device path for the virtual camera — loaded by host modprobe. */
-export const DEFAULT_VIDEO_DEVICE_PATH = "/dev/video10";
+import { AVATAR_DEVICE_PATH_DEFAULT } from "../../../shared/avatar-device-path.js";
+
+/**
+ * Default device path for the virtual camera — loaded by host modprobe.
+ * Re-exports the shared
+ * {@link ../../../shared/avatar-device-path.js AVATAR_DEVICE_PATH_DEFAULT}
+ * so this value stays locked to the launcher's `DEFAULT_AVATAR_DEVICE_PATH`,
+ * the workspace config default, and the CLI's device-passthrough default.
+ */
+export const DEFAULT_VIDEO_DEVICE_PATH = AVATAR_DEVICE_PATH_DEFAULT;
 
 /**
  * Default frame geometry. 720p matches what the renderer produces today and
