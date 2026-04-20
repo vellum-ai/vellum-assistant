@@ -28,7 +28,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../config/loader.js", () => ({
-  getConfig: () => ({    
+  getConfig: () => ({
     llm: {
       default: {
         provider: "mock-provider",
@@ -216,10 +216,23 @@ mock.module("../daemon/conversation-memory.js", () => ({
 
 let mockApplyRuntimeInjections: (msgs: Message[]) => Message[] = (msgs) => msgs;
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
-  applyRuntimeInjections: (msgs: Message[]) => mockApplyRuntimeInjections(msgs),
+  applyRuntimeInjections: async (msgs: Message[]) =>
+    mockApplyRuntimeInjections(msgs),
   stripInjectionsForCompaction: (msgs: Message[]) => msgs,
   findLastInjectedNowContent: () => null,
   readNowScratchpad: () => null,
+  readPkbContext: () => null,
+  getPkbAutoInjectList: () => [
+    "INDEX.md",
+    "essentials.md",
+    "threads.md",
+    "buffer.md",
+  ],
+  isSlackChannelConversation: () => false,
+  loadSlackChronologicalMessages: () => null,
+  loadSlackActiveThreadFocusBlock: () => null,
+  assembleSlackChronologicalMessages: () => null,
+  assembleSlackActiveThreadFocusBlock: () => null,
 }));
 
 mock.module("../daemon/date-context.js", () => ({
@@ -468,7 +481,12 @@ function makeCtx(
 
     graphMemory: {
       onCompacted: () => {},
-      prepareMemory: async () => ({ runMessages: [], injectedTokens: 0, latencyMs: 0, mode: "none" as const }),
+      prepareMemory: async () => ({
+        runMessages: [],
+        injectedTokens: 0,
+        latencyMs: 0,
+        mode: "none" as const,
+      }),
       reinjectCachedMemory: (messages: Message[]) => ({
         runMessages: messages,
         injectedTokens: 0,

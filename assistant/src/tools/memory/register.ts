@@ -38,7 +38,7 @@ class RememberTool implements Tool {
     return {
       content: result.message,
       isError: !result.success,
-      ...(typedInput.finish_turn ? { yieldToUser: true } : {}),
+      ...(typedInput.finish_turn === true ? { yieldToUser: true } : {}),
     };
   }
 }

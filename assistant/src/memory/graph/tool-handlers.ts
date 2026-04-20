@@ -14,6 +14,8 @@ import { getWorkspaceDir } from "../../util/platform.js";
 import { buildExcerpt, buildFtsMatchQuery } from "../conversation-queries.js";
 import { embedWithRetry } from "../embed.js";
 import { generateSparseEmbedding } from "../embedding-backend.js";
+import { enqueuePkbIndexJob } from "../jobs/embed-pkb-file.js";
+import { PKB_WORKSPACE_SCOPE } from "../pkb/types.js";
 import { searchGraphNodes } from "./graph-search.js";
 import { getNodesByIds } from "./store.js";
 
@@ -287,6 +289,7 @@ export function handleRemember(
   // Append to buffer.md
   const bufferPath = join(pkbDir, "buffer.md");
   appendFileSync(bufferPath, entry, "utf-8");
+  enqueuePkbReindex(pkbDir, bufferPath);
 
   // Append to daily archive
   const yyyy = now.getFullYear();
@@ -297,6 +300,29 @@ export function handleRemember(
     appendFileSync(archivePath, `# ${month} ${day}, ${yyyy}\n\n`, "utf-8");
   }
   appendFileSync(archivePath, entry, "utf-8");
+  enqueuePkbReindex(pkbDir, archivePath);
 
   return { success: true, message: "Saved to knowledge base." };
+}
+
+/**
+ * Fire-and-forget enqueue of a PKB re-index job for a file we just wrote.
+ *
+ * Always indexes under {@link PKB_WORKSPACE_SCOPE}. See the comment on that
+ * constant for why PKB points are not per-conversation-scoped.
+ *
+ * Wrapped in try/catch so an enqueue failure (e.g. DB hiccup) cannot break
+ * the remember call — the write has already succeeded and the user's fact
+ * is safe on disk.
+ */
+function enqueuePkbReindex(pkbRoot: string, absPath: string): void {
+  try {
+    enqueuePkbIndexJob({
+      pkbRoot,
+      absPath,
+      memoryScopeId: PKB_WORKSPACE_SCOPE,
+    });
+  } catch (err) {
+    log.warn({ err, absPath }, "Failed to enqueue PKB re-index job");
+  }
 }

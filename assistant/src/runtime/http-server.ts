@@ -1066,6 +1066,12 @@ export class RuntimeHttpServer {
     // tokens minted by a session manager).
     const skillMatch = matchSkillRoute(path, req.method);
     if (skillMatch) {
+      if (skillMatch.kind === "methodMismatch") {
+        return new Response("Method Not Allowed", {
+          status: 405,
+          headers: { Allow: skillMatch.allow.join(", ") },
+        });
+      }
       return await skillMatch.route.handler(req, skillMatch.match);
     }
 

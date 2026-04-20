@@ -5,7 +5,8 @@ import type { ContentBlock, Message } from "../providers/types.js";
 import type { Conversation } from "./conversation.js";
 import { getInContextPkbPaths } from "./pkb-context-tracker.js";
 
-const PKB_ROOT = path.resolve("/tmp/test-pkb-root");
+const WORKING_DIR = path.resolve("/tmp/test-pkb-root");
+const PKB_ROOT = path.join(WORKING_DIR, "pkb");
 
 // The helper only reads `conversation.messages`. Constructing a real
 // `Conversation` instance would require a full daemon setup; casting a
@@ -35,6 +36,7 @@ describe("getInContextPkbPaths", () => {
       conversation,
       ["notes/index.md", "journal/2026-04-18.md"],
       PKB_ROOT,
+      WORKING_DIR,
     );
     expect(result).toEqual(
       new Set([
@@ -49,7 +51,7 @@ describe("getInContextPkbPaths", () => {
     const conversation = makeConversation([
       assistantMessageWithBlocks([fileReadToolUse(insidePath)]),
     ]);
-    const result = getInContextPkbPaths(conversation, [], PKB_ROOT);
+    const result = getInContextPkbPaths(conversation, [], PKB_ROOT, WORKING_DIR);
     expect(result).toEqual(new Set([insidePath]));
   });
 
@@ -57,7 +59,7 @@ describe("getInContextPkbPaths", () => {
     const conversation = makeConversation([
       assistantMessageWithBlocks([fileReadToolUse("/etc/hosts")]),
     ]);
-    const result = getInContextPkbPaths(conversation, [], PKB_ROOT);
+    const result = getInContextPkbPaths(conversation, [], PKB_ROOT, WORKING_DIR);
     expect(result).toEqual(new Set());
   });
 
@@ -72,7 +74,7 @@ describe("getInContextPkbPaths", () => {
     const conversation = makeConversation([
       assistantMessageWithBlocks([bogus]),
     ]);
-    const result = getInContextPkbPaths(conversation, [], PKB_ROOT);
+    const result = getInContextPkbPaths(conversation, [], PKB_ROOT, WORKING_DIR);
     expect(result).toEqual(new Set());
   });
 
@@ -91,7 +93,12 @@ describe("getInContextPkbPaths", () => {
     };
     const conversation = makeConversation([summaryMessage]);
     const autoInject = ["profile/identity.md"];
-    const result = getInContextPkbPaths(conversation, autoInject, PKB_ROOT);
+    const result = getInContextPkbPaths(
+      conversation,
+      autoInject,
+      PKB_ROOT,
+      WORKING_DIR,
+    );
     expect(result).toEqual(
       new Set([path.join(PKB_ROOT, "profile/identity.md")]),
     );
@@ -104,8 +111,32 @@ describe("getInContextPkbPaths", () => {
         fileReadToolUse("notes/../../../etc/shadow"),
       ]),
     ]);
-    const result = getInContextPkbPaths(conversation, [], PKB_ROOT);
+    const result = getInContextPkbPaths(conversation, [], PKB_ROOT, WORKING_DIR);
     expect(result).toEqual(new Set());
+  });
+
+  test("relative file_read path outside pkbRoot is excluded", () => {
+    // These are resolved against `workingDir` (matching `file_read`'s own
+    // rule), land outside `pkbRoot`, and are correctly ignored.
+    const conversation = makeConversation([
+      assistantMessageWithBlocks([
+        fileReadToolUse("notes.md"),
+        fileReadToolUse("./deep/subdir/file.md"),
+      ]),
+    ]);
+    const result = getInContextPkbPaths(conversation, [], PKB_ROOT, WORKING_DIR);
+    expect(result).toEqual(new Set());
+  });
+
+  test("workspace-relative file_read path inside pkb/ is recognized", () => {
+    // The model emits workspace-relative paths like `pkb/threads.md`.
+    // The tracker resolves them against `workingDir` (matching `file_read`'s
+    // own rule) and verifies the result falls inside `pkbRoot`.
+    const conversation = makeConversation([
+      assistantMessageWithBlocks([fileReadToolUse("pkb/threads.md")]),
+    ]);
+    const result = getInContextPkbPaths(conversation, [], PKB_ROOT, WORKING_DIR);
+    expect(result).toEqual(new Set([path.join(PKB_ROOT, "threads.md")]));
   });
 
   test("resolves relative auto-inject paths against pkbRoot", () => {
@@ -114,6 +145,7 @@ describe("getInContextPkbPaths", () => {
       conversation,
       ["./notes/relative.md"],
       PKB_ROOT,
+      WORKING_DIR,
     );
     expect(result).toEqual(
       new Set([path.join(PKB_ROOT, "notes/relative.md")]),
@@ -129,6 +161,7 @@ describe("getInContextPkbPaths", () => {
       conversation,
       ["notes/shared.md"],
       PKB_ROOT,
+      WORKING_DIR,
     );
     expect(result.size).toBe(1);
     expect(result.has(insidePath)).toBe(true);

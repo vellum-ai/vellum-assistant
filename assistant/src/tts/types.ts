@@ -20,6 +20,7 @@ export type TtsProviderId =
   | "elevenlabs"
   | "fish-audio"
   | "deepgram"
+  | "xai"
   | (string & {});
 
 // ---------------------------------------------------------------------------
@@ -100,6 +101,35 @@ export interface TtsSynthesisResult {
 }
 
 // ---------------------------------------------------------------------------
+// Alignment / viseme events
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-phoneme alignment event emitted by TTS providers that expose
+ * character- or phoneme-level alignment metadata alongside the audio
+ * stream (e.g. ElevenLabs Turbo with alignment).
+ *
+ * Consumers (e.g. the Meet avatar lip-sync path) map these events to
+ * blendshape weights at the rendered timestamp. Providers that do not
+ * expose alignment metadata simply never invoke the callback; the
+ * caller is expected to fall back to an amplitude-envelope approximation
+ * derived from the PCM stream.
+ */
+export interface TtsAlignmentEvent {
+  /**
+   * Phoneme label or character — free-form string that the consumer maps
+   * to renderer-specific blendshape weights. Providers typically emit
+   * IPA-style phoneme labels, viseme codes, or individual characters
+   * depending on their alignment granularity.
+   */
+  phoneme: string;
+  /** Normalized intensity in the range [0, 1]. */
+  weight: number;
+  /** Milliseconds from the start of the synthesized utterance. */
+  timestamp: number;
+}
+
+// ---------------------------------------------------------------------------
 // Provider capabilities
 // ---------------------------------------------------------------------------
 
@@ -110,6 +140,15 @@ export interface TtsProviderCapabilities {
 
   /** Audio formats the provider can produce (e.g. `["mp3", "wav", "opus"]`). */
   supportedFormats: string[];
+
+  /**
+   * Whether the provider can emit {@link TtsAlignmentEvent}s via the optional
+   * `onAlignment` callback of `synthesizeStream`. Consumers use this to pick
+   * between a viseme-driven lip-sync path and an RMS-amplitude fallback.
+   *
+   * Optional for backwards compatibility — treat `undefined` as `false`.
+   */
+  alignment?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -145,9 +184,16 @@ export interface TtsProvider {
    * The `onChunk` callback is invoked with each audio chunk as it arrives
    * from the upstream provider. The returned promise resolves with the
    * complete concatenated result once all chunks have been delivered.
+   *
+   * Providers that advertise `capabilities.alignment === true` also invoke
+   * the optional `onAlignment` callback with per-phoneme alignment events
+   * interleaved with the audio chunks. Providers that don't support
+   * alignment simply never call it; callers must tolerate a silent
+   * channel and fall back to amplitude-based heuristics.
    */
   synthesizeStream?(
     request: TtsSynthesisRequest,
     onChunk: (chunk: Uint8Array) => void,
+    onAlignment?: (event: TtsAlignmentEvent) => void,
   ): Promise<TtsSynthesisResult>;
 }

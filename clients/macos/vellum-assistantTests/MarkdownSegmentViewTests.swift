@@ -4,6 +4,10 @@ import XCTest
 @testable import VellumAssistantLib
 @testable import VellumAssistantShared
 
+#if canImport(SwiftMath)
+import SwiftMath
+#endif
+
 @MainActor
 final class MarkdownSegmentViewTests: XCTestCase {
     private static let markdownOptions = AttributedString.MarkdownParsingOptions(
@@ -423,6 +427,137 @@ final class MarkdownSegmentViewTests: XCTestCase {
         )
     }
 
+    // MARK: - Block Math (`$$…$$`) Parsing
+
+    func testBlockMath_singleLine() {
+        let segments = parseMarkdownSegments("$$x^2$$")
+        XCTAssertEqual(segments, [.math(latex: "x^2", display: true)])
+    }
+
+    func testBlockMath_multiLine() {
+        let segments = parseMarkdownSegments("$$\n\\frac{a}{b}\n$$")
+        XCTAssertEqual(segments, [.math(latex: "\\frac{a}{b}", display: true)])
+    }
+
+    /// Regression test for the original report that motivated this feature —
+    /// LaTeX pasted into a single-line `$$…$$` wrapper must emit exactly one
+    /// `.math` segment whose payload is the raw inner expression.
+    func testBlockMath_screenshotRegression() {
+        let input = "$$m_\\text{ferrite} \\propto (\\text{ferrite thickness}) "
+            + "\\propto \\frac{F_\\text{required}}{F_\\text{available per m}} "
+            + "\\propto \\frac{1}{\\text{margin}}$$"
+        let expectedInner = "m_\\text{ferrite} \\propto (\\text{ferrite thickness}) "
+            + "\\propto \\frac{F_\\text{required}}{F_\\text{available per m}} "
+            + "\\propto \\frac{1}{\\text{margin}}"
+
+        let segments = parseMarkdownSegments(input)
+        XCTAssertEqual(segments.count, 1)
+        guard case .math(let latex, let display) = segments.first else {
+            return XCTFail("Expected .math segment, got \(segments)")
+        }
+        XCTAssertEqual(latex, expectedInner)
+        XCTAssertTrue(display)
+    }
+
+    func testBlockMath_insideCodeBlockIsPreserved() {
+        let segments = parseMarkdownSegments("```\n$$x^2$$\n```")
+        XCTAssertEqual(segments, [.codeBlock(language: nil, code: "$$x^2$$")])
+    }
+
+    func testBlockMath_unclosedFallsBackToText() {
+        let segments = parseMarkdownSegments("$$\nx^2")
+        XCTAssertEqual(segments.count, 1)
+        guard case .text(let content) = segments.first else {
+            return XCTFail("Expected .text segment for unclosed $$, got \(segments)")
+        }
+        // Unclosed block-math reverts to plain text — the `$$` opener and any
+        // collected lines must both survive (though outer whitespace is
+        // trimmed by flushText). No `.math` segment should be emitted.
+        XCTAssertTrue(content.contains("$$"), "Unclosed `$$` opener must appear verbatim in the text; got: \(content)")
+        XCTAssertTrue(content.contains("x^2"), "Content after the unclosed opener must survive; got: \(content)")
+        for segment in segments {
+            if case .math = segment {
+                XCTFail("Unclosed `$$` must not emit a .math segment")
+            }
+        }
+    }
+
+    /// Regression: during streaming, we see `before\n$$\n<partial>` before the
+    /// closing `$$` arrives. The parser must not emit the prefix prose and
+    /// the verbatim fallback as two separate `.text` segments — the renderer
+    /// joins adjacent text with a blank line, producing a visible flicker
+    /// each streaming tick until the close arrives.
+    func testBlockMath_unclosedWithPrecedingProseStaysOneTextSegment() {
+        let segments = parseMarkdownSegments("before\n$$\nx^2")
+        var textSegments = 0
+        for segment in segments {
+            if case .text = segment { textSegments += 1 }
+            if case .math = segment {
+                XCTFail("Unclosed `$$` must not emit a .math segment")
+            }
+        }
+        XCTAssertEqual(textSegments, 1, "Verbatim fallback must flush as a single .text segment; got \(segments)")
+        guard case .text(let content) = segments.first else {
+            return XCTFail("Expected a .text segment, got \(segments)")
+        }
+        XCTAssertTrue(content.contains("before"))
+        XCTAssertTrue(content.contains("$$"))
+        XCTAssertTrue(content.contains("x^2"))
+    }
+
+    func testBlockMath_emptyDelimitersAreText() {
+        let segments = parseMarkdownSegments("$$$$")
+        XCTAssertEqual(segments, [.text("$$$$")])
+    }
+
+    func testBlockMath_twoBackToBack() {
+        let segments = parseMarkdownSegments("$$a$$\n\n$$b$$")
+        XCTAssertEqual(segments, [
+            .math(latex: "a", display: true),
+            .math(latex: "b", display: true),
+        ])
+    }
+
+    func testBlockMath_mixedWithProse() {
+        let segments = parseMarkdownSegments("Here is math:\n\n$$x^2$$\n\nEnd.")
+        XCTAssertEqual(segments, [
+            .text("Here is math:"),
+            .math(latex: "x^2", display: true),
+            .text("End."),
+        ])
+    }
+
+    /// Pins the current parser behavior for prose that contains `$` signs —
+    /// no `.math` segment should be emitted. This protects against silent
+    /// regressions when inline-math (`$…$`) support lands in the future; any
+    /// new inline-math parser must still leave price-like prose alone.
+    func testProse_withDollarSigns_isNotMisparsedAsMath() {
+        let inputs = [
+            "Prices: $10 and $20",
+            "$price: $10 vs $15$",
+            "Spent $5 on coffee.",
+            "Net of $3.50 after fees.",
+            "One $ left.",
+        ]
+        for input in inputs {
+            let segments = parseMarkdownSegments(input)
+            for segment in segments {
+                if case .math = segment {
+                    XCTFail("Prose with `$` must not emit a .math segment. Input=\(input), got=\(segments)")
+                }
+            }
+            // Every prose input above should collapse into a single .text
+            // segment — pin that too so future refactors don't silently
+            // split prose across multiple segments.
+            XCTAssertEqual(segments.count, 1, "Expected a single .text segment for input=\(input), got \(segments)")
+            if case .text(let text)? = segments.first {
+                XCTAssertEqual(text, input, "Prose must round-trip verbatim")
+            } else {
+                XCTFail("Expected first segment to be .text for input=\(input), got \(segments)")
+            }
+        }
+    }
+
     private func makeRenderedMarkdown(_ markdown: String) -> (NSAttributedString, Bool) {
         let source = (try? makeAttributedString(from: markdown)) ?? AttributedString(markdown)
         return MarkdownSegmentView.convertToNSAttributedString(
@@ -532,4 +667,18 @@ final class MarkdownSegmentViewTests: XCTestCase {
             )
         }
     }
+
+    // MARK: - SwiftMath
+
+    #if canImport(SwiftMath)
+    func testMathImage_rendersScreenshotLatex() {
+        let latex = #"m_\text{ferrite} \propto (\text{ferrite thickness}) \propto \frac{F_\text{required}}{F_\text{available per m}} \propto \frac{1}{\text{margin}}"#
+        var math = MathImage(latex: latex, fontSize: 13, textColor: NSColor.black, labelMode: .display)
+        let (error, image) = math.asImage()
+        XCTAssertNil(error, "SwiftMath rejected the screenshot LaTeX: \(error.map { String(describing: $0) } ?? "unknown")")
+        XCTAssertNotNil(image)
+        XCTAssertGreaterThan(image?.size.width ?? 0, 0)
+        XCTAssertGreaterThan(image?.size.height ?? 0, 0)
+    }
+    #endif
 }

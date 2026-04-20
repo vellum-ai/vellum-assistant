@@ -219,6 +219,23 @@ const CATALOG: ReadonlyMap<SttProviderId, SttProviderEntry> = new Map<
       },
     },
   ],
+  [
+    "xai",
+    {
+      id: "xai",
+      credentialProvider: "xai",
+      supportedBoundaries: new Set<SttBoundaryId>([
+        "daemon-batch",
+        "daemon-streaming",
+      ]),
+      telephonyMode: "batch-only",
+      conversationStreamingMode: "realtime-ws",
+      supportsDiarization: true,
+      telephonyRouting: {
+        strategyKind: "media-stream-custom",
+      },
+    },
+  ],
 ]);
 
 // ---------------------------------------------------------------------------

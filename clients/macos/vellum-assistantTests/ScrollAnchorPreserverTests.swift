@@ -66,13 +66,50 @@ final class ScrollAnchorPreserverTests: XCTestCase {
         ))
     }
 
-    func testSkipsWhenContentShrunk() {
-        // A collapse (e.g., thinking-block dismissal) reduces height. We
-        // do not pull the user toward the streaming edge in that case.
-        XCTAssertNil(ScrollAnchorPreserver.offsetDelta(
+    func testCompensatesOnContentShrink() {
+        // Symmetric case to the streaming-growth bug: when the streaming
+        // edge collapses (pin-latest-turn spacer release at end-of-stream,
+        // thinking-block dismissal during streaming, height-estimate
+        // correction), existing items at higher doc Y are pulled back
+        // toward the visual bottom by the same amount. Without a negative
+        // offset shift, the user's visible content drifts off the viewport
+        // in the opposite direction from the growth case.
+        let delta = ScrollAnchorPreserver.offsetDelta(
             currentContentHeight: 900,
             lastContentHeight: 1000,
             contentOffsetY: 200,
+            shouldPreserveAnchor: true,
+            isUserLiveScrolling: false,
+            pinnedToLatestEpsilon: Self.epsilon
+        )
+        XCTAssertEqual(delta, -100)
+    }
+
+    func testCompensatesOnSmallShrinkFromRecordedRegression() {
+        // A per-frame HUD recording captured a 34pt shrink at the tail of
+        // a streaming response with no compensation, producing a visible
+        // 34pt viewport jump. With shrink compensation enabled the offset
+        // shifts by -34 and the viewport stays put.
+        let delta = ScrollAnchorPreserver.offsetDelta(
+            currentContentHeight: 9741,
+            lastContentHeight: 9775,
+            contentOffsetY: 1798.5,
+            shouldPreserveAnchor: true,
+            isUserLiveScrolling: false,
+            pinnedToLatestEpsilon: Self.epsilon
+        )
+        XCTAssertEqual(delta, -34)
+    }
+
+    func testSkipsShrinkWhenPinnedToVisualBottom() {
+        // Symmetric to the growth case: when the user is pinned to the
+        // visual bottom, shrink doesn't apply a negative shift either —
+        // NSScrollView auto-clamps at offset 0 and pulling "past" that
+        // would violate the pinned state the user chose.
+        XCTAssertNil(ScrollAnchorPreserver.offsetDelta(
+            currentContentHeight: 900,
+            lastContentHeight: 1000,
+            contentOffsetY: 5,
             shouldPreserveAnchor: true,
             isUserLiveScrolling: false,
             pinnedToLatestEpsilon: Self.epsilon

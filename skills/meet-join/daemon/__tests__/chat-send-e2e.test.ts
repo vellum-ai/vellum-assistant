@@ -350,10 +350,11 @@ describe("MeetSessionManager.sendChat end-to-end (real HTTP + real event hub)", 
   });
 
   test("propagates MeetBotChatError when the bot responds with 502 and does NOT publish meet.chat_sent", async () => {
-    // Simulates the Playwright-failure path on the bot: PR 1's handler
-    // returns 502 when `sendChat(page, text)` throws (selector drift,
-    // panel missing, etc.). The daemon must surface this as a domain
-    // error and must NOT announce a successful send to SSE subscribers.
+    // Simulates the extension-dispatch failure path on the bot: PR 1's
+    // handler returns 502 when the extension-backed sendChat rejects
+    // (selector drift, panel missing, extension crashed, etc.). The
+    // daemon must surface this as a domain error and must NOT announce
+    // a successful send to SSE subscribers.
     const runner = makeMockRunnerPointingAt(fakeBot);
     const { received, dispose } = captureHub();
     try {

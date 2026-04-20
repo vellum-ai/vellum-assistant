@@ -208,6 +208,7 @@ export class AgentLoop {
     callSite?: LLMCallSite,
   ): Promise<Message[]> {
     const history = [...messages];
+    const initialHistoryLength = messages.length;
     let toolUseTurns = 0;
     let consecutiveErrorTurns = 0;
     let emptyResponseRetries = 0;
@@ -222,6 +223,11 @@ export class AgentLoop {
 
     while (true) {
       if (signal?.aborted) break;
+
+      rlog.info(
+        { turn: toolUseTurns, messageCount: history.length },
+        "Agent loop iteration start",
+      );
 
       let toolUseBlocks: Extract<ContentBlock, { type: "tool_use" }>[] = [];
 
@@ -326,6 +332,8 @@ export class AgentLoop {
 
         const providerStart = Date.now();
         lastLlmCallTime = providerStart;
+
+        rlog.info({ turn: toolUseTurns }, "LLM call start");
 
         // Strip image contentBlocks from older tool results to prevent
         // screenshots from accumulating in the context window. The LLM
@@ -442,6 +450,17 @@ export class AgentLoop {
             block.type === "tool_use",
         );
 
+        rlog.info(
+          {
+            turn: toolUseTurns,
+            stopReason: response.stopReason,
+            contentBlocks: response.content.length,
+            toolUseCount: toolUseBlocks.length,
+            durationMs: providerDurationMs,
+          },
+          "LLM call complete",
+        );
+
         // Detect empty responses: no user-visible text and no tool calls.
         // This can happen when the model fails to produce output after
         // receiving a large tool result. Retry once with a nudge before
@@ -453,11 +472,26 @@ export class AgentLoop {
         // a side-effect tool like `remember`), an empty follow-up is the model
         // correctly ending its turn — nudging would mislead it into thinking
         // its earlier text didn't land and cause a verbatim re-send.
+        //
+        // Note: we check ANY prior assistant turn from this run()
+        // invocation, not just the most recent one. In multi-step tool-use
+        // chains (say-something → call-tool → call-another-tool → end),
+        // the "say-something" text lives on an earlier assistant turn while
+        // the most recent assistant turn is a pure tool_use with no text.
+        // Restricting the check to the most recent assistant turn would
+        // falsely nudge in that case and trigger a duplicate re-send of
+        // text the user already saw.
+        //
+        // Scope the scan to messages appended during this run() call only.
+        // Assistant text from prior conversation turns (earlier run()
+        // invocations passed in via `messages`) must NOT suppress the
+        // nudge — those turns completed long ago and have no bearing on
+        // whether the current tool-use chain has delivered text yet.
         const hasVisibleText = response.content.some(
           (block) => block.type === "text" && block.text.trim().length > 0,
         );
         const priorAssistantHadVisibleText = (() => {
-          for (let i = history.length - 1; i >= 0; i--) {
+          for (let i = history.length - 1; i >= initialHistoryLength; i--) {
             const msg = history[i];
             if (msg.role !== "assistant") continue;
             const hasText = msg.content.some(
@@ -541,6 +575,15 @@ export class AgentLoop {
         // Execute all tools concurrently for reduced latency.
         // Race against the abort signal so cancellation isn't blocked by
         // stuck tools (e.g. a hung browser navigation).
+        const toolExecStart = Date.now();
+        rlog.info(
+          {
+            turn: toolUseTurns,
+            toolNames: toolUseBlocks.map((t) => t.name),
+          },
+          "Tool execution start",
+        );
+
         const toolExecutionPromise = Promise.all(
           toolUseBlocks.map(async (toolUse) => {
             const result = await this.toolExecutor!(
@@ -583,6 +626,15 @@ export class AgentLoop {
         } else {
           toolResults = await toolExecutionPromise;
         }
+
+        rlog.info(
+          {
+            turn: toolUseTurns,
+            toolCount: toolResults.length,
+            durationMs: Date.now() - toolExecStart,
+          },
+          "Tool execution complete",
+        );
 
         // Merge sensitive output bindings from tool results into the
         // per-run substitution map. Bindings carry placeholder->value pairs
@@ -720,6 +772,15 @@ export class AgentLoop {
         break;
       }
     }
+
+    rlog.info(
+      {
+        turns: toolUseTurns,
+        finalMessageCount: history.length,
+        aborted: signal?.aborted ?? false,
+      },
+      "Agent loop exited",
+    );
 
     return history;
   }

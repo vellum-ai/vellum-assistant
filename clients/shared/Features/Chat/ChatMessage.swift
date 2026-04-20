@@ -1017,7 +1017,7 @@ public struct ToolCallData: Identifiable, Equatable {
         case "app_refresh", "app_update":
             return "Refreshed the app"
         case "app_open":
-            return source.isEmpty ? "Opened an app" : "Opened \(source)"
+            return source.isEmpty ? "Opened an app" : "Opened \(Self.displaySafe(source))"
         case "request_system_permission":
             return "Requested system access"
         case "web_search":
@@ -1060,7 +1060,7 @@ public struct ToolCallData: Identifiable, Equatable {
         case "asset_materialize":
             return "Prepared an asset"
         case "computer_use_key":
-            return source.isEmpty ? "Pressed a key" : "Pressed \(source)"
+            return source.isEmpty ? "Pressed a key" : "Pressed \(Self.displaySafe(source))"
         case "computer_use_type_text":
             return source.isEmpty ? "Typed text" : "Typed \"\(truncated(source, to: 40))\""
         case "computer_use_scroll":
@@ -1068,7 +1068,7 @@ public struct ToolCallData: Identifiable, Equatable {
         case "computer_use_drag":
             return "Dragged an element"
         case "computer_use_open_app":
-            return source.isEmpty ? "Opened an app" : "Opened \(source)"
+            return source.isEmpty ? "Opened an app" : "Opened \(Self.displaySafe(source))"
         case "computer_use_run_applescript":
             return "Ran an AppleScript"
         case "computer_use_wait":
@@ -1076,7 +1076,7 @@ public struct ToolCallData: Identifiable, Equatable {
         case "computer_use_done", "computer_use_respond":
             return "Finished the task"
         case "ui_show":
-            return source.isEmpty ? "Showed a panel" : "Opened \(source)"
+            return source.isEmpty ? "Showed a panel" : "Opened \(Self.displaySafe(source))"
         case "ui_update":
             return "Updated the panel"
         case "ui_dismiss":
@@ -1088,7 +1088,7 @@ public struct ToolCallData: Identifiable, Equatable {
         case "playbook_list":
             return "Listed playbooks"
         case "skill_execute":
-            return source.isEmpty ? "Used a skill" : source
+            return source.isEmpty ? "Used a skill" : Self.displaySafe(source)
         default:
             return friendlyName
         }

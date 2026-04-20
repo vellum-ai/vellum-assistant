@@ -85,24 +85,18 @@ Older history still renders through the existing `displayedItems.reversed()` pat
 
 When `pinnedLatestTurnAnchorMessageId` is set, the newest turn is carved out into a dedicated `PinnedLatestTurnSection`:
 
-- latest-edge sentinel
-- computed spacer
+- anchor user row
 - response cluster (assistant rows, placeholder, latest-edge indicators, orphan subagents, queued marker content)
-- anchor user row
+- `Spacer(minLength: 0)`
+- latest-edge sentinel
 
-The section is flipped as a single unit, so the visual order becomes:
+The section is flipped as a single unit (cancelling the outer ScrollView flip), so the visual order matches source order: anchor at the visual top, response below, the spacer fills the rest, sentinel at the bottom.
 
-- anchor user row
-- assistant response cluster
-- spacer
+The section's height is bound to the scroll viewport as a minimum — not a fixed size. A zero-width `Color.clear` probe in the section's `.background` uses `containerRelativeFrame(.vertical, alignment: .top) { length, _ in max(0, length - VSpacing.md * 2) }` to measure the scroll container's visible height, and `onGeometryChange` mirrors the result into a local `@State` that drives the VStack's `.frame(minHeight:, alignment: .top)`. The `max(0, …)` clamp keeps the probe non-negative during transient zero-height layout passes. This replaces the previous `LatestTurnSpacerCalculator` + `viewportHeight` `@State` pipeline (which lagged one frame and caused the anchor row to briefly clip on every Enter keystroke in the composer).
 
-`LatestTurnSpacerCalculator` computes:
+### Tall-response behavior
 
-```swift
-max(0, viewportHeight - anchorHeight - responseHeight)
-```
-
-The response cluster is measured after the single anchor-to-response gap is applied, so the formula stays exact without reviving `turnMinHeight` or any height estimates.
+When the anchor row plus response cluster exceeds the viewport height, the VStack grows past its `minHeight` floor: the `Spacer` collapses to 0 and the LazyVStack sees the section's true (content-sized) height. This keeps the newest portion of a long assistant response scrollable. A fixed `containerRelativeFrame` on the VStack itself would cap the section at viewport height and make overflow content unreachable by scrolling, so the `minHeight` + probe approach is load-bearing, not an optimization — do not collapse it back to a single `containerRelativeFrame` modifier on the VStack.
 
 ---
 

@@ -1,7 +1,7 @@
 import type { Message } from "../../providers/types.js";
 
-/** Skill ID for the bundled browser skill. */
-export const BROWSER_SKILL_ID = "browser";
+/** Skill ID for the browser skill. */
+export const BROWSER_SKILL_ID = "vellum-browser-use";
 
 let toolUseCounter = 0;
 

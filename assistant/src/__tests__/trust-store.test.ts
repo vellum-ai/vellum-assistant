@@ -305,6 +305,56 @@ describe("Trust Store", () => {
       expect(updated.priority).toBe(100);
       expect(updated.createdAt).toBe(rule.createdAt);
     });
+
+    test("does not set userModifiedAt on non-default rules", () => {
+      const rule = addRule("bash", "git *", "/tmp");
+      const updated = updateRule(rule.id, { decision: "deny" });
+      expect(updated.userModifiedAt).toBeUndefined();
+    });
+
+    test("sets userModifiedAt when updating a default rule", () => {
+      const before = Date.now();
+      const updated = updateRule("default:ask-host_bash-global", {
+        decision: "allow",
+      });
+      expect(updated.userModifiedAt).toBeGreaterThanOrEqual(before);
+      expect(updated.userModifiedAt).toBeLessThanOrEqual(Date.now());
+    });
+
+    test("persists userModifiedAt to disk for default rules", () => {
+      updateRule("default:ask-host_bash-global", { decision: "allow" });
+      clearCache();
+      const rules = getAllRules();
+      const found = rules.find((r) => r.id === "default:ask-host_bash-global");
+      expect(found).toBeDefined();
+      expect(found!.userModifiedAt).toBeGreaterThan(0);
+    });
+
+    test("does not set userModifiedAt on no-op default rule update", () => {
+      // Updating a default rule with values identical to the template
+      // should NOT set userModifiedAt — the rule hasn't actually diverged.
+      const updated = updateRule("default:ask-host_bash-global", {
+        decision: "ask",
+      });
+      expect(updated.userModifiedAt).toBeUndefined();
+    });
+
+    test("clears userModifiedAt when default rule is reset to template values", () => {
+      // First, modify the rule to diverge from the template
+      updateRule("default:ask-host_bash-global", { decision: "allow" });
+      let found = getAllRules().find(
+        (r) => r.id === "default:ask-host_bash-global",
+      )!;
+      expect(found.userModifiedAt).toBeGreaterThan(0);
+
+      // Now reset it back to the template value
+      updateRule("default:ask-host_bash-global", { decision: "ask" });
+      found = getAllRules().find(
+        (r) => r.id === "default:ask-host_bash-global",
+      )!;
+      // userModifiedAt should be cleared since rule matches template again
+      expect(found.userModifiedAt).toBeUndefined();
+    });
   });
 
   // ── findMatchingRule ────────────────────────────────────────────
@@ -1097,6 +1147,71 @@ describe("Trust Store", () => {
       expect(match).not.toBeNull();
       expect(match!.id).toBe("default:ask-file_edit-managed-skills");
       expect(match!.decision).toBe("ask");
+    });
+
+    // ── userModifiedAt and backfill migration ──────────────────────
+
+    test("default rules without userModifiedAt are migrated when template changes", () => {
+      // First load backfills defaults
+      getAllRules();
+      // Manually alter a default rule on disk to simulate a template change
+      // (the rule on disk has old values, template has new ones)
+      const raw = JSON.parse(readFileSync(trustPath, "utf-8"));
+      const idx = raw.rules.findIndex(
+        (r: { id: string }) => r.id === "default:ask-host_bash-global",
+      );
+      expect(idx).toBeGreaterThanOrEqual(0);
+      // Manually set an old priority to simulate the rule diverging from template
+      raw.rules[idx].priority = 9999;
+      writeFileSync(trustPath, JSON.stringify(raw, null, 2));
+      clearCache();
+      const rules = getAllRules();
+      const found = rules.find((r) => r.id === "default:ask-host_bash-global");
+      expect(found).toBeDefined();
+      // Should be migrated back to the template priority (50)
+      expect(found!.priority).toBe(50);
+    });
+
+    test("default rules with userModifiedAt are preserved during backfill migration", () => {
+      // First load backfills defaults
+      getAllRules();
+      // Modify the rule via updateRule to set userModifiedAt
+      updateRule("default:ask-host_bash-global", { decision: "allow" });
+      // Verify userModifiedAt is set
+      let rules = getAllRules();
+      let found = rules.find((r) => r.id === "default:ask-host_bash-global");
+      expect(found).toBeDefined();
+      expect(found!.userModifiedAt).toBeGreaterThan(0);
+      expect(found!.decision).toBe("allow");
+
+      // Now simulate a template change by altering what the template expects:
+      // on disk the rule has decision=allow + userModifiedAt, but the template
+      // would try to migrate it back to decision=ask. Since userModifiedAt is
+      // set, backfillDefaults should skip it.
+      clearCache();
+      rules = getAllRules();
+      found = rules.find((r) => r.id === "default:ask-host_bash-global");
+      expect(found).toBeDefined();
+      // The user's override should be preserved
+      expect(found!.decision).toBe("allow");
+      expect(found!.userModifiedAt).toBeGreaterThan(0);
+    });
+
+    test("userModifiedAt survives round-trip through disk", () => {
+      getAllRules(); // backfill
+      updateRule("default:ask-host_bash-global", { priority: 999 });
+      const before = getAllRules().find(
+        (r) => r.id === "default:ask-host_bash-global",
+      )!;
+      expect(before.userModifiedAt).toBeGreaterThan(0);
+
+      // Round-trip through disk
+      clearCache();
+      const after = getAllRules().find(
+        (r) => r.id === "default:ask-host_bash-global",
+      )!;
+      expect(after.userModifiedAt).toBe(before.userModifiedAt);
+      expect(after.priority).toBe(999);
     });
   });
 

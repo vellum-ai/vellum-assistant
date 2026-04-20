@@ -224,6 +224,10 @@ CLI_SRC_DIR="$SCRIPT_DIR/../../cli"
 GATEWAY_SRC_DIR="$SCRIPT_DIR/../../gateway"
 NATIVE_HOST_SRC_DIR="$SCRIPT_DIR/../chrome-extension/native-host"
 CES_SRC_DIR="$SCRIPT_DIR/../../credential-executor"
+# Repo-level first-party skill catalog (skills/catalog.json + skill dirs).
+# Shipped with the app so the daemon can install catalog skills without a
+# running platform. node_modules and build artifacts are excluded.
+SKILLS_SRC_DIR="$SCRIPT_DIR/../../skills"
 
 # Chrome extension allowlist IDs injected into compiled binaries as a fallback
 # for packaged runs where repo-relative `meta/browser-extension/...` paths are
@@ -413,6 +417,14 @@ build_binaries() {
     rm -rf "$SCRIPT_DIR/daemon-bin/node_modules"
     rm -rf "$SCRIPT_DIR/daemon-bin/bundled-skills"
     cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" "$SCRIPT_DIR/daemon-bin/bundled-skills"
+    rm -rf "$SCRIPT_DIR/daemon-bin/first-party-skills"
+    rsync -a \
+        --exclude='node_modules/' \
+        --exclude='*.tsbuildinfo' \
+        --exclude='dist/' \
+        --exclude='build/' \
+        --exclude='.git/' \
+        "$SKILLS_SRC_DIR/" "$SCRIPT_DIR/daemon-bin/first-party-skills/"
     rm -rf "$SCRIPT_DIR/daemon-bin/templates"
     cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" "$SCRIPT_DIR/daemon-bin/templates"
     rm -rf "$SCRIPT_DIR/daemon-bin/hook-templates"
@@ -471,20 +483,28 @@ bundle_kata_kernel() {
 # This must run before the early-exit commands (test, lint, clean, binaries)
 # so that swift test inherits the correct value.
 if [ -z "${VELLUM_ENVIRONMENT:-}" ]; then
-    case "$CMD" in
-        test)                          VELLUM_ENVIRONMENT="test" ;;
-        run)                           VELLUM_ENVIRONMENT="dev" ;;
-        release|release-application)
-            # Staging releases have a prerelease suffix in DISPLAY_VERSION
-            # (e.g. "0.6.0-staging.3"); clean semver means production.
-            if [[ "${DISPLAY_VERSION:-}" == *-staging* ]]; then
-                VELLUM_ENVIRONMENT="staging"
-            else
-                VELLUM_ENVIRONMENT="production"
-            fi
-            ;;
-        *)                             VELLUM_ENVIRONMENT="dev" ;;
-    esac
+    # Local web/platform overrides imply local full-stack development
+    # (`vel up`), even when VELLUM_ENVIRONMENT itself is not set.
+    _platform_override="${VELLUM_PLATFORM_URL:-}"
+    _web_override="${VELLUM_WEB_URL:-}"
+    if [[ "$_platform_override" =~ ^http://(localhost|127\.0\.0\.1|[^/]+\.localhost)(:[0-9]+)?$ ]] || \
+       [[ "$_web_override" =~ ^http://(localhost|127\.0\.0\.1|[^/]+\.localhost)(:[0-9]+)?$ ]]; then
+        VELLUM_ENVIRONMENT="local"
+    else
+        case "$CMD" in
+            test)                          VELLUM_ENVIRONMENT="test" ;;
+            release|release-application)
+                # Staging releases have a prerelease suffix in DISPLAY_VERSION
+                # (e.g. "0.6.0-staging.3"); clean semver means production.
+                if [[ "${DISPLAY_VERSION:-}" == *-staging* ]]; then
+                    VELLUM_ENVIRONMENT="staging"
+                else
+                    VELLUM_ENVIRONMENT="production"
+                fi
+                ;;
+            *)                             VELLUM_ENVIRONMENT="dev" ;;
+        esac
+    fi
 fi
 export VELLUM_ENVIRONMENT
 echo "VELLUM_ENVIRONMENT=$VELLUM_ENVIRONMENT"
@@ -717,6 +737,20 @@ if [ -d "$ASSISTANT_SRC_DIR/src/config/bundled-skills" ]; then
     mkdir -p "$SCRIPT_DIR/daemon-bin"
     rm -rf "$SCRIPT_DIR/daemon-bin/bundled-skills"
     cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" "$SCRIPT_DIR/daemon-bin/bundled-skills"
+fi
+
+# Always refresh first-party catalog skills from the repo-level skills/ dir
+# so the daemon can install catalog entries without a running platform.
+if [ -d "$SKILLS_SRC_DIR" ] && [ -f "$SKILLS_SRC_DIR/catalog.json" ]; then
+    mkdir -p "$SCRIPT_DIR/daemon-bin"
+    rm -rf "$SCRIPT_DIR/daemon-bin/first-party-skills"
+    rsync -a \
+        --exclude='node_modules/' \
+        --exclude='*.tsbuildinfo' \
+        --exclude='dist/' \
+        --exclude='build/' \
+        --exclude='.git/' \
+        "$SKILLS_SRC_DIR/" "$SCRIPT_DIR/daemon-bin/first-party-skills/"
 fi
 
 # Always refresh non-JS assets from source (not embedded by bun --compile)
@@ -987,6 +1021,12 @@ if [ -d "$SCRIPT_DIR/daemon-bin/bundled-skills" ]; then
     cp -R "$SCRIPT_DIR/daemon-bin/bundled-skills" "$RESOURCES_DIR/bundled-skills"
 fi
 
+# Always refresh first-party catalog skills in the app bundle.
+if [ -d "$SCRIPT_DIR/daemon-bin/first-party-skills" ]; then
+    rm -rf "$RESOURCES_DIR/first-party-skills"
+    cp -R "$SCRIPT_DIR/daemon-bin/first-party-skills" "$RESOURCES_DIR/first-party-skills"
+fi
+
 # Always refresh non-JS assets in app bundle (not embedded by bun --compile)
 if [ -d "$SCRIPT_DIR/daemon-bin/templates" ]; then
     rm -rf "$RESOURCES_DIR/templates"
@@ -1088,6 +1128,26 @@ if [ -n "${VELLUM_DOCS_BASE_URL:-}" ]; then
     _LSE_ENTRIES+="
         <key>VELLUM_DOCS_BASE_URL</key>
         <string>$DOCS_BASE_URL_OVERRIDE</string>"
+fi
+if [ -n "${VELLUM_PLATFORM_URL:-}" ]; then
+    PLATFORM_URL_OVERRIDE="${VELLUM_PLATFORM_URL%/}"
+    PLATFORM_URL_OVERRIDE="${PLATFORM_URL_OVERRIDE//&/&amp;}"
+    PLATFORM_URL_OVERRIDE="${PLATFORM_URL_OVERRIDE//</&lt;}"
+    PLATFORM_URL_OVERRIDE="${PLATFORM_URL_OVERRIDE//>/&gt;}"
+    echo "Embedding VELLUM_PLATFORM_URL override: $PLATFORM_URL_OVERRIDE"
+    _LSE_ENTRIES+="
+        <key>VELLUM_PLATFORM_URL</key>
+        <string>$PLATFORM_URL_OVERRIDE</string>"
+fi
+if [ -n "${VELLUM_WEB_URL:-}" ]; then
+    WEB_URL_OVERRIDE="${VELLUM_WEB_URL%/}"
+    WEB_URL_OVERRIDE="${WEB_URL_OVERRIDE//&/&amp;}"
+    WEB_URL_OVERRIDE="${WEB_URL_OVERRIDE//</&lt;}"
+    WEB_URL_OVERRIDE="${WEB_URL_OVERRIDE//>/&gt;}"
+    echo "Embedding VELLUM_WEB_URL override: $WEB_URL_OVERRIDE"
+    _LSE_ENTRIES+="
+        <key>VELLUM_WEB_URL</key>
+        <string>$WEB_URL_OVERRIDE</string>"
 fi
 if [ "$CONFIG" = "debug" ]; then
     echo "Embedding VELLUM_FLAG_PLATFORM_HOSTED_ENABLED for debug build"

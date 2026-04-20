@@ -80,7 +80,10 @@ export async function searchPkbFiles(
       });
     }
 
-    const filter: Record<string, unknown> = { must: denseMusts };
+    const filter: Record<string, unknown> = {
+      must: denseMusts,
+      must_not: [{ key: "_meta", match: { value: true } }],
+    };
 
     results = await withQdrantBreaker(async () => {
       return client.search(queryVector, prefetchLimit, filter);

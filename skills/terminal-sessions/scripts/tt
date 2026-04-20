@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# tt — Quick helper to start or attach to named tmux sessions.
+#
+# Usage:
+#   tt                   # List all sessions
+#   tt deploy            # Create or attach to a session named "deploy"
+#   tt deploy ~/myapp    # Create "deploy" session starting in ~/myapp
+#   tt -k deploy         # Kill a session
+#
+# Install:
+#   cp tt /usr/local/bin/tt && chmod +x /usr/local/bin/tt
+#   — or —
+#   Add an alias: alias tt='bash /path/to/tt'
+
+set -euo pipefail
+
+if ! command -v tmux &>/dev/null; then
+  echo "Error: tmux is not installed."
+  echo "  macOS:  brew install tmux"
+  echo "  Linux:  sudo apt install tmux"
+  exit 1
+fi
+
+# No args: list sessions
+if [ $# -eq 0 ]; then
+  if ! tmux list-sessions 2>/dev/null; then
+    echo "No active tmux sessions."
+  fi
+  exit 0
+fi
+
+# -k flag: kill a session
+if [ "$1" = "-k" ]; then
+  if [ -z "${2:-}" ]; then
+    echo "Usage: tt -k SESSION_NAME"
+    exit 1
+  fi
+  tmux kill-session -t "$2"
+  echo "Killed session: $2"
+  exit 0
+fi
+
+SESSION_NAME="$1"
+WORKING_DIR="${2:-$(pwd)}"
+
+# If session exists, attach to it
+if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+  echo "Attaching to existing session: $SESSION_NAME"
+  exec tmux attach-session -t "$SESSION_NAME"
+fi
+
+# Create and attach
+exec tmux new-session -s "$SESSION_NAME" -c "$WORKING_DIR"

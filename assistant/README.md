@@ -47,9 +47,9 @@ cp .env.example .env
 
 ## Update Bulletin
 
-Release notes are surfaced via a background conversation dispatched at daemon startup. Workspace migrations write release notes to `~/.vellum/workspace/UPDATES.md`; `runUpdateBulletinJobIfNeeded()` then spawns a `conversationType: "background"` conversation (via `wakeAgentForOpportunity()`) whenever the file's content hash changes. The agent uses judgment to surface updates to the user when relevant, and deletes the file when done.
+Release notes are surfaced via a background conversation dispatched at daemon startup. Workspace migrations write release notes to `<workspace>/UPDATES.md`; `runUpdateBulletinJobIfNeeded()` then spawns a `conversationType: "background"` conversation (via `wakeAgentForOpportunity()`) whenever the file's content hash changes. The agent uses judgment to surface updates to the user when relevant, and deletes the file when done.
 
-**For release maintainers:** Add a new migration under `assistant/src/workspace/migrations/0XX-release-notes-<slug>.ts` with the release notes inline as a string literal, and append the export to `WORKSPACE_MIGRATIONS` in `assistant/src/workspace/migrations/registry.ts`. Migrations are append-only and must be idempotent — guard the append with an HTML marker comment (`<!-- vellum-migration:<id> -->`) so re-runs are a no-op. Skip the migration entirely for releases with no user/assistant-facing changes.
+**For release maintainers:** Add a new migration under `assistant/src/workspace/migrations/0XX-release-notes-<slug>.ts` with the release notes inline as a string literal, and append the export to `WORKSPACE_MIGRATIONS` in `assistant/src/workspace/migrations/registry.ts`. Migrations are append-only. Idempotency is handled by the workspace-migration runner — `runWorkspaceMigrations()` records each migration's `WorkspaceMigration.id` in `<workspace>/data/.workspace-migrations.json` and never re-runs an ID that is already in the `applied` set, so release-notes migrations do not need an in-file guard. Skip the migration entirely for releases with no user/assistant-facing changes.
 
 ## Usage
 

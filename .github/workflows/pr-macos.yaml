@@ -158,7 +158,7 @@ jobs:
         working-directory: .
         run: |
           pids=()
-          for dir in packages/*/; do
+          for dir in packages/*/ skills/*/; do
             [ -f "${dir}/package.json" ] || continue
             echo "Installing dependencies in ${dir}"
             (cd "${dir}" && bun install) &

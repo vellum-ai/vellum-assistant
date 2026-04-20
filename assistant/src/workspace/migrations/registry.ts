@@ -38,6 +38,11 @@ import { createMeetsDirMigration } from "./037-create-meets-dir.js";
 import { unifyLlmCallSiteConfigsMigration } from "./038-unify-llm-callsite-configs.js";
 import { dropLegacyLlmKeysMigration } from "./039-drop-legacy-llm-keys.js";
 import { seedLatencyCallSiteDefaultsMigration } from "./040-seed-latency-callsite-defaults.js";
+import { backfillGoogleGmailSettingsScopeMigration } from "./041-backfill-google-gmail-settings-scope.js";
+import { fixBackfillGoogleGmailSettingsScopeMigration } from "./042-fix-backfill-google-gmail-settings-scope.js";
+import { releaseNotesLatexRenderingMigration } from "./043-release-notes-latex-rendering.js";
+import { bumpStaleProviderStreamTimeoutMigration } from "./044-bump-stale-provider-stream-timeout.js";
+import { releaseNotesMeetAvatarMigration } from "./045-release-notes-meet-avatar.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -87,4 +92,9 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   unifyLlmCallSiteConfigsMigration,
   dropLegacyLlmKeysMigration,
   seedLatencyCallSiteDefaultsMigration,
+  backfillGoogleGmailSettingsScopeMigration,
+  fixBackfillGoogleGmailSettingsScopeMigration,
+  releaseNotesLatexRenderingMigration,
+  bumpStaleProviderStreamTimeoutMigration,
+  releaseNotesMeetAvatarMigration,
 ];

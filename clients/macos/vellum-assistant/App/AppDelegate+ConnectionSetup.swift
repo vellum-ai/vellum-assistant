@@ -134,6 +134,14 @@ extension AppDelegate {
             try? await self.vellumCli.upgradeFinalize(name: name, fromVersion: fromVersion)
         }
 
+        // Re-pair recovery: clear stored credentials and re-run bootstrap.
+        // Invoked by `GatewayConnectionManager.attemptRePair()` when the UI
+        // surfaces the "Try to reconnect" action (added in a later PR).
+        connectionManager.rePairHandler = { [weak self] in
+            guard let self else { return }
+            await self.forceReBootstrap()
+        }
+
         // Rebind the menu bar icon observer after transport reconfiguration
         // so connection status changes continue to update the icon.
         rebindConnectionStatusObserver()

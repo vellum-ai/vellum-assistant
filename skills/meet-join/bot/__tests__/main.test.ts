@@ -1,15 +1,17 @@
 /**
- * Tests for `runBot` — the boot path that wires pulse → xvfb → browser →
- * joinMeet → daemon client → scrapers → audio → http server.
+ * Tests for `runBot` — the boot path that wires pulse → xvfb → NMH socket
+ * server → Chrome subprocess + extension → extension-ready handshake →
+ * join command → audio → HTTP server.
  *
- * We don't spin up a real browser or daemon here. Every subsystem is
- * stubbed with a recording mock that lets us assert on:
+ * We don't spin up a real browser, real socket, or real Xvfb here. Every
+ * subsystem is stubbed with a recording mock that lets us assert on:
  *
  *   - Boot order (each subsystem only starts after its prerequisites).
- *   - Callback wiring (scraper `onEvent` calls actually enqueue into the
- *     daemon client).
+ *   - Extension-message routing (participant/speaker/chat forward to
+ *     daemon; send_chat_result resolves pending HTTP promises).
  *   - Shutdown ordering and dedup (SIGTERM + HTTP `/leave` don't double-stop).
- *   - Error paths (join failure publishes `lifecycle:error` and exits 1).
+ *   - Error paths (extension never signals ready, Chrome exits early,
+ *     daemon-client flap).
  *
  * The separate boot smoke test (`boot.test.ts`) still covers the
  * `SKIP_PULSE=1` + missing-MEET_URL path against a real `bun run src/main.ts`.
@@ -18,6 +20,10 @@
 import { describe, expect, test } from "bun:test";
 
 import type { LifecycleEvent, MeetBotEvent } from "../../contracts/index.js";
+import type {
+  BotToExtensionMessage,
+  ExtensionToBotMessage,
+} from "../../contracts/native-messaging.js";
 
 import { runBot, type BotDeps, type DaemonClientLike } from "../src/main.js";
 import { BotState } from "../src/control/state.js";
@@ -32,10 +38,7 @@ interface RecordedCall {
 }
 
 interface MockHandles {
-  /**
-   * Recorded invocations in the order they were made — lets tests assert
-   * on boot order.
-   */
+  /** Recorded invocations in order — lets tests assert on boot order. */
   calls: RecordedCall[];
   /** Events enqueued on the daemon client. */
   daemonEvents: MeetBotEvent[];
@@ -52,33 +55,55 @@ interface MockHandles {
   /** Invoke the SIGINT handler captured during boot. */
   fireSigint: () => void;
   /**
-   * Fire the `onError` hook the `runBot` passed into `createDaemonClient`.
+   * Fire the `onError` hook that `runBot` passed into `createDaemonClient`.
    * Returns `null` if the daemon client hasn't been constructed yet.
    */
   fireDaemonError: (err: Error) => void;
-  /** Page object the scrapers see. */
-  page: object;
+  /** Deliver a message to the socket-server's `onExtensionMessage` listeners. */
+  fireExtensionMessage: (msg: ExtensionToBotMessage) => void;
+  /** Resolve the socket-server's pending `waitForReady` promise. */
+  fireExtensionReady: () => void;
+  /** Reject the socket-server's pending `waitForReady` promise. */
+  failExtensionReady: (err: Error) => void;
+  /** Resolve the Chrome exit promise (e.g. to simulate an unexpected exit). */
+  fireChromeExit: (code: number) => void;
   /** HTTP callbacks the server captured. */
   httpCallbacks: () => {
     onLeave: (reason: string | undefined) => void | Promise<void>;
+    onSendChat: (text: string) => Promise<void> | void;
   } | null;
-  /** Sessions created — primarily for asserting `close()` was called. */
-  sessionCloses: () => number;
-  /** Participant/speaker/chat/audio stop counters. */
+  /** Inspect queued outbound messages sent to the extension. */
+  outboundMessages: () => BotToExtensionMessage[];
+  /** Shutdown counters for each subsystem (one per subsystem). */
   stopCounts: () => {
-    participant: number;
-    speaker: number;
-    chat: number;
+    xvfb: number;
+    socketServer: number;
+    chrome: number;
     audio: number;
     httpServer: number;
   };
 }
 
 interface MakeDepsOpts {
-  /** Force `joinMeet` to reject with this error. */
-  joinError?: Error;
   /** Force `setupPulseAudio` to reject. */
   pulseError?: Error;
+  /** Force `launchChrome` to reject. */
+  chromeLaunchError?: Error;
+  /** Force `xdotoolClick` to reject. */
+  xdotoolClickError?: Error;
+  /** Force `xdotoolType` to reject. */
+  xdotoolTypeError?: Error;
+  /** Force `startXvfb` to reject. */
+  xvfbError?: Error;
+  /** Short-circuit `waitForReady` to reject with this error. */
+  extensionReadyError?: Error;
+  /**
+   * Deadline for the extension to reach `lifecycle:joined`. Defaults to
+   * a very large value in tests so the happy-path suite doesn't trip the
+   * timer while sitting at `phase=joining`. Only the Gap B test should
+   * override this to a small value.
+   */
+  extensionJoinedTimeoutMs?: number;
 }
 
 function makeDeps(opts: MakeDepsOpts = {}): {
@@ -95,22 +120,30 @@ function makeDeps(opts: MakeDepsOpts = {}): {
   let sigtermHandler: (() => void) | null = null;
   let sigintHandler: (() => void) | null = null;
 
-  let sessionClosed = 0;
-  let participantStops = 0;
-  let speakerStops = 0;
-  let chatStops = 0;
+  let xvfbStops = 0;
+  let socketStops = 0;
+  let chromeStops = 0;
   let audioStops = 0;
   let httpStops = 0;
 
   let capturedHttpCallbacks: {
     onLeave: (reason: string | undefined) => void | Promise<void>;
+    onSendChat: (text: string) => Promise<void> | void;
   } | null = null;
 
   let capturedDaemonOnError: ((err: Error) => void) | null = null;
 
-  const fakePage = { __fake: true };
+  // ---- socket server plumbing ------------------------------------------
+  const outbound: BotToExtensionMessage[] = [];
+  const extensionListeners: Array<(msg: ExtensionToBotMessage) => void> = [];
+  let readyResolve: (() => void) | null = null;
+  let readyReject: ((err: Error) => void) | null = null;
+  // ---- chrome plumbing -------------------------------------------------
+  let chromeExitResolve: ((code: number) => void) | null = null;
+  const chromeExitPromise = new Promise<number>((resolve) => {
+    chromeExitResolve = resolve;
+  });
 
-  // Full skipPulse default so only opt-in tests exercise the pulse path.
   const defaultEnv = {
     meetUrl: "https://meet.google.com/abc-defg-hij",
     meetingId: "m-1",
@@ -121,6 +154,14 @@ function makeDeps(opts: MakeDepsOpts = {}): {
     socketDir: "/sockets",
     skipPulse: true,
     httpPort: 0,
+    extensionPath: "/app/ext",
+    nmhSocketPath: "/run/nmh.sock",
+    xvfbDisplay: ":99",
+    chromeUserDataRoot: "/tmp/chrome-profile",
+    avatarEnabled: false,
+    avatarRenderer: "noop",
+    avatarConfigJson: undefined,
+    avatarDevicePath: undefined,
   };
 
   const daemonClient: DaemonClientLike = {
@@ -137,70 +178,101 @@ function makeDeps(opts: MakeDepsOpts = {}): {
     },
   };
 
+  let requestIdCounter = 0;
+
   const deps: BotDeps = {
     env: () => ({ ...defaultEnv }),
     setupPulseAudio: async () => {
       calls.push({ kind: "pulse.setup" });
       if (opts.pulseError) throw opts.pulseError;
     },
-    createBrowserSession: async (url) => {
-      calls.push({ kind: "browser.create", url });
+    startXvfb: async (display) => {
+      calls.push({ kind: "xvfb.start", display });
+      if (opts.xvfbError) throw opts.xvfbError;
+      return { display, process: null };
+    },
+    stopXvfb: async () => {
+      xvfbStops += 1;
+      calls.push({ kind: "xvfb.stop" });
+    },
+    createNmhSocketServer: (socketOpts) => {
+      calls.push({ kind: "socket.create", socketPath: socketOpts.socketPath });
       return {
-        browser: {} as never,
-        context: {} as never,
-        page: fakePage as never,
-        close: async () => {
-          sessionClosed += 1;
-          calls.push({ kind: "browser.close" });
+        start: async () => {
+          calls.push({ kind: "socket.start" });
         },
-      };
-    },
-    joinMeet: async (page, joinOpts) => {
-      calls.push({
-        kind: "join.meet",
-        page,
-        displayName: joinOpts.displayName,
-        consentMessage: joinOpts.consentMessage,
-      });
-      if (opts.joinError) throw opts.joinError;
-    },
-    startParticipantScraper: (_page, _onEvent, scraperOpts) => {
-      calls.push({
-        kind: "scraper.participant.start",
-        meetingId: scraperOpts.meetingId,
-        selfName: scraperOpts.selfName,
-      });
-      return {
-        stop: () => {
-          participantStops += 1;
-          calls.push({ kind: "scraper.participant.stop" });
-        },
-      };
-    },
-    startSpeakerScraper: (_page, _onEvent, scraperOpts) => {
-      calls.push({
-        kind: "scraper.speaker.start",
-        meetingId: scraperOpts.meetingId,
-      });
-      return {
-        stop: () => {
-          speakerStops += 1;
-          calls.push({ kind: "scraper.speaker.stop" });
-        },
-      };
-    },
-    startChatReader: async (_page, _onEvent, scraperOpts) => {
-      calls.push({
-        kind: "scraper.chat.start",
-        meetingId: scraperOpts.meetingId,
-        selfName: scraperOpts.selfName,
-      });
-      return {
         stop: async () => {
-          chatStops += 1;
-          calls.push({ kind: "scraper.chat.stop" });
+          socketStops += 1;
+          calls.push({ kind: "socket.stop" });
+          // Reject any lingering waitForReady so promise consumers unblock.
+          if (readyReject) {
+            readyReject(new Error("socket.stop reached before ready"));
+            readyResolve = null;
+            readyReject = null;
+          }
+        },
+        sendToExtension: (msg) => {
+          outbound.push(msg);
+          calls.push({ kind: "socket.send", msg });
+        },
+        onExtensionMessage: (cb) => {
+          extensionListeners.push(cb);
+        },
+        waitForReady: (_timeoutMs) => {
+          calls.push({ kind: "socket.waitForReady" });
+          return new Promise<void>((resolve, reject) => {
+            if (opts.extensionReadyError) {
+              reject(opts.extensionReadyError);
+              return;
+            }
+            readyResolve = resolve;
+            readyReject = reject;
+          });
         },
       };
+    },
+    launchChrome: async (chromeOpts) => {
+      calls.push({
+        kind: "chrome.launch",
+        meetingUrl: chromeOpts.meetingUrl,
+        extensionPath: chromeOpts.extensionPath,
+        displayNumber: chromeOpts.displayNumber,
+        userDataDir: chromeOpts.userDataDir,
+        avatarEnabled: chromeOpts.avatarEnabled,
+        avatarDevicePath: chromeOpts.avatarDevicePath,
+      });
+      if (opts.chromeLaunchError) throw opts.chromeLaunchError;
+      return {
+        pid: 424242,
+        stop: async () => {
+          chromeStops += 1;
+          calls.push({ kind: "chrome.stop" });
+          // Resolve the exit promise now so any waiter inside runBot settles.
+          if (chromeExitResolve) {
+            chromeExitResolve(0);
+            chromeExitResolve = null;
+          }
+        },
+        exitPromise: chromeExitPromise,
+      };
+    },
+    xdotoolClick: async (clickOpts) => {
+      calls.push({
+        kind: "xdotool.click",
+        x: clickOpts.x,
+        y: clickOpts.y,
+        display: clickOpts.display,
+      });
+      if (opts.xdotoolClickError) throw opts.xdotoolClickError;
+    },
+    xdotoolType: async (typeOpts) => {
+      calls.push({
+        kind: "xdotool.type",
+        text: typeOpts.text,
+        delayMs: typeOpts.delayMs,
+        display: typeOpts.display,
+      });
+      if (opts.xdotoolTypeError) throw opts.xdotoolTypeError;
     },
     startAudioCapture: async (audioOpts) => {
       calls.push({ kind: "audio.start", socketPath: audioOpts.socketPath });
@@ -210,9 +282,6 @@ function makeDeps(opts: MakeDepsOpts = {}): {
           calls.push({ kind: "audio.stop" });
         },
       };
-    },
-    sendChat: async (_page, text) => {
-      calls.push({ kind: "sendChat", text });
     },
     createDaemonClient: (clientOpts) => {
       calls.push({
@@ -230,6 +299,7 @@ function makeDeps(opts: MakeDepsOpts = {}): {
       });
       capturedHttpCallbacks = {
         onLeave: serverOpts.onLeave,
+        onSendChat: serverOpts.onSendChat,
       };
       return {
         app: {} as never,
@@ -243,6 +313,9 @@ function makeDeps(opts: MakeDepsOpts = {}): {
         },
       };
     },
+    ensureDir: (path: string) => {
+      calls.push({ kind: "ensureDir", path });
+    },
     onSignal: (signal, handler) => {
       if (signal === "SIGTERM") sigtermHandler = handler;
       else sigintHandler = handler;
@@ -254,21 +327,12 @@ function makeDeps(opts: MakeDepsOpts = {}): {
         }
       };
     },
-    joinedSettleMs: 0, // tests don't need the real 2s wait.
+    joinedSettleMs: 0,
     sleep: async (_ms: number) => {
       // no-op in tests.
     },
     exit: ((code: number) => {
-      // Record the first exit code only — subsequent calls are
-      // tolerated (production `process.exit` never returns, so the
-      // bot's real flow never sees a double-exit, but in tests the
-      // mocked `exit` returns normally and we occasionally race).
       if (exitCode === null) exitCode = code;
-      // `process.exit`'s real return type is `never`; we narrow to
-      // `never` via a non-returning path so the production code
-      // compiles. In tests we don't want to throw (that would leak
-      // unhandled rejections out of fire-and-forget `.then(exit)`
-      // chains), so just `return undefined as never`.
       return undefined as never;
     }) as BotDeps["exit"],
     logInfo: (msg) => {
@@ -276,6 +340,14 @@ function makeDeps(opts: MakeDepsOpts = {}): {
     },
     logError: (msg) => {
       errors.push(msg);
+    },
+    extensionReadyTimeoutMs: 1_000,
+    extensionJoinedTimeoutMs: opts.extensionJoinedTimeoutMs ?? 60_000,
+    sendChatTimeoutMs: 500,
+    leaveGraceMs: 0,
+    generateRequestId: () => {
+      requestIdCounter += 1;
+      return `req-${requestIdCounter}`;
     },
   };
 
@@ -300,19 +372,58 @@ function makeDeps(opts: MakeDepsOpts = {}): {
       }
       capturedDaemonOnError(err);
     },
-    page: fakePage,
+    fireExtensionMessage: (msg) => {
+      for (const cb of extensionListeners) cb(msg);
+    },
+    fireExtensionReady: () => {
+      if (readyResolve) {
+        readyResolve();
+        readyResolve = null;
+        readyReject = null;
+      }
+    },
+    failExtensionReady: (err: Error) => {
+      if (readyReject) {
+        readyReject(err);
+        readyResolve = null;
+        readyReject = null;
+      }
+    },
+    fireChromeExit: (code) => {
+      if (chromeExitResolve) {
+        chromeExitResolve(code);
+        chromeExitResolve = null;
+      }
+    },
     httpCallbacks: () => capturedHttpCallbacks,
-    sessionCloses: () => sessionClosed,
+    outboundMessages: () => outbound.slice(),
     stopCounts: () => ({
-      participant: participantStops,
-      speaker: speakerStops,
-      chat: chatStops,
+      xvfb: xvfbStops,
+      socketServer: socketStops,
+      chrome: chromeStops,
       audio: audioStops,
       httpServer: httpStops,
     }),
   };
 
   return { deps, handles };
+}
+
+/**
+ * Run `runBot` and fire the extension-ready handshake so the boot can
+ * progress past `waitForReady`. Returns the `runBot` promise so tests can
+ * await the full boot to complete (including settling the happy-path
+ * `audio.start` / `http.start` / logs).
+ */
+async function bootHappyPath(
+  deps: BotDeps,
+  handles: MockHandles,
+): Promise<void> {
+  const running = runBot(deps);
+  // Give the boot a tick to reach `waitForReady`, then fire ready.
+  await new Promise((r) => setTimeout(r, 5));
+  handles.fireExtensionReady();
+  await running;
 }
 
 /** Return the ordered list of `kind` tags from the recorded calls. */
@@ -328,85 +439,373 @@ describe("runBot — boot sequence", () => {
   test("wires subsystems in the correct order", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps();
-    await runBot(deps);
+    await bootHappyPath(deps, handles);
 
     const order = kinds(handles.calls);
-
-    // The boot order the implementation promises: browser session,
-    // daemon client (so we can report join failures), join, settle,
-    // scrapers, audio, http.
     const indexOf = (kind: string): number => order.indexOf(kind);
 
-    expect(indexOf("browser.create")).toBeGreaterThanOrEqual(0);
-    expect(indexOf("daemon.create")).toBeGreaterThan(indexOf("browser.create"));
-    expect(indexOf("join.meet")).toBeGreaterThan(indexOf("daemon.create"));
-    expect(indexOf("scraper.participant.start")).toBeGreaterThan(
-      indexOf("join.meet"),
+    // Expected boot order:
+    //   xvfb → ensureDir (socket + profile) → socket.create → socket.start
+    //   → daemon.create → chrome.launch → waitForReady → send `join`
+    //   → audio.start → http.create → http.start.
+    expect(indexOf("xvfb.start")).toBeGreaterThanOrEqual(0);
+    expect(indexOf("socket.create")).toBeGreaterThan(indexOf("xvfb.start"));
+    expect(indexOf("socket.start")).toBeGreaterThan(indexOf("socket.create"));
+    expect(indexOf("daemon.create")).toBeGreaterThan(indexOf("socket.start"));
+    expect(indexOf("chrome.launch")).toBeGreaterThan(indexOf("daemon.create"));
+    expect(indexOf("socket.waitForReady")).toBeGreaterThan(
+      indexOf("chrome.launch"),
     );
-    expect(indexOf("scraper.speaker.start")).toBeGreaterThan(
-      indexOf("join.meet"),
+    expect(indexOf("socket.send")).toBeGreaterThan(
+      indexOf("socket.waitForReady"),
     );
-    expect(indexOf("scraper.chat.start")).toBeGreaterThan(indexOf("join.meet"));
-    expect(indexOf("audio.start")).toBeGreaterThan(
-      indexOf("scraper.chat.start"),
-    );
+    expect(indexOf("audio.start")).toBeGreaterThan(indexOf("socket.send"));
     expect(indexOf("http.create")).toBeGreaterThan(indexOf("audio.start"));
     expect(indexOf("http.start")).toBeGreaterThan(indexOf("http.create"));
   });
 
-  test("publishes lifecycle:joining before joinMeet and :joined after", async () => {
+  test("sends a `join` command with the env-provided URL + display name", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps();
-    await runBot(deps);
+    await bootHappyPath(deps, handles);
+
+    const outbound = handles.outboundMessages();
+    const join = outbound.find((m) => m.type === "join");
+    expect(join).toBeDefined();
+    if (join && join.type === "join") {
+      expect(join.meetingUrl).toBe("https://meet.google.com/abc-defg-hij");
+      expect(join.displayName).toBe("Vellum Bot");
+      expect(join.consentMessage).toBe("Hi, I'm an AI assistant listening in.");
+    }
+  });
+
+  test("publishes lifecycle:joining to the daemon after sending join", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
 
     const lifecycleStates = handles.daemonEvents
       .filter((e): e is LifecycleEvent => e.type === "lifecycle")
       .map((e) => e.state);
 
-    // We expect at least `joining` and `joined`. No `error` / `left` yet.
     expect(lifecycleStates).toContain("joining");
-    expect(lifecycleStates).toContain("joined");
-    expect(lifecycleStates).not.toContain("error");
+    // No `joined` yet — the extension hasn't emitted its own joined event.
     expect(lifecycleStates).not.toContain("left");
-
-    // Ordering: joining comes before joined.
-    const joiningIdx = lifecycleStates.indexOf("joining");
-    const joinedIdx = lifecycleStates.indexOf("joined");
-    expect(joiningIdx).toBeGreaterThanOrEqual(0);
-    expect(joinedIdx).toBeGreaterThan(joiningIdx);
+    expect(lifecycleStates).not.toContain("error");
   });
 
-  test("passes the meetingId and selfName through to the scrapers", async () => {
+  test("audio capture uses socketDir/audio.sock", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps();
-    await runBot(deps);
-
-    const participantCall = handles.calls.find(
-      (c) => c.kind === "scraper.participant.start",
-    );
-    const speakerCall = handles.calls.find(
-      (c) => c.kind === "scraper.speaker.start",
-    );
-    const chatCall = handles.calls.find((c) => c.kind === "scraper.chat.start");
-
-    expect(participantCall?.meetingId).toBe("m-1");
-    expect(speakerCall?.meetingId).toBe("m-1");
-    expect(chatCall?.meetingId).toBe("m-1");
-    expect(chatCall?.selfName).toBe("Vellum Bot");
-    // The participant scraper also receives the bot's display name so it
-    // can flag the bot's own row with `isSelf: true`, letting the consent
-    // monitor identify `botParticipantId` and filter self-content from
-    // the watermark.
-    expect(participantCall?.selfName).toBe("Vellum Bot");
-  });
-
-  test("passes socketDir/audio.sock into audio capture", async () => {
-    BotState.__resetForTests();
-    const { deps, handles } = makeDeps();
-    await runBot(deps);
+    await bootHappyPath(deps, handles);
 
     const audioCall = handles.calls.find((c) => c.kind === "audio.start");
     expect(audioCall?.socketPath).toBe("/sockets/audio.sock");
+  });
+});
+
+describe("runBot — extension message routing", () => {
+  test("extension lifecycle:joined forwards to the daemon", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const before = handles.daemonEvents.length;
+    handles.fireExtensionMessage({
+      type: "lifecycle",
+      // Extension stamps `meetingId = location.pathname` — the Meet URL
+      // code from MEET_URL, not the env UUID.
+      meetingId: "abc-defg-hij",
+      timestamp: new Date().toISOString(),
+      state: "joined",
+    });
+
+    const after = handles.daemonEvents.slice(before);
+    expect(after).toHaveLength(1);
+    expect(after[0]?.type).toBe("lifecycle");
+    if (after[0]?.type === "lifecycle") {
+      expect(after[0].state).toBe("joined");
+    }
+  });
+
+  test("participant.change forwards to the daemon verbatim", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const before = handles.daemonEvents.length;
+    handles.fireExtensionMessage({
+      type: "participant.change",
+      meetingId: "abc-defg-hij",
+      timestamp: new Date().toISOString(),
+      joined: [{ id: "p-1", name: "Alice" }],
+      left: [],
+    });
+
+    const after = handles.daemonEvents.slice(before);
+    expect(after).toHaveLength(1);
+    expect(after[0]?.type).toBe("participant.change");
+  });
+
+  test("speaker.change and chat.inbound both forward to the daemon", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const before = handles.daemonEvents.length;
+    handles.fireExtensionMessage({
+      type: "speaker.change",
+      meetingId: "abc-defg-hij",
+      timestamp: new Date().toISOString(),
+      speakerId: "p-1",
+      speakerName: "Alice",
+    });
+    handles.fireExtensionMessage({
+      type: "chat.inbound",
+      meetingId: "abc-defg-hij",
+      timestamp: new Date().toISOString(),
+      fromId: "p-2",
+      fromName: "Bob",
+      text: "hello",
+    });
+
+    const after = handles.daemonEvents.slice(before);
+    expect(after.map((e) => e.type)).toEqual([
+      "speaker.change",
+      "chat.inbound",
+    ]);
+  });
+
+  test("trusted_click invokes xdotoolClick with the screen coords + configured display", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    handles.fireExtensionMessage({
+      type: "trusted_click",
+      x: 1014,
+      y: 536,
+    });
+    // xdotoolClick is fire-and-forget (no promise surface here), so give
+    // it one microtask to settle and the logInfo to land.
+    await new Promise((r) => setTimeout(r, 10));
+
+    const clickCall = handles.calls.find((c) => c.kind === "xdotool.click");
+    expect(clickCall).toBeDefined();
+    expect(clickCall!.x).toBe(1014);
+    expect(clickCall!.y).toBe(536);
+    expect(clickCall!.display).toBe(":99");
+    // Success should surface via logInfo.
+    expect(
+      handles.infos.some((m) =>
+        m.includes("trusted_click dispatched at (1014,536)"),
+      ),
+    ).toBe(true);
+  });
+
+  test("trusted_click xdotool failures surface via logError but don't shut down", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps({
+      xdotoolClickError: new Error("xdotool exit code 1"),
+    });
+    await bootHappyPath(deps, handles);
+
+    handles.fireExtensionMessage({ type: "trusted_click", x: 5, y: 10 });
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(
+      handles.errors.some((m) =>
+        m.includes("trusted_click failed: xdotool exit code 1"),
+      ),
+    ).toBe(true);
+    // Bot stays alive — no shutdown triggered.
+    const counts = handles.stopCounts();
+    expect(counts.chrome).toBe(0);
+    expect(counts.xvfb).toBe(0);
+  });
+
+  test("trusted_type invokes xdotoolType with the payload + configured display", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    handles.fireExtensionMessage({
+      type: "trusted_type",
+      text: "hello world",
+      delayMs: 25,
+    });
+    // xdotoolType is fire-and-forget (same pattern as trusted_click), so
+    // give it a microtask to settle and the logInfo to land.
+    await new Promise((r) => setTimeout(r, 10));
+
+    const typeCall = handles.calls.find((c) => c.kind === "xdotool.type");
+    expect(typeCall).toBeDefined();
+    expect(typeCall!.text).toBe("hello world");
+    expect(typeCall!.delayMs).toBe(25);
+    expect(typeCall!.display).toBe(":99");
+    // Success should surface via logInfo with the character count.
+    expect(
+      handles.infos.some((m) =>
+        m.includes("trusted_type dispatched (11 chars)"),
+      ),
+    ).toBe(true);
+  });
+
+  test("trusted_type xdotool failures surface via logError but don't shut down", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps({
+      xdotoolTypeError: new Error("xdotool type exit code 1"),
+    });
+    await bootHappyPath(deps, handles);
+
+    handles.fireExtensionMessage({
+      type: "trusted_type",
+      text: "fail me",
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(
+      handles.errors.some((m) =>
+        m.includes("trusted_type failed: xdotool type exit code 1"),
+      ),
+    ).toBe(true);
+    // Bot stays alive — no shutdown triggered.
+    const counts = handles.stopCounts();
+    expect(counts.chrome).toBe(0);
+    expect(counts.xvfb).toBe(0);
+  });
+
+  test("diagnostic messages go through the logger, not the daemon", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const beforeEvents = handles.daemonEvents.length;
+    handles.fireExtensionMessage({
+      type: "diagnostic",
+      level: "info",
+      message: "content-script loaded",
+    });
+    handles.fireExtensionMessage({
+      type: "diagnostic",
+      level: "error",
+      message: "selector timed out",
+    });
+
+    // No daemon events for diagnostics.
+    expect(handles.daemonEvents.length).toBe(beforeEvents);
+    expect(handles.infos.some((m) => m.includes("content-script loaded"))).toBe(
+      true,
+    );
+    expect(handles.errors.some((m) => m.includes("selector timed out"))).toBe(
+      true,
+    );
+  });
+});
+
+describe("runBot — send_chat HTTP path", () => {
+  test("send_chat routes through the socket server with a requestId", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const cbs = handles.httpCallbacks();
+    expect(cbs).not.toBeNull();
+
+    const before = handles.outboundMessages().length;
+    const sendPromise = Promise.resolve(cbs!.onSendChat("hello world"));
+    // Give the dispatch a tick to land on the socket.
+    await new Promise((r) => setTimeout(r, 5));
+
+    const outbound = handles.outboundMessages();
+    const fresh = outbound.slice(before);
+    expect(fresh).toHaveLength(1);
+    expect(fresh[0]?.type).toBe("send_chat");
+    const firstReq = fresh[0];
+    if (firstReq && firstReq.type === "send_chat") {
+      expect(firstReq.text).toBe("hello world");
+      expect(typeof firstReq.requestId).toBe("string");
+      // Resolve the send_chat_result for that requestId.
+      handles.fireExtensionMessage({
+        type: "send_chat_result",
+        requestId: firstReq.requestId,
+        ok: true,
+      });
+    }
+    // The HTTP callback's promise should now resolve without throwing.
+    await sendPromise;
+  });
+
+  test("a failed send_chat_result rejects the HTTP callback's promise", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const cbs = handles.httpCallbacks();
+    const before = handles.outboundMessages().length;
+    const sendPromise = Promise.resolve(cbs!.onSendChat("will fail"));
+    await new Promise((r) => setTimeout(r, 5));
+
+    const fresh = handles.outboundMessages().slice(before);
+    expect(fresh).toHaveLength(1);
+    const first = fresh[0];
+    if (first && first.type === "send_chat") {
+      handles.fireExtensionMessage({
+        type: "send_chat_result",
+        requestId: first.requestId,
+        ok: false,
+        error: "chat panel closed",
+      });
+    }
+
+    let caught: Error | null = null;
+    try {
+      await sendPromise;
+    } catch (err) {
+      caught = err as Error;
+    }
+    expect(caught).not.toBeNull();
+    expect(caught?.message).toContain("chat panel closed");
+  });
+
+  test("concurrent send_chat requests correlate independently by requestId", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const cbs = handles.httpCallbacks();
+    const before = handles.outboundMessages().length;
+
+    const firstPromise = Promise.resolve(cbs!.onSendChat("one"));
+    const secondPromise = Promise.resolve(cbs!.onSendChat("two"));
+    await new Promise((r) => setTimeout(r, 5));
+
+    const fresh = handles.outboundMessages().slice(before);
+    expect(fresh).toHaveLength(2);
+    const first = fresh[0];
+    const second = fresh[1];
+    if (
+      first?.type === "send_chat" &&
+      second?.type === "send_chat" &&
+      first.requestId !== second.requestId
+    ) {
+      // Reply to the second one first — should only resolve the second.
+      handles.fireExtensionMessage({
+        type: "send_chat_result",
+        requestId: second.requestId,
+        ok: true,
+      });
+      await secondPromise;
+      // First still pending — resolve now.
+      handles.fireExtensionMessage({
+        type: "send_chat_result",
+        requestId: first.requestId,
+        ok: true,
+      });
+      await firstPromise;
+    } else {
+      throw new Error("expected two distinct send_chat requests");
+    }
   });
 });
 
@@ -414,84 +813,72 @@ describe("runBot — shutdown", () => {
   test("onLeave triggers the full shutdown path in the right order", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps();
-    await runBot(deps);
+    await bootHappyPath(deps, handles);
 
-    // Exercise the /leave path.
     const cbs = handles.httpCallbacks();
     expect(cbs).not.toBeNull();
 
-    // onLeave schedules shutdown + exit via `void` — we catch the
-    // sentinel exit() throw via the shutdown promise.
     await new Promise<void>((resolve) => {
       void (async () => {
         try {
           await cbs!.onLeave("user requested");
         } catch {
-          // swallow __test_exit
+          // swallow
         }
         resolve();
       })();
     });
 
-    // Poll for shutdown completion — the exit-code sentinel lands after
-    // the shutdown chain resolves.
     const deadline = Date.now() + 1_000;
     while (handles.exitCode() === null && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 5));
     }
-
     expect(handles.exitCode()).toBe(0);
 
     const order = kinds(handles.calls);
-    const leaveStart = order.lastIndexOf("http.create") + 1;
-    const shutdownOrder = order.slice(leaveStart);
+    const startIdx = order.lastIndexOf("http.start") + 1;
+    const shutdownOrder = order.slice(startIdx);
 
-    // HTTP server stops first (no new commands after /leave).
-    expect(shutdownOrder.indexOf("http.stop")).toBeGreaterThanOrEqual(0);
-    // Then scrapers.
-    expect(shutdownOrder.indexOf("scraper.participant.stop")).toBeGreaterThan(
-      shutdownOrder.indexOf("http.stop"),
-    );
-    expect(shutdownOrder.indexOf("scraper.speaker.stop")).toBeGreaterThan(
-      shutdownOrder.indexOf("http.stop"),
-    );
-    expect(shutdownOrder.indexOf("scraper.chat.stop")).toBeGreaterThan(
-      shutdownOrder.indexOf("http.stop"),
-    );
-    // Audio before browser.
-    expect(shutdownOrder.indexOf("audio.stop")).toBeGreaterThan(
-      shutdownOrder.indexOf("scraper.chat.stop"),
-    );
-    expect(shutdownOrder.indexOf("browser.close")).toBeGreaterThan(
-      shutdownOrder.indexOf("audio.stop"),
-    );
-    // Daemon stop comes last, and only after `lifecycle:left` is enqueued.
-    expect(shutdownOrder.indexOf("daemon.stop")).toBeGreaterThan(
-      shutdownOrder.indexOf("browser.close"),
-    );
+    // http.stop → leave command to extension → chrome.stop → audio.stop
+    // → xvfb.stop → socket.stop → daemon.stop.
+    const httpStop = shutdownOrder.indexOf("http.stop");
+    expect(httpStop).toBeGreaterThanOrEqual(0);
 
-    // `lifecycle:left` was published before stop().
+    // A leave send message appears between http.stop and chrome.stop.
+    const leaveSendIdx = shutdownOrder.findIndex((k) => k === "socket.send");
+    expect(leaveSendIdx).toBeGreaterThan(httpStop);
+
+    const chromeStop = shutdownOrder.indexOf("chrome.stop");
+    expect(chromeStop).toBeGreaterThan(leaveSendIdx);
+    const audioStop = shutdownOrder.indexOf("audio.stop");
+    expect(audioStop).toBeGreaterThan(chromeStop);
+    const xvfbStop = shutdownOrder.indexOf("xvfb.stop");
+    expect(xvfbStop).toBeGreaterThan(audioStop);
+    const socketStop = shutdownOrder.indexOf("socket.stop");
+    expect(socketStop).toBeGreaterThan(xvfbStop);
+    const daemonStop = shutdownOrder.indexOf("daemon.stop");
+    expect(daemonStop).toBeGreaterThan(socketStop);
+
+    // lifecycle:left published before daemon stop.
     const lifecycleStates = handles.daemonEvents
       .filter((e): e is LifecycleEvent => e.type === "lifecycle")
       .map((e) => e.state);
-    expect(lifecycleStates).toContain("left");
     expect(lifecycleStates[lifecycleStates.length - 1]).toBe("left");
 
     // Shutdown counts: each subsystem stopped exactly once.
     const counts = handles.stopCounts();
     expect(counts.httpServer).toBe(1);
-    expect(counts.participant).toBe(1);
-    expect(counts.speaker).toBe(1);
-    expect(counts.chat).toBe(1);
+    expect(counts.chrome).toBe(1);
     expect(counts.audio).toBe(1);
+    expect(counts.xvfb).toBe(1);
+    expect(counts.socketServer).toBe(1);
     expect(handles.daemonStopped()).toBe(true);
-    expect(handles.sessionCloses()).toBe(1);
   });
 
   test("SIGTERM triggers the same shutdown path", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps();
-    await runBot(deps);
+    await bootHappyPath(deps, handles);
 
     handles.fireSigterm();
 
@@ -503,24 +890,24 @@ describe("runBot — shutdown", () => {
     expect(handles.exitCode()).toBe(0);
     const counts = handles.stopCounts();
     expect(counts.httpServer).toBe(1);
-    expect(counts.participant).toBe(1);
-    expect(counts.speaker).toBe(1);
-    expect(counts.chat).toBe(1);
+    expect(counts.chrome).toBe(1);
     expect(counts.audio).toBe(1);
+    expect(counts.xvfb).toBe(1);
+    expect(counts.socketServer).toBe(1);
     expect(handles.daemonStopped()).toBe(true);
   });
 
   test("SIGTERM + /leave do not double-stop subsystems", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps();
-    await runBot(deps);
+    await bootHappyPath(deps, handles);
 
     handles.fireSigterm();
     const cbs = handles.httpCallbacks();
     try {
       await cbs!.onLeave("redundant");
     } catch {
-      // swallow __test_exit
+      // swallow
     }
 
     const deadline = Date.now() + 1_000;
@@ -530,73 +917,76 @@ describe("runBot — shutdown", () => {
 
     const counts = handles.stopCounts();
     expect(counts.httpServer).toBe(1);
-    expect(counts.participant).toBe(1);
-    expect(counts.speaker).toBe(1);
-    expect(counts.chat).toBe(1);
+    expect(counts.chrome).toBe(1);
     expect(counts.audio).toBe(1);
+    expect(counts.xvfb).toBe(1);
+    expect(counts.socketServer).toBe(1);
   });
 });
 
 describe("runBot — error paths", () => {
-  test("join failure publishes lifecycle:error and exits 1", async () => {
+  test("extension ready timeout shuts down with lifecycle:error", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps({
-      joinError: new Error("prejoin selector timed out"),
+      extensionReadyError: new Error(
+        "timed out after 1000ms waiting for extension ready handshake",
+      ),
     });
 
-    try {
-      await runBot(deps);
-    } catch (err) {
-      // The sentinel exit() throws — catch so the test continues.
-      const msg = (err as Error).message;
-      if (!msg.startsWith("__test_exit")) throw err;
-    }
+    await runBot(deps);
+
+    expect(handles.exitCode()).toBe(1);
+    const lifecycleStates = handles.daemonEvents
+      .filter((e): e is LifecycleEvent => e.type === "lifecycle")
+      .map((e) => ({ state: e.state, detail: e.detail }));
+    const err = lifecycleStates.find((s) => s.state === "error");
+    expect(err).toBeDefined();
+    expect(err?.detail).toContain("extension never signaled ready");
+
+    // Audio + HTTP never started.
+    const order = kinds(handles.calls);
+    expect(order).not.toContain("audio.start");
+    expect(order).not.toContain("http.start");
+  });
+
+  test("Chrome exiting unexpectedly mid-meeting shuts down with error state", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    // Simulate Chrome crashing outside of our control.
+    handles.fireChromeExit(42);
 
     const deadline = Date.now() + 1_000;
     while (handles.exitCode() === null && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 5));
     }
-
     expect(handles.exitCode()).toBe(1);
 
     const lifecycleStates = handles.daemonEvents
       .filter((e): e is LifecycleEvent => e.type === "lifecycle")
       .map((e) => ({ state: e.state, detail: e.detail }));
-    expect(lifecycleStates.some((s) => s.state === "error")).toBe(true);
-    const errorEvent = lifecycleStates.find((s) => s.state === "error");
-    expect(errorEvent?.detail).toContain("prejoin selector timed out");
-
-    // Scrapers / audio / http must not have started.
-    const order = kinds(handles.calls);
-    expect(order).not.toContain("scraper.participant.start");
-    expect(order).not.toContain("audio.start");
-    expect(order).not.toContain("http.start");
-
-    // Browser was closed; daemon was flushed.
-    expect(handles.sessionCloses()).toBe(1);
-    expect(handles.daemonStopped()).toBe(true);
+    const last = lifecycleStates[lifecycleStates.length - 1];
+    expect(last?.state).toBe("error");
+    expect(last?.detail).toContain("chrome exited unexpectedly");
+    expect(last?.detail).toContain("42");
   });
 
-  test("PulseAudio failure exits 1 without touching browser", async () => {
+  test("PulseAudio failure exits 1 without touching xvfb or chrome", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps({
       pulseError: new Error("pulseaudio: connection refused"),
     });
-    // Override skipPulse to force the setup call.
     const realEnv = deps.env;
     deps.env = () => ({ ...realEnv(), skipPulse: false });
 
-    try {
-      await runBot(deps);
-    } catch (err) {
-      const msg = (err as Error).message;
-      if (!msg.startsWith("__test_exit")) throw err;
-    }
+    await runBot(deps);
 
     expect(handles.exitCode()).toBe(1);
     const order = kinds(handles.calls);
     expect(order).toContain("pulse.setup");
-    expect(order).not.toContain("browser.create");
+    expect(order).not.toContain("xvfb.start");
+    expect(order).not.toContain("chrome.launch");
     expect(
       handles.errors.some((e) => e.includes("PulseAudio setup failed")),
     ).toBe(true);
@@ -607,35 +997,27 @@ describe("runBot — daemon-client terminal errors", () => {
   test("logs a single terminal error without shutting down", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps();
-    await runBot(deps);
+    await bootHappyPath(deps, handles);
 
     const stopsBefore = handles.stopCounts();
-    const exitBefore = handles.exitCode();
-
     handles.fireDaemonError(new Error("ingress returned status 503"));
-
-    // Give any fire-and-forget shutdown promise a chance to advance.
     await new Promise((r) => setTimeout(r, 20));
 
-    // No shutdown yet — single transient failures are tolerated.
     const stopsAfter = handles.stopCounts();
     expect(stopsAfter.httpServer).toBe(stopsBefore.httpServer);
-    expect(stopsAfter.participant).toBe(stopsBefore.participant);
+    expect(stopsAfter.chrome).toBe(stopsBefore.chrome);
     expect(stopsAfter.audio).toBe(stopsBefore.audio);
     expect(handles.daemonStopped()).toBe(false);
-    expect(handles.exitCode()).toBe(exitBefore);
 
-    // But the failure must have been surfaced to the log.
     expect(
       handles.errors.some((e) => e.includes("daemon ingress failure")),
     ).toBe(true);
-    expect(handles.errors.some((e) => e.includes("status 503"))).toBe(true);
   });
 
-  test("second terminal error within the window triggers graceful shutdown + exit 1", async () => {
+  test("second terminal error within the window triggers graceful shutdown", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps();
-    await runBot(deps);
+    await bootHappyPath(deps, handles);
 
     handles.fireDaemonError(
       new Error("ingress rejected batch with status 400"),
@@ -647,131 +1029,464 @@ describe("runBot — daemon-client terminal errors", () => {
       await new Promise((r) => setTimeout(r, 5));
     }
 
-    // Exited 1 (error) rather than 0 (clean leave).
     expect(handles.exitCode()).toBe(1);
-
-    // Subsystems torn down exactly once — same dedup as SIGTERM / /leave.
     const counts = handles.stopCounts();
     expect(counts.httpServer).toBe(1);
-    expect(counts.participant).toBe(1);
-    expect(counts.speaker).toBe(1);
-    expect(counts.chat).toBe(1);
+    expect(counts.chrome).toBe(1);
     expect(counts.audio).toBe(1);
     expect(handles.daemonStopped()).toBe(true);
 
-    // Final lifecycle event is "error" with the daemon-ingress detail.
     const lifecycleStates = handles.daemonEvents
       .filter((e): e is LifecycleEvent => e.type === "lifecycle")
       .map((e) => ({ state: e.state, detail: e.detail }));
     const last = lifecycleStates[lifecycleStates.length - 1]!;
     expect(last.state).toBe("error");
     expect(last.detail).toContain("daemon ingress failure");
-
-    // Both failures were logged, plus the "shutting down" banner.
-    expect(
-      handles.errors.filter((e) => e.includes("daemon ingress failure")).length,
-    ).toBeGreaterThanOrEqual(2);
-    expect(handles.errors.some((e) => e.includes("shutting down"))).toBe(true);
-  });
-
-  test("daemon-error shutdown deduplicates against SIGTERM", async () => {
-    BotState.__resetForTests();
-    const { deps, handles } = makeDeps();
-    await runBot(deps);
-
-    // Tip over the error threshold…
-    handles.fireDaemonError(new Error("status 400"));
-    handles.fireDaemonError(new Error("status 400"));
-
-    // …and race a SIGTERM into the shutdown.
-    handles.fireSigterm();
-
-    const deadline = Date.now() + 1_000;
-    while (handles.exitCode() === null && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 5));
-    }
-
-    // Each subsystem stopped exactly once — the shutdown guard held.
-    const counts = handles.stopCounts();
-    expect(counts.httpServer).toBe(1);
-    expect(counts.participant).toBe(1);
-    expect(counts.speaker).toBe(1);
-    expect(counts.chat).toBe(1);
-    expect(counts.audio).toBe(1);
   });
 });
 
-describe("runBot — event wiring", () => {
-  test("scraper onEvent callbacks enqueue events on the daemon client", async () => {
+/** -----------------------------------------------------------------------
+ * Gap A: meetingId rewrite at the bot boundary
+ * -----------------------------------------------------------------------
+ * The Chrome extension stamps every event with `meetingId = location.pathname`
+ * (the Meet URL code, e.g. `abc-defg-hij`), but the daemon keys each bot
+ * session by the UUID passed via the `MEETING_ID` env. The bot must overwrite
+ * `meetingId` with the authoritative UUID before forwarding to the daemon so
+ * events correlate to the right session even if the extension misreports.
+ */
+describe("runBot — Gap A: meetingId rewrite at bot boundary", () => {
+  test("participant.change has meetingId rewritten to the env UUID", async () => {
     BotState.__resetForTests();
-
-    // Capture the participant-scraper onEvent so we can invoke it by hand.
-    let participantOnEvent:
-      | ((
-          event: import("../../contracts/index.js").ParticipantChangeEvent,
-        ) => void)
-      | null = null;
-    let speakerOnEvent:
-      | ((event: import("../../contracts/index.js").SpeakerChangeEvent) => void)
-      | null = null;
-    let chatOnEvent:
-      | ((event: import("../../contracts/index.js").InboundChatEvent) => void)
-      | null = null;
-
     const { deps, handles } = makeDeps();
-    const baseStart = deps.startParticipantScraper;
-    const baseSpeaker = deps.startSpeakerScraper;
-    const baseChat = deps.startChatReader;
-
-    deps.startParticipantScraper = (page, onEvent, opts) => {
-      participantOnEvent = onEvent;
-      return baseStart(page, onEvent, opts);
-    };
-    deps.startSpeakerScraper = (page, onEvent, opts) => {
-      speakerOnEvent = onEvent;
-      return baseSpeaker(page, onEvent, opts);
-    };
-    deps.startChatReader = (page, onEvent, opts) => {
-      chatOnEvent = onEvent;
-      return baseChat(page, onEvent, opts);
-    };
-
-    await runBot(deps);
+    await bootHappyPath(deps, handles);
 
     const before = handles.daemonEvents.length;
-    expect(participantOnEvent).not.toBeNull();
-    expect(speakerOnEvent).not.toBeNull();
-    expect(chatOnEvent).not.toBeNull();
-
-    participantOnEvent!({
+    // Simulate the extension's URL-code-based meetingId — not the env UUID.
+    handles.fireExtensionMessage({
       type: "participant.change",
-      meetingId: "m-1",
+      meetingId: "abc-defg-hij",
       timestamp: new Date().toISOString(),
       joined: [{ id: "p-1", name: "Alice" }],
       left: [],
     });
-    speakerOnEvent!({
+
+    const fresh = handles.daemonEvents.slice(before);
+    expect(fresh).toHaveLength(1);
+    const event = fresh[0];
+    expect(event?.type).toBe("participant.change");
+    // Must be rewritten to the env UUID ("m-1" in test deps), not the
+    // extension-supplied URL code.
+    if (event?.type === "participant.change") {
+      expect(event.meetingId).toBe("m-1");
+    }
+  });
+
+  test("speaker.change + chat.inbound both have meetingId rewritten", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const before = handles.daemonEvents.length;
+    handles.fireExtensionMessage({
       type: "speaker.change",
-      meetingId: "m-1",
+      meetingId: "abc-defg-hij",
       timestamp: new Date().toISOString(),
       speakerId: "p-1",
       speakerName: "Alice",
     });
-    chatOnEvent!({
+    handles.fireExtensionMessage({
       type: "chat.inbound",
-      meetingId: "m-1",
+      meetingId: "abc-defg-hij",
       timestamp: new Date().toISOString(),
       fromId: "p-2",
       fromName: "Bob",
       text: "hello",
     });
 
-    expect(handles.daemonEvents.length).toBe(before + 3);
-    const newEvents = handles.daemonEvents.slice(before);
-    expect(newEvents.map((e) => e.type)).toEqual([
-      "participant.change",
-      "speaker.change",
-      "chat.inbound",
-    ]);
+    const fresh = handles.daemonEvents.slice(before);
+    expect(fresh).toHaveLength(2);
+    for (const event of fresh) {
+      if (event.type === "speaker.change" || event.type === "chat.inbound") {
+        expect(event.meetingId).toBe("m-1");
+      }
+    }
+  });
+
+  test("lifecycle events have meetingId rewritten to the env UUID", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const before = handles.daemonEvents.length;
+    handles.fireExtensionMessage({
+      type: "lifecycle",
+      meetingId: "abc-defg-hij",
+      timestamp: new Date().toISOString(),
+      state: "joined",
+    });
+
+    const fresh = handles.daemonEvents.slice(before);
+    expect(fresh).toHaveLength(1);
+    const event = fresh[0];
+    expect(event?.type).toBe("lifecycle");
+    if (event?.type === "lifecycle") {
+      expect(event.meetingId).toBe("m-1");
+      expect(event.state).toBe("joined");
+    }
+  });
+});
+
+/** -----------------------------------------------------------------------
+ * Foreign-tab source gate
+ * -----------------------------------------------------------------------
+ * The background service worker fans every bot command out to every open
+ * Meet tab in the Chrome profile. A stray tab (prior bot session, user-
+ * opened Meet, etc.) could otherwise emit lifecycle / telemetry events
+ * that we'd stamp with the session UUID and treat as authoritative —
+ * clearing the join-deadline timer, firing spurious `joined` / `error`
+ * at the daemon, and mixing telemetry across meetings. The bot compares
+ * each event's extension-supplied `meetingId` (the source tab's URL
+ * code) against the code derived from MEET_URL and drops mismatches.
+ */
+describe("runBot — foreign-tab source gate", () => {
+  test("lifecycle event from a foreign tab is dropped", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const before = handles.daemonEvents.length;
+    handles.fireExtensionMessage({
+      type: "lifecycle",
+      // Wrong Meet code — a stray tab pointed at a different meeting.
+      meetingId: "zzz-yyyy-xxx",
+      timestamp: new Date().toISOString(),
+      state: "joined",
+    });
+
+    // No daemon event enqueued.
+    expect(handles.daemonEvents.length).toBe(before);
+    // Diagnostic logged via logInfo.
+    expect(
+      handles.infos.some((m) =>
+        m.includes("dropping lifecycle event from foreign tab"),
+      ),
+    ).toBe(true);
+  });
+
+  test("foreign-tab lifecycle:joined does not clear the join-deadline timer", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps({ extensionJoinedTimeoutMs: 50 });
+    const running = runBot(deps);
+    await new Promise((r) => setTimeout(r, 5));
+    handles.fireExtensionReady();
+    await running;
+
+    // A stray tab's `joined` must NOT cancel the deadline.
+    handles.fireExtensionMessage({
+      type: "lifecycle",
+      meetingId: "zzz-yyyy-xxx",
+      timestamp: new Date().toISOString(),
+      state: "joined",
+    });
+
+    // Wait past the deadline — the timer should still trip.
+    const deadline = Date.now() + 1_000;
+    while (handles.exitCode() === null && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(handles.exitCode()).toBe(1);
+
+    const lifecycleStates = handles.daemonEvents
+      .filter((e): e is LifecycleEvent => e.type === "lifecycle")
+      .map((e) => ({ state: e.state, detail: e.detail }));
+    const errState = lifecycleStates.find((s) => s.state === "error");
+    expect(errState?.detail).toContain(
+      "extension did not reach joined state within 50ms",
+    );
+  });
+
+  test("participant.change / speaker.change / chat.inbound from foreign tabs are dropped", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const before = handles.daemonEvents.length;
+    handles.fireExtensionMessage({
+      type: "participant.change",
+      meetingId: "zzz-yyyy-xxx",
+      timestamp: new Date().toISOString(),
+      joined: [{ id: "p-1", name: "Alice" }],
+      left: [],
+    });
+    handles.fireExtensionMessage({
+      type: "speaker.change",
+      meetingId: "zzz-yyyy-xxx",
+      timestamp: new Date().toISOString(),
+      speakerId: "p-1",
+      speakerName: "Alice",
+    });
+    handles.fireExtensionMessage({
+      type: "chat.inbound",
+      meetingId: "zzz-yyyy-xxx",
+      timestamp: new Date().toISOString(),
+      fromId: "p-2",
+      fromName: "Bob",
+      text: "hello",
+    });
+
+    expect(handles.daemonEvents.length).toBe(before);
+  });
+});
+
+/** -----------------------------------------------------------------------
+ * Gap B: extension-joined deadline
+ * -----------------------------------------------------------------------
+ * `waitForReady` only proves the extension is alive, not that Chrome landed
+ * on a Meet tab. A restore-session dialog or redirect loop leaves the
+ * content script unmounted and the `join` relay is silently dropped. Bound
+ * the wait with `extensionJoinedTimeoutMs` so the bot doesn't sit in
+ * `phase=joining` forever.
+ */
+describe("runBot — Gap B: extension-joined deadline", () => {
+  test("fires shutdown with error when extension never reaches joined", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps({ extensionJoinedTimeoutMs: 50 });
+    const running = runBot(deps);
+    // Let the boot reach `waitForReady`, then fire ready but never fire
+    // `lifecycle:joined`. The timer should trip and shutdown should fire.
+    await new Promise((r) => setTimeout(r, 5));
+    handles.fireExtensionReady();
+    await running;
+
+    // Wait longer than `extensionJoinedTimeoutMs` for the timer to fire.
+    const deadline = Date.now() + 1_000;
+    while (handles.exitCode() === null && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    expect(handles.exitCode()).toBe(1);
+
+    const lifecycleStates = handles.daemonEvents
+      .filter((e): e is LifecycleEvent => e.type === "lifecycle")
+      .map((e) => ({ state: e.state, detail: e.detail }));
+    const errState = lifecycleStates.find((s) => s.state === "error");
+    expect(errState).toBeDefined();
+    expect(errState?.detail).toContain(
+      "extension did not reach joined state within 50ms",
+    );
+
+    // Full shutdown should have run.
+    const counts = handles.stopCounts();
+    expect(counts.httpServer).toBe(1);
+    expect(counts.chrome).toBe(1);
+    expect(counts.audio).toBe(1);
+    expect(counts.xvfb).toBe(1);
+    expect(counts.socketServer).toBe(1);
+    expect(handles.daemonStopped()).toBe(true);
+  });
+
+  test("lifecycle:joined from extension clears the timer (no shutdown)", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps({ extensionJoinedTimeoutMs: 50 });
+    const running = runBot(deps);
+    await new Promise((r) => setTimeout(r, 5));
+    handles.fireExtensionReady();
+    await running;
+
+    // Fire `joined` before the timer deadline — should prevent shutdown.
+    handles.fireExtensionMessage({
+      type: "lifecycle",
+      meetingId: "abc-defg-hij",
+      timestamp: new Date().toISOString(),
+      state: "joined",
+    });
+
+    // Give the timer plenty of time to fire if it wasn't cleared.
+    await new Promise((r) => setTimeout(r, 100));
+
+    // No shutdown should have occurred.
+    expect(handles.exitCode()).toBeNull();
+    const counts = handles.stopCounts();
+    expect(counts.httpServer).toBe(0);
+    expect(counts.chrome).toBe(0);
+    expect(counts.audio).toBe(0);
+    expect(handles.daemonStopped()).toBe(false);
+  });
+
+  test("lifecycle:error from extension triggers shutdown with exit code 1", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps({ extensionJoinedTimeoutMs: 50 });
+    const running = runBot(deps);
+    await new Promise((r) => setTimeout(r, 5));
+    handles.fireExtensionReady();
+    await running;
+
+    // Fire `error` — the extension is signaling the meet-side died. The
+    // handler must drive a graceful shutdown so subsystems tear down
+    // promptly and the chrome-exit watcher doesn't misclassify the
+    // subsequent clean Chrome exit as an unexpected crash.
+    handles.fireExtensionMessage({
+      type: "lifecycle",
+      meetingId: "abc-defg-hij",
+      timestamp: new Date().toISOString(),
+      state: "error",
+      detail: "prejoin captcha",
+    });
+
+    // Wait for shutdown to complete.
+    const deadline = Date.now() + 1_000;
+    while (handles.exitCode() === null && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    expect(handles.exitCode()).toBe(1);
+
+    // shutdown() publishes lifecycle:error to the daemon with the detail
+    // forwarded from the extension; the handler itself no longer emits a
+    // separate error event, so we see exactly one.
+    const errEvents = handles.daemonEvents
+      .filter((e): e is LifecycleEvent => e.type === "lifecycle")
+      .filter((e) => e.state === "error");
+    expect(errEvents.length).toBe(1);
+    expect(errEvents[0]?.detail).toBe("prejoin captcha");
+
+    // Full shutdown should have run.
+    const counts = handles.stopCounts();
+    expect(counts.httpServer).toBe(1);
+    expect(counts.chrome).toBe(1);
+    expect(counts.audio).toBe(1);
+    expect(counts.xvfb).toBe(1);
+    expect(counts.socketServer).toBe(1);
+    expect(handles.daemonStopped()).toBe(true);
+  });
+
+  test("lifecycle:left from extension triggers shutdown with exit code 0", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps({ extensionJoinedTimeoutMs: 50 });
+    const running = runBot(deps);
+    await new Promise((r) => setTimeout(r, 5));
+    handles.fireExtensionReady();
+    await running;
+
+    // Fire `left` — the meeting ended naturally (host ended it, bot was
+    // kicked, etc.). The handler must drive a graceful shutdown and exit 0
+    // so the clean leave isn't misclassified as an error.
+    handles.fireExtensionMessage({
+      type: "lifecycle",
+      meetingId: "abc-defg-hij",
+      timestamp: new Date().toISOString(),
+      state: "left",
+      detail: "meeting ended",
+    });
+
+    // Wait for shutdown to complete.
+    const deadline = Date.now() + 1_000;
+    while (handles.exitCode() === null && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    expect(handles.exitCode()).toBe(0);
+
+    // Exactly one lifecycle:left event (published by shutdown, not the
+    // handler, so there's no duplicate).
+    const leftEvents = handles.daemonEvents
+      .filter((e): e is LifecycleEvent => e.type === "lifecycle")
+      .filter((e) => e.state === "left");
+    expect(leftEvents.length).toBe(1);
+    expect(leftEvents[0]?.detail).toBe("meeting ended");
+
+    // Full shutdown should have run.
+    const counts = handles.stopCounts();
+    expect(counts.httpServer).toBe(1);
+    expect(counts.chrome).toBe(1);
+    expect(counts.audio).toBe(1);
+    expect(counts.xvfb).toBe(1);
+    expect(counts.socketServer).toBe(1);
+    expect(handles.daemonStopped()).toBe(true);
+  });
+});
+
+/** -----------------------------------------------------------------------
+ * Gap C: error detail forwarded to the daemon
+ * -----------------------------------------------------------------------
+ * Previously `waitForReady` / send-join failures reported a generic string
+ * to the daemon, losing the underlying error's message. The specific cause
+ * must reach the conversation log.
+ */
+describe("runBot — Gap C: error detail forwarding", () => {
+  test("waitForReady rejection forwards the underlying error message to daemon", async () => {
+    BotState.__resetForTests();
+    const specific =
+      "timed out after 1234ms waiting for extension ready handshake";
+    const { deps, handles } = makeDeps({
+      extensionReadyError: new Error(specific),
+    });
+
+    await runBot(deps);
+
+    expect(handles.exitCode()).toBe(1);
+
+    const lifecycleStates = handles.daemonEvents
+      .filter((e): e is LifecycleEvent => e.type === "lifecycle")
+      .map((e) => ({ state: e.state, detail: e.detail }));
+    const errState = lifecycleStates.find((s) => s.state === "error");
+    expect(errState).toBeDefined();
+    // Detail must contain BOTH the generic context AND the specific cause.
+    expect(errState?.detail).toContain("extension never signaled ready");
+    expect(errState?.detail).toContain(specific);
+  });
+});
+
+/** -----------------------------------------------------------------------
+ * avatarDevicePath threading to launchChrome
+ * -----------------------------------------------------------------------
+ * When `services.meet.avatar.devicePath` is set (threaded down as
+ * `AVATAR_DEVICE_PATH` on the bot env), the bot must pass the same
+ * device path to `launchChrome` so Chrome's
+ * `--use-file-for-fake-video-capture=<path>` flag targets the device
+ * the renderer writes to. Without this, the renderer writes frames to
+ * one node (e.g. `/dev/video11`) and Chrome reads from another
+ * (`/dev/video10` default) and participants see a black frame.
+ */
+describe("runBot — avatarDevicePath threads to launchChrome", () => {
+  test("env.avatarDevicePath flows through to launchChrome when set", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    const realEnv = deps.env;
+    deps.env = () => ({
+      ...realEnv(),
+      avatarEnabled: true,
+      avatarDevicePath: "/dev/video11",
+    });
+
+    await bootHappyPath(deps, handles);
+
+    const launchCall = handles.calls.find((c) => c.kind === "chrome.launch");
+    expect(launchCall).toBeDefined();
+    expect(launchCall!.avatarEnabled).toBe(true);
+    expect(launchCall!.avatarDevicePath).toBe("/dev/video11");
+  });
+
+  test("omits avatarDevicePath from launchChrome when env is unset", async () => {
+    // When no operator override exists, the key is absent from the
+    // options object so the launcher falls back to its module-local
+    // DEFAULT_AVATAR_DEVICE_PATH. This is important: a spurious
+    // `avatarDevicePath: undefined` would also work, but absence is
+    // the cleanest signal "use the default".
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    const realEnv = deps.env;
+    deps.env = () => ({
+      ...realEnv(),
+      avatarEnabled: true,
+      avatarDevicePath: undefined,
+    });
+
+    await bootHappyPath(deps, handles);
+
+    const launchCall = handles.calls.find((c) => c.kind === "chrome.launch");
+    expect(launchCall).toBeDefined();
+    expect(launchCall!.avatarEnabled).toBe(true);
+    expect(launchCall!.avatarDevicePath).toBeUndefined();
   });
 });

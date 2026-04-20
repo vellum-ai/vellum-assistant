@@ -490,12 +490,53 @@ describe("wakeAgentForOpportunity", () => {
     expect(result.producedToolCalls).toBe(false);
   });
 
-  test("returns invoked: false when the conversation cannot be resolved", async () => {
+  test("returns invoked: false with reason 'not_found' when the conversation cannot be resolved", async () => {
     const result = await wakeAgentForOpportunity(
       { conversationId: "missing", hint: "x", source: "y" },
       { resolveTarget: async () => null },
     );
-    expect(result).toEqual({ invoked: false, producedToolCalls: false });
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "not_found",
+    });
+  });
+
+  test("returns invoked: false with reason 'timeout' when the target stays busy past the wait-until-idle window", async () => {
+    // Resolver returns a target that is permanently `processing`. Fast-
+    // forward the injected `now` past the 30s deadline so waitUntilIdle
+    // returns false. Without the distinct `timeout` reason, callers
+    // cannot tell this case apart from "not_found".
+    const history: Message[] = [];
+    const target: WakeTarget = {
+      conversationId: "conv-busy",
+      agentLoop: { run: async () => history },
+      getMessages: () => history,
+      pushMessage: () => {},
+      emitAgentEvent: () => {},
+      isProcessing: () => true,
+      markProcessing: () => {},
+      persistTailMessage: async () => {},
+    };
+    let t = 0;
+    const now = () => {
+      // First call establishes the deadline at +30_000. Every subsequent
+      // call jumps past the deadline so the polling loop exits after one
+      // 50ms tick.
+      const v = t;
+      t += 31_000;
+      return v;
+    };
+
+    const result = await wakeAgentForOpportunity(
+      { conversationId: "conv-busy", hint: "x", source: "y" },
+      { resolveTarget: async () => target, now },
+    );
+    expect(result).toEqual({
+      invoked: false,
+      producedToolCalls: false,
+      reason: "timeout",
+    });
   });
 
   test("agent loop error is treated as a no-op", async () => {

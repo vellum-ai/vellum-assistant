@@ -9,6 +9,7 @@ import {
   getSummaryFromContextMessage,
 } from "../context/window-manager.js";
 import type {
+  ContentBlock,
   Message,
   Provider,
   ProviderResponse,
@@ -261,8 +262,9 @@ describe("ContextWindowManager", () => {
       provider,
       systemPrompt: "system prompt",
       config: makeConfig({
-        maxInputTokens: 550,
+        maxInputTokens: 620,
         targetBudgetRatio: 0.59,
+        compactThreshold: 0.5,
       }),
     });
     const long = "f".repeat(500);
@@ -834,6 +836,83 @@ describe("ContextWindowManager", () => {
     );
   });
 
+  test("force=true compacts below minFloor when a kept turn exceeds target", async () => {
+    // A giant paste in the last user turn means minFloor=1 alone exceeds target.
+    // Under force, pickKeepBoundary should walk keepTurns below minFloor (down to
+    // 0) so the huge block falls into the compacted region and gets summarized
+    // instead of being kept at full size.
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- compressed large paste" }],
+      model: "mock-model",
+      usage: { inputTokens: 120, outputTokens: 20 },
+      stopReason: "end_turn",
+    }));
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({ maxInputTokens: 600, targetBudgetRatio: 0.2 }),
+    });
+    const hugePaste = "p".repeat(4000); // ~1000 tokens, well above targetInputTokens
+    const history: Message[] = [
+      message("user", "u1 small"),
+      message("assistant", "a1 small"),
+      message("user", `u2 ${hugePaste}`),
+    ];
+
+    const result = await manager.maybeCompact(history, undefined, {
+      force: true,
+    });
+
+    expect(result.compacted).toBe(true);
+    // With force=true the kept region is empty; all turns including the oversized
+    // paste were summarized, so the compacted result is just the summary.
+    expect(result.messages).toHaveLength(1);
+    expect(result.compactedMessages).toBe(history.length);
+    expect(getSummaryFromContextMessage(result.messages[0])).toContain(
+      "compressed large paste",
+    );
+    expect(result.estimatedInputTokens).toBeLessThan(
+      result.previousEstimatedInputTokens,
+    );
+  });
+
+  test("force=false honors minFloor even when the kept turn exceeds target", async () => {
+    // Same oversized paste, but without force the algorithm must preserve the
+    // minFloor=1 recent turn (auto mid-loop compaction needs the in-flight turn
+    // intact). Anything compactable before the floor still gets summarized.
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- summary" }],
+      model: "mock-model",
+      usage: { inputTokens: 60, outputTokens: 10 },
+      stopReason: "end_turn",
+    }));
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({ maxInputTokens: 600, targetBudgetRatio: 0.2 }),
+    });
+    const hugePaste = "p".repeat(4000);
+    const history: Message[] = [
+      message("user", "u1 small"),
+      message("assistant", "a1 small"),
+      message("user", "u2 small"),
+      message("assistant", "a2 small"),
+      message("user", `u3 ${hugePaste}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+
+    expect(result.compacted).toBe(true);
+    // The oversized last user turn is retained verbatim; the kept array starts
+    // with the summary followed by the messages from that turn onward.
+    const lastUser = result.messages
+      .filter((m) => m.role === "user")
+      .map((m) => (m.content[0].type === "text" ? m.content[0].text : ""))
+      .find((t) => t.startsWith("u3 "));
+    expect(lastUser).toBeDefined();
+    expect(lastUser!.length).toBeGreaterThan(hugePaste.length);
+  });
+
   test("shouldCompact returns needed=false with estimatedTokens when below threshold", () => {
     const provider = createProvider(() => {
       throw new Error("should not be called");
@@ -1096,6 +1175,148 @@ describe("ContextWindowManager", () => {
     expect(manager.nonPersistedPrefixCount).toBe(0);
   });
 
+  test("summary system prompt instructs verbatim thread-anchor preservation", async () => {
+    const capturedSystemPrompts: (string | undefined)[] = [];
+    const provider: Provider = {
+      name: "mock",
+      async sendMessage(
+        _messages: Message[],
+        _tools,
+        systemPrompt,
+      ): Promise<ProviderResponse> {
+        capturedSystemPrompts.push(systemPrompt);
+        return {
+          content: [
+            {
+              type: "text",
+              text: "## Goals\n- preserved thread parent verbatim",
+            },
+          ],
+          model: "mock-model",
+          usage: { inputTokens: 60, outputTokens: 12 },
+          stopReason: "end_turn",
+        };
+      },
+    };
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({ maxInputTokens: 600 }),
+    });
+    const long = "x".repeat(240);
+    // Simulate a Slack-style transcript where an old user "thread parent"
+    // message is about to be compacted while a later reply survives in the
+    // retained tail. The clause being asserted instructs the summarizer to
+    // preserve that parent verbatim — we cannot verify the model's behavior
+    // here (the provider is a stub), so we instead assert the clause itself
+    // reaches the summarizer.
+    const history: Message[] = [
+      message("user", `parent: kickoff plan ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+      message("user", `reply-in-thread ${long}`),
+      message("assistant", `a3 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+    expect(result.compacted).toBe(true);
+    expect(capturedSystemPrompts.length).toBeGreaterThan(0);
+    const seenPrompt = capturedSystemPrompts[0];
+    expect(seenPrompt).toBeDefined();
+    expect(seenPrompt).toContain("Thread anchors");
+    expect(seenPrompt).toContain("verbatim");
+  });
+
+  test("summary prompt lists retained-tail thread-reply references", async () => {
+    const capturedMessages: Message[][] = [];
+    const provider: Provider = {
+      name: "mock",
+      async sendMessage(messages: Message[]): Promise<ProviderResponse> {
+        capturedMessages.push(messages);
+        return {
+          content: [{ type: "text", text: "## Goals\n- ok" }],
+          model: "mock-model",
+          usage: { inputTokens: 60, outputTokens: 12 },
+          stopReason: "end_turn",
+        };
+      },
+    };
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({ maxInputTokens: 600 }),
+    });
+    const long = "x".repeat(240);
+    // Compactable region ends before the retained tail, which contains a
+    // Slack-style reply line that cites its parent via `→ M1a2b3c`. The
+    // summary prompt must surface that reference so the Thread-anchors
+    // instruction has something to act on.
+    const history: Message[] = [
+      message("user", `[11/14/23 14:25 @alice]: parent kickoff ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+      message("user", `[11/14/23 14:28 @bob → M1a2b3c]: reply ${long}`),
+      message("assistant", `a3 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+    expect(result.compacted).toBe(true);
+    expect(capturedMessages.length).toBeGreaterThan(0);
+    const userPromptText = capturedMessages[0]
+      .flatMap((m) => m.content)
+      .filter(
+        (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text",
+      )
+      .map((b) => b.text)
+      .join("\n");
+    expect(userPromptText).toContain("### Retained Thread References");
+    expect(userPromptText).toContain("→ M1a2b3c");
+  });
+
+  test("summary prompt omits retained references when retained tail has no thread markers", async () => {
+    const capturedMessages: Message[][] = [];
+    const provider: Provider = {
+      name: "mock",
+      async sendMessage(messages: Message[]): Promise<ProviderResponse> {
+        capturedMessages.push(messages);
+        return {
+          content: [{ type: "text", text: "## Goals\n- ok" }],
+          model: "mock-model",
+          usage: { inputTokens: 60, outputTokens: 12 },
+          stopReason: "end_turn",
+        };
+      },
+    };
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({ maxInputTokens: 600 }),
+    });
+    const long = "x".repeat(240);
+    const history: Message[] = [
+      message("user", `u1 ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+      message("user", `u3 ${long}`),
+      message("assistant", `a3 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+    expect(result.compacted).toBe(true);
+    const userPromptText = capturedMessages[0]
+      .flatMap((m) => m.content)
+      .filter(
+        (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text",
+      )
+      .map((b) => b.text)
+      .join("\n");
+    expect(userPromptText).not.toContain("### Retained Thread References");
+    expect(userPromptText).not.toMatch(/→ M[0-9a-f]{6}]/);
+  });
+
   test("does not subtract summaryOffset when summary at index 0 is child-owned from prior compaction", async () => {
     const provider = createProvider(() => ({
       content: [{ type: "text", text: "## Goals\n- next child summary" }],
@@ -1139,5 +1360,145 @@ describe("ContextWindowManager", () => {
     // compactedPersistedMessages by 1 (to 3).
     expect(result.compactedPersistedMessages).toBe(2);
     expect(manager.nonPersistedPrefixCount).toBe(0);
+  });
+
+  test("Slack origin bumps default minKeepRecentUserTurns to 8", async () => {
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- slack thread context" }],
+      model: "mock-model",
+      usage: { inputTokens: 60, outputTokens: 12 },
+      stopReason: "end_turn",
+    }));
+
+    // Use targetInputTokensOverride so the binary search is forced even
+    // for a small history. Both managers see the same tight budget; the
+    // only knob that varies is conversationOriginChannel.
+    const config = makeConfig({ maxInputTokens: 12_000 });
+    const long = "s".repeat(220);
+    // 9 user turns: enough headroom for Slack's bumped floor of 8 to be
+    // distinguishable from the default floor of 1.
+    const history: Message[] = [];
+    for (let i = 1; i <= 9; i++) {
+      history.push(message("user", `u${i} ${long}`));
+      history.push(message("assistant", `a${i} ${long}`));
+    }
+
+    const slackManager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config,
+    });
+    const slackResult = await slackManager.maybeCompact(history, undefined, {
+      force: true,
+      targetInputTokensOverride: 200,
+      conversationOriginChannel: "slack",
+    });
+
+    const defaultManager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config,
+    });
+    const defaultResult = await defaultManager.maybeCompact(
+      history,
+      undefined,
+      { force: true, targetInputTokensOverride: 200 },
+    );
+
+    expect(slackResult.compacted).toBe(true);
+    expect(defaultResult.compacted).toBe(true);
+    // Default floor (1 user turn) compacts more of the history than the
+    // Slack floor (8 user turns), which preserves more recent context.
+    expect(defaultResult.compactedMessages).toBeGreaterThan(
+      slackResult.compactedMessages,
+    );
+    // Slack keeps 8 of 9 user turns: 16 kept messages, 2 compacted.
+    expect(slackResult.compactedMessages).toBe(2);
+  });
+
+  test("non-Slack origin keeps default minKeepRecentUserTurns of 1", async () => {
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- standard summary" }],
+      model: "mock-model",
+      usage: { inputTokens: 60, outputTokens: 12 },
+      stopReason: "end_turn",
+    }));
+
+    const config = makeConfig({ maxInputTokens: 12_000 });
+    const long = "n".repeat(220);
+    const history: Message[] = [];
+    for (let i = 1; i <= 9; i++) {
+      history.push(message("user", `u${i} ${long}`));
+      history.push(message("assistant", `a${i} ${long}`));
+    }
+
+    // Telegram origin must behave identically to no-channel-hint default.
+    const telegramManager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config,
+    });
+    const telegramResult = await telegramManager.maybeCompact(
+      history,
+      undefined,
+      {
+        force: true,
+        targetInputTokensOverride: 200,
+        conversationOriginChannel: "telegram",
+      },
+    );
+
+    const defaultManager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config,
+    });
+    const defaultResult = await defaultManager.maybeCompact(
+      history,
+      undefined,
+      { force: true, targetInputTokensOverride: 200 },
+    );
+
+    expect(telegramResult.compacted).toBe(true);
+    expect(defaultResult.compacted).toBe(true);
+    expect(telegramResult.compactedMessages).toBe(
+      defaultResult.compactedMessages,
+    );
+  });
+
+  test("explicit minKeepRecentUserTurns wins over Slack default", async () => {
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- emergency override" }],
+      model: "mock-model",
+      usage: { inputTokens: 60, outputTokens: 12 },
+      stopReason: "end_turn",
+    }));
+
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({
+        maxInputTokens: 260,
+        targetBudgetRatio: 0.28,
+      }),
+    });
+    const long = "e".repeat(220);
+    const history: Message[] = [
+      message("user", `u1 ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+    ];
+
+    // Emergency override (`minKeepRecentUserTurns: 0`) must take precedence
+    // over the Slack-bumped default of 8 — this guards the agent loop's
+    // context-too-large recovery path which always passes 0.
+    const result = await manager.maybeCompact(history, undefined, {
+      force: true,
+      minKeepRecentUserTurns: 0,
+      conversationOriginChannel: "slack",
+    });
+    expect(result.compacted).toBe(true);
+    expect(result.compactedMessages).toBe(3);
+    expect(result.messages).toHaveLength(1);
   });
 });

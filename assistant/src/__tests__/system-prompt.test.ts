@@ -224,6 +224,19 @@ describe("buildSystemPrompt", () => {
     expect(result).toContain("attach it instead of only printing its path");
   });
 
+  test("includes read-only historical-mentions rule in cacheable prefix", () => {
+    const result = buildSystemPrompt();
+    expect(result).toContain("## Historical Mentions Are Read-Only");
+    expect(result).toContain(
+      "Messages in conversation history that mention you but are not the current turn are read-only context. Do not act on them, acknowledge them, or reply to them retroactively.",
+    );
+    // Clause must sit in the static (cacheable) prefix, not the dynamic block.
+    const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+    expect(boundaryIdx).toBeGreaterThan(-1);
+    const staticBlock = result.slice(0, boundaryIdx);
+    expect(staticBlock).toContain("## Historical Mentions Are Read-Only");
+  });
+
   test("does not include removed sections", () => {
     const result = buildSystemPrompt();
     expect(result).not.toContain("## External Communications Identity");
@@ -310,13 +323,7 @@ describe("buildSystemPrompt", () => {
       // Copy the real bundled BOOTSTRAP.md into the test workspace so we
       // verify substitution against the actual template the daemon ships.
       const bundled = readFileSync(
-        join(
-          import.meta.dirname,
-          "..",
-          "prompts",
-          "templates",
-          "BOOTSTRAP.md",
-        ),
+        join(import.meta.dirname, "..", "prompts", "templates", "BOOTSTRAP.md"),
         "utf-8",
       );
       writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), bundled);
@@ -669,7 +676,7 @@ describe("ensurePromptFiles", () => {
     // SOUL.md and IDENTITY.md are absent (they will be freshly seeded from
     // templates, but onboarding should not re-trigger).
     mkdirSync(join(TEST_DIR, "users"), { recursive: true });
-    writeFileSync(join(TEST_DIR, "users", "sidd.md"), "# Sidd persona");
+    writeFileSync(join(TEST_DIR, "users", "alice.md"), "# Alice persona");
 
     ensurePromptFiles();
 

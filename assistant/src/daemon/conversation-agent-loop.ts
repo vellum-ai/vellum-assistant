@@ -7,6 +7,8 @@
  * runAgentLoop method here via the AgentLoopConversationContext interface.
  */
 
+import { join } from "node:path";
+
 import { v4 as uuid } from "uuid";
 
 import type {
@@ -64,6 +66,7 @@ import {
 } from "../memory/conversation-title-service.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
+import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
@@ -72,6 +75,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
+import { getWorkspaceDir } from "../util/platform.js";
 import { timeAgo } from "../util/time.js";
 import { truncate } from "../util/truncate.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
@@ -116,8 +120,11 @@ import {
   buildSubagentStatusBlock,
   buildUnifiedTurnContextBlock,
   findLastInjectedNowContent,
+  getPkbAutoInjectList,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
+  loadSlackActiveThreadFocusBlock,
+  loadSlackChronologicalMessages,
   readNowScratchpad,
   readPkbContext,
   stripInjectionsForCompaction,
@@ -137,6 +144,7 @@ import type {
 } from "./message-protocol.js";
 import type { MemoryRecalled } from "./message-types/memory.js";
 import type { TraceEmitter } from "./trace-emitter.js";
+import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");
 
@@ -230,6 +238,7 @@ export interface AgentLoopConversationContext {
   >;
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
   surfaceActionRequestIds: Set<string>;
+  approvedViaPromptThisTurn?: boolean;
   currentTurnSurfaces: Array<{
     surfaceId: string;
     surfaceType: SurfaceType;
@@ -547,6 +556,8 @@ export async function runAgentLoopImpl(
       {
         lastCompactedAt: ctx.contextCompactedAt ?? undefined,
         precomputedEstimate: compactCheck.estimatedTokens,
+        conversationOriginChannel:
+          getConversationOriginChannel(ctx.conversationId) ?? undefined,
       },
     );
     if (compacted.compacted) {
@@ -640,7 +651,12 @@ export async function runAgentLoopImpl(
     let runMessages = ctx.messages;
 
     // Memory graph retrieval — dispatches to context-load / per-turn based on
-    // conversation state.
+    // conversation state. Keep the query vector around so the PKB reminder
+    // can reuse it for relevance-hint search (see `applyRuntimeInjections`).
+    let pkbQueryVector: number[] | undefined;
+    let pkbSparseVector:
+      | import("../memory/qdrant-client.js").QdrantSparseVector
+      | undefined;
     const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
     if (isTrustedActor) {
       const graphResult = await ctx.graphMemory.prepareMemory(
@@ -650,6 +666,13 @@ export async function runAgentLoopImpl(
         onEvent,
       );
       runMessages = graphResult.runMessages;
+      pkbQueryVector = graphResult.userQueryVector ?? graphResult.queryVector;
+      // Reset sparse vector when the dense vector came from `userQueryVector` —
+      // there is no matching user-query sparse vector today, and pairing a
+      // user-query dense with a summary-aligned sparse is incorrect.
+      pkbSparseVector = graphResult.userQueryVector
+        ? undefined
+        : graphResult.sparseVector;
 
       // Persist the injected block text in message metadata so it survives
       // conversation reloads (eviction, restart, fork). loadFromDb re-injects
@@ -848,6 +871,21 @@ export async function runAgentLoopImpl(
     const pkbContext = shouldInjectNowAndPkb ? currentPkbContent : null;
     const pkbActive = currentPkbContent !== null;
 
+    // PKB relevance-hint inputs. Resolved once per turn and reused across
+    // re-injections so post-compaction rebuilds pick up fresh hints against
+    // the updated conversation history.
+    const pkbRoot = pkbActive ? join(getWorkspaceDir(), "pkb") : undefined;
+    const pkbAutoInjectList = pkbRoot
+      ? getPkbAutoInjectList(pkbRoot)
+      : undefined;
+    // Pass `ctx` directly — `PkbContextConversation` is structural and
+    // `getInContextPkbPaths` re-reads `conversation.messages` on each call,
+    // so post-compaction re-injects see the updated history.
+    const pkbConversation = pkbActive ? ctx : undefined;
+    // PKB points live under a single workspace sentinel scope, not the
+    // conversation's memoryPolicy.scopeId. See `PKB_WORKSPACE_SCOPE` for why.
+    const pkbScopeId = pkbActive ? PKB_WORKSPACE_SCOPE : undefined;
+
     // Subagent status injection — gives the parent LLM visibility into active/completed children.
     // Skipped when this conversation IS a subagent (no nesting) or has no children.
     const subagentStatusBlock = ctx.isSubagent
@@ -855,6 +893,43 @@ export async function runAgentLoopImpl(
       : buildSubagentStatusBlock(
           getSubagentManager().getChildrenOf(ctx.conversationId),
         );
+
+    // For any Slack conversation (channels and DMs alike), build a
+    // chronological transcript from the persisted message rows so the
+    // model sees one channel-wide view instead of the gateway's per-turn
+    // hints. DMs render as a flat sequence (no thread tags), channels
+    // include sibling threads.
+    const isSlackConversation = ctx.channelCapabilities?.channel === "slack";
+    const slackChronologicalMessages = isSlackConversation
+      ? loadSlackChronologicalMessages(
+          ctx.conversationId,
+          ctx.channelCapabilities!,
+          { trustClass: ctx.trustContext?.trustClass },
+        )
+      : null;
+
+    // Active-thread focus block: when the inbound user message belongs to
+    // a Slack thread, append a non-persisted `<active_thread>` tail block
+    // to the final user turn listing the thread's parent + replies. Helps
+    // the model orient when the channel transcript is long and
+    // interleaved. Replays strip the block via RUNTIME_INJECTION_PREFIXES.
+    // DMs short-circuit to null inside `loadSlackActiveThreadFocusBlock`
+    // since DMs do not have threads.
+    const slackActiveThreadFocusBlock = isSlackConversation
+      ? loadSlackActiveThreadFocusBlock(
+          ctx.conversationId,
+          ctx.channelCapabilities!,
+          { trustClass: ctx.trustContext?.trustClass },
+        )
+      : null;
+
+    // Guards the chronological-transcript override on re-injection after
+    // the reducer compacts `ctx.messages`. The captured transcript is the
+    // full persisted history; blindly replaying it on every re-inject would
+    // overwrite the reducer's compacted messages and undo compaction. Flip
+    // to `true` after any compaction so subsequent re-injections fall back
+    // to the reduced `ctx.messages`.
+    let reducerCompacted = compactedThisTurn;
 
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
@@ -867,16 +942,25 @@ export async function runAgentLoopImpl(
       unifiedTurnContext: unifiedTurnContextStr,
       pkbContext,
       pkbActive,
+      pkbQueryVector,
+      pkbSparseVector,
+      pkbScopeId,
+      pkbConversation,
+      pkbAutoInjectList,
+      pkbRoot,
+      pkbWorkingDir: pkbActive ? ctx.workingDir : undefined,
       nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       transportHints: ctx.transportHints ?? null,
       isNonInteractive: !isInteractiveResolved,
       subagentStatusBlock,
+      slackChronologicalMessages,
+      slackActiveThreadFocusBlock,
     } as const;
 
     let currentInjectionMode: InjectionMode = "full";
 
-    runMessages = applyRuntimeInjections(runMessages, {
+    runMessages = await applyRuntimeInjections(runMessages, {
       ...injectionOpts,
       mode: currentInjectionMode,
     });
@@ -990,13 +1074,14 @@ export async function runAgentLoopImpl(
             step.compactionResult.compactedPersistedMessages,
           );
           shouldInjectWorkspace = true;
+          reducerCompacted = true;
         }
 
         // Re-inject with potentially downgraded injection mode.
         // When compaction ran it strips existing NOW.md / PKB blocks, so we
         // must re-inject the current content. Otherwise rely on the deduplicated
         // value from injectionOpts to avoid duplicate injection.
-        runMessages = applyRuntimeInjections(ctx.messages, {
+        runMessages = await applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
           ...(step.compactionResult?.compacted && {
             pkbContext: currentPkbContent,
@@ -1007,6 +1092,13 @@ export async function runAgentLoopImpl(
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
             : null,
+          // Once the reducer has compacted `ctx.messages`, the captured
+          // `slackChronologicalMessages` snapshot (built from the full
+          // persisted transcript) would overwrite the compacted history
+          // and undo compaction. Suppress the override from here on.
+          slackChronologicalMessages: reducerCompacted
+            ? null
+            : injectionOpts.slackChronologicalMessages,
           mode: currentInjectionMode,
         });
         if (isTrustedActor && currentInjectionMode !== "minimal") {
@@ -1041,6 +1133,20 @@ export async function runAgentLoopImpl(
         "Repaired runtime history before provider call",
       );
       runMessages = preRunRepair.messages;
+    }
+
+    // Replace historical web_search_tool_result blocks with text summaries.
+    // The opaque `encrypted_content` tokens Anthropic attaches to each result
+    // expire / are route-scoped; replaying a stale token is rejected with
+    // `Invalid encrypted_content in search_result block`. Titles + URLs
+    // preserve enough context for the model on follow-up turns.
+    const webSearchStrip = stripHistoricalWebSearchResults(runMessages);
+    if (webSearchStrip.stats.blocksStripped > 0) {
+      rlog.info(
+        { phase: "pre_run", ...webSearchStrip.stats },
+        "Converted historical web_search_tool_result blocks to text summaries",
+      );
+      runMessages = webSearchStrip.messages;
     }
 
     let preRunHistoryLength = runMessages.length;
@@ -1099,6 +1205,8 @@ export async function runAgentLoopImpl(
 
     let denyCompressionMessage: Message | null = null;
 
+    rlog.info({ callSite: turnCallSite }, "Starting agent loop run");
+
     let updatedHistory = await ctx.agentLoop.run(
       runMessages,
       eventHandler,
@@ -1106,6 +1214,11 @@ export async function runAgentLoopImpl(
       reqId,
       onCheckpoint,
       turnCallSite,
+    );
+
+    rlog.info(
+      { resultMessageCount: updatedHistory.length },
+      "Agent loop run completed",
     );
 
     // ── Proactive mid-loop compaction ───────────────────────────────
@@ -1148,10 +1261,13 @@ export async function runAgentLoopImpl(
           lastCompactedAt: ctx.contextCompactedAt ?? undefined,
           force: true,
           targetInputTokensOverride: preflightBudget,
+          conversationOriginChannel:
+            getConversationOriginChannel(ctx.conversationId) ?? undefined,
         },
       );
       if (midLoopCompact.compacted) {
         ctx.messages = midLoopCompact.messages;
+        reducerCompacted = true;
         ctx.contextCompactedMessageCount +=
           midLoopCompact.compactedPersistedMessages;
         ctx.contextCompactedAt = Date.now();
@@ -1198,13 +1314,19 @@ export async function runAgentLoopImpl(
       // stripInjectionsForCompaction() unconditionally removed the existing
       // NOW.md block from ctx.messages above, so we must always re-inject
       // the current content regardless of whether compaction actually ran.
-      runMessages = applyRuntimeInjections(ctx.messages, {
+      runMessages = await applyRuntimeInjections(ctx.messages, {
         ...injectionOpts,
         pkbContext: currentPkbContent,
         nowScratchpad: currentNowContent,
         workspaceTopLevelContext: shouldInjectWorkspace
           ? ctx.workspaceTopLevelContext
           : null,
+        // Suppress the chronological-transcript snapshot once the reducer
+        // has collapsed `ctx.messages`; the captured snapshot reflects the
+        // full persisted transcript and would overwrite compaction.
+        slackChronologicalMessages: reducerCompacted
+          ? null
+          : injectionOpts.slackChronologicalMessages,
         mode: currentInjectionMode,
       });
       if (isTrustedActor && currentInjectionMode !== "minimal") {
@@ -1251,7 +1373,9 @@ export async function runAgentLoopImpl(
       );
       const retryRepair = deepRepairHistory(runMessages);
       runMessages = retryRepair.messages;
-      preRepairMessages = retryRepair.messages;
+      const retryStrip = stripHistoricalWebSearchResults(runMessages);
+      runMessages = retryStrip.messages;
+      preRepairMessages = runMessages;
       preRunHistoryLength = runMessages.length;
       state.orderingErrorDetected = false;
       state.deferredOrderingError = null;
@@ -1418,22 +1542,34 @@ export async function runAgentLoopImpl(
             step.compactionResult.compactedPersistedMessages,
           );
           shouldInjectWorkspace = true;
+          reducerCompacted = true;
         }
 
         // Only re-inject NOW.md when ctx.messages was actually stripped;
         // otherwise the existing NOW.md block is still present and
         // re-injecting would duplicate it.
-        runMessages = applyRuntimeInjections(ctx.messages, {
+        runMessages = await applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
           pkbContext: currentPkbContent,
           nowScratchpad: convergenceStripped ? currentNowContent : null,
           workspaceTopLevelContext: shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
             : null,
+          slackChronologicalMessages: reducerCompacted
+            ? null
+            : injectionOpts.slackChronologicalMessages,
           mode: currentInjectionMode,
         });
         if (isTrustedActor && currentInjectionMode !== "minimal") {
           ctx.graphMemory.retrackCachedNodes();
+        }
+        const convergenceStrip = stripHistoricalWebSearchResults(runMessages);
+        if (convergenceStrip.stats.blocksStripped > 0) {
+          rlog.info(
+            { phase: "convergence", ...convergenceStrip.stats },
+            "Converted historical web_search_tool_result blocks to text summaries",
+          );
+          runMessages = convergenceStrip.messages;
         }
         preRepairMessages = runMessages;
         preRunHistoryLength = runMessages.length;
@@ -1505,6 +1641,7 @@ export async function runAgentLoopImpl(
               );
             if (emergencyCompact.compacted) {
               ctx.messages = emergencyCompact.messages;
+              reducerCompacted = true;
               ctx.contextCompactedMessageCount +=
                 emergencyCompact.compactedPersistedMessages;
               ctx.contextCompactedAt = Date.now();
@@ -1551,17 +1688,28 @@ export async function runAgentLoopImpl(
 
             // Only re-inject NOW.md when ctx.messages was actually stripped;
             // otherwise the existing block is still present.
-            runMessages = applyRuntimeInjections(ctx.messages, {
+            runMessages = await applyRuntimeInjections(ctx.messages, {
               ...injectionOpts,
               pkbContext: currentPkbContent,
               nowScratchpad: convergenceStripped ? currentNowContent : null,
               workspaceTopLevelContext: shouldInjectWorkspace
                 ? ctx.workspaceTopLevelContext
                 : null,
+              slackChronologicalMessages: reducerCompacted
+                ? null
+                : injectionOpts.slackChronologicalMessages,
               mode: currentInjectionMode,
             });
             if (isTrustedActor && currentInjectionMode !== "minimal") {
               ctx.graphMemory.retrackCachedNodes();
+            }
+            const emergencyStrip = stripHistoricalWebSearchResults(runMessages);
+            if (emergencyStrip.stats.blocksStripped > 0) {
+              rlog.info(
+                { phase: "emergency_compact", ...emergencyStrip.stats },
+                "Converted historical web_search_tool_result blocks to text summaries",
+              );
+              runMessages = emergencyStrip.messages;
             }
             preRepairMessages = runMessages;
             preRunHistoryLength = runMessages.length;
@@ -1629,6 +1777,7 @@ export async function runAgentLoopImpl(
           );
           if (emergencyCompact.compacted) {
             ctx.messages = emergencyCompact.messages;
+            reducerCompacted = true;
             ctx.contextCompactedMessageCount +=
               emergencyCompact.compactedPersistedMessages;
             ctx.contextCompactedAt = Date.now();
@@ -1675,17 +1824,28 @@ export async function runAgentLoopImpl(
 
           // Only re-inject NOW.md when ctx.messages was actually stripped;
           // otherwise the existing block is still present.
-          runMessages = applyRuntimeInjections(ctx.messages, {
+          runMessages = await applyRuntimeInjections(ctx.messages, {
             ...injectionOpts,
             pkbContext: currentPkbContent,
             nowScratchpad: convergenceStripped ? currentNowContent : null,
             workspaceTopLevelContext: shouldInjectWorkspace
               ? ctx.workspaceTopLevelContext
               : null,
+            slackChronologicalMessages: reducerCompacted
+              ? null
+              : injectionOpts.slackChronologicalMessages,
             mode: currentInjectionMode,
           });
           if (isTrustedActor && currentInjectionMode !== "minimal") {
             ctx.graphMemory.retrackCachedNodes();
+          }
+          const fallbackStrip = stripHistoricalWebSearchResults(runMessages);
+          if (fallbackStrip.stats.blocksStripped > 0) {
+            rlog.info(
+              { phase: "fail_gracefully_compact", ...fallbackStrip.stats },
+              "Converted historical web_search_tool_result blocks to text summaries",
+            );
+            runMessages = fallbackStrip.messages;
           }
           preRepairMessages = runMessages;
           preRunHistoryLength = runMessages.length;
@@ -2104,6 +2264,7 @@ export async function runAgentLoopImpl(
     ctx.processing = false;
     ctx.onConfirmationOutcome = undefined;
     ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
+    ctx.approvedViaPromptThisTurn = false;
     ctx.currentRequestId = undefined;
     ctx.currentActiveSurfaceId = undefined;
     ctx.allowedToolNames = undefined;

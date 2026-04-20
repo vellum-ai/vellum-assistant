@@ -13,14 +13,23 @@ import { stripHopByHop } from "../../util/strip-hop-by-hop.js";
 
 const log = getLogger("slack-control-plane-proxy");
 
+/**
+ * The Slack OAuth install flow blocks while the user completes the Slack
+ * consent screen in their browser, which can take several minutes. Use a
+ * generous timeout so the gateway doesn't abort the connection.
+ */
+const OAUTH_INSTALL_TIMEOUT_MS = 360_000; // 6 minutes
+
 export function createSlackControlPlaneProxyHandler(config: GatewayConfig) {
   async function proxyToRuntime(
     req: Request,
     upstreamPath: string,
     upstreamSearch: string,
+    options?: { timeoutMs?: number },
   ): Promise<Response> {
     const start = performance.now();
     const upstream = `${config.assistantRuntimeBaseUrl}${upstreamPath}${upstreamSearch}`;
+    const timeoutMs = options?.timeoutMs ?? config.runtimeTimeoutMs;
 
     const reqHeaders = stripHopByHop(new Headers(req.headers));
     reqHeaders.delete("host");
@@ -42,7 +51,7 @@ export function createSlackControlPlaneProxyHandler(config: GatewayConfig) {
           "TimeoutError",
         ),
       );
-    }, config.runtimeTimeoutMs);
+    }, timeoutMs);
 
     let response: Response;
     try {
@@ -103,6 +112,15 @@ export function createSlackControlPlaneProxyHandler(config: GatewayConfig) {
 
     async handleShareToSlack(req: Request): Promise<Response> {
       return proxyToRuntime(req, "/v1/slack/share", "");
+    },
+
+    async handleSlackOAuthInstall(req: Request): Promise<Response> {
+      return proxyToRuntime(
+        req,
+        "/v1/integrations/slack/channel/oauth-install",
+        "",
+        { timeoutMs: OAUTH_INSTALL_TIMEOUT_MS },
+      );
     },
   };
 }

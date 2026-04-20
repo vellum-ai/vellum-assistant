@@ -98,6 +98,51 @@ struct DisplayGallerySection: View {
 
             }
 
+            if filter == nil || filter == "vAppCard" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VAppCard
+                GallerySectionHeader(
+                    title: "VAppCard",
+                    description: "App-tile card with preview thumbnail, title, short description, and a button row. Matches the Figma App Card spec — primary Open action, outlined Pin toggle, and an outlined icon-only secondary slot."
+                )
+
+                HStack(alignment: .top, spacing: VSpacing.lg) {
+                    VAppCard(
+                        title: "Kanban Board",
+                        description: "Here's a simple and easy to use dashboard, so you can keep your eye on me Big Man.",
+                        icon: .layers,
+                        onOpen: {},
+                        onPin: {},
+                        onSecondary: {}
+                    ) {
+                        ZStack {
+                            VColor.surfaceActive
+                            VIconView(.layers, size: 32)
+                                .foregroundStyle(VColor.contentTertiary)
+                        }
+                    }
+                    .frame(maxWidth: 382)
+
+                    VAppCard(
+                        title: "Notes",
+                        description: "Minimal variant — no secondary icon button, pinned state.",
+                        icon: .fileText,
+                        isPinned: true,
+                        onOpen: {},
+                        onPin: {}
+                    ) {
+                        ZStack {
+                            VColor.surfaceActive
+                            VIconView(.fileText, size: 32)
+                                .foregroundStyle(VColor.contentTertiary)
+                        }
+                    }
+                    .frame(maxWidth: 382)
+                }
+            }
+
             if filter == nil || filter == "vEmptyState" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
@@ -694,6 +739,7 @@ extension DisplayGallerySection {
     static func componentPage(_ id: String) -> some View {
         switch id {
         case "vCard": DisplayGallerySection(filter: "vCard")
+        case "vAppCard": DisplayGallerySection(filter: "vAppCard")
 
         case "vEmptyState": DisplayGallerySection(filter: "vEmptyState")
         case "vDisclosureSection": DisplayGallerySection(filter: "vDisclosureSection")

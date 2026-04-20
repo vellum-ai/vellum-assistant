@@ -1647,71 +1647,6 @@ describe("slash preactivation through session processing", () => {
 // Bundled skill pipeline integration tests
 // ---------------------------------------------------------------------------
 
-const GMAIL_TOOL_NAMES = [
-  "gmail_search",
-  "gmail_list_messages",
-  "gmail_get_message",
-  "gmail_mark_read",
-  "gmail_draft",
-  "gmail_archive",
-  "gmail_label",
-  "gmail_trash",
-  "gmail_send",
-  "gmail_unsubscribe",
-] as const;
-
-describe("bundled skill: gmail", () => {
-  let sessionState: Map<string, string>;
-
-  beforeEach(() => {
-    mockCatalog = [];
-    mockManifests = {};
-    mockRegisteredTools = new Map();
-    mockUnregisteredSkillIds = [];
-    mockSkillRefCount = new Map();
-    mockSkillRefCount = new Map();
-    mockVersionHashes = {};
-    mockVersionHashErrors = new Set();
-    sessionState = new Map<string, string>();
-  });
-
-  test("gmail skill activation via loaded_skill marker registers all 11 tools in allowedToolNames", () => {
-    mockCatalog = [makeSkill("gmail", "/path/to/bundled-skills/gmail")];
-    mockManifests = { gmail: makeManifest([...GMAIL_TOOL_NAMES]) };
-
-    const history: Message[] = [
-      ...skillLoadMessages('<loaded_skill id="gmail" />'),
-    ];
-
-    const result = projectSkillTools(history, {
-      previouslyActiveSkillIds: sessionState,
-    });
-
-    expect(result.toolDefinitions).toEqual([]);
-    expect(result.allowedToolNames).toEqual(new Set(GMAIL_TOOL_NAMES));
-  });
-
-  test("gmail tools are NOT available when gmail skill is not in active context", () => {
-    mockCatalog = [makeSkill("gmail", "/path/to/bundled-skills/gmail")];
-    mockManifests = { gmail: makeManifest([...GMAIL_TOOL_NAMES]) };
-
-    // No loaded_skill marker for gmail in history
-    const history: Message[] = [
-      { role: "user", content: [{ type: "text", text: "Hello" }] },
-    ];
-
-    const result = projectSkillTools(history, {
-      previouslyActiveSkillIds: sessionState,
-    });
-
-    expect(result.toolDefinitions).toHaveLength(0);
-    expect(result.allowedToolNames.size).toBe(0);
-    for (const name of GMAIL_TOOL_NAMES) {
-      expect(result.allowedToolNames.has(name)).toBe(false);
-    }
-  });
-});
-
 // ---------------------------------------------------------------------------
 // Bundled skill: app-builder
 // ---------------------------------------------------------------------------
@@ -1825,13 +1760,15 @@ describe("bundled skill: browser — CLI-only projection", () => {
   });
 
   test("browser skill loads without projecting any skill tools", () => {
-    mockCatalog = [makeSkill("browser", "/path/to/bundled-skills/browser")];
+    mockCatalog = [
+      makeSkill("vellum-browser-use", "/path/to/skills/vellum-browser-use"),
+    ];
     // Browser skill has no TOOLS.json manifest — operations are
     // dispatched via `assistant browser` CLI commands.
     mockManifests = {};
 
     const history: Message[] = [
-      ...buildSkillLoadHistory("browser", "v1:testhash"),
+      ...buildSkillLoadHistory("vellum-browser-use", "v1:testhash"),
     ];
 
     const result = projectSkillTools(history, {

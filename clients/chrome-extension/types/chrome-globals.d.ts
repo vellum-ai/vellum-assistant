@@ -303,3 +303,16 @@ interface ChromeGlobal {
 }
 
 declare const chrome: ChromeGlobal;
+
+/**
+ * Minimal ambient declaration for `process.env` so bundler-injected
+ * constants like `process.env.VELLUM_ENVIRONMENT` can be referenced
+ * without pulling in the full `@types/node` package.
+ *
+ * At bundle time `bun build --define` replaces these references with
+ * string literals. In test contexts (bun:test) the real Node/Bun
+ * `process` global satisfies this shape.
+ */
+declare const process: {
+  env: Record<string, string | undefined>;
+};

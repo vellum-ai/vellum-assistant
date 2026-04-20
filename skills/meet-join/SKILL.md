@@ -115,3 +115,17 @@ Avoid voice for:
 - Anything where participants have not signalled they want voice output from the assistant. When in doubt, prefer chat or silence.
 
 Barge-in is automatic: if a human speaks while the assistant is talking, the assistant's audio is cancelled mid-utterance. Treat being interrupted as normal — do not retry the cancelled utterance or apologize for it.
+
+## Video avatar
+
+`meet_enable_avatar` turns on a real-time video avatar that lip-syncs to TTS output. `meet_disable_avatar` turns it off. The avatar is **off by default** when the assistant joins a meeting — the assistant must explicitly opt in.
+
+Enable the avatar when:
+
+- The user explicitly asks the assistant to be on camera (e.g. "turn your video on", "show your avatar").
+- A participant in the meeting explicitly invites the assistant to turn on video and the user has signalled that kind of participation is welcome.
+
+Avoid enabling the avatar when:
+
+- The user has not asked for it. Do not turn it on proactively based on ambient meeting context (e.g. others being on camera) alone.
+- The assistant is not actively speaking. Most participants read "video on" as presence and attention — the avatar is not a watching observer. Disable it during long stretches of silence and re-enable it when the assistant is about to speak again.

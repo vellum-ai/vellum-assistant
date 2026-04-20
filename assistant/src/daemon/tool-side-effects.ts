@@ -195,15 +195,6 @@ registerHook(
   },
 );
 
-// Broadcast tasks_changed so connected clients (e.g. macOS Tasks window)
-// auto-refresh when the LLM mutates the task queue via tools
-registerHook(
-  ["task_list_add", "task_list_update", "task_list_remove", "task_queue_run"],
-  (_name, _input, _result, { broadcastToAllClients }) => {
-    broadcastToAllClients?.({ type: "tasks_changed" });
-  },
-);
-
 // Broadcast voice config changes to all connected clients so every window
 // picks up the updated UserDefaults value immediately.
 registerHook(

@@ -30,6 +30,7 @@
  *      throw and does not emit any HTTP traffic.
  */
 
+import { spawn as realSpawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -40,6 +41,7 @@ import type {
   TtsSynthesisResult,
 } from "../../../../assistant/src/tts/types.js";
 import {
+  BOT_AUDIO_SAMPLE_RATE_HZ,
   MeetTtsBridge,
   MeetTtsCancelledError,
   MeetTtsError,
@@ -692,6 +694,159 @@ describe("MeetTtsBridge abort reason classification", () => {
     expect((caught as MeetTtsCancelledError).code).toBe("MEET_TTS_CANCELLED");
     expect(bridge.activeStreamCount()).toBe(0);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Resampling hot-path test (uses the real ffmpeg binary)
+// ---------------------------------------------------------------------------
+//
+// This test guards the chipmunk-audio bug: if the bridge forwarded
+// provider-native-rate PCM straight to the bot, pacat would play it back
+// at 48 kHz (its fixed playback rate), producing sped-up/chipmunk audio.
+// The bridge runs ffmpeg with `-ar 48000 -ac 1` on the OUTPUT side, which
+// resamples any rate to 48 kHz before the HTTP POST body opens.
+//
+// We use the real ffmpeg binary (mocking it out would defeat the purpose
+// of the test — we're proving the spawn args actually cause resampling)
+// but keep the rest of the bridge's dependencies as fakes: the TTS
+// provider emits a well-formed 24 kHz WAV payload, and a throwaway
+// Bun.serve server stands in for the bot. If ffmpeg isn't installed on
+// the machine, the test self-skips rather than failing.
+
+/**
+ * Build a minimal canonical PCM WAV header for raw 16-bit signed
+ * little-endian samples at the given rate/channel count. We generate
+ * the container in-test so the provider emits bytes ffmpeg can decode
+ * without us having to ship a fixture file or shell out to `sox`.
+ */
+function buildPcmWavBuffer(options: {
+  sampleRateHz: number;
+  channels: number;
+  samples: Int16Array;
+}): Uint8Array {
+  const { sampleRateHz, channels, samples } = options;
+  const bitsPerSample = 16;
+  const byteRate = (sampleRateHz * channels * bitsPerSample) / 8;
+  const blockAlign = (channels * bitsPerSample) / 8;
+  const dataLen = samples.byteLength;
+  const buffer = new ArrayBuffer(44 + dataLen);
+  const view = new DataView(buffer);
+  // RIFF chunk descriptor
+  view.setUint8(0, 0x52); // 'R'
+  view.setUint8(1, 0x49); // 'I'
+  view.setUint8(2, 0x46); // 'F'
+  view.setUint8(3, 0x46); // 'F'
+  view.setUint32(4, 36 + dataLen, true);
+  view.setUint8(8, 0x57); // 'W'
+  view.setUint8(9, 0x41); // 'A'
+  view.setUint8(10, 0x56); // 'V'
+  view.setUint8(11, 0x45); // 'E'
+  // fmt sub-chunk
+  view.setUint8(12, 0x66); // 'f'
+  view.setUint8(13, 0x6d); // 'm'
+  view.setUint8(14, 0x74); // 't'
+  view.setUint8(15, 0x20); // ' '
+  view.setUint32(16, 16, true); // PCM fmt chunk size
+  view.setUint16(20, 1, true); // PCM audio format
+  view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRateHz, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  // data sub-chunk
+  view.setUint8(36, 0x64); // 'd'
+  view.setUint8(37, 0x61); // 'a'
+  view.setUint8(38, 0x74); // 't'
+  view.setUint8(39, 0x61); // 'a'
+  view.setUint32(40, dataLen, true);
+  // PCM samples
+  const out = new Uint8Array(buffer);
+  const sampleBytes = new Uint8Array(
+    samples.buffer,
+    samples.byteOffset,
+    samples.byteLength,
+  );
+  out.set(sampleBytes, 44);
+  return out;
+}
+
+function isFfmpegOnPath(): boolean {
+  // spawnSync returns a result object with `error` set to ENOENT when
+  // the binary is missing — no reliance on sync-throw semantics, and
+  // no "unhandled error between tests" leakage from async spawn.
+  const { spawnSync } = require("node:child_process");
+  const result = spawnSync("ffmpeg", ["-version"], {
+    stdio: ["ignore", "ignore", "ignore"],
+  });
+  return result.error == null && result.status === 0;
+}
+
+describe("MeetTtsBridge resampling hot-path (real ffmpeg)", () => {
+  const ffmpegAvailable = isFfmpegOnPath();
+
+  test.if(ffmpegAvailable)(
+    "resamples 24 kHz provider PCM to 48 kHz before POSTing to the bot",
+    async () => {
+      // Synthesize 500 ms of silence at 24 kHz mono s16le — the exact
+      // content doesn't matter; we only care about byte counts in/out.
+      const inputSampleRateHz = 24_000;
+      const durationSeconds = 0.5;
+      const inputSampleCount = Math.round(inputSampleRateHz * durationSeconds);
+      const pcm24k = new Int16Array(inputSampleCount); // all zeros = silence
+      const wavPayload = buildPcmWavBuffer({
+        sampleRateHz: inputSampleRateHz,
+        channels: 1,
+        samples: pcm24k,
+      });
+      const provider = makeCannedProvider({ chunks: [wavPayload] });
+
+      const bridge = new MeetTtsBridge(
+        {
+          meetingId: MEETING_ID,
+          botBaseUrl: fakeBot.url,
+          botApiToken: TOKEN,
+        },
+        {
+          providerFactory: () => provider,
+          // Use the REAL ffmpeg binary — this is the whole point of the
+          // test. If the bridge ever regressed to streaming provider
+          // bytes directly (no ffmpeg) or to using the wrong sample rate
+          // args, the output byte count would fall outside the expected
+          // window below.
+          spawn: realSpawn,
+          newStreamId: () => "stream-resample",
+        },
+      );
+
+      const result = await bridge.speak({ text: "hello 48k world" });
+      await result.completion;
+
+      expect(fakeBot.posts).toHaveLength(1);
+      const post = fakeBot.posts[0]!;
+      expect(post.url).toBe("/play_audio?stream_id=stream-resample");
+
+      // Expected output: 48 kHz mono s16le = 2 bytes/sample.
+      // 500 ms @ 48 kHz = 24_000 samples = 48_000 bytes.
+      const expectedBytes = Math.round(
+        0.5 * BOT_AUDIO_SAMPLE_RATE_HZ * 2, // 2 bytes per sample
+      );
+      // Allow ~100 ms of slack on either side for ffmpeg's resampler
+      // boundary handling (libswresample may add/drop a small number
+      // of samples around container edges).
+      const tolerance = 0.1 * BOT_AUDIO_SAMPLE_RATE_HZ * 2; // 9600 bytes
+      expect(post.body.byteLength).toBeGreaterThan(expectedBytes - tolerance);
+      expect(post.body.byteLength).toBeLessThan(expectedBytes + tolerance);
+
+      // Crucially: prove we did NOT forward the raw 24 kHz stream — if
+      // resampling were broken, the body would be roughly equal to the
+      // input WAV payload size (~24_044 bytes) rather than ~48_000.
+      // Assert the output is significantly larger than the raw input
+      // would be, which can only happen if ffmpeg resampled.
+      expect(post.body.byteLength).toBeGreaterThan(wavPayload.byteLength);
+
+      expect(bridge.activeStreamCount()).toBe(0);
+    },
+  );
 });
 
 describe("MeetTtsBridge constructor validation", () => {

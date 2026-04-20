@@ -4915,6 +4915,14 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/integrations/slack/channel/oauth-install:
+    post:
+      operationId: integrations_slack_channel_oauthinstall_post
+      tags:
+        - channel
+      responses:
+        "200":
+          description: Successful response
   /v1/integrations/telegram/commands:
     post:
       operationId: integrations_telegram_commands_post

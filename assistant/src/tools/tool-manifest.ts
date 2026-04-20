@@ -29,24 +29,6 @@ import { requestSystemPermissionTool } from "./system/request-permission.js";
 import { shellTool } from "./terminal/shell.js";
 import type { Tool } from "./types.js";
 
-// ── External tool registry ───────────────────────────────────────────
-// Skills register their tools here at initialization time so the tool
-// manifest can include them without importing from `../skills/`.
-const externalTools: Tool[] = [];
-
-/**
- * Register tools provided by an external skill. Called during skill
- * initialization.
- */
-export function registerExternalTools(tools: Tool[]): void {
-  externalTools.push(...tools);
-}
-
-/** Return all externally registered tools. */
-export function getExternalTools(): Tool[] {
-  return [...externalTools];
-}
-
 // ── Eager side-effect modules ───────────────────────────────────────
 // These static imports trigger top-level `registerTool()` side effects on
 // first evaluation. The named imports above serve double duty: they give us
@@ -109,9 +91,12 @@ export const explicitTools: Tool[] = [
   recallTool,
   credentialStoreTool,
   notifyParentTool,
-  // Meet tools are registered via registerExternalTools() during skill
-  // initialization — the assistant never imports directly from skills/.
-  ...getExternalTools(),
+  // NOTE: external skill tools (registered via registerExternalTools in
+  // registry.ts) are intentionally NOT included here. `explicitTools` is a
+  // module-level const whose value is fixed at first evaluation, so
+  // external tools registered after this file loads would be missed.
+  // `initializeTools()` in `registry.ts` calls `getExternalTools()`
+  // separately at runtime so late registrations are picked up.
 ];
 
 // ── CES tools (feature-flag gated) ──────────────────────────────────

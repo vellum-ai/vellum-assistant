@@ -6,7 +6,7 @@ metadata:
   emoji: "🔍"
   vellum:
     display-name: "Influencer Research"
-    includes: ["browser"]
+    includes: ["vellum-browser-use"]
 ---
 
 Use browser automation for collection and `host_bash` helper scripts for deterministic parsing, scoring, and comparison. All browser operations are executed through the `assistant browser` CLI, invoked via `host_bash`.

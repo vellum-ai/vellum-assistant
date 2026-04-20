@@ -170,7 +170,6 @@ extension MessageListView {
             configuredProviders: configuredProviders,
             subagentDetailStore: subagentDetailStore,
             assistantStatusText: assistantStatusText,
-            viewportHeight: viewportHeight,
             pinnedLatestTurnAnchorMessageId: scrollState.pinnedLatestTurnAnchorMessageId,
             onConfirmationAllow: onConfirmationAllow,
             onConfirmationDeny: onConfirmationDeny,

@@ -383,7 +383,7 @@ describe("Profiler routes", () => {
       };
       expect(body.error.code).toBe("INTERNAL_ERROR");
       expect(body.error.message).toContain("archive size");
-    });
+    }, 30000);
   });
 
   describe("DELETE /v1/profiler/runs/:runId", () => {

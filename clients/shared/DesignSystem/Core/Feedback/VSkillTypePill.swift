@@ -80,14 +80,15 @@ public struct VSkillTypePill: View {
     public var body: some View {
         HStack(spacing: VSpacing.xs) {
             VIconView(type.vIcon, size: 10)
+                .foregroundStyle(type.foregroundColor)
             Text(type.label)
-                .font(VFont.labelDefault)
+                .font(VFont.bodySmallDefault)
+                .foregroundStyle(VColor.contentDefault)
         }
-        .foregroundStyle(type.foregroundColor)
-        .padding(.horizontal, VSpacing.md)
-        .padding(.vertical, VSpacing.xs)
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.xxs)
         .background(
-            RoundedRectangle(cornerRadius: VRadius.md)
+            RoundedRectangle(cornerRadius: VRadius.sm)
                 .fill(type.backgroundColor)
         )
     }

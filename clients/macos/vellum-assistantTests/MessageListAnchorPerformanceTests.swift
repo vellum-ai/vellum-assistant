@@ -212,6 +212,13 @@ private func groupSegments(_ segments: [MarkdownSegment]) -> [SegmentGroup] {
         case .horizontalRule:
             flushRun()
             groups.append(.horizontalRule)
+        case .math:
+            // Math is rendered standalone (same as codeBlock/table/image) —
+            // not merged into a selectableRun. The perf harness does not
+            // model math today; if a future seed adds math, fail loudly so
+            // the harness is extended rather than silently undercounting.
+            XCTFail("Perf test harness does not currently model .math segments. If you added math to the seed corpus, extend SegmentGroup accordingly.")
+            flushRun()
         }
     }
     flushRun()

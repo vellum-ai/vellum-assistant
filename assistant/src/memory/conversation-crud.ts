@@ -23,6 +23,7 @@ import { CHANNEL_IDS, INTERFACE_IDS, isChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import { UserError } from "../util/errors.js";
+import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import { getConversationsDir } from "../util/platform.js";
 import { createRowMapper } from "../util/row-mapper.js";
@@ -1452,6 +1453,39 @@ export function updateMessageMetadata(
     .set({ metadata: JSON.stringify({ ...existing, ...updates }) })
     .where(eq(messages.id, messageId))
     .run();
+}
+
+/**
+ * Atomically update both `content` and (shallow-merged) `metadata` for a
+ * message. Used by edit-propagation paths that need to update the message
+ * body and stamp metadata (e.g. `slackMeta.editedAt`) in a single
+ * transaction so a partial write cannot leak.
+ *
+ * `metadataUpdates` is shallow-merged into the existing top-level metadata
+ * object. To merge into a nested sub-key (e.g. `slackMeta`), the caller
+ * must compute the merged sub-value first and pass `{ slackMeta: merged }`.
+ */
+export function updateMessageContentAndMetadata(
+  messageId: string,
+  newContent: string,
+  metadataUpdates: Record<string, unknown>,
+): void {
+  const db = getDb();
+  db.transaction((tx) => {
+    const row = tx
+      .select({ metadata: messages.metadata })
+      .from(messages)
+      .where(eq(messages.id, messageId))
+      .get();
+    const existing = row?.metadata ? safeParseRecord(row.metadata) : {};
+    tx.update(messages)
+      .set({
+        content: newContent,
+        metadata: JSON.stringify({ ...existing, ...metadataUpdates }),
+      })
+      .where(eq(messages.id, messageId))
+      .run();
+  });
 }
 
 /**

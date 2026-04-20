@@ -20,7 +20,11 @@
  * Canonical provider identifiers for daemon-hosted STT backends.
  * Extend this union as new providers are integrated.
  */
-export type SttProviderId = "openai-whisper" | "deepgram" | "google-gemini";
+export type SttProviderId =
+  | "openai-whisper"
+  | "deepgram"
+  | "google-gemini"
+  | "xai";
 
 /**
  * Telephony-specific STT capability class.

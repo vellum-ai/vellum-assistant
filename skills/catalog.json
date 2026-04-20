@@ -11,7 +11,7 @@
         "vellum": {
           "display-name": "Amazon",
           "includes": [
-            "browser"
+            "vellum-browser-use"
           ]
         }
       },
@@ -25,6 +25,18 @@
         "emoji": "🗺️",
         "vellum": {
           "display-name": "API Mapping"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "chatgpt-import",
+      "name": "chatgpt-import",
+      "description": "Import conversation history from ChatGPT into Vellum",
+      "metadata": {
+        "emoji": "📥",
+        "vellum": {
+          "display-name": "ChatGPT Import"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -139,6 +151,32 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "gmail",
+      "name": "gmail",
+      "description": "Manage Gmail email — drafting, sending, organizing, filters, vacation replies, and inbox analysis",
+      "metadata": {
+        "emoji": "📨",
+        "vellum": {
+          "display-name": "Gmail",
+          "user-invocable": "true"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "google-calendar",
+      "name": "google-calendar",
+      "description": "View, create, and manage Google Calendar events and check availability",
+      "metadata": {
+        "emoji": "📅",
+        "vellum": {
+          "display-name": "Google Calendar",
+          "user-invocable": "true"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "guardian-verify-setup",
       "name": "guardian-verify-setup",
       "description": "Set up channel verification for phone, Telegram, or Slack channels via outbound verification flow",
@@ -159,6 +197,53 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "inbox-cleanup",
+      "name": "inbox-cleanup",
+      "description": "Run a high-recall, multi-pass email inbox cleanup. Pattern-based subject queries catch 25x more archivable email than sender scans alone. Includes urgency triage, classification signals, and post-cleanup filter setup.",
+      "metadata": {
+        "emoji": "📭",
+        "vellum": {
+          "display-name": "Inbox Cleanup",
+          "activation-hints": [
+            "When the user asks to clean up, organize, or triage their email inbox",
+            "When the user wants to archive old or unwanted emails in bulk",
+            "When the user asks to set up email filters to prevent inbox clutter"
+          ],
+          "avoid-when": [
+            "When the user wants to read, send, or draft a specific email",
+            "When the user is setting up email OAuth or connecting a new provider"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "inbox-management",
+      "name": "inbox-management",
+      "description": "Ongoing Gmail inbox management via scheduled runs. Archives known noise, flags urgent items, drafts replies in-thread (never auto-sends), and catches stale follow-ups. Starts in flag-only mode — earns autonomy through a three-stage trust ladder.",
+      "metadata": {
+        "emoji": "📬",
+        "vellum": {
+          "display-name": "Inbox Management",
+          "includes": [
+            "gmail"
+          ],
+          "activation-hints": [
+            "When the user explicitly asks for ongoing or automatic inbox management",
+            "When the user wants periodic email triage, archiving, or follow-up tracking on a schedule",
+            "When the user says 'manage my inbox automatically' or 'set up inbox management'"
+          ],
+          "avoid-when": [
+            "When the user wants a one-time inbox cleanup (use inbox-cleanup instead)",
+            "When the user wants a quick inbox check, summary, or unread count",
+            "When the user wants to read, send, or draft a specific email",
+            "When the user is setting up email OAuth or connecting a new provider"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "influencer",
       "name": "influencer",
       "description": "Research influencers on Instagram, TikTok, and X/Twitter through your browser",
@@ -167,7 +252,7 @@
         "vellum": {
           "display-name": "Influencer Research",
           "includes": [
-            "browser"
+            "vellum-browser-use"
           ]
         }
       },
@@ -255,6 +340,32 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "outlook",
+      "name": "outlook",
+      "description": "Manage Outlook email — drafting, sending, organizing, rules, vacation replies, and inbox analysis",
+      "metadata": {
+        "emoji": "📧",
+        "vellum": {
+          "display-name": "Outlook",
+          "user-invocable": "true"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "outlook-calendar",
+      "name": "outlook-calendar",
+      "description": "View, create, and manage Outlook Calendar events and check availability",
+      "metadata": {
+        "emoji": "📅",
+        "vellum": {
+          "display-name": "Outlook Calendar",
+          "user-invocable": "true"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "public-ingress",
       "name": "public-ingress",
       "description": "Set up and manage ngrok-based public ingress for local assistants; do not use this in managed mode when platform callback routing is available",
@@ -282,7 +393,7 @@
         "vellum": {
           "display-name": "Restaurant Reservation Booking",
           "includes": [
-            "browser"
+            "vellum-browser-use"
           ]
         }
       },
@@ -308,6 +419,18 @@
         "emoji": "⬆️",
         "vellum": {
           "display-name": "Self Upgrade"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "slack",
+      "name": "slack",
+      "description": "Read, send, and manage Slack messages via the Web API",
+      "metadata": {
+        "emoji": "💬",
+        "vellum": {
+          "display-name": "Slack"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -340,6 +463,25 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "tasks",
+      "name": "tasks",
+      "description": "Two-layer task system with reusable templates and a prioritized work queue",
+      "metadata": {
+        "emoji": "✅",
+        "vellum": {
+          "display-name": "Tasks",
+          "activation-hints": [
+            "User wants to add, check, or manage items on their to-do list or task queue",
+            "For one-off action items, not recurring automations (use schedule for those)"
+          ],
+          "avoid-when": [
+            "User wants recurring/scheduled automation — use the schedule skill instead"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "telegram-setup",
       "name": "telegram-setup",
       "description": "Connect a Telegram bot to the Vellum Assistant gateway with automated webhook registration and credential storage",
@@ -360,6 +502,31 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "terminal-sessions",
+      "name": "terminal-sessions",
+      "description": "Manage persistent terminal sessions via tmux. Create, read, write to, list, and close named shell sessions. Use when the user asks about running terminal processes, wants help orchestrating CLI tasks, or asks you to monitor or interact with long-running commands. Also use when the user mentions tmux sessions.",
+      "metadata": {
+        "emoji": "🖥️",
+        "author": "vellum-ai",
+        "version": "0.1",
+        "vellum": {
+          "display-name": "Terminal Sessions",
+          "activation-hints": [
+            "User asks about their running terminal sessions or processes",
+            "User wants to monitor a long-running command",
+            "User wants the assistant to run something in a persistent shell",
+            "User mentions tmux or terminal management",
+            "User wants to orchestrate multiple CLI agents (e.g. Claude Code sessions)"
+          ],
+          "avoid-when": [
+            "A simple one-shot command that host_bash handles fine",
+            "The user is asking about shell scripting in general, not session management"
+          ]
+        }
+      },
+      "compatibility": "Requires tmux installed on the host machine. Works on macOS and Linux."
     },
     {
       "id": "time-based-actions",
@@ -408,6 +575,22 @@
         "emoji": "🎨",
         "vellum": {
           "display-name": "Avatar"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "vellum-browser-use",
+      "name": "vellum-browser-use",
+      "description": "Browse the web using `assistant browser` CLI commands",
+      "metadata": {
+        "emoji": "🌐",
+        "vellum": {
+          "display-name": "Browser",
+          "feature-flag": "browser",
+          "activation-hints": [
+            "Load first if you need to browse the web (navigating, clicking, extracting web content) via `assistant browser` commands"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -479,7 +662,7 @@
         "vellum": {
           "display-name": "Vercel Token Setup",
           "includes": [
-            "browser"
+            "vellum-browser-use"
           ]
         }
       },
@@ -517,6 +700,18 @@
           "emoji": "📺"
         }
       }
+    },
+    {
+      "id": "watcher",
+      "name": "watcher",
+      "description": "Create and manage polling watchers that monitor external services (Gmail, Google Calendar, GitHub, Linear, Outlook) for events and process them with custom action prompts",
+      "metadata": {
+        "emoji": "👀",
+        "vellum": {
+          "display-name": "Watcher"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
     },
     {
       "id": "weather",

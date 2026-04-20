@@ -191,6 +191,20 @@ mock.module("../memory/app-store.js", () => ({
   updateApp: () => {},
 }));
 
+// Avoid real workspace-git initialization on /tmp — on CI runners,
+// `git add -A` under /tmp hits permission errors on systemd-private dirs,
+// which blocks the agent loop for long enough to trip the 5s test timeout
+// on the first test case before the circuit breaker opens.
+mock.module("../workspace/git-service.js", () => ({
+  getWorkspaceGitService: () => ({
+    ensureInitialized: async () => {},
+  }),
+}));
+
+mock.module("../workspace/turn-commit.js", () => ({
+  commitTurnChanges: async () => {},
+}));
+
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor() {}

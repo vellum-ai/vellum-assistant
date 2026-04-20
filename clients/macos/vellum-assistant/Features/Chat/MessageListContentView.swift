@@ -45,7 +45,6 @@ struct MessageListContentView: View, Equatable {
             && lhs.configuredProviders == rhs.configuredProviders
             && lhs.subagentDetailStore === rhs.subagentDetailStore
             && lhs.assistantStatusText == rhs.assistantStatusText
-            && lhs.viewportHeight == rhs.viewportHeight
             && lhs.pinnedLatestTurnAnchorMessageId == rhs.pinnedLatestTurnAnchorMessageId
     }
 
@@ -70,7 +69,6 @@ struct MessageListContentView: View, Equatable {
     let configuredProviders: Set<String>
     let subagentDetailStore: SubagentDetailStore
     let assistantStatusText: String?
-    let viewportHeight: CGFloat
     let pinnedLatestTurnAnchorMessageId: UUID?
 
     // MARK: - Closures (skipped in ==)
@@ -354,7 +352,6 @@ struct MessageListContentView: View, Equatable {
                let anchorRow = rowsByMessageId[anchorMessage.id] {
                 PinnedLatestTurnSection(
                     contentView: self,
-                    viewportHeight: viewportHeight,
                     partition: pinnedTurnPartition,
                     rowsByMessageId: rowsByMessageId,
                     anchorRow: anchorRow,
@@ -418,22 +415,6 @@ struct MessageListContentView: View, Equatable {
 
 // MARK: - Pinned Latest Turn
 
-struct LatestTurnSpacerCalculator {
-    static func spacerHeight(
-        viewportHeight: CGFloat,
-        anchorHeight: CGFloat,
-        responseHeight: CGFloat,
-        contentInsets: CGFloat = 0
-    ) -> CGFloat {
-        guard viewportHeight.isFinite, viewportHeight > 0 else { return 0 }
-
-        let safeAnchorHeight = anchorHeight.isFinite ? max(0, anchorHeight) : 0
-        let safeResponseHeight = responseHeight.isFinite ? max(0, responseHeight) : 0
-        let safeInsets = contentInsets.isFinite ? max(0, contentInsets) : 0
-        return max(0, viewportHeight - safeAnchorHeight - safeResponseHeight - safeInsets)
-    }
-}
-
 struct PinnedLatestTurnPartition: Equatable {
     let historyItems: [TranscriptItem]
     let anchorMessage: ChatMessage?
@@ -472,15 +453,19 @@ struct PinnedLatestTurnPartition: Equatable {
 
 private struct PinnedLatestTurnSection: View {
     let contentView: MessageListContentView
-    let viewportHeight: CGFloat
     let partition: PinnedLatestTurnPartition
     let rowsByMessageId: [UUID: TranscriptRowModel]
     let anchorRow: TranscriptRowModel
     let isUnanchoredThinking: Bool
     let thinkingLabel: String
 
-    @State private var anchorHeight: CGFloat = 0
-    @State private var responseHeight: CGFloat = 0
+    // Minimum height equal to the scroll container's visible height
+    // (minus the outer LazyVStack's vertical padding). Sourced from a
+    // zero-size `containerRelativeFrame` probe in the `.background` so
+    // the section grows to fill the viewport when content is short but
+    // is still free to exceed it when an assistant response is longer
+    // than a viewport — preserving scrollability for tall answers.
+    @State private var viewportMinHeight: CGFloat = 0
 
     private var hasResponseContent: Bool {
         contentView.showsStandaloneLatestEdgeActivity
@@ -488,22 +473,18 @@ private struct PinnedLatestTurnSection: View {
             || !partition.responseItems.isEmpty
     }
 
-    /// Vertical content insets from the outer LazyVStack padding (top + bottom).
-    private static let contentVerticalInsets: CGFloat = VSpacing.md * 2
-
-    private var spacerHeight: CGFloat {
-        LatestTurnSpacerCalculator.spacerHeight(
-            viewportHeight: viewportHeight,
-            anchorHeight: anchorHeight,
-            responseHeight: responseHeight,
-            contentInsets: Self.contentVerticalInsets
-        )
-    }
-
     var body: some View {
         // Two flips (ScrollView + section) cancel out, so source order
         // equals visual order: anchor at top, response below, spacer
         // fills remaining viewport, sentinel marks the latest edge.
+        //
+        // `.frame(minHeight:)` (not a fixed `containerRelativeFrame` on
+        // the VStack) gives the section a viewport-sized floor while
+        // letting it grow when anchor + response exceeds the viewport.
+        // Without the floor, the `Spacer` below cannot keep the anchor
+        // pinned to the visual top while a short response is streaming.
+        // Without growth, a tall assistant response is capped at the
+        // viewport and the newest content becomes unreachable by scroll.
         VStack(alignment: .leading, spacing: 0) {
             contentView.transcriptRow(
                 row: anchorRow,
@@ -512,28 +493,37 @@ private struct PinnedLatestTurnSection: View {
                 isFlipped: false
             )
             .id(anchorRow.id)
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.size.height
-            } action: { newHeight in
-                if abs(anchorHeight - newHeight) > 0.5 {
-                    anchorHeight = newHeight
-                }
-            }
 
             responseCluster
-                .onGeometryChange(for: CGFloat.self) { proxy in
-                    proxy.size.height
-                } action: { newHeight in
-                    if abs(responseHeight - newHeight) > 0.5 {
-                        responseHeight = newHeight
-                    }
-                }
 
-            Color.clear.frame(height: spacerHeight)
+            Spacer(minLength: 0)
 
             contentView.latestEdgeSentinel(isFlipped: false)
         }
+        .frame(minHeight: viewportMinHeight, alignment: .top)
+        .background(viewportMinHeightProbe)
         .flipped()
+    }
+
+    /// Zero-width `Color.clear` sized to the scroll container's visible
+    /// height via `containerRelativeFrame`. `onGeometryChange` mirrors the
+    /// resolved height into `@State` so the VStack's `minHeight` tracks
+    /// the viewport. `max(0, …)` keeps the closure non-negative for the
+    /// transient zero-height layout passes SwiftUI runs during setup and
+    /// window/split-view collapse — negative frame dimensions produce
+    /// layout warnings and unstable pinned-turn rendering.
+    private var viewportMinHeightProbe: some View {
+        Color.clear
+            .containerRelativeFrame(.vertical, alignment: .top) { length, _ in
+                max(0, length - VSpacing.md * 2)
+            }
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.height
+            } action: { newHeight in
+                if abs(viewportMinHeight - newHeight) > 0.5 {
+                    viewportMinHeight = newHeight
+                }
+            }
     }
 
     @ViewBuilder

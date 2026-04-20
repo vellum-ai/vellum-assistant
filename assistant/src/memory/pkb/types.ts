@@ -7,6 +7,16 @@
 
 export const PKB_TARGET_TYPE = "pkb_file" as const;
 
+/**
+ * Sentinel `memory_scope_id` under which ALL PKB points are indexed and
+ * searched. PKB files are a workspace-shared resource: one copy on disk is
+ * visible to every conversation in the workspace, so every writer — the
+ * `remember` tool, file writes, startup reconciliation — pins to this scope
+ * so search returns a single coherent view of the workspace's knowledge base
+ * instead of a per-conversation fragment.
+ */
+export const PKB_WORKSPACE_SCOPE = "_pkb_workspace" as const;
+
 export interface PkbSearchResult {
   path: string;
   score: number;

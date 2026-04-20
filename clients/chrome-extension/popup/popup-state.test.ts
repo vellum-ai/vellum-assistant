@@ -27,6 +27,10 @@ import {
   deriveHealthStatusDisplay,
   shouldExpandTroubleshooting,
   hasTroubleshootingControls,
+  environmentLabel,
+  deriveEffectiveEnvironment,
+  deriveEnvironmentHint,
+  ENVIRONMENT_OPTIONS,
   type ConnectionPhase,
   type ConnectionHealthState,
   type ConnectionHealthDetail,
@@ -638,5 +642,122 @@ describe('integrated health-to-display scenarios', () => {
     expect(selectorDisplay.kind).toBe('visible');
     if (selectorDisplay.kind !== 'visible') throw new Error('unreachable');
     expect(selectorDisplay.options.length).toBe(2);
+  });
+});
+
+// ── environmentLabel ────────────────────────────────────────────────
+
+describe('environmentLabel', () => {
+  test('returns "Local" for local', () => {
+    expect(environmentLabel('local')).toBe('Local');
+  });
+
+  test('returns "Development" for dev', () => {
+    expect(environmentLabel('dev')).toBe('Development');
+  });
+
+  test('returns "Staging" for staging', () => {
+    expect(environmentLabel('staging')).toBe('Staging');
+  });
+
+  test('returns "Production" for production', () => {
+    expect(environmentLabel('production')).toBe('Production');
+  });
+
+  test('all environment options have labels', () => {
+    for (const env of ENVIRONMENT_OPTIONS) {
+      const label = environmentLabel(env);
+      expect(label.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+// ── ENVIRONMENT_OPTIONS ─────────────────────────────────────────────
+
+describe('ENVIRONMENT_OPTIONS', () => {
+  test('contains exactly four environments', () => {
+    expect(ENVIRONMENT_OPTIONS.length).toBe(4);
+  });
+
+  test('includes local, dev, staging, production in order', () => {
+    expect(ENVIRONMENT_OPTIONS[0]).toBe('local');
+    expect(ENVIRONMENT_OPTIONS[1]).toBe('dev');
+    expect(ENVIRONMENT_OPTIONS[2]).toBe('staging');
+    expect(ENVIRONMENT_OPTIONS[3]).toBe('production');
+  });
+});
+
+// ── deriveEffectiveEnvironment ──────────────────────────────────────
+
+describe('deriveEffectiveEnvironment', () => {
+  test('returns override when present', () => {
+    expect(deriveEffectiveEnvironment('staging', 'dev')).toBe('staging');
+  });
+
+  test('returns build default when override is null', () => {
+    expect(deriveEffectiveEnvironment(null, 'staging')).toBe('staging');
+  });
+
+  test('returns build default when override is undefined', () => {
+    expect(deriveEffectiveEnvironment(undefined, 'production')).toBe('production');
+  });
+
+  test('falls back to dev when both override and build default are absent', () => {
+    expect(deriveEffectiveEnvironment(null, undefined)).toBe('dev');
+  });
+
+  test('falls back to dev when both are undefined', () => {
+    expect(deriveEffectiveEnvironment(undefined, undefined)).toBe('dev');
+  });
+
+  test('override takes precedence over build default', () => {
+    expect(deriveEffectiveEnvironment('local', 'production')).toBe('local');
+  });
+});
+
+// ── deriveEnvironmentHint ───────────────────────────────────────────
+
+describe('deriveEnvironmentHint', () => {
+  test('shows override message when override is active', () => {
+    const hint = deriveEnvironmentHint('staging', 'dev');
+    expect(hint).toContain('Overriding');
+    expect(hint).toContain('Development');
+  });
+
+  test('shows override with production default label', () => {
+    const hint = deriveEnvironmentHint('local', 'production');
+    expect(hint).toContain('Overriding');
+    expect(hint).toContain('Production');
+  });
+
+  test('shows build default message when no override', () => {
+    const hint = deriveEnvironmentHint(null, 'staging');
+    expect(hint).toBe('Using build default');
+  });
+
+  test('shows build default message when override is undefined', () => {
+    const hint = deriveEnvironmentHint(undefined, 'dev');
+    expect(hint).toBe('Using build default');
+  });
+
+  test('shows generic default when both are absent', () => {
+    const hint = deriveEnvironmentHint(null, undefined);
+    expect(hint).toBe('Using default');
+  });
+
+  test('shows generic default when both are undefined', () => {
+    const hint = deriveEnvironmentHint(undefined, undefined);
+    expect(hint).toBe('Using default');
+  });
+
+  test('override hint includes build default label in parentheses', () => {
+    const hint = deriveEnvironmentHint('production', 'dev');
+    expect(hint).toContain('(Development)');
+  });
+
+  test('override hint with no build default uses dev as fallback label', () => {
+    const hint = deriveEnvironmentHint('staging', undefined);
+    expect(hint).toContain('Overriding');
+    expect(hint).toContain('dev');
   });
 });

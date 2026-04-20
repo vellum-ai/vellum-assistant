@@ -52,7 +52,7 @@ jobs:
 
       - name: Install nested package dependencies
         run: |
-          for dir in packages/*/; do
+          for dir in packages/*/ skills/*/; do
             [ -f "${dir}/package.json" ] || continue
             (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
           done
@@ -663,8 +663,16 @@ jobs:
             const relPath = importMap[lastVar];
             const filePath = path.join('assistant/src/workspace/migrations', relPath.replace(/\.js$/, '.ts'));
             const src = fs.readFileSync(filePath, 'utf-8');
-            const idMatch = src.match(/id:\s*['\x22]([^'\x22]+)['\x22]/);
-            console.log(idMatch[1]);
+            let id;
+            const litMatch = src.match(/id:\s*['\x22]([^'\x22]+)['\x22]/);
+            if (litMatch) {
+              id = litMatch[1];
+            } else {
+              const refMatch = src.match(/id:\s*(\w+)/);
+              const constLine = src.split('\n').find(l => l.includes('const ' + refMatch[1] + ' ='));
+              id = constLine.match(/['\x22]([^'\x22]+)['\x22]/)[1];
+            }
+            console.log(id);
           ")
           echo "ws_id=$WS_ID" >> "$GITHUB_OUTPUT"
           echo "Migration ceilings: db=$DB_VERSION, workspace=$WS_ID"
@@ -828,7 +836,7 @@ jobs:
       - name: Install nested package dependencies
         working-directory: .
         run: |
-          for dir in packages/*/; do
+          for dir in packages/*/ skills/*/; do
             [ -f "${dir}/package.json" ] || continue
             (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
           done

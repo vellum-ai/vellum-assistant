@@ -36,6 +36,14 @@ RUN groupadd --system --gid 1001 gateway && \
     useradd --system --uid 1001 --gid gateway --create-home gateway
 
 COPY --from=builder --chown=gateway:gateway /app/gateway /app
+# `bun install` materializes `file:../packages/ces-contracts` as a
+# `node_modules/@vellumai/ces-contracts/` directory whose files are symlinks
+# pointing at absolute `/app/packages/ces-contracts/...` source paths in
+# the builder. Those absolute targets have to exist in the runner too, or
+# every `@vellumai/ces-contracts[/…]` import resolves to a dangling link
+# and the gateway crashes with "Cannot find module ..." at first use.
+# Copy the sibling package into the runner so the symlinks resolve.
+COPY --from=builder --chown=gateway:gateway /app/packages /app/packages
 
 RUN mkdir -p /gateway-security && chown gateway:gateway /gateway-security
 

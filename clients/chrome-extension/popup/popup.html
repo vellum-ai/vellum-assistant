@@ -282,6 +282,49 @@
       line-height: 1.45;
     }
 
+    .debug-details {
+      font-size: 11px;
+      color: var(--text-2);
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      margin-bottom: 10px;
+    }
+
+    .debug-details-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    .debug-details-title {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-3);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .debug-copy-btn {
+      width: auto;
+      padding: 4px 8px;
+      font-size: 10px;
+      border-radius: 6px;
+    }
+
+    .debug-details-text {
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin: 0;
+      font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.4;
+      color: var(--text-2);
+    }
+
     .setup-message {
       font-size: 12px;
       color: var(--amber);
@@ -526,6 +569,13 @@
   </div>
 
   <p class="error-text" id="error-text" style="display:none"></p>
+  <div class="debug-details" id="debug-details" style="display:none">
+    <div class="debug-details-header">
+      <span class="debug-details-title">Debug details</span>
+      <button class="debug-copy-btn" id="copy-debug-details" type="button">Copy</button>
+    </div>
+    <p class="debug-details-text" id="debug-details-text"></p>
+  </div>
 
   <p id="setup-message" class="setup-message" style="display:none"></p>
 
@@ -551,15 +601,14 @@
 
     <div id="troubleshoot-body" hidden>
       <div class="advanced-setting">
-        <label for="port-input">Connection port</label>
-        <input
-          type="text"
-          id="port-input"
-          placeholder="7830"
-          autocomplete="off"
-          spellcheck="false"
-        />
-        <p class="hint">Only change this if support asks you to.</p>
+        <label for="environment-select">Environment</label>
+        <select id="environment-select">
+          <option value="local">Local</option>
+          <option value="dev">Development</option>
+          <option value="staging">Staging</option>
+          <option value="production">Production</option>
+        </select>
+        <p class="hint" id="environment-hint">Overrides the build default for this extension profile.</p>
       </div>
 
       <p class="local-status" id="local-status" style="display:none">Not paired</p>

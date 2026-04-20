@@ -6,7 +6,14 @@ import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { CesClient } from "../credential-execution/client.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
-import type { ConversationCreateOptions } from "../daemon/handlers/shared.js";
+import type {
+  ConversationCreateOptions,
+  SlackInboundMessageMetadata,
+} from "../daemon/handlers/shared.js";
+
+// Re-export so route modules (background-dispatch, etc.) can pull the type
+// from the runtime barrel without reaching into daemon internals.
+export type { SlackInboundMessageMetadata };
 import type { SkillOperationContext } from "../daemon/handlers/skills.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type {
@@ -140,6 +147,13 @@ export interface RuntimeMessageConversationOptions {
    * literals into specific call paths.
    */
   callSite?: LLMCallSite;
+  /**
+   * Slack inbound metadata captured at the channel ingress boundary. When
+   * present (and the turn channel resolves to Slack), persistence writes a
+   * `slackMeta` sub-object into the message's `metadata` JSON for the
+   * chronological renderer to consume.
+   */
+  slackInbound?: SlackInboundMessageMetadata;
 }
 
 export type MessageProcessor = (

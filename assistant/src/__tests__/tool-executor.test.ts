@@ -1232,7 +1232,7 @@ describe("isSideEffectTool", () => {
 // would cause this test to fail instead of being masked by a blanket
 // mock-allow.
 describe("ToolExecutor baseline: allow rule auto-allows file_edit guardian persona", () => {
-  const guardianPersonaPath = "/Users/sidd/.vellum/workspace/users/sidd.md";
+  const guardianPersonaPath = "/Users/alice/.vellum/workspace/users/alice.md";
   let ruleSpy: ReturnType<typeof spyOn> | undefined;
 
   beforeEach(() => {
@@ -1554,7 +1554,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     const result = await executor.execute(
       "file_edit",
       {
-        path: "/Users/sidd/.vellum/workspace/users/sidd.md",
+        path: "/Users/alice/.vellum/workspace/users/alice.md",
         old_string: "old pref",
         new_string: "new pref",
       },
@@ -1573,7 +1573,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     const result = await executor.execute(
       "host_file_edit",
       {
-        path: "/Users/sidd/.vellum/workspace/users/sidd.md",
+        path: "/Users/alice/.vellum/workspace/users/alice.md",
         old_string: "x",
         new_string: "y",
       },

@@ -27,7 +27,19 @@ export async function embedPkbFileJob(
   const memoryScopeId = asString(job.payload.memoryScopeId);
   if (!pkbRoot || !absPath || !memoryScopeId) return;
 
-  await indexPkbFile(pkbRoot, absPath, memoryScopeId);
+  try {
+    await indexPkbFile(pkbRoot, absPath, memoryScopeId);
+  } catch (error) {
+    if (
+      error !== null &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: unknown }).code === "ENOENT"
+    ) {
+      return;
+    }
+    throw error;
+  }
 }
 
 /**

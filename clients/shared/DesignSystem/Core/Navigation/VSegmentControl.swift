@@ -65,14 +65,14 @@ private struct Segment: View {
                     VIconView(.resolve(icon), size: 12)
                 } else {
                     Text(label)
-                        .font(VFont.bodyMediumDefault)
+                        .font(VFont.bodySmallDefault)
                         .fixedSize()
                 }
             }
             .foregroundStyle(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
-            .padding(.horizontal, 10)
+            .padding(.horizontal, VSpacing.sm)
             .frame(maxWidth: .infinity)
-            .frame(height: 28)
+            .frame(height: 24)
             .background(
                 RoundedRectangle(cornerRadius: 6)
                     .fill(segmentBackground)

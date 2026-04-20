@@ -112,6 +112,19 @@ Never commit worktree directories or worktree artifacts to the repository. Git w
 
 Proactively remove unused code during every change. Remove code your change makes unused, clean up adjacent dead code, delete rather than comment out, check for orphaned files. Ask: "After my change, is there any code that nothing calls, imports, or references?" If yes, delete it.
 
+## Generic Examples
+
+Never include personal user data — real names, emails, phone numbers, account IDs, or other identifying details of specific people — anywhere in the codebase. This covers code, tests, fixtures, documentation, comments, commit messages, and AGENTS.md files. Always use generic placeholders:
+
+- **Names**: `Alice`, `Bob`, `user1`, `Example User`
+- **Emails**: `user@example.com` (reserved `example.com`/`example.org` domains)
+- **Phone numbers**: fictional numbers from the reserved `555-0100`–`555-0199` range
+- **IDs**: `user-123`, `org-abc`, `conv-xyz`
+
+This applies even when the data is the author's own — examples get copied by future contributors, and real data propagates through forks, screenshots, and logs.
+
+**Enforcement:** the pre-commit hook runs `scripts/check-generic-examples.ts` against staged changes. The in-repo patterns are shape-based (non-example emails, phones outside `555-01xx`). Contributors who want to block additional project-specific terms on their own machine can drop them into a local config — see `scripts/generic-examples/README.md`. Inline suppression: add `// generic-examples:ignore-next-line — reason: <why>` on the line above.
+
 ## Backwards Compatibility
 
 We have real users — maintain backwards compatibility for all interfaces, persisted state, and data. Never ship a change that silently breaks existing behavior. When a change alters workspace file paths, directory structure, data shapes, namespaces, column schemas, or storage formats, include a migration in the same PR.
@@ -153,7 +166,9 @@ Each LLM call site has a stable identifier (`LLMCallSite` from `assistant/src/co
 
 ## Skill Isolation
 
-The `assistant/` module must not import from `skills/` via relative paths (e.g. `../skills/meet-join/...`). The Docker build copies `assistant/` and `packages/` but not `skills/`, so any such import breaks at runtime. Skills wire into the assistant through registries (`registerShutdownHook`, `registerSkillRoute`, `registerExternalTools`) — the assistant provides the hooks, the skill calls them. See `skills/meet-join/AGENTS.md` for the meet-join isolation rules.
+The `assistant/` module must not import from `skills/` via relative paths (e.g. `../skills/meet-join/...`). The Docker build context only exposes a curated subset of `skills/` — whitelisted by the repo-root `.dockerignore` — so an import reaching into an unlisted skill path breaks at runtime. Skills wire into the assistant through registries (`registerShutdownHook`, `registerSkillRoute`, `registerExternalTools`) — the assistant provides the hooks, the skill calls them. See `skills/meet-join/AGENTS.md` for the meet-join isolation rules.
+
+There is one narrow exception: `assistant/src/daemon/external-skills-bootstrap.ts` is the single file in `assistant/` permitted to import from `skills/`, and only as side-effect imports of a first-party skill's `register.ts`. The exception exists because `bun --compile` only traces statically analyzed imports into the final binary (dynamic relative imports fail inside `/$bunfs/`), so a skill whose tools must be visible to the LLM at daemon startup has to be reachable from a static import somewhere in `assistant/`. Any skill referenced from this file must (a) be first-party, (b) have its runtime files whitelisted in the repo-root `.dockerignore` so the assistant Docker build context includes them (the `Dockerfile` itself copies `skills/` generically and does not name individual skills), and (c) expose only a side-effect `register.ts` — no named exports consumed from `assistant/`. All other `assistant/` → `skills/` imports remain forbidden.
 
 ## Tooling Direction
 
@@ -234,14 +249,20 @@ The assistant's container root (`/`) stores per-container ephemeral and persiste
 
 ## Release Update Hygiene
 
-Release notes for user/assistant-facing changes ship via **workspace migrations**. There is no bundled template to edit and no checkpoint state to clear — the notes are just a migration that writes to `~/.vellum/workspace/UPDATES.md`.
+Release notes for user/assistant-facing changes ship via **workspace migrations**. There is no bundled template to edit and no checkpoint state to clear — the notes are just a migration that writes to `<workspace>/UPDATES.md`.
 
 **To ship release notes:**
 
-1. Add a new migration file at `assistant/src/workspace/migrations/0XX-release-notes-<slug>.ts`. Use the next available sequence number (migrations are append-only). Put the release-note text inline as a string literal inside the migration.
-2. The migration must be idempotent: check for the HTML marker comment `<!-- vellum-migration:<id> -->` in `UPDATES.md` before appending, and skip if the marker is already present. The `<id>` should match the migration's registry ID so re-runs are a no-op.
-3. Append the new migration's export to `WORKSPACE_MIGRATIONS` in `assistant/src/workspace/migrations/registry.ts`. Never reorder or remove existing entries.
-4. Skip the migration entirely for no-op releases — do not add an empty migration.
+1. Add a new migration file at `assistant/src/workspace/migrations/0XX-release-notes-<slug>.ts`. Use the next available sequence number (migrations are append-only). Put the release-note text inline as a string literal inside the migration and append it to `UPDATES.md` in the migration's `run()`.
+2. Append the new migration's export to `WORKSPACE_MIGRATIONS` in `assistant/src/workspace/migrations/registry.ts`. Never reorder or remove existing entries.
+3. Skip the migration entirely for no-op releases — do not add an empty migration.
+
+**Idempotency requires both the runner AND an in-file marker.** The workspace-migration runner is the primary mechanism: `runWorkspaceMigrations()` in `assistant/src/workspace/migrations/runner.ts` records each successfully applied migration's `WorkspaceMigration.id` in `~/.vellum/workspace/data/.workspace-migrations.json` and skips any ID already in the `applied` set. However, the runner alone does not close two narrow duplicate-append windows, so release-notes migrations **must also** embed an in-file marker and short-circuit when it is present:
+
+1. **Crash mid-migration.** The runner marks a migration as `started` before `run()` executes and promotes it to `applied` only after `run()` returns. If the daemon crashes after `UPDATES.md` is appended but before the checkpoint is finalized, the next boot clears the `started` entry and re-runs the migration — producing a duplicate append.
+2. **Failed entries stay applied-adjacent.** Failed migrations persist in the checkpoint state and are not retried, but a migration that partially succeeded (appended, then threw) leaves `UPDATES.md` mutated without a guaranteed `applied` record, so subsequent hand-edits or reruns can double-write.
+
+**Required pattern for release-notes migrations:** embed an HTML marker like `<!-- release-note-id:<migration-id> -->` in the appended block, and before appending, read `UPDATES.md` and skip the append if the marker is already present. Do not drop this check on the assumption that the runner makes it redundant — it does not.
 
 **Processing:** After workspace migrations run at daemon startup, `runUpdateBulletinJobIfNeeded()` fires a background-only conversation (`conversationType: "background"`) via `wakeAgentForOpportunity()` to process `UPDATES.md`. The agent reads the file, acts on whatever is relevant, and deletes `UPDATES.md` when done. `rm UPDATES.md` remains auto-allowed so deletion needs no approval. The job short-circuits when the content hash matches the previously processed value (`updates:last_processed_hash`), so running on every startup is safe.
 
@@ -267,7 +288,13 @@ The `VELLUM_ENVIRONMENT` environment variable identifies the runtime environment
 | `staging` | QA against staging platform before production rollout. Default for release branch builds. |
 | `production` | Full production behavior, no developer shortcuts. Set explicitly for final production releases. |
 
-**Defaults**: `build.sh` sets the value automatically based on the build command. CI and developers can override it by exporting `VELLUM_ENVIRONMENT` before invoking the build script — the explicit value takes precedence.
+**Defaults**: `build.sh` sets the value automatically when `VELLUM_ENVIRONMENT` is unset:
+- `test` command => `test`
+- `release` / `release-application` => `staging` for `*-staging*` display versions, otherwise `production`
+- all other local build commands (`run`, plain build, etc.) => `dev`
+- if `VELLUM_PLATFORM_URL` or `VELLUM_WEB_URL` points at a loopback `http://...` host (for example `vel up`), default to `local` regardless of command
+
+CI and developers can always override by exporting `VELLUM_ENVIRONMENT` before invoking the build script — the explicit value takes precedence.
 
 **Reading the value at runtime** (Swift):
 ```swift
