@@ -115,12 +115,3 @@ struct OnboardingVellumCloudCard: View {
         }
     }
 }
-
-#if DEBUG
-#Preview("OnboardingVellumCloudCard") {
-    OnboardingVellumCloudCard(onContinue: {})
-        .frame(width: 440)
-        .padding(VSpacing.xl)
-        .background(VColor.contentBackground)
-}
-#endif
