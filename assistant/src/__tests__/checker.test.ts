@@ -388,9 +388,16 @@ describe("Permission Checker", () => {
         );
       });
 
-      test("bun is low risk", async () => {
+      test("bun --version is medium risk (bun base risk)", async () => {
+        // bun is medium base risk in the registry since it can execute code
+        expect(await classifyRisk("bash", { command: "bun --version" })).toBe(
+          RiskLevel.Medium,
+        );
+      });
+
+      test("bun test is high risk (executes arbitrary scripts)", async () => {
         expect(await classifyRisk("bash", { command: "bun test" })).toBe(
-          RiskLevel.Low,
+          RiskLevel.High,
         );
       });
 
@@ -427,22 +434,22 @@ describe("Permission Checker", () => {
         );
       });
 
-      test("chmod is medium risk", async () => {
+      test("chmod is high risk (permission changes)", async () => {
         expect(
           await classifyRisk("bash", { command: "chmod 644 file.txt" }),
-        ).toBe(RiskLevel.Medium);
+        ).toBe(RiskLevel.High);
       });
 
-      test("chown is medium risk", async () => {
+      test("chown is high risk (ownership changes)", async () => {
         expect(
           await classifyRisk("bash", { command: "chown user file.txt" }),
-        ).toBe(RiskLevel.Medium);
+        ).toBe(RiskLevel.High);
       });
 
-      test("chgrp is medium risk", async () => {
+      test("chgrp is high risk (group changes)", async () => {
         expect(
           await classifyRisk("bash", { command: "chgrp group file.txt" }),
-        ).toBe(RiskLevel.Medium);
+        ).toBe(RiskLevel.High);
       });
 
       test("git push (non-read-only) is medium risk", async () => {
@@ -489,16 +496,16 @@ describe("Permission Checker", () => {
         ).toBe(RiskLevel.Medium);
       });
 
-      test("opaque construct (eval) is medium risk", async () => {
+      test("opaque construct (eval) is high risk (registry: executes arbitrary code)", async () => {
         expect(await classifyRisk("bash", { command: 'eval "ls"' })).toBe(
-          RiskLevel.Medium,
+          RiskLevel.High,
         );
       });
 
-      test("opaque construct (bash -c) is medium risk", async () => {
+      test("opaque construct (bash -c) is high risk (registry: executes arbitrary code)", async () => {
         expect(
           await classifyRisk("bash", { command: 'bash -c "echo hi"' }),
-        ).toBe(RiskLevel.Medium);
+        ).toBe(RiskLevel.High);
       });
     });
 
@@ -848,7 +855,8 @@ describe("Permission Checker", () => {
 
     test("host_bash reuses bash-style command matching", async () => {
       addRule("host_bash", "npm *", "everywhere", "allow", 2000);
-      const result = await check("host_bash", { command: "npm test" }, "/tmp");
+      // npm list is low-risk and matches the npm * allow rule
+      const result = await check("host_bash", { command: "npm list" }, "/tmp");
       expect(result.decision).toBe("allow");
       expect(result.matchedRule?.pattern).toBe("npm *");
     });
@@ -1375,11 +1383,13 @@ describe("Permission Checker", () => {
 
     // Priority-based rule resolution
     test("higher-priority allow rule overrides lower-priority deny rule", async () => {
-      addRule("bash", "chmod *", "/tmp", "deny", 0);
-      addRule("bash", "chmod *", "/tmp", "allow", 100);
+      // Use git push (medium risk) since chmod is now high-risk in the registry
+      // and high-risk commands are never auto-allowed by allow rules
+      addRule("bash", "git push *", "/tmp", "deny", 0);
+      addRule("bash", "git push *", "/tmp", "allow", 100);
       const result = await check(
         "bash",
-        { command: "chmod 644 file.txt" },
+        { command: "git push origin main" },
         "/tmp",
       );
       expect(result.decision).toBe("allow");
@@ -2699,10 +2709,11 @@ describe("Permission Checker", () => {
     });
 
     test("medium-risk tool with allow rule auto-allows normally", async () => {
-      addRule("bash", "chmod *", "/tmp", "allow", 100);
+      // Use git push (medium risk) since chmod is now high-risk in the registry
+      addRule("bash", "git push *", "/tmp", "allow", 100);
       const result = await check(
         "bash",
-        { command: "chmod 644 file.txt" },
+        { command: "git push origin main" },
         "/tmp",
       );
       expect(result.decision).toBe("allow");
@@ -2774,10 +2785,11 @@ describe("Permission Checker", () => {
 
     test("strict mode: medium-risk with matching allow rule auto-allows", async () => {
       testConfig.permissions.mode = "strict";
-      addRule("bash", "chmod *", "/tmp", "allow");
+      // Use git push (medium risk) since chmod is now high-risk in the registry
+      addRule("bash", "git push *", "/tmp", "allow");
       const result = await check(
         "bash",
-        { command: "chmod 644 file.txt" },
+        { command: "git push origin main" },
         "/tmp",
       );
       expect(result.decision).toBe("allow");
@@ -4064,9 +4076,11 @@ describe("Permission Checker", () => {
       test("wildcard allow rule matches any command in workspace mode", async () => {
         testConfig.permissions.mode = "workspace";
         addRule("bash", "*", "everywhere");
+        // Use curl (medium risk) since chmod is now high-risk and
+        // allow rules don't auto-allow high-risk commands
         const result = await check(
           "bash",
-          { command: "chmod 644 file.txt" },
+          { command: "curl https://example.com" },
           "/tmp",
         );
         expect(result.decision).toBe("allow");
@@ -4076,9 +4090,11 @@ describe("Permission Checker", () => {
       test("wildcard allow rule matches any command in strict mode", async () => {
         testConfig.permissions.mode = "strict";
         addRule("bash", "*", "everywhere");
+        // Use curl (medium risk) since chmod is now high-risk and
+        // allow rules don't auto-allow high-risk commands
         const result = await check(
           "bash",
-          { command: "chmod 644 file.txt" },
+          { command: "curl https://example.com" },
           "/tmp",
         );
         expect(result.decision).toBe("allow");
@@ -4432,12 +4448,14 @@ describe("bash network_mode=proxied — risk capped at medium", () => {
     expect(risk).toBe(RiskLevel.Medium);
   });
 
-  test("pipe to python3 -c is not high risk (inline code, not stdin exec)", async () => {
+  test("pipe to python3 -c is high risk (registry: python3 executes arbitrary code)", async () => {
+    // python3 is classified as high-risk in the registry because it can
+    // execute arbitrary Python code. The -c flag does not downgrade the risk.
     const risk = await classifyRisk("bash", {
       command:
         'cat data.json | python3 -c "import sys; print(sys.stdin.read())"',
     });
-    expect(risk).toBe(RiskLevel.Low);
+    expect(risk).toBe(RiskLevel.High);
   });
 
   test("pipe to python3 without -c is high risk (stdin exec)", async () => {
@@ -4476,10 +4494,12 @@ describe("bash network_mode=proxied — risk capped at medium", () => {
   });
 
   test("non-proxied bash with trust rule follows normal flow", async () => {
-    addRule("bash", "chmod *", "/tmp");
+    // Use git push (medium risk) since chmod is now high-risk in the registry
+    // and high-risk commands are never auto-allowed by allow rules
+    addRule("bash", "git push *", "/tmp");
     const result = await check(
       "bash",
-      { command: "chmod 644 file.txt" },
+      { command: "git push origin main" },
       "/tmp",
     );
     expect(result.decision).toBe("allow");
@@ -4938,15 +4958,17 @@ describe("integration regressions (PR 11)", () => {
     // Simulate a user who saved an action:npm rule
     addRule("bash", "action:npm", "everywhere");
 
-    // Various npm commands should be auto-allowed via the action key
-    const r1 = await check("bash", { command: "npm install" }, "/tmp");
+    // npm list is low-risk and should be auto-allowed via the action key
+    const r1 = await check("bash", { command: "npm list" }, "/tmp");
     expect(r1.decision).toBe("allow");
 
+    // npm test and npm run build are high-risk (execute arbitrary scripts)
+    // so they prompt even with an allow rule
     const r2 = await check("bash", { command: "npm test" }, "/tmp");
-    expect(r2.decision).toBe("allow");
+    expect(r2.decision).toBe("prompt");
 
     const r3 = await check("bash", { command: "npm run build" }, "/tmp");
-    expect(r3.decision).toBe("allow");
+    expect(r3.decision).toBe("prompt");
   });
 
   test("action key rule does not match when command is part of complex chain", async () => {
@@ -4965,7 +4987,7 @@ describe("integration regressions (PR 11)", () => {
   });
 
   test("raw legacy rule still works alongside new action key system", async () => {
-    // Use host_bash with medium-risk commands (chmod) so they aren't
+    // Use host_bash with medium-risk commands (curl) so they aren't
     // auto-allowed by low-risk classification or a default allow-all rule.
     try {
       rmSync(join(checkerTestDir, "protected", "trust.json"));
@@ -4973,20 +4995,20 @@ describe("integration regressions (PR 11)", () => {
       /* may not exist */
     }
     clearCache();
-    addRule("host_bash", "chmod 644 file.txt", "everywhere");
+    addRule("host_bash", "curl https://example.com", "everywhere");
 
     // Exact match still works
     const r1 = await check(
       "host_bash",
-      { command: "chmod 644 file.txt" },
+      { command: "curl https://example.com" },
       "/tmp",
     );
     expect(r1.decision).toBe("allow");
 
-    // Different chmod argument should not match this exact raw rule
+    // Different curl argument should not match this exact raw rule
     const r2 = await check(
       "host_bash",
-      { command: "chmod 755 other.txt" },
+      { command: "curl https://other.com" },
       "/tmp",
     );
     expect(r2.decision).not.toBe("allow");

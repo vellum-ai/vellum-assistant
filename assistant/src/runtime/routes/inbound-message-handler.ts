@@ -21,6 +21,7 @@ import {
 } from "../../memory/conversation-attention-store.js";
 import {
   addMessage,
+  countMessagesWithSlackMeta,
   getMessageById,
   getMessages,
   updateMessageMetadata,
@@ -1052,6 +1053,10 @@ export async function handleChannelInbound(
           conversationId: result.conversationId,
           channelId: conversationExternalId,
           account: slackAccount,
+          // Exclude the just-arrived webhook message from the history window —
+          // the normal inbound persistence path writes it separately, so
+          // including it here would produce duplicate user turns.
+          latestTs: slackInbound?.channelTs,
         });
       }
 
@@ -1240,41 +1245,16 @@ async function persistSlackReactionAsMessage(params: {
 const SLACK_DM_BACKFILL_WARM_THRESHOLD = 3;
 
 /**
- * Count messages in a conversation whose `metadata` carries a parseable
- * `slackMeta` envelope. Used as the warm-storage signal for cold-start
- * backfill: any conversation with fewer than the warm threshold is treated
- * as a candidate for one-shot history hydration.
- *
- * Tolerant of legacy / malformed rows: rows without metadata, with invalid
- * JSON, or without a `slackMeta` key are skipped. Counting is intentionally
- * cheap (no SQL JSON probing) so it stays portable across drivers.
+ * Count messages in a conversation whose `metadata` carries a `slackMeta`
+ * envelope, capped at the warm threshold. Delegates to the DB helper which
+ * pushes both `LIKE` and `LIMIT` into SQL so a warm DM conversation never
+ * scans beyond the threshold's worth of rows on the webhook critical path.
  */
 function countSlackMetaMessages(conversationId: string): number {
-  const rows = getMessages(conversationId);
-  let count = 0;
-  for (const row of rows) {
-    if (!row.metadata) continue;
-    let parent: Record<string, unknown> | null = null;
-    try {
-      const parsed = JSON.parse(row.metadata) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        parent = parsed as Record<string, unknown>;
-      }
-    } catch {
-      continue;
-    }
-    if (!parent) continue;
-    const raw = parent.slackMeta;
-    if (typeof raw !== "string") continue;
-    if (readSlackMetadata(raw)) {
-      count++;
-      // Early-return: callers only need to know if the count meets the
-      // warm threshold. Avoids parsing every row on warm conversations
-      // that would otherwise full-scan on each Slack DM.
-      if (count >= SLACK_DM_BACKFILL_WARM_THRESHOLD) return count;
-    }
-  }
-  return count;
+  return countMessagesWithSlackMeta(
+    conversationId,
+    SLACK_DM_BACKFILL_WARM_THRESHOLD,
+  );
 }
 
 /**
@@ -1313,12 +1293,14 @@ function readStoredSlackChannelTs(conversationId: string): Set<string> {
  * Persist a single backfilled Slack message as a `messages` row with a
  * `slackMeta` envelope.
  *
- * Shared insertion point for both DM cold-start backfill and thread-ancestor
- * backfill. Backfilled rows are always recorded with role `"user"` — the
- * renderer reads `slackMeta` to format author / timestamp / thread context,
- * so the role distinction is not used for display. Caller is responsible
- * for dedup checks before invoking; this helper performs no idempotency
- * check itself.
+ * Shared insertion point for any path that hydrates Slack history lazily
+ * (DM cold-start backfill, thread-ancestor backfill, etc.). Role is derived
+ * from `message.metadata.isBot` — bot-authored rows map to `"assistant"` so
+ * our own prior replies (and any other bot traffic) are not rehydrated as
+ * user turns, which would otherwise corrupt speaker attribution and make
+ * the assistant treat its own outputs as new user input on later turns.
+ * Caller is responsible for dedup checks before invoking; this helper
+ * performs no idempotency check itself.
  */
 async function persistBackfilledSlackMessage(params: {
   conversationId: string;
@@ -1334,7 +1316,8 @@ async function persistBackfilledSlackMessage(params: {
     ...(message.threadId ? { threadTs: message.threadId } : {}),
     ...(message.sender?.name ? { displayName: message.sender.name } : {}),
   };
-  await addMessage(params.conversationId, "user", message.text ?? "", {
+  const role = message.metadata?.isBot === true ? "assistant" : "user";
+  await addMessage(params.conversationId, role, message.text ?? "", {
     slackMeta: writeSlackMetadata(slackMeta),
   });
 }
@@ -1365,6 +1348,7 @@ async function tryBackfillSlackDmIfCold(params: {
   conversationId: string;
   channelId: string;
   account?: string;
+  latestTs?: string;
 }): Promise<void> {
   const existing = _dmBackfillInFlight.get(params.conversationId);
   if (existing) {
@@ -1382,6 +1366,7 @@ async function runBackfillSlackDmIfCold(params: {
   conversationId: string;
   channelId: string;
   account?: string;
+  latestTs?: string;
 }): Promise<void> {
   try {
     const storedCount = countSlackMetaMessages(params.conversationId);
@@ -1389,9 +1374,15 @@ async function runBackfillSlackDmIfCold(params: {
       return;
     }
 
+    // Pass the webhook message's ts as `before` (Slack's `latest`,
+    // exclusive) so history never contains the message that's about to be
+    // persisted by the live inbound path. Without this bound the just-arrived
+    // DM would be written twice — once here and once via normal persistence —
+    // producing duplicate user turns.
     const fetched = await backfillDm(params.channelId, {
       limit: 50,
       account: params.account,
+      before: params.latestTs,
     });
     if (fetched.length === 0) {
       log.debug(

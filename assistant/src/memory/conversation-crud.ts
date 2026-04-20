@@ -10,6 +10,7 @@ import {
   gte,
   inArray,
   isNull,
+  like,
   lt,
   lte,
   sql,
@@ -1044,6 +1045,33 @@ export function getMessages(conversationId: string): MessageRow[] {
     .orderBy(asc(messages.createdAt))
     .all()
     .map(parseMessage);
+}
+
+/**
+ * Count messages whose metadata JSON contains a `slackMeta` envelope, capped
+ * at `limit`. Pushes the cap into SQL (`LIKE` + `LIMIT`) so warm Slack DM
+ * conversations don't require a full-table scan + JSON parse on every
+ * inbound message to confirm the cold-start threshold has been cleared.
+ * Returns the number of matching rows up to `limit`; callers compare against
+ * the cold-start threshold to decide whether to backfill.
+ */
+export function countMessagesWithSlackMeta(
+  conversationId: string,
+  limit: number,
+): number {
+  const db = getDb();
+  const rows = db
+    .select({ one: sql`1` })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        like(messages.metadata, '%"slackMeta"%'),
+      ),
+    )
+    .limit(limit)
+    .all();
+  return rows.length;
 }
 
 /**

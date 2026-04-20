@@ -212,7 +212,12 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     expect(backfillDmMock).toHaveBeenCalledTimes(1);
     const [channelArg, optsArg] = backfillDmMock.mock.calls[0];
     expect(channelArg).toBe(SLACK_DM_CHANNEL_ID);
-    expect(optsArg).toEqual({ limit: 50 });
+    // The webhook message's own ts must be passed as `before` so Slack's
+    // history window excludes it — otherwise backfill would re-insert the
+    // message that the live inbound path is already persisting.
+    expect(optsArg?.limit).toBe(50);
+    expect(typeof optsArg?.before).toBe("string");
+    expect(optsArg?.before).toMatch(/^1700000000\.10000/);
 
     // All three backfilled rows are persisted with a slackMeta envelope.
     // The live new DM's row is enqueued on the agent loop's persistence path
@@ -344,6 +349,37 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     expect(rows.length).toBe(2);
     const texts = rows.map((r) => r.content).sort();
     expect(texts).toEqual(["older A", "older B"]);
+  });
+
+  test("bot-authored backfilled messages are persisted with role=assistant", async () => {
+    // Slack DM history includes our own prior bot replies. If those rows
+    // were rehydrated as `user` turns, the assistant would later treat its
+    // own output as new user input and speaker attribution would break.
+    backfillDmMock.mockImplementation(async () => [
+      makeBackfilledMessage({
+        id: "1700000000.000001",
+        text: "user reply",
+        sender: { id: SLACK_DM_USER_ID, name: "Alice" },
+      }),
+      makeBackfilledMessage({
+        id: "1700000000.000002",
+        text: "assistant reply",
+        sender: { id: "B_BOT", name: "assistant-bot" },
+        metadata: { isBot: true },
+      }),
+    ]);
+
+    await handleChannelInbound(
+      buildDmRequest("live new DM"),
+      noopProcessMessage,
+      TEST_BEARER_TOKEN,
+    );
+
+    const rows = readPersistedSlackRows();
+    expect(rows.length).toBe(2);
+    const byText = new Map(rows.map((r) => [r.content, r.role]));
+    expect(byText.get("user reply")).toBe("user");
+    expect(byText.get("assistant reply")).toBe("assistant");
   });
 
   test("backfill skips channelTs values already stored", async () => {

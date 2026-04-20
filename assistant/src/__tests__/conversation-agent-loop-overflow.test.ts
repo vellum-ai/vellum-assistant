@@ -166,6 +166,8 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOriginChannel: () => null,
   getMessageById: () => null,
   updateMessageContent: () => {},
+  updateMessageMetadata: () => {},
+  clearPkbSystemReminderMetadataForConversation: () => {},
 }));
 
 mock.module("../memory/retriever.js", () => ({

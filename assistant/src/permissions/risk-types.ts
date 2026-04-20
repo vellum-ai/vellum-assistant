@@ -9,6 +9,8 @@
  * @see /docs/bash-risk-classifier-design.md
  */
 
+import { RiskLevel } from "./types.js";
+
 // ── Risk levels ──────────────────────────────────────────────────────────────
 
 /**
@@ -160,4 +162,25 @@ export interface UserRule {
   createdAt: string;
   /** How the rule was created. */
   source: "scope_ladder" | "manual";
+}
+
+// ── Risk → RiskLevel mapping ─────────────────────────────────────────────────
+
+/**
+ * Map a classifier `Risk` value to the permission system's `RiskLevel` enum.
+ *
+ * `"unknown"` maps to `RiskLevel.Medium` — matching the existing checker.ts
+ * behavior where unrecognized commands are treated as medium-risk.
+ */
+export function riskToRiskLevel(risk: Risk): RiskLevel {
+  switch (risk) {
+    case "low":
+      return RiskLevel.Low;
+    case "medium":
+      return RiskLevel.Medium;
+    case "high":
+      return RiskLevel.High;
+    case "unknown":
+      return RiskLevel.Medium;
+  }
 }

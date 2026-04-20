@@ -1382,6 +1382,14 @@ export async function runAgentLoopImpl(
       if (isTrustedActor && currentInjectionMode !== "minimal") {
         ctx.graphMemory.retrackCachedNodes();
       }
+      const midLoopCompactStrip = stripHistoricalWebSearchResults(runMessages);
+      if (midLoopCompactStrip.stats.blocksStripped > 0) {
+        rlog.info(
+          { phase: "mid-loop-compact", ...midLoopCompactStrip.stats },
+          "Converted historical web_search_tool_result blocks to text summaries",
+        );
+        runMessages = midLoopCompactStrip.messages;
+      }
       preRepairMessages = runMessages;
       preRunHistoryLength = runMessages.length;
 

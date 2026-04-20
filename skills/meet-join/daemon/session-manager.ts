@@ -781,18 +781,33 @@ class MeetSessionManagerImpl {
       return this.pendingBotTokens.get(meetingId) ?? null;
     });
 
-    // One-shot startup orphan sweep. On a fresh boot no sessions exist, so
-    // the active-id set is empty — any `vellum.meet.bot`-labeled container
+    // One-shot startup orphan sweep. Any `vellum.meet.bot`-labeled container
     // still running came from a crashed prior daemon run and must be
     // reaped. Fire-and-forget so construction stays synchronous; the
     // reaper logs its own outcome and catches per-container errors so a
     // transient docker-engine hiccup never tears down the session-manager
     // singleton. Tests opt out via {@link MeetSessionManagerDeps.disableStartupOrphanReaper}.
+    //
+    // Two guards make the sweep race-safe with concurrent joins:
+    //   1. `createdBefore` — Docker's `Created` timestamp for every
+    //      container the reaper considers must predate this moment, so any
+    //      container spawned by a join that races the sweep is skipped.
+    //   2. `activeMeetingIds` — passed as a live getter that reads
+    //      `this.sessions` (and `pendingBotTokens` for the brief window
+    //      before the session lands in the map) per-container, so a join
+    //      that lands mid-sweep is observed before its meeting ID is
+    //      evaluated.
     if (!this.deps.disableStartupOrphanReaper) {
       const reaperDocker = this.deps.dockerRunnerFactory();
+      const daemonStartEpochSeconds = Math.floor(Date.now() / 1000);
       void reapOrphanedMeetBots({
         docker: reaperDocker,
-        activeMeetingIds: new Set<string>(),
+        activeMeetingIds: () => {
+          const ids = new Set<string>(this.sessions.keys());
+          for (const id of this.pendingBotTokens.keys()) ids.add(id);
+          return ids;
+        },
+        createdBefore: daemonStartEpochSeconds,
         logger: log,
       }).catch((err: unknown) => {
         log.warn({ err }, "Startup orphan-reaper sweep threw — continuing");

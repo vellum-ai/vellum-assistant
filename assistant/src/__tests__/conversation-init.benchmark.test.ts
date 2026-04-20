@@ -107,6 +107,24 @@ const mockConfig = {
     summaryBudgetRatio: 0.05,
   },
   thinking: { enabled: false },
+  llm: {
+    default: {
+      provider: "mock",
+      model: "mock-model",
+      speed: "standard",
+      thinking: { enabled: false, streamThinking: false },
+      effort: "medium",
+      contextWindow: {
+        enabled: true,
+        maxInputTokens: 180000,
+        targetBudgetRatio: 0.3,
+        compactThreshold: 0.8,
+        summaryBudgetRatio: 0.05,
+      },
+    },
+    profiles: {},
+    callSites: {},
+  },
 };
 
 mock.module("../config/loader.js", () => ({
@@ -120,6 +138,7 @@ mock.module("../config/loader.js", () => ({
     "perplexity",
   ],
   getConfig: () => mockConfig,
+  getConfigReadOnly: () => mockConfig,
   loadConfig: () => mockConfig,
   saveConfig: () => {},
   invalidateConfigCache: () => {},
@@ -127,6 +146,10 @@ mock.module("../config/loader.js", () => ({
   saveRawConfig: () => {},
   getNestedValue: () => undefined,
   setNestedValue: () => {},
+  applyNestedDefaults: (c: unknown) => c,
+  deepMergeMissing: () => {},
+  deepMergeOverwrite: () => {},
+  mergeDefaultWorkspaceConfig: () => {},
 }));
 
 // Additional mocks required for Conversation constructor and end-to-end tests
@@ -134,6 +157,7 @@ mock.module("../config/loader.js", () => ({
 mock.module("../memory/conversation-crud.js", () => ({
   addMessage: () => ({ id: "msg-1" }),
   getMessages: () => [],
+  hasMessages: () => false,
   getMessageById: () => null,
   getConversation: () => null,
   createConversation: () => ({
@@ -194,14 +218,18 @@ mock.module("../memory/conversation-crud.js", () => ({
   getLastAssistantTimestampBefore: () => null,
   archiveConversation: () => false,
   unarchiveConversation: () => false,
+  clearPkbSystemReminderMetadataForConversation: () => {},
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
+  buildFtsMatchQuery: () => "",
   countConversations: () => 0,
   listConversations: () => [],
+  listPinnedConversations: () => [],
   getLatestConversation: () => null,
   isLastUserMessageToolResult: () => false,
   searchConversations: () => [],
+  buildExcerpt: () => "",
 }));
 
 mock.module("../hooks/manager.js", () => ({
@@ -266,6 +294,8 @@ mock.module("../calls/call-store.js", () => ({
 mock.module("../daemon/watch-handler.js", () => ({
   lastCommentaryByConversation: new Map(),
   lastSummaryByConversation: new Map(),
+  handleWatchObservation: () => Promise.resolve(),
+  generateSummary: () => Promise.resolve(),
 }));
 
 mock.module("../tools/browser/browser-screencast.js", () => ({

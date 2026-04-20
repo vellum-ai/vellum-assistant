@@ -489,11 +489,10 @@ export async function loadContextMemory(
   }
   const pureSemanticHits = semanticCandidateIds.size;
 
-  // 2b. (PR 3) Run a parallel Qdrant search against the user-query vector and
-  //     merge the results into the organic scoring pool (max-score union).
-  //     This keeps PR 3 strictly additive: candidates that only match the
-  //     user-query vector still participate in downstream scoring, and
-  //     candidates that match both vectors retain the higher score.
+  // 2b. Run a parallel Qdrant search against the user-query vector and merge
+  //     the results into the organic scoring pool via max-score union: a node
+  //     hit by only the user-query vector still participates in downstream
+  //     scoring, and a node hit by both vectors retains the higher score.
   if (userQueryVector) {
     try {
       const results = await searchGraphNodes(
