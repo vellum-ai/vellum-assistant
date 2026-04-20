@@ -47,13 +47,17 @@ criteria, and what to capture when something goes wrong.
   In Docker mode the workspace is mounted at `/workspace`, so the path
   inside the container is `/workspace/logs/daemon-stderr.log`.
   Tail with `tail -F ~/.vellum/workspace/logs/daemon-stderr.log`.
-- **Bot container logs**: `docker logs meet-bot-<meetingId>`. In
+- **Bot container logs**: `docker logs vellum-meet-<meetingId>`. In
   Docker-in-Docker mode (assistant itself running in a container) the bot
   containers are nested — run `docker logs` from _inside_ the assistant
-  container: `docker exec <assistant-container> docker logs meet-bot-<id>`.
-  The meeting id is the last path segment of the Meet URL, dashes stripped
-  in the container name. `docker ps --format '{{.Names}}' | rg meet-bot`
-  to list.
+  container:
+  `docker exec <assistant-container> docker logs vellum-meet-<id>`.
+  The meeting id is a freshly generated UUID — `meet_join` calls
+  `randomUUID()` (see `skills/meet-join/tools/meet-join-tool.ts`), and the
+  session manager names the container `vellum-meet-${meetingId}` (see
+  `skills/meet-join/daemon/session-manager.ts`). It is NOT derived from
+  the Meet URL. `docker ps --format '{{.Names}}' | rg vellum-meet` to
+  list.
 - **Per-meeting artifacts**: `$VELLUM_WORKSPACE_DIR/meets/<meetingId>/`.
   See `skills/meet-join/daemon/storage-writer.ts`. Files:
   `audio.opus`, `segments.jsonl`, `transcript.jsonl`, `participants.json`,
@@ -104,9 +108,10 @@ wire-level bot events into SSE `meet.*` events. The publisher does not
 itself log on every dispatch, so the definitive signal comes from the
 persisted artifacts.
 
-- `participants.json` at teardown reflects ALL three participants observed
-  during the session (latest snapshot — see `storage-writer.ts`
-  `writeParticipantsJson`). Verify:
+- `participants.json` at teardown reflects the participants still present
+  when the snapshot was last written — it is a running snapshot, and
+  `storage-writer.ts` `writeParticipantsJson` removes entries on leave.
+  Verify:
   ```bash
   jq 'length' ~/.vellum/workspace/meets/<id>/participants.json
   ```
@@ -126,7 +131,7 @@ persisted artifacts.
   `meet.participant_changed` events (bot-self join, Bob join, Bob leave,
   bot leave) and at least three `meet.speaker_changed` events (one per
   human utterance).
-- `docker logs meet-bot-<id>` shows the extension's in-page
+- `docker logs vellum-meet-<id>` shows the extension's in-page
   `participants.ts` feature emitting participant deltas — grep for
   `"participant.change"`.
 
@@ -143,7 +148,7 @@ persisted artifacts.
 
 ### Capture on failure
 
-- `docker logs meet-bot-<id> > /tmp/meet-bot-<id>.log`.
+- `docker logs vellum-meet-<id> > /tmp/vellum-meet-<id>.log`.
 - `cp -r ~/.vellum/workspace/meets/<id> /tmp/meet-artifact-<id>`.
 - Screen recording of the Meet DOM showing the speaker tile transitions
   (helps correlate against log timestamps).
@@ -225,8 +230,6 @@ stable string to grep against.
 - No lines in `transcript.jsonl` at all: the streaming session failed to
   start (check for `MeetAudioIngestError` in daemon log) or the bot is
   not forwarding PCM (check bot logs for the audio-capture warnings).
-- Lines present but `isFinal` field absent / interims making it through:
-  the writer's final-only filter regressed.
 - `speakerLabel: null` on Deepgram: provider did not emit diarization —
   confirm the adapter requested `diarize: "preferred"` (see
   `daemon/audio-ingest.ts:574`).
@@ -274,7 +277,7 @@ and the bot's HTTP server receives `DELETE /play_audio/:streamId`.
      The handler is in
      `skills/meet-join/bot/src/control/http-server.ts:461`.
      ```bash
-     docker logs meet-bot-<id> 2>&1 | rg 'DELETE /play_audio/'
+     docker logs vellum-meet-<id> 2>&1 | rg 'DELETE /play_audio/'
      ```
 
 ### Pass criteria
@@ -319,7 +322,7 @@ and the bot's HTTP server receives `DELETE /play_audio/:streamId`.
 
 - Screen/audio recording of the bot's voice trailing off (phone camera
   aimed at speakers is fine — we just need the timing).
-- `docker logs meet-bot-<id> 2>&1 > /tmp/meet-bot-bargein-<id>.log`.
+- `docker logs vellum-meet-<id> 2>&1 > /tmp/vellum-meet-bargein-<id>.log`.
 - `rg -i 'barge-in|tts|speaking_started|speaking_ended|play_audio' ~/.vellum/workspace/logs/daemon-stderr.log > /tmp/daemon-bargein-<id>.log`.
 
 ---
@@ -357,7 +360,7 @@ LLM should return `{ "objected": true, ... }`.
 4. Watch for:
    - Within 3s: a bot chat message appears (configurable goodbye — by
      default "Thanks, I'm stepping out now" or similar).
-   - Within 5s: `docker ps` no longer lists `meet-bot-<id>` (container
+   - Within 5s: `docker ps` no longer lists `vellum-meet-<id>` (container
      exited).
 5. Daemon log checks:
    ```bash
@@ -390,9 +393,9 @@ Exact phrase to speak aloud, clearly:
 
 - Bot posts a goodbye chat message before disappearing from the
   meeting — captured in the Meet chat panel and in
-  `docker logs meet-bot-<id>` as a `POST /send_chat` request from
+  `docker logs vellum-meet-<id>` as a `POST /send_chat` request from
   the daemon.
-- `docker ps | rg meet-bot-<id>` returns empty within 5s of the
+- `docker ps | rg vellum-meet-<id>` returns empty within 5s of the
   objection landing.
 - `meta.json` in the meeting's artifact dir has `endedAt` populated.
 - `meet.left` SSE event fired with `reason` starting with
@@ -421,7 +424,7 @@ Exact phrase to speak aloud, clearly:
 
 - Full daemon log slice for the meeting:
   `rg -i 'consent|objection|leave' ~/.vellum/workspace/logs/daemon-stderr.log > /tmp/consent-<id>.log`.
-- `docker logs meet-bot-<id> 2>&1 > /tmp/meet-bot-consent-<id>.log`.
+- `docker logs vellum-meet-<id> 2>&1 > /tmp/vellum-meet-consent-<id>.log`.
 - `cp -r ~/.vellum/workspace/meets/<id> /tmp/meet-consent-<id>`.
 - Screen recording of the Meet chat panel timing the Send → bot-goodbye
   → container-exit sequence.
