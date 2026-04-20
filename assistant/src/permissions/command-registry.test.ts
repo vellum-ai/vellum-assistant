@@ -184,8 +184,9 @@ describe("command-registry", () => {
       expect(gitSpec.subcommands).toBeDefined();
 
       const missing: string[] = [];
+      const subs = gitSpec.subcommands! as Record<string, unknown>;
       for (const sub of LOW_RISK_GIT_SUBCOMMANDS) {
-        if (!gitSpec.subcommands![sub]) {
+        if (!subs[sub]) {
           missing.push(sub);
         }
       }
@@ -196,8 +197,9 @@ describe("command-registry", () => {
       const gitSpec = DEFAULT_COMMAND_REGISTRY.git;
       const errors: string[] = [];
 
+      const gitSubs = gitSpec.subcommands! as Record<string, CommandRiskSpec>;
       for (const sub of LOW_RISK_GIT_SUBCOMMANDS) {
-        const subSpec = gitSpec.subcommands![sub];
+        const subSpec = gitSubs[sub];
         if (subSpec && subSpec.baseRisk !== "low") {
           // stash is an exception — its baseRisk is "medium" (write operation)
           // but it was in LOW_RISK_GIT_SUBCOMMANDS because `git stash` without

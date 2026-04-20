@@ -550,6 +550,35 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
 
     return assessment;
   }
+
+  /**
+   * Convenience method for the Phase 1 parallel wiring in checker.ts.
+   * Classifies a command and logs the result alongside the existing
+   * classifier's risk level for comparison. Fire-and-forget — errors are
+   * swallowed by the caller.
+   */
+  static async classifyAndLog(
+    command: string,
+    toolName: "bash" | "host_bash",
+    existingRiskLevel: string,
+  ): Promise<void> {
+    const assessment = await bashRiskClassifier.classify({
+      command,
+      toolName,
+    });
+    log.info(
+      {
+        command,
+        program: command.trim().split(/\s+/)[0] ?? "(none)",
+        newRiskLevel: assessment.riskLevel,
+        existingRiskLevel,
+        reason: assessment.reason,
+        matchType: assessment.matchType,
+        match: assessment.riskLevel === existingRiskLevel,
+      },
+      "Risk classifier comparison",
+    );
+  }
 }
 
 /** Singleton classifier instance with default registry. */

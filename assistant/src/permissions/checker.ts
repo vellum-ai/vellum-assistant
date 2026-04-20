@@ -40,6 +40,7 @@ import {
   type ScopeOption,
 } from "./types.js";
 import { isWorkspaceScopedInvocation } from "./workspace-policy.js";
+import { BashRiskClassifier } from "./bash-risk-classifier.js";
 
 // ── Risk classification cache ────────────────────────────────────────────────
 // classifyRisk() is called on every permission check and can invoke WASM
@@ -703,6 +704,19 @@ export async function classifyRisk(
       if (oldest !== undefined) riskCache.delete(oldest);
     }
     riskCache.set(cacheKey, result);
+  }
+
+  // ── Parallel risk classifier (Phase 1: observe-only) ──────────────────────
+  // Run the new data-driven classifier alongside the existing logic.
+  // The result is logged for comparison but does NOT affect the decision.
+  // This will become the primary classifier in Phase 2.
+  if (toolName === "bash" || toolName === "host_bash") {
+    const command = ((input.command as string) ?? "").trim();
+    if (command) {
+      BashRiskClassifier.classifyAndLog(command, toolName, result).catch(
+        () => {},
+      );
+    }
   }
 
   return result;
