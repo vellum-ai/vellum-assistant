@@ -362,9 +362,13 @@ struct SettingsGeneralTab: View {
         .onDisappear {
             // Abort any in-flight recovery if the user navigates away. The
             // bootstrap's HTTP retry loop is cooperative-cancellation aware,
-            // so cancelling here unblocks it immediately.
+            // so cancelling here unblocks it immediately. Clear the button
+            // state too — the task's completion block bails on cancellation
+            // without flipping the flag, which would otherwise leave the
+            // button stuck in "Resetting…" when the wedge reappears later.
             resetConnectionTask?.cancel()
             resetConnectionTask = nil
+            isResettingConnection = false
         }
     }
 
