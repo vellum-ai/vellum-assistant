@@ -71,14 +71,22 @@ function hasTraversalSegment(pathname: string): boolean {
 /**
  * Look for `..` path segments in the raw input before URL normalization.
  * We slice off the scheme+authority and stop at the first `?` or `#`,
- * then examine each `/`-delimited segment (including percent-decoded
- * forms of `.`).
+ * then examine each segment split on both `/` and `\` (the WHATWG URL
+ * parser treats `\` as equivalent to `/` for special schemes like
+ * `https:`, so a backslash-delimited traversal would be normalized
+ * away by `new URL()`).
+ *
+ * Inside each segment we also handle percent-encoded separators
+ * (`%2F` = `/`, `%5C` = `\`): we pre-normalize those before the
+ * top-level split, and we also re-split each decoded segment on `/`
+ * and `\` to catch cases like `%2e%2e%2fother` where the encoded
+ * slash hides a traversal within a single raw segment.
  */
 function hasTraversalInRawPath(raw: string): boolean {
   const schemeEnd = raw.indexOf("://");
   if (schemeEnd === -1) return false;
   const afterScheme = raw.slice(schemeEnd + 3);
-  const pathStart = afterScheme.indexOf("/");
+  const pathStart = afterScheme.search(/[\/\\]/);
   if (pathStart === -1) return false;
   let path = afterScheme.slice(pathStart);
   const queryIdx = path.indexOf("?");
@@ -86,13 +94,25 @@ function hasTraversalInRawPath(raw: string): boolean {
   const hashIdx = path.indexOf("#");
   if (hashIdx !== -1) path = path.slice(0, hashIdx);
 
-  for (const segment of path.split("/")) {
+  // Normalize percent-encoded forms of `/` and `\` so that encoded
+  // separators participate in the segment split.
+  const normalized = path.replace(/%2[fF]/g, "/").replace(/%5[cC]/g, "\\");
+
+  for (const segment of normalized.split(/[\/\\]/)) {
     if (segment === "..") return true;
     // Percent-decoded forms of ".." — e.g. "%2E%2E", ".%2e", "%2e.".
+    // Also re-split on `/` and `\` to catch encoded separators that
+    // weren't covered by the top-level normalization (e.g. a decoded
+    // segment `../other`).
+    let decoded: string;
     try {
-      if (decodeURIComponent(segment) === "..") return true;
+      decoded = decodeURIComponent(segment);
     } catch {
       // Ignore malformed percent-encoding; URL parser would handle it.
+      continue;
+    }
+    for (const sub of decoded.split(/[\/\\]/)) {
+      if (sub === "..") return true;
     }
   }
   return false;
