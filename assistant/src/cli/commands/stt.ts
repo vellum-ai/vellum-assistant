@@ -12,6 +12,7 @@ import { extname, join } from "node:path";
 
 import type { Command } from "commander";
 
+import { listProviderIds } from "../../providers/speech-to-text/provider-catalog.js";
 import { resolveBatchTranscriber } from "../../providers/speech-to-text/resolve.js";
 import type { BatchTranscriber } from "../../stt/types.js";
 import {
@@ -183,6 +184,8 @@ export function registerSttCommand(program: Command): void {
     .command("stt")
     .description("Speech-to-text operations");
 
+  const supportedProviders = listProviderIds().join(", ");
+
   sttCmd.addHelpText(
     "after",
     `
@@ -191,7 +194,7 @@ audio and video files. The provider is set via:
 
   $ assistant config set services.stt.provider <provider>
 
-Supported providers include openai-whisper, deepgram, and google-gemini.
+Supported providers: ${supportedProviders}.
 
 Examples:
   $ assistant stt transcribe --file /path/to/meeting.wav

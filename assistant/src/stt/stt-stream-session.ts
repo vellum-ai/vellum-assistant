@@ -30,6 +30,10 @@
  *   configurable window.
  */
 
+import {
+  listProviderIds,
+  supportsBoundary,
+} from "../providers/speech-to-text/provider-catalog.js";
 import { getLogger } from "../util/logger.js";
 import type { StreamingTranscriber, SttStreamServerEvent } from "./types.js";
 
@@ -172,10 +176,13 @@ export class SttStreamSession {
           { provider: this.provider },
           "Streaming transcriber unavailable for provider",
         );
+        const streamingProviders = listProviderIds()
+          .filter((id) => supportsBoundary(id, "daemon-streaming"))
+          .join(", ");
         this.sendEvent({
           type: "error",
           category: "provider-error",
-          message: `Streaming transcription is not supported for provider "${this.provider}". Supported providers: deepgram, google-gemini, openai-whisper.`,
+          message: `Streaming transcription is not supported for provider "${this.provider}". Supported providers: ${streamingProviders}.`,
         });
         this.sendEvent({ type: "closed" });
         this.state = "closed";
