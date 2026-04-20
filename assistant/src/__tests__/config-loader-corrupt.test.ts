@@ -1,13 +1,10 @@
 /**
- * Regression tests for JARVIS-409: the daemon must never block startup when
- * ~/.vellum/workspace/config.json is corrupt.
- *
- * A corrupt config (truncated during a power-loss mid-write, or hand-edited to
- * invalid JSON) previously caused loadConfig() / loadRawConfig() to throw
- * ConfigError, which hard-failed daemon startup and surfaced /v1/config as a
- * 500 response. The loader now quarantines the corrupt file, logs an error
- * with a remediation hint, and falls through to the default-config path so
- * startup proceeds.
+ * A corrupt config.json (truncated during a power-loss mid-write, or
+ * hand-edited to invalid JSON) is quarantined by the loader, which
+ * logs an error with a remediation hint and falls through to the
+ * default-config path so startup proceeds. These tests verify that
+ * loadConfig() / loadRawConfig() never throw on corrupt input, and
+ * that the corrupt file is preserved for debugging.
  */
 
 import {
