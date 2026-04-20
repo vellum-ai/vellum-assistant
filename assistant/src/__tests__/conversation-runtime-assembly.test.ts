@@ -3624,6 +3624,76 @@ describe("assembleSlackChronologicalMessages", () => {
     expect(result).toEqual([]);
   });
 
+  test("attachment-only user rows emit a placeholder tag line so sender/timestamp attribution is preserved", () => {
+    // Before the placeholder, a row whose content is only an image or file
+    // would render without any tag line at all — the model would see the
+    // attachment block but lose all sender/timestamp attribution. Emit a
+    // synthetic tag line with an `[image]` / `[file]` placeholder so the
+    // attribution survives while the image/file block itself is still
+    // preserved alongside it.
+    const userMeta1: SlackMessageMetadata = {
+      source: "slack",
+      channelId: DM_CHANNEL_ID,
+      channelTs: TS_14_25,
+      eventKind: "message",
+      displayName: "@alice",
+    };
+    const userMeta2: SlackMessageMetadata = {
+      source: "slack",
+      channelId: DM_CHANNEL_ID,
+      channelTs: TS_14_28,
+      eventKind: "message",
+      displayName: "@alice",
+    };
+    const imageOnlyContent = JSON.stringify([
+      {
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: "aGVsbG8=" },
+      },
+    ]);
+    const mixedImageAndFileContent = JSON.stringify([
+      {
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: "aGVsbG8=" },
+      },
+      { type: "file", source: { type: "file_id", file_id: "file_1" } },
+    ]);
+    const rows: SlackTranscriptInputRow[] = [
+      {
+        role: "user",
+        content: imageOnlyContent,
+        createdAt: MS_14_25,
+        metadata: metadataEnvelope(userMeta1),
+      },
+      {
+        role: "user",
+        content: mixedImageAndFileContent,
+        createdAt: MS_14_28,
+        metadata: metadataEnvelope(userMeta2),
+      },
+    ];
+    const result = assembleSlackChronologicalMessages(rows, DM_CAPS);
+    expect(result).not.toBeNull();
+    expect(result!.length).toBe(2);
+    const firstTag = (result![0]!.content[0] as { type: "text"; text: string })
+      .text;
+    const secondTag = (result![1]!.content[0] as { type: "text"; text: string })
+      .text;
+    expect(firstTag).toBe("[11/14/23 14:25 @alice]: [image]");
+    expect(secondTag).toBe("[11/14/23 14:28 @alice]: [image] [file]");
+    // The attachment blocks themselves must still be preserved alongside.
+    expect(result![0]!.content.some((b) => b.type === "image")).toBe(true);
+    expect(
+      result![1]!.content.some((b) => b.type === "image") &&
+        result![1]!.content.some((b) => b.type === "file"),
+    ).toBe(true);
+    // No empty-body render like `[... @alice]: ` should ever appear.
+    for (const msg of result!) {
+      const head = (msg.content[0] as { type: "text"; text: string }).text;
+      expect(head).not.toMatch(/]:\s*$/);
+    }
+  });
+
   test("row content with interleaved text + tool_use preserves tool_use alongside tag line (PR 3)", () => {
     // PR 3 preserves replayable content blocks (tool_use, tool_result,
     // thinking, etc.) alongside the tag line. A row persisted with

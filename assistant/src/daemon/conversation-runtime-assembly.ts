@@ -1238,12 +1238,45 @@ function extractPlainText(rawContent: string): string {
     return typeof parsed === "string" ? parsed : rawContent;
   }
   const parts: string[] = [];
+  const placeholderLabels: string[] = [];
   for (const block of parsed as ContentBlock[]) {
-    if (block && typeof block === "object" && block.type === "text") {
+    if (!block || typeof block !== "object") continue;
+    if (block.type === "text") {
       parts.push(block.text);
+      continue;
+    }
+    const label = placeholderForBlockType(block.type);
+    if (label && !placeholderLabels.includes(label)) {
+      placeholderLabels.push(label);
     }
   }
-  return parts.join("\n");
+  if (parts.length > 0) {
+    return parts.join("\n");
+  }
+  // Rows with no text blocks (e.g. images, file uploads, pure tool turns)
+  // would otherwise render as an empty transcript line like
+  // `[14:25 @alice]: `. Surface the attachment/tool context instead so the
+  // model can tell something was actually said on that turn.
+  return placeholderLabels.join(" ");
+}
+
+function placeholderForBlockType(type: ContentBlock["type"]): string | null {
+  switch (type) {
+    case "image":
+      return "[image]";
+    case "file":
+      return "[file]";
+    case "tool_use":
+    case "server_tool_use":
+      return "[tool call]";
+    case "tool_result":
+    case "web_search_tool_result":
+      return "[tool result]";
+    case "thinking":
+    case "redacted_thinking":
+    case "text":
+      return null;
+  }
 }
 
 /**
@@ -1300,9 +1333,28 @@ function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
     // Plain string row (legacy) — no structured blocks to preserve.
   }
 
+  const plainText = extractPlainText(row.content);
+
+  // Attachment-only rows (images, files) carry no text block, so the
+  // transcript renderer would normally emit them *without* a tag line —
+  // the model sees the image but loses sender/timestamp attribution.
+  // Synthesize a leading text block carrying the placeholder so the
+  // renderer emits `[14:25 @alice]: [image]` and then the image itself.
+  // Pure tool-only rows (tool_use / tool_result) are intentionally
+  // excluded — those are synthetic turn continuations that should stay
+  // tag-line-free, matching the documented behaviour in
+  // `buildMessageContentBlocks`.
+  const hasTextBlock = contentBlocks.some((b) => b?.type === "text");
+  const hasAttachmentBlock = contentBlocks.some(
+    (b) => b?.type === "image" || b?.type === "file",
+  );
+  if (!hasTextBlock && hasAttachmentBlock && plainText !== "") {
+    contentBlocks = [{ type: "text", text: plainText }, ...contentBlocks];
+  }
+
   return {
     role: row.role,
-    content: extractPlainText(row.content),
+    content: plainText,
     metadata: slackMeta,
     senderLabel,
     createdAt: row.createdAt,
