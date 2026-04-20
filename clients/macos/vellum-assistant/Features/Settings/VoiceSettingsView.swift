@@ -106,6 +106,7 @@ struct VoiceSettingsView: View {
         }
         .onDisappear {
             stopRecordingCustomKey()
+            testPlayer.stop()
         }
         .onAppear {
             // Initialize TTS draft state from persisted values
