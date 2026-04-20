@@ -42,6 +42,7 @@ import { registerSkillsCommand } from "./commands/skills.js";
 import { registerSttCommand } from "./commands/stt.js";
 import { registerTaskCommand } from "./commands/task.js";
 import { registerTrustCommand } from "./commands/trust.js";
+import { registerTtsCommand } from "./commands/tts.js";
 import { registerUiCommand } from "./commands/ui.js";
 import { registerUsageCommand } from "./commands/usage.js";
 import { registerWatchersCommand } from "./commands/watchers.js";
@@ -111,6 +112,7 @@ Examples:
   registerShotgunCommand(program);
   registerSequenceCommand(program);
   registerSttCommand(program);
+  registerTtsCommand(program);
 
   registerInferenceCommand(program);
 
