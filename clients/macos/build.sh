@@ -1328,7 +1328,7 @@ PLIST
 # and backward-compatible raster fallbacks for macOS 15 into Assets.car.
 XCASSETS="$SCRIPT_DIR/vellum-assistant/Resources/Assets.xcassets"
 APP_ICON="$SCRIPT_DIR/vellum-assistant/Resources/AppIcon.icon"
-if [ -d "$XCASSETS" ]; then
+if [ -d "$XCASSETS" ] && [ -d "$APP_ICON" ]; then
     xcrun actool "$XCASSETS" "$APP_ICON" \
         --compile "$RESOURCES_DIR" \
         --platform macosx \
