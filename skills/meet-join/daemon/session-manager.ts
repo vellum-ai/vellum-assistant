@@ -77,6 +77,7 @@ import { resolveTtsConfig } from "../../../assistant/src/tts/tts-config-resolver
 import type { TtsProvider } from "../../../assistant/src/tts/types.js";
 import { getLogger } from "../../../assistant/src/util/logger.js";
 import { getWorkspaceDir } from "../../../assistant/src/util/platform.js";
+import { trustedTypeHttpTimeoutMs } from "../contracts/native-messaging.js";
 import { getMeetConfig } from "../meet-config.js";
 import { MeetAudioIngest } from "./audio-ingest.js";
 import {
@@ -141,7 +142,13 @@ export const MEET_BOT_HOST_IP = "127.0.0.1";
 /** Timeout for the best-effort bot `/leave` HTTP call before falling back to stop. */
 export const BOT_LEAVE_HTTP_TIMEOUT_MS = 10_000;
 
-/** Timeout for the bot `/send_chat` HTTP call before giving up. */
+/**
+ * Floor for the bot `/send_chat` HTTP timeout. The per-request ceiling
+ * scales with text length via {@link trustedTypeHttpTimeoutMs} — xdotool
+ * types at 25ms/char inside the bot, so a 2000-char chat takes ~50s to
+ * land before the extension can reply. The actual timeout applied per
+ * request is `max(FLOOR, trustedTypeHttpTimeoutMs(text.length))`.
+ */
 export const BOT_SEND_CHAT_HTTP_TIMEOUT_MS = 10_000;
 
 /**
@@ -2412,6 +2419,16 @@ async function defaultBotSendChatFetch(
   text: string,
   meetingId: string,
 ): Promise<void> {
+  // xdotool types at 25ms/char inside the bot container, so the bot's
+  // reply genuinely cannot arrive before `text.length * 25ms` — a fixed
+  // 10s ceiling times out valid sub-2000-char chats above ~390 chars
+  // even when the extension eventually completes them successfully.
+  // Scale per request via the shared helper; floor at the legacy fixed
+  // budget so short messages keep the same (already-tight) ceiling.
+  const timeoutMs = Math.max(
+    BOT_SEND_CHAT_HTTP_TIMEOUT_MS,
+    trustedTypeHttpTimeoutMs(text.length),
+  );
   let response: Response;
   try {
     response = await fetch(url, {
@@ -2421,7 +2438,7 @@ async function defaultBotSendChatFetch(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ type: "send_chat", text }),
-      signal: AbortSignal.timeout(BOT_SEND_CHAT_HTTP_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
