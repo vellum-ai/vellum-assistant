@@ -25,7 +25,8 @@ import {
   getProtectedDir,
   getWorkspaceHooksDir,
 } from "../util/platform.js";
-import { BashRiskClassifier } from "./bash-risk-classifier.js";
+import { bashRiskClassifier } from "./bash-risk-classifier.js";
+import { riskToRiskLevel } from "./risk-types.js";
 import {
   buildShellAllowlistOptions,
   buildShellCommandCandidates,
@@ -87,75 +88,6 @@ function ensureRiskCacheInvalidationHook(): void {
   onRulesChanged(clearRiskCache);
 }
 
-// Low-risk shell programs that are read-only / informational
-const LOW_RISK_PROGRAMS = new Set([
-  "ls",
-  "cat",
-  "head",
-  "tail",
-  "less",
-  "more",
-  "wc",
-  "file",
-  "stat",
-  "grep",
-  "rg",
-  "ag",
-  "ack",
-  "find",
-  "fd",
-  "which",
-  "where",
-  "whereis",
-  "type",
-  "echo",
-  "printf",
-  "date",
-  "cal",
-  "uptime",
-  "whoami",
-  "hostname",
-  "uname",
-  "pwd",
-  "realpath",
-  "dirname",
-  "basename",
-  "git",
-  "node",
-  "bun",
-  "deno",
-  "npm",
-  "npx",
-  "yarn",
-  "pnpm",
-  "python",
-  "python3",
-  "pip",
-  "pip3",
-  "man",
-  "help",
-  "info",
-  "env",
-  "printenv",
-  "set",
-  "diff",
-  "sort",
-  "uniq",
-  "cut",
-  "tr",
-  "tee",
-  "xargs",
-  "jq",
-  "yq",
-  "http",
-  "dig",
-  "nslookup",
-  "ping",
-  "tree",
-  "du",
-  "df",
-]);
-
 /**
  * Determines at runtime whether a high-risk operation should be auto-allowed
  * without requiring a persisted allowHighRisk flag. This replaces the
@@ -165,258 +97,14 @@ const LOW_RISK_PROGRAMS = new Set([
  * - Containerized bash: all commands are sandboxed, so high-risk is safe.
  *
  * Note: `rm BOOTSTRAP.md` and `rm UPDATES.md` are already classified as
- * Medium risk (not High) by `isRmOfKnownSafeFile()`, so they don't need
- * special handling here.
+ * Medium risk (not High) by the BashRiskClassifier's rm safe-file
+ * downgrade, so they don't need special handling here.
  */
 function shouldAutoAllowHighRisk(toolName: string): boolean {
   if (toolName === "bash" && getIsContainerized()) {
     return true;
   }
   return false;
-}
-
-// High-risk shell programs / patterns
-const HIGH_RISK_PROGRAMS = new Set([
-  "sudo",
-  "su",
-  "doas",
-  "dd",
-  "mkfs",
-  "fdisk",
-  "parted",
-  "mount",
-  "umount",
-  "systemctl",
-  "service",
-  "launchctl",
-  "useradd",
-  "userdel",
-  "usermod",
-  "groupadd",
-  "groupdel",
-  "iptables",
-  "ufw",
-  "firewall-cmd",
-  "reboot",
-  "shutdown",
-  "halt",
-  "poweroff",
-  "kill",
-  "killall",
-  "pkill",
-]);
-
-// Git subcommands that are low-risk (read-only)
-const LOW_RISK_GIT_SUBCOMMANDS = new Set([
-  "status",
-  "log",
-  "diff",
-  "show",
-  "branch",
-  "tag",
-  "remote",
-  "stash",
-  "blame",
-  "shortlog",
-  "describe",
-  "rev-parse",
-  "ls-files",
-  "ls-tree",
-  "cat-file",
-  "reflog",
-]);
-
-/**
- * Classify risk for `assistant` CLI subcommands. Multi-word subcommands
- * (e.g. `assistant oauth token`) are matched by walking the positional args.
- */
-function classifyAssistantSubcommand(args: string[]): RiskLevel {
-  const sub = firstPositionalArg(args);
-  if (!sub) return RiskLevel.Low;
-
-  if (sub === "oauth") {
-    const oauthSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
-    if (oauthSub === "token") return RiskLevel.High;
-    if (oauthSub === "mode") {
-      // `oauth mode --set` is high risk; bare `oauth mode` (read) is low.
-      // Match both `--set value` (two tokens) and `--set=value` (one token).
-      if (args.some((a) => a === "--set" || a.startsWith("--set=")))
-        return RiskLevel.High;
-      return RiskLevel.Low;
-    }
-    if (oauthSub === "request") return RiskLevel.Medium;
-    if (oauthSub === "connect" || oauthSub === "disconnect")
-      return RiskLevel.Medium;
-    return RiskLevel.Low;
-  }
-
-  if (sub === "credentials") {
-    const credSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
-    if (credSub === "reveal") return RiskLevel.High;
-    if (credSub === "set" || credSub === "delete") return RiskLevel.High;
-    return RiskLevel.Low;
-  }
-
-  if (sub === "keys") {
-    const keysSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
-    if (keysSub === "set" || keysSub === "delete") return RiskLevel.High;
-    return RiskLevel.Low;
-  }
-
-  if (sub === "trust") {
-    const trustSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
-    if (trustSub === "remove" || trustSub === "clear") return RiskLevel.High;
-    return RiskLevel.Low;
-  }
-
-  return RiskLevel.Low;
-}
-
-// Commands that wrap another program — the real program appears as the first
-// non-flag argument.  When one of these is the segment program we look through
-// its args to find the effective program (e.g. `env curl …` → curl).
-const WRAPPER_PROGRAMS = new Set([
-  "env",
-  "nice",
-  "nohup",
-  "time",
-  "command",
-  "exec",
-  "strace",
-  "ltrace",
-  "ionice",
-  "taskset",
-  "timeout",
-]);
-
-// `env` flags that consume the next positional argument as their value.
-// Without this, `env -u curl echo` would incorrectly identify `curl` (the
-// value of -u) as the wrapped program instead of `echo`.
-const ENV_VALUE_FLAGS = new Set(["-u", "--unset", "-C", "--chdir"]);
-
-// `timeout` flags that consume the next positional argument as their value.
-const TIMEOUT_VALUE_FLAGS = new Set(["-s", "--signal", "-k", "--kill-after"]);
-
-// Wrapper programs where the first non-flag positional argument is a
-// configuration value (duration, CPU mask), not the wrapped program name.
-// For these wrappers, the second non-flag positional is the real program.
-const WRAPPER_SKIP_FIRST_POSITIONAL = new Set(["timeout", "taskset"]);
-
-// `git` global flags that consume the next positional argument as their value.
-// Without this, `git -C status commit` would incorrectly identify `status`
-// (the directory path) as the subcommand instead of `commit`.
-const GIT_VALUE_FLAGS = new Set([
-  "-C",
-  "-c",
-  "--git-dir",
-  "--work-tree",
-  "--namespace",
-  "--super-prefix",
-  "--config-env",
-]);
-
-/**
- * Return the first non-flag argument from an argument list, optionally
- * skipping value-taking flags.  Flags are arguments that start with `-`.
- * This is used to skip global options (e.g. `--verbose`, `-h`, `-C <path>`)
- * when extracting the subcommand from CLIs like `git`, `vellum`, and
- * `assistant`.
- *
- * When `valueFlags` is provided, any flag in that set causes the next
- * argument to be skipped as well (it is the flag's value, not a positional).
- */
-function firstPositionalArg(
-  args: string[],
-  valueFlags?: Set<string>,
-): string | undefined {
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg.startsWith("-")) {
-      if (valueFlags?.has(arg)) i++; // skip the next arg (the flag's value)
-      continue;
-    }
-    return arg;
-  }
-  return undefined;
-}
-
-// Bare filenames that `rm` is allowed to delete at Medium risk (instead of
-// High) so workspace-scoped allow rules can approve them without prompting.
-// Only matches when the args contain no flags and exactly one of these filenames.
-const RM_SAFE_BARE_FILES = new Set(["BOOTSTRAP.md", "UPDATES.md"]);
-
-function isRmOfKnownSafeFile(args: string[]): boolean {
-  if (args.length !== 1) return false;
-  const target = args[0];
-  if (target.startsWith("-") || target.includes("/")) return false;
-  return RM_SAFE_BARE_FILES.has(target);
-}
-
-/**
- * Given a segment whose program is a known wrapper, return the first
- * non-flag argument (i.e. the wrapped program name).  Returns `undefined`
- * when no suitable argument is found.
- *
- * Handles `env` specially: skips `VAR=value` pairs and value-taking flags
- * like `-u NAME` and `-C DIR`.
- *
- * Handles `timeout` and `taskset` specially: their first non-flag positional
- * argument is a duration or CPU mask, not the wrapped program. The second
- * non-flag positional is the real program.
- */
-function getWrappedProgram(seg: {
-  program: string;
-  args: string[];
-}): string | undefined {
-  const isEnv = seg.program === "env";
-  const isTimeout = seg.program === "timeout";
-  const skipFirst = WRAPPER_SKIP_FIRST_POSITIONAL.has(seg.program);
-  let skippedFirstPositional = false;
-  for (let i = 0; i < seg.args.length; i++) {
-    const arg = seg.args[i];
-    if (arg.startsWith("-")) {
-      if (isEnv && ENV_VALUE_FLAGS.has(arg)) i++; // skip the value argument
-      if (isTimeout && TIMEOUT_VALUE_FLAGS.has(arg)) i++; // skip the value argument
-      continue;
-    }
-    if (isEnv && arg.includes("=")) continue; // skip env VAR=value pairs
-    if (skipFirst && !skippedFirstPositional) {
-      skippedFirstPositional = true;
-      continue; // skip the duration/CPU mask
-    }
-    return arg;
-  }
-  return undefined;
-}
-
-/**
- * Like `getWrappedProgram`, but also returns the remaining args after the
- * wrapped program name. This allows callers to propagate subcommand-aware
- * classification (e.g. `env assistant oauth token` → classify `oauth token`).
- */
-function getWrappedProgramWithArgs(seg: {
-  program: string;
-  args: string[];
-}): { program: string; args: string[] } | undefined {
-  const isEnv = seg.program === "env";
-  const isTimeout = seg.program === "timeout";
-  const skipFirst = WRAPPER_SKIP_FIRST_POSITIONAL.has(seg.program);
-  let skippedFirstPositional = false;
-  for (let i = 0; i < seg.args.length; i++) {
-    const arg = seg.args[i];
-    if (arg.startsWith("-")) {
-      if (isEnv && ENV_VALUE_FLAGS.has(arg)) i++;
-      if (isTimeout && TIMEOUT_VALUE_FLAGS.has(arg)) i++;
-      continue;
-    }
-    if (isEnv && arg.includes("=")) continue;
-    if (skipFirst && !skippedFirstPositional) {
-      skippedFirstPositional = true;
-      continue; // skip the duration/CPU mask
-    }
-    return { program: arg, args: seg.args.slice(i + 1) };
-  }
-  return undefined;
 }
 
 function getStringField(
@@ -693,29 +381,31 @@ export async function classifyRisk(
       // LRU refresh
       riskCache.delete(cacheKey);
       riskCache.set(cacheKey, cached);
-
-      // Phase 1 observe-only: fire comparison logging even on cache hits
-      // so analytics aren't biased toward cold paths.
-      if (toolName === "bash" || toolName === "host_bash") {
-        const command = ((input.command as string) ?? "").trim();
-        if (command) {
-          BashRiskClassifier.classifyAndLog(command, toolName, cached).catch(
-            () => {},
-          );
-        }
-      }
-
       return cached;
     }
   }
 
-  let result = await classifyRiskUncached(
-    toolName,
-    input,
-    workingDir,
-    preParsed,
-    manifestOverride,
-  );
+  // ── Bash/host_bash: delegate to the registry-driven BashRiskClassifier ────
+  let result: RiskLevel;
+  if (toolName === "bash" || toolName === "host_bash") {
+    const command = ((input.command as string) ?? "").trim();
+    if (!command) {
+      result = RiskLevel.Low;
+    } else {
+      const assessment = await bashRiskClassifier.classify({
+        command,
+        toolName: toolName as "bash" | "host_bash",
+      });
+      result = riskToRiskLevel(assessment.riskLevel);
+    }
+  } else {
+    result = await classifyRiskUncached(
+      toolName,
+      input,
+      workingDir,
+      manifestOverride,
+    );
+  }
 
   // Proxied bash commands route through the credential proxy which handles
   // per-request approval separately. Cap the bash tool's own risk at Medium
@@ -736,19 +426,6 @@ export async function classifyRisk(
     riskCache.set(cacheKey, result);
   }
 
-  // ── Parallel risk classifier (Phase 1: observe-only) ──────────────────────
-  // Run the new data-driven classifier alongside the existing logic.
-  // The result is logged for comparison but does NOT affect the decision.
-  // This will become the primary classifier in Phase 2.
-  if (toolName === "bash" || toolName === "host_bash") {
-    const command = ((input.command as string) ?? "").trim();
-    if (command) {
-      BashRiskClassifier.classifyAndLog(command, toolName, result).catch(
-        () => {},
-      );
-    }
-  }
-
   return result;
 }
 
@@ -756,7 +433,6 @@ async function classifyRiskUncached(
   toolName: string,
   input: Record<string, unknown>,
   workingDir?: string,
-  preParsed?: ParsedCommand,
   manifestOverride?: ManifestOverride,
 ): Promise<RiskLevel> {
   if (toolName === "file_read") {
@@ -839,138 +515,6 @@ async function classifyRiskUncached(
       }
     }
     // Fall through to the tool registry default (Medium) below.
-  }
-
-  if (toolName === "bash" || toolName === "host_bash") {
-    const command = (input.command as string) ?? "";
-    if (!command.trim()) return RiskLevel.Low;
-
-    const parsed = preParsed ?? (await cachedParse(command));
-
-    // Dangerous patterns → High
-    if (parsed.dangerousPatterns.length > 0) return RiskLevel.High;
-
-    // Opaque constructs → at least Medium (never Low)
-    if (parsed.hasOpaqueConstructs) return RiskLevel.Medium;
-
-    // Check each segment
-    let maxRisk = RiskLevel.Low;
-
-    for (const seg of parsed.segments) {
-      const prog = seg.program;
-
-      if (HIGH_RISK_PROGRAMS.has(prog)) return RiskLevel.High;
-
-      if (prog === "rm") {
-        // Only downgrade rm of known safe workspace files for sandboxed bash.
-        // host_bash has a global ask rule that would prompt Medium-risk
-        // commands, so rm on the host must always require explicit approval.
-        if (toolName === "bash" && isRmOfKnownSafeFile(seg.args)) {
-          maxRisk = RiskLevel.Medium;
-          continue;
-        }
-        return RiskLevel.High;
-      }
-
-      if (
-        prog === "chmod" ||
-        prog === "chown" ||
-        prog === "chgrp" ||
-        prog === "sed" ||
-        prog === "awk"
-      ) {
-        maxRisk = RiskLevel.Medium;
-        continue;
-      }
-
-      // curl/wget can download and execute arbitrary code from the internet.
-      // Also catch wrapped invocations like `env curl …` or `nice wget …`.
-      if (prog === "curl" || prog === "wget") {
-        maxRisk = RiskLevel.Medium;
-        continue;
-      }
-
-      if (WRAPPER_PROGRAMS.has(prog)) {
-        // `command -v` and `command -V` are read-only lookups (print where
-        // a command lives) — don't escalate to high risk for those.
-        if (
-          prog === "command" &&
-          seg.args.length > 0 &&
-          (seg.args[0] === "-v" || seg.args[0] === "-V")
-        ) {
-          continue;
-        }
-        const wrapped = getWrappedProgram(seg);
-        if (wrapped === "rm") return RiskLevel.High;
-        if (wrapped && HIGH_RISK_PROGRAMS.has(wrapped)) return RiskLevel.High;
-        if (wrapped === "curl" || wrapped === "wget") {
-          maxRisk = RiskLevel.Medium;
-          continue;
-        }
-        // Propagate subcommand-aware classification for wrapped git/assistant
-        if (wrapped === "git") {
-          const wrappedWithArgs = getWrappedProgramWithArgs(seg);
-          if (wrappedWithArgs) {
-            const subcommand = firstPositionalArg(
-              wrappedWithArgs.args,
-              GIT_VALUE_FLAGS,
-            );
-            if (subcommand && LOW_RISK_GIT_SUBCOMMANDS.has(subcommand)) {
-              continue;
-            }
-            maxRisk = RiskLevel.Medium;
-            continue;
-          }
-        }
-        if (wrapped === "assistant") {
-          const wrappedWithArgs = getWrappedProgramWithArgs(seg);
-          if (wrappedWithArgs) {
-            const assistantRisk = classifyAssistantSubcommand(
-              wrappedWithArgs.args,
-            );
-            if (assistantRisk === RiskLevel.High) return RiskLevel.High;
-            if (assistantRisk === RiskLevel.Medium) {
-              maxRisk = RiskLevel.Medium;
-            }
-            continue;
-          }
-        }
-      }
-
-      if (prog === "git") {
-        const subcommand = firstPositionalArg(seg.args, GIT_VALUE_FLAGS);
-        if (subcommand && LOW_RISK_GIT_SUBCOMMANDS.has(subcommand)) {
-          // Stay at current risk
-          continue;
-        }
-        // Non-read-only git commands are medium
-        maxRisk = RiskLevel.Medium;
-        continue;
-      }
-
-      if (prog === "assistant") {
-        const assistantRisk = classifyAssistantSubcommand(seg.args);
-        if (assistantRisk === RiskLevel.High) return RiskLevel.High;
-        if (assistantRisk === RiskLevel.Medium) {
-          maxRisk = RiskLevel.Medium;
-        }
-        continue;
-      }
-
-      if (!LOW_RISK_PROGRAMS.has(prog)) {
-        // Unknown program → medium
-        if (maxRisk === RiskLevel.Low) {
-          maxRisk = RiskLevel.Medium;
-        }
-      }
-    }
-
-    // If no segments could be extracted, treat as opaque
-    if (parsed.segments.length === 0) {
-      return RiskLevel.Medium;
-    }
-
-    return maxRisk;
   }
 
   // Check the tool registry for a declared default risk level
