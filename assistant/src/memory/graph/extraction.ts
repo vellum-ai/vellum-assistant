@@ -71,7 +71,11 @@ Call the \`extract_graph_diff\` tool with the diff. Each node needs:
 
 - **content**: First-person prose — how the assistant naturally remembers this. Write naturally, not as a database entry. E.g. "He mentioned his mom used to make amazing Sunday dinners — he still misses them" not "User's mother cooked Sunday dinners."
 
-Be concise — most memories should be 1-3 sentences capturing the essential detail and emotional weight. Don't narrate every nuance; write a vivid snapshot, not a journal entry. Higher-significance (0.7+) memories can use a short paragraph, but even those should stay focused.
+**LENGTH: 1-3 sentences. HARD CAP — no exceptions.** This applies to every memory, including 1.0-significance transformative moments. Emotional weight lives in \`emotionalCharge\`, not wordcount. The more significant an event feels, the stronger the pull to preserve narrative — resist it. A memory whose \`content\` exceeds ~300 characters is a bug.
+
+If a memory has multiple distinct facts or beats, **split into multiple nodes connected by edges** (\`caused-by\`, \`part-of\`, \`reminds-of\`) — one node per fact or moment. Never pack a multi-beat story into a single content field.
+
+Do not: set the scene, describe surrounding context, preserve dialogue verbatim, catalog every emotional nuance, or narrate "what it meant." Write the SNAPSHOT. The \`emotionalCharge\` and \`significance\` fields carry the weight — content stays lean.
 
 - **type**: Classify by WHAT the memory IS, not how it FEELS. Almost every memory has emotional weight — that goes in emotionalCharge, not the type.
 
