@@ -272,7 +272,18 @@ export class HeartbeatService {
         return report.unhealthy.map((r) => r.provider);
       }
     } catch (err) {
-      log.warn({ err }, "Credential health check failed (non-fatal)");
+      log.error({ err }, "Credential health check failed");
+      try {
+        this.deps.alerter({
+          type: "heartbeat_alert",
+          title: "Credential Health Check Failed",
+          body:
+            "Could not verify OAuth credential health. " +
+            (err instanceof Error ? err.message : String(err)),
+        });
+      } catch {
+        // Last resort — alerter itself failed. Already logged above.
+      }
     }
     return [];
   }
@@ -291,8 +302,11 @@ export class HeartbeatService {
     try {
       ({ emitNotificationSignal } =
         await import("../notifications/emit-signal.js"));
-    } catch {
-      log.warn("Failed to import notification signal emitter");
+    } catch (importErr) {
+      log.error(
+        { err: importErr },
+        "Failed to import notification signal emitter",
+      );
       return;
     }
 
@@ -326,7 +340,7 @@ export class HeartbeatService {
           routingIntent: "single_channel",
         });
       } catch (err) {
-        log.warn(
+        log.error(
           { err, provider: result.provider, connectionId: result.connectionId },
           "Failed to emit credential health notification",
         );
@@ -380,7 +394,7 @@ export class HeartbeatService {
           body: err instanceof Error ? err.message : String(err),
         });
       } catch (alertErr) {
-        log.warn({ alertErr }, "Failed to broadcast heartbeat alert");
+        log.error({ alertErr }, "Failed to broadcast heartbeat alert");
       }
     }
   }
