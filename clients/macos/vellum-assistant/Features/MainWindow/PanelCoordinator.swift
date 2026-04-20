@@ -493,7 +493,7 @@ extension MainWindowView {
                         viewModel: viewModel,
                         detailStore: viewModel.subagentDetailStore,
                         showInspectButton: assistantFeatureFlagStore.isEnabled("settings-developer-nav"),
-                        onAbort: { Task { await SubagentClient().abort(subagentId: subagentId, conversationId: viewModel.conversationId) } },
+                        onAbort: { Task { await viewModel.abortSubagent(subagentId) } },
                         onRequestDetail: {
                             if let conversationId = viewModel.activeSubagents.first(where: { $0.id == subagentId })?.conversationId {
                                 Task {

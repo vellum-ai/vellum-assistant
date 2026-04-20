@@ -481,6 +481,21 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         get { messageManager.activeSubagents }
         set { messageManager.activeSubagents = newValue }
     }
+    /// Invoke the daemon's abort endpoint for a subagent, then optimistically
+    /// mark the local entry as `.aborted` regardless of the HTTP result.
+    /// Rationale: LUM-1062. The daemon pushes terminal status via SSE, but
+    /// that event can be lost on reconnect, leaving the UI stuck showing a
+    /// running subagent that cannot actually be aborted. Optimistic local
+    /// reconciliation unsticks the UI immediately; if the subagent is in
+    /// fact still running, the next `subagentStatusChanged` from the daemon
+    /// re-asserts the real status in place.
+    public func abortSubagent(_ subagentId: String, client: SubagentClientProtocol = SubagentClient()) async {
+        _ = await client.abort(subagentId: subagentId, conversationId: conversationId)
+        if let index = activeSubagents.firstIndex(where: { $0.id == subagentId }),
+           !activeSubagents[index].status.isTerminal {
+            activeSubagents[index].status = .aborted
+        }
+    }
     /// Widget IDs dismissed by the user, persisted across view recreation.
     public var dismissedDocumentSurfaceIds: Set<String> {
         get { messageManager.dismissedDocumentSurfaceIds }
