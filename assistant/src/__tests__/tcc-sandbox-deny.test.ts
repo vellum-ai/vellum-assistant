@@ -137,6 +137,36 @@ describe("macOS TCC sandbox deny rules", () => {
       expect(allowWorkDirIdx).toBeGreaterThan(denyIdx);
     });
 
+    test("CES deny-read rules override working-dir allow (credential isolation)", async () => {
+      const { NativeBackend } =
+        await import("../tools/terminal/backends/native.js");
+      const backend = new NativeBackend();
+      const home = process.env.HOME ?? "";
+      // Simulate a working directory that overlaps with a CES-protected path
+      const workDir = join(home, "Documents", "my-project");
+      const cesProtectedPath = join(workDir, ".credentials");
+      const result = backend.wrap("true", workDir, {
+        networkMode: "off",
+        denyReadPaths: [cesProtectedPath],
+      });
+
+      const profilePath = result.args[1]!;
+      profilePaths.push(profilePath);
+      const profile = readFileSync(profilePath, "utf-8");
+
+      // The working-dir allow should be present
+      const allowWorkDirIdx = profile.indexOf(
+        `(allow file-read* (subpath "${workDir}"))`,
+      );
+      expect(allowWorkDirIdx).toBeGreaterThanOrEqual(0);
+
+      // The CES deny rule should appear AFTER the working-dir allow
+      const cesDenyIdx = profile.indexOf(
+        `(deny file-read* (subpath "${cesProtectedPath}")`,
+      );
+      expect(cesDenyIdx).toBeGreaterThan(allowWorkDirIdx);
+    });
+
     test("paths with spaces are handled correctly", async () => {
       const { NativeBackend } =
         await import("../tools/terminal/backends/native.js");

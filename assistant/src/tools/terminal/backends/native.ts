@@ -97,12 +97,13 @@ function buildSandboxProfile(
 ;; Allow read access to the filesystem (tools, libraries, etc.)
 (allow file-read*)
 ${tccDenyRules}
-${denyReadRules}
 
 ;; Re-allow reads for the working directory even if it falls under a TCC-denied
 ;; subtree (e.g. ~/Desktop/my-project). SBPL is last-match-wins, so this
-;; override must come after the deny rules above.
+;; override must come after the TCC deny rules above but BEFORE the CES
+;; deny-read rules below — credential isolation always takes precedence.
 (allow file-read* (subpath "__WORKING_DIR__"))
+${denyReadRules}
 
 ;; Allow write access to the working directory and its children
 (allow file-write*
