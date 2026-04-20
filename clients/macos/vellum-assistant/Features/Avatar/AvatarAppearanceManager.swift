@@ -241,29 +241,35 @@ final class AvatarAppearanceManager {
     }
 
     /// Guards against stacking overlapping retries when repeated transient
-    /// failures arrive before the first retry has completed.
+    /// failures arrive before the first retry has completed. Tracked as Task
+    /// handles so `resetForDisconnect()` can cancel a pending retry before it
+    /// writes into the next assistant's state.
     @ObservationIgnored private var avatarRetryInFlight = false
     @ObservationIgnored private var traitsRetryInFlight = false
+    @ObservationIgnored private var avatarRetryTask: Task<Void, Never>?
+    @ObservationIgnored private var traitsRetryTask: Task<Void, Never>?
 
     private func scheduleAvatarRetry() {
         guard !avatarRetryInFlight else { return }
         avatarRetryInFlight = true
-        Task { [weak self] in
+        avatarRetryTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.transientRetryDelayNs)
-            guard let self else { return }
+            guard !Task.isCancelled, let self else { return }
             await self.fetchAvatarViaHTTP()
             self.avatarRetryInFlight = false
+            self.avatarRetryTask = nil
         }
     }
 
     private func scheduleTraitsRetry() {
         guard !traitsRetryInFlight else { return }
         traitsRetryInFlight = true
-        Task { [weak self] in
+        traitsRetryTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.transientRetryDelayNs)
-            guard let self else { return }
+            guard !Task.isCancelled, let self else { return }
             await self.fetchTraitsViaHTTP()
             self.traitsRetryInFlight = false
+            self.traitsRetryTask = nil
         }
     }
 
@@ -388,6 +394,16 @@ final class AvatarAppearanceManager {
     func resetForDisconnect() {
         identityLoadTask?.cancel()
         identityLoadTask = nil
+        // Cancel any pending retry Tasks and clear in-flight flags so a retry
+        // spawned against the previous assistant cannot fire after state has
+        // been cleared, and so the next connection's legitimate retries are
+        // not silently no-oped by a stale in-flight flag.
+        avatarRetryTask?.cancel()
+        avatarRetryTask = nil
+        avatarRetryInFlight = false
+        traitsRetryTask?.cancel()
+        traitsRetryTask = nil
+        traitsRetryInFlight = false
         customAvatarImage = nil
         characterBodyShape = nil
         characterEyeStyle = nil
