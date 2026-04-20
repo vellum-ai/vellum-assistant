@@ -51,22 +51,6 @@ export function getSkillsIndexPath(): string {
   return join(getWorkspaceSkillsDir(), "SKILLS.md");
 }
 
-/**
- * Resolve a local first-party skill catalog directory, if one is available.
- *
- * Two resolution paths:
- *
- * 1. **Compiled-binary layout (e.g. Velissa.app)**: when `import.meta.dir` is
- *    inside bun's virtual `/$bunfs/` fs, look for a sibling `first-party-skills`
- *    next to the executable (`Contents/Resources/first-party-skills` for
- *    `.app` bundles, or alongside the binary otherwise). `clients/macos/build.sh`
- *    copies the repo's `skills/` tree into this location so the catalog and
- *    skill sources ship with the app.
- * 2. **Dev-mode from-source**: when `VELLUM_DEV=1` is set (CLI-spawned daemon),
- *    resolve the repo's `skills/` directory relative to this file.
- *
- * Either way, the returned directory must contain `catalog.json`.
- */
 export function getRepoSkillsDir(): string | undefined {
   const importDir = import.meta.dir;
 
