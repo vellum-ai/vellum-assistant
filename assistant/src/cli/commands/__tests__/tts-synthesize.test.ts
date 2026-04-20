@@ -28,6 +28,11 @@ let mockSynthesisResult: MockSynthesisResult = {
 let mockSynthesizeThrow: Error | null = null;
 let logErrorMessages: string[] = [];
 let writeFileCalls: Array<{ path: string; buffer: Buffer }> = [];
+let synthesizeCalls: Array<{
+  text: string;
+  useCase: string;
+  voiceId?: string;
+}> = [];
 
 // ---------------------------------------------------------------------------
 // Mocks — must be before module-under-test import
@@ -52,7 +57,16 @@ mock.module("../../../config/assistant-feature-flags.js", () => ({
 }));
 
 mock.module("../../../tts/synthesize-text.js", () => ({
-  synthesizeText: async () => {
+  synthesizeText: async (opts: {
+    text: string;
+    useCase: string;
+    voiceId?: string;
+  }) => {
+    synthesizeCalls.push({
+      text: opts.text,
+      useCase: opts.useCase,
+      voiceId: opts.voiceId,
+    });
     if (mockSynthesizeThrow) throw mockSynthesizeThrow;
     return mockSynthesisResult;
   },
@@ -154,6 +168,7 @@ beforeEach(() => {
   mockSynthesizeThrow = null;
   logErrorMessages = [];
   writeFileCalls = [];
+  synthesizeCalls = [];
   process.exitCode = 0;
 });
 
@@ -242,5 +257,124 @@ describe("success cases", () => {
     expect(call.buffer.equals(Buffer.from("fake-audio"))).toBe(true);
 
     expect(stdout).toContain(call.path);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Option pass-through
+// ---------------------------------------------------------------------------
+
+describe("option pass-through", () => {
+  test("--voice is forwarded to synthesizeText as voiceId", async () => {
+    const { exitCode } = await runCommand([
+      "tts",
+      "synthesize",
+      "--text",
+      "hello",
+      "--voice",
+      "voice-123",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(synthesizeCalls.length).toBe(1);
+    expect(synthesizeCalls[0].voiceId).toBe("voice-123");
+  });
+
+  test("--use-case phone-call is forwarded to synthesizeText", async () => {
+    const { exitCode } = await runCommand([
+      "tts",
+      "synthesize",
+      "--text",
+      "hello",
+      "--use-case",
+      "phone-call",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(synthesizeCalls.length).toBe(1);
+    expect(synthesizeCalls[0].useCase).toBe("phone-call");
+  });
+
+  test("default --use-case is 'message-playback'", async () => {
+    const { exitCode } = await runCommand([
+      "tts",
+      "synthesize",
+      "--text",
+      "hello",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(synthesizeCalls.length).toBe(1);
+    expect(synthesizeCalls[0].useCase).toBe("message-playback");
+  });
+
+  test("invalid --use-case exits 1 with message naming the valid values", async () => {
+    const { exitCode, stderr } = await runCommand([
+      "tts",
+      "synthesize",
+      "--text",
+      "hello",
+      "--use-case",
+      "invalid",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("message-playback");
+    expect(stderr).toContain("phone-call");
+    // synthesizeText should not have been called
+    expect(synthesizeCalls.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// JSON output
+// ---------------------------------------------------------------------------
+
+describe("--json output", () => {
+  test("success emits single-line JSON with ok, path, contentType, sizeBytes", async () => {
+    const audio = Buffer.from("fake-audio-bytes");
+    mockSynthesisResult = {
+      audio,
+      contentType: "audio/mpeg",
+    };
+
+    const { exitCode, stdout } = await runCommand([
+      "tts",
+      "synthesize",
+      "--text",
+      "hello",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(writeFileCalls.length).toBe(1);
+
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed.ok).toBe(true);
+    expect(parsed.path).toBe(writeFileCalls[0].path);
+    expect(parsed.contentType).toBe("audio/mpeg");
+    expect(parsed.sizeBytes).toBe(audio.length);
+  });
+
+  test("provider-not-configured error emits JSON with ok: false and actionable error", async () => {
+    mockSynthesizeThrow = new TtsSynthesisError(
+      "TTS_PROVIDER_NOT_CONFIGURED",
+      "not registered",
+    );
+
+    const { exitCode, stdout } = await runCommand([
+      "tts",
+      "synthesize",
+      "--text",
+      "hello",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain(
+      "assistant config set services.tts.provider",
+    );
   });
 });

@@ -17,7 +17,17 @@ import {
   synthesizeText,
   TtsSynthesisError,
 } from "../../tts/synthesize-text.js";
+import type { TtsUseCase } from "../../tts/types.js";
 import { log } from "../logger.js";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const VALID_USE_CASES: readonly TtsUseCase[] = [
+  "message-playback",
+  "phone-call",
+];
 
 // ---------------------------------------------------------------------------
 // MIME type → file extension mapping
@@ -71,11 +81,28 @@ Examples:
     .command("synthesize")
     .description("Synthesize text to audio using the configured TTS provider")
     .requiredOption("--text <text>", "Text to synthesize to audio")
+    .option(
+      "--voice <id>",
+      "Provider-specific voice identifier (ElevenLabs voiceId, Fish Audio referenceId, etc.) — overrides configured default",
+    )
+    .option(
+      "--use-case <case>",
+      "Synthesis use case: 'message-playback' (default, higher quality) or 'phone-call' (lower latency)",
+      "message-playback",
+    )
+    .option("--json", "Output structured JSON instead of plain file path")
     .addHelpText(
       "after",
       `
 Arguments:
-  --text <text>   Text to synthesize to audio (required).
+  --text <text>       Text to synthesize to audio (required).
+  --voice <id>        Provider-specific voice identifier that overrides the
+                      configured default. Format depends on the provider
+                      (e.g. an ElevenLabs voiceId or a Fish Audio referenceId).
+  --use-case <case>   Synthesis use case — 'message-playback' (default,
+                      higher quality) or 'phone-call' (lower latency).
+  --json              Output a single-line JSON object on stdout instead of
+                      the plain file path. Errors are also emitted as JSON.
 
 Writes the audio file to the system temp directory with a random name.
 The file extension is derived from the provider's returned MIME type
@@ -83,46 +110,90 @@ The file extension is derived from the provider's returned MIME type
 
 Examples:
   $ assistant tts synthesize --text "hello world"
-  $ assistant tts synthesize --text "announcement"`,
+  $ assistant tts synthesize --text "hi" --voice <voice-id>
+  $ assistant tts synthesize --text "hi" --use-case phone-call
+  $ assistant tts synthesize --text "hi" --json`,
     )
-    .action(async (opts: { text: string }) => {
-      // Providers must be registered in the CLI process since the daemon is
-      // a separate process and each process has its own registry.
-      registerBuiltinTtsProviders();
+    .action(
+      async (opts: {
+        text: string;
+        voice?: string;
+        useCase: string;
+        json?: boolean;
+      }) => {
+        const jsonOutput = opts.json ?? false;
 
-      try {
-        const result = await synthesizeText({
-          text: opts.text,
-          useCase: "message-playback",
-        });
+        const emitError = (msg: string): void => {
+          if (jsonOutput) {
+            process.stdout.write(
+              JSON.stringify({ ok: false, error: msg }) + "\n",
+            );
+          } else {
+            log.error(msg);
+          }
+        };
 
-        const filePath = join(
-          tmpdir(),
-          `vellum-tts-${randomUUID()}.${extensionForMime(result.contentType)}`,
-        );
-
-        const dir = dirname(filePath);
-        if (!existsSync(dir)) {
-          mkdirSync(dir, { recursive: true });
-        }
-
-        writeFileSync(filePath, result.audio);
-        process.stdout.write(filePath + "\n");
-      } catch (err) {
-        if (
-          err instanceof TtsSynthesisError &&
-          err.code === "TTS_PROVIDER_NOT_CONFIGURED"
-        ) {
-          log.error(
-            "No TTS provider configured or registered. Run 'assistant config set services.tts.provider <provider>' to select one (e.g. elevenlabs, fish-audio, deepgram), then 'assistant keys set <provider>' to add the API key.",
+        // Validate --use-case
+        if (!VALID_USE_CASES.includes(opts.useCase as TtsUseCase)) {
+          emitError(
+            `Invalid --use-case: '${opts.useCase}'. Must be one of: ${VALID_USE_CASES.join(", ")}.`,
           );
           process.exitCode = 1;
           return;
         }
+        const useCase = opts.useCase as TtsUseCase;
 
-        const msg = err instanceof Error ? err.message : String(err);
-        log.error(`TTS synthesis failed: ${msg}`);
-        process.exitCode = 1;
-      }
-    });
+        // Providers must be registered in the CLI process since the daemon is
+        // a separate process and each process has its own registry.
+        registerBuiltinTtsProviders();
+
+        try {
+          const result = await synthesizeText({
+            text: opts.text,
+            useCase,
+            voiceId: opts.voice,
+          });
+
+          const filePath = join(
+            tmpdir(),
+            `vellum-tts-${randomUUID()}.${extensionForMime(result.contentType)}`,
+          );
+
+          const dir = dirname(filePath);
+          if (!existsSync(dir)) {
+            mkdirSync(dir, { recursive: true });
+          }
+
+          writeFileSync(filePath, result.audio);
+
+          if (jsonOutput) {
+            process.stdout.write(
+              JSON.stringify({
+                ok: true,
+                path: filePath,
+                contentType: result.contentType,
+                sizeBytes: result.audio.length,
+              }) + "\n",
+            );
+          } else {
+            process.stdout.write(filePath + "\n");
+          }
+        } catch (err) {
+          if (
+            err instanceof TtsSynthesisError &&
+            err.code === "TTS_PROVIDER_NOT_CONFIGURED"
+          ) {
+            emitError(
+              "No TTS provider configured or registered. Run 'assistant config set services.tts.provider <provider>' to select one (e.g. elevenlabs, fish-audio, deepgram), then 'assistant keys set <provider>' to add the API key.",
+            );
+            process.exitCode = 1;
+            return;
+          }
+
+          const msg = err instanceof Error ? err.message : String(err);
+          emitError(`TTS synthesis failed: ${msg}`);
+          process.exitCode = 1;
+        }
+      },
+    );
 }
