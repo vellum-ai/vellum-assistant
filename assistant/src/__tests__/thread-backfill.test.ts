@@ -58,7 +58,7 @@ mock.module("../runtime/gateway-client.js", () => ({
 import { v4 as uuid } from "uuid";
 
 import { upsertContactChannel } from "../contacts/contacts-write.js";
-import { getDb,initializeDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import type { Message as MessagingMessage } from "../messaging/provider-types.js";
 import * as slackBackfill from "../messaging/providers/slack/backfill.js";
 import {
@@ -487,9 +487,10 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
 
     const persisted = readPersistedSlackRows(conv.id);
     expect(persisted.length).toBe(2);
-    expect(
-      persisted.map((p) => p.channelTs).sort(),
-    ).toEqual(["1234.0", "5678.0"]);
+    expect(persisted.map((p) => p.channelTs).sort()).toEqual([
+      "1234.0",
+      "5678.0",
+    ]);
   });
 
   test("backfilled message without text is persisted with empty content", async () => {
@@ -533,6 +534,97 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(persisted[0].channelTs).toBe("1234.0");
   });
 
+  test("reaction row targeting the thread parent does not short-circuit ancestor backfill", async () => {
+    const conv = createTestConversation();
+
+    // A reaction on the thread parent stores the parent's ts as `channelTs`
+    // (the reaction *targets* that message). If the dedup scan includes
+    // reaction rows, ancestor backfill wrongly believes the parent is
+    // already persisted and skips the network fetch.
+    const db = getDb();
+    messageCounter++;
+    const now = Date.now() + messageCounter;
+    db.$client
+      .prepare(
+        `INSERT INTO messages (id, conversation_id, role, content, created_at, metadata)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        uuid(),
+        conv.id,
+        "user",
+        "+1",
+        now,
+        JSON.stringify({
+          slackMeta: writeSlackMetadata({
+            source: "slack",
+            channelId: SLACK_CHANNEL_ID,
+            channelTs: "1234.0",
+            eventKind: "reaction",
+            reaction: {
+              emoji: "+1",
+              targetChannelTs: "1234.0",
+              op: "added",
+            },
+          }),
+        }),
+      );
+
+    backfillThreadMock.mockImplementation(async () => [
+      makeBackfillMessage({ id: "1234.0", text: "parent" }),
+    ]);
+
+    await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs: "1234.0",
+    });
+
+    expect(backfillThreadMock).toHaveBeenCalledTimes(1);
+    const persisted = readPersistedSlackRows(conv.id);
+    // Reaction row + newly backfilled parent message row.
+    expect(persisted.length).toBe(2);
+    expect(
+      persisted.find((p) => p.channelTs === "1234.0" && p.content === "parent"),
+    ).toBeDefined();
+  });
+
+  test("excludeChannelTs pre-seeds the dedup set so the inbound message is not re-persisted", async () => {
+    const conv = createTestConversation();
+
+    // Simulate Slack's conversations.replies returning the just-received
+    // inbound message alongside the thread parent — this is the normal
+    // response shape. Without excludeChannelTs, the inbound row (persisted
+    // concurrently in the background) would race the backfill and produce
+    // a duplicate.
+    backfillThreadMock.mockImplementation(async () => [
+      makeBackfillMessage({
+        id: "1234.0",
+        text: "parent",
+        threadId: undefined,
+      }),
+      makeBackfillMessage({
+        id: "1234.5",
+        text: "inbound reply — must be skipped",
+        threadId: "1234.0",
+      }),
+    ]);
+
+    await triggerSlackThreadBackfillIfNeeded({
+      conversationId: conv.id,
+      channelId: SLACK_CHANNEL_ID,
+      threadTs: "1234.0",
+      excludeChannelTs: "1234.5",
+    });
+
+    const persisted = readPersistedSlackRows(conv.id);
+    // Only the parent should be persisted by backfill; the inbound (1234.5)
+    // is owned by the concurrent inbound-processing path.
+    expect(persisted.length).toBe(1);
+    expect(persisted[0].channelTs).toBe("1234.0");
+    expect(persisted.find((p) => p.channelTs === "1234.5")).toBeUndefined();
+  });
+
   test("messages with malformed metadata in the conversation are tolerated when scanning", async () => {
     const conv = createTestConversation();
 
@@ -541,7 +633,9 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     insertMessage(conv.id, "user", "malformed", { foo: "bar" });
     const db = getDb();
     db.$client
-      .prepare("UPDATE messages SET metadata = 'not-json' WHERE conversation_id = ?")
+      .prepare(
+        "UPDATE messages SET metadata = 'not-json' WHERE conversation_id = ?",
+      )
       .run(conv.id);
 
     backfillThreadMock.mockImplementation(async () => [
@@ -558,9 +652,9 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     const persisted = readPersistedSlackRows(conv.id);
     // Two rows: the malformed row + the newly backfilled parent.
     expect(persisted.length).toBe(2);
-    expect(
-      persisted.find((p) => p.channelTs === "1234.0")?.content,
-    ).toBe("parent");
+    expect(persisted.find((p) => p.channelTs === "1234.0")?.content).toBe(
+      "parent",
+    );
   });
 });
 
