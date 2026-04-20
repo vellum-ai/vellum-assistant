@@ -471,6 +471,14 @@ describe("TalkingHeadRenderer stop() kills in-flight ffmpeg transcodes", () => {
     const nativeMessaging = new FakeNativeMessaging();
     const spawned: TrackedTranscode[] = [];
 
+    // Resolved the first time the spawn factory is invoked, so the test
+    // can deterministically wait for the renderer's `handleFrame` to
+    // reach the spawn call instead of racing a fixed-duration sleep.
+    let signalFirstSpawn!: () => void;
+    const firstSpawn = new Promise<void>((resolve) => {
+      signalFirstSpawn = resolve;
+    });
+
     // Spawn factory whose readY4m hangs until the child is killed —
     // mimicking an ffmpeg invocation that stalls on its input pipe. The
     // readY4m promise rejects when kill() is called so the renderer's
@@ -489,6 +497,7 @@ describe("TalkingHeadRenderer stop() kills in-flight ffmpeg transcodes", () => {
         },
       };
       spawned.push(tracked);
+      signalFirstSpawn();
       return {
         readY4m: () => blocking,
         exited: Promise.resolve(0),
@@ -521,8 +530,9 @@ describe("TalkingHeadRenderer stop() kills in-flight ffmpeg transcodes", () => {
       ts: 1,
     });
 
-    // Give the async handler path a turn to reach the `readY4m()` await.
-    await new Promise((r) => setTimeout(r, 5));
+    // Wait deterministically for the renderer's `handleFrame` to reach
+    // the spawn call — `firstSpawn` resolves inside the factory itself.
+    await firstSpawn;
     expect(spawned).toHaveLength(1);
     expect(spawned[0]!.killed).toBe(false);
 
