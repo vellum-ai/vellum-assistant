@@ -19,9 +19,9 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { createConnection, type Socket } from "node:net";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
   createNmhSocketServer,
@@ -485,7 +485,9 @@ describe("createNmhSocketServer — start failure recovery", () => {
       "x.sock",
     );
 
-    const server = createNmhSocketServer({ socketPath: badPath, logger });
+    const server = track(
+      createNmhSocketServer({ socketPath: badPath, logger }),
+    );
     let firstErr: unknown;
     try {
       await server.start();
@@ -494,13 +496,15 @@ describe("createNmhSocketServer — start failure recovery", () => {
     }
     expect(firstErr).toBeInstanceOf(Error);
 
-    // Swap in a valid path and retry. The retry must actually bind.
-    const goodPath = freshSocketPath();
-    const retry = track(
-      createNmhSocketServer({ socketPath: goodPath, logger }),
-    );
-    await retry.start();
-    expect(existsSync(goodPath)).toBe(true);
+    // Make the previously-missing parent directory exist and retry on the
+    // SAME instance. This is the critical regression check: the production
+    // bug was that a failed start() flipped `started=true` before listen()
+    // resolved, so a subsequent start() on the same instance would silently
+    // no-op and never bind. Constructing a fresh instance for the retry
+    // would not catch that regression — only same-instance retry does.
+    mkdirSync(dirname(badPath), { recursive: true });
+    await server.start();
+    expect(existsSync(badPath)).toBe(true);
   });
 });
 
