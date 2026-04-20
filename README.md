@@ -76,7 +76,9 @@ Talk to it from the macOS app, Telegram, or Slack. Shared memory and identity ac
 
 ## Quick demo
 
-<video src="assets/demo.mp4" controls muted loop playsinline width="100%"></video>
+<a href="assets/demo.mp4">
+  <img src="assets/demo-poster.png" alt="Watch the demo" width="100%">
+</a>
 
 ---
 
