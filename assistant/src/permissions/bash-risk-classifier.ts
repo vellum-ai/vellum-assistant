@@ -16,7 +16,6 @@ import type {
   ArgRule,
   BashClassifierInput,
   CommandRiskSpec,
-  RegistryRisk,
   Risk,
   RiskAssessment,
   RiskClassifier,
@@ -273,7 +272,7 @@ export function classifySegment(
   }
 
   // 4. Subcommand resolution
-  const { spec: resolvedSpec, remainingArgs } = resolveSubcommand(
+  const { spec: resolvedSpec, remainingArgs: _remainingArgs } = resolveSubcommand(
     spec, segment.args, programName,
   );
 

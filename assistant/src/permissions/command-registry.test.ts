@@ -90,7 +90,7 @@ describe("command-registry", () => {
   describe("structure validation", () => {
     test("every entry has a valid baseRisk", () => {
       const validRisks = new Set(["low", "medium", "high"]);
-      for (const [name, spec] of Object.entries(DEFAULT_COMMAND_REGISTRY)) {
+      for (const [_name, spec] of Object.entries(DEFAULT_COMMAND_REGISTRY)) {
         const allRisks = collectBaseRisks(spec);
         for (const risk of allRisks) {
           expect(validRisks.has(risk)).toBe(true);
@@ -135,7 +135,7 @@ describe("command-registry", () => {
 
     test("every ArgRule risk is a valid RegistryRisk", () => {
       const validRisks = new Set(["low", "medium", "high"]);
-      for (const [name, spec] of Object.entries(DEFAULT_COMMAND_REGISTRY)) {
+      for (const [_name, spec] of Object.entries(DEFAULT_COMMAND_REGISTRY)) {
         const allRules = collectArgRules(spec);
         for (const rule of allRules) {
           expect(validRisks.has(rule.risk)).toBe(true);

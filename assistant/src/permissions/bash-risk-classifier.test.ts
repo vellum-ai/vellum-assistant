@@ -13,7 +13,6 @@ mock.module("../util/logger.js", () => ({
 
 import {
   BashRiskClassifier,
-  classifySegment,
   escalateOne,
   matchesArgRule,
   maxRisk,

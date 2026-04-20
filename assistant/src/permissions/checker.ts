@@ -25,6 +25,7 @@ import {
   getProtectedDir,
   getWorkspaceHooksDir,
 } from "../util/platform.js";
+import { BashRiskClassifier } from "./bash-risk-classifier.js";
 import {
   buildShellAllowlistOptions,
   buildShellCommandCandidates,
@@ -40,7 +41,6 @@ import {
   type ScopeOption,
 } from "./types.js";
 import { isWorkspaceScopedInvocation } from "./workspace-policy.js";
-import { BashRiskClassifier } from "./bash-risk-classifier.js";
 
 // ── Risk classification cache ────────────────────────────────────────────────
 // classifyRisk() is called on every permission check and can invoke WASM
