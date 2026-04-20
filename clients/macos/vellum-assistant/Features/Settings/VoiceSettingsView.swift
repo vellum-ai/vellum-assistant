@@ -403,20 +403,6 @@ struct VoiceSettingsView: View {
         return "Hey! It's \(name). How does this sound?"
     }
 
-    /// Test button is enabled only when there are no unsaved changes AND a
-    /// key is stored for the active provider AND playback isn't already in
-    /// flight. Forcing Save before Test means we always exercise the same
-    /// configured TTS path used by the rest of the app — no override state.
-    private var ttsTestEnabled: Bool {
-        !ttsHasChanges && ttsProviderHasKey && !testPlayer.isLoading
-    }
-
-    private var ttsTestDisabledHint: String? {
-        if ttsHasChanges { return "Save your changes before testing" }
-        if !ttsProviderHasKey { return "Save an API key before testing" }
-        return nil
-    }
-
     private var ttsProviderCard: some View {
         SettingsCard(title: "Text-to-Speech", subtitle: "Choose a TTS provider for voice conversations and read-aloud. The selected provider is used globally across all speech features.") {
             VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -451,18 +437,14 @@ struct VoiceSettingsView: View {
                 // Credentials guide — contextual help for obtaining an API key
                 ttsCredentialsGuideView
 
-                // Test + Save + Reset actions. Test is gated by
-                // `ttsTestEnabled` so it always runs against the saved
-                // configuration — no separate test path on the backend.
                 HStack(spacing: VSpacing.sm) {
                     VButton(
                         label: testPlayer.isLoading ? "Testing\u{2026}" : "Test",
                         style: .outlined,
-                        isDisabled: !ttsTestEnabled
+                        isDisabled: false
                     ) {
                         Task { await testPlayer.playTest(text: ttsTestPhrase) }
                     }
-                    .help(ttsTestDisabledHint ?? "")
 
                     ServiceCardActions(
                         hasChanges: ttsHasChanges,
