@@ -41,9 +41,9 @@ struct PreChatOnboardingFlow: View {
                 )
             default:
                 NameExchangeView(
-                    contextSummary: state.contextSummary,
                     userName: $state.userName,
                     assistantName: $state.assistantName,
+                    displayedAssistantNames: state.displayedAssistantNames,
                     onBack: { advanceTo(1) },
                     onComplete: { finish() },
                     onSkip: { finish() }
