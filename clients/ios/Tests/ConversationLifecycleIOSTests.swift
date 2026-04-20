@@ -768,13 +768,11 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(updatedConversation.displayOrder, 1)
         XCTAssertEqual(mockListClient.reorderRequests.count, 1)
 
-        let updatesByConversationId = Dictionary(
-            uniqueKeysWithValues: mockListClient.reorderRequests[0].map { ($0.conversationId, $0) }
-        )
-        XCTAssertEqual(updatesByConversationId["connected-session-pinned"]?.displayOrder, 0)
-        XCTAssertEqual(updatesByConversationId["connected-session-pinned"]?.isPinned, true)
-        XCTAssertEqual(updatesByConversationId["connected-session-unpinned"]?.displayOrder, 1)
-        XCTAssertEqual(updatesByConversationId["connected-session-unpinned"]?.isPinned, true)
+        let updates = mockListClient.reorderRequests[0]
+        XCTAssertEqual(updates.count, 1)
+        XCTAssertEqual(updates.first?.conversationId, "connected-session-unpinned")
+        XCTAssertEqual(updates.first?.displayOrder, 1)
+        XCTAssertEqual(updates.first?.isPinned, true)
     }
 
     func testPinningConnectedConversationSurvivesStaleConversationListRefresh() {
@@ -860,13 +858,11 @@ final class ConversationLifecycleIOSTests: XCTestCase {
         XCTAssertEqual(secondConversation.displayOrder, 0)
         XCTAssertEqual(mockListClient.reorderRequests.count, 1)
 
-        let updatesByConversationId = Dictionary(
-            uniqueKeysWithValues: mockListClient.reorderRequests[0].map { ($0.conversationId, $0) }
-        )
-        XCTAssertNil(updatesByConversationId["connected-session-first"]?.displayOrder)
-        XCTAssertEqual(updatesByConversationId["connected-session-first"]?.isPinned, false)
-        XCTAssertEqual(updatesByConversationId["connected-session-second"]?.displayOrder, 0)
-        XCTAssertEqual(updatesByConversationId["connected-session-second"]?.isPinned, true)
+        let updates = mockListClient.reorderRequests[0]
+        XCTAssertEqual(updates.count, 1)
+        XCTAssertEqual(updates.first?.conversationId, "connected-session-first")
+        XCTAssertNil(updates.first?.displayOrder)
+        XCTAssertEqual(updates.first?.isPinned, false)
     }
 
     func testPinningStandaloneConversationDoesNothing() {
