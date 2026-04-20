@@ -137,7 +137,10 @@ All commands target the default assistant. If you have multiple, pass the assist
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup and PR flow. Read our [Code of Conduct](CODE_OF_CONDUCT.md) before participating.
+We welcome contributions from everyone.
+
+- **Development**: The [contributing guide](CONTRIBUTING.md) will help you get started.
+- Make sure to check out our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Community
 
