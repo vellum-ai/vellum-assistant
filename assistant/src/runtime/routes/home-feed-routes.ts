@@ -26,6 +26,7 @@ import {
   type FeedItem,
   feedItemSchema,
   type FeedItemStatus,
+  lowPriorityCollapsedSchema,
 } from "../../home/feed-types.js";
 import { patchFeedItemStatus, readHomeFeed } from "../../home/feed-writer.js";
 import { runRollupProducer } from "../../home/rollup-producer.js";
@@ -73,6 +74,7 @@ const getHomeFeedResponseSchema = z.object({
   items: z.array(feedItemSchema),
   updatedAt: z.string(),
   contextBanner: contextBannerSchema,
+  lowPriorityCollapsed: lowPriorityCollapsedSchema,
 });
 
 const patchFeedItemRequestSchema = z.object({
@@ -169,11 +171,26 @@ export async function handleGetHomeFeed(req: Request): Promise<Response> {
     return item.minTimeAway <= timeAwaySeconds;
   });
 
+  // Separate regular items (shown individually) from low-priority
+  // items (collapsed into a single summary count).
+  const LOW_PRIORITY_THRESHOLD = 30;
+  const regularItems = filtered.filter(
+    (item) => item.priority >= LOW_PRIORITY_THRESHOLD,
+  );
+  const lowPriorityItems = filtered.filter(
+    (item) => item.priority < LOW_PRIORITY_THRESHOLD,
+  );
+
   const now = new Date();
   const contextBanner = {
     greeting: computeGreeting(now),
     timeAwayLabel: formatRelativeTime(timeAwaySeconds),
-    newCount: filtered.filter((i) => i.status === "new").length,
+    newCount: regularItems.filter((i) => i.status === "new").length,
+  };
+
+  const lowPriorityCollapsed = {
+    count: lowPriorityItems.length,
+    itemIds: lowPriorityItems.map((item) => item.id),
   };
 
   log.debug(
@@ -181,6 +198,8 @@ export async function handleGetHomeFeed(req: Request): Promise<Response> {
       timeAwayBucket: timeAwayBucket(timeAwaySeconds),
       totalItems: feed.items.length,
       filteredItems: filtered.length,
+      regularItems: regularItems.length,
+      lowPriorityCollapsed: lowPriorityItems.length,
       newCount: contextBanner.newCount,
     },
     "GET /v1/home/feed",
@@ -193,9 +212,10 @@ export async function handleGetHomeFeed(req: Request): Promise<Response> {
   maybeTriggerOnVisitRollupRefresh(now);
 
   return Response.json({
-    items: filtered,
+    items: regularItems,
     updatedAt: feed.updatedAt,
     contextBanner,
+    lowPriorityCollapsed,
   });
 }
 
