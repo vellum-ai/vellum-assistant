@@ -148,7 +148,7 @@ export const DEFAULT_COMMAND_REGISTRY = {
       risk: "high", reason: "Uploads file" },
     { id: "curl:output-sensitive", flags: ["-o", "--output"],
       valuePattern: SENSITIVE_PATHS, risk: "high", reason: "Writes to sensitive path" },
-    { id: "curl:localhost", valuePattern: String.raw`^https?://localhost`,
+    { id: "curl:localhost", valuePattern: String.raw`^https?://(localhost|127\.0\.0\.1|\[::1\])`,
       risk: "low", reason: "Local request" },
   ]},
   wget:     { baseRisk: "medium" },

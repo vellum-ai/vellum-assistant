@@ -31,13 +31,20 @@ const log = getLogger("bash-risk-classifier");
 const RISK_ORD: Record<Risk, number> = {
   low: 0,
   medium: 1,
-  high: 2,
-  unknown: 3,
+  unknown: 2,
+  high: 3,
 };
 
-/** Numeric ordering for risk comparison. */
+/**
+ * Numeric ordering for risk comparison.
+ *
+ * `high` outranks `unknown`: if any segment is definitively high-risk, the
+ * overall command is high — the known-dangerous signal dominates. `unknown`
+ * sits between medium and high: an unrecognized command is riskier than a
+ * known-medium one, but not as definitive as a known-high one.
+ */
 export function riskOrd(risk: Risk): number {
-  return RISK_ORD[risk] ?? 3;
+  return RISK_ORD[risk] ?? 2; // default to unknown
 }
 
 /** Return the higher of two risk levels. */
@@ -293,27 +300,39 @@ export function classifySegment(
   );
 
   // 5. Evaluate arg rules
+  //
+  // Arg rules can both escalate AND de-escalate from baseRisk. When arg rules
+  // match, they *replace* the base risk — the first match for each arg sets
+  // that arg's risk, and the final risk is the max across all matched args.
+  // If no arg rules match at all, baseRisk stands.
+  //
+  // This allows patterns like:
+  //   node (baseRisk=high) + --version rule (risk=low) → low
+  //   curl (baseRisk=medium) + -d @file rule (risk=high) → high
+  //   node --version server.js → max(low, high) if both rules match
   let risk: Risk = resolvedSpec.baseRisk;
   let reason = resolvedSpec.reason || `${segment.program} (default)`;
 
-  // Check arg rules from the resolved spec
   const argRules = resolvedSpec.argRules;
   if (argRules && argRules.length > 0) {
-    // Also check with original full args (subcommand resolution may have
-    // consumed some, but flags like --force may appear before or after)
+    let anyArgRuleMatched = false;
+    let argRuleMaxRisk: Risk = "low";
+    let argRuleReason = "";
+
     const allArgs = segment.args;
     for (let i = 0; i < allArgs.length; i++) {
       const arg = allArgs[i];
       for (const rule of argRules) {
         // Standard match: flag or positional against this arg
         if (matchesArgRule(rule, arg)) {
-          if (riskOrd(rule.risk) > riskOrd(risk)) {
-            risk = rule.risk;
-            reason = rule.reason;
+          if (!anyArgRuleMatched || riskOrd(rule.risk) > riskOrd(argRuleMaxRisk)) {
+            argRuleMaxRisk = rule.risk;
+            argRuleReason = rule.reason;
           }
+          anyArgRuleMatched = true;
           break; // first match per arg wins
         }
-        // Flag+value match: if this arg is a flag listed in the rule and
+        // Flag+value lookahead: if this arg is a flag listed in the rule and
         // the rule has a valuePattern, check the NEXT arg against the pattern.
         // This handles `curl -d @file` where `-d` is the flag and `@file` is
         // the value in the next token.
@@ -325,14 +344,22 @@ export function classifySegment(
         ) {
           const nextArg = allArgs[i + 1];
           if (getCompiledPattern(rule.valuePattern).test(nextArg)) {
-            if (riskOrd(rule.risk) > riskOrd(risk)) {
-              risk = rule.risk;
-              reason = rule.reason;
+            if (!anyArgRuleMatched || riskOrd(rule.risk) > riskOrd(argRuleMaxRisk)) {
+              argRuleMaxRisk = rule.risk;
+              argRuleReason = rule.reason;
             }
+            anyArgRuleMatched = true;
             break;
           }
         }
       }
+    }
+
+    // If any arg rule matched, use the max of matched rules (which may be
+    // lower than baseRisk — that's the point of de-escalation rules).
+    if (anyArgRuleMatched) {
+      risk = argRuleMaxRisk;
+      reason = argRuleReason;
     }
   }
 
@@ -520,6 +547,11 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
         maxRiskLevel = result.risk;
         maxReason = result.reason;
         matchType = result.matchType;
+      } else if (!maxReason && result.reason) {
+        // Capture reason from first segment even if it doesn't escalate
+        // (avoids empty reason for all-low commands like `ls`)
+        maxReason = result.reason;
+        matchType = result.matchType;
       }
     }
 
@@ -530,18 +562,17 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
       matchType = "unknown";
     }
 
-    // Dangerous patterns → high. Overrides "unknown" because the dangerous
-    // pattern gives us a definitive signal — we DO know the risk.
+    // Dangerous patterns escalate to at least high
     if (parsed.dangerousPatterns.length > 0) {
-      maxRiskLevel = "high";
+      if (riskOrd("high") > riskOrd(maxRiskLevel)) {
+        maxRiskLevel = "high";
+      }
       maxReason = parsed.dangerousPatterns[0].description;
-      matchType = "registry";
     }
 
-    // Opaque constructs → at least high. Overrides "unknown" because
-    // opaque constructs are a definitive high-risk signal.
+    // Opaque constructs escalate to at least high
     if (parsed.hasOpaqueConstructs) {
-      if (maxRiskLevel === "unknown" || riskOrd("high") > riskOrd(maxRiskLevel)) {
+      if (riskOrd("high") > riskOrd(maxRiskLevel)) {
         maxRiskLevel = "high";
       }
       if (!maxReason) {

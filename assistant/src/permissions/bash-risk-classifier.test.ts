@@ -35,7 +35,7 @@ describe("risk helpers", () => {
   test("riskOrd ordering", () => {
     expect(riskOrd("low")).toBeLessThan(riskOrd("medium"));
     expect(riskOrd("medium")).toBeLessThan(riskOrd("high"));
-    expect(riskOrd("high")).toBeLessThan(riskOrd("unknown"));
+    expect(riskOrd("unknown")).toBeLessThan(riskOrd("high"));
   });
 
   test("maxRisk returns higher risk", () => {
@@ -744,5 +744,158 @@ describe("scope options", () => {
       toolName: "bash",
     });
     expect(result.scopeOptions).toEqual([]);
+  });
+});
+
+// ── Regression tests for PR #26914 review findings ─────────────────────────
+
+const regressionClassifier = new BashRiskClassifier();
+
+describe("P1 regression: unknown + high mixed segments", () => {
+  test("unknowncmd && rm -rf / → high (known high dominates unknown)", async () => {
+    const result = await regressionClassifier.classify({
+      command: "unknowncmd && rm -rf /",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("sudo unknowncmd → high (sudo privilege escalation)", async () => {
+    const result = await regressionClassifier.classify({
+      command: "sudo unknowncmd",
+      toolName: "bash",
+    });
+    // sudo is a wrapper with baseRisk high — the inner unknown command
+    // should not downgrade the wrapper's known high risk.
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("env sudo unknowncmd → high (chained wrappers)", async () => {
+    const result = await regressionClassifier.classify({
+      command: "env sudo unknowncmd",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("unknowncmd | grep foo → unknown (unknown dominates low)", async () => {
+    const result = await regressionClassifier.classify({
+      command: "unknowncmd | grep foo",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("unknown");
+  });
+});
+
+describe("P2 regression: arg rule de-escalation", () => {
+  test("node --version → low (de-escalates from baseRisk high)", async () => {
+    const result = await regressionClassifier.classify({
+      command: "node --version",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+    expect(result.reason).toContain("version");
+  });
+
+  test("python --version → low (de-escalates from baseRisk high)", async () => {
+    const result = await regressionClassifier.classify({
+      command: "python --version",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("python3 --version → low", async () => {
+    const result = await regressionClassifier.classify({
+      command: "python3 --version",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("node server.js → high (no de-escalation rule matches)", async () => {
+    const result = await regressionClassifier.classify({
+      command: "node server.js",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("curl http://localhost:3000 → low (localhost de-escalation)", async () => {
+    const result = await regressionClassifier.classify({
+      command: "curl http://localhost:3000",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("curl http://127.0.0.1:8080/api → low (loopback de-escalation)", async () => {
+    const result = await regressionClassifier.classify({
+      command: "curl http://127.0.0.1:8080/api",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("curl https://evil.com → medium (no de-escalation for remote URLs)", async () => {
+    const result = await regressionClassifier.classify({
+      command: "curl https://evil.com",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
+  test("rm /tmp/foo → medium (tmp path de-escalation)", async () => {
+    const result = await regressionClassifier.classify({
+      command: "rm /tmp/foo",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
+  test("rm /etc/passwd → high (no de-escalation for non-tmp paths)", async () => {
+    const result = await regressionClassifier.classify({
+      command: "rm /etc/passwd",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+});
+
+describe("P3 regression: non-empty reason for low-risk commands", () => {
+  test("ls has a non-empty reason", async () => {
+    const result = await regressionClassifier.classify({
+      command: "ls",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+    expect(result.reason).toBeTruthy();
+  });
+
+  test("cat file.txt has a non-empty reason", async () => {
+    const result = await regressionClassifier.classify({
+      command: "cat file.txt",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+    expect(result.reason).toBeTruthy();
+  });
+
+  test("git status has a non-empty reason", async () => {
+    const result = await regressionClassifier.classify({
+      command: "git status",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+    expect(result.reason).toBeTruthy();
+  });
+
+  test("ls | grep foo has a non-empty reason", async () => {
+    const result = await regressionClassifier.classify({
+      command: "ls | grep foo",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+    expect(result.reason).toBeTruthy();
   });
 });

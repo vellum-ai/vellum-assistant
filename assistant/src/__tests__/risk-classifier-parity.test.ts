@@ -118,16 +118,9 @@ interface Divergence {
 }
 
 const EXPECTED_DIVERGENCES: Record<string, Divergence> = {
-  // ── Runtime interpreters: old=low, new=high ────────────────────────────────
-  // The old system puts these in LOW_RISK_PROGRAMS. The new registry correctly
-  // classifies them as high risk (arbitrary code execution). Phase 2 will add
-  // safe-flag allowlists (--version, --help) to reduce risk for info-only flags.
-  "node --version": {
-    oldRisk: "low",
-    newRisk: "high",
-    reason:
-      "Old: node in LOW_RISK_PROGRAMS. New: node is high (arbitrary JS execution). --version should be safe-listed in Phase 2.",
-  },
+  // ── Runtime interpreters ────────────────────────────────────────────────────
+  // node --version: RESOLVED — now both systems agree (low). The --version
+  // arg rule de-escalates node's baseRisk=high to low. No longer a divergence.
   "bun test": {
     oldRisk: "low",
     newRisk: "high",

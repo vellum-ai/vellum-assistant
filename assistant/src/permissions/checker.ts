@@ -675,6 +675,18 @@ export async function classifyRisk(
       // LRU refresh
       riskCache.delete(cacheKey);
       riskCache.set(cacheKey, cached);
+
+      // Phase 1 observe-only: fire comparison logging even on cache hits
+      // so analytics aren't biased toward cold paths.
+      if (toolName === "bash" || toolName === "host_bash") {
+        const command = ((input.command as string) ?? "").trim();
+        if (command) {
+          BashRiskClassifier.classifyAndLog(command, toolName, cached).catch(
+            () => {},
+          );
+        }
+      }
+
       return cached;
     }
   }
