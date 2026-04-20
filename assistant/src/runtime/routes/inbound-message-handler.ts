@@ -69,6 +69,28 @@ import { handleVerificationIntercept } from "./inbound-stages/verification-inter
 
 const log = getLogger("runtime-http");
 
+// Delete-lookup retry configuration. Delete webhooks can race ahead of
+// the inbound handler's `linkMessage` call when the original message's
+// agent loop is still running. Retrying buys time for the link to land
+// before we drop the deletion signal. Mirrors the edit-intercept path's
+// EDIT_LOOKUP_RETRIES / EDIT_LOOKUP_DELAY_MS constants.
+let deleteLookupRetries = 5;
+let deleteLookupDelayMs = 2000;
+
+/**
+ * Test-only override for the delete-lookup retry timings. Used by
+ * tests that exercise the "no such message" path without waiting
+ * through the full production backoff. Not exported from any barrel
+ * file — only the test file imports it directly.
+ */
+export function _setDeleteLookupConfigForTests(
+  retries: number,
+  delayMs: number,
+): void {
+  deleteLookupRetries = retries;
+  deleteLookupDelayMs = delayMs;
+}
+
 export async function handleChannelInbound(
   req: Request,
   processMessage?: MessageProcessor,
@@ -283,16 +305,39 @@ export async function handleChannelInbound(
     // The original message's externalMessageId may differ from its ts
     // (Slack populates client_msg_id when present), so we join via the
     // sourceMessageId column which records the ts explicitly.
-    const original = deliveryCrud.findMessageBySourceId(
-      sourceChannel,
-      conversationExternalId,
-      deletedMessageTs,
-    );
+    //
+    // Retry with backoff mirrors the edit-intercept path: delete webhooks
+    // can race ahead of `linkMessage` when the original message's agent
+    // loop is still running. Without retries a delete that arrives in
+    // that window is silently dropped and the deletion signal is lost.
+    let original: { messageId: string; conversationId: string } | null = null;
+    for (let attempt = 0; attempt <= deleteLookupRetries; attempt++) {
+      original = deliveryCrud.findMessageBySourceId(
+        sourceChannel,
+        conversationExternalId,
+        deletedMessageTs,
+      );
+      if (original) break;
+      if (attempt < deleteLookupRetries) {
+        log.info(
+          {
+            conversationExternalId,
+            deletedMessageTs,
+            attempt: attempt + 1,
+            maxAttempts: deleteLookupRetries,
+          },
+          "Original message not linked yet, retrying delete lookup",
+        );
+        await new Promise((resolve) =>
+          setTimeout(resolve, deleteLookupDelayMs),
+        );
+      }
+    }
 
     if (!original) {
       log.debug(
         { conversationExternalId, deletedMessageTs },
-        "No stored message found for Slack delete; ignoring",
+        "No stored message found for Slack delete after retries; ignoring",
       );
       return Response.json({ accepted: true, deleted: false });
     }

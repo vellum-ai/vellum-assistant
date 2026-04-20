@@ -32,6 +32,7 @@ import {
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
+import { _setDeleteLookupConfigForTests } from "../runtime/routes/inbound-message-handler.js";
 
 initializeDb();
 
@@ -159,6 +160,11 @@ describe("Slack delete propagation", () => {
   beforeEach(() => {
     resetState();
     seedActiveDeleteActor("C0123CHANNEL");
+    // Keep the lookup retry-loop fast by default so the "no such message"
+    // paths don't pay the full production backoff. The race-test below
+    // overrides this to a longer delay so the first retry can observe
+    // the deferred linkMessage.
+    _setDeleteLookupConfigForTests(2, 20);
   });
 
   test("marks slackMeta.deletedAt and leaves content untouched", async () => {
@@ -317,6 +323,75 @@ describe("Slack delete propagation", () => {
     const parsed = JSON.parse(row!.metadata!) as Record<string, unknown>;
     const slackMeta = readSlackMetadata(parsed.slackMeta as string);
     expect(slackMeta!.deletedAt).toBeUndefined();
+  });
+
+  test("delete that races ahead of linkMessage is retried until the link lands", async () => {
+    // Simulates the race: a delete webhook arrives after `recordInbound`
+    // has inserted the original event row but before the agent-loop path
+    // has called `linkMessage` to bind it to a stored message. Without
+    // the retry loop the delete would silently no-op and the deletion
+    // signal would be lost.
+    const db = getDb();
+    const externalChatId = "C0123CHANNEL";
+    const originalTs = "5555.5555";
+    const inbound = recordInbound("slack", externalChatId, originalTs, {
+      sourceMessageId: originalTs,
+    });
+
+    const messageId = `msg-${originalTs}`;
+    const slackMeta = writeSlackMetadata({
+      source: "slack",
+      channelId: externalChatId,
+      channelTs: originalTs,
+      eventKind: "message",
+      displayName: "Test User",
+    });
+    db.insert(messages)
+      .values({
+        id: messageId,
+        conversationId: inbound.conversationId,
+        role: "user",
+        content: "Original text",
+        createdAt: Date.now(),
+        metadata: JSON.stringify({
+          userMessageChannel: "slack",
+          userMessageInterface: "slack",
+          slackMeta,
+        }),
+      })
+      .run();
+
+    // Shorten retries to a handful of small backoffs so the test is fast
+    // while still exercising the loop.
+    _setDeleteLookupConfigForTests(5, 50);
+
+    // Link the message after a short delay — this lands during one of the
+    // retry backoffs. Intentionally not awaited.
+    const LINK_DELAY_MS = 120;
+    setTimeout(() => {
+      linkMessage(inbound.eventId, messageId);
+    }, LINK_DELAY_MS);
+
+    const req = buildSlackDeleteRequest({
+      externalChatId,
+      deletedTs: originalTs,
+    });
+    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    const json = (await resp.json()) as Record<string, unknown>;
+
+    expect(resp.status).toBe(200);
+    expect(json.accepted).toBe(true);
+    expect(json.deleted).toBe(true);
+    expect(json.messageId).toBe(messageId);
+
+    const row = db
+      .select()
+      .from(messages)
+      .where(eq(messages.id, messageId))
+      .get();
+    const parsed = JSON.parse(row!.metadata!) as Record<string, unknown>;
+    const parsedSlackMeta = readSlackMetadata(parsed.slackMeta as string);
+    expect(parsedSlackMeta!.deletedAt).toBeDefined();
   });
 
   test("delete from non-member actor is rejected by ACL and does not apply", async () => {
