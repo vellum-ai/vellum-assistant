@@ -2,6 +2,8 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { ruleScope } from "@vellumai/ces-contracts";
+
 // Create a temp directory for the trust file
 const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
@@ -774,9 +776,12 @@ describe("Trust Store", () => {
           rule.id === "default:allow-bash-rm-bootstrap" ||
           rule.id === "default:allow-bash-rm-updates"
         ) {
-          expect(rule.scope).toBe(testDir);
+          expect(ruleScope(rule)).toBe(testDir);
         } else {
-          expect(rule.scope).toBe("everywhere");
+          // Non-scoped tool families (managed skill tools, skill_load) no
+          // longer carry an explicit scope field after normalization, but
+          // ruleScope() returns "everywhere" for rules without scope.
+          expect(ruleScope(rule)).toBe("everywhere");
         }
       }
     });
@@ -1676,7 +1681,7 @@ describe("Trust Store", () => {
       expect(rule!.decision).toBe("allow");
     });
 
-    test("scope restricts network_request rule matching", () => {
+    test("network_request rules match regardless of working directory (URL tools ignore scope)", () => {
       addRule(
         "network_request",
         "network_request:https://api.example.com/*",
@@ -1689,12 +1694,15 @@ describe("Trust Store", () => {
       );
       expect(inScope).not.toBeNull();
 
+      // URL tools (network_request) do not support scope — the rule matches
+      // regardless of working directory because scope is stripped during
+      // normalization.
       const outOfScope = findHighestPriorityRule(
         "network_request",
         ["network_request:https://api.example.com/*"],
         "/tmp/other",
       );
-      expect(outOfScope).toBeNull();
+      expect(outOfScope).not.toBeNull();
     });
   });
 });

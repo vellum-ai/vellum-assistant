@@ -8,7 +8,11 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { parseTrustFileData, parseTrustRule } from "@vellumai/ces-contracts";
+import {
+  parseTrustFileData,
+  parseTrustRule,
+  ruleScope,
+} from "@vellumai/ces-contracts";
 import { Minimatch } from "minimatch";
 import { v4 as uuid } from "uuid";
 
@@ -212,7 +216,7 @@ function backfillDefaults(rules: TrustRule[]): boolean {
         rule &&
         (rule.priority !== template.priority ||
           rule.pattern !== template.pattern ||
-          rule.scope !== template.scope ||
+          ruleScope(rule) !== (template.scope ?? "everywhere") ||
           rule.decision !== template.decision ||
           rule.allowHighRisk !== template.allowHighRisk)
       ) {
@@ -230,14 +234,16 @@ function backfillDefaults(rules: TrustRule[]): boolean {
             newPriority: template.priority,
             oldPattern: rule.pattern,
             newPattern: template.pattern,
-            oldScope: rule.scope,
-            newScope: template.scope,
+            oldScope: ruleScope(rule),
+            newScope: template.scope ?? "everywhere",
           },
           "Migrated default rule to updated template values",
         );
         rule.priority = template.priority;
         rule.pattern = template.pattern;
-        rule.scope = template.scope;
+        if (template.scope != null) {
+          rule.scope = template.scope;
+        }
         rule.decision = template.decision;
         if (template.allowHighRisk != null) {
           rule.allowHighRisk = template.allowHighRisk;
@@ -499,7 +505,7 @@ function fileUpdateRule(
     const diverges =
       merged.tool !== template.tool ||
       merged.pattern !== template.pattern ||
-      merged.scope !== template.scope ||
+      ruleScope(merged) !== (template.scope ?? "everywhere") ||
       merged.decision !== template.decision ||
       merged.priority !== template.priority ||
       merged.allowHighRisk !== template.allowHighRisk;
@@ -1076,7 +1082,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
     const rule = trustClient.addRuleSync({
       tool: canonical.tool,
       pattern: canonical.pattern,
-      scope: canonical.scope,
+      scope: canonical.scope || "everywhere",
       decision: canonical.decision,
       priority: canonical.priority,
       allowHighRisk: canonicalOpts.allowHighRisk,
