@@ -42,10 +42,14 @@ export function loadPreferences(): GmailPreferences {
   try {
     const raw = readFileSync(PREFS_PATH, "utf-8");
     const parsed = JSON.parse(raw) as Partial<GmailPreferences>;
-    return {
+    const prefs: GmailPreferences = {
       blocklist: Array.isArray(parsed.blocklist) ? parsed.blocklist : [],
       safelist: Array.isArray(parsed.safelist) ? parsed.safelist : [],
     };
+    if (parsed["inbox-management"]) {
+      prefs["inbox-management"] = parsed["inbox-management"];
+    }
+    return prefs;
   } catch {
     return { blocklist: [], safelist: [] };
   }
