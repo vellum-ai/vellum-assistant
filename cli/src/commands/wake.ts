@@ -6,7 +6,10 @@ import {
   saveAssistantEntry,
 } from "../lib/assistant-config.js";
 import { dockerResourceNames, wakeContainers } from "../lib/docker.js";
-import { seedGuardianTokenFromSiblingEnv } from "../lib/guardian-token.js";
+import {
+  leaseGuardianToken,
+  seedGuardianTokenFromSiblingEnv,
+} from "../lib/guardian-token.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
 import {
   generateLocalSigningKey,
@@ -191,6 +194,36 @@ export async function wake(): Promise<void> {
   // and strictly additive.
   if (seedGuardianTokenFromSiblingEnv(entry.assistantId)) {
     console.log("   Seeded guardian token from sibling environment.");
+  }
+
+  // Retry the guardian-token lease if the hatch failed to persist it. The
+  // gateway has written `guardian-init.lock`, so a fresh `/v1/guardian/init`
+  // would be rejected — but the loopback-only `/v1/guardian/reset-bootstrap`
+  // endpoint clears the lock and lets the lease proceed.
+  if (entry.hatchedWithoutToken) {
+    const loopbackUrl = `http://127.0.0.1:${resources.gatewayPort}`;
+    try {
+      const resetRes = await fetch(
+        `${loopbackUrl}/v1/guardian/reset-bootstrap`,
+        {
+          method: "POST",
+        },
+      );
+      if (!resetRes.ok) {
+        throw new Error(`reset-bootstrap returned ${resetRes.status}`);
+      }
+      await leaseGuardianToken(loopbackUrl, entry.assistantId);
+      delete entry.hatchedWithoutToken;
+      saveAssistantEntry(entry);
+      console.log("   Recovered guardian token (hatch retry succeeded).");
+    } catch (err) {
+      console.error(
+        `⚠️  Guardian token retry failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      console.error(
+        `   The desktop app will need to use Settings → Reset connection to recover.`,
+      );
+    }
   }
 
   // Auto-start ngrok if webhook integrations (e.g. Telegram) are configured.

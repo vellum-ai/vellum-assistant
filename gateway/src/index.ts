@@ -653,6 +653,19 @@ async function main() {
         channelVerificationSessionProxy.handleGuardianInit(req, getClientIp()),
     },
     {
+      // Loopback-only recovery endpoint. Clears the bare-metal bootstrap lock
+      // so the local client can re-run `/v1/guardian/init` after losing its
+      // actor token (e.g. corrupted UserDefaults entry on macOS).
+      path: "/v1/guardian/reset-bootstrap",
+      method: "POST",
+      auth: "none",
+      handler: (req, _params, getClientIp) =>
+        channelVerificationSessionProxy.handleGuardianResetBootstrap(
+          req,
+          getClientIp(),
+        ),
+    },
+    {
       path: "/v1/channel-verification-sessions",
       method: "POST",
       auth: "edge",

@@ -305,10 +305,23 @@ export async function hatchLocal(
   // IP which the daemon rejects as non-loopback.
   emitProgress(6, 7, "Securing connection...");
   const loopbackUrl = `http://127.0.0.1:${resources.gatewayPort}`;
+  let hatchedWithoutToken = false;
   try {
     await leaseGuardianToken(loopbackUrl, instanceName);
   } catch (err) {
-    console.error(`⚠️  Guardian token lease failed: ${err}`);
+    hatchedWithoutToken = true;
+    console.error(
+      `\n❌ Guardian token lease failed during hatch: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    console.error(
+      `   The gateway has written 'guardian-init.lock' but no guardian-token.json file exists.`,
+    );
+    console.error(
+      `   The desktop app will retry the lease on next 'vellum wake'. If recovery fails,`,
+    );
+    console.error(
+      `   use Settings → Reset connection in the macOS app (or re-run 'vellum retire' + 'vellum hatch').`,
+    );
   }
 
   // Auto-start ngrok if webhook integrations (e.g. Telegram, Twilio) are configured.
@@ -323,6 +336,7 @@ export async function hatchLocal(
     species,
     hatchedAt: new Date().toISOString(),
     resources: { ...resources, signingKey },
+    ...(hatchedWithoutToken ? { hatchedWithoutToken: true } : {}),
   };
 
   const prevBaseDataDir = process.env.BASE_DATA_DIR;
