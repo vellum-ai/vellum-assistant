@@ -513,7 +513,9 @@ describe("runBot — extension message routing", () => {
     const before = handles.daemonEvents.length;
     handles.fireExtensionMessage({
       type: "lifecycle",
-      meetingId: "m-1",
+      // Extension stamps `meetingId = location.pathname` — the Meet URL
+      // code from MEET_URL, not the env UUID.
+      meetingId: "abc-defg-hij",
       timestamp: new Date().toISOString(),
       state: "joined",
     });
@@ -534,7 +536,7 @@ describe("runBot — extension message routing", () => {
     const before = handles.daemonEvents.length;
     handles.fireExtensionMessage({
       type: "participant.change",
-      meetingId: "m-1",
+      meetingId: "abc-defg-hij",
       timestamp: new Date().toISOString(),
       joined: [{ id: "p-1", name: "Alice" }],
       left: [],
@@ -553,14 +555,14 @@ describe("runBot — extension message routing", () => {
     const before = handles.daemonEvents.length;
     handles.fireExtensionMessage({
       type: "speaker.change",
-      meetingId: "m-1",
+      meetingId: "abc-defg-hij",
       timestamp: new Date().toISOString(),
       speakerId: "p-1",
       speakerName: "Alice",
     });
     handles.fireExtensionMessage({
       type: "chat.inbound",
-      meetingId: "m-1",
+      meetingId: "abc-defg-hij",
       timestamp: new Date().toISOString(),
       fromId: "p-2",
       fromName: "Bob",
@@ -1131,6 +1133,108 @@ describe("runBot — Gap A: meetingId rewrite at bot boundary", () => {
       expect(event.meetingId).toBe("m-1");
       expect(event.state).toBe("joined");
     }
+  });
+});
+
+/** -----------------------------------------------------------------------
+ * Foreign-tab source gate
+ * -----------------------------------------------------------------------
+ * The background service worker fans every bot command out to every open
+ * Meet tab in the Chrome profile. A stray tab (prior bot session, user-
+ * opened Meet, etc.) could otherwise emit lifecycle / telemetry events
+ * that we'd stamp with the session UUID and treat as authoritative —
+ * clearing the join-deadline timer, firing spurious `joined` / `error`
+ * at the daemon, and mixing telemetry across meetings. The bot compares
+ * each event's extension-supplied `meetingId` (the source tab's URL
+ * code) against the code derived from MEET_URL and drops mismatches.
+ */
+describe("runBot — foreign-tab source gate", () => {
+  test("lifecycle event from a foreign tab is dropped", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const before = handles.daemonEvents.length;
+    handles.fireExtensionMessage({
+      type: "lifecycle",
+      // Wrong Meet code — a stray tab pointed at a different meeting.
+      meetingId: "zzz-yyyy-xxx",
+      timestamp: new Date().toISOString(),
+      state: "joined",
+    });
+
+    // No daemon event enqueued.
+    expect(handles.daemonEvents.length).toBe(before);
+    // Diagnostic logged via logInfo.
+    expect(
+      handles.infos.some((m) =>
+        m.includes("dropping lifecycle event from foreign tab"),
+      ),
+    ).toBe(true);
+  });
+
+  test("foreign-tab lifecycle:joined does not clear the join-deadline timer", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps({ extensionJoinedTimeoutMs: 50 });
+    const running = runBot(deps);
+    await new Promise((r) => setTimeout(r, 5));
+    handles.fireExtensionReady();
+    await running;
+
+    // A stray tab's `joined` must NOT cancel the deadline.
+    handles.fireExtensionMessage({
+      type: "lifecycle",
+      meetingId: "zzz-yyyy-xxx",
+      timestamp: new Date().toISOString(),
+      state: "joined",
+    });
+
+    // Wait past the deadline — the timer should still trip.
+    const deadline = Date.now() + 1_000;
+    while (handles.exitCode() === null && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(handles.exitCode()).toBe(1);
+
+    const lifecycleStates = handles.daemonEvents
+      .filter((e): e is LifecycleEvent => e.type === "lifecycle")
+      .map((e) => ({ state: e.state, detail: e.detail }));
+    const errState = lifecycleStates.find((s) => s.state === "error");
+    expect(errState?.detail).toContain(
+      "extension did not reach joined state within 50ms",
+    );
+  });
+
+  test("participant.change / speaker.change / chat.inbound from foreign tabs are dropped", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const before = handles.daemonEvents.length;
+    handles.fireExtensionMessage({
+      type: "participant.change",
+      meetingId: "zzz-yyyy-xxx",
+      timestamp: new Date().toISOString(),
+      joined: [{ id: "p-1", name: "Alice" }],
+      left: [],
+    });
+    handles.fireExtensionMessage({
+      type: "speaker.change",
+      meetingId: "zzz-yyyy-xxx",
+      timestamp: new Date().toISOString(),
+      speakerId: "p-1",
+      speakerName: "Alice",
+    });
+    handles.fireExtensionMessage({
+      type: "chat.inbound",
+      meetingId: "zzz-yyyy-xxx",
+      timestamp: new Date().toISOString(),
+      fromId: "p-2",
+      fromName: "Bob",
+      text: "hello",
+    });
+
+    expect(handles.daemonEvents.length).toBe(before);
   });
 });
 
