@@ -261,6 +261,20 @@ final class ReturningUserRouterTests: XCTestCase {
         XCTAssertNil(decision)
     }
 
+    /// Managed lockfile entries can be stale (assistant deleted on the
+    /// platform), so the fast path must skip them and defer to the async
+    /// `route()` which consults `listAssistants` to detect staleness.
+    func testDecideFastReturnsNilWhenLockfileHasOnlyManagedEntry() {
+        // GIVEN a lockfile with only a managed current-env entry
+        let router = makeRouter(lockfile: [makeManagedAssistant()])
+
+        // WHEN the fast path runs
+        let decision = router.decideFast()
+
+        // THEN it defers to the async path so staleness can be detected
+        XCTAssertNil(decision)
+    }
+
     // MARK: - fetchLandscape()
 
     /// The router must surface both sources to callers without merging them.

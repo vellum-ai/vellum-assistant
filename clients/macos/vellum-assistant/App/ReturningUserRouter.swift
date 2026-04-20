@@ -208,19 +208,21 @@ final class ReturningUserRouter {
     /// like `startAuthenticatedFlow` don't have to block on the platform
     /// `listAssistants` network call before the app window opens.
     ///
-    /// In PR 1 the only landscape where the platform list changes the
-    /// decision is the 0-lockfile case — with any current-environment
-    /// lockfile entry the decision is `.autoConnect` regardless of what
-    /// the platform reports. Returning `nil` here signals "lockfile alone
-    /// isn't enough, fall through to the async `route()`" so the slow
-    /// path only runs when it actually matters.
+    /// The fast path intentionally only fires for local (non-managed)
+    /// lockfile entries: local assistants are authoritative on-disk, so
+    /// their presence alone is decisive. Managed entries can be stale —
+    /// the assistant may have been deleted on the platform — and require
+    /// the async `route()` path to consult `listAssistants` and detect
+    /// staleness; otherwise a returning user with only a stale managed
+    /// entry would auto-connect to a nonexistent assistant instead of
+    /// landing on the hosting picker.
     ///
     /// PR 2's picker will call `fetchLandscape()` directly when it needs
     /// to render platform-only entries; the fast path stays focused on
     /// the cold-start decision.
     func decideFast() -> RoutingDecision? {
-        let hasConnectable = lockfileProvider().contains { $0.isCurrentEnvironment }
-        return hasConnectable ? .autoConnect : nil
+        let hasLocalConnectable = lockfileProvider().contains { $0.isCurrentEnvironment && !$0.isManaged }
+        return hasLocalConnectable ? .autoConnect : nil
     }
 
     /// Pure decision function so callers and tests can exercise the
