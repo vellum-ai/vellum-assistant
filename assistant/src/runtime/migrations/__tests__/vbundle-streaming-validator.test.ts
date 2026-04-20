@@ -27,6 +27,7 @@ import {
   parseVBundleStream,
   type StreamedTarEntry,
 } from "../vbundle-tar-stream.js";
+import { computeManifestSha256 } from "../vbundle-validator.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -308,6 +309,51 @@ describe("readAndValidateManifest — negative paths", () => {
 
     expect(err).toBeInstanceOf(StreamingValidationError);
     expect(err?.code).toBe("manifest_sha256");
+  });
+
+  test("throws manifest_duplicate_path when the same archive path appears twice", async () => {
+    const baseManifest = {
+      schema_version: "1.0",
+      created_at: new Date().toISOString(),
+      files: [
+        {
+          path: "workspace/a.txt",
+          sha256:
+            "1111111111111111111111111111111111111111111111111111111111111111",
+          size: 10,
+        },
+        {
+          // Deliberately duplicate path — malicious bundle could exploit this
+          // to bypass per-entry integrity checks if we silently collapsed.
+          path: "workspace/a.txt",
+          sha256:
+            "2222222222222222222222222222222222222222222222222222222222222222",
+          size: 20,
+        },
+      ],
+      manifest_sha256: "",
+    };
+    baseManifest.manifest_sha256 = computeManifestSha256(baseManifest);
+
+    const archive = buildRawVBundle([
+      {
+        name: "manifest.json",
+        data: new TextEncoder().encode(JSON.stringify(baseManifest)),
+      },
+    ]);
+    const { entry, drainRest } = await firstEntryOf(archive);
+
+    let err: StreamingValidationError | null = null;
+    try {
+      await readAndValidateManifest(entry);
+    } catch (e) {
+      err = e as StreamingValidationError;
+    }
+    await drainRest();
+
+    expect(err).toBeInstanceOf(StreamingValidationError);
+    expect(err?.code).toBe("manifest_duplicate_path");
+    expect(err?.message).toContain("workspace/a.txt");
   });
 });
 

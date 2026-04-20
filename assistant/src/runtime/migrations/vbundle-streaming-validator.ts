@@ -157,6 +157,12 @@ export async function readAndValidateManifest(
 
   const expected = new Map<string, { sha256: string; size: number }>();
   for (const file of manifest.files) {
+    if (expected.has(file.path)) {
+      throw new StreamingValidationError(
+        "manifest_duplicate_path",
+        `Manifest contains duplicate entry for path: ${file.path}`,
+      );
+    }
     expected.set(file.path, { sha256: file.sha256, size: file.size });
   }
 
