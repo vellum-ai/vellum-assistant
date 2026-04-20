@@ -926,7 +926,6 @@ describe("Trust Store", () => {
       expect(match).not.toBeNull();
       expect(match!.id).toBe("default:allow-bash-rm-bootstrap");
       expect(match!.decision).toBe("allow");
-      expect(match!.decision).toBe("allow");
       // Outside workspace, the bootstrap rule doesn't match — without
       // IS_CONTAINERIZED there is no catch-all bash allow rule either.
       const other = findHighestPriorityRule(
@@ -946,7 +945,6 @@ describe("Trust Store", () => {
       );
       expect(match).not.toBeNull();
       expect(match!.id).toBe("default:allow-bash-rm-updates");
-      expect(match!.decision).toBe("allow");
       expect(match!.decision).toBe("allow");
       // Outside workspace, should NOT match the updates rule — without
       // IS_CONTAINERIZED there is no catch-all bash allow rule either.
