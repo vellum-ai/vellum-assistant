@@ -7,7 +7,8 @@ import type {
 import { err, getProviderConnection, ok, resolveProvider } from "./shared.js";
 
 function wrapMessageContent(msg: Message): Message {
-  const source = msg.platform === "gmail" ? "email" : "slack";
+  const source =
+    msg.platform === "gmail" || msg.platform === "outlook" ? "email" : "slack";
   return {
     ...msg,
     text: wrapUntrustedContent(msg.text, {
