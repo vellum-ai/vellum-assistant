@@ -155,6 +155,25 @@ const LOW_RISK_PROGRAMS = new Set([
   "df",
 ]);
 
+/**
+ * Determines at runtime whether a high-risk operation should be auto-allowed
+ * without requiring a persisted allowHighRisk flag. This replaces the
+ * stateful allowHighRisk field on trust rules with a context-aware check.
+ *
+ * Auto-allow cases:
+ * - Containerized bash: all commands are sandboxed, so high-risk is safe.
+ *
+ * Note: `rm BOOTSTRAP.md` and `rm UPDATES.md` are already classified as
+ * Medium risk (not High) by `isRmOfKnownSafeFile()`, so they don't need
+ * special handling here.
+ */
+function shouldAutoAllowHighRisk(toolName: string): boolean {
+  if (toolName === "bash" && getIsContainerized()) {
+    return true;
+  }
+  return false;
+}
+
 // High-risk shell programs / patterns
 const HIGH_RISK_PROGRAMS = new Set([
   "sudo",
@@ -321,9 +340,8 @@ function firstPositionalArg(
 }
 
 // Bare filenames that `rm` is allowed to delete at Medium risk (instead of
-// High) so workspace-scoped allow rules can approve them without the
-// dangerous `allowHighRisk` flag. Only matches when the args contain no
-// flags and exactly one of these filenames.
+// High) so workspace-scoped allow rules can approve them without prompting.
+// Only matches when the args contain no flags and exactly one of these filenames.
 const RM_SAFE_BARE_FILES = new Set(["BOOTSTRAP.md", "UPDATES.md"]);
 
 function isRmOfKnownSafeFile(args: string[]): boolean {
@@ -1041,15 +1059,15 @@ export async function check(
         matchedRule,
       };
     }
-    // High risk with allow rule that explicitly permits high-risk → auto-allow
-    if (matchedRule.allowHighRisk === true) {
+    // High risk with allow rule — check runtime context for auto-allow
+    if (shouldAutoAllowHighRisk(toolName)) {
       return {
         decision: "allow",
-        reason: `Matched high-risk trust rule: ${matchedRule.pattern}`,
+        reason: `Matched trust rule in auto-allow-high-risk context: ${matchedRule.pattern}`,
         matchedRule,
       };
     }
-    // High risk with allow rule (without allowHighRisk) → fall through to prompt
+    // High risk with allow rule (no runtime auto-allow) → fall through to prompt
   }
 
   // No matching rule (or High risk with allow rule) → risk-based fallback

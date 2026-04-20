@@ -1131,27 +1131,23 @@ describe("Permission Checker", () => {
       expect(result.decision).toBe("prompt");
     });
 
-    test("web_fetch allowHighRisk is preserved by canonicalization so private-network fetches can auto-allow", async () => {
-      // URL-family tools now preserve allowHighRisk through addRule's canonical
-      // parser, so high-risk private-network fetches can be explicitly
-      // auto-approved by user trust rules.
+    test("web_fetch private-network fetch with allow rule still prompts (high risk, non-bash tool)", async () => {
+      // allowHighRisk is no longer a persisted field — high-risk auto-allow
+      // is determined at runtime by shouldAutoAllowHighRisk(), which only
+      // covers containerized bash. Non-bash high-risk tools always prompt.
       addRule(
         "web_fetch",
         "web_fetch:http://localhost:3000/*",
         "/tmp",
         "allow",
         100,
-        { allowHighRisk: true },
       );
       const result = await check(
         "web_fetch",
         { url: "http://localhost:3000/health", allow_private_network: true },
         "/tmp",
       );
-      expect(result.decision).toBe("allow");
-      expect(result.reason).toContain("high-risk trust rule");
-      expect(result.matchedRule).toBeDefined();
-      expect(result.matchedRule!.allowHighRisk).toBe(true);
+      expect(result.decision).toBe("prompt");
     });
 
     test("web_fetch exact allowlist pattern matches query urls literally", async () => {
@@ -2223,11 +2219,11 @@ describe("Permission Checker", () => {
       );
       addRule("file_write", `file_write:${checkerTestDir}/skills/**`, "/tmp");
       const result = await check("file_write", { path: skillPath }, "/tmp");
-      // High risk requires explicit allowHighRisk — a plain allow rule is insufficient.
+      // High risk with allow rule prompts — shouldAutoAllowHighRisk() only covers containerized bash.
       expect(result.decision).toBe("prompt");
     });
 
-    test("file_write to skill directory is allowed with allowHighRisk: true rule", async () => {
+    test("file_write to skill directory with allow rule still prompts (high risk, non-bash tool)", async () => {
       ensureSkillsDir();
       const skillPath = join(
         checkerTestDir,
@@ -2241,11 +2237,10 @@ describe("Permission Checker", () => {
         "/tmp",
         "allow",
         2000,
-        { allowHighRisk: true },
       );
       const result = await check("file_write", { path: skillPath }, "/tmp");
-      expect(result.decision).toBe("allow");
-      expect(result.reason).toContain("high-risk trust rule");
+      // Non-bash high-risk tools always prompt regardless of allow rules.
+      expect(result.decision).toBe("prompt");
     });
 
     test("host_file_write to skill directory prompts (High risk overrides host ask rule)", async () => {
@@ -2438,12 +2433,10 @@ describe("Permission Checker", () => {
   // family-aware union type changes are wire-compatible with the platform.
 
   describe("family-aware rule shape regression", () => {
-    test("scoped tool (bash) preserves executionTarget and allowHighRisk through disk round-trip", () => {
+    test("scoped tool (bash) preserves executionTarget through disk round-trip (allowHighRisk stripped)", () => {
       const rule = addRule("bash", "kill *", "everywhere", "allow", 100, {
-        allowHighRisk: true,
         executionTarget: "/usr/local/bin/node",
       });
-      expect(rule.allowHighRisk).toBe(true);
       expect(rule.executionTarget).toBe("/usr/local/bin/node");
 
       // Force a disk round-trip by clearing the cache and re-reading
@@ -2455,23 +2448,17 @@ describe("Permission Checker", () => {
         { executionTarget: "/usr/local/bin/node" },
       );
       expect(reloaded).not.toBeNull();
-      // Scoped tools retain both fields after canonical normalization
-      expect(reloaded!.allowHighRisk).toBe(true);
       expect(reloaded!.executionTarget).toBe("/usr/local/bin/node");
     });
 
-    test("URL tool (web_fetch) preserves allowHighRisk after disk round-trip", () => {
-      // addRule canonicalizes rule shape but preserves allowHighRisk for URL
-      // tools for backward compatibility with persistent high-risk approvals.
-      const rule = addRule(
+    test("URL tool (web_fetch) round-trips without allowHighRisk", () => {
+      addRule(
         "web_fetch",
         "web_fetch:http://localhost:3000/*",
         "/tmp",
         "allow",
         100,
-        { allowHighRisk: true },
       );
-      expect(rule.allowHighRisk).toBe(true);
 
       // Force a disk round-trip.
       clearCache();
@@ -2481,19 +2468,11 @@ describe("Permission Checker", () => {
         "/tmp",
       );
       expect(reloaded).not.toBeNull();
-      expect(reloaded!.allowHighRisk).toBe(true);
+      expect(reloaded!.pattern).toBe("web_fetch:http://localhost:3000/*");
     });
 
-    test("generic tool (skill_test_tool) preserves optional fields through round-trip", () => {
-      const rule = addRule(
-        "skill_test_tool",
-        "skill_test_tool:*",
-        "/tmp",
-        "allow",
-        2000,
-        { allowHighRisk: true },
-      );
-      expect(rule.allowHighRisk).toBe(true);
+    test("generic tool (skill_test_tool) preserves executionTarget through round-trip", () => {
+      addRule("skill_test_tool", "skill_test_tool:*", "/tmp", "allow", 2000);
 
       clearCache();
       const reloaded = findHighestPriorityRule(
@@ -2502,8 +2481,7 @@ describe("Permission Checker", () => {
         "/tmp",
       );
       expect(reloaded).not.toBeNull();
-      // Generic tools preserve allowHighRisk for forward compatibility
-      expect(reloaded!.allowHighRisk).toBe(true);
+      expect(reloaded!.pattern).toBe("skill_test_tool:*");
     });
 
     test("rule without scope defaults to 'everywhere' after parsing", () => {
@@ -2658,31 +2636,11 @@ describe("Permission Checker", () => {
     });
   });
 
-  // ── persistent high-risk allow rules (PR 22) ──────────────────
+  // ── runtime high-risk auto-allow (replaces persistent allowHighRisk) ──
 
-  describe("persistent high-risk allow rules (PR 22)", () => {
-    test("high-risk tool with allowHighRisk: true allow rule returns allow", async () => {
-      addRule("bash", "kill *", "everywhere", "allow", 2000, {
-        allowHighRisk: true,
-      });
-      const result = await check("bash", { command: "kill -9 1234" }, "/tmp");
-      expect(result.decision).toBe("allow");
-      expect(result.reason).toContain("high-risk trust rule");
-      expect(result.matchedRule).toBeDefined();
-      expect(result.matchedRule!.allowHighRisk).toBe(true);
-    });
-
-    test("high-risk tool with allow rule WITHOUT allowHighRisk still prompts", async () => {
+  describe("runtime high-risk auto-allow (shouldAutoAllowHighRisk)", () => {
+    test("high-risk bash with allow rule in non-containerized environment prompts", async () => {
       addRule("bash", "kill *", "everywhere", "allow", 2000);
-      const result = await check("bash", { command: "kill -9 1234" }, "/tmp");
-      expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("High risk");
-    });
-
-    test("high-risk tool with allowHighRisk: false still prompts", async () => {
-      addRule("bash", "kill *", "everywhere", "allow", 2000, {
-        allowHighRisk: false,
-      });
       const result = await check("bash", { command: "kill -9 1234" }, "/tmp");
       expect(result.decision).toBe("prompt");
       expect(result.reason).toContain("High risk");
@@ -2702,7 +2660,7 @@ describe("Permission Checker", () => {
       expect(result.decision).toBe("prompt");
     });
 
-    test("medium-risk tool with allow rule is NOT affected by allowHighRisk", async () => {
+    test("medium-risk tool with allow rule auto-allows normally", async () => {
       addRule("bash", "chmod *", "/tmp", "allow", 100);
       const result = await check(
         "bash",
@@ -2711,74 +2669,46 @@ describe("Permission Checker", () => {
       );
       expect(result.decision).toBe("allow");
       expect(result.reason).toContain("Matched trust rule");
-      // No mention of high-risk in the reason
-      expect(result.reason).not.toContain("high-risk");
     });
 
-    test("high-risk scaffold_managed_skill with allowHighRisk: true auto-allows", async () => {
-      // Managed-skill tools preserve allowHighRisk through addRule's canonical
-      // parser, allowing explicit high-risk auto-approval via trust rules.
+    test("high-risk scaffold_managed_skill with allow rule prompts (non-bash, no runtime auto-allow)", async () => {
       addRule(
         "scaffold_managed_skill",
         "scaffold_managed_skill:my-skill",
         "everywhere",
         "allow",
         2000,
-        { allowHighRisk: true },
       );
       const result = await check(
         "scaffold_managed_skill",
         { skill_id: "my-skill" },
         "/tmp",
       );
-      expect(result.decision).toBe("allow");
-      expect(result.reason).toContain("high-risk trust rule");
-      expect(result.matchedRule).toBeDefined();
-      expect(result.matchedRule!.allowHighRisk).toBe(true);
+      expect(result.decision).toBe("prompt");
     });
 
-    test("high-risk delete_managed_skill with allowHighRisk: true auto-allows", async () => {
-      // Managed-skill tools preserve allowHighRisk through addRule's canonical
-      // parser, allowing explicit high-risk auto-approval via trust rules.
+    test("high-risk delete_managed_skill with allow rule prompts (non-bash, no runtime auto-allow)", async () => {
       addRule(
         "delete_managed_skill",
         "delete_managed_skill:*",
         "everywhere",
         "allow",
         2000,
-        { allowHighRisk: true },
       );
       const result = await check(
         "delete_managed_skill",
         { skill_id: "any-skill" },
         "/tmp",
       );
-      expect(result.decision).toBe("allow");
-      expect(result.reason).toContain("high-risk trust rule");
-      expect(result.matchedRule).toBeDefined();
-      expect(result.matchedRule!.allowHighRisk).toBe(true);
+      expect(result.decision).toBe("prompt");
     });
 
-    test("deny rule still takes precedence over allowHighRisk allow rule", async () => {
-      addRule("bash", "kill *", "everywhere", "allow", 100, {
-        allowHighRisk: true,
-      });
+    test("deny rule still takes precedence over allow rule for high-risk", async () => {
+      addRule("bash", "kill *", "everywhere", "allow", 100);
       addRule("bash", "kill *", "everywhere", "deny", 200);
       const result = await check("bash", { command: "kill -9 1234" }, "/tmp");
       expect(result.decision).toBe("deny");
       expect(result.reason).toContain("deny rule");
-    });
-
-    test("allowHighRisk persists through addRule", () => {
-      const rule = addRule("bash", "kill *", "everywhere", "allow", 100, {
-        allowHighRisk: true,
-      });
-      expect(rule.allowHighRisk).toBe(true);
-    });
-
-    test("addRule without allowHighRisk option does not set the field", () => {
-      const rule = addRule("bash", "git *", "/tmp");
-      expect(rule.allowHighRisk).toBeUndefined();
     });
   });
 
@@ -2796,19 +2726,7 @@ describe("Permission Checker", () => {
       expect(result.reason).toContain("Strict mode");
     });
 
-    test("strict mode: high-risk with allowHighRisk rule auto-allows", async () => {
-      testConfig.permissions.mode = "strict";
-      addRule("bash", "kill *", "everywhere", "allow", 2000, {
-        allowHighRisk: true,
-      });
-      const result = await check("bash", { command: "kill -9 1234" }, "/tmp");
-      expect(result.decision).toBe("allow");
-      expect(result.reason).toContain("high-risk trust rule");
-      expect(result.matchedRule).toBeDefined();
-      expect(result.matchedRule!.allowHighRisk).toBe(true);
-    });
-
-    test("strict mode: high-risk with allow rule (no allowHighRisk) still prompts", async () => {
+    test("strict mode: high-risk bash with allow rule prompts in non-containerized env", async () => {
       testConfig.permissions.mode = "strict";
       addRule("bash", "kill *", "everywhere", "allow", 2000);
       const result = await check("bash", { command: "kill -9 1234" }, "/tmp");
@@ -2828,41 +2746,16 @@ describe("Permission Checker", () => {
       expect(result.reason).toContain("Matched trust rule");
     });
 
-    test("strict mode: deny rule overrides allowHighRisk rule even in strict mode", async () => {
+    test("strict mode: deny rule overrides allow rule for high-risk", async () => {
       testConfig.permissions.mode = "strict";
-      addRule("bash", "kill *", "everywhere", "allow", 100, {
-        allowHighRisk: true,
-      });
+      addRule("bash", "kill *", "everywhere", "allow", 100);
       addRule("bash", "kill *", "everywhere", "deny", 200);
       const result = await check("bash", { command: "kill -9 1234" }, "/tmp");
       expect(result.decision).toBe("deny");
       expect(result.reason).toContain("deny rule");
     });
 
-    test("strict mode: scaffold_managed_skill with allowHighRisk auto-allows", async () => {
-      testConfig.permissions.mode = "strict";
-      // Managed-skill tools preserve allowHighRisk through addRule's canonical
-      // parser, so explicit high-risk rules can auto-allow even in strict mode.
-      addRule(
-        "scaffold_managed_skill",
-        "scaffold_managed_skill:my-skill",
-        "everywhere",
-        "allow",
-        2000,
-        { allowHighRisk: true },
-      );
-      const result = await check(
-        "scaffold_managed_skill",
-        { skill_id: "my-skill" },
-        "/tmp",
-      );
-      expect(result.decision).toBe("allow");
-      expect(result.reason).toContain("high-risk trust rule");
-      expect(result.matchedRule).toBeDefined();
-      expect(result.matchedRule!.allowHighRisk).toBe(true);
-    });
-
-    test("strict mode: scaffold_managed_skill without allowHighRisk still prompts", async () => {
+    test("strict mode: scaffold_managed_skill with allow rule still prompts (non-bash)", async () => {
       testConfig.permissions.mode = "strict";
       addRule(
         "scaffold_managed_skill",
@@ -2877,12 +2770,11 @@ describe("Permission Checker", () => {
         "/tmp",
       );
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("High risk");
     });
   });
 
   // ── skill mutation approval regression tests (PR 30) ──────────
-  // Lock full behavior for skill-source edit/write prompts, allowHighRisk
+  // Lock full behavior for skill-source edit/write prompts, high-risk
   // persistence, and version mismatch rejection.
 
   describe("skill mutation approval regressions (PR 30)", () => {
@@ -2977,53 +2869,10 @@ describe("Permission Checker", () => {
       });
     });
 
-    // ── always_allow_high_risk: persisted allow auto-allows on repeat ──
+    // ── high-risk skill source writes: non-bash tools always prompt ──
 
-    describe("always_allow_high_risk: persisted rule auto-allows subsequent requests", () => {
-      test("file_write to skill source with allowHighRisk rule auto-allows", async () => {
-        ensureSkillsDir();
-        const skillPath = join(
-          checkerTestDir,
-          "skills",
-          "my-skill",
-          "executor.ts",
-        );
-        addRule(
-          "file_write",
-          `file_write:${checkerTestDir}/skills/**`,
-          "/tmp",
-          "allow",
-          2000,
-          { allowHighRisk: true },
-        );
-        const result = await check("file_write", { path: skillPath }, "/tmp");
-        expect(result.decision).toBe("allow");
-        expect(result.reason).toContain("high-risk trust rule");
-        expect(result.matchedRule!.allowHighRisk).toBe(true);
-      });
-
-      test("file_edit of skill source with allowHighRisk rule auto-allows", async () => {
-        ensureSkillsDir();
-        const skillPath = join(
-          checkerTestDir,
-          "skills",
-          "my-skill",
-          "SKILL.md",
-        );
-        addRule(
-          "file_edit",
-          `file_edit:${checkerTestDir}/skills/**`,
-          "/tmp",
-          "allow",
-          2000,
-          { allowHighRisk: true },
-        );
-        const result = await check("file_edit", { path: skillPath }, "/tmp");
-        expect(result.decision).toBe("allow");
-        expect(result.reason).toContain("high-risk trust rule");
-      });
-
-      test("file_write to skill source with allow rule (no allowHighRisk) still prompts", async () => {
+    describe("high-risk skill source writes always prompt (non-bash, no runtime auto-allow)", () => {
+      test("file_write to skill source with allow rule still prompts", async () => {
         ensureSkillsDir();
         const skillPath = join(
           checkerTestDir,
@@ -3040,32 +2889,28 @@ describe("Permission Checker", () => {
         );
         const result = await check("file_write", { path: skillPath }, "/tmp");
         expect(result.decision).toBe("prompt");
-        expect(result.reason).toContain("High risk");
       });
 
-      test("strict mode: file_write to skill source with allowHighRisk rule auto-allows", async () => {
-        testConfig.permissions.mode = "strict";
+      test("file_edit of skill source with allow rule still prompts", async () => {
         ensureSkillsDir();
         const skillPath = join(
           checkerTestDir,
           "skills",
           "my-skill",
-          "executor.ts",
+          "SKILL.md",
         );
         addRule(
-          "file_write",
-          `file_write:${checkerTestDir}/skills/**`,
+          "file_edit",
+          `file_edit:${checkerTestDir}/skills/**`,
           "/tmp",
           "allow",
           2000,
-          { allowHighRisk: true },
         );
-        const result = await check("file_write", { path: skillPath }, "/tmp");
-        expect(result.decision).toBe("allow");
-        expect(result.reason).toContain("high-risk trust rule");
+        const result = await check("file_edit", { path: skillPath }, "/tmp");
+        expect(result.decision).toBe("prompt");
       });
 
-      test("deny rule for skill source takes precedence over allowHighRisk rule", async () => {
+      test("deny rule for skill source takes precedence over allow rule", async () => {
         ensureSkillsDir();
         const skillPath = join(
           checkerTestDir,
@@ -3079,7 +2924,6 @@ describe("Permission Checker", () => {
           "/tmp",
           "allow",
           100,
-          { allowHighRisk: true },
         );
         addRule(
           "file_write",
@@ -3113,26 +2957,7 @@ describe("Permission Checker", () => {
       mkdirSync(wsSkillsDir, { recursive: true });
     }
 
-    test("user allowHighRisk rule at priority 100 overrides default ask for skill source writes", async () => {
-      ensureSkillsDir();
-      const skillPath = join(wsSkillsDir, "my-skill", "executor.ts");
-      addRule(
-        "file_write",
-        `file_write:${wsSkillsDir}/**`,
-        "everywhere",
-        "allow",
-        100,
-        { allowHighRisk: true },
-      );
-      const result = await check("file_write", { path: skillPath }, "/tmp");
-      // The user's allow rule (priority 100) must win over the default ask (priority 50),
-      // and allowHighRisk must auto-allow the High-risk skill mutation.
-      expect(result.decision).toBe("allow");
-      expect(result.reason).toContain("high-risk trust rule");
-      expect(result.matchedRule!.allowHighRisk).toBe(true);
-    });
-
-    test("user allow rule without allowHighRisk at priority 100 overrides default ask but high-risk still prompts", async () => {
+    test("user allow rule at priority 100 overrides default ask but high-risk non-bash still prompts", async () => {
       ensureSkillsDir();
       const skillPath = join(wsSkillsDir, "my-skill", "executor.ts");
       addRule(
@@ -3143,10 +2968,9 @@ describe("Permission Checker", () => {
         100,
       );
       const result = await check("file_write", { path: skillPath }, "/tmp");
-      // The user rule wins over default ask, but skill mutations are High risk,
-      // so the allow rule without allowHighRisk falls through to high-risk prompt.
+      // The user rule wins over default ask, but skill mutations are High risk
+      // and shouldAutoAllowHighRisk only covers containerized bash.
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("High risk");
     });
 
     test("without user rule, default ask rule matches and prompts for skill source mutations", async () => {
@@ -3859,7 +3683,6 @@ describe("Permission Checker", () => {
       scope: string;
       decision: "allow" | "deny" | "ask";
       priority: number;
-      allowHighRisk?: boolean;
     }): Promise<void> {
       const trustPath = join(checkerTestDir, "protected", "trust.json");
       const {
@@ -4176,7 +3999,7 @@ describe("Permission Checker", () => {
         expect(result.reason).toContain("High risk");
       });
 
-      test("allowHighRisk: true rule can explicitly approve skill mutation", async () => {
+      test("allow rule for skill mutation prompts (high risk, non-bash tool)", async () => {
         ensureSkillsDir();
         const skillPath = join(
           checkerTestDir,
@@ -4190,11 +4013,9 @@ describe("Permission Checker", () => {
           "/tmp",
           "allow",
           2000,
-          { allowHighRisk: true },
         );
         const result = await check("file_write", { path: skillPath }, "/tmp");
-        expect(result.decision).toBe("allow");
-        expect(result.reason).toContain("high-risk trust rule");
+        expect(result.decision).toBe("prompt");
       });
     });
 
@@ -4242,18 +4063,15 @@ describe("Permission Checker", () => {
         expect(r2.decision).toBe("allow");
       });
 
-      test("high-risk allowHighRisk: true rule auto-allows dangerous commands", async () => {
-        addRule("bash", "sudo *", "everywhere", "allow", 2000, {
-          allowHighRisk: true,
-        });
+      test("high-risk bash with allow rule prompts in non-containerized environment", async () => {
+        addRule("bash", "sudo *", "everywhere", "allow", 2000);
         const result = await check(
           "bash",
           { command: "sudo rm -rf /" },
           "/tmp",
         );
-        expect(result.decision).toBe("allow");
-        expect(result.reason).toContain("high-risk trust rule");
-        expect(result.matchedRule!.allowHighRisk).toBe(true);
+        // Non-containerized bash: shouldAutoAllowHighRisk returns false
+        expect(result.decision).toBe("prompt");
       });
 
       test("broad skill_load wildcard rule allows all skill loads in strict mode", async () => {
@@ -4401,7 +4219,7 @@ describe("Permission Checker", () => {
         expect(bashRule).toBeDefined();
         expect(bashRule!.tool).toBe("bash");
         expect(bashRule!.pattern).toBe("**");
-        expect(bashRule!.allowHighRisk).toBe(true);
+        expect(bashRule!.decision).toBe("allow");
       } finally {
         if (orig === undefined) {
           delete process.env.IS_CONTAINERIZED;

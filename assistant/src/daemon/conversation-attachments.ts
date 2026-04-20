@@ -116,8 +116,7 @@ export async function approveHostAttachmentRead(
   );
 
   if (
-    (response.decision === "always_allow" ||
-      response.decision === "always_allow_high_risk") &&
+    response.decision === "always_allow" &&
     response.selectedPattern &&
     response.selectedScope
   ) {
@@ -127,9 +126,6 @@ export async function approveHostAttachmentRead(
       response.selectedScope,
       "allow",
       100,
-      response.decision === "always_allow_high_risk"
-        ? { allowHighRisk: true }
-        : undefined,
     );
   }
   if (

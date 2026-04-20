@@ -73,15 +73,8 @@ export function createTrustRulesAddHandler() {
       );
     }
 
-    const {
-      tool,
-      pattern,
-      scope,
-      decision,
-      priority,
-      allowHighRisk,
-      executionTarget,
-    } = body as Record<string, unknown>;
+    const { tool, pattern, scope, decision, priority, executionTarget } =
+      body as Record<string, unknown>;
 
     if (typeof tool !== "string" || !tool) {
       return Response.json(
@@ -116,12 +109,6 @@ export function createTrustRulesAddHandler() {
         { status: 400 },
       );
     }
-    if (allowHighRisk !== undefined && typeof allowHighRisk !== "boolean") {
-      return Response.json(
-        { error: '"allowHighRisk" must be a boolean' },
-        { status: 400 },
-      );
-    }
     if (executionTarget !== undefined && typeof executionTarget !== "string") {
       return Response.json(
         { error: '"executionTarget" must be a string' },
@@ -138,7 +125,6 @@ export function createTrustRulesAddHandler() {
         (decision as TrustDecision) ?? "allow",
         (priority as number) ?? 100,
         {
-          ...(allowHighRisk != null ? { allowHighRisk } : {}),
           ...(executionTarget != null ? { executionTarget } : {}),
         },
       );

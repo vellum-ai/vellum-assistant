@@ -91,7 +91,7 @@ const addRuleCalls: Array<{
   scope: string;
   decision: string;
   priority?: number;
-  options?: { allowHighRisk?: boolean; executionTarget?: string };
+  options?: { executionTarget?: string };
 }> = [];
 mock.module("../permissions/trust-store.js", () => ({
   addRule: (
@@ -100,7 +100,7 @@ mock.module("../permissions/trust-store.js", () => ({
     scope: string,
     decision: string,
     priority?: number,
-    options?: { allowHighRisk?: boolean; executionTarget?: string },
+    options?: { executionTarget?: string },
   ) => {
     addRuleCalls.push({ tool, pattern, scope, decision, priority, options });
     return {
@@ -966,7 +966,7 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await stopServer();
     });
 
-    test("preserves allowHighRisk for scoped tool families (e.g. bash)", async () => {
+    test("trust rule creation works without allowHighRisk for scoped tool families", async () => {
       const session = makeIdleSession();
       await startServer(() => session);
 
@@ -993,60 +993,12 @@ describe("standalone approval endpoints — HTTP layer", () => {
           pattern: "rm**",
           scope: "everywhere",
           decision: "allow",
-          allowHighRisk: true,
         }),
       });
 
       expect(res.status).toBe(200);
-      // Verify addRule was called with allowHighRisk preserved for the scoped tool
       expect(addRuleCalls).toHaveLength(1);
-      expect(addRuleCalls[0].options?.allowHighRisk).toBe(true);
-
-      await stopServer();
-    });
-
-    test("passes allowHighRisk through for URL tools (canonicalized in trust store)", async () => {
-      const session = makeIdleSession();
-      await startServer(() => session);
-
-      // web_fetch is a URL-family tool. The route forwards allowHighRisk and
-      // trust-store canonicalization decides final persisted shape.
-      pendingInteractions.register("req-url-hr", {
-        conversation: session,
-        conversationId: "conv-1",
-        kind: "confirmation",
-        confirmationDetails: {
-          toolName: "web_fetch",
-          input: { url: "https://example.com" },
-          riskLevel: "medium",
-          allowlistOptions: [
-            {
-              label: "Allow fetch",
-              description: "test",
-              pattern: "https://example.com/**",
-            },
-          ],
-          scopeOptions: [],
-        },
-      });
-
-      const res = await fetch(url("trust-rules"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
-        body: JSON.stringify({
-          requestId: "req-url-hr",
-          pattern: "https://example.com/**",
-          scope: "everywhere",
-          decision: "allow",
-          allowHighRisk: true,
-        }),
-      });
-
-      expect(res.status).toBe(200);
-      // Route layer passes raw options through to addRule; canonicalization
-      // happens in trust-store and the mock captures pre-canonicalization args.
-      expect(addRuleCalls).toHaveLength(1);
-      expect(addRuleCalls[0].options?.allowHighRisk).toBe(true);
+      expect(addRuleCalls[0].decision).toBe("allow");
 
       await stopServer();
     });

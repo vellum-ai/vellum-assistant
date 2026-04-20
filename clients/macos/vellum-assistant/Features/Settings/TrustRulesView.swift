@@ -295,7 +295,6 @@ private struct TrustRuleFormView: View {
                     pattern: trimmedPattern,
                     scope: resolvedScope,
                     decision: decision,
-                    allowHighRisk: nil,
                     executionTarget: nil
                 )
             }

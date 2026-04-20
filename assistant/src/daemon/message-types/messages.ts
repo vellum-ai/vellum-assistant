@@ -33,7 +33,6 @@ export interface ConfirmationResponse {
     | "allow_10m"
     | "allow_conversation"
     | "always_allow"
-    | "always_allow_high_risk"
     | "deny"
     | "always_deny";
   selectedPattern?: string;

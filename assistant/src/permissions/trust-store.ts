@@ -198,23 +198,31 @@ function backfillDefaults(rules: TrustRule[]): boolean {
     }
   }
 
-  // Migrate existing default rules whose priority, pattern, scope, decision,
-  // or allowHighRisk has changed in the template (e.g. host_bash pattern
-  // changed from '*' to '**', host tool priorities changed from 1000 to 50,
-  // workspace scope changed from getRootDir()+workspace to getWorkspaceDir()).
+  // Migrate existing default rules whose priority, pattern, scope, or decision
+  // has changed in the template (e.g. host_bash pattern changed from '*' to
+  // '**', host tool priorities changed from 1000 to 50, workspace scope
+  // changed from getRootDir()+workspace to getWorkspaceDir()).
+  //
+  // Also strip any leftover allowHighRisk fields from persisted default rules
+  // since the field has been replaced by runtime determination.
   //
   // Rules with `userModifiedAt` set are skipped — the user explicitly
   // customized them and their override should be preserved across upgrades.
   for (const template of getDefaultRuleTemplates()) {
     if (existingIds.has(template.id)) {
       const rule = rules.find((r) => r.id === template.id);
+      if (!rule) continue;
+      // Strip legacy allowHighRisk from persisted default rules.
+      const ruleRecord = rule as unknown as Record<string, unknown>;
+      if ("allowHighRisk" in ruleRecord) {
+        delete ruleRecord.allowHighRisk;
+        changed = true;
+      }
       if (
-        rule &&
-        (rule.priority !== template.priority ||
-          rule.pattern !== template.pattern ||
-          rule.scope !== template.scope ||
-          rule.decision !== template.decision ||
-          rule.allowHighRisk !== template.allowHighRisk)
+        rule.priority !== template.priority ||
+        rule.pattern !== template.pattern ||
+        rule.scope !== template.scope ||
+        rule.decision !== template.decision
       ) {
         if (rule.userModifiedAt != null) {
           log.info(
@@ -239,11 +247,6 @@ function backfillDefaults(rules: TrustRule[]): boolean {
         rule.pattern = template.pattern;
         rule.scope = template.scope;
         rule.decision = template.decision;
-        if (template.allowHighRisk != null) {
-          rule.allowHighRisk = template.allowHighRisk;
-        } else {
-          delete rule.allowHighRisk;
-        }
         changed = true;
       }
     }
@@ -312,8 +315,7 @@ function loadFromDisk(): TrustRule[] {
 
         // Apply canonical parser for family-aware normalization.
         // The parser strips fields that are invalid for a rule's tool family
-        // (e.g. executionTarget on URL rules), preserves compatible optional
-        // fields like allowHighRisk, and coerces malformed values.
+        // (e.g. executionTarget on URL rules) and coerces malformed values.
         const { data: parsedData, normalized } = parseTrustFileData({
           ...data,
           rules: sanitizedRules,
@@ -420,7 +422,6 @@ function fileAddRule(
   decision: "allow" | "deny" | "ask" = "allow",
   priority: number = 100,
   options?: {
-    allowHighRisk?: boolean;
     executionTarget?: string;
   },
 ): TrustRule {
@@ -438,9 +439,6 @@ function fileAddRule(
     decision,
     priority,
     createdAt: Date.now(),
-    ...(options?.allowHighRisk != null
-      ? { allowHighRisk: options.allowHighRisk }
-      : {}),
     ...(options?.executionTarget != null
       ? { executionTarget: options.executionTarget }
       : {}),
@@ -501,8 +499,7 @@ function fileUpdateRule(
       merged.pattern !== template.pattern ||
       merged.scope !== template.scope ||
       merged.decision !== template.decision ||
-      merged.priority !== template.priority ||
-      merged.allowHighRisk !== template.allowHighRisk;
+      merged.priority !== template.priority;
     if (diverges) {
       merged.userModifiedAt = Date.now();
     } else {
@@ -1033,7 +1030,6 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
     decision: "allow" | "deny" | "ask" = "allow",
     priority: number = 100,
     options?: {
-      allowHighRisk?: boolean;
       executionTarget?: string;
     },
   ): TrustRule {
@@ -1052,20 +1048,11 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
       decision,
       priority,
       createdAt: 0,
-      ...(options?.allowHighRisk != null
-        ? { allowHighRisk: options.allowHighRisk }
-        : {}),
       ...(options?.executionTarget != null
         ? { executionTarget: options.executionTarget }
         : {}),
     });
-    const canonicalOpts: { allowHighRisk?: boolean; executionTarget?: string } =
-      {};
-    if ("allowHighRisk" in canonical) {
-      canonicalOpts.allowHighRisk = (
-        canonical as { allowHighRisk?: boolean }
-      ).allowHighRisk;
-    }
+    const canonicalOpts: { executionTarget?: string } = {};
     if ("executionTarget" in canonical) {
       canonicalOpts.executionTarget = (
         canonical as { executionTarget?: string }
@@ -1079,7 +1066,6 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
       scope: canonical.scope,
       decision: canonical.decision,
       priority: canonical.priority,
-      allowHighRisk: canonicalOpts.allowHighRisk,
       executionTarget: canonicalOpts.executionTarget,
     });
     // Update local cache
@@ -1244,7 +1230,6 @@ export function addRule(
   decision: "allow" | "deny" | "ask" = "allow",
   priority: number = 100,
   options?: {
-    allowHighRisk?: boolean;
     executionTarget?: string;
   },
 ): TrustRule {

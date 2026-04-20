@@ -55,10 +55,8 @@ public struct ToolConfirmationBubble: View {
     }
 
     /// The decision value to send when "Always Allow" is clicked.
-    /// High-risk prompts use `always_allow_high_risk` so the daemon persists
-    /// a rule with `allowHighRisk: true`.
     private var alwaysAllowDecision: String {
-        confirmation.riskLevel.lowercased() == "high" ? "always_allow_high_risk" : "always_allow"
+        "always_allow"
     }
 
     /// The full input preview for the inline display (all key-value pairs).
