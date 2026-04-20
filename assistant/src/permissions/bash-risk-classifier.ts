@@ -173,17 +173,6 @@ function getWrappedProgramWithArgs(seg: {
   return undefined;
 }
 
-// ── Git value flags (for subcommand extraction) ──────────────────────────────
-const GIT_VALUE_FLAGS = new Set([
-  "-C",
-  "-c",
-  "--git-dir",
-  "--work-tree",
-  "--namespace",
-  "--super-prefix",
-  "--config-env",
-]);
-
 /**
  * Extract the first positional (non-flag) arg, skipping value-consuming flags.
  */
@@ -220,14 +209,14 @@ const RM_SAFE_BARE_FILES = new Set(["BOOTSTRAP.md", "UPDATES.md"]);
 function resolveSubcommand(
   spec: CommandRiskSpec,
   args: string[],
-  program: string,
 ): { spec: CommandRiskSpec; remainingArgs: string[] } {
   if (!spec.subcommands || args.length === 0) {
     return { spec, remainingArgs: args };
   }
 
-  // For git, skip global flags that consume a value
-  const valueFlags = program === "git" ? GIT_VALUE_FLAGS : undefined;
+  const valueFlags = spec.globalValueFlags
+    ? new Set(spec.globalValueFlags)
+    : undefined;
   const subcommandName = firstPositionalArg(args, valueFlags);
 
   if (!subcommandName || !spec.subcommands[subcommandName]) {
@@ -239,7 +228,7 @@ function resolveSubcommand(
   const remainingArgs = args.slice(subIdx + 1);
 
   // Recurse for nested subcommands (e.g., git stash drop, gh pr view)
-  return resolveSubcommand(subSpec, remainingArgs, subcommandName);
+  return resolveSubcommand(subSpec, remainingArgs);
 }
 
 /**
@@ -338,7 +327,7 @@ export function classifySegment(
 
   // 4. Subcommand resolution
   const { spec: resolvedSpec, remainingArgs: _remainingArgs } =
-    resolveSubcommand(spec, segment.args, programName);
+    resolveSubcommand(spec, segment.args);
 
   // 5. Evaluate arg rules
   //

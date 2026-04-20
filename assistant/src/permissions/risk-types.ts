@@ -139,6 +139,12 @@ export interface CommandRiskSpec {
   complexSyntax?: boolean;
   /** Human-readable reason for the base risk (shown when no arg rule matches). */
   reason?: string;
+  /**
+   * Global flags that consume the next token as a value (e.g. git -C <path>).
+   * Used by resolveSubcommand to skip past flag-value pairs when locating the
+   * first positional arg (the subcommand name).
+   */
+  globalValueFlags?: string[];
 }
 
 // ── User rule types ──────────────────────────────────────────────────────────
