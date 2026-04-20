@@ -233,8 +233,16 @@ extension AppDelegate {
     ///   to clear `guardian-init.lock` before bootstrapping. Required when
     ///   `POST /v1/guardian/init` would otherwise be 403'd by the bare-metal
     ///   bootstrap lockfile — the wedged state described in ATL-188.
-    func forceReBootstrap(resetBootstrapLock: Bool = false) async {
-        log.info("forceReBootstrap: clearing stored credentials and re-running bootstrap (resetLock=\(resetBootstrapLock))")
+    /// - Parameter maxHttpRetries: Bounds the HTTP fallback retry loop. When
+    ///   `nil` (the default) the retry loop is unbounded, matching first-launch
+    ///   behaviour where we genuinely want to wait for the daemon to come up.
+    ///   User-initiated recovery paths must pass a finite value so the UI can
+    ///   surface failure instead of hanging forever when the daemon is down.
+    func forceReBootstrap(
+        resetBootstrapLock: Bool = false,
+        maxHttpRetries: Int? = nil
+    ) async {
+        log.info("forceReBootstrap: clearing stored credentials and re-running bootstrap (resetLock=\(resetBootstrapLock), maxHttpRetries=\(maxHttpRetries.map(String.init) ?? "unbounded"))")
         ActorTokenManager.deleteAllCredentials()
         if resetBootstrapLock {
             let ok = await GuardianClient().resetBootstrapLock()
@@ -246,7 +254,10 @@ extension AppDelegate {
         // credentials, so the file won't materialize mid-flight (unlike the
         // first-launch case where `AppleContainersLauncher` may still be
         // writing it).
-        await performInitialBootstrap(pollForTokenFile: false)
+        await performInitialBootstrap(
+            pollForTokenFile: false,
+            maxHttpRetries: maxHttpRetries
+        )
     }
 
     /// Performs the initial actor token bootstrap, reactively waiting for a
@@ -256,7 +267,10 @@ extension AppDelegate {
     /// Before hitting the network, checks whether the CLI already persisted a
     /// guardian token to disk (e.g. during a Docker or cloud hatch). If found,
     /// imports it directly and skips the HTTP bootstrap entirely.
-    func performInitialBootstrap(pollForTokenFile: Bool = true) async {
+    func performInitialBootstrap(
+        pollForTokenFile: Bool = true,
+        maxHttpRetries: Int? = nil
+    ) async {
         guard let assistantId = LockfileAssistant.loadActiveAssistantId() else { return }
 
         // Try importing a guardian token that was already written to disk
@@ -322,7 +336,14 @@ extension AppDelegate {
             }
         }
 
+        var attempt = 0
         while !Task.isCancelled {
+            if let cap = maxHttpRetries, attempt >= cap {
+                log.warning("Initial actor token bootstrap gave up after \(attempt) attempt(s) (maxHttpRetries=\(cap))")
+                return
+            }
+            attempt += 1
+
             if !connectionManager.isConnected {
                 await awaitConnectionEstablished()
                 guard !Task.isCancelled else { return }

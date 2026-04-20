@@ -28,6 +28,7 @@ struct SettingsGeneralTab: View {
     @State private var healthzLoaded = false
     @State private var isRefreshingHealthz = false
     @State private var isResettingConnection = false
+    @State private var resetConnectionTask: Task<Void, Never>?
 
 
     private var currentAssistant: LockfileAssistant? {
@@ -355,11 +356,38 @@ struct SettingsGeneralTab: View {
                 style: .primary,
                 isDisabled: isResettingConnection
             ) {
-                Task {
-                    isResettingConnection = true
-                    await AppDelegate.shared?.forceReBootstrap(resetBootstrapLock: true)
-                    isResettingConnection = false
-                }
+                startResetConnection()
+            }
+        }
+        .onDisappear {
+            // Abort any in-flight recovery if the user navigates away. The
+            // bootstrap's HTTP retry loop is cooperative-cancellation aware,
+            // so cancelling here unblocks it immediately.
+            resetConnectionTask?.cancel()
+            resetConnectionTask = nil
+        }
+    }
+
+    private func startResetConnection() {
+        // Cancel any prior in-flight recovery so repeated clicks don't stack
+        // orphaned tasks — each click starts fresh.
+        resetConnectionTask?.cancel()
+        isResettingConnection = true
+        resetConnectionTask = Task {
+            // Bound the HTTP retry loop so the button can't hang forever if
+            // the daemon is down. ~10 attempts * 500ms ≈ 5s upper bound.
+            await AppDelegate.shared?.forceReBootstrap(
+                resetBootstrapLock: true,
+                maxHttpRetries: 10
+            )
+            guard !Task.isCancelled else { return }
+            isResettingConnection = false
+            resetConnectionTask = nil
+            if !ActorTokenManager.hasToken {
+                showToast(
+                    "Couldn't reset connection. Make sure your assistant is running and try again.",
+                    .error
+                )
             }
         }
     }
