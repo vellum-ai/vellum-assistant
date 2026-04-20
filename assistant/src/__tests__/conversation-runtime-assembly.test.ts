@@ -4270,3 +4270,46 @@ describe("assembleSlackChronologicalMessages", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// applyRuntimeInjections blocks.pkbSystemReminder
+// ---------------------------------------------------------------------------
+
+describe("applyRuntimeInjections blocks.pkbSystemReminder", () => {
+  const baseMessages: Message[] = [
+    {
+      role: "user",
+      content: [{ type: "text", text: "Hello" }],
+    },
+  ];
+
+  test("captures exact reminder bytes when full mode and PKB active", async () => {
+    pkbSearchResults = [];
+    pkbSearchThrows = null;
+    const { blocks } = await applyRuntimeInjections(baseMessages, {
+      pkbActive: true,
+      mode: "full",
+    });
+
+    const expected = buildPkbReminder([]);
+    expect(blocks.pkbSystemReminder).toBe(expected);
+  });
+
+  test("not captured in minimal mode", async () => {
+    const { blocks } = await applyRuntimeInjections(baseMessages, {
+      pkbActive: true,
+      mode: "minimal",
+    });
+
+    expect(blocks.pkbSystemReminder).toBeUndefined();
+  });
+
+  test("not captured when PKB inactive", async () => {
+    const { blocks } = await applyRuntimeInjections(baseMessages, {
+      pkbActive: false,
+      mode: "full",
+    });
+
+    expect(blocks.pkbSystemReminder).toBeUndefined();
+  });
+});

@@ -1814,6 +1814,7 @@ export async function applyRuntimeInjections(
   },
 ): Promise<RuntimeInjectionResult> {
   const mode = options.mode ?? "full";
+  let pkbSystemReminderCaptured: string | undefined;
   const slackChannel = isSlackChannelConversation(options.channelCapabilities);
   // Slack DMs and channels both assemble context from persisted message
   // rows, so suppress hint injection for any Slack conversation. Other
@@ -1948,6 +1949,7 @@ export async function applyRuntimeInjections(
       }
 
       const reminder = buildPkbReminder(hints);
+      pkbSystemReminderCaptured = reminder;
       result = [
         ...result.slice(0, -1),
         {
@@ -2094,5 +2096,10 @@ export async function applyRuntimeInjections(
     }
   }
 
-  return { messages: result, blocks: {} };
+  return {
+    messages: result,
+    blocks: {
+      pkbSystemReminder: pkbSystemReminderCaptured,
+    },
+  };
 }
