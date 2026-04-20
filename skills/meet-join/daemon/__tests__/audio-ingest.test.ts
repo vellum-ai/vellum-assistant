@@ -329,7 +329,7 @@ describe("MeetAudioIngest.start", () => {
       createTranscriber: async () => {
         throw new MeetAudioIngestError(
           "No streaming-capable STT provider is configured. " +
-            "Set services.stt.provider to deepgram, google-gemini, or openai-whisper " +
+            "Set services.stt.provider to deepgram, google-gemini, openai-whisper, or xai " +
             "and ensure credentials are present.",
         );
       },
