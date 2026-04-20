@@ -860,12 +860,22 @@ export async function runBot(deps: BotDeps): Promise<void> {
     // test timing semantics (`joinedSettleMs`) intact.
     await deps.sleep(deps.joinedSettleMs);
 
+    // A terminal lifecycle (`left`/`error`) or chrome-exit that landed
+    // during the settle window already fire-and-forgot `shutdown(...)`.
+    // Short-circuit the rest of the boot sequence so we don't bring up
+    // audio/HTTP against subsystems that are already being torn down —
+    // otherwise `meet-bot ready` can log after the meeting has already
+    // terminally failed, and the HTTP control surface briefly accepts
+    // requests. All subsequent awaits carry the same guard.
+    if (shutdownInProgress) return;
+
     // ---------------------------------------------------------------------
     // Step 7 — audio capture.
     // ---------------------------------------------------------------------
     subsystems.audioCapture = await deps.startAudioCapture({
       socketPath: `${env.socketDir}/audio.sock`,
     });
+    if (shutdownInProgress) return;
 
     // ---------------------------------------------------------------------
     // Step 8 — HTTP control surface.
@@ -900,6 +910,7 @@ export async function runBot(deps: BotDeps): Promise<void> {
       avatar: avatarHttpOptions,
     });
     await subsystems.httpServer.start(env.httpPort);
+    if (shutdownInProgress) return;
 
     deps.logInfo(`meet-bot ready (meetingId=${meetingId})`);
   } catch (err) {
