@@ -800,8 +800,13 @@ export function normalizeSlackMessageEdit(
   // user is required for routing
   if (!edited.user) return null;
 
-  // Try channel routing, fall back to default for DMs
-  const isDm = event.channel_type === "im";
+  // Try channel routing, fall back to default for DMs. Slack's
+  // `message_changed` payload can omit `channel_type`, but DM channel IDs
+  // always start with "D" — fall back to the ID prefix so edits in DMs still
+  // take the defaultAssistantId routing branch.
+  const isDm =
+    event.channel_type === "im" ||
+    (event.channel_type === undefined && event.channel.startsWith("D"));
   let routing = resolveAssistant(config, event.channel, edited.user);
   if (isRejection(routing) && isDm && config.defaultAssistantId) {
     routing = {
