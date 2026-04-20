@@ -395,11 +395,14 @@ struct VoiceSettingsView: View {
         ttsProviderHasKey && SettingsStore.ttsKeyIsExclusive(for: draftTTSProvider)
     }
 
-    /// Phrase synthesized when the Test button is tapped. Uses the active
-    /// assistant's lockfile name so the user hears their assistant's name
-    /// spoken in the configured voice.
+    /// Phrase synthesized when the Test button is tapped. Uses the
+    /// user-facing assistant name from IDENTITY.md — not the container id
+    /// — so the voice speaks the name the user actually chose.
     private var ttsTestPhrase: String {
-        let name = LockfileAssistant.loadActiveAssistantId() ?? "your assistant"
+        let name = AssistantDisplayName.resolve(
+            IdentityInfo.loadFromDiskCache()?.name,
+            fallback: "your assistant"
+        )
         return "Hey! It's \(name). How does this sound?"
     }
 
