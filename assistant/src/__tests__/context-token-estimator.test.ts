@@ -522,3 +522,151 @@ describe("token estimator", () => {
     expect(tallTokens).toBeLessThan(1_800);
   });
 });
+
+describe("tool_result estimation mirrors Anthropic wire format", () => {
+  test("plain text tool_result counts overhead + id + content", () => {
+    const tokens = estimateContentBlockTokens({
+      type: "tool_result",
+      tool_use_id: "call_1",
+      content: "operation complete",
+    });
+    // Sanity bounds — small string, small overhead.
+    expect(tokens).toBeGreaterThan(estimateTextTokens("operation complete"));
+    expect(tokens).toBeLessThan(estimateTextTokens("operation complete") + 50);
+  });
+
+  test("image sub-block is counted when is_error is false", () => {
+    const pngBase64 = makePngBase64(512, 512);
+    const withImage = estimateContentBlockTokens(
+      {
+        type: "tool_result",
+        tool_use_id: "call_img",
+        content: "screenshot captured",
+        contentBlocks: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/png",
+              data: pngBase64,
+            },
+          },
+        ],
+      },
+      { providerName: "anthropic" },
+    );
+    const withoutImage = estimateContentBlockTokens(
+      {
+        type: "tool_result",
+        tool_use_id: "call_img",
+        content: "screenshot captured",
+      },
+      { providerName: "anthropic" },
+    );
+    // 512x512 = 262144 pixels, tokens ≈ ceil(262144/750) ≈ 350.
+    expect(withImage - withoutImage).toBeGreaterThan(300);
+    expect(withImage - withoutImage).toBeLessThan(500);
+  });
+
+  test("image sub-block is NOT counted when is_error is true", () => {
+    // The Anthropic serializer filters image parts out of error tool results
+    // (client.ts:1398), so the estimator must match.
+    const pngBase64 = makePngBase64(512, 512);
+    const errorWithImage = estimateContentBlockTokens(
+      {
+        type: "tool_result",
+        tool_use_id: "call_err",
+        content: "operation failed",
+        is_error: true,
+        contentBlocks: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/png",
+              data: pngBase64,
+            },
+          },
+        ],
+      },
+      { providerName: "anthropic" },
+    );
+    const errorNoImage = estimateContentBlockTokens(
+      {
+        type: "tool_result",
+        tool_use_id: "call_err",
+        content: "operation failed",
+        is_error: true,
+      },
+      { providerName: "anthropic" },
+    );
+    expect(errorWithImage).toBe(errorNoImage);
+  });
+
+  test("unknown sub-block types are NOT counted", () => {
+    // The Anthropic serializer only forwards image/text sub-blocks. Anything
+    // else (thinking, tool_use, etc.) is dropped — the estimator must not
+    // add tokens for content that never reaches the wire.
+    const withThinking = estimateContentBlockTokens({
+      type: "tool_result",
+      tool_use_id: "call_think",
+      content: "done",
+      contentBlocks: [
+        {
+          type: "thinking",
+          thinking: "a".repeat(4000),
+          signature: "sig_stub",
+        },
+      ],
+    });
+    const plain = estimateContentBlockTokens({
+      type: "tool_result",
+      tool_use_id: "call_think",
+      content: "done",
+    });
+    expect(withThinking).toBe(plain);
+  });
+
+  test("text sub-block beyond block.content is counted once", () => {
+    // Handlers (e.g. secret-detection) may populate contentBlocks with an
+    // additional text entry distinct from block.content. The serializer
+    // forwards both, so the estimator counts both — but this is not the
+    // pre-fix 2x double-count where content was summed once for the string
+    // and again for an echoing text sub-block.
+    const extraText = "x".repeat(4000);
+    const tokens = estimateContentBlockTokens({
+      type: "tool_result",
+      tool_use_id: "call_dual_text",
+      content: "short summary",
+      contentBlocks: [{ type: "text", text: extraText }],
+    });
+    // Estimate should be roughly:
+    //   overhead + id + "short summary" + (text overhead + 1000 tokens for extraText)
+    // The extra text is ~1000 tokens on its own; overhead is small.
+    expect(tokens).toBeGreaterThan(1000);
+    expect(tokens).toBeLessThan(1100);
+  });
+
+  test("regression: tool_result with thinking sub-block does not inflate estimate by 3x+", () => {
+    // Simulates the pathological shape that was inflating the estimator on
+    // real conversations — a modest tool_result whose contentBlocks happen
+    // to carry a large sub-block the serializer discards. Prior to the fix
+    // the estimator would add the full thinking payload; after the fix it
+    // matches the plain shape.
+    const content = "y".repeat(2000);
+    const inflated = estimateContentBlockTokens({
+      type: "tool_result",
+      tool_use_id: "call_regress",
+      content,
+      contentBlocks: [
+        { type: "thinking", thinking: "z".repeat(8000), signature: "s" },
+      ],
+    });
+    const wireShape = estimateContentBlockTokens({
+      type: "tool_result",
+      tool_use_id: "call_regress",
+      content,
+    });
+    expect(inflated).toBe(wireShape);
+  });
+});

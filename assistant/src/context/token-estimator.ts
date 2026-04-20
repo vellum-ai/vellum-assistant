@@ -139,13 +139,24 @@ export function estimateContentBlockTokens(
         estimateTextTokens(stableJson(block.input))
       );
     case "tool_result": {
+      // Mirror the Anthropic serializer in providers/anthropic/client.ts
+      // (toAnthropicBlockSafe): block.content is always sent as the first
+      // text part, and contentBlocks are appended — but only `image` and
+      // `text` sub-blocks survive, and `image` is filtered out when
+      // is_error is true. Counting every contentBlocks entry regardless
+      // of type overestimates the wire size and can trigger spurious
+      // compaction on conversations that carry e.g. thinking sub-blocks.
       let tokens =
         TOOL_BLOCK_OVERHEAD_TOKENS +
         estimateTextTokens(block.tool_use_id) +
         estimateTextTokens(block.content);
       if (block.contentBlocks) {
         for (const cb of block.contentBlocks) {
-          tokens += estimateContentBlockTokens(cb, options);
+          if (cb.type === "text") {
+            tokens += estimateContentBlockTokens(cb, options);
+          } else if (cb.type === "image" && !block.is_error) {
+            tokens += estimateContentBlockTokens(cb, options);
+          }
         }
       }
       return tokens;
