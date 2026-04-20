@@ -14,9 +14,9 @@
  *   flowing through it and errors the pipeline if the final digest or byte
  *   count does not match the expected values from the manifest.
  *
- * Together, these let a consumer (PR 4) pipe every subsequent tar entry
- * through a hash verifier before writing it to disk, without ever buffering
- * the full bundle.
+ * Together, these let a consumer pipe every subsequent tar entry through a
+ * hash verifier before writing it to disk, without ever buffering the full
+ * bundle.
  */
 
 import { createHash } from "node:crypto";
@@ -79,7 +79,7 @@ const MANIFEST_MAX_BYTES = 1 * 1024 * 1024;
  *      canonicalized JSON (minus that field).
  *
  * On success, returns the parsed manifest plus a `Map` keyed by archive
- * path that PR 4 will consult as each subsequent entry streams past.
+ * path that callers consult as each subsequent entry streams past.
  *
  * On failure, throws a `StreamingValidationError` with a distinct `code`
  * for every failure mode.
