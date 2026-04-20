@@ -24,7 +24,7 @@ public final class AuthManager {
     public var errorMessage: String?
 
     private let authService = AuthService.shared
-    private static let callbackScheme = "vellum-assistant"
+    private static let callbackScheme = "vellum"
     private var webAuthSession: ASWebAuthenticationSession?
 
     public init() {}

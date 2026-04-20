@@ -746,6 +746,6 @@ New settings sections brought to iOS for feature parity with macOS:
 
 ## macOS Deep-Link Send (M11)
 
-The macOS app registers a `vellum-assistant://send?message=...` URL scheme handler. When invoked, it creates or reuses a conversation and sends the message through the daemon. This enables external tools, scripts, and iOS Shortcuts to trigger assistant actions on the Mac.
+The macOS app registers a `vellum://send?message=...` URL scheme handler (also accepts the legacy `vellum-assistant://` alias). When invoked, it creates or reuses a conversation and sends the message through the daemon. This enables external tools, scripts, and iOS Shortcuts to trigger assistant actions on the Mac.
 
 ---

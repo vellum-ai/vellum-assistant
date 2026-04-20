@@ -21,8 +21,8 @@
 			<string>ai.vocify-inc.vellum-assistant-ios</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>vellum-assistant</string>
 				<string>vellum</string>
+				<string>vellum-assistant</string>
 			</array>
 		</dict>
 	</array>

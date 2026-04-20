@@ -10,9 +10,9 @@ extension AppDelegate {
 
     public func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
-            // Handle vellum-assistant://send?message=... deep links
-            // Also accept legacy vellum:// scheme for backwards compatibility
-            if url.scheme == "vellum-assistant" || url.scheme == "vellum" {
+            // Handle vellum://send?message=... deep links
+            // Also accept legacy vellum-assistant:// scheme for backwards compatibility
+            if url.scheme == "vellum" || url.scheme == "vellum-assistant" {
                 handleDeepLink(url)
                 continue
             }
@@ -32,7 +32,7 @@ extension AppDelegate {
         }
     }
 
-    /// Handle `vellum-assistant://send?message=...` (or legacy `vellum://send?message=...`) deep links by buffering the message
+    /// Handle `vellum://send?message=...` (or legacy `vellum-assistant://send?message=...`) deep links by buffering the message
     /// in `DeepLinkManager` for the active `ChatViewModel` to consume,
     /// then bringing the main window to front.
     private func handleDeepLink(_ url: URL) {

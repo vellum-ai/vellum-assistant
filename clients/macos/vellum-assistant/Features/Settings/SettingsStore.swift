@@ -2339,7 +2339,7 @@ public final class SettingsStore: ObservableObject {
                 let response = try await PlatformOAuthService.shared.startOAuthConnect(
                     provider: providerKey,
                     assistantId: assistantId,
-                    redirectAfterConnect: "vellum-assistant://oauth/\(providerKey)/callback"
+                    redirectAfterConnect: "vellum://oauth/\(providerKey)/callback"
                 )
 
                 guard let connectURL = URL(string: response.connect_url) else {
@@ -2348,7 +2348,7 @@ public final class SettingsStore: ObservableObject {
                 }
 
                 let callbackURL: URL = try await withCheckedThrowingContinuation { continuation in
-                    let session = ASWebAuthenticationSession(url: connectURL, callbackURLScheme: "vellum-assistant") { [weak self] callbackURL, error in
+                    let session = ASWebAuthenticationSession(url: connectURL, callbackURLScheme: "vellum") { [weak self] callbackURL, error in
                         self?.managedOAuthWebAuthSession = nil
                         if let error {
                             continuation.resume(throwing: error)
