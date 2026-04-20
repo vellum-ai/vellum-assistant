@@ -342,14 +342,19 @@ struct HomePageView<DetailPanel: View>: View {
             .padding(.top, VSpacing.xxl)
 
             // Suggestion bar
-            VSkeletonBone(height: 72, radius: VRadius.lg)
+            VSkeletonBone(height: 72, radius: VRadius.xl)
 
-            // First time group: "Today" label + three recap-row bones
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
+            // First time group: "Today" label + three recap-row bones.
+            // Mirrors the real content nesting: outer md-spaced stack
+            // separates the group header from the inner rows sub-stack,
+            // which uses xs spacing between rows.
+            VStack(alignment: .leading, spacing: VSpacing.md) {
                 VSkeletonBone(width: 60, height: 12)
-                VSkeletonBone(height: 48, radius: VRadius.md)
-                VSkeletonBone(height: 48, radius: VRadius.md)
-                VSkeletonBone(height: 48, radius: VRadius.md)
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    VSkeletonBone(height: 48, radius: VRadius.md)
+                    VSkeletonBone(height: 48, radius: VRadius.md)
+                    VSkeletonBone(height: 48, radius: VRadius.md)
+                }
             }
         }
         .frame(maxWidth: maxContentWidth, alignment: .top)
