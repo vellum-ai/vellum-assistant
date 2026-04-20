@@ -174,15 +174,28 @@ struct ConversationListView: View {
 
     var body: some View {
         Group {
-            if store.isLoadingInitialConversations {
-                loadingView
-            } else if isDrawerMode {
+            if isDrawerMode {
                 // Compact: the drawer supplies its own chrome; render only the list content.
                 // `IOSRootNavigationView` owns navigation state and consumes selection requests.
-                conversationList
-            } else {
-                NavigationSplitView {
+                // The drawer's `safeAreaInset` footer keeps Settings reachable even while the
+                // store is still loading its initial conversation list.
+                if store.isLoadingInitialConversations {
+                    loadingView
+                } else {
                     conversationList
+                }
+            } else {
+                // iPad: always mount the `NavigationSplitView` so the sidebar's
+                // navigation bar — and the Settings toolbar item attached to it —
+                // stays visible while the store is loading. Otherwise, first-run
+                // users with no saved connection would be stuck on a plain
+                // spinner with no way to reach Settings to configure a gateway.
+                NavigationSplitView {
+                    if store.isLoadingInitialConversations {
+                        loadingView
+                    } else {
+                        conversationList
+                    }
                 } detail: {
                     detailView
                 }
@@ -222,6 +235,21 @@ struct ConversationListView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("Chats")
+        .toolbar {
+            // Mirror the Settings entry from `conversationList.toolbar` so iPad
+            // first-run users can reach Settings even before the store's
+            // initial conversation load completes. Compact (drawer) mode
+            // reaches Settings via the drawer's own footer and doesn't need
+            // this toolbar item.
+            if !isDrawerMode, let onShowSettings {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: onShowSettings) {
+                        VIconView(.settings, size: 20)
+                    }
+                    .accessibilityLabel("Settings")
+                }
+            }
+        }
     }
 
     // MARK: - Detail Views
