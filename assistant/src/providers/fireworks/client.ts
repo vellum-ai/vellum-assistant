@@ -1,9 +1,4 @@
 import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provider.js";
-// Re-exported so callers that branch on context-overflow can `import` from
-// this module without reaching into `../types.js` — the base class' catch
-// block converts matching provider errors to ContextOverflowError before
-// they reach the caller.
-export { ContextOverflowError, isContextOverflowError } from "../types.js";
 
 export interface FireworksProviderOptions {
   apiKey?: string;

@@ -80,7 +80,6 @@ describe("parseActualTokensFromError", () => {
       {
         actualTokens: 242201,
         maxTokens: 200000,
-        raw: {},
       },
     );
     expect(parseActualTokensFromError(err)).toBe(242201);
@@ -90,15 +89,13 @@ describe("parseActualTokensFromError", () => {
     const err = new ContextOverflowError(
       "OpenAI API error (400): too many input tokens: 150000 > 128000",
       "openai",
-      { raw: {} },
+      {},
     );
     expect(parseActualTokensFromError(err)).toBe(150000);
   });
 
   test("returns null when ContextOverflowError has neither typed field nor matching message", () => {
-    const err = new ContextOverflowError("context window exceeded", "openai", {
-      raw: {},
-    });
+    const err = new ContextOverflowError("context window exceeded", "openai");
     expect(parseActualTokensFromError(err)).toBeNull();
   });
 
@@ -108,7 +105,7 @@ describe("parseActualTokensFromError", () => {
     const err = new ContextOverflowError(
       "prompt is too long: 999999 tokens > 200000 maximum",
       "anthropic",
-      { actualTokens: 242201, raw: {} },
+      { actualTokens: 242201 },
     );
     expect(parseActualTokensFromError(err)).toBe(242201);
   });
@@ -123,7 +120,7 @@ describe("parseActualTokensFromError", () => {
     const err = new ContextOverflowError(
       "prompt is too long: 242201 tokens > 200000 maximum",
       "anthropic",
-      { actualTokens: 0, raw: {} },
+      { actualTokens: 0 },
     );
     expect(parseActualTokensFromError(err)).toBe(242201);
   });

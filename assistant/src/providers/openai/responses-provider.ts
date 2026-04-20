@@ -309,7 +309,7 @@ export class OpenAIResponsesProvider implements Provider {
             {
               actualTokens: overflow.actualTokens,
               maxTokens: overflow.maxTokens,
-              raw: error.error ?? error,
+              statusCode: error.status,
               cause: error,
             },
           );

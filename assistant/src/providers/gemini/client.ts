@@ -14,22 +14,22 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../types.js";
-import { ContextOverflowError } from "../types.js";
+import {
+  ContextOverflowError,
+  extractOverflowTokensFromMessage,
+} from "../types.js";
 
 /**
  * Detect Gemini's context-overflow signals on an `ApiError`. Gemini surfaces
- * this condition via its "RESOURCE_EXHAUSTED" category (HTTP 400 in the
- * Generative Language API, 429 in some Vertex paths) with messages like
- * "The input token count ... exceeds the maximum number of tokens allowed".
- * The Gemini SDK's `ApiError` only exposes `status` and `message`; we match
- * both the broad overflow keywords and the RESOURCE_EXHAUSTED marker.
+ * this condition via its "RESOURCE_EXHAUSTED" category. The Gemini SDK's
+ * `ApiError` only exposes `status` and `message`, so we match on both.
  */
 function detectGeminiContextOverflow(
   error: ApiError,
 ): { actualTokens?: number; maxTokens?: number } | null {
   const status = error.status;
-  // 400 = INVALID_ARGUMENT from Gemini when the prompt is too long, 413 is
-  // occasionally used, and 429 with RESOURCE_EXHAUSTED is the Vertex path.
+  // 400 = INVALID_ARGUMENT (prompt too long), 413 occasional,
+  // 429 with RESOURCE_EXHAUSTED is the Vertex path.
   if (status !== 400 && status !== 413 && status !== 429) return null;
   const message = error.message ?? "";
   const matches =
@@ -37,16 +37,7 @@ function detectGeminiContextOverflow(
       message,
     );
   if (!matches) return null;
-  // Gemini rarely includes token counts in the message; best-effort parse.
-  const tokensMatch = message.match(/(\d[\d,]*)\s*[>≥]\s*(\d[\d,]*)/);
-  const out: { actualTokens?: number; maxTokens?: number } = {};
-  if (tokensMatch) {
-    const actual = parseInt(tokensMatch[1].replace(/,/g, ""), 10);
-    const max = parseInt(tokensMatch[2].replace(/,/g, ""), 10);
-    if (!isNaN(actual) && actual > 0) out.actualTokens = actual;
-    if (!isNaN(max) && max > 0) out.maxTokens = max;
-  }
-  return out;
+  return extractOverflowTokensFromMessage(message);
 }
 
 const log = getLogger("gemini-client");
@@ -280,7 +271,7 @@ export class GeminiProvider implements Provider {
             {
               actualTokens: overflow.actualTokens,
               maxTokens: overflow.maxTokens,
-              raw: error,
+              statusCode: error.status,
               cause: error,
             },
           );

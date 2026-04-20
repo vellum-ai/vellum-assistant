@@ -1265,12 +1265,11 @@ export async function runAgentLoopImpl(
       // message (e.g. "242201 tokens > 200000"), use it to correct the
       // compaction target. The estimator may significantly underestimate
       // (e.g. estimated 185k but actual was 242k), so using the
-      // uncorrected preflightBudget would still be too high.
-      // Prefer the raw error object so ContextOverflowError.actualTokens can
-      // short-circuit the string regex; fall back to the captured message
-      // for untyped errors (e.g. proxy rewrappers).
+      // uncorrected preflightBudget would still be too high. Passes the raw
+      // error so ContextOverflowError.actualTokens can short-circuit the
+      // string-regex path for proxy-rewrapped untyped errors.
       const actualTokens = parseActualTokensFromError(
-        state.contextTooLargeError ?? state.contextTooLargeErrorMessage,
+        state.contextTooLargeError,
       );
       const estimatedTokensAtOverflow = estimatePromptTokens(
         ctx.messages,

@@ -88,11 +88,11 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
       // matches the configured provider ("openrouter"). This keeps downstream
       // error reporting and metrics attribution accurate, while preserving the
       // actualTokens/maxTokens extracted by the delegate.
-      if (isContextOverflowError(error) && error.providerName !== this.name) {
+      if (isContextOverflowError(error) && error.provider !== this.name) {
         throw new ContextOverflowError(error.message, this.name, {
           actualTokens: error.actualTokens,
           maxTokens: error.maxTokens,
-          raw: error.raw,
+          statusCode: error.statusCode,
           cause: error,
         });
       }

@@ -74,12 +74,12 @@ export interface EventHandlerState {
   orderingErrorDetected: boolean;
   deferredOrderingError: string | null;
   contextTooLargeDetected: boolean;
-  /** The raw error message from the provider when context_too_large is detected. */
-  contextTooLargeErrorMessage: string | null;
   /**
-   * The raw provider error object when context_too_large is detected. Kept so
-   * `parseActualTokensFromError` can prefer the typed `ContextOverflowError`
-   * fields over the string-regex fallback when available.
+   * The provider error object when context_too_large is detected, preserved
+   * so `parseActualTokensFromError` can prefer the typed
+   * `ContextOverflowError` fields over the string-regex fallback. The
+   * message is always reachable via `.message` on this object — no separate
+   * field is needed.
    */
   contextTooLargeError: unknown;
   providerErrorUserMessage: string | null;
@@ -151,7 +151,6 @@ export function createEventHandlerState(): EventHandlerState {
     orderingErrorDetected: false,
     deferredOrderingError: null,
     contextTooLargeDetected: false,
-    contextTooLargeErrorMessage: null,
     contextTooLargeError: null,
     providerErrorUserMessage: null,
     lastAssistantMessageId: undefined,
@@ -627,11 +626,9 @@ export function handleError(
   } else if (isContextOverflowError(event.error)) {
     // Typed path — the provider client already classified this as overflow.
     state.contextTooLargeDetected = true;
-    state.contextTooLargeErrorMessage = event.error.message;
     state.contextTooLargeError = event.error;
   } else if (isContextTooLarge(event.error.message)) {
     state.contextTooLargeDetected = true;
-    state.contextTooLargeErrorMessage = event.error.message;
     state.contextTooLargeError = event.error;
   } else {
     const classified = classifyConversationError(event.error, {
@@ -639,7 +636,6 @@ export function handleError(
     });
     if (classified.code === "CONTEXT_TOO_LARGE") {
       state.contextTooLargeDetected = true;
-      state.contextTooLargeErrorMessage = event.error.message;
       state.contextTooLargeError = event.error;
     } else if (
       classified.code === "PROVIDER_ORDERING" ||

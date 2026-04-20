@@ -14,7 +14,10 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../types.js";
-import { ContextOverflowError } from "../types.js";
+import {
+  ContextOverflowError,
+  extractOverflowTokensFromMessage,
+} from "../types.js";
 
 /**
  * Detect OpenAI-compatible context-overflow signals on an `OpenAI.APIError`.
@@ -33,11 +36,9 @@ import { ContextOverflowError } from "../types.js";
 export function detectOpenAICompatibleContextOverflow(
   error: InstanceType<typeof OpenAI.APIError>,
 ): { actualTokens?: number; maxTokens?: number } | null {
-  // OpenAI-compatible providers surface context overflow as 400 (most) or
-  // 413 (payload-too-large style, rarer). Treat either as a candidate.
+  // OpenAI-compatible providers use 400 (most) or 413 (rarer payload-too-large).
   const status = error.status;
   if (status !== 400 && status !== 413) return null;
-  // The `.code` field, when present, is the most reliable signal.
   const code = error.code;
   const codeMatches =
     typeof code === "string" &&
@@ -50,18 +51,8 @@ export function detectOpenAICompatibleContextOverflow(
       message,
     );
   if (!codeMatches && !messageMatches) return null;
-  // OpenAI-compatible providers rarely report usable token counts in the
-  // error body. Best-effort extract: "N > M" patterns that providers like
-  // some Ollama builds emit.
-  const tokensMatch = message.match(/(\d[\d,]*)\s*[>≥]\s*(\d[\d,]*)/);
-  const out: { actualTokens?: number; maxTokens?: number } = {};
-  if (tokensMatch) {
-    const actual = parseInt(tokensMatch[1].replace(/,/g, ""), 10);
-    const max = parseInt(tokensMatch[2].replace(/,/g, ""), 10);
-    if (!isNaN(actual) && actual > 0) out.actualTokens = actual;
-    if (!isNaN(max) && max > 0) out.maxTokens = max;
-  }
-  return out;
+  // OpenAI-compatible providers rarely report usable token counts; best-effort extract.
+  return extractOverflowTokensFromMessage(message);
 }
 
 export interface OpenAIChatCompletionsProviderOptions {
@@ -316,7 +307,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
             {
               actualTokens: overflow.actualTokens,
               maxTokens: overflow.maxTokens,
-              raw: error.error ?? error,
+              statusCode: error.status,
               cause: error,
             },
           );

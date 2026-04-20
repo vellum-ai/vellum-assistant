@@ -15,7 +15,10 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../types.js";
-import { ContextOverflowError } from "../types.js";
+import {
+  ContextOverflowError,
+  extractOverflowTokensFromMessage,
+} from "../types.js";
 
 const log = getLogger("anthropic-client");
 
@@ -36,10 +39,8 @@ const VALIDATION_TIMEOUT_MS = 10_000;
 export function detectAnthropicContextOverflow(
   error: InstanceType<typeof Anthropic.APIError>,
 ): { actualTokens?: number; maxTokens?: number } | null {
-  // Only 400 responses map to this category; 413 ("request too large") is
-  // theoretically adjacent but Anthropic does not emit it today.
+  // 413 is theoretically adjacent but Anthropic does not emit it today.
   if (error.status !== 400) return null;
-  // Walk the nested body shape safely.
   const body = error.error as
     | {
         type?: string;
@@ -53,22 +54,9 @@ export function detectAnthropicContextOverflow(
       : undefined) ?? "";
   const topLevelMessage = error.message ?? "";
   const combined = `${innerMessage} ${topLevelMessage}`;
-  // Anthropic: "prompt is too long: 242201 tokens > 200000 maximum"
   if (!/prompt.?is.?too.?long|prompt_too_long/i.test(combined)) return null;
-  // Anthropic reports both the actual prompt token count and the max
-  // (context window) in the message body. Prefer the clean inner message
-  // over the JSON-stringified top-level string.
-  const source = innerMessage || topLevelMessage;
-  const tokensMatch = source.match(/(\d[\d,]*)\s*tokens?\s*[>≥]\s*(\d[\d,]*)/i);
-  if (tokensMatch) {
-    const actual = parseInt(tokensMatch[1].replace(/,/g, ""), 10);
-    const max = parseInt(tokensMatch[2].replace(/,/g, ""), 10);
-    const result: { actualTokens?: number; maxTokens?: number } = {};
-    if (!isNaN(actual) && actual > 0) result.actualTokens = actual;
-    if (!isNaN(max) && max > 0) result.maxTokens = max;
-    return result;
-  }
-  return {};
+  // Prefer the clean inner message over the JSON-stringified top-level string.
+  return extractOverflowTokensFromMessage(innerMessage || topLevelMessage);
 }
 
 /** Rate-limit the orphaned-surrogate warning so a single bad stream can't flood logs. */
@@ -1241,7 +1229,7 @@ export class AnthropicProvider implements Provider {
             {
               actualTokens: overflow.actualTokens,
               maxTokens: overflow.maxTokens,
-              raw: error.error ?? error,
+              statusCode: error.status,
               cause: error,
             },
           );

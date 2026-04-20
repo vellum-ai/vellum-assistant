@@ -5,22 +5,15 @@ import { isContextOverflowError } from "../providers/types.js";
  * context-too-large failure.
  *
  * Prefers the typed `ContextOverflowError.actualTokens` field when the
- * thrown error is a `ContextOverflowError` (or otherwise passes the
- * cross-realm `isContextOverflowError` brand check).
- *
- * Falls back to the legacy regex path that parses the error string for
- * messages like:
+ * thrown error is one. Falls back to regex-parsing the message for patterns
+ * like:
  *   "prompt is too long: 242201 tokens > 200000 maximum"   (Anthropic)
  *   "too many input tokens: 242201 > 200000"                (OpenAI)
  *
- * The regex path remains as a safety net because some provider-adapter paths
- * (e.g. managed-proxy rewrappers) still surface untyped errors — in those
- * cases the agent loop only sees the message string, not the original
- * provider error object.
+ * The regex path remains a safety net for provider-adapter paths (e.g.
+ * managed-proxy rewrappers) that surface untyped errors.
  *
- * Accepts either a raw error object (preferred) or a plain string (legacy
- * callers that only have the stringified message).
- *
+ * Accepts a raw error object, an `Error` instance, or a plain string.
  * Returns the actual token count, or `null` when it cannot be determined.
  */
 export function parseActualTokensFromError(

@@ -11,42 +11,52 @@ import { detectOpenAICompatibleContextOverflow } from "../openai/chat-completion
 import { ContextOverflowError, isContextOverflowError } from "../types.js";
 
 describe("ContextOverflowError", () => {
-  test("constructs with providerName, actualTokens, maxTokens, raw", () => {
+  test("constructs with provider, actualTokens, maxTokens", () => {
     const err = new ContextOverflowError("msg", "anthropic", {
       actualTokens: 242201,
       maxTokens: 200000,
-      raw: { type: "error" },
     });
     expect(err).toBeInstanceOf(Error);
     expect(err).toBeInstanceOf(ContextOverflowError);
     expect(err.name).toBe("ContextOverflowError");
     expect(err.message).toBe("msg");
-    expect(err.providerName).toBe("anthropic");
+    expect(err.provider).toBe("anthropic");
     expect(err.actualTokens).toBe(242201);
     expect(err.maxTokens).toBe(200000);
-    expect(err.raw).toEqual({ type: "error" });
+  });
+
+  test("extends ProviderError so existing classifiers see it", async () => {
+    const { ProviderError } = await import("../../util/errors.js");
+    const err = new ContextOverflowError("m", "anthropic", {});
+    expect(err).toBeInstanceOf(ProviderError);
+  });
+
+  test("defaults statusCode to 400 and accepts override", () => {
+    const defaulted = new ContextOverflowError("m", "anthropic", {});
+    expect(defaulted.statusCode).toBe(400);
+    const overridden = new ContextOverflowError("m", "openai", {
+      statusCode: 413,
+    });
+    expect(overridden.statusCode).toBe(413);
   });
 
   test("carries cause when supplied", () => {
     const cause = new Error("underlying");
-    const err = new ContextOverflowError("outer", "openai", {
-      raw: {},
-      cause,
-    });
+    const err = new ContextOverflowError("outer", "openai", { cause });
     expect((err as Error & { cause?: unknown }).cause).toBe(cause);
   });
 
   test("omits optional fields when unset", () => {
-    const err = new ContextOverflowError("m", "gemini", { raw: {} });
+    const err = new ContextOverflowError("m", "gemini");
     expect(err.actualTokens).toBeUndefined();
     expect(err.maxTokens).toBeUndefined();
-    expect(err.providerName).toBe("gemini");
+    expect(err.provider).toBe("gemini");
   });
 });
 
 describe("isContextOverflowError", () => {
   test("returns true for a native ContextOverflowError", () => {
-    const err = new ContextOverflowError("m", "anthropic", { raw: {} });
+    const err = new ContextOverflowError("m", "anthropic");
     expect(isContextOverflowError(err)).toBe(true);
   });
 
@@ -54,13 +64,10 @@ describe("isContextOverflowError", () => {
     expect(isContextOverflowError(new Error("boom"))).toBe(false);
   });
 
-  test("returns false for ProviderError-like object without brand", () => {
-    expect(
-      isContextOverflowError({
-        name: "ProviderError",
-        message: "Anthropic API error (400): prompt is too long",
-      }),
-    ).toBe(false);
+  test("returns false for a ProviderError that is not ContextOverflowError", async () => {
+    const { ProviderError } = await import("../../util/errors.js");
+    const err = new ProviderError("generic provider failure", "anthropic", 500);
+    expect(isContextOverflowError(err)).toBe(false);
   });
 
   test("returns false for null / undefined / primitives", () => {
@@ -68,51 +75,6 @@ describe("isContextOverflowError", () => {
     expect(isContextOverflowError(undefined)).toBe(false);
     expect(isContextOverflowError("string")).toBe(false);
     expect(isContextOverflowError(42)).toBe(false);
-  });
-
-  test("returns false for object carrying the brand but wrong name", () => {
-    // Brand alone is not enough — the name must also match to guard against
-    // an unrelated object coincidentally carrying the brand literal.
-    expect(
-      isContextOverflowError({
-        __brand: "context-overflow",
-        name: "SomeOtherError",
-      }),
-    ).toBe(false);
-  });
-
-  test("cross-realm: detects a separately-defined class that carries the same brand + name", () => {
-    // Simulate two separately-loaded copies of the module in the same
-    // process. The cross-copy instance is NOT `instanceof` our
-    // ContextOverflowError, but it *does* carry the brand + name, so the
-    // guard should still accept it.
-    class ContextOverflowError_Copy extends Error {
-      readonly __brand = "context-overflow" as const;
-      readonly providerName: string;
-      readonly actualTokens?: number;
-      readonly maxTokens?: number;
-      readonly raw: unknown;
-      constructor(
-        message: string,
-        providerName: string,
-        opts: { actualTokens?: number; maxTokens?: number; raw: unknown },
-      ) {
-        super(message);
-        this.name = "ContextOverflowError";
-        this.providerName = providerName;
-        this.actualTokens = opts.actualTokens;
-        this.maxTokens = opts.maxTokens;
-        this.raw = opts.raw;
-      }
-    }
-    const err = new ContextOverflowError_Copy("m", "anthropic", {
-      actualTokens: 100,
-      raw: {},
-    });
-    // Sanity — the instanceof check alone would fail here:
-    expect(err instanceof ContextOverflowError).toBe(false);
-    // But the brand+name discriminator makes the guard accept it.
-    expect(isContextOverflowError(err)).toBe(true);
   });
 });
 
