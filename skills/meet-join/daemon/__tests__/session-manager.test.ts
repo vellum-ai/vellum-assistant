@@ -33,6 +33,7 @@ import {
 import {
   _createMeetSessionManagerForTests,
   BOT_LEAVE_HTTP_TIMEOUT_MS,
+  MeetAvatarDeviceMissingError,
   type MeetChatOpportunityDetectorFactoryArgs,
   type MeetChatOpportunityDetectorLike,
   MEET_BOT_INTERNAL_PORT,
@@ -1902,5 +1903,238 @@ describe("MeetSessionManager TTS lip-sync forwarder wiring", () => {
 
     // Container was still removed — teardown made it all the way through.
     expect(runner.remove).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Docker-mode avatar-device preflight
+// ---------------------------------------------------------------------------
+
+/**
+ * Covers the preflight introduced to cross-check the daemon's
+ * `services.meet.avatar.enabled` config against the CLI's
+ * `VELLUM_MEET_AVATAR=1` env-var opt-in. In Docker mode these two controls
+ * are orthogonal: the CLI's env-var bind-mounts `/dev/video10` into the
+ * assistant container on hatch/wake, and the daemon's config drives
+ * `DockerRunner`'s `--device` pass-through. If config is on but the env-var
+ * is off, the inner `dockerd` would reject container-create with a cryptic
+ * "device not found" error. The preflight moves the failure to meet-join
+ * time with a pointer at the env-var.
+ *
+ * The block writes `config/meet.json` overrides under its own tmp
+ * workspace via `VELLUM_WORKSPACE_DIR` so `getMeetConfig()` picks up the
+ * avatar-enabled fixture. It tears the override down in `afterEach` and
+ * restores the original env in `afterAll` so other blocks see schema
+ * defaults.
+ */
+describe("MeetSessionManager Docker-mode avatar-device preflight", () => {
+  let preloadWorkspace: string;
+  let createdLocalWorkspace: boolean;
+
+  beforeAll(() => {
+    createdLocalWorkspace = !process.env.VELLUM_WORKSPACE_DIR;
+    preloadWorkspace =
+      process.env.VELLUM_WORKSPACE_DIR ??
+      mkdtempSync(join(tmpdir(), "meet-session-manager-avatar-"));
+    if (createdLocalWorkspace) {
+      process.env.VELLUM_WORKSPACE_DIR = preloadWorkspace;
+    }
+  });
+
+  afterAll(() => {
+    if (createdLocalWorkspace) {
+      delete process.env.VELLUM_WORKSPACE_DIR;
+      rmSync(preloadWorkspace, { recursive: true, force: true });
+    }
+  });
+
+  function writeAvatarConfig(enabled: boolean, devicePath?: string): void {
+    const configDir = join(preloadWorkspace, "config");
+    mkdirSync(configDir, { recursive: true });
+    const meetConfigPath = join(configDir, "meet.json");
+    writeFileSync(
+      meetConfigPath,
+      JSON.stringify(
+        {
+          avatar: {
+            enabled,
+            ...(devicePath ? { devicePath } : {}),
+          },
+        },
+        null,
+        2,
+      ),
+    );
+  }
+
+  afterEach(() => {
+    const meetConfigPath = join(preloadWorkspace, "config", "meet.json");
+    if (existsSync(meetConfigPath)) rmSync(meetConfigPath);
+  });
+
+  test("throws MeetAvatarDeviceMissingError when avatar enabled + Docker mode + device missing", async () => {
+    writeAvatarConfig(true);
+
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+    const avatarDeviceExists = mock((_path: string) => false);
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: audioIngestFactory.factory,
+      resolveRuntimeMode: () => "docker",
+      avatarDeviceExists,
+    });
+
+    const joinPromise = manager.join({
+      url: "u",
+      meetingId: "m-avatar-missing",
+      conversationId: "c",
+    });
+
+    await expect(joinPromise).rejects.toBeInstanceOf(
+      MeetAvatarDeviceMissingError,
+    );
+    await expect(joinPromise).rejects.toThrow(/VELLUM_MEET_AVATAR=1/);
+    await expect(joinPromise).rejects.toThrow(/\/dev\/video10/);
+
+    // Preflight short-circuits before the Docker runner is ever touched.
+    expect(runner.run).not.toHaveBeenCalled();
+    expect(avatarDeviceExists).toHaveBeenCalledWith("/dev/video10");
+    expect(manager.activeSessions()).toHaveLength(0);
+  });
+
+  test("error message references a custom devicePath override", async () => {
+    writeAvatarConfig(true, "/dev/video11");
+
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: audioIngestFactory.factory,
+      resolveRuntimeMode: () => "docker",
+      avatarDeviceExists: () => false,
+    });
+
+    await expect(
+      manager.join({
+        url: "u",
+        meetingId: "m-avatar-custom-path",
+        conversationId: "c",
+      }),
+    ).rejects.toThrow(/\/dev\/video11/);
+    expect(runner.run).not.toHaveBeenCalled();
+  });
+
+  test("skips preflight entirely in bare-metal mode", async () => {
+    writeAvatarConfig(true);
+
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+    // Would throw if consulted — proves the preflight short-circuits on
+    // the runtime-mode gate before `avatarDeviceExists` is ever called.
+    const avatarDeviceExists = mock((_path: string) => {
+      throw new Error(
+        "avatarDeviceExists should not be consulted in bare-metal mode",
+      );
+    });
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: audioIngestFactory.factory,
+      resolveRuntimeMode: () => "bare-metal",
+      avatarDeviceExists,
+    });
+
+    await manager.join({
+      url: "u",
+      meetingId: "m-avatar-baremetal",
+      conversationId: "c",
+    });
+
+    expect(avatarDeviceExists).not.toHaveBeenCalled();
+    expect(runner.run).toHaveBeenCalledTimes(1);
+
+    await manager.leave("m-avatar-baremetal", "cleanup");
+  });
+
+  test("skips preflight when avatar is disabled in config", async () => {
+    writeAvatarConfig(false);
+
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+    const avatarDeviceExists = mock((_path: string) => {
+      throw new Error(
+        "avatarDeviceExists should not be consulted when avatar.enabled=false",
+      );
+    });
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: audioIngestFactory.factory,
+      resolveRuntimeMode: () => "docker",
+      avatarDeviceExists,
+    });
+
+    await manager.join({
+      url: "u",
+      meetingId: "m-avatar-disabled",
+      conversationId: "c",
+    });
+
+    expect(avatarDeviceExists).not.toHaveBeenCalled();
+    expect(runner.run).toHaveBeenCalledTimes(1);
+
+    await manager.leave("m-avatar-disabled", "cleanup");
+  });
+
+  test("passes preflight and caches the check when device is present", async () => {
+    writeAvatarConfig(true);
+
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+    const avatarDeviceExists = mock((_path: string) => true);
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: audioIngestFactory.factory,
+      resolveRuntimeMode: () => "docker",
+      avatarDeviceExists,
+    });
+
+    await manager.join({
+      url: "u",
+      meetingId: "m-avatar-ok-1",
+      conversationId: "c1",
+    });
+    await manager.leave("m-avatar-ok-1", "cleanup");
+
+    // Second join against the same device path does not re-stat the
+    // filesystem — the preflight result is cached per device path.
+    await manager.join({
+      url: "u",
+      meetingId: "m-avatar-ok-2",
+      conversationId: "c2",
+    });
+    await manager.leave("m-avatar-ok-2", "cleanup");
+
+    expect(avatarDeviceExists).toHaveBeenCalledTimes(1);
+    expect(runner.run).toHaveBeenCalledTimes(2);
   });
 });
