@@ -211,18 +211,14 @@ struct ConversationListView: View {
 
     private func applyPendingSelectionRequestIfNeeded() {
         guard let request = store.selectionRequest else { return }
-        // `ConversationListView` only runs its own selection handling outside
-        // drawer mode, which on modern iOS means the iPad (`.regular`)
-        // NavigationSplitView path. That path only ever writes to
-        // `selectedConversationId`; the `navigationPath` parameter is kept
-        // on the free function so the compact branch stays unit-testable.
-        var unusedNavigationPath: [UUID] = []
-        applyConversationSelectionRequest(
-            request,
-            horizontalSizeClass: horizontalSizeClass,
-            navigationPath: &unusedNavigationPath,
-            selectedConversationId: &selectedConversationId
-        )
+        // The compact (drawer) branch runs in `IOSRootNavigationView`; this path
+        // only executes on the iPad `NavigationSplitView`, which selects via
+        // `selectedConversationId`. Write directly rather than routing through
+        // `applyConversationSelectionRequest(...)` — the free function's
+        // size-class branch would otherwise discard the request into a dead
+        // `navigationPath` the one frame SwiftUI reports `horizontalSizeClass`
+        // as `nil` during initial environment resolution.
+        selectedConversationId = request.conversationLocalId
         store.consumeSelectionRequest(id: request.id)
     }
 
