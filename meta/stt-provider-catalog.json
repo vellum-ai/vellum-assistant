@@ -42,6 +42,20 @@
         "url": "https://platform.openai.com/api-keys",
         "linkLabel": "Open OpenAI Platform"
       }
+    },
+    {
+      "id": "xai",
+      "displayName": "xAI",
+      "subtitle": "Real-time speech-to-text powered by xAI. Requires an xAI API key.",
+      "setupMode": "api-key",
+      "setupHint": "Enter your xAI API key to enable xAI transcription.",
+      "apiKeyProviderName": "xai",
+      "conversationStreamingMode": "realtime-ws",
+      "credentialsGuide": {
+        "description": "Sign in to the xAI console, navigate to API Keys, and create a new key.",
+        "url": "https://console.x.ai/",
+        "linkLabel": "Open xAI Console"
+      }
     }
   ]
 }
