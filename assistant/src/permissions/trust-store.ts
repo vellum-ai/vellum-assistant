@@ -1076,7 +1076,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
     const rule = trustClient.addRuleSync({
       tool: canonical.tool,
       pattern: canonical.pattern,
-      scope: canonical.scope,
+      scope: canonical.scope || "everywhere",
       decision: canonical.decision,
       priority: canonical.priority,
       allowHighRisk: canonicalOpts.allowHighRisk,
