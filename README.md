@@ -16,7 +16,7 @@ It learns how you work, remembers what matters, and acts before you ask. Yours t
 
 ## Get started
 
-**1. Download the [latest release](https://github.com/vellum-ai/vellum-assistant/releases)**
+**1. [Download the latest release](https://vellum.ai/download)**
 
 **2. Open the app and pick your mode**
   - **Local** — everything runs on your machine
