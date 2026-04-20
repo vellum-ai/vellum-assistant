@@ -795,6 +795,12 @@ describe("web_search_tool_result structural guard", () => {
     // image/file blocks. web_search_tool_result has opaque content with no
     // contentBlocks property, so it cannot contain nested media.
     "daemon/context-overflow-reducer.ts",
+
+    // Final orphan-pair safety pass in the Slack transcript renderer.
+    // Server-side block types (`server_tool_use`, `web_search_tool_result`)
+    // are stripped earlier by `buildMessageContentBlocks` and cannot reach
+    // this filter, so only `tool_use` ↔ `tool_result` pairing is relevant.
+    "messaging/providers/slack/render-transcript.ts",
   ]);
 
   /**
