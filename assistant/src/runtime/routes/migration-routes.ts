@@ -852,9 +852,9 @@ function appendNewerMigrationWarningsIfAny(report: ImportCommitReport): void {
 }
 
 /**
- * Build a success Response from an ImportCommitReport. Matches the byte-path
- * shape exactly: the report fields are spread at the top level, with an
- * optional `credentialsImported` summary alongside.
+ * Build a success Response from an ImportCommitReport. The report fields
+ * are spread at the top level, with an optional `credentialsImported`
+ * summary alongside.
  */
 function importCommitSuccessResponse(
   report: ImportCommitReport,
@@ -867,9 +867,9 @@ function importCommitSuccessResponse(
 }
 
 /**
- * Map an `ImportCommitResult` failure to the exact Response shape the
- * byte-path returned before the PR-5 refactor. Status codes and body shapes
- * must stay stable — existing callers rely on them.
+ * Map an `ImportCommitResult` failure to the Response shape callers of
+ * `POST /v1/migrations/import` depend on. Status codes and body shapes
+ * are part of the public contract and must remain stable.
  */
 function importCommitFailureResponse(
   result: Extract<ImportCommitResult, { ok: false }>,

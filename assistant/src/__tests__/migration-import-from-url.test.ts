@@ -12,12 +12,13 @@
  *   redacted `Invalid URL: host` message; the raw URL is not echoed back
  *   in the response body.
  * - Memory ceiling: a 100 MB fixture streams through with peak RSS delta
- *   under ~128 MB (looser than PR 4's 64 MB bound to allow for HTTP +
- *   gunzip + tar-stream overhead on top of the streamCommitImport path).
+ *   bounded at ~128 MB. The ceiling is wider than the direct
+ *   `streamCommitImport` ceiling because the URL handler stacks a Node
+ *   HTTP response body + gunzip state + tar-stream state on top of the
+ *   importer's per-entry working set.
  *
- * The raw-bytes regression path is exercised by the separate test file
- * `migration-import-commit-http.test.ts`, which this PR must leave
- * untouched.
+ * The raw-bytes ingress path is exercised by a separate test file,
+ * `migration-import-commit-http.test.ts`.
  */
 
 import {
@@ -460,9 +461,12 @@ describe("handleMigrationImport — URL body memory ceiling", () => {
       expect(res.status).toBe(200);
       expect(body.success).toBe(true);
 
-      // 128 MB is the looser bound documented in the PR 5 plan — adds
-      // headroom for HTTP response buffers + gunzip + tar-stream state
-      // on top of the per-entry working set the streaming importer uses.
+      // 128 MB ceiling: the URL handler pipes the HTTP response body
+      // through gunzip + tar-stream on top of the streaming importer's
+      // per-entry working set. The extra framing state is bigger than
+      // raw-stream importing (which fits in ~64 MB), so 128 MB keeps
+      // enough headroom to detect full-bundle buffering without
+      // flapping on normal streaming-mode overhead.
       const delta = peakRss - baselineRss;
       expect(delta).toBeLessThan(128 * 1024 * 1024);
     } finally {

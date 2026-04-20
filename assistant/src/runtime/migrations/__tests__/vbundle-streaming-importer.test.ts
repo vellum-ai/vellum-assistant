@@ -1025,3 +1025,138 @@ describe("streamCommitImport — legacy USER.md skip on customized persona", () 
     ).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Carry-over parity: live workspace paths that the buffer-based importer
+// preserves (data/db, data/qdrant, embedding-models, deprecated) must also
+// survive the streaming importer's temp-dir atomic swap when the bundle
+// does not carry them. Without this behavior, a partial bundle (e.g. one
+// that only ships prompts + config) would wipe the user's SQLite DB and
+// Qdrant vector store when imported through the streaming path.
+// ---------------------------------------------------------------------------
+
+describe("streamCommitImport — preserves live workspace paths when bundle omits them", () => {
+  let workspaceDir: string;
+  beforeEach(() => {
+    workspaceDir = freshWorkspace();
+  });
+  afterEach(() => {
+    const parent = join(workspaceDir, "..");
+    try {
+      rmSync(parent, { recursive: true, force: true });
+    } catch {
+      // best-effort
+    }
+  });
+
+  test("keeps the live data/db/assistant.db when the bundle omits data/db/*", async () => {
+    // Seed the live workspace with a fake SQLite DB whose contents we
+    // can identify post-import.
+    mkdirSync(join(workspaceDir, "data", "db"), { recursive: true });
+    const dbContent = Buffer.from("SQLite-format-3\0live-db-payload");
+    writeFileSync(join(workspaceDir, "data", "db", "assistant.db"), dbContent);
+
+    // A bundle that writes a config file but carries nothing under
+    // workspace/data/db/.
+    const { archive } = buildVBundle({
+      files: [
+        {
+          path: "workspace/skills/example.md",
+          data: new TextEncoder().encode("# skill\n"),
+        },
+      ],
+    });
+
+    const result = await streamCommitImport({
+      source: readableFrom(archive),
+      pathResolver: new DefaultPathResolver(workspaceDir),
+      workspaceDir,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+
+    // Live DB survived the atomic swap with its exact original bytes.
+    const postDbPath = join(workspaceDir, "data", "db", "assistant.db");
+    expect(existsSync(postDbPath)).toBe(true);
+    expect(readFileSync(postDbPath)).toEqual(dbContent);
+
+    // The bundle-provided file also landed.
+    expect(
+      readFileSync(join(workspaceDir, "skills", "example.md"), "utf8"),
+    ).toBe("# skill\n");
+  });
+
+  test("keeps the live data/qdrant/ directory when the bundle omits qdrant entries", async () => {
+    // Populate a fake qdrant store with a nested file.
+    mkdirSync(join(workspaceDir, "data", "qdrant", "segments"), {
+      recursive: true,
+    });
+    const segmentBytes = Buffer.from("qdrant-segment-bytes");
+    writeFileSync(
+      join(workspaceDir, "data", "qdrant", "segments", "0.seg"),
+      segmentBytes,
+    );
+
+    const { archive } = buildVBundle({
+      files: [
+        {
+          path: "workspace/config.json",
+          data: new TextEncoder().encode("{}"),
+        },
+      ],
+    });
+
+    const result = await streamCommitImport({
+      source: readableFrom(archive),
+      pathResolver: new DefaultPathResolver(workspaceDir),
+      workspaceDir,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+
+    const postSegPath = join(
+      workspaceDir,
+      "data",
+      "qdrant",
+      "segments",
+      "0.seg",
+    );
+    expect(existsSync(postSegPath)).toBe(true);
+    expect(readFileSync(postSegPath)).toEqual(segmentBytes);
+  });
+
+  test("lets the bundle overwrite data/db when it does carry an assistant.db entry", async () => {
+    // Seed the live workspace with OLD content so we can tell whether the
+    // carry-over logic accidentally kept it instead of honoring the
+    // bundle's new DB file.
+    mkdirSync(join(workspaceDir, "data", "db"), { recursive: true });
+    writeFileSync(
+      join(workspaceDir, "data", "db", "assistant.db"),
+      "OLD-LIVE-DB",
+    );
+
+    const newDbBytes = new TextEncoder().encode("NEW-BUNDLE-DB");
+    const { archive } = buildVBundle({
+      files: [
+        {
+          path: "workspace/data/db/assistant.db",
+          data: newDbBytes,
+        },
+      ],
+    });
+
+    const result = await streamCommitImport({
+      source: readableFrom(archive),
+      pathResolver: new DefaultPathResolver(workspaceDir),
+      workspaceDir,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+
+    const postDbPath = join(workspaceDir, "data", "db", "assistant.db");
+    expect(readFileSync(postDbPath)).toEqual(Buffer.from(newDbBytes));
+  });
+});
