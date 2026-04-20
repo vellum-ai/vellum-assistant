@@ -134,6 +134,7 @@ export async function runJoinFlow(opts: RunJoinFlowOptions): Promise<void> {
       selectors.PREJOIN_MEDIA_PROMPT_ACCEPT_BUTTON,
       MEDIA_PROMPT_TIMEOUT_MS,
       doc,
+      { interactable: true },
     );
     (modal as HTMLElement).click();
   } catch {
@@ -153,6 +154,11 @@ export async function runJoinFlow(opts: RunJoinFlowOptions): Promise<void> {
       ],
       PREJOIN_TIMEOUT_MS,
       doc,
+      // Meet leaves hidden template/transition copies of these nodes in the
+      // tree during the prejoin mount; we must wait for a genuinely
+      // interactable match so the admission click path doesn't branch on a
+      // ghost node and then time out waiting for the in-meeting UI.
+      { interactable: true },
     );
   } catch {
     fail(
