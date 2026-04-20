@@ -60,18 +60,18 @@ Note: `user_token` is optional. Missing `user_token` is **not** blocking — set
 
 Ask the user what they'd like to name their Slack bot and optionally provide a short description. Use their answers (or sensible defaults) to generate the manifest creation URL.
 
-**MANDATORY — you MUST use the `bash` command below to build the manifest URL.** Do NOT write your own manifest. Do NOT show YAML or JSON to the user. Do NOT tell the user to paste a manifest. The bash command below contains the complete, correct manifest with all required scopes, event subscriptions, and socket mode settings. Running it produces a single pre-filled URL that the user clicks to create the app with everything already configured.
+**MANDATORY — you MUST run the script below to build the manifest URL.** Do NOT write your own manifest. Do NOT show YAML or JSON to the user. Do NOT tell the user to paste a manifest. The script contains the complete, correct manifest with all required scopes, event subscriptions, and socket mode settings. Running it produces a single pre-filled URL that the user clicks to create the app with everything already configured.
 
-Run this `bash` command, setting `BOT_NAME` and `BOT_DESC` to the user's chosen values:
+Run this `bash` command, replacing `<user_name>` and `<user_description>` with the user's chosen values:
 
 ```
 bash {
-  command: "BOT_NAME='<user_name>' BOT_DESC='<user_description>' bun -e \"const name = process.env.BOT_NAME; const desc = process.env.BOT_DESC; const manifest = { display_information: { name, description: desc, background_color: '#1a1a2e' }, features: { app_home: { home_tab_enabled: false, messages_tab_enabled: true, messages_tab_read_only_enabled: false }, bot_user: { display_name: name, always_online: true } }, oauth_config: { scopes: { bot: ['app_mentions:read','assistant:write','channels:history','channels:join','channels:read','chat:write','files:read','files:write','groups:history','groups:read','im:history','im:read','im:write','mpim:history','mpim:read','reactions:read','reactions:write','users:read'], user: ['channels:history','channels:read','groups:history','groups:read','im:history','im:read','mpim:history','mpim:read','users:read','search:read','reactions:read'] } }, settings: { event_subscriptions: { bot_events: ['app_mention','message.channels','message.groups','message.im','message.mpim','reaction_added'] }, interactivity: { is_enabled: true }, org_deploy_enabled: false, socket_mode_enabled: true, token_rotation_enabled: false } }; const url = 'https://api.slack.com/apps?new_app=1&manifest_json=' + encodeURIComponent(JSON.stringify(manifest)); console.log(url);\""
+  command: "bun skills/slack-app-setup/generate-manifest-url.ts '<user_name>' '<user_description>'"
   activity: "to generate the Slack app manifest link"
 }
 ```
 
-Replace `<user_name>` and `<user_description>` with the user's chosen values inside the single quotes. If a value contains a single quote, escape it as `'\''` (closes the quote, adds an escaped literal quote, reopens the quote).
+If a value contains a single quote, escape it as `'\''` (closes the quote, adds an escaped literal quote, reopens the quote).
 
 The command outputs a ready-to-click URL. **Present it as a markdown link** so the full URL renders as a single clickable element — e.g. `[Click here to create your Slack app](URL)`. Do NOT paste the raw URL as plain text — it is too long and will break across lines, preventing the user from clicking it. Tell them: "It's pre-configured with all the right permissions, events, and Socket Mode. Just select your workspace (Vellum) and click **Create**."
 
@@ -233,8 +233,8 @@ If the OAuth flow fails or times out, re-run Step 3d. Ensure:
 
 ## Implementation Rules
 
-- **Do NOT improvise or write your own manifest.** The bash command in Step 1 contains the only correct manifest. If you show raw YAML/JSON or write a manifest from memory, it WILL be missing scopes, event subscriptions, or socket mode settings and setup will fail.
-- **Do NOT skip the bash command in Step 1.** You must run it to generate the pre-filled URL. The user should never have to paste a manifest — they click a link.
+- **Do NOT improvise or write your own manifest.** The `generate-manifest-url.ts` script in Step 1 contains the only correct manifest. If you show raw YAML/JSON or write a manifest from memory, it WILL be missing scopes, event subscriptions, or socket mode settings and setup will fail.
+- **Do NOT skip the script in Step 1.** You must run it to generate the pre-filled URL. The user should never have to paste a manifest — they click a link.
 - App Token, Client ID, and Client Secret collection goes through `credential_store` prompts. Do NOT use `ui_show`, `ui_update`, `assistant credentials reveal`, or other mechanisms. Do NOT ask the user to paste them in chat — always use the secure credential prompt.
 - Bot Token and User Token are captured automatically by the OAuth install flow. Do NOT ask the user to copy-paste these tokens.
 - **Do NOT combine multiple steps into a single message.** Each step must be its own turn in the conversation. Wait for the user to confirm completion before moving on.

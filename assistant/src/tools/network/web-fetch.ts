@@ -491,8 +491,21 @@ function formatWebFetchOutput(params: {
 
   lines.push("");
   lines.push("Content:");
+
+  const contentParts: string[] = [];
+  if (params.title) {
+    contentParts.push(`Title: ${params.title}`);
+  }
+  if (params.description) {
+    contentParts.push(`Description: ${params.description}`);
+  }
+  if (contentParts.length > 0) {
+    contentParts.push("");
+  }
+  contentParts.push(params.content || "<no_content />");
+
   lines.push(
-    wrapUntrustedContent(params.content || "<no_content />", {
+    wrapUntrustedContent(contentParts.join("\n"), {
       source: "web",
       sourceDetail: params.finalUrl,
     }),
