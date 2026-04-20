@@ -256,6 +256,7 @@ final class AvatarAppearanceManager {
             try? await Task.sleep(nanoseconds: Self.transientRetryDelayNs)
             guard !Task.isCancelled, let self else { return }
             await self.fetchAvatarViaHTTP()
+            guard !Task.isCancelled else { return }
             self.avatarRetryInFlight = false
             self.avatarRetryTask = nil
         }
@@ -268,6 +269,7 @@ final class AvatarAppearanceManager {
             try? await Task.sleep(nanoseconds: Self.transientRetryDelayNs)
             guard !Task.isCancelled, let self else { return }
             await self.fetchTraitsViaHTTP()
+            guard !Task.isCancelled else { return }
             self.traitsRetryInFlight = false
             self.traitsRetryTask = nil
         }
