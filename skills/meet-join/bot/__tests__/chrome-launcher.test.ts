@@ -197,4 +197,23 @@ describe("launchChrome", () => {
     // no-ops that await the already-settled exit promise.
     expect(child.__killSignals).toEqual(["SIGTERM"]);
   });
+
+  test("child 'error' event does not crash and resolves exitPromise", async () => {
+    // Without an 'error' listener, Node would escalate the event to an
+    // uncaught exception and kill the bot process. The launcher must attach
+    // the listener itself so ENOENT-style spawn failures are observable via
+    // `exitPromise` rather than fatal.
+    const child = makeFakeChild();
+    const fake = makeFakeSpawn(child);
+
+    const handle = await launchChrome({ ...BASE_OPTS, spawn: fake.spawn });
+
+    // Emit the async 'error' event the real child_process would produce on
+    // e.g. ENOENT. If no listener were attached, this would throw here.
+    child.emit("error", new Error("spawn ENOENT"));
+
+    // exitPromise must still settle so callers awaiting it don't hang.
+    const code = await handle.exitPromise;
+    expect(code).toBe(0);
+  });
 });
