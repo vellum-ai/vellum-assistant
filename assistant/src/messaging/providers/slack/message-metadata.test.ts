@@ -35,6 +35,55 @@ describe("readSlackMetadata", () => {
     expect(readSlackMetadata(raw)).toBeNull();
   });
 
+  test("rejects payloads with malformed optional fields", () => {
+    const badThreadTs = JSON.stringify({
+      source: "slack",
+      channelId: "C123",
+      channelTs: "1700000000.000100",
+      eventKind: "message",
+      threadTs: 42, // should be string
+    });
+    const badReactionOp = JSON.stringify({
+      source: "slack",
+      channelId: "C123",
+      channelTs: "1700000000.000100",
+      eventKind: "reaction",
+      reaction: {
+        emoji: "thumbsup",
+        targetChannelTs: "1700000000.000100",
+        op: "bogus",
+      },
+    });
+    const badEditedAt = JSON.stringify({
+      source: "slack",
+      channelId: "C123",
+      channelTs: "1700000000.000100",
+      eventKind: "message",
+      editedAt: "not-a-number",
+    });
+    expect(readSlackMetadata(badThreadTs)).toBeNull();
+    expect(readSlackMetadata(badReactionOp)).toBeNull();
+    expect(readSlackMetadata(badEditedAt)).toBeNull();
+  });
+
+  test("strips unknown top-level keys from the returned object", () => {
+    const raw = JSON.stringify({
+      source: "slack",
+      channelId: "C123",
+      channelTs: "1700000000.000100",
+      eventKind: "message",
+      userMessageChannel: "channel:abc",
+      provenanceTrustClass: "trusted_contact",
+    });
+    const parsed = readSlackMetadata(raw);
+    expect(parsed).toEqual({
+      source: "slack",
+      channelId: "C123",
+      channelTs: "1700000000.000100",
+      eventKind: "message",
+    });
+  });
+
   test("rejects payloads missing required fields", () => {
     const noChannelId = JSON.stringify({
       source: "slack",
@@ -202,6 +251,46 @@ describe("mergeSlackMetadata", () => {
     const parsed = readSlackMetadata(merged);
     expect(parsed?.source).toBe("slack");
     expect(parsed?.displayName).toBe("Mallory");
+  });
+
+  test("preserves unrelated non-slack top-level keys from the existing blob", () => {
+    const existing = JSON.stringify({
+      userMessageChannel: "channel:abc",
+      provenanceTrustClass: "trusted_contact",
+      forkSourceMessageId: "msg-parent-1",
+    });
+    const merged = mergeSlackMetadata(existing, {
+      source: "slack",
+      channelId: "C123",
+      channelTs: "1700000000.000100",
+      eventKind: "message",
+    });
+    const rawParsed = JSON.parse(merged) as Record<string, unknown>;
+    expect(rawParsed.userMessageChannel).toBe("channel:abc");
+    expect(rawParsed.provenanceTrustClass).toBe("trusted_contact");
+    expect(rawParsed.forkSourceMessageId).toBe("msg-parent-1");
+    expect(rawParsed.source).toBe("slack");
+    expect(rawParsed.channelId).toBe("C123");
+    expect(readSlackMetadata(merged)).toEqual({
+      source: "slack",
+      channelId: "C123",
+      channelTs: "1700000000.000100",
+      eventKind: "message",
+    });
+  });
+
+  test("preserves non-slack keys when patching an already-slack-tagged blob", () => {
+    const existing = JSON.stringify({
+      ...baseMeta,
+      userMessageChannel: "channel:abc",
+    });
+    const merged = mergeSlackMetadata(existing, { editedAt: 1700000999 });
+    const rawParsed = JSON.parse(merged) as Record<string, unknown>;
+    expect(rawParsed.userMessageChannel).toBe("channel:abc");
+    expect(readSlackMetadata(merged)).toEqual({
+      ...baseMeta,
+      editedAt: 1700000999,
+    });
   });
 
   test("preserves nested reaction metadata across a patch", () => {
