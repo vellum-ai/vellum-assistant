@@ -10,6 +10,7 @@
  * 4xx regressions, but fields invalid for a tool's family (e.g.
  * `executionTarget` on a URL-tool rule) are silently stripped.
  */
+import { SCOPED_TOOLS } from "@vellumai/ces-contracts";
 import { z } from "zod";
 
 import {
@@ -21,6 +22,9 @@ import {
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
+
+/** O(1) lookup set for scoped tool names. */
+const SCOPED_TOOLS_SET: ReadonlySet<string> = new Set(SCOPED_TOOLS);
 
 const log = getLogger("trust-rules-routes");
 
@@ -69,8 +73,10 @@ export async function handleAddTrustRuleManage(
   if (!pattern || typeof pattern !== "string") {
     return httpError("BAD_REQUEST", "pattern is required", 400);
   }
-  if (!scope || typeof scope !== "string") {
-    return httpError("BAD_REQUEST", "scope is required", 400);
+  // Scope is only required for scoped tools. Non-scoped tools ignore scope.
+  const isScoped = SCOPED_TOOLS_SET.has(toolName);
+  if (isScoped && (!scope || typeof scope !== "string")) {
+    return httpError("BAD_REQUEST", "scope is required for scoped tools", 400);
   }
   const validDecisions = ["allow", "deny", "ask"] as const;
   if (
@@ -91,7 +97,7 @@ export async function handleAddTrustRuleManage(
     addRule(
       toolName,
       pattern,
-      scope,
+      isScoped ? scope! : "everywhere",
       decision as "allow" | "deny" | "ask",
       undefined,
       {
@@ -211,7 +217,10 @@ export function trustRulesRouteDefinitions(): RouteDefinition[] {
       requestBody: z.object({
         toolName: z.string().describe("Tool name"),
         pattern: z.string().describe("Allowlist pattern"),
-        scope: z.string().describe("Scope"),
+        scope: z
+          .string()
+          .describe("Scope (required for scoped tools, ignored for others)")
+          .optional(),
         decision: z.string().describe("allow, deny, or ask"),
         allowHighRisk: z
           .boolean()

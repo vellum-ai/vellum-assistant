@@ -1,4 +1,9 @@
+import { SCOPED_TOOLS } from "@vellumai/ces-contracts";
+
 import type { TrustRule } from "../permissions/types.js";
+
+/** O(1) lookup set for scoped tool names. */
+const SCOPED_TOOLS_SET: ReadonlySet<string> = new Set(SCOPED_TOOLS);
 
 // In-memory map: task_run_id -> ephemeral rules
 const activeTaskRules = new Map<string, TrustRule[]>();
@@ -42,7 +47,8 @@ export function buildTaskRules(
     id: `ephemeral:${taskRunId}:${tool}`,
     tool,
     pattern: "**",
-    scope: "everywhere",
+    // Only include scope for scoped tools — non-scoped tools don't carry scope.
+    ...(SCOPED_TOOLS_SET.has(tool) ? { scope: "everywhere" } : {}),
     decision: "allow" as const,
     priority: 75,
     createdAt: Date.now(),

@@ -7,6 +7,8 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+import { ruleScope } from "@vellumai/ces-contracts";
+
 import { getDb, initializeDb } from "../memory/db.js";
 import { getTaskRunRules } from "../tasks/ephemeral-permissions.js";
 import { renderTemplate, runTask } from "../tasks/task-runner.js";
@@ -131,7 +133,7 @@ describe("runTask", () => {
     expect(rulesWhileRunning).toHaveLength(2);
     expect(rulesWhileRunning[0].tool).toBe("read_file");
     expect(rulesWhileRunning[1].tool).toBe("write_file");
-    expect(rulesWhileRunning[0].scope).toBe("everywhere");
+    expect(ruleScope(rulesWhileRunning[0])).toBe("everywhere");
     expect(rulesWhileRunning[0].decision).toBe("allow");
     expect(rulesWhileRunning[0].priority).toBe(75);
 

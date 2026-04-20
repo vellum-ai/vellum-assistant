@@ -1091,7 +1091,8 @@ describe("Trust Store", () => {
       expect(skillLoadRule!.tool).toBe("skill_load");
       expect(skillLoadRule!.pattern).toBe("skill_load:*");
       expect(skillLoadRule!.decision).toBe("allow");
-      expect(skillLoadRule!.scope).toBe("everywhere");
+      // skill_load is a non-scoped tool — template omits scope
+      expect(skillLoadRule!.scope).toBeUndefined();
     });
 
     test("findHighestPriorityRule matches default allow for skill_load", () => {
@@ -1946,7 +1947,7 @@ describe("optional-scope matching fallback", () => {
     const rules = getAllRules();
     const found = rules.find((r) => r.id === "empty-scope-rule");
     expect(found).toBeDefined();
-    // The effectiveScope helper treats "" as "everywhere"
+    // The ruleScope helper treats "" as "everywhere"
     const match = findHighestPriorityRule(
       "bash",
       ["ls -la"],
