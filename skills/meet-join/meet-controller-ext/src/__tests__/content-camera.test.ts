@@ -89,6 +89,24 @@ function installHarness(): InstalledHarness {
     runtime: {
       sendMessage: (msg) => {
         sent.push(msg);
+        // Simulate xdotool landing a real click when the extension emits a
+        // `trusted_click`: camera.ts emits trusted_click and NO LONGER calls
+        // `toggle.click()` itself (that would invert the toggle twice if the
+        // isTrusted gate is ever relaxed). Flip the aria-label here so the
+        // poll in `enableCamera`/`disableCamera` observes the transition.
+        if (
+          flipOnClick &&
+          typeof msg === "object" &&
+          msg !== null &&
+          (msg as { type?: unknown }).type === "trusted_click"
+        ) {
+          const label = camera.getAttribute("aria-label");
+          if (label === "Turn off camera") {
+            camera.setAttribute("aria-label", "Turn on camera");
+          } else if (label === "Turn on camera") {
+            camera.setAttribute("aria-label", "Turn off camera");
+          }
+        }
       },
       onMessage: {
         addListener: () => {},
@@ -146,10 +164,10 @@ describe("handleCameraToggle", () => {
 
   beforeEach(async () => {
     harness = installHarness();
-    const mod = (await import("../content.js")) as {
-      __handleCameraToggle: typeof handleCameraToggle;
+    const mod = (await import("../handle-send-chat.js")) as {
+      handleCameraToggle: typeof handleCameraToggle;
     };
-    handleCameraToggle = mod.__handleCameraToggle;
+    handleCameraToggle = mod.handleCameraToggle;
   });
 
   afterEach(() => {
