@@ -759,6 +759,10 @@ function shellAllowlistStrategy(
   input: Record<string, unknown>,
 ): Promise<AllowlistOption[]> {
   const command = ((input.command as string) ?? "").trim();
+  // TODO(phase-3): Wire RiskAssessment.scopeOptions into permission prompts
+  // and retire buildShellAllowlistOptions + buildShellCommandCandidates from
+  // shell-identity.ts. The classifier's generateScopeOptions produces the
+  // canonical scope ladder; this legacy path should not diverge further.
   return buildShellAllowlistOptions(command);
 }
 
