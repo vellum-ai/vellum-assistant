@@ -83,7 +83,6 @@ export interface TrustRuleBase {
   id: string;
   tool: string;
   pattern: string;
-  scope: string;
   decision: TrustDecision;
   priority: number;
   createdAt: number;
@@ -104,6 +103,7 @@ export interface TrustRuleBase {
  */
 export interface ScopedTrustRule extends TrustRuleBase {
   tool: (typeof SCOPED_TOOLS)[number];
+  scope: string;
   executionTarget?: string;
 }
 
@@ -135,6 +135,8 @@ export interface SkillLoadTrustRule extends TrustRuleBase {
  *
  * Generic rules preserve `executionTarget` for backward compatibility —
  * existing rules for unknown/new tools may carry this field.
+ * Scope is intentionally absent: new tools that need scope must be explicitly
+ * added to `SCOPED_TOOLS` and use `ScopedTrustRule`.
  */
 export interface GenericTrustRule extends TrustRuleBase {
   tool: string;
@@ -186,6 +188,21 @@ export function isSkillLoadRule(rule: TrustRule): rule is SkillLoadTrustRule {
 }
 
 // ---------------------------------------------------------------------------
+// Scope helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Return the effective scope for any trust rule. Only scoped rules carry a
+ * `scope` field; all other rule families return `"everywhere"`.
+ */
+export function ruleScope(rule: TrustRule): string {
+  if (isScopedRule(rule)) {
+    return rule.scope;
+  }
+  return "everywhere";
+}
+
+// ---------------------------------------------------------------------------
 // Canonical parse / normalize
 // ---------------------------------------------------------------------------
 
@@ -204,15 +221,17 @@ export interface ParsedTrustRule {
  * Parse and normalize a raw trust rule object into a canonical `TrustRule`.
  *
  * Normalization strips fields that are invalid for the rule's tool family:
- * - URL rules: `executionTarget` is stripped (URL tools don't support it).
- * - Managed skill rules: `executionTarget` is stripped.
- * - Skill load rules: `executionTarget` is stripped.
+ * - URL rules: `executionTarget` and `scope` are stripped.
+ * - Managed skill rules: `executionTarget` and `scope` are stripped.
+ * - Skill load rules: `executionTarget` and `scope` are stripped.
+ * - Scoped rules: `scope` is preserved (defaulting to `"everywhere"`),
+ *   `executionTarget` is preserved when valid.
+ * - Generic (unknown) rules: `scope` is stripped (new tools that need scope
+ *   must be added to `SCOPED_TOOLS`); `executionTarget` is preserved for
+ *   forward compatibility.
  * - All families: `allowHighRisk` is stripped (replaced by runtime
  *   determination in checker.ts). Old trust.json files with `allowHighRisk`
  *   are normalized on load.
- *
- * Unknown tools (generic family) preserve `executionTarget` for forward
- * compatibility — we don't know what semantics future tools may require.
  */
 export function parseTrustRule(raw: Record<string, unknown>): ParsedTrustRule {
   let normalized = false;
@@ -224,10 +243,6 @@ export function parseTrustRule(raw: Record<string, unknown>): ParsedTrustRule {
     typeof raw.tool === "string" ? raw.tool : ((normalized = true), "");
   const pattern =
     typeof raw.pattern === "string" ? raw.pattern : ((normalized = true), "");
-  const scope =
-    typeof raw.scope === "string"
-      ? raw.scope
-      : ((normalized = true), "everywhere");
   const decision = isValidDecision(raw.decision)
     ? raw.decision
     : ((normalized = true), "ask" as const);
@@ -240,12 +255,12 @@ export function parseTrustRule(raw: Record<string, unknown>): ParsedTrustRule {
   const userModifiedAt =
     typeof raw.userModifiedAt === "number" ? raw.userModifiedAt : undefined;
 
-  // Build the base rule
+  // Build the base rule — scope is NOT included here; it is added only by
+  // the scoped and generic branches below.
   const base: TrustRuleBase = {
     id,
     tool,
     pattern,
-    scope,
     decision,
     priority,
     createdAt,
@@ -254,8 +269,11 @@ export function parseTrustRule(raw: Record<string, unknown>): ParsedTrustRule {
 
   // Determine the family and strip invalid fields
   if (URL_TOOLS_SET.has(tool)) {
-    // URL rules must not carry executionTarget.
+    // URL rules must not carry executionTarget or scope.
     if (raw.executionTarget !== undefined) {
+      normalized = true;
+    }
+    if (typeof raw.scope === "string" && raw.scope !== "everywhere") {
       normalized = true;
     }
     // allowHighRisk is stripped (replaced by runtime determination).
@@ -267,8 +285,11 @@ export function parseTrustRule(raw: Record<string, unknown>): ParsedTrustRule {
   }
 
   if (MANAGED_SKILL_TOOLS_SET.has(tool)) {
-    // Managed skill rules must not carry executionTarget.
+    // Managed skill rules must not carry executionTarget or scope.
     if (raw.executionTarget !== undefined) {
+      normalized = true;
+    }
+    if (typeof raw.scope === "string" && raw.scope !== "everywhere") {
       normalized = true;
     }
     // allowHighRisk is stripped (replaced by runtime determination).
@@ -283,8 +304,11 @@ export function parseTrustRule(raw: Record<string, unknown>): ParsedTrustRule {
   }
 
   if (tool === SKILL_LOAD_TOOL) {
-    // Skill-load rules must not carry executionTarget.
+    // Skill-load rules must not carry executionTarget or scope.
     if (raw.executionTarget !== undefined) {
+      normalized = true;
+    }
+    if (typeof raw.scope === "string" && raw.scope !== "everywhere") {
       normalized = true;
     }
     // allowHighRisk is stripped (replaced by runtime determination).
@@ -296,10 +320,16 @@ export function parseTrustRule(raw: Record<string, unknown>): ParsedTrustRule {
   }
 
   if (SCOPED_TOOLS_SET.has(tool)) {
-    // Scoped rules preserve executionTarget.
+    // Scoped rules include scope (defaulting to "everywhere") and preserve
+    // executionTarget.
+    const scope =
+      typeof raw.scope === "string"
+        ? raw.scope
+        : ((normalized = true), "everywhere");
     const rule: ScopedTrustRule = {
       ...base,
       tool: tool as ScopedTrustRule["tool"],
+      scope,
     };
     if (
       typeof raw.executionTarget === "string" &&
@@ -316,8 +346,16 @@ export function parseTrustRule(raw: Record<string, unknown>): ParsedTrustRule {
     return { rule, normalized };
   }
 
-  // Generic (unknown) tool — preserve executionTarget for forward compat.
+  // Generic (unknown) tool — strip scope (new tools that need scope must be
+  // added to SCOPED_TOOLS explicitly), preserve executionTarget for forward compat.
   const rule: GenericTrustRule = { ...base };
+  if (
+    typeof raw.scope === "string" &&
+    raw.scope !== "" &&
+    raw.scope !== "everywhere"
+  ) {
+    normalized = true;
+  }
   if (
     typeof raw.executionTarget === "string" &&
     raw.executionTarget.length > 0

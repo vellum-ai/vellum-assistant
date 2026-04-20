@@ -8,7 +8,12 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { parseTrustFileData, parseTrustRule } from "@vellumai/ces-contracts";
+import {
+  parseTrustFileData,
+  parseTrustRule,
+  ruleScope,
+  SCOPED_TOOLS,
+} from "@vellumai/ces-contracts";
 import { Minimatch } from "minimatch";
 import { v4 as uuid } from "uuid";
 
@@ -31,6 +36,9 @@ export type {
 export type { TrustStoreBackend } from "./trust-store-interface.js";
 
 const log = getLogger("trust-store");
+
+/** O(1) lookup set for scoped tool names. */
+const SCOPED_TOOLS_SET: ReadonlySet<string> = new Set(SCOPED_TOOLS);
 
 const TRUST_FILE_VERSION = 3;
 
@@ -221,7 +229,7 @@ function backfillDefaults(rules: TrustRule[]): boolean {
       if (
         rule.priority !== template.priority ||
         rule.pattern !== template.pattern ||
-        rule.scope !== template.scope ||
+        ruleScope(rule) !== (template.scope ?? "everywhere") ||
         rule.decision !== template.decision
       ) {
         if (rule.userModifiedAt != null) {
@@ -238,14 +246,16 @@ function backfillDefaults(rules: TrustRule[]): boolean {
             newPriority: template.priority,
             oldPattern: rule.pattern,
             newPattern: template.pattern,
-            oldScope: rule.scope,
-            newScope: template.scope,
+            oldScope: ruleScope(rule),
+            newScope: template.scope ?? "everywhere",
           },
           "Migrated default rule to updated template values",
         );
         rule.priority = template.priority;
         rule.pattern = template.pattern;
-        rule.scope = template.scope;
+        if (template.scope != null) {
+          rule.scope = template.scope;
+        }
         rule.decision = template.decision;
         changed = true;
       }
@@ -430,19 +440,23 @@ function fileAddRule(
 
   // Canonicalize through the shared parser so fields invalid for the tool's
   // family are stripped before persistence, regardless of which callsite
-  // invoked addRule.
-  const { rule: canonical } = parseTrustRule({
+  // invoked addRule. Only include scope for scoped tools — non-scoped tools
+  // don't carry a scope field.
+  const rawRule: Record<string, unknown> = {
     id: uuid(),
     tool,
     pattern,
-    scope,
     decision,
     priority,
     createdAt: Date.now(),
-    ...(options?.executionTarget != null
-      ? { executionTarget: options.executionTarget }
-      : {}),
-  });
+  };
+  if (SCOPED_TOOLS_SET.has(tool)) {
+    rawRule.scope = scope;
+  }
+  if (options?.executionTarget != null) {
+    rawRule.executionTarget = options.executionTarget;
+  }
+  const { rule: canonical } = parseTrustRule(rawRule);
   const rule = canonical as TrustRule;
 
   // Re-read from disk to avoid lost updates if another call modified rules
@@ -482,7 +496,11 @@ function fileUpdateRule(
   const merged = { ...rules[index] };
   if (updates.tool != null) merged.tool = updates.tool;
   if (updates.pattern != null) merged.pattern = updates.pattern;
-  if (updates.scope != null) merged.scope = updates.scope;
+  // Only apply scope updates for scoped tools — non-scoped tools ignore scope.
+  const effectiveTool = updates.tool ?? merged.tool;
+  if (updates.scope != null && SCOPED_TOOLS_SET.has(effectiveTool)) {
+    merged.scope = updates.scope;
+  }
   if (updates.decision != null) merged.decision = updates.decision;
   if (updates.priority != null) merged.priority = updates.priority;
 
@@ -497,7 +515,7 @@ function fileUpdateRule(
     const diverges =
       merged.tool !== template.tool ||
       merged.pattern !== template.pattern ||
-      merged.scope !== template.scope ||
+      ruleScope(merged) !== (template.scope ?? "everywhere") ||
       merged.decision !== template.decision ||
       merged.priority !== template.priority;
     if (diverges) {
@@ -543,18 +561,6 @@ function fileRemoveRule(id: string): boolean {
   return true;
 }
 
-/**
- * Resolve the effective scope of a trust rule.
- *
- * Not all trust rule families require a scope — after canonical parsing,
- * rules that had no scope are normalized to `"everywhere"`. This helper
- * ensures any residual rules without a scope field default to `"everywhere"`
- * for safe matching.
- */
-function effectiveScope(rule: TrustRule): string {
-  return rule.scope || "everywhere";
-}
-
 function matchesScope(ruleScope: string, workingDir: string): boolean {
   if (ruleScope === "everywhere") return true;
   // Strip optional trailing wildcard, then enforce a directory-boundary match
@@ -576,7 +582,7 @@ function findRuleByDecision(
     if (rule.decision !== decision) continue;
     const compiled = getCompiledPattern(rule.pattern);
     if (!compiled || !compiled.match(command)) continue;
-    if (!matchesScope(effectiveScope(rule), scope)) continue;
+    if (!matchesScope(ruleScope(rule), scope)) continue;
     return rule;
   }
   return null;
@@ -627,7 +633,7 @@ function fileFindHighestPriorityRule(
 
   for (const rule of allRules) {
     if (rule.tool !== tool) continue;
-    if (!matchesScope(effectiveScope(rule), scope)) continue;
+    if (!matchesScope(ruleScope(rule), scope)) continue;
     if (!matchesExecutionTarget(rule, ctx)) continue;
     const compiled = getCompiledPattern(rule.pattern);
     if (!compiled) continue;
@@ -980,7 +986,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
 
     for (const rule of allRules) {
       if (rule.tool !== tool) continue;
-      if (!matchesScope(effectiveScope(rule), scope)) continue;
+      if (!matchesScope(ruleScope(rule), scope)) continue;
       if (!matchesExecutionTarget(rule, ctx)) continue;
       const compiled = this.getCompiledPattern(rule.pattern);
       if (!compiled) continue;
@@ -1004,7 +1010,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
       if (rule.decision !== "allow") continue;
       const compiled = this.getCompiledPattern(rule.pattern);
       if (!compiled || !compiled.match(command)) continue;
-      if (!matchesScope(effectiveScope(rule), scope)) continue;
+      if (!matchesScope(ruleScope(rule), scope)) continue;
       return rule;
     }
     return null;
@@ -1017,7 +1023,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
       if (rule.decision !== "deny") continue;
       const compiled = this.getCompiledPattern(rule.pattern);
       if (!compiled || !compiled.match(command)) continue;
-      if (!matchesScope(effectiveScope(rule), scope)) continue;
+      if (!matchesScope(ruleScope(rule), scope)) continue;
       return rule;
     }
     return null;
@@ -1063,7 +1069,10 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
     const rule = trustClient.addRuleSync({
       tool: canonical.tool,
       pattern: canonical.pattern,
-      scope: canonical.scope,
+      // Only send scope for scoped tools — non-scoped tools omit it.
+      ...(SCOPED_TOOLS_SET.has(canonical.tool)
+        ? { scope: ruleScope(canonical) }
+        : {}),
       decision: canonical.decision,
       priority: canonical.priority,
       executionTarget: canonicalOpts.executionTarget,

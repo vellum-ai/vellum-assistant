@@ -1325,7 +1325,7 @@ describe("Permission Checker", () => {
       expect(result.decision).toBe("deny");
     });
 
-    test("network_request rule is scoped to working directory", async () => {
+    test("network_request rule ignores scope (URL tools are not scoped)", async () => {
       addRule(
         "network_request",
         "network_request:https://api.example.com/*",
@@ -1337,12 +1337,15 @@ describe("Permission Checker", () => {
         "/home/user/project",
       );
       expect(allowed.decision).toBe("allow");
-      const notAllowed = await check(
+      // URL tools (network_request) do not support scope — the rule matches
+      // regardless of working directory because scope is stripped during
+      // normalization.
+      const alsoAllowed = await check(
         "network_request",
         { url: "https://api.example.com/v1/data" },
         "/tmp/other",
       );
-      expect(notAllowed.decision).toBe("prompt");
+      expect(alsoAllowed.decision).toBe("allow");
     });
 
     test("network_request rules do not cross-match web_fetch rules", async () => {
@@ -2382,7 +2385,6 @@ describe("Permission Checker", () => {
         "id",
         "pattern",
         "priority",
-        "scope",
         "tool",
       ]);
     });

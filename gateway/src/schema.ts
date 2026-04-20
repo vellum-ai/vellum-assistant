@@ -2763,7 +2763,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Add a trust rule",
           description:
-            "Authenticated gateway endpoint that adds a new trust rule. Payloads are canonicalized through family-aware parsing before persistence: fields invalid for the tool's family (e.g. executionTarget on URL-tool rules) are silently stripped. Legacy request shapes are accepted without 4xx regressions.",
+            "Authenticated gateway endpoint that adds a new trust rule. Payloads are canonicalized through family-aware parsing before persistence: fields invalid for the tool's family (e.g. executionTarget on URL-tool rules, scope on non-scoped tools) are silently stripped. The `scope` field is required for scoped tools (bash, file_read, etc.) and optional for all others. Legacy request shapes are accepted without 4xx regressions.",
           operationId: "trustRulesPost",
           security: [{ BearerAuth: [] }],
           requestBody: {

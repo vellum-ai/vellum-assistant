@@ -17,6 +17,7 @@ import {
   isUrlRule,
   parseTrustFileData,
   parseTrustRule,
+  ruleScope,
   SCOPED_TOOLS,
   URL_TOOLS,
   MANAGED_SKILL_TOOLS,
@@ -112,6 +113,22 @@ describe("parseTrustRule — URL tools strip invalid fields", () => {
     const { rule, normalized } = parseTrustRule(raw);
     expect(normalized).toBe(false);
     expect(rule.tool).toBe("web_fetch");
+    // scope is stripped even though it was present in raw input
+    expect("scope" in rule).toBe(false);
+  });
+
+  test("URL tool with scope 'everywhere' strips scope without normalization flag", () => {
+    const raw = makeRaw({ tool: "web_fetch", scope: "everywhere" });
+    const { rule, normalized } = parseTrustRule(raw);
+    expect(normalized).toBe(false);
+    expect("scope" in rule).toBe(false);
+  });
+
+  test("URL tool with non-'everywhere' scope strips scope and sets normalized", () => {
+    const raw = makeRaw({ tool: "web_fetch", scope: "/some/dir" });
+    const { rule, normalized } = parseTrustRule(raw);
+    expect(normalized).toBe(true);
+    expect("scope" in rule).toBe(false);
   });
 
   test("type guard isUrlRule narrows correctly", () => {
@@ -136,6 +153,20 @@ describe("parseTrustRule — managed skill tools strip invalid fields", () => {
       expect("allowHighRisk" in rule).toBe(false);
     },
   );
+
+  test("managed skill tool with scope 'everywhere' strips scope without normalization flag", () => {
+    const raw = makeRaw({ tool: "scaffold_managed_skill", scope: "everywhere" });
+    const { rule, normalized } = parseTrustRule(raw);
+    expect(normalized).toBe(false);
+    expect("scope" in rule).toBe(false);
+  });
+
+  test("managed skill tool with non-'everywhere' scope strips scope and sets normalized", () => {
+    const raw = makeRaw({ tool: "delete_managed_skill", scope: "/some/dir" });
+    const { rule, normalized } = parseTrustRule(raw);
+    expect(normalized).toBe(true);
+    expect("scope" in rule).toBe(false);
+  });
 
   test("type guard isManagedSkillRule narrows correctly", () => {
     const { rule } = parseTrustRule(makeRaw({ tool: "scaffold_managed_skill" }));
@@ -163,6 +194,21 @@ describe("parseTrustRule — skill_load strips invalid fields", () => {
     const { rule, normalized } = parseTrustRule(raw);
     expect(normalized).toBe(false);
     expect(rule.tool).toBe(SKILL_LOAD_TOOL);
+    expect("scope" in rule).toBe(false);
+  });
+
+  test("skill_load with scope 'everywhere' strips scope without normalization flag", () => {
+    const raw = makeRaw({ tool: SKILL_LOAD_TOOL, scope: "everywhere" });
+    const { rule, normalized } = parseTrustRule(raw);
+    expect(normalized).toBe(false);
+    expect("scope" in rule).toBe(false);
+  });
+
+  test("skill_load with non-'everywhere' scope strips scope and sets normalized", () => {
+    const raw = makeRaw({ tool: SKILL_LOAD_TOOL, scope: "/some/dir" });
+    const { rule, normalized } = parseTrustRule(raw);
+    expect(normalized).toBe(true);
+    expect("scope" in rule).toBe(false);
   });
 
   test("type guard isSkillLoadRule narrows correctly", () => {
@@ -196,8 +242,16 @@ describe("parseTrustRule — unknown tools", () => {
     const { rule, normalized } = parseTrustRule(raw);
     expect(normalized).toBe(false);
     expect(rule.tool).toBe("computer_use_click");
+    expect("scope" in rule).toBe(false);
     expect("executionTarget" in rule).toBe(false);
     expect("allowHighRisk" in rule).toBe(false);
+  });
+
+  test("unknown tool with non-everywhere scope strips scope and sets normalized", () => {
+    const raw = makeRaw({ tool: "future_tool_v99", scope: "/some/dir" });
+    const { rule, normalized } = parseTrustRule(raw);
+    expect(normalized).toBe(true);
+    expect("scope" in rule).toBe(false);
   });
 
   test("all type guards return false for generic rules", () => {
@@ -244,6 +298,34 @@ describe("parseTrustRule — normalization flag", () => {
     const { rule, normalized } = parseTrustRule(raw);
     expect(normalized).toBe(false);
     expect("executionTarget" in rule).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ruleScope helper
+// ---------------------------------------------------------------------------
+
+describe("ruleScope", () => {
+  test("returns scope for scoped rules", () => {
+    const { rule } = parseTrustRule(makeRaw({ tool: "bash", scope: "/projects" }));
+    expect(ruleScope(rule)).toBe("/projects");
+  });
+
+  test("returns 'everywhere' for non-scoped rules without scope", () => {
+    const { rule } = parseTrustRule(makeRaw({ tool: "web_fetch" }));
+    expect("scope" in rule).toBe(false);
+    expect(ruleScope(rule)).toBe("everywhere");
+  });
+
+  test("returns 'everywhere' for generic rules (scope is stripped)", () => {
+    const { rule } = parseTrustRule(makeRaw({ tool: "future_tool", scope: "/custom" }));
+    expect("scope" in rule).toBe(false);
+    expect(ruleScope(rule)).toBe("everywhere");
+  });
+
+  test("returns 'everywhere' for scoped rules with default scope", () => {
+    const { rule } = parseTrustRule(makeRaw({ tool: "file_read", scope: "everywhere" }));
+    expect(ruleScope(rule)).toBe("everywhere");
   });
 });
 
@@ -353,7 +435,6 @@ describe("type-level compatibility", () => {
       id: "u1",
       tool: "web_fetch",
       pattern: "web_fetch:*",
-      scope: "everywhere",
       decision: "allow",
       priority: 90,
       createdAt: 0,
@@ -362,7 +443,6 @@ describe("type-level compatibility", () => {
       id: "m1",
       tool: "scaffold_managed_skill",
       pattern: "scaffold_managed_skill:*",
-      scope: "everywhere",
       decision: "ask",
       priority: 1000,
       createdAt: 0,
@@ -371,7 +451,6 @@ describe("type-level compatibility", () => {
       id: "sl1",
       tool: "skill_load",
       pattern: "skill_load:*",
-      scope: "everywhere",
       decision: "allow",
       priority: 100,
       createdAt: 0,
@@ -380,7 +459,6 @@ describe("type-level compatibility", () => {
       id: "g1",
       tool: "computer_use_click",
       pattern: "**",
-      scope: "everywhere",
       decision: "ask",
       priority: 1000,
       createdAt: 0,

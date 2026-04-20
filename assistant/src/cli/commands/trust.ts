@@ -1,3 +1,4 @@
+import { ruleScope } from "@vellumai/ces-contracts";
 import type { Command } from "commander";
 
 import {
@@ -61,7 +62,7 @@ Examples:
       // Only show the Scope column when at least one rule has a
       // non-global scope (i.e. something other than "everywhere").
       const hasNonGlobalScope = rules.some(
-        (r) => r.scope && r.scope !== "everywhere",
+        (r) => ruleScope(r) !== "everywhere",
       );
 
       // Only show the Flags column when at least one rule carries
@@ -97,7 +98,7 @@ Examples:
           r.pattern.slice(0, patternW - 2).padEnd(patternW);
 
         if (hasNonGlobalScope) {
-          const scope = r.scope || "everywhere";
+          const scope = ruleScope(r);
           line += scope.slice(0, scopeW - 2).padEnd(scopeW);
         }
 
