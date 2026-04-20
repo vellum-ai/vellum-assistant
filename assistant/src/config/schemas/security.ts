@@ -87,6 +87,16 @@ export const PermissionsConfigSchema = z
       .describe(
         "Whether the assistant can execute commands on the host machine without prompting",
       ),
+    autoApproveUpTo: z
+      .enum(["none", "low", "medium"], {
+        error: "permissions.autoApproveUpTo must be one of: none, low, medium",
+      })
+      .default("low")
+      .describe(
+        "Auto-approve tools at or below this risk level without prompting. " +
+          "'none' prompts for everything (strictest), 'low' auto-approves read-only " +
+          "operations (default), 'medium' auto-approves writes and network access too.",
+      ),
   })
   .describe("Permission enforcement mode for tool operations");
 
