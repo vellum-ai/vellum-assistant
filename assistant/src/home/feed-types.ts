@@ -25,7 +25,7 @@ import { z } from "zod";
 export type FeedItemType = "nudge" | "digest" | "action" | "thread";
 
 /** User-facing lifecycle of a feed item. */
-export type FeedItemStatus = "new" | "seen" | "acted_on";
+export type FeedItemStatus = "new" | "seen" | "acted_on" | "dismissed";
 
 /**
  * Origin of the underlying event.
@@ -114,7 +114,7 @@ export interface HomeFeedFile {
 
 const feedItemTypeSchema = z.enum(["nudge", "digest", "action", "thread"]);
 
-const feedItemStatusSchema = z.enum(["new", "seen", "acted_on"]);
+const feedItemStatusSchema = z.enum(["new", "seen", "acted_on", "dismissed"]);
 
 const feedItemSourceSchema = z.enum([
   "gmail",

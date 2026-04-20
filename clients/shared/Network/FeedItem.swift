@@ -30,6 +30,7 @@ public enum FeedItemStatus: String, Codable, Sendable, Hashable {
     case new
     case seen
     case actedOn = "acted_on"
+    case dismissed
 }
 
 /// Origin of the underlying event.
