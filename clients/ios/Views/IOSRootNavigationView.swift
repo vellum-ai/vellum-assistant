@@ -41,10 +41,19 @@ struct IOSRootNavigationView: View {
 
     var body: some View {
         Group {
-            if horizontalSizeClass == .compact {
-                compactLayout
-            } else {
+            // Treat a `nil` size class as compact so that on iPhone cold start —
+            // where SwiftUI may report `horizontalSizeClass` as `nil` for one
+            // frame during initial environment resolution — we don't briefly
+            // mount `regularLayout` (i.e. `ConversationListView`). Its
+            // `.onAppear` consumes any pending selection request synchronously
+            // during layout, which would otherwise land a cold-start push-
+            // notification deep link in a transient `ConversationListView` that
+            // is immediately torn down when the size class resolves to
+            // `.compact`, silently dropping the selection.
+            if horizontalSizeClass == .regular {
                 regularLayout
+            } else {
+                compactLayout
             }
         }
         // `onDismiss` resets `navigateToConnect` so that:
@@ -335,14 +344,18 @@ struct IOSRootNavigationView: View {
         if isSettingsPresented {
             isSettingsPresented = false
         }
-        if horizontalSizeClass == .compact {
+        // Treat a `nil` size class as compact for the same reason the body
+        // branches that way: on iPhone cold start SwiftUI can report
+        // `horizontalSizeClass` as `nil` for one frame, and if we gated on
+        // `== .compact` the request would never be consumed (no `.onChange`
+        // re-fires once the id is already in the store). Only `.regular`
+        // (iPad) is the explicit opt-out — `ConversationListView`'s own
+        // `NavigationSplitView` consumes the request there.
+        if horizontalSizeClass != .regular {
             activeConversationId = request.conversationLocalId
             closeDrawer()
             store.consumeSelectionRequest(id: request.id)
         }
-        // On regular (iPad) size classes, ConversationListView's own
-        // NavigationSplitView consumes the selection request. Leave it alone
-        // so the request isn't double-consumed.
     }
 }
 #endif
