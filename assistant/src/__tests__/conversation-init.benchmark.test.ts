@@ -192,6 +192,8 @@ mock.module("../memory/conversation-crud.js", () => ({
   }),
   getMessagesPaginated: () => ({ messages: [], hasMore: false }),
   getLastAssistantTimestampBefore: () => null,
+  archiveConversation: () => false,
+  unarchiveConversation: () => false,
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
