@@ -17,22 +17,33 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
-    provider: "mock-provider",
-    maxTokens: 4096,
-    thinking: false,
-    contextWindow: {
-      maxInputTokens: 100000,
-      thresholdTokens: 80000,
-      preserveRecentMessages: 6,
-      summaryModel: "mock-model",
-      maxSummaryTokens: 512,
-      overflowRecovery: {
-        enabled: true,
-        safetyMarginRatio: 0.05,
-        maxAttempts: 3,
-        interactiveLatestTurnCompression: "summarize",
-        nonInteractiveLatestTurnCompression: "truncate",
+    llm: {
+      default: {
+        provider: "mock-provider",
+        model: "mock-model",
+        maxTokens: 4096,
+        effort: "max" as const,
+        speed: "standard" as const,
+        temperature: null,
+        thinking: { enabled: false, streamThinking: true },
+        contextWindow: {
+          enabled: true,
+          maxInputTokens: 100000,
+          targetBudgetRatio: 0.3,
+          compactThreshold: 0.8,
+          summaryBudgetRatio: 0.05,
+          overflowRecovery: {
+            enabled: true,
+            safetyMarginRatio: 0.05,
+            maxAttempts: 3,
+            interactiveLatestTurnCompression: "summarize",
+            nonInteractiveLatestTurnCompression: "truncate",
+          },
+        },
       },
+      profiles: {},
+      callSites: {},
+      pricingOverrides: [],
     },
     rateLimit: { maxRequestsPerMinute: 0 },
     workspaceGit: { turnCommitMaxWaitMs: 10 },
@@ -196,10 +207,22 @@ mock.module("../daemon/conversation-memory.js", () => ({
 }));
 
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
-  applyRuntimeInjections: (msgs: Message[]) => msgs,
+  applyRuntimeInjections: async (msgs: Message[]) => msgs,
   stripInjectionsForCompaction: (msgs: Message[]) => msgs,
   findLastInjectedNowContent: () => null,
   readNowScratchpad: () => null,
+  readPkbContext: () => null,
+  getPkbAutoInjectList: () => [
+    "INDEX.md",
+    "essentials.md",
+    "threads.md",
+    "buffer.md",
+  ],
+  isSlackChannelConversation: () => false,
+  loadSlackChronologicalMessages: () => null,
+  loadSlackActiveThreadFocusBlock: () => null,
+  assembleSlackChronologicalMessages: () => null,
+  assembleSlackActiveThreadFocusBlock: () => null,
 }));
 
 mock.module("../daemon/date-context.js", () => ({
@@ -1745,72 +1768,6 @@ describe("session-agent-loop", () => {
       expect(handoff).toBeUndefined();
       const complete = events.find((e) => e.type === "message_complete");
       expect(complete).toBeDefined();
-    });
-
-    test("does not yield during browser flow even when handoff is available", async () => {
-      const events: ServerMessage[] = [];
-
-      const agentLoopRun: AgentLoopRun = async (
-        messages,
-        onEvent,
-        _signal,
-        _reqId,
-        onCheckpoint,
-      ) => {
-        // All tool uses are browser_ prefixed
-        onEvent({
-          type: "tool_use",
-          id: "tu-1",
-          name: "browser_navigate",
-          input: {},
-        });
-        onEvent({
-          type: "tool_result",
-          toolUseId: "tu-1",
-          content: "navigated",
-          isError: false,
-        });
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "browsing" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 100,
-          outputTokens: 50,
-          model: "test-model",
-          providerDurationMs: 100,
-        });
-        if (onCheckpoint) {
-          onCheckpoint({
-            turnIndex: 0,
-            toolCount: 1,
-            hasToolUse: true,
-            history: messages,
-          });
-        }
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "browsing" }] as ContentBlock[],
-          },
-        ];
-      };
-
-      const ctx = makeCtx({
-        agentLoopRun,
-        canHandoffAtCheckpoint: () => true,
-      } as unknown as Partial<AgentLoopConversationContext>);
-
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
-
-      // Browser flows should NOT yield
-      const handoff = events.find((e) => e.type === "generation_handoff");
-      expect(handoff).toBeUndefined();
     });
   });
 

@@ -74,6 +74,12 @@ export class ConfigFileWatcher {
         },
       );
 
+      // Prevent unhandled FSWatcher errors (e.g. ENXIO when the watched
+      // directory is removed) from crashing the process.
+      this.watcher.on("error", (err) => {
+        log.warn({ err, path: watchTarget }, "Config file watcher error");
+      });
+
       log.info({ path: watchTarget }, "Watching for config file changes");
     } catch (err) {
       log.warn(

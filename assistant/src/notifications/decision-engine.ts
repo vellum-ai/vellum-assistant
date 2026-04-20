@@ -12,7 +12,6 @@
 import { v4 as uuid } from "uuid";
 
 import { getDeliverableChannels } from "../channels/config.js";
-import { getConfig } from "../config/loader.js";
 import { listGuardianChannels } from "../contacts/contact-store.js";
 import { resolveGuardianPersona } from "../prompts/persona-resolver.js";
 import { buildCoreIdentityContext } from "../prompts/system-prompt.js";
@@ -22,7 +21,7 @@ import {
   getConfiguredProvider,
   userMessage,
 } from "../providers/provider-send-message.js";
-import type { ModelIntent, Provider } from "../providers/types.js";
+import type { Provider } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import {
@@ -717,9 +716,6 @@ export async function evaluateSignal(
   availableChannels: NotificationChannel[],
   preferenceContext?: string,
 ): Promise<NotificationDecision> {
-  const config = getConfig();
-  const decisionModelIntent = config.notifications.decisionModelIntent;
-
   // When no explicit preference context is provided, load the user's
   // stored notification preferences from the memory-backed store.
   // Wrapped in try/catch so a DB failure doesn't break the decision path.
@@ -750,7 +746,7 @@ export async function evaluateSignal(
     );
   }
 
-  const provider = await getConfiguredProvider();
+  const provider = await getConfiguredProvider("notificationDecision");
   if (!provider) {
     log.warn(
       "Configured provider unavailable for notification decision, using fallback",
@@ -774,7 +770,6 @@ export async function evaluateSignal(
       signal,
       availableChannels,
       resolvedPreferenceContext,
-      decisionModelIntent,
       candidateSet,
     );
   } catch (err) {
@@ -805,7 +800,6 @@ async function classifyWithLLM(
   signal: NotificationSignal,
   availableChannels: NotificationChannel[],
   preferenceContext: string | undefined,
-  modelIntent: ModelIntent,
   candidateSet?: ConversationCandidateSet,
 ): Promise<NotificationDecision> {
   const { signal: abortSignal, cleanup } = createTimeout(DECISION_TIMEOUT_MS);
@@ -858,7 +852,7 @@ async function classifyWithLLM(
       systemPrompt,
       {
         config: {
-          modelIntent,
+          callSite: "notificationDecision",
           max_tokens: 2048,
           tool_choice: {
             type: "tool" as const,

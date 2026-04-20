@@ -116,6 +116,38 @@ public enum VellumEnvironment: String {
         return current.platformURL
     }
 
+    /// The canonical Vellum web app (Next.js) base URL for this environment.
+    /// This is where browser-facing pages like `/account/login` live.
+    public var webURL: String {
+        switch self {
+        case .local:
+            return "http://localhost:3000"
+        case .dev:
+            return "https://dev-assistant.vellum.ai"
+        case .test:
+            return "https://dev-assistant.vellum.ai"
+        case .staging:
+            return "https://staging-assistant.vellum.ai"
+        case .production:
+            return "https://www.vellum.ai"
+        }
+    }
+
+    /// The current resolved web app URL.
+    ///
+    /// Resolution order:
+    /// 1. `VELLUM_WEB_URL` environment variable (explicit override)
+    /// 2. `VELLUM_ENVIRONMENT`-based canonical URL
+    public static var resolvedWebURL: String {
+        let environment = ProcessInfo.processInfo.environment
+        if let raw = environment["VELLUM_WEB_URL"] {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalized = trimmed.replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
+            if !normalized.isEmpty { return normalized }
+        }
+        return current.webURL
+    }
+
     /// The platform URL to inject into containers (Docker, Apple Containers).
     /// For `local`, containers can't reach `localhost` on the host, so we
     /// fall back to the remote dev platform.

@@ -5,6 +5,7 @@ metadata:
   emoji: "📹"
   vellum:
     display-name: "Meet Join"
+    feature-flag: meet
 ---
 
 Use this skill when the user explicitly asks the assistant to join a Google Meet call (e.g. "join my meet", "can you join this call and take notes", usually with a `https://meet.google.com/...` URL in context). Joining a call causes the assistant to appear as a visible participant — never do it proactively.
@@ -114,3 +115,17 @@ Avoid voice for:
 - Anything where participants have not signalled they want voice output from the assistant. When in doubt, prefer chat or silence.
 
 Barge-in is automatic: if a human speaks while the assistant is talking, the assistant's audio is cancelled mid-utterance. Treat being interrupted as normal — do not retry the cancelled utterance or apologize for it.
+
+## Video avatar
+
+`meet_enable_avatar` turns on a real-time video avatar that lip-syncs to TTS output. `meet_disable_avatar` turns it off. The avatar is **off by default** when the assistant joins a meeting — the assistant must explicitly opt in.
+
+Enable the avatar when:
+
+- The user explicitly asks the assistant to be on camera (e.g. "turn your video on", "show your avatar").
+- The meeting context expects video participation (e.g. a presentation or 1:1 where other participants are on camera and have signalled they welcome a visual presence).
+
+Avoid enabling the avatar when:
+
+- The user has not asked for it. Do not turn it on proactively.
+- The assistant is not actively speaking. Most participants read "video on" as presence and attention — the avatar is not a watching observer. Disable it during long stretches of silence and re-enable it when the assistant is about to speak again.

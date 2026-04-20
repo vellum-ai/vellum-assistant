@@ -41,12 +41,12 @@ public struct VAvatarImage: View {
 
     /// Alpha byte value at or above which a pixel is considered opaque.
     /// Derived from `ceil(0.95 * 255) = 243`.
-    static let alphaOpaqueThreshold: UInt8 = 243
+    nonisolated static let alphaOpaqueThreshold: UInt8 = 243
 
     /// Maximum dimension for the sampling CGContext. Images larger than this
     /// are downsampled before pixel inspection — we only need 8 sample points,
     /// so full-resolution rendering is unnecessary.
-    static let maxSamplingDimension = 64
+    nonisolated static let maxSamplingDimension = 64
 
     public init(image: NSImage, size: CGFloat, borderColor: Color = VColor.borderBase, showBorder: Bool = true) {
         self.image = image
@@ -174,7 +174,10 @@ public struct VAvatarImage: View {
     /// - Returns `false` in O(1) when the pixel format has no alpha channel.
     /// - Otherwise draws into a downsampled 32-bit BGRA context and checks
     ///   the alpha byte at the 4 corners + 4 edge midpoints (8 points total).
-    private static func computeTransparencyFromCGImage(_ cgImage: CGImage) -> Bool {
+    ///
+    /// `nonisolated` so it can be called from `Task.detached` — the function
+    /// touches no instance state and `CGImage` is thread-safe.
+    nonisolated private static func computeTransparencyFromCGImage(_ cgImage: CGImage) -> Bool {
         let alphaInfo = cgImage.alphaInfo
         switch alphaInfo {
         case .none, .noneSkipFirst, .noneSkipLast:

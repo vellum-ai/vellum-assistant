@@ -2,8 +2,8 @@
  * In-process bot state for the meet-bot control surface.
  *
  * The bot is a single-meeting process, so a module-level mutable singleton
- * is a deliberate (and simple) fit here: the HTTP server, the Playwright
- * driver, and the lifecycle emitter all read and write the same state.
+ * is a deliberate (and simple) fit here: the HTTP server, the NMH socket
+ * server, and the lifecycle emitter all read and write the same state.
  * No persistence — the process is the source of truth for its own lifetime.
  *
  * External callers should prefer reading via {@link BotState.snapshot} so

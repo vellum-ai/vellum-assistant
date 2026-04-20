@@ -16,6 +16,29 @@ const log = getLogger("tool-registry");
 
 const tools = new Map<string, Tool>();
 
+// ── External tool registry ───────────────────────────────────────────
+// Skills register their tools here at initialization time so the tool
+// manifest can include them without importing from `../skills/`.
+const externalTools: Tool[] = [];
+
+/**
+ * Register tools provided by an external skill. Called during skill
+ * initialization (e.g. meet-join bootstrap).
+ *
+ * Lives in registry.ts (not tool-manifest.ts) to avoid a circular
+ * dependency: skills/load.ts → … → meet-join/register.ts → tool-manifest.ts
+ * → skills/load.ts. Keeping it here lets external skill bootstraps import
+ * from registry.ts, which is already a leaf in the dependency graph.
+ */
+export function registerExternalTools(tools: Tool[]): void {
+  externalTools.push(...tools);
+}
+
+/** Return all externally registered tools. */
+export function getExternalTools(): Tool[] {
+  return [...externalTools];
+}
+
 // Snapshot of core tools captured after initializeTools() completes.
 // Used by __resetRegistryForTesting() to restore eager tools that cannot
 // be re-registered because ESM import caching prevents side effects
@@ -245,6 +268,15 @@ export async function initializeTools(): Promise<void> {
     registerTool(tool);
   }
 
+  // External skill tools — registered by skill bootstrap modules via
+  // `registerExternalTools()`. Called at init time (not spread into
+  // `explicitTools`) so registrations that happen between module-load
+  // and `initializeTools()` are picked up.
+  const extTools = getExternalTools();
+  for (const tool of extTools) {
+    registerTool(tool);
+  }
+
   // Host tools are registered explicitly so host access stays opt-in until
   // this point in startup, rather than as module side effects.
   const hostTools = [
@@ -272,13 +304,14 @@ export async function initializeTools(): Promise<void> {
   // arbitrary test tools that were registered before init.
   //
   // A pre-existing tool is included only if it is a known manifest tool
-  // (declared in eagerModuleToolNames, explicitTools, or hostTools).
-  // This handles ESM cache hits where eager-module tools are already in
-  // the registry before init ran.
+  // (declared in eagerModuleToolNames, explicitTools, hostTools, or any
+  // registered external skill tool).  This handles ESM cache hits where
+  // eager-module tools are already in the registry before init ran.
   if (!coreToolsSnapshot) {
     const manifestToolNames = new Set<string>([
       ...eagerModuleToolNames,
       ...explicitTools.map((t: Tool) => t.name),
+      ...extTools.map((t: Tool) => t.name),
       ...hostTools.map((t: Tool) => t.name),
       ...cesTools.map((t: Tool) => t.name),
       ...allComputerUseTools.map((t: Tool) => t.name),

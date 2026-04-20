@@ -8,9 +8,7 @@
  *     workspace volume.
  *   - Resolve a placeholder TTS key reserved for Phase 3 via the
  *     secure-keys abstraction. STT credentials are resolved inside the
- *     audio-ingest via the configured `services.stt.provider` — the
- *     session manager no longer needs to know which STT provider is in
- *     use or how to fetch its key.
+ *     audio-ingest via the configured `services.stt.provider`.
  *   - Drive `DockerRunner` to create + start the Meet-bot container with the
  *     right env/workspaceMounts/port mappings.
  *   - Register the per-meeting handler with `MeetSessionEventRouter` via
@@ -53,7 +51,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getConfig } from "../../../assistant/src/config/loader.js";
@@ -71,6 +69,8 @@ import type {
 } from "../../../assistant/src/providers/types.js";
 import { wakeAgentForOpportunity } from "../../../assistant/src/runtime/agent-wake.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../assistant/src/runtime/assistant-scope.js";
+import type { DaemonRuntimeMode } from "../../../assistant/src/runtime/runtime-mode.js";
+import { getDaemonRuntimeMode } from "../../../assistant/src/runtime/runtime-mode.js";
 import { getProviderKeyAsync } from "../../../assistant/src/security/secure-keys.js";
 import { getTtsProvider } from "../../../assistant/src/tts/provider-registry.js";
 import { resolveTtsConfig } from "../../../assistant/src/tts/tts-config-resolver.js";
@@ -98,7 +98,13 @@ import {
   type InsertMessageFn,
   MeetConversationBridge,
 } from "./conversation-bridge.js";
-import { DockerRunner, type DockerRunResult } from "./docker-runner.js";
+import {
+  DockerRunner,
+  MEET_BOT_LABEL,
+  MEET_BOT_MEETING_ID_LABEL,
+  reapOrphanedMeetBots,
+  type DockerRunResult,
+} from "./docker-runner.js";
 import {
   meetEventDispatcher,
   type MeetEventUnsubscribe,
@@ -117,6 +123,11 @@ import {
   MeetTtsCancelledError,
   type SpeakInput,
 } from "./tts-bridge.js";
+import {
+  startTtsLipsync,
+  type StartTtsLipsyncArgs,
+  type TtsLipsyncHandle,
+} from "./tts-lipsync.js";
 
 const log = getLogger("meet-session-manager");
 
@@ -131,6 +142,15 @@ export const BOT_LEAVE_HTTP_TIMEOUT_MS = 10_000;
 
 /** Timeout for the bot `/send_chat` HTTP call before giving up. */
 export const BOT_SEND_CHAT_HTTP_TIMEOUT_MS = 10_000;
+
+/**
+ * Timeout for the bot `/avatar/enable` and `/avatar/disable` HTTP calls.
+ * Enable can take several seconds when a heavy renderer (e.g. SadTalker)
+ * is first spinning up, so we budget more generously than chat. Disable
+ * is nearly instant in practice but shares the same ceiling so the two
+ * lifecycle verbs are symmetric.
+ */
+export const BOT_AVATAR_HTTP_TIMEOUT_MS = 30_000;
 
 /**
  * Shared deadline for tearing down every active Meet session during daemon
@@ -157,16 +177,17 @@ export const CHAT_OPPORTUNITY_LLM_MAX_TOKENS = 256;
  * before `IDENTITY.md` has been written. Matches the tool-side fallback
  * in `skills/meet-join/tools/meet-join-tool.ts`.
  */
-export const MEET_JOIN_NAME_FALLBACK = "AI Assistant";
+export const MEET_JOIN_NAME_FALLBACK = "Vellum";
 
 // ---------------------------------------------------------------------------
 // Domain errors
 // ---------------------------------------------------------------------------
 
 /**
- * Thrown by {@link MeetSessionManager.sendChat} when no active session exists
- * for the given meeting id. Callers (e.g. the `meet_send_chat` tool) match
- * on this class to surface a targeted error rather than a generic failure.
+ * Thrown by session-manager methods (`sendChat`, `speak`, `enableAvatar`, etc.)
+ * when no active session exists for the given meeting id. Callers (e.g. the
+ * `meet_*` tools) match on this class to surface a targeted error rather
+ * than a generic failure.
  */
 export class MeetSessionNotFoundError extends Error {
   readonly name = "MeetSessionNotFoundError";
@@ -177,10 +198,10 @@ export class MeetSessionNotFoundError extends Error {
 }
 
 /**
- * Thrown by {@link MeetSessionManager.sendChat} when the bot's control API
- * could not be reached (network error, timeout, container gone). Distinct
- * from {@link MeetBotChatError} which represents a well-formed bot response
- * whose body indicates failure.
+ * Thrown by session-manager methods that hit the bot's control API when the
+ * bot could not be reached (network error, timeout, container gone). Distinct
+ * from {@link MeetBotChatError} / {@link MeetBotAvatarError} which represent
+ * well-formed bot responses whose status indicates failure.
  */
 export class MeetSessionUnreachableError extends Error {
   readonly name = "MeetSessionUnreachableError";
@@ -204,6 +225,62 @@ export class MeetBotChatError extends Error {
       `Meet bot /send_chat returned ${status} for meetingId=${meetingId}: ${detail}`,
     );
     this.status = status;
+  }
+}
+
+/**
+ * Thrown by {@link MeetSessionManager.enableAvatar} /
+ * {@link MeetSessionManager.disableAvatar} when the bot responded with a
+ * non-2xx status code — e.g. a 503 when the avatar subsystem is disabled
+ * or the configured renderer is unavailable. Preserves the status code and
+ * the raw body so tool-layer callers can relay a helpful message.
+ */
+export class MeetBotAvatarError extends Error {
+  readonly name = "MeetBotAvatarError";
+  readonly status: number;
+
+  constructor(
+    meetingId: string,
+    endpoint: string,
+    status: number,
+    detail: string,
+  ) {
+    super(
+      `Meet bot ${endpoint} returned ${status} for meetingId=${meetingId}: ${detail}`,
+    );
+    this.status = status;
+  }
+}
+
+/**
+ * Thrown by {@link MeetSessionManager.join} when the avatar feature is
+ * enabled in `services.meet.avatar` but the configured v4l2loopback device
+ * node is not present inside the daemon container.
+ *
+ * In Docker mode the CLI must bind-mount the host device into the assistant
+ * container on hatch/wake — opt-in via `VELLUM_MEET_AVATAR=1`. If an
+ * operator enables the avatar in config without setting the env var, the
+ * daemon's Docker Engine API `--device` pass-through would otherwise fail
+ * much later with a cryptic "device not found" error from the inner
+ * `dockerd`. This class surfaces the root cause at meet-join time with an
+ * actionable pointer at the CLI env-var.
+ *
+ * Bare-metal mode does not raise this error because the device is expected
+ * to exist on the host — if it does not, the operator is missing the
+ * `v4l2loopback` kernel module entirely, which is a separate host-setup
+ * problem outside this check's scope.
+ */
+export class MeetAvatarDeviceMissingError extends Error {
+  readonly name = "MeetAvatarDeviceMissingError";
+  readonly devicePath: string;
+
+  constructor(devicePath: string) {
+    super(
+      `Meet avatar is enabled in services.meet.avatar but ${devicePath} is not present inside the assistant container. ` +
+        `In Docker mode, set VELLUM_MEET_AVATAR=1 in the CLI environment before spawning the instance so the CLI bind-mounts the device. ` +
+        `If you changed services.meet.avatar.devicePath from the default, also set VELLUM_MEET_AVATAR_DEVICE to the same path.`,
+    );
+    this.devicePath = devicePath;
   }
 }
 
@@ -298,6 +375,17 @@ interface ActiveSession extends MeetSession {
    * `leave()` so no orphan stream outlives the container.
    */
   ttsBridge: MeetTtsBridgeLike;
+  /**
+   * Forwarder that subscribes to {@link MeetTtsBridge.onViseme} and POSTs
+   * each event to the bot's `/avatar/viseme` endpoint so the in-bot avatar
+   * renderer drives blendshape weights against the audio the bot is
+   * simultaneously playing out. Started in `join()` right after the TTS
+   * bridge is constructed and stopped in `leave()` BEFORE
+   * `ttsBridge.cancelAll()` so no late POSTs fire against a shutting-down
+   * bridge. See {@link startTtsLipsync} for the forwarder's fire-and-forget
+   * HTTP semantics.
+   */
+  ttsLipsyncHandle: TtsLipsyncHandle;
   /**
    * Barge-in watcher for this meeting — auto-cancels in-flight TTS when
    * a non-bot speaker takes the floor while the bot is mid-utterance.
@@ -416,6 +504,13 @@ export interface MeetTtsBridgeFactoryArgs {
   botApiToken: string;
 }
 
+/** Arguments passed to {@link MeetSessionManagerDeps.ttsLipsyncFactory}. */
+export interface MeetTtsLipsyncFactoryArgs {
+  bridge: MeetTtsBridgeLike;
+  botApiToken: string;
+  meetingId: string;
+}
+
 /** Arguments passed to {@link MeetSessionManagerDeps.bargeInWatcherFactory}. */
 export interface MeetBargeInWatcherFactoryArgs {
   meetingId: string;
@@ -439,7 +534,7 @@ export interface MeetSessionManagerDeps {
   /** Factory for the Docker runner — swapped in tests. */
   dockerRunnerFactory?: () => Pick<
     DockerRunner,
-    "run" | "stop" | "remove" | "inspect" | "logs"
+    "run" | "stop" | "remove" | "inspect" | "logs" | "kill" | "listContainers"
   >;
   /** Override the function that fetches credentials. */
   getProviderKey?: (provider: string) => Promise<string | undefined>;
@@ -457,6 +552,19 @@ export interface MeetSessionManagerDeps {
     text: string,
     meetingId: string,
   ) => Promise<void>;
+  /**
+   * Override the function that hits the bot's `/avatar/enable` and
+   * `/avatar/disable` endpoints. Resolves with the parsed JSON body on 2xx,
+   * throws {@link MeetBotAvatarError} on non-2xx (e.g. 503 when the avatar
+   * subsystem is disabled or the renderer is unavailable), and throws
+   * {@link MeetSessionUnreachableError} when the fetch itself fails.
+   */
+  botAvatarFetch?: (
+    url: string,
+    token: string,
+    endpoint: string,
+    meetingId: string,
+  ) => Promise<Record<string, unknown>>;
   /** Override the daemon-URL resolver (used for `DAEMON_URL` env var). */
   resolveDaemonUrl?: () => string;
   /** Override workspace directory resolution (tests). */
@@ -505,9 +613,9 @@ export interface MeetSessionManagerDeps {
   /**
    * Override the chat-opportunity-detector factory. Default constructs a
    * {@link MeetChatOpportunityDetector} with a Tier 2 LLM callback that
-   * routes through the repo-wide provider abstraction at
-   * `modelIntent: "latency-optimized"`. Tests can inject a fake to
-   * observe start/dispose/stats without spinning up the LLM path.
+   * routes through the repo-wide provider abstraction under the
+   * `meetChatOpportunity` call site. Tests can inject a fake to observe
+   * start/dispose/stats without spinning up the LLM path.
    *
    * Only consulted when `services.meet.proactiveChat.enabled === true`.
    */
@@ -522,6 +630,14 @@ export interface MeetSessionManagerDeps {
    * client.
    */
   ttsBridgeFactory?: (args: MeetTtsBridgeFactoryArgs) => MeetTtsBridgeLike;
+  /**
+   * Override the TTS lip-sync forwarder factory. Default invokes
+   * {@link startTtsLipsync} to subscribe the bridge's `onViseme` channel
+   * and POST each event to the bot's `/avatar/viseme` endpoint. Tests can
+   * inject a fake that returns a handle whose `stop()` is observed without
+   * needing the bridge or bot to exist.
+   */
+  ttsLipsyncFactory?: (args: MeetTtsLipsyncFactoryArgs) => TtsLipsyncHandle;
   /**
    * Override the barge-in watcher factory. Default constructs a
    * {@link MeetBargeInWatcher} that subscribes to the meeting's
@@ -546,10 +662,35 @@ export interface MeetSessionManagerDeps {
     hint: string;
     source: string;
   }) => Promise<void>;
+  /**
+   * Override the daemon runtime-mode resolver. Defaults to
+   * {@link getDaemonRuntimeMode}. Only consulted by the avatar-device
+   * preflight in {@link MeetSessionManager.join}; tests inject a fixed
+   * value to exercise the Docker-mode branch without touching
+   * `IS_CONTAINERIZED`.
+   */
+  resolveRuntimeMode?: () => DaemonRuntimeMode;
+  /**
+   * Override the avatar-device existence check. Defaults to
+   * {@link existsSync}. Used by the preflight in
+   * {@link MeetSessionManager.join} so tests can simulate a missing
+   * `/dev/video10` without needing the device to actually not exist (or
+   * worse, to exist) on the test machine.
+   */
+  avatarDeviceExists?: (path: string) => boolean;
+  /**
+   * Disables the one-shot startup orphan-reaper sweep. Only used by unit
+   * tests that don't want a background reaper call polluting docker-client
+   * mocks. Production and integration paths leave this as the default
+   * (sweep enabled).
+   */
+  disableStartupOrphanReaper?: boolean;
 }
 
 class MeetSessionManagerImpl {
   private sessions = new Map<string, ActiveSession>();
+  /** True while {@link shutdownAll} is in progress — blocks new joins. */
+  private shuttingDown = false;
   /**
    * Bot API tokens for sessions whose container has been spawned but whose
    * full {@link ActiveSession} record has not yet been inserted into
@@ -564,6 +705,16 @@ class MeetSessionManagerImpl {
    * the audio-socket connect or the meet "Ask to join" click.
    */
   private pendingBotTokens = new Map<string, string>();
+  /**
+   * Device paths that have already passed the Docker-mode avatar preflight
+   * in {@link join}. Cached per-daemon so a repeated join with the same
+   * `services.meet.avatar.devicePath` does not re-stat the filesystem —
+   * device nodes do not disappear across join calls in practice, and the
+   * check is expected to be a no-op on the happy path. A Set keyed on the
+   * device path keeps the cache correct if an operator reconfigures
+   * `services.meet.avatar.devicePath` at runtime.
+   */
+  private avatarPreflightPassedPaths = new Set<string>();
   private deps: Required<MeetSessionManagerDeps>;
 
   constructor(deps: MeetSessionManagerDeps = {}) {
@@ -576,6 +727,7 @@ class MeetSessionManagerImpl {
       getProviderKey: deps.getProviderKey ?? getProviderKeyAsync,
       botLeaveFetch: deps.botLeaveFetch ?? defaultBotLeaveFetch,
       botSendChatFetch: deps.botSendChatFetch ?? defaultBotSendChatFetch,
+      botAvatarFetch: deps.botAvatarFetch ?? defaultBotAvatarFetch,
       resolveDaemonUrl: deps.resolveDaemonUrl ?? defaultResolveDaemonUrl,
       getWorkspaceDir: deps.getWorkspaceDir ?? getWorkspaceDir,
       audioIngestFactory:
@@ -600,9 +752,13 @@ class MeetSessionManagerImpl {
         deps.chatOpportunityDetectorFactory ??
         defaultChatOpportunityDetectorFactory,
       ttsBridgeFactory: deps.ttsBridgeFactory ?? defaultTtsBridgeFactory,
+      ttsLipsyncFactory: deps.ttsLipsyncFactory ?? defaultTtsLipsyncFactory,
       bargeInWatcherFactory:
         deps.bargeInWatcherFactory ?? defaultBargeInWatcherFactory,
       wakeAgent: deps.wakeAgent ?? defaultWakeAgent,
+      resolveRuntimeMode: deps.resolveRuntimeMode ?? getDaemonRuntimeMode,
+      avatarDeviceExists: deps.avatarDeviceExists ?? existsSync,
+      disableStartupOrphanReaper: deps.disableStartupOrphanReaper ?? false,
     };
 
     // The ingress route (PR 9) looks up per-meeting tokens through this
@@ -615,6 +771,24 @@ class MeetSessionManagerImpl {
       if (session) return session.botApiToken;
       return this.pendingBotTokens.get(meetingId) ?? null;
     });
+
+    // One-shot startup orphan sweep. On a fresh boot no sessions exist, so
+    // the active-id set is empty — any `vellum.meet.bot`-labeled container
+    // still running came from a crashed prior daemon run and must be
+    // reaped. Fire-and-forget so construction stays synchronous; the
+    // reaper logs its own outcome and catches per-container errors so a
+    // transient docker-engine hiccup never tears down the session-manager
+    // singleton. Tests opt out via {@link MeetSessionManagerDeps.disableStartupOrphanReaper}.
+    if (!this.deps.disableStartupOrphanReaper) {
+      const reaperDocker = this.deps.dockerRunnerFactory();
+      void reapOrphanedMeetBots({
+        docker: reaperDocker,
+        activeMeetingIds: new Set<string>(),
+        logger: log,
+      }).catch((err: unknown) => {
+        log.warn({ err }, "Startup orphan-reaper sweep threw — continuing");
+      });
+    }
   }
 
   /** Reset internal state. Tests only. */
@@ -649,6 +823,11 @@ class MeetSessionManagerImpl {
         /* best-effort */
       }
       try {
+        session.ttsLipsyncHandle.stop();
+      } catch {
+        /* best-effort */
+      }
+      try {
         void session.ttsBridge.cancelAll();
       } catch {
         /* best-effort */
@@ -660,6 +839,38 @@ class MeetSessionManagerImpl {
       }
     }
     this.sessions.clear();
+    this.pendingBotTokens.clear();
+    this.avatarPreflightPassedPaths.clear();
+  }
+
+  /**
+   * Preflight check invoked from {@link join} when the avatar feature is
+   * enabled. In Docker mode, verifies that the configured v4l2loopback
+   * device node is present inside the daemon container — the CLI
+   * (`cli/src/lib/docker.ts`) is responsible for bind-mounting it, gated
+   * on `VELLUM_MEET_AVATAR=1`. If the config enables the avatar but the
+   * CLI opt-in is missing, the device will not exist inside the container
+   * and the downstream `DockerRunner.run()` would fail with a cryptic
+   * "device not found" error from the inner `dockerd`. This check moves
+   * the failure to a deterministic point (meet-join time) with a clear
+   * pointer at the env-var the operator forgot to set.
+   *
+   * In bare-metal mode the check is skipped — the device is expected to
+   * exist on the host, and if it does not the operator is missing the
+   * `v4l2loopback` kernel module entirely (a separate host-setup problem
+   * outside this check's scope). Callers where `avatar.enabled` is false
+   * should not reach this method.
+   *
+   * Results are cached in {@link avatarPreflightPassedPaths} so a repeated
+   * join with the same device path does not re-stat the filesystem.
+   */
+  private assertAvatarDeviceAvailable(devicePath: string): void {
+    if (this.deps.resolveRuntimeMode() !== "docker") return;
+    if (this.avatarPreflightPassedPaths.has(devicePath)) return;
+    if (!this.deps.avatarDeviceExists(devicePath)) {
+      throw new MeetAvatarDeviceMissingError(devicePath);
+    }
+    this.avatarPreflightPassedPaths.add(devicePath);
   }
 
   /**
@@ -668,6 +879,12 @@ class MeetSessionManagerImpl {
    */
   async join(input: JoinInput): Promise<MeetSession> {
     const { url, meetingId, conversationId, consentMessage } = input;
+
+    if (this.shuttingDown) {
+      throw new Error(
+        "MeetSessionManager is shutting down — new joins are not accepted",
+      );
+    }
 
     if (this.sessions.has(meetingId)) {
       throw new Error(
@@ -686,52 +903,106 @@ class MeetSessionManagerImpl {
       { url },
     );
 
-    const meet = getMeetConfig();
+    let meet: ReturnType<typeof getMeetConfig>;
+    let workspaceDir: string;
+    let meetingDir: string;
+    let socketsDir: string;
+    let outDir: string;
+    let botApiToken: string;
+    let ttsKey: string;
+    try {
+      meet = getMeetConfig();
 
-    const workspaceDir = this.deps.getWorkspaceDir();
-    const meetingDir = join(workspaceDir, "meets", meetingId);
-    const socketsDir = join(meetingDir, "sockets");
-    const outDir = join(meetingDir, "out");
-    mkdirSync(socketsDir, { recursive: true });
-    mkdirSync(outDir, { recursive: true });
+      // Preflight: in Docker mode, avatar config + CLI env-var opt-in are
+      // two orthogonal controls (see `cli/src/lib/docker.ts`'s
+      // `VELLUM_MEET_AVATAR` handling). Fail fast here with a pointer at
+      // the env-var rather than letting the inner `dockerd` reject the
+      // bot-container create with an opaque "device not found" error.
+      if (meet.avatar.enabled) {
+        this.assertAvatarDeviceAvailable(meet.avatar.devicePath);
+      }
 
-    const botApiToken = generateBotApiToken();
-    // Pre-register the token so `/v1/internal/meet/:id/events` can
-    // authenticate the bot's earliest `lifecycle:joining` POST — which
-    // fires before the `ActiveSession` record lands in `this.sessions`
-    // (that happens only after the audio-ingest handshake completes).
-    // Cleared on every join-rollback path below and replaced by the
-    // authoritative `this.sessions` lookup once the session is in the map.
-    this.pendingBotTokens.set(meetingId, botApiToken);
+      workspaceDir = this.deps.getWorkspaceDir();
+      meetingDir = join(workspaceDir, "meets", meetingId);
+      socketsDir = join(meetingDir, "sockets");
+      outDir = join(meetingDir, "out");
+      mkdirSync(socketsDir, { recursive: true });
+      mkdirSync(outDir, { recursive: true });
 
-    // Placeholder — Phase 3 (PR 23+) will resolve the real TTS credential.
-    const ttsKey = (await this.deps.getProviderKey("tts")) ?? "";
+      botApiToken = generateBotApiToken();
+      // Pre-register the token so `/v1/internal/meet/:id/events` can
+      // authenticate the bot's earliest `lifecycle:joining` POST — which
+      // fires before the `ActiveSession` record lands in `this.sessions`
+      // (that happens only after the audio-ingest handshake completes).
+      // Cleared on every join-rollback path below and replaced by the
+      // authoritative `this.sessions` lookup once the session is in the map.
+      this.pendingBotTokens.set(meetingId, botApiToken);
+    } catch (err) {
+      // Best-effort cleanup: pendingBotTokens.delete is a no-op if the
+      // set() line was never reached (e.g. getMeetConfig/mkdirSync threw).
+      this.pendingBotTokens.delete(meetingId);
+      void publishMeetEvent(
+        DAEMON_INTERNAL_ASSISTANT_ID,
+        meetingId,
+        "meet.error",
+        { detail: errorDetail(err) },
+      );
+      throw err;
+    }
 
-    const daemonUrl = this.deps.resolveDaemonUrl();
+    try {
+      // Placeholder — Phase 3 (PR 23+) will resolve the real TTS credential.
+      ttsKey = (await this.deps.getProviderKey("tts")) ?? "";
+    } catch (err) {
+      void publishMeetEvent(
+        DAEMON_INTERNAL_ASSISTANT_ID,
+        meetingId,
+        "meet.error",
+        { detail: errorDetail(err) },
+      );
+      this.pendingBotTokens.delete(meetingId);
+      throw err;
+    }
 
-    // Resolve the effective bot display name. Priority:
-    //   1. `services.meet.joinName` when set.
-    //   2. The assistant display name from IDENTITY.md.
-    //   3. {@link MEET_JOIN_NAME_FALLBACK} — guarantees a non-empty string
-    //      so the bot's `needsFullWiring` predicate never silently downgrades
-    //      the container to screenshot-only mode.
-    // The same value is used for `JOIN_NAME` AND for `{assistantName}`
-    // substitution in the consent message — the bot needs both.
-    const effectiveJoinName =
-      meet.joinName ??
-      this.deps.resolveAssistantDisplayName() ??
-      MEET_JOIN_NAME_FALLBACK;
+    let daemonUrl: string;
+    let effectiveJoinName: string;
+    let resolvedConsentMessage: string;
+    try {
+      daemonUrl = this.deps.resolveDaemonUrl();
 
-    // `{assistantName}` substitution is owned by the `meet_join` tool
-    // (PR 23), which resolves the assistant name from IDENTITY.md and
-    // passes a substituted string via `input.consentMessage`. Callers that
-    // bypass the tool (direct API users, tests) pass the raw template —
-    // substitute here so the bot receives a human-readable greeting
-    // regardless of entry point.
-    const resolvedConsentMessage = substituteAssistantName(
-      consentMessage ?? meet.consentMessage,
-      effectiveJoinName,
-    );
+      // Resolve the effective bot display name. Priority:
+      //   1. `services.meet.joinName` when set.
+      //   2. The assistant display name from IDENTITY.md.
+      //   3. {@link MEET_JOIN_NAME_FALLBACK} — guarantees a non-empty string
+      //      so the bot's `needsFullWiring` predicate never silently downgrades
+      //      the container to screenshot-only mode.
+      // The same value is used for `JOIN_NAME` AND for `{assistantName}`
+      // substitution in the consent message — the bot needs both.
+      effectiveJoinName =
+        meet.joinName ??
+        this.deps.resolveAssistantDisplayName() ??
+        MEET_JOIN_NAME_FALLBACK;
+
+      // `{assistantName}` substitution is owned by the `meet_join` tool
+      // (PR 23), which resolves the assistant name from IDENTITY.md and
+      // passes a substituted string via `input.consentMessage`. Callers that
+      // bypass the tool (direct API users, tests) pass the raw template —
+      // substitute here so the bot receives a human-readable greeting
+      // regardless of entry point.
+      resolvedConsentMessage = substituteAssistantName(
+        consentMessage ?? meet.consentMessage,
+        effectiveJoinName,
+      );
+    } catch (err) {
+      this.pendingBotTokens.delete(meetingId);
+      void publishMeetEvent(
+        DAEMON_INTERNAL_ASSISTANT_ID,
+        meetingId,
+        "meet.error",
+        { detail: errorDetail(err) },
+      );
+      throw err;
+    }
 
     // Register the dispatcher BEFORE the audio-ingest starts so transcripts
     // fired by Deepgram the instant the streaming session opens cannot race
@@ -757,6 +1028,13 @@ class MeetSessionManagerImpl {
     const audioSocketPath = join(socketsDir, "audio.sock");
     const audioIngest = this.deps.audioIngestFactory();
     const audioIngestPromise = audioIngest.start(meetingId, audioSocketPath);
+    // Guard the ingest promise immediately so a rejection between here and
+    // the first explicit `await audioIngestPromise` (after `runner.run()`)
+    // does not surface as an unhandled rejection. The global handler in
+    // `shutdown-handlers.ts` calls `process.exit(1)` on unhandled
+    // rejections, so without this guard a transient STT failure during
+    // container spawn would crash the entire daemon.
+    audioIngestPromise.catch(() => {});
 
     const env: Record<string, string> = {
       MEET_URL: url,
@@ -776,6 +1054,39 @@ class MeetSessionManagerImpl {
       // disable in dev). Match the meet-bot image expectation.
       SKIP_PULSE: "0",
     };
+
+    // Avatar config → bot env.
+    //
+    // When the avatar feature is enabled we thread the config down to the
+    // bot via four env vars:
+    //
+    //   - `AVATAR_ENABLED` — flips the bot's Chrome flags into
+    //     v4l2loopback mode (added in PR 3) and mounts the `/avatar/*`
+    //     HTTP surface.
+    //   - `AVATAR_RENDERER` — which factory the bot's registry resolves.
+    //   - `AVATAR_CONFIG_JSON` — the full config block, serialized as a
+    //     single JSON string so renderer-specific sub-objects flow through
+    //     without having to explode each one into its own env var.
+    //   - `AVATAR_DEVICE_PATH` — explicit device-node override the bot
+    //     passes through to its Chrome launcher and `/avatar/enable`
+    //     handler.
+    //
+    // Credential IDs in `services.meet.avatar.*CredentialId` fields are
+    // passed through as-is by the `JSON.stringify(meet.avatar)` below —
+    // this code does NOT resolve them to raw secrets. Today this is inert
+    // because the only shipping renderers (`noop`, `talking-head`) have no
+    // credential fields. TODO — when hosted-renderer PRs (Simli/HeyGen/
+    // Tavus) land, they MUST extend this serialization step to resolve
+    // `*CredentialId` values via the vault and substitute raw secrets
+    // into the config before stringifying. The bot has no vault access
+    // and will fail to reach hosted APIs otherwise. Do not ship a hosted
+    // renderer without first extending this.
+    if (meet.avatar.enabled) {
+      env.AVATAR_ENABLED = "1";
+      env.AVATAR_RENDERER = meet.avatar.renderer;
+      env.AVATAR_CONFIG_JSON = JSON.stringify(meet.avatar);
+      env.AVATAR_DEVICE_PATH = meet.avatar.devicePath;
+    }
 
     const runner = this.deps.dockerRunnerFactory();
 
@@ -805,6 +1116,23 @@ class MeetSessionManagerImpl {
         ],
         name: `vellum-meet-${meetingId}`,
         network: meet.dockerNetwork,
+        // Labels consumed by the orphan reaper on the next daemon boot.
+        // See {@link reapOrphanedMeetBots} in `docker-runner.ts` for the
+        // full label scheme + reaper contract.
+        labels: {
+          [MEET_BOT_LABEL]: "true",
+          [MEET_BOT_MEETING_ID_LABEL]: meetingId,
+        },
+        // When avatar is enabled, pass through the v4l2loopback device so
+        // the bot container can open `/dev/video10` (or whatever override
+        // the user configured) as a character device and push frames into
+        // it. The CLI (`cli/src/lib/docker.ts`) is responsible for
+        // bind-mounting the host device into the assistant container in
+        // Docker mode; this daemon-side wiring threads it one more hop to
+        // the bot container.
+        ...(meet.avatar.enabled
+          ? { avatarDevicePath: meet.avatar.devicePath }
+          : {}),
       });
     } catch (err) {
       log.error(
@@ -813,9 +1141,6 @@ class MeetSessionManagerImpl {
       );
       // Tear down the concurrently-started audio ingest so we don't leak
       // a listening socket or a streaming STT session on the spawn-failure path.
-      // Swallow its in-flight promise before stopping to prevent unhandled
-      // rejections from surfacing in the caller's context.
-      audioIngestPromise.catch(() => {});
       await audioIngest.stop().catch(() => {});
       unregisterMeetingDispatcher(meetingId);
       this.pendingBotTokens.delete(meetingId);
@@ -836,7 +1161,6 @@ class MeetSessionManagerImpl {
       // bot. Best-effort — surface the original error either way.
       await captureBotLogs(runner, runResult.containerId, meetingDir);
       await runner.remove(runResult.containerId).catch(() => {});
-      audioIngestPromise.catch(() => {});
       await audioIngest.stop().catch(() => {});
       unregisterMeetingDispatcher(meetingId);
       this.pendingBotTokens.delete(meetingId);
@@ -955,6 +1279,22 @@ class MeetSessionManagerImpl {
       botApiToken,
     });
 
+    // TTS lip-sync forwarder — subscribes to the bridge's viseme channel
+    // and POSTs each event to the bot's `/avatar/viseme` endpoint so the
+    // in-bot avatar renderer drives mouth blendshapes against the audio
+    // the bot is simultaneously playing out. Must be constructed AFTER
+    // the bridge (it subscribes synchronously in `startTtsLipsync`) and
+    // BEFORE any speak() call can land — since all speaks are gated on
+    // the session record hitting `this.sessions`, wiring it here (before
+    // the session is inserted) guarantees the tap is in place when the
+    // first speak fires. Its handle lives on the ActiveSession so
+    // `leave()` can stop the forwarder BEFORE the bridge is torn down.
+    const ttsLipsyncHandle = this.deps.ttsLipsyncFactory({
+      bridge: ttsBridge,
+      botApiToken,
+      meetingId,
+    });
+
     // Barge-in watcher — auto-cancels in-flight TTS when a non-bot speaker
     // takes the floor mid-utterance. Subscribes to the dispatcher and the
     // assistant-event-hub for `meet.speaking_*` lifecycle. Constructed
@@ -983,6 +1323,7 @@ class MeetSessionManagerImpl {
       storageWriter,
       chatOpportunityDetector,
       ttsBridge,
+      ttsLipsyncHandle,
       bargeInWatcher,
     };
     this.sessions.set(meetingId, session);
@@ -1024,11 +1365,42 @@ class MeetSessionManagerImpl {
     );
 
     // Subscribe the conversation bridge + start the storage writer now
-    // that the session record is in place. The writer subscribes to the
-    // dispatcher via its own `start()`; it reads live PCM off the audio
-    // ingest's tee once the source adapter is wired in.
-    conversationBridge.subscribe();
-    storageWriter.start();
+    // that the session record is in place. If either throws, roll back the
+    // container and audio ingest so we don't leak a running bot.
+    try {
+      conversationBridge.subscribe();
+      storageWriter.start();
+    } catch (err) {
+      log.error(
+        { err, meetingId, containerId: runResult.containerId },
+        "Bridge/writer subscribe failed — rolling back container and audio ingest",
+      );
+      this.sessions.delete(meetingId);
+      for (const unsubscribe of session.eventUnsubscribes) {
+        try {
+          unsubscribe();
+        } catch {}
+      }
+      // Unsubscribe the lip-sync forwarder before we move on so no viseme
+      // event fires against the soon-to-be-removed bridge / container.
+      try {
+        ttsLipsyncHandle.stop();
+      } catch {
+        /* best-effort */
+      }
+      unregisterMeetingDispatcher(meetingId);
+      await audioIngest.stop().catch(() => {});
+      await runner.stop(runResult.containerId).catch(() => {});
+      await captureBotLogs(runner, runResult.containerId, meetingDir);
+      await runner.remove(runResult.containerId).catch(() => {});
+      void publishMeetEvent(
+        DAEMON_INTERNAL_ASSISTANT_ID,
+        meetingId,
+        "meet.error",
+        { detail: errorDetail(err) },
+      );
+      throw err;
+    }
     const pcmSource: PcmSource = {
       subscribe: (cb) => audioIngest.subscribePcm(cb),
     };
@@ -1137,6 +1509,20 @@ class MeetSessionManagerImpl {
       log.warn(
         { err, meetingId },
         "MeetBargeInWatcher.stop threw during leave — continuing teardown",
+      );
+    }
+
+    // Stop the TTS lip-sync forwarder BEFORE we cancel in-flight TTS so no
+    // late viseme POST fires against a shutting-down bridge. The forwarder's
+    // `stop()` only unsubscribes from the bridge's `onViseme` channel — it
+    // does not wait for any in-flight `/avatar/viseme` POSTs to settle, since
+    // those are fire-and-forget and tolerate being dropped.
+    try {
+      session.ttsLipsyncHandle.stop();
+    } catch (err) {
+      log.warn(
+        { err, meetingId },
+        "TtsLipsyncHandle.stop threw during leave — continuing teardown",
       );
     }
 
@@ -1437,6 +1823,74 @@ class MeetSessionManagerImpl {
   }
 
   /**
+   * Turn on the bot's video avatar via the bot's `/avatar/enable` endpoint.
+   * The bot starts its configured renderer, attaches it to the v4l2loopback
+   * device that backs the Meet camera, and flips the Meet camera toggle ON
+   * so other participants start receiving frames. Idempotent on the bot
+   * side: calling again while the avatar is already running returns
+   * `{alreadyRunning: true}` without re-initializing the renderer.
+   *
+   * Returns the parsed JSON body from the bot so tool-layer callers can
+   * relay useful fields (`renderer`, `alreadyRunning`, `cameraChanged`,
+   * etc.) back to the model.
+   *
+   * Throws:
+   *   - {@link MeetSessionNotFoundError} when no active session exists.
+   *   - {@link MeetSessionUnreachableError} on network-level failure.
+   *   - {@link MeetBotAvatarError} when the bot responded with a non-2xx
+   *     status (e.g. 503 when the avatar subsystem is disabled or the
+   *     renderer is unavailable on this host).
+   */
+  async enableAvatar(meetingId: string): Promise<Record<string, unknown>> {
+    const session = this.sessions.get(meetingId);
+    if (!session) {
+      throw new MeetSessionNotFoundError(meetingId);
+    }
+
+    const body = await this.deps.botAvatarFetch(
+      `${session.botBaseUrl}/avatar/enable`,
+      session.botApiToken,
+      "/avatar/enable",
+      meetingId,
+    );
+
+    log.info({ meetingId, body }, "Meet avatar enabled");
+    return body;
+  }
+
+  /**
+   * Turn off the bot's video avatar via the bot's `/avatar/disable`
+   * endpoint. The bot flips the Meet camera toggle OFF and tears down the
+   * renderer + device writer. Idempotent on the bot side: calling while
+   * already off returns `{wasActive: false}` without error.
+   *
+   * Returns the parsed JSON body so tool-layer callers can relay
+   * `wasActive`, `cameraChanged`, etc. back to the model.
+   *
+   * Throws:
+   *   - {@link MeetSessionNotFoundError} when no active session exists.
+   *   - {@link MeetSessionUnreachableError} on network-level failure.
+   *   - {@link MeetBotAvatarError} when the bot responded with a non-2xx
+   *     status.
+   */
+  async disableAvatar(meetingId: string): Promise<Record<string, unknown>> {
+    const session = this.sessions.get(meetingId);
+    if (!session) {
+      throw new MeetSessionNotFoundError(meetingId);
+    }
+
+    const body = await this.deps.botAvatarFetch(
+      `${session.botBaseUrl}/avatar/disable`,
+      session.botApiToken,
+      "/avatar/disable",
+      meetingId,
+    );
+
+    log.info({ meetingId, body }, "Meet avatar disabled");
+    return body;
+  }
+
+  /**
    * Tear down every active meeting in parallel with a shared overall deadline.
    *
    * Invoked from the daemon's shutdown sequence so live meetings don't leak
@@ -1467,6 +1921,7 @@ class MeetSessionManagerImpl {
     reason: string,
     totalDeadlineMs = MEET_SHUTDOWN_DEADLINE_MS,
   ): Promise<void> {
+    this.shuttingDown = true;
     // Snapshot what we need for the straggler path BEFORE launching the
     // leaves, since `leave()` drops sessions from the map early.
     const snapshot = Array.from(this.sessions.values()).map((session) => ({
@@ -1498,13 +1953,15 @@ class MeetSessionManagerImpl {
           resolved.add(entry.meetingId);
         }),
     );
-    const deadline = new Promise<"timeout">((resolve) =>
-      setTimeout(() => resolve("timeout"), totalDeadlineMs),
-    );
+    let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
+    const deadline = new Promise<"timeout">((resolve) => {
+      deadlineTimer = setTimeout(() => resolve("timeout"), totalDeadlineMs);
+    });
     const outcome = await Promise.race([
       Promise.all(leaves).then(() => "completed" as const),
       deadline,
     ]);
+    if (deadlineTimer !== null) clearTimeout(deadlineTimer);
 
     if (outcome === "timeout") {
       const stragglers = snapshot.filter((s) => !resolved.has(s.meetingId));
@@ -1537,6 +1994,11 @@ class MeetSessionManagerImpl {
           }
           try {
             lingering.bargeInWatcher.stop();
+          } catch {
+            /* best-effort */
+          }
+          try {
+            lingering.ttsLipsyncHandle.stop();
           } catch {
             /* best-effort */
           }
@@ -1617,7 +2079,15 @@ export const MeetSessionManager = new MeetSessionManagerImpl();
 export function _createMeetSessionManagerForTests(
   deps?: MeetSessionManagerDeps,
 ): MeetSessionManagerImpl {
-  return new MeetSessionManagerImpl(deps);
+  // Default to disabling the startup orphan-reaper sweep in tests — most
+  // tests supply a narrow mock runner that only implements the
+  // `run`/`stop`/`remove`/`inspect`/`logs` surface used by the
+  // join/leave path. Tests that want to exercise the reaper can override
+  // by passing `disableStartupOrphanReaper: false`.
+  return new MeetSessionManagerImpl({
+    disableStartupOrphanReaper: true,
+    ...deps,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1689,10 +2159,9 @@ const CHAT_OPPORTUNITY_TOOL: ToolDefinition = {
 
 /**
  * Default Tier 2 chat-opportunity LLM callback. Routes through the
- * repo-wide provider abstraction at
- * `modelIntent: "latency-optimized"` — keeping the proactive-chat path
- * on the same latency tier the consent monitor uses so both background
- * loops share tuning. Times out at
+ * repo-wide provider abstraction under the `meetChatOpportunity` call
+ * site, keeping the proactive-chat path on its own configurable lane
+ * alongside the consent monitor. Times out at
  * {@link CHAT_OPPORTUNITY_LLM_TIMEOUT_MS} and extracts the tool-use
  * input as the structured verdict.
  *
@@ -1703,7 +2172,9 @@ const CHAT_OPPORTUNITY_TOOL: ToolDefinition = {
 async function defaultCallDetectorLLM(
   prompt: string,
 ): Promise<ChatOpportunityDecision> {
-  const provider: Provider | null = await getConfiguredProvider();
+  const provider: Provider | null = await getConfiguredProvider(
+    "meetChatOpportunity",
+  );
   if (!provider) {
     return { shouldRespond: false, reason: "" };
   }
@@ -1716,7 +2187,7 @@ async function defaultCallDetectorLLM(
       "You are a strict JSON classifier. Only respond via the report_chat_opportunity tool.",
       {
         config: {
-          modelIntent: "latency-optimized",
+          callSite: "meetChatOpportunity",
           max_tokens: CHAT_OPPORTUNITY_LLM_MAX_TOKENS,
           tool_choice: {
             type: "tool" as const,
@@ -1760,6 +2231,30 @@ function defaultTtsBridgeFactory(
     },
   };
   return new MeetTtsBridge(bridgeArgs, bridgeDeps);
+}
+
+/**
+ * Default {@link startTtsLipsync} factory — subscribes to the bridge's
+ * viseme channel and forwards every event to the bot's `/avatar/viseme`
+ * endpoint. The forwarder tolerates bot-side HTTP errors (404 before
+ * PR 5's route is deployed, 5xx during transient failures) internally, so
+ * the session manager never observes a rejection from this path. Tests
+ * can inject a fake via {@link MeetSessionManagerDeps.ttsLipsyncFactory}
+ * to observe start/stop without touching the bridge's emit path or the
+ * bot HTTP surface. The default cast is only safe because
+ * {@link MeetTtsBridgeLike} is a strict subset of the {@link MeetTtsBridge}
+ * shape {@link startTtsLipsync} reads — `onViseme`, `botBaseUrl`, and
+ * `meetingId` are only accessed through the real bridge instance, not
+ * through the narrow session-manager interface.
+ */
+function defaultTtsLipsyncFactory(
+  args: MeetTtsLipsyncFactoryArgs,
+): TtsLipsyncHandle {
+  const lipsyncArgs: StartTtsLipsyncArgs = {
+    bridge: args.bridge as unknown as MeetTtsBridge,
+    botApiToken: args.botApiToken,
+  };
+  return startTtsLipsync(lipsyncArgs);
 }
 
 /**
@@ -1810,7 +2305,6 @@ export function substituteAssistantName(
   return template.split("{assistantName}").join(assistantName);
 }
 
-/** Strip internal fields (`timeoutHandle`) from a session before exposing it. */
 /**
  * Best-effort: pull the bot container's accumulated stdout/stderr and
  * persist it to `<meetingDir>/bot.log` before the container is removed.
@@ -1915,6 +2409,48 @@ async function defaultBotSendChatFetch(
     const body = await response.text().catch(() => "");
     throw new MeetBotChatError(meetingId, response.status, body);
   }
+}
+
+/**
+ * Default bot `/avatar/{enable,disable}` hitter. Honors
+ * {@link BOT_AVATAR_HTTP_TIMEOUT_MS}. On network-level failure throws
+ * {@link MeetSessionUnreachableError}; on non-2xx throws
+ * {@link MeetBotAvatarError} so the tool layer can surface the upstream
+ * status (e.g. 503 when the renderer is unavailable on this host).
+ *
+ * Parses the 2xx body as JSON and returns it verbatim so callers can
+ * relay useful fields (e.g. `alreadyRunning`, `renderer`, `cameraChanged`)
+ * back to the model. A body that fails to parse as JSON is coerced to an
+ * empty object rather than throwing — the endpoint is defined to return
+ * JSON on success, but an empty-body / non-JSON 2xx is still a success
+ * from the caller's perspective.
+ */
+async function defaultBotAvatarFetch(
+  url: string,
+  token: string,
+  endpoint: string,
+  meetingId: string,
+): Promise<Record<string, unknown>> {
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(BOT_AVATAR_HTTP_TIMEOUT_MS),
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new MeetSessionUnreachableError(meetingId, detail);
+  }
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new MeetBotAvatarError(meetingId, endpoint, response.status, body);
+  }
+  const parsed = (await response.json().catch(() => ({}))) as unknown;
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    return parsed as Record<string, unknown>;
+  }
+  return {};
 }
 
 /**

@@ -844,7 +844,7 @@ export async function runGraphExtraction(
   }
 
   // 2. Get provider
-  const provider = await getConfiguredProvider();
+  const provider = await getConfiguredProvider("memoryExtraction");
   if (!provider) {
     throw new BackendUnavailableError(
       "Provider unavailable for graph extraction",
@@ -929,7 +929,7 @@ export async function runGraphExtraction(
     systemPrompt,
     {
       config: {
-        modelIntent: "quality-optimized" as const,
+        callSite: "memoryExtraction" as const,
         tool_choice: { type: "tool" as const, name: "extract_graph_diff" },
       },
     },

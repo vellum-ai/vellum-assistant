@@ -78,7 +78,7 @@ afterEach(() => {
 });
 
 const config: CloudAuthConfig = {
-  gatewayBaseUrl: 'https://api.vellum.ai',
+  webBaseUrl: 'https://www.vellum.ai',
   clientId: 'test-client-id',
 };
 
@@ -94,8 +94,9 @@ describe('signInCloud', () => {
   test('happy path stores a token and returns it', async () => {
     launchWebAuthFlowImpl = async (details) => {
       // The redirect URL the gateway would send back.
-      expect(details.url).toContain('https://api.vellum.ai/oauth/chrome-extension/start');
+      expect(details.url).toContain('https://www.vellum.ai/accounts/chrome-extension/start');
       expect(details.url).toContain('client_id=test-client-id');
+      expect(details.url).toContain(`assistant_id=${ASSISTANT_A}`);
       expect(details.interactive).toBe(true);
       return 'https://fakeextid.chromiumapp.org/cloud-auth#token=abc123&expires_in=3600&guardian_id=g-42';
     };
@@ -135,6 +136,16 @@ describe('signInCloud', () => {
     await expect(signInCloud(ASSISTANT_A, config)).rejects.toThrow('incomplete payload');
   });
 
+  test('oauth-style error fragment rejects with error detail', async () => {
+    launchWebAuthFlowImpl = async () =>
+      'https://fakeextid.chromiumapp.org/cloud-auth#error=assistant_forbidden&error_description=owner_mismatch&trace_id=trace-123';
+
+    await expect(signInCloud(ASSISTANT_A, config)).rejects.toThrow(
+      'cloud sign-in failed: assistant_forbidden (owner_mismatch) [trace=trace-123]',
+    );
+    expect(fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)]).toBeUndefined();
+  });
+
   test('cancelled flow rejects with "cancelled"', async () => {
     launchWebAuthFlowImpl = async () => undefined;
 
@@ -142,15 +153,75 @@ describe('signInCloud', () => {
     expect(fakeStorage.data[cloudTokenStorageKey(ASSISTANT_A)]).toBeUndefined();
   });
 
-  test('trims trailing slash on gatewayBaseUrl', async () => {
+  test('trims trailing slash on webBaseUrl', async () => {
     let seenUrl = '';
     launchWebAuthFlowImpl = async (details) => {
       seenUrl = details.url;
       return 'https://fakeextid.chromiumapp.org/cloud-auth#token=abc&expires_in=60&guardian_id=g1';
     };
-    await signInCloud(ASSISTANT_A, { gatewayBaseUrl: 'https://api.vellum.ai/', clientId: 'cid' });
-    expect(seenUrl).toContain('https://api.vellum.ai/oauth/chrome-extension/start');
-    expect(seenUrl).not.toContain('api.vellum.ai//oauth');
+    await signInCloud(ASSISTANT_A, { webBaseUrl: 'https://www.vellum.ai/', clientId: 'cid' });
+    expect(seenUrl).toContain('https://www.vellum.ai/accounts/chrome-extension/start');
+    expect(seenUrl).not.toContain('www.vellum.ai//accounts');
+  });
+
+  test('does not retry when no alternate auth base URL exists', async () => {
+    const seenUrls: string[] = [];
+    launchWebAuthFlowImpl = async (details) => {
+      seenUrls.push(details.url);
+      throw new Error('Authorization page could not be loaded.');
+    };
+
+    let capturedMessage = '';
+    try {
+      await signInCloud(ASSISTANT_A, config);
+    } catch (err) {
+      capturedMessage = err instanceof Error ? err.message : String(err);
+    }
+    expect(capturedMessage).toContain('Authorization page could not be loaded.');
+    expect(capturedMessage).toContain('[trace=');
+
+    expect(seenUrls.length).toBe(1);
+    expect(seenUrls[0]).toContain(`assistant_id=${ASSISTANT_A}`);
+  });
+
+  test('does not retry against platform runtime host for auth fallback', async () => {
+    const seenUrls: string[] = [];
+    launchWebAuthFlowImpl = async (details) => {
+      seenUrls.push(details.url);
+      throw new Error('Authorization page could not be loaded.');
+    };
+
+    await expect(
+      signInCloud(ASSISTANT_A, {
+        ...config,
+        runtimeBaseUrl: 'https://platform.vellum.ai',
+      }),
+    ).rejects.toThrow(/Authorization page could not be loaded\./);
+
+    // platform.vellum.ai remaps to www.vellum.ai and dedupes to a
+    // single candidate URL.
+    expect(seenUrls.length).toBe(1);
+    expect(seenUrls[0]).toContain('https://www.vellum.ai/accounts/chrome-extension/start');
+  });
+
+  test('retries against assistant-web host derived from runtimeBaseUrl', async () => {
+    const seenUrls: string[] = [];
+    launchWebAuthFlowImpl = async (details) => {
+      seenUrls.push(details.url);
+      if (seenUrls.length < 2) {
+        throw new Error('Authorization page could not be loaded.');
+      }
+      return 'https://fakeextid.chromiumapp.org/cloud-auth#token=abc&expires_in=60&guardian_id=g1';
+    };
+
+    await signInCloud(ASSISTANT_A, {
+      ...config,
+      runtimeBaseUrl: 'https://dev-platform.vellum.ai',
+    });
+
+    expect(seenUrls.length).toBe(2);
+    expect(seenUrls[0]).toContain('https://www.vellum.ai/accounts/chrome-extension/start');
+    expect(seenUrls[1]).toContain('https://dev-assistant.vellum.ai/accounts/chrome-extension/start');
   });
 });
 
@@ -301,7 +372,8 @@ describe('refreshCloudToken', () => {
     let seenInteractive: boolean | undefined;
     launchWebAuthFlowImpl = async (details) => {
       seenInteractive = details.interactive;
-      expect(details.url).toContain('https://api.vellum.ai/oauth/chrome-extension/start');
+      expect(details.url).toContain('https://www.vellum.ai/accounts/chrome-extension/start');
+      expect(details.url).toContain(`assistant_id=${ASSISTANT_A}`);
       return 'https://fakeextid.chromiumapp.org/cloud-auth#token=fresh-jwt&expires_in=3600&guardian_id=g-99';
     };
 

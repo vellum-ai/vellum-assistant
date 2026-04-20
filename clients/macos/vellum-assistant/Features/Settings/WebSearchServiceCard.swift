@@ -7,8 +7,9 @@ import VellumAssistantShared
 /// - **Managed + Managed inference + logged in**: Message that web search is included.
 /// - **Managed + Managed inference + not logged in**: Login prompt.
 /// - **Managed + Your Own inference**: Message that managed web search is not yet available.
-/// - **Your Own + Your Own inference**: Provider picker (Provider Native, Perplexity, Brave) + API key.
-/// - **Your Own + Managed inference**: Provider picker (Perplexity, Brave only) + API key.
+/// - **Your Own**: Provider picker + API key. Provider Native is available whenever the
+///   inference provider supports native web search (e.g. Anthropic, OpenAI), regardless of
+///   inference mode. Perplexity and Brave are always available as key-based alternatives.
 @MainActor
 struct WebSearchServiceCard: View {
     @ObservedObject var store: SettingsStore
@@ -27,6 +28,12 @@ struct WebSearchServiceCard: View {
     @State private var perplexityHasKey = false
     /// Whether the Brave provider has a stored API key (fetched per-component).
     @State private var braveHasKey = false
+    /// Tail of the serial chain of in-flight `services.web-search.provider` PATCHes.
+    /// Both the auto-fallback writes in `onChange` and the explicit `save()` write
+    /// go through `enqueueProviderWrite` — chaining on this task guarantees the
+    /// last-enqueued value is the one the daemon ends up persisting, so a stale
+    /// auto-fallback PATCH cannot land after a user's explicit save.
+    @State private var pendingProviderWrite: Task<Void, Never>?
 
     private var isPerplexity: Bool {
         draftProvider == "perplexity"
@@ -44,10 +51,12 @@ struct WebSearchServiceCard: View {
         authManager.isAuthenticated
     }
 
-    /// The available providers depend on the current inference mode.
-    /// Provider Native requires Your Own inference (it uses the user's own API key).
+    /// The available providers depend on the current inference selection's capabilities.
+    /// Provider Native is available whenever the inference provider supports native web search
+    /// (e.g. Anthropic, OpenAI, or OpenRouter routing to an `anthropic/*` model),
+    /// regardless of whether inference is managed or your-own.
     private var availableProviders: [String] {
-        store.inferenceMode == "your-own"
+        store.isNativeWebSearchCapable(store.selectedInferenceProvider, model: store.selectedModel)
             ? ["inference-provider-native", "perplexity", "brave"]
             : ["perplexity", "brave"]
     }
@@ -156,8 +165,37 @@ struct WebSearchServiceCard: View {
                 draftMode = "your-own"
             }
             if newValue == "managed" && draftProvider == "inference-provider-native" {
-                // Provider Native requires Your Own inference.
+                // Only auto-correct when the managed provider lacks native web search support.
+                if !store.isNativeWebSearchCapable(store.selectedInferenceProvider, model: store.selectedModel) {
+                    draftProvider = "perplexity"
+                }
+            }
+        }
+        .onChange(of: store.selectedInferenceProvider) { _, newProvider in
+            // Auto-correct when the inference provider changes to one that
+            // does not support native web search while provider-native is selected.
+            // Persist the fix so the daemon's services.web-search.provider does
+            // not remain pinned to "inference-provider-native" while the new
+            // provider can't support it — otherwise getWebSearchProvider falls
+            // back to Perplexity and breaks search for users without a key.
+            if draftProvider == "inference-provider-native" && !store.isNativeWebSearchCapable(newProvider, model: store.selectedModel) {
                 draftProvider = "perplexity"
+                if store.webSearchProvider == "inference-provider-native" {
+                    enqueueProviderWrite { _ = await store.setWebSearchProvider("perplexity").value }
+                    initialProvider = "perplexity"
+                }
+            }
+        }
+        .onChange(of: store.selectedModel) { _, newModel in
+            // Auto-correct when the model changes to one that breaks native web search
+            // for the current provider (e.g. OpenRouter switching off an `anthropic/*` model).
+            // Persist the fix — see comment on selectedInferenceProvider above.
+            if draftProvider == "inference-provider-native" && !store.isNativeWebSearchCapable(store.selectedInferenceProvider, model: newModel) {
+                draftProvider = "perplexity"
+                if store.webSearchProvider == "inference-provider-native" {
+                    enqueueProviderWrite { _ = await store.setWebSearchProvider("perplexity").value }
+                    initialProvider = "perplexity"
+                }
             }
         }
     }
@@ -236,10 +274,12 @@ struct WebSearchServiceCard: View {
         if draftMode == "your-own" {
             // Await the mode patch before writing the provider so the
             // daemon's read-modify-write cycle doesn't overwrite the mode.
+            // Funnel through the serial provider queue so any in-flight
+            // auto-fallback PATCH cannot land after this explicit save.
             let capturedProvider = draftProvider
-            Task {
+            enqueueProviderWrite {
                 if let pendingMode { _ = await pendingMode.value }
-                store.setWebSearchProvider(capturedProvider)
+                _ = await store.setWebSearchProvider(capturedProvider).value
             }
 
             if isPerplexity && !perplexityKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -258,5 +298,15 @@ struct WebSearchServiceCard: View {
 
         // Update initial provider to reflect persisted state
         initialProvider = draftProvider
+    }
+
+    /// Serializes provider PATCHes by chaining each new write onto the tail of
+    /// the previous in-flight task. The last enqueued value wins deterministically.
+    private func enqueueProviderWrite(_ work: @MainActor @escaping () async -> Void) {
+        let previous = pendingProviderWrite
+        pendingProviderWrite = Task { @MainActor in
+            _ = await previous?.value
+            await work()
+        }
     }
 }

@@ -34,5 +34,207 @@
   - The `inline-skill-commands` feature flag must be enabled for inline expansions to work. When the flag is off, skills containing expansion tokens fail closed at load time
   - Inline command expansions are only supported for `bundled`, `managed`, and `workspace` skill sources. Skills distributed as `extra` sources cannot use this syntax
 
+- **User-gated actions (interactive confirmation/input)**
+
+  Scripts that perform irreversible or high-risk operations (sending emails, deleting data, unsubscribing, making purchases) **must** gate execution on explicit user confirmation. Prose-only instructions in SKILL.md ("always ask the user first") are not sufficient — they rely on the LLM following the instruction, which is not guaranteed.
+
+  Use the `assistant ui` CLI commands to present a blocking interactive surface and branch on the result. Two commands are available:
+
+  ### `assistant ui confirm` — binary yes/no gate
+
+  Use this for irreversible actions that need a simple go/no-go decision. The command exits `0` on confirm, `1` on deny/cancel/timeout.
+
+  ```bash
+  # Gate on user confirmation before sending an email
+  if assistant ui confirm \
+    --title "Send email" \
+    --message "Send draft to jane@example.com — Subject: Q2 Report" \
+    --confirm-label "Send" \
+    --deny-label "Cancel"; then
+    # User confirmed — proceed with the action
+    assistant oauth request POST "/v1.0/me/messages/${DRAFT_ID}/send" \
+      --provider microsoft-graph
+  else
+    echo "Send cancelled by user."
+    exit 0
+  fi
+  ```
+
+  For scripts that need to inspect the result (e.g. distinguish deny from timeout):
+
+  ```bash
+  RESULT=$(assistant ui confirm \
+    --title "Delete records" \
+    --message "Permanently delete 42 records from the archive?" \
+    --confirm-label "Delete" \
+    --deny-label "Keep" \
+    --json)
+
+  STATUS=$(echo "$RESULT" | jq -r '.status')
+  CONFIRMED=$(echo "$RESULT" | jq -r '.confirmed')
+
+  case "$STATUS" in
+    submitted)
+      if [ "$CONFIRMED" = "true" ]; then
+        # User clicked "Delete" — proceed
+        perform_deletion
+      else
+        echo "User denied the action."
+      fi
+      ;;
+    cancelled)
+      echo "User dismissed the prompt."
+      ;;
+    timed_out)
+      echo "No response — timed out. Aborting."
+      ;;
+    *)
+      echo "Unexpected status: $STATUS" >&2
+      exit 1
+      ;;
+  esac
+  ```
+
+  ### `assistant ui request` — structured input/data collection
+
+  Use this when you need more than a yes/no — e.g. collecting form data, presenting choices, or gathering parameters before executing an operation. Returns full JSON with user-submitted data.
+
+  ```bash
+  RESULT=$(assistant ui request \
+    --payload '{"message":"Select accounts to archive","fields":[{"name":"accounts","type":"multi-select"}]}' \
+    --surface-type form \
+    --title "Archive accounts" \
+    --json)
+
+  STATUS=$(echo "$RESULT" | jq -r '.status')
+
+  if [ "$STATUS" = "submitted" ]; then
+    # Extract user-submitted data and proceed
+    ACCOUNTS=$(echo "$RESULT" | jq -r '.submittedData.accounts')
+    archive_accounts "$ACCOUNTS"
+  elif [ "$STATUS" = "cancelled" ]; then
+    echo "User cancelled."
+  else
+    echo "Request failed or timed out: $STATUS"
+    exit 1
+  fi
+  ```
+
+  ### `--actions` — custom action buttons
+
+  Use `--actions` to define custom buttons on a `ui request` surface. Each action has an `id`, `label`, and optional `variant` (`"primary"`, `"danger"`, or `"secondary"`). The user's chosen action is returned in `actionId`.
+
+  ```bash
+  # Present a multi-option surface with custom actions
+  RESULT=$(assistant ui request \
+    --payload '{"message":"The staging deploy found 3 failing tests."}' \
+    --title "Deploy decision" \
+    --actions '[
+      {"id":"deploy_anyway","label":"Deploy Anyway","variant":"danger"},
+      {"id":"fix_first","label":"Fix Tests First","variant":"primary"},
+      {"id":"skip","label":"Skip This Deploy","variant":"secondary"}
+    ]' \
+    --json)
+
+  STATUS=$(echo "$RESULT" | jq -r '.status')
+  ACTION=$(echo "$RESULT" | jq -r '.actionId')
+
+  if [ "$STATUS" = "submitted" ]; then
+    case "$ACTION" in
+      deploy_anyway)
+        run_deploy --force
+        ;;
+      fix_first)
+        echo "Aborting deploy. Fix the tests and re-run."
+        exit 0
+        ;;
+      skip)
+        echo "Deploy skipped."
+        exit 0
+        ;;
+    esac
+  elif [ "$STATUS" = "cancelled" ]; then
+    REASON=$(echo "$RESULT" | jq -r '.cancellationReason // "unknown"')
+    if [ "$REASON" = "user_dismissed" ]; then
+      echo "User dismissed the prompt."
+    else
+      echo "Surface cancelled (reason: $REASON). No action taken."
+    fi
+  else
+    echo "Timed out. No action taken."
+  fi
+  ```
+
+  Reserved action IDs are used internally and are rejected by `--actions` validation. There are two categories:
+
+  - **Lifecycle events** (`selection_changed`, `content_changed`, `state_update`) — non-terminal events that are silently swallowed without resolving the pending request.
+  - **Cancellation triggers** (`cancel`, `dismiss`) — resolve the pending request as `cancelled` (instead of `submitted`).
+
+  ### Status and cancellation reason branching reference
+
+  Both `ui confirm` and `ui request` return a `status` field in `--json` mode. However, the `cancellationReason` field is only available in `ui request --json` output. The `ui confirm` command uses the simpler exit-code pattern (0 = confirmed, 1 = denied/cancelled/timed out) and its `--json` output includes `ok`, `confirmed`, `status`, `actionId`, `surfaceId`, and optional `decisionToken`/`summary` — but not `cancellationReason`.
+
+  | Status | Meaning | Typical action |
+  |--------|---------|----------------|
+  | `submitted` | User completed the interaction (confirmed, denied, or submitted form) | For `ui confirm`: exit code 0 = confirmed, 1 = denied. For `ui request`: check `actionId` or `submittedData`. |
+  | `cancelled` | Surface was cancelled | For `ui confirm`: exit code 1 — abort gracefully. For `ui request`: check `cancellationReason` to determine why. |
+  | `timed_out` | No response within the timeout window | Abort safely. Do not proceed — treat as a non-confirmation. |
+
+  **Cancellation reasons** (`ui request` only): The `cancellationReason` field distinguishes user-driven from operational cancellations. This field is only present in `ui request --json` output.
+
+  | `cancellationReason` | Category | Meaning |
+  |----------------------|----------|---------|
+  | `user_dismissed` | User-driven | User explicitly closed the surface. Treat as a deliberate "no." |
+  | `no_interactive_surface` | Operational | No interactive UI is available (headless/API channel). Consider a fallback. |
+  | `conversation_not_found` | Operational | Target conversation could not be located. Check the conversation ID. |
+  | `resolver_unavailable` | Operational | UI transport is disconnected (e.g. desktop client dropped). May be transient. |
+  | `resolver_error` | Operational | UI resolver threw an unexpected error. Log for investigation. |
+
+  **Canonical branching pattern for `ui request`** — for scripts that need to distinguish user dismissal from operational failures:
+
+  ```bash
+  RESULT=$(assistant ui request \
+    --payload '{"message":"Confirm the operation"}' \
+    --title "Operation" \
+    --json)
+
+  STATUS=$(echo "$RESULT" | jq -r '.status')
+  case "$STATUS" in
+    submitted)
+      # Handle based on actionId or submittedData
+      ;;
+    cancelled)
+      REASON=$(echo "$RESULT" | jq -r '.cancellationReason // "unknown"')
+      if [ "$REASON" = "user_dismissed" ]; then
+        echo "User chose not to proceed."
+        exit 0
+      fi
+      # Operational cancellation — log and decide on recovery
+      echo "Surface cancelled: $REASON" >&2
+      exit 1
+      ;;
+    timed_out)
+      echo "Timed out — aborting."
+      exit 1
+      ;;
+    *)
+      echo "Unexpected status: $STATUS" >&2
+      exit 1
+      ;;
+  esac
+  ```
+
+  For `ui confirm`, use the simpler exit-code pattern (see the `ui confirm` section above) or check `status` and `confirmed` fields in `--json` mode. Do not branch on `cancellationReason` with `ui confirm` — it is not included in the output.
+
+  **Decision token**: When the user affirmatively confirms (action `"confirm"`), the JSON output includes a `decisionToken` field — a short-lived, non-authoritative token encoding metadata about the decision (conversation, surface, action, timestamps). Use it for audit trails and cross-system correlation. The token is informational only and does not grant any capability. It is absent for deny, cancel, and timeout outcomes.
+
+  ### Conversation ID resolution
+
+  Inside a skill context, the conversation ID is auto-resolved from `__SKILL_CONTEXT_JSON` (set by the skill sandbox runner). Override with `--conversation-id <id>` if needed — run `assistant conversations list` to find available IDs.
+
+  ### Timeouts
+
+  Both commands accept `--timeout <ms>` (default: 300000ms / 5 minutes). Choose a timeout appropriate to the operation — shorter for simple confirmations, longer for complex forms. On timeout, the surface auto-cancels and the CLI exits with `status: "timed_out"`.
+
 - **Vellum-specific extensions**
   - If you must do something Vellum-system specific, use the `metadata` field to connect the skill in a structured way

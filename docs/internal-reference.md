@@ -283,33 +283,48 @@ The `scaffold_managed_skill` tool accepts an optional `includes` array to set th
 
 ### Browser Capabilities
 
-Web browsing is provided by the bundled `browser` skill. Browser tools are not available by default — the skill must be loaded first.
+Web browsing is provided through the `assistant browser` CLI commands. The bundled `browser` skill loads context and instructions, but all browser operations are dispatched as CLI subcommands rather than as individual LLM tools.
 
-#### Activating browser tools
+#### Using browser automation
 
-There are two ways to activate browser capabilities:
+Browser automation is accessed via the `assistant browser` CLI namespace:
 
-1. **Slash command**: Use `/browser` to explicitly load the browser skill.
-2. **Automatic loading**: When the agent determines that browser capabilities are needed, it calls `skill_load` to load the skill automatically.
+```bash
+assistant browser navigate --url https://example.com
+assistant browser snapshot
+assistant browser click --element-id e14
+assistant browser type --text "hello" --element-id e5
+assistant browser screenshot --output page.jpg
+assistant browser close
+```
 
-Once loaded, the following tools become available for the remainder of the session:
+Each browser operation has a corresponding CLI subcommand with typed flags. Run `assistant browser --help` for the full list, or `assistant browser <subcommand> --help` for per-operation usage.
 
-| Tool | Description |
-|------|-------------|
-| `browser_navigate` | Navigate to a URL |
-| `browser_snapshot` | List interactive elements on the current page |
-| `browser_screenshot` | Take a visual screenshot |
-| `browser_close` | Close the browser page |
-| `browser_click` | Click an element |
-| `browser_type` | Type text into an input |
-| `browser_press_key` | Press a keyboard key |
-| `browser_wait_for` | Wait for a condition |
-| `browser_extract` | Extract page text content |
-| `browser_fill_credential` | Fill a stored credential into a form field |
+#### Available operations
+
+| Operation | CLI Subcommand | Description |
+|-----------|---------------|-------------|
+| `navigate` | `assistant browser navigate` | Navigate to a URL |
+| `snapshot` | `assistant browser snapshot` | List interactive elements |
+| `screenshot` | `assistant browser screenshot` | Take a visual screenshot |
+| `close` | `assistant browser close` | Close the browser page |
+| `attach` | `assistant browser attach` | Attach Chrome debugger |
+| `detach` | `assistant browser detach` | Detach Chrome debugger |
+| `click` | `assistant browser click` | Click an element |
+| `type` | `assistant browser type` | Type text into an input |
+| `press_key` | `assistant browser press-key` | Press a keyboard key |
+| `scroll` | `assistant browser scroll` | Scroll the page |
+| `select_option` | `assistant browser select-option` | Select a dropdown option |
+| `hover` | `assistant browser hover` | Hover over an element |
+| `wait_for` | `assistant browser wait-for` | Wait for a condition |
+| `extract` | `assistant browser extract` | Extract page text content |
+| `wait_for_download` | `assistant browser wait-for-download` | Wait for a file download |
+| `fill_credential` | `assistant browser fill-credential` | Fill a stored credential |
+| `status` | `assistant browser status` | Check browser readiness |
 
 #### Permissions
 
-All `browser_*` tools are declared as low-risk. The system seeds default trust rules for `skill_load` and every `browser_*` tool, so they are auto-allowed in all permission modes out of the box. The exception is `browser_navigate` (and `web_fetch`) with `allow_private_network=true` — these are elevated to high-risk and will prompt for approval unless a matching trust rule has `allowHighRisk: true`. Users can override the default rules via `~/.vellum/protected/trust.json` if they want to require explicit approval (default rules cannot be removed, only disabled).
+Browser operations are executed via CLI commands. The `skill_load` tool has a default allow rule so the browser skill can be loaded automatically. The `browser navigate` command with `--allow-private-network` is elevated to high-risk and will prompt for approval.
 
 ### Assistant Attachments
 
@@ -732,12 +747,12 @@ STTStreamingClient  ──WSS──>  stt-stream-websocket.ts  ──WS──>  
                                                          ┌──────────────┼──────────────┐
                                                          │              │              │
                                                   DeepgramRealtime  GoogleGemini   OpenAIWhisper
-                                                  Transcriber       Streaming      Streaming
+                                                  Transcriber       Live Stream    Streaming
                                                   (realtime-ws)     Transcriber    Transcriber
-                                                                    (incr-batch)   (incr-batch)
+                                                                    (realtime-ws)  (incr-batch)
                                                          │              │              │
-                                                  WSS to Deepgram  HTTP polling   HTTP polling
-                                                  /v1/listen       to Gemini API  to Whisper API
+                                                  WSS to Deepgram  WSS to Gemini  HTTP polling
+                                                  /v1/listen       Live API       to Whisper API
 ```
 
 **Provider support matrix:**

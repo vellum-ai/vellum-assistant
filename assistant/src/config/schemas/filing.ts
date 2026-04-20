@@ -1,14 +1,12 @@
 import { z } from "zod";
 
-import { SpeedSchema } from "./inference.js";
-
 export const FilingConfigSchema = z
   .object({
     enabled: z
       .boolean({ error: "filing.enabled must be a boolean" })
       .default(true)
       .describe(
-        "Whether periodic PKB filing is enabled — processes buffer.md into topic files and reviews knowledge base organization",
+        "Whether periodic Personal Knowledge Base filing is enabled — processes buffer.md into topic files and reviews knowledge base organization",
       ),
     intervalMs: z
       .number({ error: "filing.intervalMs must be a number" })
@@ -16,9 +14,6 @@ export const FilingConfigSchema = z
       .positive("filing.intervalMs must be a positive integer")
       .default(4 * 3_600_000)
       .describe("Time between filing runs in milliseconds"),
-    speed: SpeedSchema.default("standard").describe(
-      "Inference speed mode for filing conversations",
-    ),
     activeHoursStart: z
       .number({ error: "filing.activeHoursStart must be a number" })
       .int("filing.activeHoursStart must be an integer")
@@ -41,7 +36,7 @@ export const FilingConfigSchema = z
       ),
   })
   .describe(
-    "Periodic PKB (personal knowledge base) filing — processes the buffer into topic files and maintains knowledge organization",
+    "Periodic Personal Knowledge Base filing — processes the buffer into topic files and maintains knowledge organization",
   )
   .superRefine((config, ctx) => {
     const startNull = config.activeHoursStart == null;

@@ -63,6 +63,17 @@ export function setThreadTs(
 }
 
 /**
+ * Read-side accessor for the in-memory thread mapping. Returns the
+ * `threadTs` previously associated with this conversation via
+ * {@link setThreadTs}, or `null` if no mapping exists. Does not bump
+ * `lastUsedAt` or otherwise mutate the entry — pure lookup.
+ */
+export function getThreadTs(conversationId: string): string | null {
+  const mapping = threadMappings.get(conversationId);
+  return mapping ? mapping.threadTs : null;
+}
+
+/**
  * Extract the threadTs from a Slack reply callback URL, if present.
  * The gateway encodes threadTs as a query parameter on the callback URL.
  */

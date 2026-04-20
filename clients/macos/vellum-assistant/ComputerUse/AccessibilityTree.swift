@@ -25,12 +25,24 @@ struct WindowInfo {
     let appName: String
 }
 
-protocol AccessibilityTreeProviding {
-    func enumerateCurrentWindow() -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
-    func enumerateSecondaryWindows(excludingPID: pid_t?, maxWindows: Int) -> [WindowInfo]
+protocol AccessibilityTreeProviding: Sendable {
+    func enumerateCurrentWindow() async -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
+    func enumerateSecondaryWindows(excludingPID: pid_t?, maxWindows: Int) async -> [WindowInfo]
 }
 
-final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
+/// Enumerates macOS accessibility trees for the focused window and any
+/// secondary windows of interest. All AX IPC runs off the main thread so a
+/// slow or unresponsive target app cannot stall the caller past the system
+/// AppHang threshold — AX operations are synchronous Mach IPC bound to the
+/// *target* process's run loop, not the caller's, so running them on a
+/// background queue keeps the caller responsive without changing AX semantics.
+///
+/// Thread safety: each caller is expected to create a fresh enumerator and
+/// await calls on it sequentially. Under that invariant, instance state
+/// (`nextId`, `lastTargetPid`, `totalElementsEnumerated`) has no cross-task
+/// contention. Static caches (`_enhancedAXEnabled`, `_lastFocusedPID`) are
+/// shared across enumerators and are guarded by `stateLock`.
+final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked Sendable {
     private var nextId = 1
     /// PID of the last successfully enumerated target app, used to resolve the
     /// correct app when our own window is frontmost.
@@ -41,10 +53,14 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
     /// Maximum elements to enumerate before bailing out (protects against circular refs)
     private let maxElementsPerEnumeration = 10000
 
-    /// Timeout (in seconds) for AX API calls to a target app. If an app is
-    /// unresponsive, individual AXUIElementCopyAttributeValue calls will return
-    /// kAXErrorCannotComplete after this duration instead of blocking indefinitely.
-    private static let axMessagingTimeoutSeconds: Float = 5.0
+    /// Per-call timeout (in seconds) for AX API calls to a target app. If the
+    /// target is unresponsive, each `AXUIElement*` call returns
+    /// `kAXErrorCannotComplete` after this duration instead of blocking
+    /// indefinitely. Sized to bound worst-case latency in fallback paths that
+    /// probe multiple apps, while staying generous enough for slow/heavy
+    /// targets (Chrome with many tabs, Electron during GC) where individual
+    /// attribute reads can momentarily take upwards of 1s.
+    private static let axMessagingTimeoutSeconds: Float = 3.0
 
     static let interactiveRoles: Set<String> = [
         "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton",
@@ -63,17 +79,45 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
         "AXArticle", "AXDocument", "AXApplication"
     ]
 
-    /// Set of app PIDs where we've already enabled enhanced AX.
-    private static var enhancedAXEnabled: Set<pid_t> = []
+    /// Guards the shared static caches below. Accessed from both the
+    /// `NSWorkspace` observer (main queue) and the detached tasks that run
+    /// AX enumeration, so every read/write goes through this lock.
+    private static let stateLock = NSLock()
+
+    /// Set of app PIDs where we've already enabled enhanced AX. Guarded by `stateLock`.
+    private static var _enhancedAXEnabled: Set<pid_t> = []
 
     /// Tracks the last non-self focused app PID, for fast lookup in enumeratePreviousApp().
-    private static var lastFocusedPID: pid_t?
+    /// Guarded by `stateLock`.
+    private static var _lastFocusedPID: pid_t?
 
     /// Whether the NSWorkspace notification observer has been registered.
+    /// Only written from the main actor in `setupAppTracker()`, so no lock is needed.
     private static var appTrackerInstalled = false
+
+    /// Atomically insert `pid` into the enhanced-AX cache.
+    /// Returns true if the PID was newly inserted (caller should set the attribute).
+    private static func markEnhancedAXIfNeeded(pid: pid_t) -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return _enhancedAXEnabled.insert(pid).inserted
+    }
+
+    private static func setLastFocusedPID(_ pid: pid_t?) {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        _lastFocusedPID = pid
+    }
+
+    private static func getLastFocusedPID() -> pid_t? {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return _lastFocusedPID
+    }
 
     /// Register an NSWorkspace observer to track the previously active app.
     /// Call this once at app startup (e.g., from AppDelegate).
+    @MainActor
     static func setupAppTracker() {
         guard !appTrackerInstalled else { return }
         appTrackerInstalled = true
@@ -87,7 +131,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             // Only track non-self apps
             if let myId = myBundleId, app.bundleIdentifier == myId { return }
-            lastFocusedPID = app.processIdentifier
+            setLastFocusedPID(app.processIdentifier)
             log.debug("App tracker: updated lastFocusedPID to \(app.processIdentifier) (\(app.localizedName ?? "?", privacy: .public))")
         }
         log.info("App activation tracker installed")
@@ -95,10 +139,23 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
 
     /// Clear the cache so we re-set AXEnhancedUserInterface (e.g., after restarting Chrome).
     static func clearEnhancedAXCache() {
-        enhancedAXEnabled.removeAll()
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        _enhancedAXEnabled.removeAll()
     }
 
-    func enumerateCurrentWindow() -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
+    /// Enumerate the focused window of the frontmost non-self app.
+    ///
+    /// Runs the synchronous AX work on a detached task so a slow or
+    /// unresponsive target app cannot block the caller (typically
+    /// `@MainActor`) on Mach IPC.
+    func enumerateCurrentWindow() async -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
+        await Task.detached { [self] in
+            enumerateCurrentWindowSync()
+        }.value
+    }
+
+    private func enumerateCurrentWindowSync() -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
         guard let frontApp = NSWorkspace.shared.frontmostApplication else {
             log.warning("No frontmost application found")
             return nil
@@ -109,13 +166,13 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
 
         // Track the frontmost app's PID so enumeratePreviousApp() can use it directly
         if myBundleId == nil || frontApp.bundleIdentifier != myBundleId {
-            Self.lastFocusedPID = frontApp.processIdentifier
+            Self.setLastFocusedPID(frontApp.processIdentifier)
         }
 
         // Skip our own app — we want the window behind the overlay
         if let myId = myBundleId, frontApp.bundleIdentifier == myId {
             log.info("Skipping own app, looking for previous app")
-            return enumeratePreviousApp()
+            return enumeratePreviousAppSync()
         }
 
         let pid = frontApp.processIdentifier
@@ -125,10 +182,9 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
 
         // Tell apps (especially Chrome, Electron) to expose full web content AX tree.
         // This is what real assistive technologies do.
-        if !Self.enhancedAXEnabled.contains(pid) {
+        if Self.markEnhancedAXIfNeeded(pid: pid) {
             let result = AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
             log.info("Set AXEnhancedUserInterface on \(appName, privacy: .public) (pid \(pid)): \(result == .success ? "success" : "failed (\(result.rawValue))")")
-            Self.enhancedAXEnabled.insert(pid)
         }
 
         var windowValue: CFTypeRef?
@@ -157,33 +213,41 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
         return (elements: elements, windowTitle: windowTitle, appName: appName, pid: pid)
     }
 
-    /// When our own app is focused, find the previously-active app's window instead.
-    /// Prefers `lastTargetPid` so the agent returns to the correct window rather than
-    /// an arbitrary app from the running-apps list.
-    private func enumeratePreviousApp() -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
-        // Fast path: try the tracked last-focused PID first
-        if let trackedPID = Self.lastFocusedPID {
+    /// When our own app is focused, find the previously-active app's window
+    /// instead. Prefers the tracked last-focused PID so the agent returns to
+    /// the correct window rather than an arbitrary app from the running-apps
+    /// list, and falls back to probing every regular running app so
+    /// observation remains correct when the tracker is stale (e.g., on
+    /// startup or after a missed workspace activation). Each per-app call
+    /// is individually bounded by `axMessagingTimeoutSeconds`.
+    private func enumeratePreviousAppSync() -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
+        let trackedPID = Self.getLastFocusedPID()
+
+        // Fast path: try the tracked last-focused PID first.
+        if let trackedPID {
             log.debug("enumeratePreviousApp: trying tracked PID \(trackedPID)")
-            if let result = enumerateAppByPID(trackedPID) {
+            if let result = enumerateAppByPIDSync(trackedPID) {
                 return result
             }
             log.debug("enumeratePreviousApp: tracked PID \(trackedPID) failed, falling back to iteration")
         }
 
-        // Slow fallback: iterate all running apps
         let runningApps = NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular && $0.bundleIdentifier != Bundle.main.bundleIdentifier && !$0.isTerminated }
 
-        // Try the last-known target app first for deterministic behavior
+        // Try the last-known target app next for deterministic behavior.
         if let targetPid = lastTargetPid,
+           targetPid != trackedPID,
            runningApps.contains(where: { $0.processIdentifier == targetPid }),
-           let result = enumerateAppByPID(targetPid) {
+           let result = enumerateAppByPIDSync(targetPid) {
             return result
         }
 
-        // Fallback: scan all running apps
         for app in runningApps {
-            if let result = enumerateAppByPID(app.processIdentifier) {
+            let pid = app.processIdentifier
+            if pid == trackedPID { continue } // already tried
+            if pid == lastTargetPid { continue } // already tried
+            if let result = enumerateAppByPIDSync(pid) {
                 return result
             }
         }
@@ -192,13 +256,12 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
 
     /// Try to enumerate the focused window for a specific PID.
     /// Returns nil if the app has no focused window or yields no elements.
-    private func enumerateAppByPID(_ pid: pid_t) -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
+    private func enumerateAppByPIDSync(_ pid: pid_t) -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
         let appElement = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(appElement, Self.axMessagingTimeoutSeconds)
 
-        if !Self.enhancedAXEnabled.contains(pid) {
+        if Self.markEnhancedAXIfNeeded(pid: pid) {
             AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
-            Self.enhancedAXEnabled.insert(pid)
         }
 
         var windowValue: CFTypeRef?
@@ -223,9 +286,16 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
         return (elements: elements, windowTitle: windowTitle, appName: appName, pid: pid)
     }
 
-    /// Enumerate the focused windows of other visible apps (not the primary one).
-    /// Returns up to `maxWindows` secondary window trees, useful for cross-app tasks.
-    func enumerateSecondaryWindows(excludingPID: pid_t?, maxWindows: Int = 2) -> [WindowInfo] {
+    /// Enumerate the focused windows of up to `maxWindows` non-primary apps,
+    /// useful for cross-app observation. Runs off the main thread for the
+    /// same reason as `enumerateCurrentWindow()`.
+    func enumerateSecondaryWindows(excludingPID: pid_t?, maxWindows: Int = 2) async -> [WindowInfo] {
+        await Task.detached { [self] in
+            enumerateSecondaryWindowsSync(excludingPID: excludingPID, maxWindows: maxWindows)
+        }.value
+    }
+
+    private func enumerateSecondaryWindowsSync(excludingPID: pid_t?, maxWindows: Int) -> [WindowInfo] {
         let myBundleId = Bundle.main.bundleIdentifier
         let runningApps = NSWorkspace.shared.runningApplications
             .filter { app in
@@ -242,9 +312,8 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding {
             let appElement = AXUIElementCreateApplication(pid)
             AXUIElementSetMessagingTimeout(appElement, Self.axMessagingTimeoutSeconds)
 
-            if !Self.enhancedAXEnabled.contains(pid) {
+            if Self.markEnhancedAXIfNeeded(pid: pid) {
                 AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
-                Self.enhancedAXEnabled.insert(pid)
             }
 
             // Get all windows for this app and find the first visible one

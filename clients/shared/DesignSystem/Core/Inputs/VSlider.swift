@@ -15,13 +15,14 @@ public struct VSlider: View {
 
     // MARK: - Layout Constants
 
-    private let trackHeight: CGFloat = 32
-    private let thumbWidth: CGFloat = 32
+    private let trackHeight: CGFloat = 8
+    private let thumbSize: CGFloat = 20
+    private let hitAreaHeight: CGFloat = 28
     private let tickMarkWidth: CGFloat = 1
     private let gripLineCount: Int = 3
     private let gripLineWidth: CGFloat = 1
-    private let gripLineHeight: CGFloat = 14
-    private let gripLineSpacing: CGFloat = 2.5
+    private let gripLineHeight: CGFloat = 8
+    private let gripLineSpacing: CGFloat = 2
 
     // MARK: - State
 
@@ -31,7 +32,7 @@ public struct VSlider: View {
 
     public var body: some View {
         GeometryReader { geometry in
-            let trackWidth = geometry.size.width - thumbWidth
+            let trackWidth = geometry.size.width - thumbSize
             let fraction = (value - range.lowerBound) / (range.upperBound - range.lowerBound)
             let thumbOffset = trackWidth * fraction
 
@@ -48,13 +49,13 @@ public struct VSlider: View {
                 thumbView
                     .offset(x: thumbOffset)
             }
-            .frame(height: trackHeight)
+            .frame(height: hitAreaHeight)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { drag in
                         isDragging = true
-                        let newFraction = (drag.location.x - thumbWidth / 2) / trackWidth
+                        let newFraction = (drag.location.x - thumbSize / 2) / trackWidth
                         let clampedFraction = min(max(newFraction, 0), 1)
                         let rawValue = range.lowerBound + clampedFraction * (range.upperBound - range.lowerBound)
                         let snapped = round(rawValue / step) * step
@@ -65,7 +66,7 @@ public struct VSlider: View {
                     }
             )
         }
-        .frame(height: trackHeight)
+        .frame(height: hitAreaHeight)
     }
 
     // MARK: - Track
@@ -73,40 +74,41 @@ public struct VSlider: View {
     private func trackView(thumbOffset: CGFloat, trackWidth: CGFloat) -> some View {
         ZStack(alignment: .leading) {
             // Unfilled track (edge-to-edge)
-            Rectangle()
+            RoundedRectangle(cornerRadius: VRadius.pill)
                 .fill(VColor.borderBase)
                 .frame(height: trackHeight)
 
             // Filled track (from left edge to thumb center)
-            Rectangle()
+            RoundedRectangle(cornerRadius: VRadius.pill)
                 .fill(VColor.primaryBase)
-                .frame(width: thumbOffset + thumbWidth / 2, height: trackHeight)
+                .frame(width: thumbOffset + thumbSize / 2, height: trackHeight)
         }
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.pill))
+        .frame(height: hitAreaHeight)
     }
 
     // MARK: - Thumb
 
     private var thumbView: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: VRadius.xs)
+            Circle()
                 .fill(VColor.primaryHover)
-                .frame(width: thumbWidth, height: trackHeight)
+                .frame(width: thumbSize, height: thumbSize)
                 .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.xs)
+                    Circle()
                         .stroke(VColor.borderActive, lineWidth: 1)
                 )
+                .shadow(color: VColor.auxBlack.opacity(0.1), radius: 2, x: 0, y: 1)
 
             // Grip lines
             HStack(spacing: gripLineSpacing) {
                 ForEach(0..<gripLineCount, id: \.self) { _ in
                     RoundedRectangle(cornerRadius: 0.5)
-                        .fill(VColor.systemPositiveWeak)
+                        .fill(VColor.contentTertiary.opacity(0.5))
                         .frame(width: gripLineWidth, height: gripLineHeight)
                 }
             }
         }
-        .scaleEffect(isDragging ? 1.05 : 1.0)
+        .scaleEffect(isDragging ? 1.08 : 1.0)
         .animation(VAnimation.fast, value: isDragging)
     }
 
@@ -128,7 +130,7 @@ public struct VSlider: View {
 
                     // Only render tick marks in the unfilled portion, excluding the rightmost
                     if tickFraction > fraction && tickValue < range.upperBound {
-                        let tickX = trackWidth * tickFraction + thumbWidth / 2
+                        let tickX = trackWidth * tickFraction + thumbSize / 2
 
                         RoundedRectangle(cornerRadius: 0.5)
                             .fill(VColor.surfaceActive)

@@ -34,7 +34,59 @@ For details on how to use this command, run:
 assistant oauth request --help
 ```
 
-You should err towards asking your user for permission to make the request, especially if it performs side-effects (e.g. updates data, sends an email, etc.)
+**Side-effect requests require explicit user confirmation.** If the request performs a side-effect (updates data, sends an email, deletes a record, etc.), gate it with `assistant ui confirm` so the user has a hard runtime veto — do not rely solely on SKILL.md prose instructions.
+
+For simple shell branching (proceed on confirm, abort otherwise), use the exit code directly:
+
+```bash
+# Simple gate: exit code 0 = confirmed, 1 = denied/cancelled/timed_out
+if assistant ui confirm \
+  --title "Send email" \
+  --message "Send draft to jane@example.com — Subject: Q2 Report" \
+  --confirm-label "Send" \
+  --deny-label "Cancel"; then
+  assistant oauth request POST "/v1.0/me/messages/${DRAFT_ID}/send" \
+    --provider microsoft-graph
+else
+  echo "Cancelled — email not sent."
+  exit 0
+fi
+```
+
+For scripts that need to inspect the result programmatically, use `--json` and branch on `status` and `confirmed`:
+
+```bash
+RESULT=$(assistant ui confirm \
+  --title "Delete calendar event" \
+  --message "Permanently delete '${EVENT_TITLE}'?" \
+  --confirm-label "Delete" \
+  --deny-label "Keep" \
+  --json)
+
+STATUS=$(echo "$RESULT" | jq -r '.status')
+
+case "$STATUS" in
+  submitted)
+    CONFIRMED=$(echo "$RESULT" | jq -r '.confirmed')
+    if [ "$CONFIRMED" = "true" ]; then
+      assistant oauth request DELETE "/v1.0/me/events/${EVENT_ID}" \
+        --provider microsoft-graph
+    else
+      echo "User chose to keep the event."
+    fi
+    ;;
+  cancelled)
+    echo "User dismissed the prompt — event not deleted."
+    ;;
+  timed_out)
+    echo "Confirmation timed out — event not deleted."
+    ;;
+esac
+```
+
+> **Note**: The `cancellationReason` field (for distinguishing user dismissal from operational failures like `no_interactive_surface`) is only available in `assistant ui request --json` output, not `ui confirm --json`. For `ui confirm`, use the exit-code pattern above for simple cases, or branch on `status` and `confirmed` for `--json` mode.
+
+For read-only requests (fetching data, listing resources), no confirmation gate is needed.
 
 ### OAuth Token Escape Hatch
 

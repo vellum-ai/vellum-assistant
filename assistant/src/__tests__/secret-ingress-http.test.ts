@@ -7,6 +7,34 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 const BASE_CONFIG = {
   contextWindow: { maxInputTokens: 100000 },
   services: { inference: { model: "test-model", provider: "test-provider" } },
+  llm: {
+    default: {
+      provider: "anthropic",
+      model: "claude-opus-4-7",
+      maxTokens: 64000,
+      effort: "max" as const,
+      speed: "standard" as const,
+      temperature: null,
+      thinking: { enabled: true, streamThinking: true },
+      contextWindow: {
+        enabled: true,
+        maxInputTokens: 200000,
+        targetBudgetRatio: 0.3,
+        compactThreshold: 0.8,
+        summaryBudgetRatio: 0.05,
+        overflowRecovery: {
+          enabled: true,
+          safetyMarginRatio: 0.05,
+          maxAttempts: 3,
+          interactiveLatestTurnCompression: "summarize",
+          nonInteractiveLatestTurnCompression: "truncate",
+        },
+      },
+    },
+    profiles: {},
+    callSites: {},
+    pricingOverrides: [],
+  },
 };
 
 let mockConfig: Record<string, unknown> = {

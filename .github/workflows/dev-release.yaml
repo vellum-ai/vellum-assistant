@@ -18,11 +18,18 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       short_sha: ${{ steps.version.outputs.short_sha }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: meta/package.json
+          sparse-checkout-cone-mode: false
+
       - name: Compute dev version
         id: version
         run: |
+          BASE_VERSION=$(node -e "console.log(require('./meta/package.json').version)")
           SHORT_SHA="${GITHUB_SHA::7}"
-          VERSION="dev.$(date -u +%Y%m%d%H%M).${SHORT_SHA}"
+          VERSION="${BASE_VERSION}-dev.$(date -u +%Y%m%d%H%M).${SHORT_SHA}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
           echo "Dev release version: ${VERSION}"
@@ -45,7 +52,7 @@ jobs:
 
       - name: Install nested package dependencies
         run: |
-          for dir in packages/*/; do
+          for dir in packages/*/ skills/*/; do
             [ -f "${dir}/package.json" ] || continue
             (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
           done
@@ -172,6 +179,9 @@ jobs:
         id: image
         run: |
           echo "gcp=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
+
+      - name: Stamp dev version into package.json
+        run: jq --arg v "${{ needs.compute-version.outputs.version }}" '.version = $v' assistant/package.json > assistant/package.json.tmp && mv assistant/package.json.tmp assistant/package.json
 
       - name: Sync feature flag registry for Docker context
         run: cp meta/feature-flags/feature-flag-registry.json assistant/src/config/feature-flag-registry.json
@@ -336,6 +346,9 @@ jobs:
         run: |
           echo "gcp=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
 
+      - name: Stamp dev version into package.json
+        run: jq --arg v "${{ needs.compute-version.outputs.version }}" '.version = $v' gateway/package.json > gateway/package.json.tmp && mv gateway/package.json.tmp gateway/package.json
+
       - name: Sync feature flag registry for Docker context
         run: cp meta/feature-flags/feature-flag-registry.json gateway/src/feature-flag-registry.json
 
@@ -343,7 +356,8 @@ jobs:
         id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
-          context: gateway
+          context: .
+          file: gateway/Dockerfile
           platforms: ${{ matrix.platform }}
           outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=gateway-dev-${{ matrix.platform }}
@@ -497,6 +511,9 @@ jobs:
         run: |
           echo "gcp=${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}" >> "$GITHUB_OUTPUT"
 
+      - name: Stamp dev version into package.json
+        run: jq --arg v "${{ needs.compute-version.outputs.version }}" '.version = $v' credential-executor/package.json > credential-executor/package.json.tmp && mv credential-executor/package.json.tmp credential-executor/package.json
+
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
@@ -646,8 +663,16 @@ jobs:
             const relPath = importMap[lastVar];
             const filePath = path.join('assistant/src/workspace/migrations', relPath.replace(/\.js$/, '.ts'));
             const src = fs.readFileSync(filePath, 'utf-8');
-            const idMatch = src.match(/id:\s*['\x22]([^'\x22]+)['\x22]/);
-            console.log(idMatch[1]);
+            let id;
+            const litMatch = src.match(/id:\s*['\x22]([^'\x22]+)['\x22]/);
+            if (litMatch) {
+              id = litMatch[1];
+            } else {
+              const refMatch = src.match(/id:\s*(\w+)/);
+              const constLine = src.split('\n').find(l => l.includes('const ' + refMatch[1] + ' ='));
+              id = constLine.match(/['\x22]([^'\x22]+)['\x22]/)[1];
+            }
+            console.log(id);
           ")
           echo "ws_id=$WS_ID" >> "$GITHUB_OUTPUT"
           echo "Migration ceilings: db=$DB_VERSION, workspace=$WS_ID"
@@ -811,7 +836,7 @@ jobs:
       - name: Install nested package dependencies
         working-directory: .
         run: |
-          for dir in packages/*/; do
+          for dir in packages/*/ skills/*/; do
             [ -f "${dir}/package.json" ] || continue
             (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
           done

@@ -1,10 +1,6 @@
 import type { VellumPlatformClient } from "../platform/client.js";
 import { BackendError } from "../util/errors.js";
-import {
-  getHttpRetryDelay,
-  isRetryableStatus,
-  sleep,
-} from "../util/retry.js";
+import { getHttpRetryDelay, isRetryableStatus, sleep } from "../util/retry.js";
 import type {
   OAuthConnection,
   OAuthConnectionRequest,
@@ -24,6 +20,16 @@ export class ProviderUnreachableError extends BackendError {
   constructor(message = "Provider is unreachable") {
     super(message);
     this.name = "ProviderUnreachableError";
+  }
+}
+
+export class InsufficientBalanceError extends BackendError {
+  constructor(
+    message = "Your Vellum account balance is too low to use this managed OAuth connection. " +
+      "You can add funds or switch to using your own OAuth app.",
+  ) {
+    super(message);
+    this.name = "InsufficientBalanceError";
   }
 }
 
@@ -92,6 +98,10 @@ export class PlatformOAuthConnection implements OAuthConnection {
         body: JSON.stringify(body),
         signal: req.signal,
       });
+
+      if (response.status === 402) {
+        throw new InsufficientBalanceError();
+      }
 
       if (response.status === 424) {
         throw new CredentialRequiredError();

@@ -4,6 +4,12 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "GatewayConnectionManager")
 
+/// Thrown by `attemptRePair` when the injected bootstrap handler exceeds the
+/// timeout budget. Keeping this as a distinct type lets the catch site log a
+/// clear "timed out" message and avoid treating a stuck bootstrap as a regular
+/// failure.
+private struct RePairTimeout: Error {}
+
 /// Minimal decode of the /v1/health response to extract the version field.
 private struct HealthVersionResponse: Decodable {
     let version: String?
@@ -32,6 +38,11 @@ public final class GatewayConnectionManager {
     // MARK: - Observable State
 
     public var isConnected: Bool = false
+    /// Independent signal from `isConnected`: flips to `true` after sustained
+    /// auth failures (401/429) observed by `authFailureTracker`. Cleared on
+    /// the next successful health check. Observe alongside `isConnected` —
+    /// the two represent orthogonal failure modes of "unable to make progress".
+    public var isAuthFailed: Bool = false
     public var isConnecting: Bool = false
     public internal(set) var assistantVersion: String?
     public internal(set) var versionMismatch: Bool = false
@@ -85,6 +96,7 @@ public final class GatewayConnectionManager {
     // MARK: - Health Check
 
     @ObservationIgnored private var healthCheckTask: Task<Void, Never>?
+    @ObservationIgnored private let authFailureTracker = AuthFailureTracker()
     private let healthCheckInterval: TimeInterval = 15.0
     @ObservationIgnored private var shouldReconnect = true
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
@@ -106,6 +118,16 @@ public final class GatewayConnectionManager {
     // MARK: - Auto-Wake
 
     @ObservationIgnored public var wakeHandler: (@MainActor @Sendable () async throws -> Void)?
+    /// Handler invoked by `attemptRePair()` to re-run the bootstrap flow
+    /// (clear stored credentials + re-provision). Set by the macOS app to
+    /// `AppDelegate.forceReBootstrap()`; iOS does not currently wire one up.
+    /// Keeping this as an injected closure avoids a shared-module dependency
+    /// on the macOS-only `AppDelegate`.
+    @ObservationIgnored public var rePairHandler: (@MainActor @Sendable () async throws -> Void)?
+    /// Guards against concurrent `attemptRePair()` invocations. The flag is
+    /// flipped on the main actor before the handler runs and cleared when the
+    /// call returns (success or failure).
+    @ObservationIgnored private var isAttemptingRePair: Bool = false
     /// Handler called after a Sparkle update is detected.
     /// Receives `(name: String, fromVersion: String)` so the macOS app can invoke
     /// CLI `upgradeFinalize` without the shared module depending on `AppDelegate`.
@@ -257,6 +279,18 @@ public final class GatewayConnectionManager {
         consecutiveHealthCheckSuccesses = 0
         setConnected(false)
 
+        // Reset auth-failed state on teardown. Every reconnect should start
+        // from a clean slate — otherwise a stale `isAuthFailed = true` can
+        // leak through a disconnect/reconnect cycle (e.g. the managed
+        // 404-retired path, or an explicit `disconnect()` from the app)
+        // until the tracker's sliding window drains naturally. Route through
+        // `updateAuthFailedSignal()` so the single-transition log line still
+        // fires and the invariant "`isAuthFailed` is only mutated through the
+        // helper" is preserved. `reconfigure()` reaches this via
+        // `disconnect()`, so it automatically inherits the reset.
+        authFailureTracker.recordSuccess()
+        updateAuthFailedSignal()
+
         eventStreamClient.stopSSE()
     }
 
@@ -283,7 +317,9 @@ public final class GatewayConnectionManager {
         lastAutoWakeAttempt = nil
         #endif
 
-        // Reset published state
+        // Reset published state. `isAuthFailed` + the underlying tracker are
+        // cleared by `disconnectInternal()` (called via `disconnect()` above),
+        // so no explicit reset is needed here.
         isConnected = false
         assistantVersion = nil
         versionMismatch = false
@@ -366,15 +402,24 @@ public final class GatewayConnectionManager {
             consecutiveHealthCheckSuccesses = 0
             log.error("Health check client error: \(error.localizedDescription, privacy: .public)")
             setConnected(false)
+            updateAuthFailedSignal()
             throw ConnectionError.healthCheckFailed
         } catch {
             consecutiveHealthCheckSuccesses = 0
             log.error("Health check failed: \(error.localizedDescription, privacy: .public)")
             setConnected(false)
+            updateAuthFailedSignal()
             throw ConnectionError.healthCheckFailed
         }
 
         guard (200..<300).contains(outcome.statusCode) else {
+            // Feed auth-relevant statuses into the sliding-window tracker.
+            // AuthFailureTracker itself filters to the 401/429 it cares about;
+            // passing 403 here is harmless and keeps the call site honest
+            // about which statuses look like auth problems.
+            if outcome.statusCode == 401 || outcome.statusCode == 403 || outcome.statusCode == 429 {
+                authFailureTracker.recordFailure(statusCode: outcome.statusCode, path: "/v1/health")
+            }
             if outcome.statusCode == 401 {
                 handleAuthenticationFailure()
             } else if outcome.statusCode == 404, isManaged {
@@ -382,8 +427,13 @@ public final class GatewayConnectionManager {
             }
             consecutiveHealthCheckSuccesses = 0
             setConnected(false)
+            updateAuthFailedSignal()
             throw ConnectionError.healthCheckFailed
         }
+
+        // 2xx — auth is working. Any accumulated window is cleared.
+        authFailureTracker.recordSuccess()
+        updateAuthFailedSignal()
 
         if let newVersion = outcome.version, newVersion != assistantVersion {
             assistantVersion = newVersion
@@ -395,6 +445,39 @@ public final class GatewayConnectionManager {
             log.info("Health check passed")
         }
         setConnected(true)
+    }
+
+    /// Reconciles `isAuthFailed` against the tracker's current state and logs
+    /// the single transition lines. Idempotent — safe to call on every health
+    /// check cycle. The two signals (`isConnected`, `isAuthFailed`) are
+    /// independent; a tripped auth signal never forces `isConnected = false`
+    /// on its own and vice-versa.
+    private func updateAuthFailedSignal() {
+        let tripped = authFailureTracker.isAuthFailed
+        guard tripped != isAuthFailed else { return }
+        isAuthFailed = tripped
+        if tripped {
+            let status = authFailureTracker.lastStatusCode ?? -1
+            let path = authFailureTracker.lastPath ?? "?"
+            log.warning("AuthFailureTracker tripped: status=\(status, privacy: .public) path=\(path, privacy: .public) window=\(self.authFailureTracker.windowSeconds, privacy: .public) failures=\(self.authFailureTracker.minFailures, privacy: .public)")
+        } else {
+            log.info("AuthFailureTracker cleared")
+        }
+    }
+
+    // MARK: - Test Hooks
+
+    /// Internal hook used by unit tests to drive the same code path as
+    /// `performHealthCheck()` without standing up a URLProtocol fake. Mirrors
+    /// the tracker-update + signal-update behavior used on real HTTP
+    /// outcomes. Production code must not call this.
+    internal func _testIngestHealthStatus(_ statusCode: Int) {
+        if (200..<300).contains(statusCode) {
+            authFailureTracker.recordSuccess()
+        } else if statusCode == 401 || statusCode == 403 || statusCode == 429 {
+            authFailureTracker.recordFailure(statusCode: statusCode, path: "/v1/health")
+        }
+        updateAuthFailedSignal()
     }
 
     private func startHealthCheckLoop() {
@@ -596,6 +679,9 @@ public final class GatewayConnectionManager {
                 userMessage: "Session expired. Please sign in again.",
                 retryable: false
             )))
+            // Managed mode surfaces auth failures through the SSE `authenticationRequired` error
+            // stream, not through the menu-bar `.authFailed` state. The disconnect path's tracker
+            // reset is intentional — see AuthFailureTracker / GatewayConnectionManager integration.
             disconnect()
             return
         }
@@ -633,6 +719,71 @@ public final class GatewayConnectionManager {
             case .transientError:
                 break // Coordinator already logs warning
             }
+        }
+    }
+
+    // MARK: - Re-Pair Recovery
+
+    /// Default timeout for `attemptRePair`. Long enough for a real bootstrap
+    /// (guardian token poll + provision) to land, short enough that the
+    /// Re-pair menu item becomes clickable again after a stuck attempt.
+    public nonisolated static let defaultRePairTimeout: TimeInterval = 90.0
+
+    /// Attempts to recover from a stuck `isAuthFailed` state by re-running
+    /// the bootstrap flow (clear stored credentials + re-provision). Runs the
+    /// injected `rePairHandler` by default, but callers (e.g. unit tests) may
+    /// supply an explicit `bootstrap` closure to substitute a fake.
+    ///
+    /// Concurrent invocations coalesce — if a re-pair is already in flight,
+    /// subsequent calls return immediately without re-running the handler.
+    /// The handler is bounded by `timeout` (default 90s) so a stuck bootstrap
+    /// — e.g. offline network, guardian endpoint flapping, indefinite retry
+    /// loop inside `performInitialBootstrap` — cannot latch
+    /// `isAttemptingRePair = true` forever and silently swallow every
+    /// subsequent menu click.
+    ///
+    /// On success, the `AuthFailureTracker` is reset so the UI flips back
+    /// promptly on the next health check. On failure/timeout, the tracker is
+    /// left alone (the next successful health check will eventually clear it)
+    /// and `isAttemptingRePair` is released via `defer` regardless of path.
+    public func attemptRePair(
+        bootstrap: (@MainActor @Sendable () async throws -> Void)? = nil,
+        timeout: TimeInterval = GatewayConnectionManager.defaultRePairTimeout
+    ) async {
+        if isAttemptingRePair {
+            log.info("attemptRePair: already in flight — skipping")
+            return
+        }
+        isAttemptingRePair = true
+        defer { isAttemptingRePair = false }
+
+        log.info("attemptRePair: started")
+        let handler = bootstrap ?? rePairHandler
+        guard let handler else {
+            log.error("attemptRePair: failed — no bootstrap handler configured")
+            return
+        }
+        do {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask { try await handler() }
+                group.addTask {
+                    let nanoseconds = UInt64(max(0, timeout) * 1_000_000_000)
+                    try await Task.sleep(nanoseconds: nanoseconds)
+                    throw RePairTimeout()
+                }
+                // Wait for the first task to complete (handler or timer) then
+                // cancel the loser so it doesn't keep running in the
+                // background.
+                try await group.next()
+                group.cancelAll()
+            }
+            authFailureTracker.recordSuccess()
+            updateAuthFailedSignal()
+            log.info("attemptRePair: completed")
+        } catch is RePairTimeout {
+            log.error("attemptRePair: timed out after \(timeout, privacy: .public)s")
+        } catch {
+            log.error("attemptRePair: failed — \(error.localizedDescription, privacy: .public)")
         }
     }
 

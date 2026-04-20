@@ -8,7 +8,14 @@ export async function run(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  if (!context.triggeredBySurfaceAction && !context.batchAuthorizedByTask) {
+  const userApproved =
+    input.user_approved === true && context.trustClass === "guardian";
+  if (
+    !context.triggeredBySurfaceAction &&
+    !context.batchAuthorizedByTask &&
+    !context.approvedViaPrompt &&
+    !userApproved
+  ) {
     return err(
       "This tool requires either a surface action or a scheduled task run with this tool in required_tools. Present results in a selection table with action buttons and wait for the user to click before proceeding.",
     );

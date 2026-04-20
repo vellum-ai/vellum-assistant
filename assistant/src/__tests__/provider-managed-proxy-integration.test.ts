@@ -65,7 +65,7 @@ import {
 function makeProvidersConfig(provider: string, model: string): ProvidersConfig {
   return {
     services: {
-      inference: { mode: "your-own", provider, model },
+      inference: { mode: "your-own" },
       "image-generation": {
         mode: "your-own",
         provider: "gemini",
@@ -73,6 +73,7 @@ function makeProvidersConfig(provider: string, model: string): ProvidersConfig {
       },
       "web-search": { mode: "your-own", provider: "inference-provider-native" },
     },
+    llm: { default: { provider, model } },
   };
 }
 
@@ -90,7 +91,7 @@ const DIRECT_OR_MANAGED_PROVIDER_KEYS: string[] = [
   "fireworks",
   "openrouter",
 ];
-const MANAGED_FALLBACK_PROVIDERS: string[] = ["anthropic", "gemini"];
+const MANAGED_FALLBACK_PROVIDERS: string[] = ["anthropic", "gemini", "openai"];
 
 function enableManagedProxy() {
   mockPlatformBaseUrl = PLATFORM_BASE;
@@ -172,14 +173,18 @@ describe("managed proxy integration — credential precedence", () => {
       },
     );
 
-    test("managed bootstrap registers anthropic and gemini only", async () => {
+    test("managed bootstrap registers anthropic, openai, and gemini", async () => {
       enableManagedProxy();
       mockProviderKeys = {};
       await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
-      expect(listProviders()).toEqual(["anthropic", "gemini"]);
+      expect(listProviders()).toEqual(
+        expect.arrayContaining(["anthropic", "openai", "gemini"]),
+      );
+      expect(listProviders()).toHaveLength(3);
       expect(getProviderRoutingSource("anthropic")).toBe("managed-proxy");
+      expect(getProviderRoutingSource("openai")).toBe("managed-proxy");
       expect(getProviderRoutingSource("gemini")).toBe("managed-proxy");
-      for (const p of ["openai", "fireworks", "openrouter"]) {
+      for (const p of ["fireworks", "openrouter"]) {
         expect(getProviderRoutingSource(p)).toBeUndefined();
       }
     });
@@ -203,6 +208,23 @@ describe("managed proxy integration — credential precedence", () => {
       expect(anthropicClient).toBeDefined();
       const baseURL: string = anthropicClient.baseURL;
       expect(baseURL).toContain("/v1/runtime-proxy/anthropic");
+    });
+
+    test("managed openai uses openai proxy path", async () => {
+      enableManagedProxy();
+      mockProviderKeys = {};
+      await initializeProviders(makeProvidersConfig("openai", "gpt-4o"));
+
+      const provider = getProvider("openai");
+
+      // Unwrap RetryProvider → OpenAIResponsesProvider to inspect the OpenAI
+      // SDK client's baseURL.
+      const retryInner = (provider as any).inner;
+      const openaiClient = (retryInner as any).client;
+
+      expect(openaiClient).toBeDefined();
+      const baseURL: string = openaiClient.baseURL;
+      expect(baseURL).toContain("/v1/runtime-proxy/openai");
     });
 
     test("managed gemini uses gemini proxy path", async () => {
@@ -242,16 +264,18 @@ describe("managed proxy integration — credential precedence", () => {
   });
 
   describe("mixed: some user keys + managed fallback fills gaps", () => {
-    test("user key for anthropic routes direct and managed fallback only fills gemini", async () => {
+    test("user key for anthropic routes direct and managed fallback fills openai and gemini", async () => {
       enableManagedProxy();
       setUserKeysFor("anthropic");
       await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
       const registered = listProviders();
       expect(registered).toContain("anthropic");
       expect(getProviderRoutingSource("anthropic")).toBe("user-key");
+      expect(registered).toContain("openai");
+      expect(getProviderRoutingSource("openai")).toBe("managed-proxy");
       expect(registered).toContain("gemini");
       expect(getProviderRoutingSource("gemini")).toBe("managed-proxy");
-      for (const p of ["openai", "fireworks", "openrouter"]) {
+      for (const p of ["fireworks", "openrouter"]) {
         expect(registered).not.toContain(p);
         expect(getProviderRoutingSource(p)).toBeUndefined();
       }
@@ -268,6 +292,7 @@ describe("managed proxy integration — credential precedence", () => {
       expect(getProviderRoutingSource("anthropic")).toBe("managed-proxy");
       expect(registered).toContain("gemini");
       expect(getProviderRoutingSource("gemini")).toBe("managed-proxy");
+      // OpenAI has a user key so it's user-key, not managed-proxy
       for (const p of ["fireworks", "openrouter"]) {
         expect(registered).not.toContain(p);
         expect(getProviderRoutingSource(p)).toBeUndefined();
@@ -307,8 +332,8 @@ describe("managed proxy integration — ollama exclusion", () => {
 });
 
 describe("managed proxy integration — constants integrity", () => {
-  test("anthropic and gemini have metadata with managed=true and a proxyPath", () => {
-    for (const provider of ["anthropic", "gemini"]) {
+  test("anthropic, openai, and gemini have metadata with managed=true and a proxyPath", () => {
+    for (const provider of ["anthropic", "openai", "gemini"]) {
       const meta = MANAGED_PROVIDER_META[provider];
       expect(meta).toBeDefined();
       expect(meta.managed).toBe(true);
@@ -329,8 +354,14 @@ describe("managed proxy integration — constants integrity", () => {
     );
   });
 
-  test("openai-compatible providers are not managed proxy capable", () => {
-    for (const provider of ["openai", "fireworks", "openrouter"]) {
+  test("openai routes through openai proxy path", () => {
+    expect(MANAGED_PROVIDER_META.openai.proxyPath).toBe(
+      "/v1/runtime-proxy/openai",
+    );
+  });
+
+  test("fireworks and openrouter are not managed proxy capable", () => {
+    for (const provider of ["fireworks", "openrouter"]) {
       expect(MANAGED_PROVIDER_META[provider].managed).toBe(false);
       expect(MANAGED_PROVIDER_META[provider].proxyPath).toBeUndefined();
     }

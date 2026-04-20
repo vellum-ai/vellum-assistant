@@ -1,10 +1,10 @@
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../../config/loader.js";
-import type { Speed } from "../../config/schemas/inference.js";
+import type { LLMCallSite, Speed } from "../../config/schemas/llm.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
-import type { ModelIntent } from "../../providers/types.js";
+import { isPlaceholderSentinelText } from "../../providers/anthropic/client.js";
 import type { AuthContext } from "../../runtime/auth/types.js";
 import type { DebouncerMap } from "../../util/debounce.js";
 import { getLogger } from "../../util/logger.js";
@@ -103,6 +103,22 @@ export interface RenderedHistoryContent {
 }
 
 /**
+ * Slack-specific metadata extracted at the inbound HTTP boundary and threaded
+ * through to user-message persistence so the row can be tagged with a
+ * `slackMeta` envelope (consumed by the chronological renderer in later PRs).
+ */
+export interface SlackInboundMessageMetadata {
+  /** Slack channel id (conversation external id) — recorded as `channelId`. */
+  channelId: string;
+  /** Slack `ts` for this message — required so persistence can record `channelTs`. */
+  channelTs: string;
+  /** Parent `thread_ts` when the message lives inside a thread; absent for top-level. */
+  threadTs?: string;
+  /** Resolved sender label (display name preferred, username fallback). */
+  displayName?: string;
+}
+
+/**
  * Optional overrides for conversation creation (e.g. interview mode).
  */
 export interface ConversationCreateOptions {
@@ -129,18 +145,25 @@ export interface ConversationCreateOptions {
   /** Optional callback to receive real-time agent loop events (text deltas, tool starts, etc.). */
   onEvent?: (msg: ServerMessage) => void;
   /**
-   * Optional model selection strategy for this conversation's agent loop.
-   * When set, overrides the provider's default model per-turn. Used by the
-   * auto-analyze loop to route the analysis agent to a dedicated model.
-   */
-  modelIntent?: ModelIntent;
-  /**
    * Optional explicit model override (provider/model string) for this
-   * conversation's agent loop. Takes precedence over `modelIntent` when
-   * both are set. Used by the auto-analyze loop to pin the analysis agent
-   * to a specific model.
+   * conversation's agent loop. Used by the auto-analyze loop to pin the
+   * analysis agent to a specific model.
    */
   modelOverride?: string;
+  /**
+   * Optional LLM call-site identifier threaded through to the per-call
+   * provider config. Adapter callers (heartbeat, filing, schedule, etc.)
+   * pass their call-site here so the agent loop routes through
+   * `resolveCallSiteConfig` instead of the global default.
+   */
+  callSite?: LLMCallSite;
+  /**
+   * Slack inbound metadata captured at the channel ingress boundary. When
+   * present (and the turn channel resolves to Slack), persistence writes a
+   * `slackMeta` sub-object into the message's `metadata` JSON for the
+   * chronological renderer to consume.
+   */
+  slackInbound?: SlackInboundMessageMetadata;
 }
 
 /**
@@ -329,6 +352,11 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       // path — e.g. empty segments between consecutive tool_use blocks that
       // break tool-call grouping in the UI.
       if (block.text.trim().length === 0) continue;
+      // Drop Anthropic provider placeholder sentinels. These are injected
+      // into outbound API requests to preserve role alternation and must
+      // never be rendered to users. Belt-and-suspenders with the persist-
+      // time filter in cleanAssistantContent and migration 222.
+      if (isPlaceholderSentinelText(block.text)) continue;
       textParts.push(block.text);
       ensureSegment();
       currentSegmentParts.push(block.text);

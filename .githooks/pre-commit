@@ -847,6 +847,21 @@ fi
 
 echo "✅ No plain text keys detected in $CHECKED_FILES files"
 
+# --- Generic-examples rule check ---
+# Enforces AGENTS.md "Generic Examples": test fixtures/dialogue/examples
+# must use generic placeholders (Alice, user@example.com, 555-01xx, etc.)
+# rather than real personal data. See scripts/generic-examples/README.md.
+GE_BUN="${BUN:-$(command -v bun 2>/dev/null || echo "$HOME/.bun/bin/bun")}"
+if [ -x "$GE_BUN" ]; then
+    echo "🔍 Checking generic-examples rule..."
+    if ! "$GE_BUN" scripts/check-generic-examples.ts; then
+        exit 1
+    fi
+    echo "✅ Generic-examples rule OK"
+else
+    echo -e "${YELLOW}⚠️  bun not found — skipping generic-examples check${NC}"
+fi
+
 # --- Prettier & Lint checks for assistant, cli, and gateway ---
 # When files in these directories are staged, run prettier --check and eslint
 # on the staged files to catch formatting and lint issues before commit.

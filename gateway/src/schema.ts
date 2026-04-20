@@ -1952,6 +1952,32 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/integrations/slack/channel/oauth-install": {
+        post: {
+          summary: "Slack OAuth install",
+          description:
+            "Authenticated gateway endpoint that initiates the Slack OAuth loopback flow to capture bot and user tokens. This endpoint blocks while the user completes the Slack consent screen (up to 6 minutes).",
+          operationId: "slackChannelOAuthInstallPost",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "OAuth install completed successfully" },
+            "400": { description: "Invalid request payload" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
       "/v1/oauth/providers": {
         get: {
           summary: "List OAuth providers",
@@ -2721,7 +2747,7 @@ export function buildSchema(): Record<string, unknown> {
         get: {
           summary: "List trust rules",
           description:
-            "Authenticated gateway endpoint that lists all trust rules via the assistant runtime.",
+            "Authenticated gateway endpoint that lists all trust rules. Returns canonicalized rules with family-aware field normalization.",
           operationId: "trustRulesGet",
           security: [{ BearerAuth: [] }],
           responses: {
@@ -2737,7 +2763,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Add a trust rule",
           description:
-            "Authenticated gateway endpoint that adds a new trust rule via the assistant runtime.",
+            "Authenticated gateway endpoint that adds a new trust rule. Payloads are canonicalized through family-aware parsing before persistence: fields invalid for the tool's family (e.g. executionTarget on URL-tool rules) are silently stripped. Legacy request shapes are accepted without 4xx regressions.",
           operationId: "trustRulesPost",
           security: [{ BearerAuth: [] }],
           requestBody: {

@@ -106,6 +106,16 @@ struct MessageListView: View {
     /// Owned here (same level as `thinkingBlockExpansionStore`) so the state
     /// survives view-tree destruction. See `FilePreviewExpansionStore.swift`.
     @State var filePreviewExpansionStore = FilePreviewExpansionStore()
+    /// Caches each transcript row's measured height so the LazyVStack reports
+    /// an accurate `contentSize` for off-screen cells. Gated on the
+    /// `message-height-cache` macOS feature flag. `.id(conversationId)` is
+    /// applied to the inner `ScrollView` (not `MessageListView`), so SwiftUI
+    /// preserves this `@State` across conversation switches — the cache must
+    /// be cleared explicitly in `handleConversationSwitched()` to avoid
+    /// reusing heights keyed by fixed-sentinel UUIDs (e.g. queuedMarker)
+    /// across conversations. Also reset on column-width and typography
+    /// changes, which reflow every row.
+    @State var messageHeightCache = MessageHeightCache()
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State var resizeScrollTask: Task<Void, Never>?
     /// Filtered viewport height used by the latest-turn spacer layout.
@@ -115,6 +125,12 @@ struct MessageListView: View {
     /// Native SwiftUI scroll position struct (macOS 15+). Replaces
     /// `ScrollViewReader` + `proxy.scrollTo()` and distance-from-bottom math.
     @State var scrollPosition = ScrollPosition()
+    /// Cached `scroll-debug-overlay` flag value. Read from the hot scroll
+    /// path (geometry tick, anchor shift, anchor decision) to skip HUD work
+    /// without taking the flag-manager's `NSLock` and linearly scanning
+    /// registry keys per tick. Seeded on first appear and refreshed via
+    /// `.assistantFeatureFlagDidChange` — same pattern as `ScrollDebugOverlayView`.
+    @State var isScrollDebugOverlayEnabled: Bool = false
 
     // MARK: - Body
 
@@ -134,9 +150,34 @@ struct MessageListView: View {
                     scrollViewContent
                         .frame(width: widths.chatColumnWidth)
                         .background(
-                            MessageListScrollObserver { newState in
-                                enqueueScrollGeometryUpdate(newState)
-                            }
+                            MessageListScrollObserver(
+                                onGeometryChange: { newState in
+                                    enqueueScrollGeometryUpdate(newState)
+                                },
+                                shouldPreserveScrollAnchor: { [scrollState] in
+                                    // Skip during pagination — the explicit
+                                    // scroll-to-anchor in `handlePaginationSentinel`
+                                    // is the source of truth for that flow, and
+                                    // shifting the offset to absorb the older
+                                    // page's height would race the snap.
+                                    !scrollState.isPaginationInFlight
+                                },
+                                onAnchorShift: { [scrollState, isScrollDebugOverlayEnabled] in
+                                    // Debug-only counter for anchor-preserver
+                                    // activations. Gated on the cached flag
+                                    // so the hot path doesn't take the flag
+                                    // manager's `NSLock` per shift.
+                                    guard isScrollDebugOverlayEnabled else { return }
+                                    scrollState.recordDebugAnchorShift()
+                                },
+                                onAnchorDecision: { [scrollState, isScrollDebugOverlayEnabled] event in
+                                    // Debug-only full-decision log. Captures
+                                    // skips (shrinks, live-scroll gate, etc.)
+                                    // plus applies, with pre/post offsets.
+                                    guard isScrollDebugOverlayEnabled else { return }
+                                    scrollState.recordAnchorDecision(event)
+                                }
+                            )
                         )
                     Spacer(minLength: 0)
                 }
@@ -154,6 +195,7 @@ struct MessageListView: View {
             .scrollPosition($scrollPosition)
             .environment(\.thinkingBlockExpansionStore, thinkingBlockExpansionStore)
             .environment(\.filePreviewExpansionStore, filePreviewExpansionStore)
+            .environment(\.messageHeightCache, messageHeightCache)
             .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
             .frame(width: widths.scrollSurfaceWidth)
             .id(conversationId)
@@ -171,8 +213,18 @@ struct MessageListView: View {
                     scrollPosition = ScrollPosition(edge: .top)
                 })
             }
+            .overlay(alignment: .topTrailing) {
+                ScrollDebugOverlayView(scrollState: scrollState)
+                    .padding(.top, VSpacing.sm)
+                    .padding(.trailing, VSpacing.md)
+            }
             .onAppear {
                 handleAppear()
+                isScrollDebugOverlayEnabled = MacOSClientFeatureFlagManager.shared.isEnabled("scroll-debug-overlay")
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
+                guard let key = notification.userInfo?["key"] as? String, key == "scroll-debug-overlay" else { return }
+                isScrollDebugOverlayEnabled = MacOSClientFeatureFlagManager.shared.isEnabled("scroll-debug-overlay")
             }
             .onDisappear {
                 scrollState.cancelAll()
@@ -191,6 +243,17 @@ struct MessageListView: View {
                 handleMessagesRevisionChanged()
             }
             .onChange(of: containerWidth) { handleContainerWidthChanged() }
+            .onChange(of: layoutMetrics.chatColumnWidth) {
+                // Column-width changes re-flow every row, so the cached
+                // heights are stale. Resetting here lets the next render
+                // repopulate with the new measurements.
+                messageHeightCache.reset()
+            }
+            .onChange(of: typographyObserver.generation) {
+                // Typography changes (font size, line spacing) resize every
+                // row. Same rationale as chat-column-width changes.
+                messageHeightCache.reset()
+            }
             .onChange(of: activePendingRequestId) {
                 #if os(macOS)
                 handleConfirmationFocusIfNeeded()

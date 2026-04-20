@@ -129,6 +129,15 @@ public struct VSelectableTextView: NSViewRepresentable {
         lineSpacing: CGFloat,
         maxWidth: CGFloat
     ) -> CGSize {
+        // `bubbleMaxWidth` can be 0 during the first LazyVStack layout pass
+        // before GeometryReader resolves the chat column width. Refuse
+        // degenerate inputs and do not cache — caching (0,0) would collapse
+        // the frame and, via the sibling measuredTextCache in
+        // MarkdownSegmentView, keep the cell collapsed on subsequent passes.
+        guard maxWidth > 0, attributedString.length > 0 else {
+            return .zero
+        }
+
         let key = MeasurementKey(
             attributedString: attributedString,
             maxWidth: maxWidth,
@@ -161,10 +170,14 @@ public struct VSelectableTextView: NSViewRepresentable {
             height: ceil(usedRect.height)
         )
 
-        if measurementSizeCache.count >= measurementCacheLimit {
-            measurementSizeCache.removeAll(keepingCapacity: true)
+        // Skip persisting a collapsed measurement so a transient bad input
+        // cannot poison later queries at the same key.
+        if size.height > 0 {
+            if measurementSizeCache.count >= measurementCacheLimit {
+                measurementSizeCache.removeAll(keepingCapacity: true)
+            }
+            measurementSizeCache[key] = size
         }
-        measurementSizeCache[key] = size
         return size
     }
 
@@ -177,6 +190,19 @@ public struct VSelectableTextView: NSViewRepresentable {
         // Reference: https://developer.apple.com/documentation/appkit/nstextview/1449309-layoutmanager
         let textStorage = NSTextStorage()
         let layoutManager = NSLayoutManager()
+        // Contiguous (default) layout: the measurement path uses
+        // `NSLayoutManager.ensureLayout(for:)` + `usedRect(for:)` on a separate
+        // TextKit stack that always lays out every glyph, so the frame we
+        // hand SwiftUI via `.frame(height:)` assumes the NSTextView will
+        // render every glyph in that same rect. Non-contiguous layout leaves
+        // glyphs pending until the view scrolls or draws them, which races
+        // with streaming updates — the NSTextView briefly paints a smaller
+        // laid-out region inside the (correctly-measured) larger frame,
+        // producing a visible gap; the next sibling then gets placed via
+        // the measured frame and the lazy glyphs later paint outside it,
+        // producing overlap. Keep this contiguous for correctness here.
+        // VCodeView / HighlightedTextView still opt in to non-contiguous
+        // layout independently for their own scroll-attachment perf fix.
         textStorage.addLayoutManager(layoutManager)
         let textContainer = NSTextContainer(size: NSSize(
             width: 0,

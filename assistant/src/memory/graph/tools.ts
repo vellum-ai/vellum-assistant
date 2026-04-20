@@ -82,7 +82,7 @@ export const graphRecallDefinition: ToolDefinition = {
 export const graphRememberDefinition: ToolDefinition = {
   name: "remember",
   description:
-    "Save a fact to your knowledge base. Call this AGGRESSIVELY — capture anything concrete about their life: preferences, locations, names, dates, habits, opinions, health details, plans, relationship facts, routines, commitments. Default to remembering; only skip obvious noise (small talk, hypotheticals, things they're just musing about). Don't judge importance — filing decides that later. Examples: 'Prefers UberEats over DoorDash', 'Lives in NYC, from Texas', 'Takes 45mg nicotine daily, tapering', 'Girlfriend Yen is in Texas', 'Watches vampire show Saturday nights', 'NYU Summit April 10-11'. Call this multiple times per conversation — it's cheap (one line appended to a file). Don't wait until the end. Don't batch. Every new fact, immediately. Remembering too much is infinitely better than forgetting something that mattered. CORRECTIONS are the highest priority — when the user corrects a fact you had wrong, `remember` the correction immediately. The wrong version is already propagated in your prior turns and memory graph; skipping a correction means future-you keeps operating on the old value. Never skip a correction even if you'd skip the equivalent fresh fact.",
+    "Save a fact to your knowledge base. Call this AGGRESSIVELY — capture anything concrete about their life: preferences, locations, names, dates, habits, opinions, health details, plans, relationship facts, routines, commitments. Default to remembering; only skip obvious noise (small talk, hypotheticals, things they're just musing about). Don't judge importance — filing decides that later. Examples: 'Prefers UberEats over DoorDash', 'Lives in NYC, from Texas', 'Takes daily medication, tapering dose', 'Partner Alex lives in Austin', 'Watches a weekly show on Saturday nights', 'Conference in May'. Call this multiple times per conversation — it's cheap (one line appended to a file). Don't wait until the end. Don't batch. Every new fact, immediately. Remembering too much is infinitely better than forgetting something that mattered. CORRECTIONS are the highest priority — when the user corrects a fact you had wrong, `remember` the correction immediately. The wrong version is already propagated in your prior turns and memory graph; skipping a correction means future-you keeps operating on the old value. Never skip a correction even if you'd skip the equivalent fresh fact.",
   input_schema: {
     type: "object",
     properties: {
@@ -90,6 +90,11 @@ export const graphRememberDefinition: ToolDefinition = {
         type: "string",
         description:
           "The fact to remember. Write naturally — a preference, a detail, a commitment, a plan. No need to categorize.",
+      },
+      finish_turn: {
+        type: "boolean",
+        description:
+          "Set to true ONLY on the final `remember` call when you have nothing else to say and want to hand control back to the user. When true, the assistant turn ends after this tool call and no further LLM call is made. Do NOT set true on intermediate `remember` calls. Default: false.",
       },
     },
     required: ["content"],

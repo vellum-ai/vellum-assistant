@@ -4,6 +4,11 @@
  * These endpoints manage persistent trust rules independently of
  * the approval-flow trust-rule endpoint in approval-routes.ts.
  * All endpoints are bearer-token authenticated (standard runtime auth).
+ *
+ * Canonicalization is handled centrally inside `addRule`/`updateRule` in
+ * trust-store.ts: legacy clients can keep sending current shapes without
+ * 4xx regressions, but fields invalid for a tool's family (e.g.
+ * `executionTarget` on a URL-tool rule) are silently stripped.
  */
 import { z } from "zod";
 
@@ -31,6 +36,10 @@ function handleListTrustRules(): Response {
  * POST /v1/trust-rules/manage — add a trust rule (standalone, not approval-flow).
  *
  * Body: { toolName, pattern, scope, decision, allowHighRisk?, executionTarget? }
+ *
+ * Legacy payloads that include fields invalid for the tool's family (e.g.
+ * `executionTarget` on a `web_fetch` rule) are accepted but canonicalized:
+ * the invalid fields are stripped before persistence.
  */
 export async function handleAddTrustRuleManage(
   req: Request,
@@ -76,14 +85,19 @@ export async function handleAddTrustRuleManage(
   }
 
   try {
-    const hasMetadata = allowHighRisk != null || executionTarget != null;
+    // Canonicalization is handled inside addRule — no need to pre-parse here.
+    // Legacy callers that send e.g. executionTarget on a URL-tool rule won't
+    // get a 4xx — the field is simply dropped during normalization in addRule.
     addRule(
       toolName,
       pattern,
       scope,
       decision as "allow" | "deny" | "ask",
       undefined,
-      hasMetadata ? { allowHighRisk, executionTarget } : undefined,
+      {
+        ...(allowHighRisk != null ? { allowHighRisk } : {}),
+        ...(executionTarget != null ? { executionTarget } : {}),
+      },
     );
     log.info(
       { toolName, pattern, scope, decision },

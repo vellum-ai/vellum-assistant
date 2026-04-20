@@ -1,39 +1,19 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, afterEach } from "bun:test";
 import {
   readFileSync,
   writeFileSync,
-  mkdirSync,
-  rmSync,
   existsSync,
+  unlinkSync,
+  rmSync,
 } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { randomBytes } from "node:crypto";
+import { testWorkspaceDir } from "./test-preload.js";
 
-// Use an isolated temp directory so tests don't touch the real workspace config.
-const testDir = join(
-  tmpdir(),
-  `vellum-privacy-config-test-${randomBytes(6).toString("hex")}`,
-);
-const vellumRoot = join(testDir, ".vellum");
-const workspaceDir = join(vellumRoot, "workspace");
-const configPath = join(workspaceDir, "config.json");
-
-const savedWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
-
-beforeEach(() => {
-  process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
-  mkdirSync(workspaceDir, { recursive: true });
-});
+const configPath = join(testWorkspaceDir, "config.json");
 
 afterEach(() => {
-  if (savedWorkspaceDir === undefined) {
-    delete process.env.VELLUM_WORKSPACE_DIR;
-  } else {
-    process.env.VELLUM_WORKSPACE_DIR = savedWorkspaceDir;
-  }
   try {
-    rmSync(testDir, { recursive: true, force: true });
+    if (existsSync(configPath)) unlinkSync(configPath);
   } catch {
     // best effort cleanup
   }

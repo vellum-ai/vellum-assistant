@@ -37,6 +37,7 @@ export type TitleOrigin =
   | "filing"
   | "local"
   | "task_submit"
+  | "updates_bulletin"
   | "misc";
 
 export interface TitleContext {
@@ -118,7 +119,8 @@ export async function generateAndPersistConversationTitle(
     return { title: conversation.title!, updated: false };
   }
 
-  const provider = params.provider ?? (await getConfiguredProvider());
+  const provider =
+    params.provider ?? (await getConfiguredProvider("conversationTitle"));
   if (!provider) {
     // No provider available — fall back to context-derived title or untitled
     const fallback = deriveFallbackTitle(context) ?? UNTITLED_FALLBACK;
@@ -133,7 +135,7 @@ export async function generateAndPersistConversationTitle(
     provider,
     systemPrompt: buildTitleSystemPrompt(),
     tools: [],
-    modelIntent: "quality-optimized",
+    callSite: "conversationTitle",
     signal,
     timeoutMs: 10_000,
   });
@@ -219,7 +221,8 @@ export async function regenerateConversationTitle(
     return { title: conversation?.title ?? UNTITLED_FALLBACK, updated: false };
   }
 
-  const provider = params.provider ?? (await getConfiguredProvider());
+  const provider =
+    params.provider ?? (await getConfiguredProvider("conversationTitle"));
   if (!provider) {
     return { title: conversation.title ?? UNTITLED_FALLBACK, updated: false };
   }
@@ -236,7 +239,7 @@ export async function regenerateConversationTitle(
     provider,
     systemPrompt: buildTitleSystemPrompt(),
     tools: [],
-    modelIntent: "quality-optimized",
+    callSite: "conversationTitle",
     signal,
     timeoutMs: 10_000,
   });

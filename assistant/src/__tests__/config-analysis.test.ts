@@ -10,30 +10,27 @@ describe("AnalysisConfigSchema", () => {
     const parsed = AnalysisConfigSchema.parse({});
     expect(parsed.batchSize).toBe(30);
     expect(parsed.idleTimeoutMs).toBe(600_000);
-    expect(parsed.modelIntent).toBeUndefined();
-    expect(parsed.modelOverride).toBeUndefined();
   });
 
-  test("custom values round-trip", () => {
+  test("custom batch/idle values round-trip", () => {
     const input = {
       batchSize: 50,
       idleTimeoutMs: 120_000,
-      modelIntent: "quality-optimized" as const,
-      modelOverride: "anthropic/claude-opus-4-6",
     };
     const parsed = AnalysisConfigSchema.parse(input);
     expect(parsed).toEqual(input);
   });
 
-  test("accepts each valid modelIntent value", () => {
-    for (const intent of [
-      "latency-optimized",
-      "quality-optimized",
-      "vision-optimized",
-    ] as const) {
-      const parsed = AnalysisConfigSchema.parse({ modelIntent: intent });
-      expect(parsed.modelIntent).toBe(intent);
-    }
+  test("legacy modelIntent/modelOverride are stripped after PR 19 cleanup", () => {
+    // Both fields moved to llm.callSites.analyzeConversation in PR 4 and
+    // were removed from the schema in PR 19. Zod silently strips unknown
+    // keys; migration 039 erases them from disk.
+    const parsed = AnalysisConfigSchema.parse({
+      modelIntent: "quality-optimized",
+      modelOverride: "anthropic/claude-opus-4-6",
+    });
+    expect((parsed as Record<string, unknown>).modelIntent).toBeUndefined();
+    expect((parsed as Record<string, unknown>).modelOverride).toBeUndefined();
   });
 
   test("rejects batchSize: 0 (must be positive)", () => {
@@ -60,18 +57,6 @@ describe("AnalysisConfigSchema", () => {
     const result = AnalysisConfigSchema.safeParse({ idleTimeoutMs: -1000 });
     expect(result.success).toBe(false);
   });
-
-  test("rejects invalid modelIntent value", () => {
-    const result = AnalysisConfigSchema.safeParse({
-      modelIntent: "bogus-intent",
-    });
-    expect(result.success).toBe(false);
-  });
-
-  test("rejects non-string modelOverride", () => {
-    const result = AnalysisConfigSchema.safeParse({ modelOverride: 42 });
-    expect(result.success).toBe(false);
-  });
 });
 
 describe("AssistantConfigSchema — analysis integration", () => {
@@ -88,13 +73,11 @@ describe("AssistantConfigSchema — analysis integration", () => {
       analysis: {
         batchSize: 15,
         idleTimeoutMs: 300_000,
-        modelIntent: "latency-optimized",
       },
     });
     expect(parsed.analysis).toEqual({
       batchSize: 15,
       idleTimeoutMs: 300_000,
-      modelIntent: "latency-optimized",
     });
   });
 });

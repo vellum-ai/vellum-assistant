@@ -2,6 +2,7 @@
 // bun test src/__tests__/checker.test.ts src/__tests__/trust-store.test.ts src/__tests__/conversation-skill-tools.test.ts src/__tests__/skill-script-runner-host.test.ts
 
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   realpathSync,
@@ -103,7 +104,7 @@ import {
 } from "../permissions/trust-store.js";
 import type { TrustRule } from "../permissions/types.js";
 import { RiskLevel } from "../permissions/types.js";
-import { getTool, registerTool } from "../tools/registry.js";
+import { registerTool } from "../tools/registry.js";
 import type { Tool } from "../tools/types.js";
 
 // Register a mock skill-origin tool for testing default-ask policy.
@@ -1130,7 +1131,10 @@ describe("Permission Checker", () => {
       expect(result.decision).toBe("prompt");
     });
 
-    test("web_fetch allowHighRisk rule can approve private-network fetches", async () => {
+    test("web_fetch allowHighRisk is preserved by canonicalization so private-network fetches can auto-allow", async () => {
+      // URL-family tools now preserve allowHighRisk through addRule's canonical
+      // parser, so high-risk private-network fetches can be explicitly
+      // auto-approved by user trust rules.
       addRule(
         "web_fetch",
         "web_fetch:http://localhost:3000/*",
@@ -1145,6 +1149,9 @@ describe("Permission Checker", () => {
         "/tmp",
       );
       expect(result.decision).toBe("allow");
+      expect(result.reason).toContain("high-risk trust rule");
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.allowHighRisk).toBe(true);
     });
 
     test("web_fetch exact allowlist pattern matches query urls literally", async () => {
@@ -2110,9 +2117,6 @@ describe("Permission Checker", () => {
     test("returns empty for non-scoped tools", () => {
       const workingDir = join(homedir(), "projects", "myapp");
       expect(generateScopeOptions(workingDir, "web_fetch")).toHaveLength(0);
-      expect(generateScopeOptions(workingDir, "browser_navigate")).toHaveLength(
-        0,
-      );
       expect(generateScopeOptions(workingDir, "skill_load")).toHaveLength(0);
       expect(generateScopeOptions(workingDir, "credential_store")).toHaveLength(
         0,
@@ -2421,6 +2425,124 @@ describe("Permission Checker", () => {
     });
   });
 
+  // ── Family-aware rule shape regression ─────────────────────────
+  //
+  // Validates that trust rules conform to canonical family-aware shapes
+  // after disk round-trips. The canonical parser in ces-contracts strips
+  // fields that are invalid for a rule's tool family (for example,
+  // executionTarget on non-scoped tools).
+  //
+  // Platform proxy compatibility gate: test_runtime_proxy_api.py (245 tests)
+  // was validated as part of the trust-rule-union-compat plan. The proxy
+  // tests live in vellum-assistant-platform and confirmed that the
+  // family-aware union type changes are wire-compatible with the platform.
+
+  describe("family-aware rule shape regression", () => {
+    test("scoped tool (bash) preserves executionTarget and allowHighRisk through disk round-trip", () => {
+      const rule = addRule("bash", "kill *", "everywhere", "allow", 100, {
+        allowHighRisk: true,
+        executionTarget: "/usr/local/bin/node",
+      });
+      expect(rule.allowHighRisk).toBe(true);
+      expect(rule.executionTarget).toBe("/usr/local/bin/node");
+
+      // Force a disk round-trip by clearing the cache and re-reading
+      clearCache();
+      const reloaded = findHighestPriorityRule(
+        "bash",
+        ["kill -9 1234"],
+        "/tmp",
+        { executionTarget: "/usr/local/bin/node" },
+      );
+      expect(reloaded).not.toBeNull();
+      // Scoped tools retain both fields after canonical normalization
+      expect(reloaded!.allowHighRisk).toBe(true);
+      expect(reloaded!.executionTarget).toBe("/usr/local/bin/node");
+    });
+
+    test("URL tool (web_fetch) preserves allowHighRisk after disk round-trip", () => {
+      // addRule canonicalizes rule shape but preserves allowHighRisk for URL
+      // tools for backward compatibility with persistent high-risk approvals.
+      const rule = addRule(
+        "web_fetch",
+        "web_fetch:http://localhost:3000/*",
+        "/tmp",
+        "allow",
+        100,
+        { allowHighRisk: true },
+      );
+      expect(rule.allowHighRisk).toBe(true);
+
+      // Force a disk round-trip.
+      clearCache();
+      const reloaded = findHighestPriorityRule(
+        "web_fetch",
+        ["web_fetch:http://localhost:3000/health"],
+        "/tmp",
+      );
+      expect(reloaded).not.toBeNull();
+      expect(reloaded!.allowHighRisk).toBe(true);
+    });
+
+    test("generic tool (skill_test_tool) preserves optional fields through round-trip", () => {
+      const rule = addRule(
+        "skill_test_tool",
+        "skill_test_tool:*",
+        "/tmp",
+        "allow",
+        2000,
+        { allowHighRisk: true },
+      );
+      expect(rule.allowHighRisk).toBe(true);
+
+      clearCache();
+      const reloaded = findHighestPriorityRule(
+        "skill_test_tool",
+        ["skill_test_tool:test"],
+        "/tmp",
+      );
+      expect(reloaded).not.toBeNull();
+      // Generic tools preserve allowHighRisk for forward compatibility
+      expect(reloaded!.allowHighRisk).toBe(true);
+    });
+
+    test("rule without scope defaults to 'everywhere' after parsing", () => {
+      // Write a rule directly with no scope field to simulate legacy data
+      const trustPath = join(checkerTestDir, "protected", "trust.json");
+      const trustDir = join(checkerTestDir, "protected");
+      if (!existsSync(trustDir)) mkdirSync(trustDir, { recursive: true });
+      writeFileSync(
+        trustPath,
+        JSON.stringify({
+          version: 3,
+          rules: [
+            {
+              id: "test-no-scope",
+              tool: "bash",
+              pattern: "echo *",
+              decision: "allow",
+              priority: 100,
+              createdAt: Date.now(),
+              // No scope field — should default to "everywhere"
+            },
+          ],
+        }),
+      );
+      clearCache();
+
+      const reloaded = findHighestPriorityRule(
+        "bash",
+        ["echo hello"],
+        "/any/path",
+      );
+      // The rule matches from any scope because missing scope
+      // is normalized to "everywhere" by the canonical parser.
+      expect(reloaded).not.toBeNull();
+      expect(reloaded!.id).toBe("test-no-scope");
+      expect(reloaded!.scope).toBe("everywhere");
+    });
+  });
+
   // ── PolicyContext type (PR 3) ──────────────────────────────────
 
   describe("PolicyContext type (PR 3)", () => {
@@ -2593,7 +2715,9 @@ describe("Permission Checker", () => {
       expect(result.reason).not.toContain("high-risk");
     });
 
-    test("high-risk scaffold_managed_skill with allowHighRisk: true returns allow", async () => {
+    test("high-risk scaffold_managed_skill with allowHighRisk: true auto-allows", async () => {
+      // Managed-skill tools preserve allowHighRisk through addRule's canonical
+      // parser, allowing explicit high-risk auto-approval via trust rules.
       addRule(
         "scaffold_managed_skill",
         "scaffold_managed_skill:my-skill",
@@ -2609,9 +2733,13 @@ describe("Permission Checker", () => {
       );
       expect(result.decision).toBe("allow");
       expect(result.reason).toContain("high-risk trust rule");
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.allowHighRisk).toBe(true);
     });
 
-    test("high-risk delete_managed_skill with allowHighRisk: true returns allow", async () => {
+    test("high-risk delete_managed_skill with allowHighRisk: true auto-allows", async () => {
+      // Managed-skill tools preserve allowHighRisk through addRule's canonical
+      // parser, allowing explicit high-risk auto-approval via trust rules.
       addRule(
         "delete_managed_skill",
         "delete_managed_skill:*",
@@ -2627,6 +2755,8 @@ describe("Permission Checker", () => {
       );
       expect(result.decision).toBe("allow");
       expect(result.reason).toContain("high-risk trust rule");
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.allowHighRisk).toBe(true);
     });
 
     test("deny rule still takes precedence over allowHighRisk allow rule", async () => {
@@ -2711,6 +2841,8 @@ describe("Permission Checker", () => {
 
     test("strict mode: scaffold_managed_skill with allowHighRisk auto-allows", async () => {
       testConfig.permissions.mode = "strict";
+      // Managed-skill tools preserve allowHighRisk through addRule's canonical
+      // parser, so explicit high-risk rules can auto-allow even in strict mode.
       addRule(
         "scaffold_managed_skill",
         "scaffold_managed_skill:my-skill",
@@ -2726,6 +2858,8 @@ describe("Permission Checker", () => {
       );
       expect(result.decision).toBe("allow");
       expect(result.reason).toContain("high-risk trust rule");
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.allowHighRisk).toBe(true);
     });
 
     test("strict mode: scaffold_managed_skill without allowHighRisk still prompts", async () => {
@@ -4392,78 +4526,6 @@ describe("Permission Checker", () => {
     });
   });
 
-  // ── browser tool permission baselines ─────────────────────────────
-  // Representative browser tools are RiskLevel.Low and auto-allowed by
-  // default rules in strict mode.
-
-  describe("browser tool permission baselines", () => {
-    const browserToolNames = [
-      "browser_navigate",
-      "browser_snapshot",
-      "browser_screenshot",
-      "browser_close",
-      "browser_attach",
-      "browser_detach",
-      "browser_click",
-      "browser_type",
-      "browser_press_key",
-      "browser_wait_for",
-      "browser_extract",
-      "browser_fill_credential",
-      "browser_status",
-    ] as const;
-
-    // Register mock browser tools with the correct metadata so classifyRisk
-    // resolves them without pulling in the full headless-browser module
-    // (which depends on playwright and browser-manager).
-    beforeAll(() => {
-      for (const name of browserToolNames) {
-        // Skip if already registered (e.g. via initializeTools)
-        if (getTool(name)) continue;
-
-        registerTool({
-          name,
-          description: `Mock ${name} for permission baseline`,
-          category: "browser",
-          defaultRiskLevel: RiskLevel.Low,
-          getDefinition: () => ({
-            name,
-            description: `Mock ${name}`,
-            input_schema: { type: "object" as const, properties: {} },
-          }),
-          execute: async () => ({ content: "ok", isError: false }),
-        });
-      }
-    });
-
-    for (const toolName of browserToolNames) {
-      test(`${toolName} has RiskLevel.Low default risk`, async () => {
-        const risk = await classifyRisk(toolName, {});
-        expect(risk).toBe(RiskLevel.Low);
-      });
-    }
-
-    test("browser tools are auto-allowed in workspace mode", async () => {
-      testConfig.permissions = { mode: "workspace" };
-      for (const toolName of browserToolNames) {
-        const result = await check(toolName, {}, "/tmp");
-        expect(result.decision).toBe("allow");
-      }
-    });
-
-    test("browser tools are auto-allowed in strict mode via default allow rules", async () => {
-      testConfig.permissions = { mode: "strict" };
-      try {
-        for (const toolName of browserToolNames) {
-          const result = await check(toolName, {}, "/tmp");
-          expect(result.decision).toBe("allow");
-        }
-      } finally {
-        testConfig.permissions = { mode: "workspace" };
-      }
-    });
-  });
-
   // ── default allow: skill_load ──────────────────────────────────
 
   describe("default allow: skill_load", () => {
@@ -4484,54 +4546,6 @@ describe("Permission Checker", () => {
         "/tmp",
       );
       expect(result.decision).toBe("allow");
-    });
-  });
-
-  // ── default allow: browser tools ──────────────────────────────
-
-  describe("default allow: browser tools", () => {
-    beforeEach(() => {
-      clearCache();
-      testConfig.permissions = { mode: "strict" };
-    });
-
-    test("all browser tools are allowed by default rules in strict mode", async () => {
-      const browserTools = [
-        "browser_navigate",
-        "browser_snapshot",
-        "browser_screenshot",
-        "browser_close",
-        "browser_attach",
-        "browser_detach",
-        "browser_click",
-        "browser_type",
-        "browser_press_key",
-        "browser_wait_for",
-        "browser_extract",
-        "browser_fill_credential",
-        "browser_status",
-      ];
-
-      for (const tool of browserTools) {
-        const result = await check(tool, {}, "/tmp");
-        expect(result.decision).toBe("allow");
-      }
-    });
-
-    test("browser_navigate with a real URL is allowed in strict mode", async () => {
-      const result = await check(
-        "browser_navigate",
-        { url: "https://example.com/path/to/page" },
-        "/tmp",
-      );
-      expect(result.decision).toBe("allow");
-    });
-
-    test("non-browser skill tools are NOT auto-allowed", async () => {
-      // skill_test_tool is a registered skill-origin tool without a default
-      // allow rule — it should prompt in strict mode.
-      const result = await check("skill_test_tool", {}, "/tmp");
-      expect(result.decision).not.toBe("allow");
     });
   });
 });

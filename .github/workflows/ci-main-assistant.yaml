@@ -8,6 +8,7 @@ on:
       - 'assistant/**'
       - 'credential-executor/**'
       - 'packages/**'
+      - 'skills/meet-join/contracts/**'
       - 'meta/feature-flags/**'
       - '.github/workflows/ci-main-assistant.yaml'
 
@@ -42,8 +43,7 @@ jobs:
       - name: Install linked package dependencies
         run: |
           cd ../packages/ces-contracts && bun install --frozen-lockfile
-          cd ../../skills/meet-join/contracts && bun install --frozen-lockfile
-          cd .. && bun install --frozen-lockfile
+          cd ../../skills/meet-join && bun install --frozen-lockfile
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -81,8 +81,7 @@ jobs:
       - name: Install linked package dependencies
         run: |
           cd ../packages/ces-contracts && bun install --frozen-lockfile
-          cd ../../skills/meet-join/contracts && bun install --frozen-lockfile
-          cd .. && bun install --frozen-lockfile
+          cd ../../skills/meet-join && bun install --frozen-lockfile
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -120,8 +119,7 @@ jobs:
       - name: Install linked package dependencies
         run: |
           cd ../packages/ces-contracts && bun install --frozen-lockfile
-          cd ../../skills/meet-join/contracts && bun install --frozen-lockfile
-          cd .. && bun install --frozen-lockfile
+          cd ../../skills/meet-join && bun install --frozen-lockfile
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -136,7 +134,7 @@ jobs:
       - name: Test
         run: bun run test:stable
         env:
-          TEST_WORKERS: '8'
+          TEST_WORKERS: '16'
           TEST_DURATIONS_FILE: .test-durations
           TEST_DURATIONS_OUTPUT: .test-durations
 
@@ -177,8 +175,7 @@ jobs:
       - name: Install linked package dependencies
         run: |
           cd ../packages/ces-contracts && bun install --frozen-lockfile
-          cd ../../skills/meet-join/contracts && bun install --frozen-lockfile
-          cd .. && bun install --frozen-lockfile
+          cd ../../skills/meet-join && bun install --frozen-lockfile
 
       - name: Check OpenAPI spec is up to date
         run: bun run generate:openapi -- --check

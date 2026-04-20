@@ -392,7 +392,7 @@ describe("executeBrowserClick (CDP)", () => {
     const result = await executeBrowserClick({ element_id: "e99" }, ctx);
     expect(result.isError).toBe(true);
     expect(result.content).toContain('element_id "e99" not found');
-    expect(result.content).toContain("browser_snapshot");
+    expect(result.content).toContain("snapshot");
     // Resolution failed before acquiring a CdpClient.
     expect(sendCalls).toHaveLength(0);
   });

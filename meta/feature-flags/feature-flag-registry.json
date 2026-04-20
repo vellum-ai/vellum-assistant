@@ -38,7 +38,7 @@
       "scope": "assistant",
       "key": "email-channel",
       "label": "Email Channel",
-      "description": "Enable the entire email integration: email CLI commands, email channel, sequences, email readiness probes, invite adapters, and the email-setup skill",
+      "description": "Enable the entire email integration: email CLI commands, email channel, domain registration, sequences, email readiness probes, invite adapters, and the email-setup skill",
       "defaultEnabled": false
     },
     {
@@ -322,14 +322,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "managed-x-oauth-integration",
-      "scope": "assistant",
-      "key": "managed-x-oauth-integration",
-      "label": "Managed X/Twitter OAuth",
-      "description": "Enable platform-managed X/Twitter OAuth integration in Models & Services settings",
-      "defaultEnabled": false
-    },
-    {
       "id": "onboarding-pre-chat",
       "scope": "macos",
       "key": "onboarding-pre-chat",
@@ -360,6 +352,22 @@
       "label": "Google Meet",
       "description": "Enables the Google Meet joining bot and the meet-join skill.",
       "defaultEnabled": false
+    },
+    {
+      "id": "scroll-debug-overlay",
+      "scope": "macos",
+      "key": "scroll-debug-overlay",
+      "label": "Scroll Debug Overlay",
+      "description": "Show a live HUD in the top-right of the conversation with scroll geometry, velocity, update rate, and anchor-preserver activity. Developer diagnostic for investigating scroll jank.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "message-height-cache",
+      "scope": "macos",
+      "key": "message-height-cache",
+      "label": "Message Height Cache",
+      "description": "Swap the transcript's LazyVStack for a plain VStack so scrollContentHeight is the true sum of row heights (no LazyVStack estimator drift). Row frames are not pinned — the earlier frame-pinning approach was removed because it caused overlap when rows grew past their first measurement (streaming, expanding thinking blocks). Tradeoff: eager layout — every row measures up-front, which can stall for many seconds to minutes on very long conversations.",
+      "defaultEnabled": true
     }
   ]
 }

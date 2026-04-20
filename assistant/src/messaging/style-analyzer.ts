@@ -127,7 +127,7 @@ export async function extractStylePatterns(
     .map((e, i) => `--- Message ${i + 1} ---\n${e}`)
     .join("\n\n");
 
-  const provider = await getConfiguredProvider();
+  const provider = await getConfiguredProvider("styleAnalyzer");
   if (!provider) {
     return { stylePatterns: [], contactObservations: [] };
   }
@@ -147,7 +147,10 @@ export async function extractStylePatterns(
     promptMessages,
     [storeStyleAnalysisTool],
     STYLE_EXTRACTION_SYSTEM_PROMPT,
-    { signal: AbortSignal.timeout(30_000) },
+    {
+      signal: AbortSignal.timeout(30_000),
+      config: { callSite: "styleAnalyzer" },
+    },
   );
 
   const toolBlock = response.content.find((b) => b.type === "tool_use");

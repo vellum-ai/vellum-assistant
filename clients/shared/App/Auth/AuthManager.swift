@@ -4,7 +4,6 @@ import AppKit
 import UIKit
 #endif
 import AuthenticationServices
-import CryptoKit
 import Foundation
 import os
 
@@ -94,105 +93,46 @@ public final class AuthManager {
         defer { isSubmitting = false }
 
         do {
-            let config = try await authService.getConfig()
-            guard let provider = config.data?.socialaccount?.providers?.first(where: { $0.id == "workos-oidc" }),
-                  let clientId = provider.client_id,
-                  let discoveryURL = provider.openid_configuration_url else {
-                throw AuthServiceError.oidcDiscoveryFailed
-            }
-
-            let discovery = try await authService.fetchOIDCDiscovery(url: discoveryURL)
-            guard let authEndpoint = discovery.authorization_endpoint,
-                  let tokenEndpoint = discovery.token_endpoint else {
-                throw AuthServiceError.oidcDiscoveryFailed
-            }
-
-            let codeVerifier = generateCodeVerifier()
-            let codeChallenge = generateCodeChallenge(from: codeVerifier)
             let stateParam = generateRandomString(length: 32)
-            let redirectURI = "\(Self.callbackScheme)://auth/callback"
-
-            guard var components = URLComponents(string: authEndpoint) else {
+            let returnTo = "/accounts/native/callback?state=\(stateParam)"
+            var allowedReturnToChars = CharacterSet.urlQueryAllowed
+            allowedReturnToChars.remove(charactersIn: "?=&+")
+            guard let encodedReturnTo = returnTo.addingPercentEncoding(withAllowedCharacters: allowedReturnToChars) else {
                 throw AuthServiceError.invalidURL
             }
-            components.queryItems = [
-                URLQueryItem(name: "response_type", value: "code"),
-                URLQueryItem(name: "client_id", value: clientId),
-                URLQueryItem(name: "redirect_uri", value: redirectURI),
-                URLQueryItem(name: "scope", value: "openid profile email"),
-                URLQueryItem(name: "state", value: stateParam),
-                URLQueryItem(name: "code_challenge_method", value: "S256"),
-                URLQueryItem(name: "code_challenge", value: codeChallenge),
-            ]
-
-            guard let authURL = components.url else {
+            let loginURLString = "\(VellumEnvironment.resolvedWebURL)/account/login?returnTo=\(encodedReturnTo)"
+            guard let loginURL = URL(string: loginURLString) else {
                 throw AuthServiceError.invalidURL
             }
 
-            let callbackURL = try await performWebAuth(url: authURL, callbackScheme: Self.callbackScheme)
+            let callbackURL = try await performWebAuth(url: loginURL, callbackScheme: Self.callbackScheme)
 
-            guard let urlComponents = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
-                  let code = urlComponents.queryItems?.first(where: { $0.name == "code" })?.value,
-                  let returnedState = urlComponents.queryItems?.first(where: { $0.name == "state" })?.value else {
-                throw AuthServiceError.oidcTokenExchangeFailed("Missing authorization code in callback.")
+            guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
+                  let sessionToken = components.queryItems?.first(where: { $0.name == "session_token" })?.value,
+                  let returnedState = components.queryItems?.first(where: { $0.name == "state" })?.value else {
+                throw AuthServiceError.authCallbackFailed("Missing session token or state in callback.")
             }
 
             guard returnedState == stateParam else {
-                throw AuthServiceError.oidcTokenExchangeFailed("Invalid state parameter.")
+                throw AuthServiceError.authCallbackFailed("Invalid state parameter.")
             }
 
-            let tokenResponse = try await authService.exchangeOIDCCode(
-                tokenEndpoint: tokenEndpoint,
-                clientId: clientId,
-                code: code,
-                codeVerifier: codeVerifier,
-                redirectURI: redirectURI
-            )
+            await SessionTokenManager.setTokenAsync(sessionToken)
 
-            let response = try await authService.authenticateWithProviderToken(
-                provider: "workos-oidc",
-                process: "login",
-                clientId: clientId,
-                idToken: tokenResponse.id_token,
-                accessToken: tokenResponse.access_token
-            )
-
-            log.info(
-                "Provider-token auth completed with platformURL=\(VellumEnvironment.resolvedPlatformURL, privacy: .public) status=\(response.status, privacy: .public) isAuthenticated=\(response.meta?.is_authenticated == true, privacy: .public) hasUser=\(response.data?.user != nil, privacy: .public)"
-            )
-
-            if response.status == 200, response.meta?.is_authenticated != false {
-                if let user = response.data?.user {
-                    state = .authenticated(user)
-                    log.info("WorkOS login completed from provider-token response for user \(user.id ?? user.email ?? "unknown", privacy: .public)")
-                    await resolveOrganizationIdAfterAuth()
-                } else {
-                    log.info("Provider-token auth returned no user payload; validating session via auth/session")
-                    let session = try await authService.getSession()
-                    if session.status == 200, session.meta?.is_authenticated != false, let user = session.data?.user {
-                        state = .authenticated(user)
-                        log.info("WorkOS login completed after session revalidation for user \(user.id ?? user.email ?? "unknown", privacy: .public)")
-                        await resolveOrganizationIdAfterAuth()
-                    } else {
-                        log.error(
-                            "Session revalidation after provider-token auth did not return an authenticated user. status=\(session.status, privacy: .public) isAuthenticated=\(session.meta?.is_authenticated == true, privacy: .public) hasUser=\(session.data?.user != nil, privacy: .public)"
-                        )
-                        errorMessage = "Authentication was not completed. Please try again."
-                    }
-                }
+            // Validate the session and populate user state
+            let session = try await authService.getSession()
+            if session.status == 200, session.meta?.is_authenticated != false, let user = session.data?.user {
+                state = .authenticated(user)
+                log.info("Login completed via Django auth flow for user \(user.id ?? user.email ?? "unknown", privacy: .public)")
+                await resolveOrganizationIdAfterAuth()
             } else {
-                log.error(
-                    "Provider-token auth did not complete authentication. status=\(response.status, privacy: .public) isAuthenticated=\(response.meta?.is_authenticated == true, privacy: .public)"
-                )
+                log.error("Session validation after Django auth flow did not return authenticated user. status=\(session.status, privacy: .public)")
                 errorMessage = "Authentication was not completed. Please try again."
             }
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
-            log.info("User cancelled WorkOS login")
+            log.info("User cancelled login")
         } catch {
-            log.error("WorkOS login failed: baseURL=\(VellumEnvironment.resolvedPlatformURL, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
-            let bundlePath = Bundle.main.bundlePath
-            let isTranslocated = bundlePath.contains("/AppTranslocation/")
-            log.error("WorkOS login failed environment: bundlePath=\(bundlePath, privacy: .public) isTranslocated=\(isTranslocated, privacy: .public)")
+            log.error("Login failed: baseURL=\(VellumEnvironment.resolvedPlatformURL, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             errorMessage = "Unable to sign in. Please try again."
         }
     }
@@ -236,18 +176,6 @@ public final class AuthManager {
         }
     }
 
-    private func generateCodeVerifier() -> String {
-        var bytes = [UInt8](repeating: 0, count: 64)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-        return Data(bytes).base64URLEncodedString()
-    }
-
-    private func generateCodeChallenge(from verifier: String) -> String {
-        let data = Data(verifier.utf8)
-        let hash = SHA256.hash(data: data)
-        return Data(hash).base64URLEncodedString()
-    }
-
     private func generateRandomString(length: Int) -> String {
         var bytes = [UInt8](repeating: 0, count: length)
         _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
@@ -263,7 +191,7 @@ public final class AuthManager {
                 } else if let callbackURL {
                     continuation.resume(returning: callbackURL)
                 } else {
-                    continuation.resume(throwing: AuthServiceError.oidcTokenExchangeFailed("No callback URL received."))
+                    continuation.resume(throwing: AuthServiceError.authCallbackFailed("No callback URL received."))
                 }
             }
             session.prefersEphemeralWebBrowserSession = false

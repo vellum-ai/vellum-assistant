@@ -43,9 +43,9 @@ const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
     "o4-mini": { inputPer1M: 1.1, outputPer1M: 4.4 },
   },
   gemini: {
-    "gemini-3-flash": { inputPer1M: 0.5, outputPer1M: 3 },
-    "gemini-2.5-pro": { inputPer1M: 1.25, outputPer1M: 10 },
     "gemini-2.5-flash": { inputPer1M: 0.15, outputPer1M: 0.6 },
+    "gemini-2.5-flash-lite": { inputPer1M: 0.02, outputPer1M: 0.1 },
+    "gemini-2.5-pro": { inputPer1M: 1.25, outputPer1M: 10 },
     "gemini-2.0-flash": { inputPer1M: 0.1, outputPer1M: 0.4 },
   },
   fireworks: {
@@ -67,15 +67,25 @@ function isAnthropicModelId(model: string): boolean {
 
 /**
  * Normalize an OpenRouter-style Anthropic model ID for lookup against the
- * Anthropic catalog: strip the `anthropic/` prefix and convert OpenRouter's
+ * Anthropic catalog: strip the `anthropic/` prefix, convert OpenRouter's
  * dot-separated version tokens (`claude-opus-4.6`) to the dash form Anthropic
- * uses natively (`claude-opus-4-6`).
+ * uses natively (`claude-opus-4-6`), and swap OpenRouter's version-first
+ * response form (`claude-4-7-opus-20260416`) into Anthropic's model-first
+ * catalog form (`claude-opus-4-7-20260416`) so the prefix match succeeds.
  */
 function normalizeAnthropicModelId(model: string): string {
   const bare = model.startsWith("anthropic/")
     ? model.slice("anthropic/".length)
     : model;
-  return bare.replace(/\./g, "-");
+  const dashed = bare.replace(/\./g, "-");
+  const versionFirst = dashed.match(
+    /^claude-(\d+(?:-\d+)*)-(opus|sonnet|haiku)(-.+)?$/,
+  );
+  if (versionFirst) {
+    const [, version, family, suffix] = versionFirst;
+    return `claude-${family}-${version}${suffix ?? ""}`;
+  }
+  return dashed;
 }
 
 /**

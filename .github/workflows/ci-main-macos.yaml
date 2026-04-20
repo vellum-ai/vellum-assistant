@@ -214,9 +214,7 @@ jobs:
       - name: Install nested package dependencies
         run: |
           pids=()
-          # The daemon bundles zod via skills/meet-join/{config-schema.ts,contracts}
-          # so those directories need their own node_modules alongside packages/.
-          for dir in packages/*/ skills/meet-join/ skills/meet-join/contracts/; do
+          for dir in packages/*/ skills/*/; do
             [ -f "${dir}/package.json" ] || continue
             echo "Installing dependencies in ${dir}"
             (cd "${dir}" && bun install) &

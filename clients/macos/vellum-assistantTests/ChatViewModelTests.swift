@@ -751,6 +751,82 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages[0].status, .processing)
     }
 
+    /// When a queued message is dequeued, it should leave the queue drawer
+    /// (`queuedMessages`) immediately — the drawer filters by `.queued` status,
+    /// and the dequeue transitions the message to `.processing`.
+    func testMessageDequeuedRemovesMessageFromQueuedMessagesDrawer() {
+        viewModel.conversationId = "sess-1"
+        viewModel.isSending = true
+        viewModel.inputText = "Hello"
+        viewModel.sendMessage()
+
+        viewModel.handleServerMessage(.messageQueued(
+            MessageQueuedMessage(conversationId: "sess-1", requestId: "req-1", position: 0)
+        ))
+        XCTAssertEqual(viewModel.queuedMessages.count, 1, "Message should be in the queue drawer before dequeue")
+
+        viewModel.handleServerMessage(.messageDequeued(
+            MessageDequeuedMessage(conversationId: "sess-1", requestId: "req-1")
+        ))
+        XCTAssertTrue(viewModel.queuedMessages.isEmpty, "Message should leave the queue drawer after dequeue")
+        XCTAssertEqual(viewModel.messages.count, 1, "Message should still be in the transcript")
+        XCTAssertEqual(viewModel.messages[0].status, .processing)
+    }
+
+    /// Regression test for the reconnect case: when the daemon reconnects, it
+    /// clears `requestIdToMessageId` and `pendingMessageIds`, but local queued
+    /// messages remain. The next `message_dequeued` event carries a requestId
+    /// that no longer has a mapping, so the old fallback left the message
+    /// stuck with `.queued` status and it persisted in the queue drawer. The
+    /// head-of-queue fallback transitions it to `.processing` instead.
+    func testMessageDequeuedClearsQueueDrawerWhenMappingIsMissing() {
+        viewModel.conversationId = "sess-1"
+        viewModel.isSending = true
+        viewModel.inputText = "Hello"
+        viewModel.sendMessage()
+
+        viewModel.handleServerMessage(.messageQueued(
+            MessageQueuedMessage(conversationId: "sess-1", requestId: "req-1", position: 0)
+        ))
+        XCTAssertEqual(viewModel.queuedMessages.count, 1)
+
+        // Simulate the reconnect clearing the requestId mapping while leaving
+        // the local queued message intact.
+        viewModel.requestIdToMessageId.removeAll()
+        viewModel.pendingMessageIds.removeAll()
+
+        viewModel.handleServerMessage(.messageDequeued(
+            MessageDequeuedMessage(conversationId: "sess-1", requestId: "req-1")
+        ))
+
+        XCTAssertTrue(viewModel.queuedMessages.isEmpty, "Queue drawer must clear even when the requestId mapping is missing")
+        XCTAssertEqual(viewModel.messages[0].status, .processing, "Head-of-queue message should transition to .processing")
+    }
+
+    /// Head-of-queue fallback must pick the lowest-position queued user
+    /// message, not simply the first in chronological order.
+    func testMessageDequeuedFallbackPicksLowestPositionQueuedMessage() {
+        viewModel.conversationId = "sess-1"
+
+        let older = ChatMessage(role: .user, text: "Older msg (higher pos)", status: .queued(position: 1))
+        let head = ChatMessage(role: .user, text: "Head of queue", status: .queued(position: 0))
+        viewModel.messages = [older, head]
+
+        // No requestId mapping — exercise the fallback branch.
+        viewModel.handleServerMessage(.messageDequeued(
+            MessageDequeuedMessage(conversationId: "sess-1", requestId: "unmapped-req")
+        ))
+
+        let headAfter = viewModel.messages.first { $0.text == "Head of queue" }
+        let olderAfter = viewModel.messages.first { $0.text == "Older msg (higher pos)" }
+        XCTAssertEqual(headAfter?.status, .processing, "Lowest-position message should be transitioned to .processing")
+        if case .queued(let p) = olderAfter?.status {
+            XCTAssertEqual(p, 0, "Remaining queued message should have its position decremented")
+        } else {
+            XCTFail("Remaining message should still be .queued")
+        }
+    }
+
     func testMessageDequeuedKeepsMessagePositionInTranscript() {
         viewModel.bootstrapCorrelationId = "test-correlation-id"
         viewModel.handleServerMessage(.conversationInfo(ConversationInfoMessage(conversationId: "sess-1", title: "Chat", correlationId: "test-correlation-id")))

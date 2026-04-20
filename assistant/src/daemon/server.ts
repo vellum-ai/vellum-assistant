@@ -27,6 +27,7 @@ import type { CesProcessManager } from "../credential-execution/process-manager.
 import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { CliIpcServer } from "../ipc/cli-server.js";
+import { registerBrowserIpcContextResolver } from "../ipc/routes/browser-context.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import {
@@ -49,6 +50,7 @@ import {
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
+import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { getProvider, initializeProviders } from "../providers/registry.js";
 import {
@@ -60,6 +62,7 @@ import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
+import { registerInteractiveUiResolver } from "../runtime/interactive-ui.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { redactSecrets } from "../security/secret-scanner.js";
@@ -93,7 +96,10 @@ import { registerLaunchConversationDeps } from "./conversation-launch.js";
 import { formatCompactResult } from "./conversation-process.js";
 import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
 import { resolveSlash, type SlashContext } from "./conversation-slash.js";
-import { refreshSurfacesForApp } from "./conversation-surfaces.js";
+import {
+  refreshSurfacesForApp,
+  showStandaloneSurface,
+} from "./conversation-surfaces.js";
 import { undoLastMessage } from "./handlers/conversations.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import type {
@@ -813,6 +819,11 @@ export class DaemonServer {
     // DB, exposing only the narrow surface the wake helper needs.
     registerDefaultWakeResolver(async (conversationId) => {
       try {
+        // Only resolve existing conversations — don't create ghost
+        // conversations for stale targets (e.g. meetings that ended
+        // but a delayed opportunity callback still fires).
+        const existing = getConversation(conversationId);
+        if (!existing) return null;
         const conversation = await this.getOrCreateConversation(conversationId);
         return conversationToWakeTarget(conversation);
       } catch (err) {
@@ -822,6 +833,59 @@ export class DaemonServer {
         );
         return null;
       }
+    });
+
+    // Install the interactive UI resolver so skills and IPC handlers can
+    // present ad-hoc UI surfaces (confirmations, forms) to the user via
+    // `requestInteractiveUi()`. Interactive UI requires a client to be
+    // actively connected to the conversation (via SSE), which means the
+    // conversation must be in the in-memory map. If the conversation was
+    // evicted from memory the client is definitely disconnected, so
+    // hydration from persistent storage is pointless — the hydrated
+    // conversation would have hasNoClient=true, causing
+    // canShowInteractiveUi() to return false and the surface to be
+    // cancelled with no_interactive_surface. We skip that wasted work
+    // and return conversation_not_found directly.
+    registerInteractiveUiResolver(async (request) => {
+      const conversation = this.conversations.get(request.conversationId);
+
+      if (!conversation) {
+        log.warn(
+          {
+            conversationId: request.conversationId,
+            surfaceType: request.surfaceType,
+          },
+          "interactive-ui resolver: conversation not in memory (client not connected); failing closed",
+        );
+        return {
+          status: "cancelled" as const,
+          surfaceId: `ui-resolver-${Date.now()}`,
+          cancellationReason: "conversation_not_found" as const,
+        };
+      }
+
+      // Generate a unique surface ID and delegate to the conversation's
+      // standalone surface lifecycle. The returned Promise blocks until
+      // the user submits, cancels, or the timeout elapses.
+      const surfaceId = `ui-standalone-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      return showStandaloneSurface(conversation, request, surfaceId);
+    });
+
+    // Allow `browser_execute` IPC calls to reuse live conversation browser
+    // proxy wiring (when a caller passes a conversationId from
+    // __CONVERSATION_ID / __SKILL_CONTEXT_JSON). This keeps nested
+    // `assistant browser status` checks consistent with the parent turn's
+    // extension connectivity instead of always falling back to a synthetic
+    // browser-cli session that has no hostBrowserProxy.
+    registerBrowserIpcContextResolver((conversationId) => {
+      const conversation = this.conversations.get(conversationId);
+      if (!conversation) return null;
+      return {
+        conversationId,
+        trustClass: conversation.trustContext?.trustClass ?? "guardian",
+        hostBrowserProxy: conversation.hostBrowserProxy,
+        transportInterface: conversation.transportInterface,
+      };
     });
 
     // Start the CLI IPC server. Built-in methods (wake_conversation) are
@@ -1033,7 +1097,19 @@ export class DaemonServer {
 
       const createPromise = (async () => {
         const config = getConfig();
-        let provider = getProvider(config.services.inference.provider);
+        let provider = getProvider(config.llm.default.provider);
+        // Per-call `options.config.callSite` can resolve to a provider name
+        // that differs from `llm.default.provider`. Wrap the default
+        // provider so the actual transport routes correctly per call,
+        // rather than only forwarding metadata to the default's HTTP
+        // client. See `providers/call-site-routing.ts`.
+        provider = new CallSiteRoutingProvider(provider, (name) => {
+          try {
+            return getProvider(name);
+          } catch {
+            return undefined;
+          }
+        });
         const { rateLimit } = config;
         if (rateLimit.maxRequestsPerMinute > 0) {
           provider = new RateLimitProvider(
@@ -1046,7 +1122,8 @@ export class DaemonServer {
 
         const systemPrompt =
           storedOptions?.systemPromptOverride ?? buildSystemPrompt();
-        const maxTokens = storedOptions?.maxResponseTokens ?? config.maxTokens;
+        const maxTokens =
+          storedOptions?.maxResponseTokens ?? config.llm.default.maxTokens;
 
         const memoryPolicy = this.deriveMemoryPolicy(conversationId);
         // Resolve the shared CES client (may still be initializing).
@@ -1065,7 +1142,6 @@ export class DaemonServer {
           sharedCesClient,
           storedOptions?.speed,
           undefined,
-          storedOptions?.modelIntent,
           storedOptions?.modelOverride,
         );
         newConversation.updateClient(sendToClient, true);
@@ -1397,6 +1473,7 @@ export class DaemonServer {
       .runAgentLoop(content, messageId, onEvent, {
         isInteractive: options?.isInteractive ?? false,
         isUserMessage: true,
+        ...(options?.callSite ? { callSite: options.callSite } : {}),
       })
       .finally(() => {
         if (
@@ -1437,9 +1514,9 @@ export class DaemonServer {
       messageCount: conversation.getMessages().length,
       inputTokens: conversation.usageStats.inputTokens,
       outputTokens: conversation.usageStats.outputTokens,
-      maxInputTokens: config.contextWindow.maxInputTokens,
-      model: config.services.inference.model,
-      provider: config.services.inference.provider,
+      maxInputTokens: config.llm.default.contextWindow.maxInputTokens,
+      model: config.llm.default.model,
+      provider: config.llm.default.provider,
       estimatedCost: conversation.usageStats.estimatedCost,
       userMessageInterface: serverInterfaceCtx?.userMessageInterface,
     };
@@ -1590,10 +1667,17 @@ export class DaemonServer {
     const resolvedContent = slashResult.content;
 
     const requestId = crypto.randomUUID();
+    // Slack inbound metadata captured at the channel ingress boundary is
+    // forwarded into the persistence call so `persistQueuedMessageBody` can
+    // emit a `slackMeta` envelope on the row's metadata column.
+    const persistMetadata = options?.slackInbound
+      ? { slackInbound: options.slackInbound }
+      : undefined;
     const messageId = await conversation.persistUserMessage(
       resolvedContent,
       attachments,
       requestId,
+      persistMetadata,
     );
 
     // Register pending interactions so channel approval interception can
@@ -1623,6 +1707,7 @@ export class DaemonServer {
       await conversation.runAgentLoop(resolvedContent, messageId, onEvent, {
         isInteractive: options?.isInteractive ?? false,
         isUserMessage: true,
+        ...(options?.callSite ? { callSite: options.callSite } : {}),
       });
     } finally {
       if (

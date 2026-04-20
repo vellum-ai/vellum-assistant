@@ -176,59 +176,6 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
         )
     }
 
-    func testCurrentTipForkToolbarActionOnlyExistsForPersistedConversationAndForksCurrentTip() async throws {
-        let (userDefaults, suiteName) = makeUserDefaults()
-        defer { clear(userDefaults, suiteName: suiteName) }
-
-        let connectionManager = GatewayConnectionManager()
-        connectionManager.isConnected = true
-        let forkClient = MockConversationForkClient()
-        forkClient.response = makeForkedConversationItem(messageId: "msg-tip")
-
-        let store = IOSConversationStore(
-            connectionManager: connectionManager,
-            eventStreamClient: connectionManager.eventStreamClient,
-            connectedModeOverride: true,
-            conversationForkClient: forkClient,
-            userDefaults: userDefaults
-        )
-        store.isLoadingInitialConversations = false
-
-        let persistedConversation = IOSConversation(
-            title: "Persisted",
-            conversationId: "conv-parent"
-        )
-        let localConversation = IOSConversation(title: "Draft")
-        store.conversations = [persistedConversation, localConversation]
-
-        XCTAssertNil(
-            makeCurrentTipForkToolbarAction(store: store, conversation: localConversation)
-        )
-        XCTAssertFalse(
-            shouldShowCurrentTipForkAction(store: store, for: persistedConversation)
-        )
-
-        let viewModel = store.viewModel(for: persistedConversation.id)
-        XCTAssertNil(
-            makeCurrentTipForkToolbarAction(store: store, conversation: persistedConversation)
-        )
-        viewModel.messages = [makeMessage(text: "Persisted assistant reply", daemonMessageId: "msg-tip")]
-        XCTAssertTrue(
-            shouldShowCurrentTipForkAction(store: store, for: persistedConversation)
-        )
-
-        let action = try XCTUnwrap(
-            makeCurrentTipForkToolbarAction(store: store, conversation: persistedConversation)
-        )
-        action()
-
-        await waitUntil(timeout: 1.0) { store.selectionRequest != nil }
-
-        XCTAssertEqual(forkClient.requests.count, 1)
-        XCTAssertEqual(forkClient.requests.first?.conversationId, "conv-parent")
-        XCTAssertEqual(forkClient.requests.first?.throughMessageId, "msg-tip")
-    }
-
     func testForkActionsAreHiddenForPrivateConversations() {
         let privateConversation = IOSConversation(
             title: "Private",
@@ -241,13 +188,6 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
             )
         )
 
-        XCTAssertFalse(shouldShowCurrentTipForkAction(store: IOSConversationStore(connectionManager: GatewayConnectionManager(), eventStreamClient: GatewayConnectionManager().eventStreamClient, connectedModeOverride: true), for: privateConversation))
-        XCTAssertNil(
-            makeCurrentTipForkToolbarAction(
-                store: IOSConversationStore(connectionManager: GatewayConnectionManager(), eventStreamClient: GatewayConnectionManager().eventStreamClient, connectedModeOverride: true),
-                conversation: privateConversation
-            )
-        )
         XCTAssertNil(
             makeOpenForkParentAction(
                 store: IOSConversationStore(connectionManager: GatewayConnectionManager(), eventStreamClient: GatewayConnectionManager().eventStreamClient, connectedModeOverride: true),
@@ -272,33 +212,6 @@ final class ConversationForkNavigationIOSTests: XCTestCase {
         message.daemonMessageId = daemonMessageId
         return message
     }
-
-    private func waitUntil(
-        timeout: TimeInterval,
-        file: StaticString = #filePath,
-        line: UInt = #line,
-        condition: @escaping () -> Bool
-    ) async {
-        let deadline = ContinuousClock.now + .seconds(timeout)
-        while !condition() && ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        XCTAssertTrue(condition(), file: file, line: line)
-    }
-
-    private func makeForkedConversationItem(messageId: String) -> ConversationListResponseItem {
-        ConversationListResponseItem(
-            id: "conv-forked",
-            title: "Forked thread",
-            createdAt: 1_700_000_100,
-            updatedAt: 1_700_000_120,
-            forkParent: ConversationForkParent(
-                conversationId: "conv-parent",
-                messageId: messageId,
-                title: "Parent thread"
-            )
-        )
-    }
 }
 
 @MainActor
@@ -308,22 +221,6 @@ private final class MockConversationDetailClient: ConversationDetailClientProtoc
 
     func fetchConversation(conversationId: String) async -> ConversationListResponseItem? {
         requests.append(conversationId)
-        return response
-    }
-}
-
-@MainActor
-private final class MockConversationForkClient: ConversationForkClientProtocol {
-    struct Request: Equatable {
-        let conversationId: String
-        let throughMessageId: String?
-    }
-
-    var response: ConversationListResponseItem?
-    private(set) var requests: [Request] = []
-
-    func forkConversation(conversationId: String, throughMessageId: String?) async -> ConversationListResponseItem? {
-        requests.append(Request(conversationId: conversationId, throughMessageId: throughMessageId))
         return response
     }
 }

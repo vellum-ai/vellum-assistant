@@ -400,7 +400,8 @@ function normalizeOpenAiResponsesResponsePayload(
     output.some(
       (item) =>
         asString(item.type) === "message" ||
-        asString(item.type) === "function_call",
+        asString(item.type) === "function_call" ||
+        asString(item.type) === "web_search_call",
     );
   if (!hasResponsesSignal) {
     return null;
@@ -444,6 +445,23 @@ function normalizeOpenAiResponsesResponsePayload(
       };
       toolCallSections.push(section);
       responseSections.push(section);
+      continue;
+    }
+
+    if (itemType === "web_search_call") {
+      toolCallIndex++;
+      const status = asString(item.status);
+      const section: LlmContextSection = {
+        kind: "tool_use",
+        label: `Response tool call ${toolCallIndex}`,
+        role: "assistant",
+        toolName: "web_search",
+        data: omitRecordKeys(item, ["type"]) ?? undefined,
+        text: status ? `[Web search: ${status}]` : "[Web search]",
+      };
+      toolCallSections.push(section);
+      responseSections.push(section);
+      continue;
     }
   }
 
@@ -1036,6 +1054,10 @@ function extractOpenAiResponsesRequestToolNames(tools: unknown): string[] {
       // Responses shape: { type: "function", name: "...", ... }
       if (asString(tool.type) === "function" && asString(tool.name)) {
         return asString(tool.name);
+      }
+      // Native web search tool: { type: "web_search_preview" }
+      if (asString(tool.type) === "web_search_preview") {
+        return "web_search";
       }
       return undefined;
     })

@@ -4,6 +4,7 @@ import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
 import { safeStringSlice } from "../../util/unicode.js";
 import { credentialBroker } from "../credentials/broker.js";
+import { BROWSER_FILL_CAPABILITY } from "../credentials/tool-policy.js";
 import {
   isPrivateOrLocalHost,
   parseUrl,
@@ -326,6 +327,14 @@ function collectRemediationHints(
 }
 
 /**
+ * Detect the common extension CDP failure where the active tab is a
+ * restricted Chrome internal page (e.g. `chrome://newtab`).
+ */
+function isRestrictedChromePageProbeError(error: CdpError): boolean {
+  return error.message.toLowerCase().includes("chrome://");
+}
+
+/**
  * Parse browser_mode from input and acquire a CdpClient. Returns
  * either a `{ cdp, browserMode }` pair on success or a pre-formatted
  * `{ errorResult }` on failure (invalid mode or pinned-mode
@@ -533,7 +542,7 @@ export function resolveElement(
     }
     return {
       resolved: null,
-      error: `Error: element_id "${elementId}" not found. Run browser_snapshot first to get current element IDs.`,
+      error: `Error: element_id "${elementId}" not found. Run a snapshot first to get current element IDs.`,
     };
   }
 
@@ -743,8 +752,8 @@ export async function executeBrowserNavigate(
           ).blockedAddress)
       ) {
         // Navigate the page away from the private target to prevent
-        // follow-up tool calls (e.g. browser_snapshot) from reading
-        // the already-loaded private content.
+        // follow-up operations (e.g. snapshot) from reading the
+        // already-loaded private content.
         try {
           await navigateAndWait(
             cdp,
@@ -850,7 +859,7 @@ export async function executeBrowserNavigate(
 
     if (navigationTimedOut) {
       lines.push(
-        `Note: Page is still loading (document.readyState timed out). The page should still be interactive - use browser_snapshot to check.`,
+        `Note: Page is still loading (document.readyState timed out). The page should still be interactive - take a snapshot to check.`,
       );
     }
 
@@ -920,14 +929,12 @@ export async function executeBrowserNavigate(
               lines.push("");
               lines.push(formatAuthChallenge(postCaptchaAuth));
               lines.push("");
+              lines.push("Handle this by interacting with the login form:");
               lines.push(
-                "Handle this by using browser tools to interact with the login form:",
+                "1. Take a snapshot to find the sign-in form elements",
               );
               lines.push(
-                "1. Use browser_snapshot to find the sign-in form elements",
-              );
-              lines.push(
-                "2. Use browser_fill_credential to fill email/password from credential_store",
+                "2. Use credential fill to enter email/password from credential_store",
               );
               lines.push(
                 "3. For email verification codes, use ui_show with a form to ask the user for the code mid-turn",
@@ -947,18 +954,14 @@ export async function executeBrowserNavigate(
           }
         } else {
           // Login / 2FA / OAuth - the agent should handle these itself
-          // using browser tools + credential_store. Don't hand off.
+          // using browser operations + credential_store. Don't hand off.
           lines.push("");
           lines.push(formatAuthChallenge(challenge));
           lines.push("");
+          lines.push("Handle this by interacting with the login form:");
+          lines.push("1. Take a snapshot to find the sign-in form elements");
           lines.push(
-            "Handle this by using browser tools to interact with the login form:",
-          );
-          lines.push(
-            "1. Use browser_snapshot to find the sign-in form elements",
-          );
-          lines.push(
-            "2. Use browser_fill_credential to fill email/password from credential_store",
+            "2. Use credential fill to enter email/password from credential_store",
           );
           lines.push(
             "3. For email verification codes, use ui_show with a form to ask the user for the code mid-turn",
@@ -1009,7 +1012,7 @@ export async function executeBrowserNavigate(
   }
 }
 
-// ── browser_snapshot ─────────────────────────────────────────────────
+// ── snapshot ─────────────────────────────────────────────────────────
 
 export async function executeBrowserSnapshot(
   _input: Record<string, unknown>,
@@ -1941,7 +1944,7 @@ export async function executeBrowserExtract(
   }
 }
 
-// ── browser_fill_credential ──────────────────────────────────────────
+// ── browser credential fill ──────────────────────────────────────────
 
 export async function executeBrowserFillCredential(
   input: Record<string, unknown>,
@@ -1999,7 +2002,7 @@ export async function executeBrowserFillCredential(
     const result = await credentialBroker.browserFill({
       service,
       field,
-      toolName: "browser_fill_credential",
+      toolName: BROWSER_FILL_CAPABILITY,
       domain: pageDomain,
       fill: async (value) => {
         // Clear-then-focus-then-insert via the shared helper. We
@@ -2300,6 +2303,29 @@ async function checkExtensionModeStatus(
     };
   }
 
+  if (isRestrictedChromePageProbeError(probe.error)) {
+    return {
+      mode: BROWSER_STATUS_MODE.EXTENSION,
+      available: true,
+      verified: "active_probe",
+      autoCandidate,
+      summary:
+        "Extension mode transport is connected, but the active Chrome tab is a restricted chrome:// page. Switch to a regular website tab if browser actions fail.",
+      userActions: [
+        "Switch Chrome to a regular http(s) tab (not chrome://...) and retry.",
+      ],
+      tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
+      details: {
+        proxyBound,
+        proxyConnected,
+        restrictedActiveTab: true,
+        errorCode: probe.error.code,
+        diagnostic: probe.diagnostic,
+        attemptDiagnostics: probe.error.attemptDiagnostics ?? [],
+      },
+    };
+  }
+
   return {
     mode: BROWSER_STATUS_MODE.EXTENSION,
     available: false,
@@ -2548,7 +2574,7 @@ export async function executeBrowserStatus(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return {
-      content: `Error: browser_status failed: ${msg}`,
+      content: `Error: browser status check failed: ${msg}`,
       isError: true,
     };
   }

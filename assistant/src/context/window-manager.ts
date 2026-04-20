@@ -31,6 +31,7 @@ const SUMMARY_SYSTEM_PROMPT = [
   "Focus on actionable state, not prose.",
   "Preserve concrete facts: goals, constraints, decisions, pending questions, file paths, commands, errors, and TODOs.",
   "Remove repetition and stale details that were superseded.",
+  'Thread anchors: when a compacted message is the parent of a thread whose replies survive in the retained context, preserve the parent\'s text verbatim — do not summarize or paraphrase it. Reactions on such anchors may be aggregated (e.g., "three users reacted").',
   "Return concise markdown using these section headers exactly:",
   "## Goals",
   "## Constraints",
@@ -73,9 +74,16 @@ export interface ContextWindowCompactOptions {
    * Override the minimum number of recent user turns to preserve.
    * Set to `0` for emergency recovery that can compact the entire history
    * (except the summary message itself). When omitted, the default floor
-   * of 1 recent user turn is enforced.
+   * is `1` (or `8` when `conversationOriginChannel === "slack"`).
    */
   minKeepRecentUserTurns?: number;
+  /**
+   * Origin channel hint used when `minKeepRecentUserTurns` is omitted.
+   * Slack-originated conversations bump the default keep floor so multi-turn
+   * thread context (replies, quoted messages) is not summarized away too
+   * aggressively. Explicit `minKeepRecentUserTurns` overrides this hint.
+   */
+  conversationOriginChannel?: string;
   /**
    * Override the target input token budget used for keep-boundary
    * projected-fit checks. Allows the caller to demand a **stricter** fit
@@ -279,6 +287,7 @@ export class ContextWindowManager {
     const keepPlan = this.pickKeepBoundary(messages, userTurnStarts, {
       minKeepRecentUserTurns: options?.minKeepRecentUserTurns,
       targetInputTokensOverride: options?.targetInputTokensOverride,
+      conversationOriginChannel: options?.conversationOriginChannel,
     });
     if (keepPlan.keepFromIndex <= summaryOffset) {
       // All turns fit after truncation projection, but the real in-memory
@@ -555,10 +564,17 @@ export class ContextWindowManager {
     opts?: {
       minKeepRecentUserTurns?: number;
       targetInputTokensOverride?: number;
+      conversationOriginChannel?: string;
     },
   ): { keepFromIndex: number; keepTurns: number } {
+    // Slack-originated conversations rely on multi-turn thread context
+    // (reply chains, quoted messages, contextual references). Bump the
+    // default keep floor for them so compaction does not summarize away
+    // recent turns that the next reply may directly cite. Explicit
+    // `minKeepRecentUserTurns` (including emergency `0`) wins.
+    const defaultTurns = opts?.conversationOriginChannel === "slack" ? 8 : 1;
     const minFloor = Math.min(
-      Math.max(0, Math.floor(opts?.minKeepRecentUserTurns ?? 1)),
+      Math.max(0, Math.floor(opts?.minKeepRecentUserTurns ?? defaultTurns)),
       userTurnStarts.length,
     );
     const targetTokens =

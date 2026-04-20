@@ -347,7 +347,7 @@ describe("executeBrowserFillCredential", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain('element_id "e99" not found');
-    expect(result.content).toContain("browser_snapshot");
+    expect(result.content).toContain("snapshot");
     // Element resolution fails before any CDP session is opened.
     expect(sendCalls).toHaveLength(0);
     expect(detachCalls).toBe(0);

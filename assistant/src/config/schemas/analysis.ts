@@ -24,28 +24,9 @@ export const AnalysisConfigSchema = z
       .describe(
         "Milliseconds of idle time after the last message before the debounced analysis job fires",
       ),
-
-    // Optional model intent for the analysis agent loop. When omitted,
-    // the analysis agent uses the same model as the main agent.
-    // Accepted values match the main agent's model-intent vocabulary.
-    modelIntent: z
-      .enum(["latency-optimized", "quality-optimized", "vision-optimized"], {
-        error: "analysis.modelIntent must be a valid model intent",
-      })
-      .optional()
-      .describe(
-        "Model selection strategy for the analysis agent loop — falls back to the main agent's model when omitted",
-      ),
-
-    // Optional explicit model override (provider/model string). Takes
-    // precedence over modelIntent when both are set.
-    modelOverride: z
-      .string({ error: "analysis.modelOverride must be a string" })
-      .optional()
-      .describe(
-        "Explicit model override (provider/model string) for the analysis agent loop — takes precedence over modelIntent when both are set",
-      ),
   })
-  .describe("Controls the auto-analyze agent loop triggered by conversation activity");
+  .describe(
+    "Controls the auto-analyze agent loop triggered by conversation activity. Model selection lives under llm.callSites.analyzeConversation.",
+  );
 
 export type AnalysisConfig = z.infer<typeof AnalysisConfigSchema>;

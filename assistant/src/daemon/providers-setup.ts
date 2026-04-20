@@ -27,6 +27,12 @@ import { googleCalendarProvider } from "../watcher/providers/google-calendar.js"
 import { linearProvider } from "../watcher/providers/linear.js";
 import { outlookProvider } from "../watcher/providers/outlook.js";
 import { outlookCalendarProvider } from "../watcher/providers/outlook-calendar.js";
+
+// Side-effect import: runs each bundled first-party skill's tool
+// registration before `initializeTools()` so external tools are visible
+// to the LLM. See `external-skills-bootstrap.ts` for the rationale.
+import "./external-skills-bootstrap.js";
+
 const log = getLogger("lifecycle");
 
 export async function initializeProvidersAndTools(

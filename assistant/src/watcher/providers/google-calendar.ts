@@ -6,21 +6,141 @@
  * Falls back to listing recent upcoming events if the syncToken has expired (410 Gone).
  */
 
-import {
-  CalendarApiError,
-  listEvents,
-} from "../../config/bundled-skills/google-calendar/calendar-client.js";
-import type { CalendarEvent } from "../../config/bundled-skills/google-calendar/types.js";
 import type { OAuthConnection } from "../../oauth/connection.js";
 import { resolveOAuthConnection } from "../../oauth/connection-resolver.js";
-
-const GOOGLE_CALENDAR_BASE_URL = "https://www.googleapis.com/calendar/v3";
 import { getLogger } from "../../util/logger.js";
 import type {
   FetchResult,
   WatcherItem,
   WatcherProvider,
 } from "../provider-types.js";
+
+const GOOGLE_CALENDAR_BASE_URL = "https://www.googleapis.com/calendar/v3";
+
+// ---------------------------------------------------------------------------
+// Local types & helpers used by the watcher provider
+// ---------------------------------------------------------------------------
+
+/** Event time - either a dateTime with timezone or a date for all-day events. */
+interface EventDateTime {
+  dateTime?: string;
+  date?: string;
+  timeZone?: string;
+}
+
+/** Calendar event attendee. */
+interface EventAttendee {
+  email: string;
+  displayName?: string;
+  responseStatus?: "needsAction" | "declined" | "tentative" | "accepted";
+  self?: boolean;
+  organizer?: boolean;
+  optional?: boolean;
+}
+
+/** Calendar event organizer. */
+interface EventOrganizer {
+  email?: string;
+  displayName?: string;
+  self?: boolean;
+}
+
+/** A single Google Calendar event. */
+interface CalendarEvent {
+  id: string;
+  status?: "confirmed" | "tentative" | "cancelled";
+  summary?: string;
+  description?: string;
+  location?: string;
+  start?: EventDateTime;
+  end?: EventDateTime;
+  attendees?: EventAttendee[];
+  organizer?: EventOrganizer;
+  htmlLink?: string;
+  created?: string;
+  updated?: string;
+}
+
+/** Events list response. */
+interface CalendarEventsListResponse {
+  items?: CalendarEvent[];
+  nextPageToken?: string;
+  nextSyncToken?: string;
+}
+
+class CalendarApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly statusText: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "CalendarApiError";
+  }
+}
+
+/** List events from a calendar. */
+async function listEvents(
+  connection: OAuthConnection,
+  calendarId = "primary",
+  options?: {
+    timeMin?: string;
+    timeMax?: string;
+    maxResults?: number;
+    query?: string;
+    singleEvents?: boolean;
+    orderBy?: "startTime" | "updated";
+    pageToken?: string;
+    syncToken?: string;
+  },
+): Promise<CalendarEventsListResponse> {
+  const query: Record<string, string> = {};
+
+  if (options?.timeMin) query.timeMin = options.timeMin;
+  if (options?.timeMax) query.timeMax = options.timeMax;
+  query.maxResults = String(options?.maxResults ?? 25);
+  if (options?.query) query.q = options.query;
+
+  // Default to expanding recurring events into instances
+  const singleEvents = options?.singleEvents ?? true;
+  query.singleEvents = String(singleEvents);
+
+  if (singleEvents && options?.orderBy) {
+    query.orderBy = options.orderBy;
+  } else if (singleEvents) {
+    query.orderBy = "startTime";
+  }
+
+  if (options?.pageToken) query.pageToken = options.pageToken;
+  if (options?.syncToken) query.syncToken = options.syncToken;
+
+  const resp = await connection.request({
+    method: "GET",
+    path: `/calendars/${encodeURIComponent(calendarId)}/events`,
+    query,
+    baseUrl: GOOGLE_CALENDAR_BASE_URL,
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (resp.status < 200 || resp.status >= 300) {
+    const bodyStr =
+      typeof resp.body === "string"
+        ? resp.body
+        : JSON.stringify(resp.body ?? "");
+    throw new CalendarApiError(
+      resp.status,
+      "",
+      `Calendar API ${resp.status}: ${bodyStr}`,
+    );
+  }
+
+  if (resp.status === 204 || resp.body === undefined) {
+    return undefined as unknown as CalendarEventsListResponse;
+  }
+  return resp.body as CalendarEventsListResponse;
+}
 
 const log = getLogger("watcher:google-calendar");
 

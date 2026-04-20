@@ -24,7 +24,7 @@ import type {
 } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
-import type { Speed } from "../config/schemas/inference.js";
+import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
 import {
   ContextWindowManager,
   type ContextWindowResult,
@@ -47,6 +47,7 @@ import { getHookManager } from "../hooks/manager.js";
 import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import {
+  getConversationOriginChannel,
   updateConversationContextWindow,
   updateConversationHostAccess,
 } from "../memory/conversation-crud.js";
@@ -62,12 +63,12 @@ import {
 } from "../permissions/v2-consent-policy.js";
 import { resolvePersonaContext } from "../prompts/persona-resolver.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
-import { resolveModelIntent } from "../providers/model-intents.js";
-import type { Message, ModelIntent } from "../providers/types.js";
+import type { Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import * as approvalOverrides from "../runtime/conversation-approval-overrides.js";
+import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
@@ -238,6 +239,7 @@ export class Conversation {
     languageCode?: string;
   };
   /** @internal */ surfaceActionRequestIds = new Set<string>();
+  /** @internal */ approvedViaPromptThisTurn = false;
   /** @internal */ pendingSurfaceActions = new Map<
     string,
     { surfaceType: SurfaceType }
@@ -264,6 +266,28 @@ export class Conversation {
   /** @internal */ accumulatedSurfaceState = new Map<
     string,
     Record<string, unknown>
+  >();
+  /**
+   * Pending standalone UI requests keyed by surfaceId.
+   * Daemon-driven surfaces that block the caller until user response or timeout.
+   * @internal
+   */
+  pendingStandaloneSurfaces = new Map<
+    string,
+    {
+      resolve: (result: InteractiveUiResult) => void;
+      timer: ReturnType<typeof setTimeout>;
+      surfaceType: SurfaceType;
+    }
+  >();
+  /**
+   * Short-lived tombstone set of recently-completed standalone surface IDs.
+   * Prevents late client actions from falling through to the LLM path.
+   * @internal
+   */
+  recentlyCompletedStandaloneSurfaces = new Map<
+    string,
+    ReturnType<typeof setTimeout>
   >();
   /** @internal */ broadcastToAllClients?: (msg: ServerMessage) => void;
   /** @internal */ withSurface = createSurfaceMutex();
@@ -338,7 +362,6 @@ export class Conversation {
     sharedCesClient?: CesClient,
     speedOverride?: Speed,
     cacheTtl?: "5m" | "1h",
-    modelIntent?: ModelIntent,
     modelOverride?: string,
   ) {
     this.conversationId = conversationId;
@@ -424,7 +447,7 @@ export class Conversation {
     );
 
     const config = getConfig();
-    this.streamThinking = config.thinking.streamThinking ?? false;
+    this.streamThinking = config.llm.default.thinking.streamThinking ?? false;
 
     // CES (Credential Execution Service) — use the shared server-level client.
     // The CES sidecar accepts exactly one bootstrap connection, so the
@@ -441,13 +464,10 @@ export class Conversation {
     const hasSystemPromptOverride = systemPrompt !== buildSystemPrompt();
     this.hasSystemPromptOverride = hasSystemPromptOverride;
 
-    // If an explicit modelOverride is supplied, use it verbatim. Otherwise,
-    // if modelIntent is set, resolve it against the active provider's
-    // intent → model mapping. The AgentLoop passes the resulting string
-    // through to `providerConfig.model` on every turn.
-    const resolvedModel: string | undefined =
-      modelOverride ??
-      (modelIntent ? resolveModelIntent(provider.name, modelIntent) : undefined);
+    // If an explicit modelOverride is supplied, use it verbatim. Otherwise
+    // leave the model unset and let `RetryProvider`'s call-site resolver pick
+    // it up from `llm.default` / `llm.callSites.<id>` on every turn.
+    const resolvedModel: string | undefined = modelOverride;
 
     const resolveSystemPromptCallback = (
       _history: import("../providers/types.js").Message[],
@@ -477,16 +497,17 @@ export class Conversation {
     };
 
     const fastModeEnabled = isAssistantFeatureFlagEnabled("fast-mode", config);
-    const resolvedSpeed = speedOverride ?? config.speed;
+    const resolvedSpeed = speedOverride ?? config.llm.default.speed;
+    const llmDefault = config.llm.default;
 
     this.agentLoop = new AgentLoop(
       provider,
       systemPrompt,
       {
         maxTokens,
-        maxInputTokens: config.contextWindow.maxInputTokens,
-        thinking: config.thinking,
-        effort: config.effort,
+        maxInputTokens: llmDefault.contextWindow.maxInputTokens,
+        thinking: llmDefault.thinking,
+        effort: llmDefault.effort,
         ...(fastModeEnabled && resolvedSpeed === "fast"
           ? { speed: resolvedSpeed }
           : {}),
@@ -500,7 +521,7 @@ export class Conversation {
     this.contextWindowManager = new ContextWindowManager({
       provider,
       systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
-      config: config.contextWindow,
+      config: llmDefault.contextWindow,
       toolTokenBudget: this.agentLoop.getToolTokenBudget(),
     });
 
@@ -724,6 +745,35 @@ export class Conversation {
 
   dispose(): void {
     approvalOverrides.clearMode(this.conversationId);
+    // Cancel all pending standalone surfaces so callers get a clean
+    // cancellation instead of hanging forever. Emit dismiss notifications
+    // to the client so surfaces don't remain visually active if the client
+    // reconnects after dispose.
+    const emitDispose =
+      this.broadcastToAllClients ?? this.sendToClient.bind(this);
+    for (const [surfaceId, entry] of this.pendingStandaloneSurfaces) {
+      clearTimeout(entry.timer);
+      try {
+        emitDispose({
+          type: "ui_surface_dismiss",
+          conversationId: this.conversationId,
+          surfaceId,
+        });
+      } catch {
+        // Best-effort: the client may already be disconnected during dispose.
+      }
+      entry.resolve({
+        status: "cancelled",
+        surfaceId,
+        cancellationReason: "resolver_unavailable",
+      });
+    }
+    this.pendingStandaloneSurfaces.clear();
+    // Clear tombstone timers to prevent dangling references after dispose.
+    for (const timer of this.recentlyCompletedStandaloneSurfaces.values()) {
+      clearTimeout(timer);
+    }
+    this.recentlyCompletedStandaloneSurfaces.clear();
     this.hostBashProxy?.dispose();
     this.hostBrowserProxy?.dispose();
     this.hostCuProxy?.dispose();
@@ -1170,7 +1220,12 @@ export class Conversation {
     const result = await this.contextWindowManager.maybeCompact(
       this.messages,
       this.abortController?.signal ?? undefined,
-      { force: true, lastCompactedAt: this.contextCompactedAt ?? undefined },
+      {
+        force: true,
+        lastCompactedAt: this.contextCompactedAt ?? undefined,
+        conversationOriginChannel:
+          getConversationOriginChannel(this.conversationId) ?? undefined,
+      },
     );
     if (result.compacted) {
       this.messages = result.messages;
@@ -1333,6 +1388,7 @@ export class Conversation {
       isInteractive?: boolean;
       isUserMessage?: boolean;
       titleText?: string;
+      callSite?: LLMCallSite;
     },
   ): Promise<void> {
     return runAgentLoopImpl(this, content, userMessageId, onEvent, options);
@@ -1349,7 +1405,7 @@ export class Conversation {
     requestId?: string,
     activeSurfaceId?: string,
     currentPage?: string,
-    options?: { isInteractive?: boolean },
+    options?: { isInteractive?: boolean; callSite?: LLMCallSite },
     displayContent?: string,
   ): Promise<string> {
     return processMessageImpl(

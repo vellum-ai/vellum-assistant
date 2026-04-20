@@ -1,3 +1,5 @@
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import { getConfig } from "../config/loader.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -7,7 +9,6 @@ import {
   isRetryableNetworkError,
   sleep,
 } from "../util/retry.js";
-import { isModelIntent, resolveModelIntent } from "./model-intents.js";
 import type {
   Message,
   Provider,
@@ -61,6 +62,14 @@ function isRetryableProviderMessage(error: unknown): boolean {
 }
 
 function isRetryableError(error: unknown): boolean {
+  // Daemon/user-initiated aborts are never retryable. The catch-site tags
+  // these with `abortReason` exactly when `signal.aborted` was true at the
+  // time of failure, so this short-circuits before any message-based pattern
+  // matches — which matters because transport-level aborts (retryable) and
+  // caller-cancels both surface as "Request was aborted" from the SDK.
+  if (error instanceof ProviderError && error.abortReason !== undefined) {
+    return false;
+  }
   if (error instanceof ProviderError && error.statusCode !== undefined) {
     if (error.statusCode === 429 || error.statusCode >= 500) return true;
   }
@@ -69,6 +78,27 @@ function isRetryableError(error: unknown): boolean {
   return isRetryableNetworkError(error);
 }
 
+/**
+ * Normalize per-call options before handing them to the wrapped provider.
+ *
+ * When `config.callSite` is set, resolves model/maxTokens/effort/speed/
+ * temperature/thinking via `resolveCallSiteConfig` and writes them into
+ * `nextConfig` using the wire-format names that downstream provider clients
+ * consume (`max_tokens` snake-case for the token cap; camelCase for the rest,
+ * which matches the resolver's shape). Per-call explicit overrides on the
+ * original `config` object win over the resolved values, so callers can pin
+ * a model or other parameter for a single request. `contextWindow` and
+ * `provider` are intentionally excluded from the written fields — they are
+ * server-side routing/overflow concerns, not provider request parameters,
+ * and forwarding them would leak unknown fields into provider request bodies
+ * (strict-schema clients like Anthropic reject the request).
+ *
+ * Whether or not `callSite` is set, this function applies per-provider
+ * stripping (`thinking`/`effort`/`speed`) based on the wrapped provider's
+ * name — agent-loop callers that pre-resolve provider/model still need this
+ * stripping so they don't accidentally send Anthropic-only knobs to OpenAI
+ * etc.
+ */
 function normalizeSendMessageOptions(
   providerName: string,
   options?: SendMessageOptions,
@@ -76,34 +106,77 @@ function normalizeSendMessageOptions(
   const config = options?.config;
   if (!config) return options;
 
-  const explicitModel =
-    typeof config.model === "string" && config.model.trim().length > 0
-      ? config.model.trim()
-      : undefined;
-  const intent = isModelIntent(config.modelIntent)
-    ? config.modelIntent
-    : undefined;
-  const hasIntent = config.modelIntent !== undefined;
-
-  const needsThinkingStrip =
-    !THINKING_AWARE_PROVIDERS.has(providerName) && config.thinking !== undefined;
-  const needsEffortStrip =
-    !EFFORT_SUPPORTED_PROVIDERS.has(providerName) && config.effort !== undefined;
-  const needsSpeedStrip =
-    providerName !== "anthropic" && config.speed !== undefined;
-
-  if (
-    !hasIntent &&
-    explicitModel === config.model &&
-    !needsThinkingStrip &&
-    !needsEffortStrip &&
-    !needsSpeedStrip
-  ) {
-    return options;
-  }
-
   const nextConfig: Record<string, unknown> = { ...config };
-  delete nextConfig.modelIntent;
+
+  if (config.callSite !== undefined) {
+    const resolved = resolveCallSiteConfig(config.callSite, getConfig().llm);
+
+    const explicitModel =
+      typeof config.model === "string" && config.model.trim().length > 0
+        ? config.model.trim()
+        : undefined;
+
+    // Routing key is consumed by the RetryProvider layer and must not leak
+    // downstream.
+    delete nextConfig.callSite;
+
+    // Apply resolved values, letting per-call explicit fields win where set.
+    nextConfig.model = explicitModel ?? resolved.model;
+    if (nextConfig.max_tokens === undefined) {
+      nextConfig.max_tokens = resolved.maxTokens;
+    }
+    if (nextConfig.effort === undefined) {
+      nextConfig.effort = resolved.effort;
+    }
+    if (nextConfig.speed === undefined) {
+      nextConfig.speed = resolved.speed;
+    }
+    // `temperature` defaults to `null` in the LLM schema (meaning "no opinion
+    // — let the provider pick its own default"). Only forward when the
+    // resolved value is an actual number; passing `temperature: null` to
+    // provider clients would either be a wire error or silently override
+    // sensible provider defaults. Mirrors the legacy non-callSite path which
+    // never set `temperature` on `providerConfig`.
+    if (
+      nextConfig.temperature === undefined &&
+      resolved.temperature !== null &&
+      resolved.temperature !== undefined
+    ) {
+      nextConfig.temperature = resolved.temperature;
+    }
+    if (nextConfig.thinking === undefined) {
+      // Convert the schema-shape `{ enabled, streamThinking }` into the
+      // Anthropic wire-format `{ type: "adaptive" }` (or omit when disabled).
+      // Mirrors the non-callSite path in `agent/loop.ts` which sets
+      // `providerConfig.thinking = { type: "adaptive" }` only when enabled.
+      // Without this conversion, `thinking` arrives at `AnthropicProvider`
+      // with a shape the SDK doesn't accept (`ThinkingConfigParam` requires
+      // a `type` discriminator), and OpenRouter's truthy check would treat
+      // a disabled config as enabled.
+      if (resolved.thinking?.enabled === true) {
+        nextConfig.thinking = { type: "adaptive" };
+      }
+    }
+    // Forward OpenRouter-only routing preferences so `OpenRouterProvider` can
+    // translate `openrouter.only` into the wire-format `provider: { only: [...] }`
+    // body field on both the OpenAI-compat and Anthropic-compat endpoints.
+    if (
+      providerName === "openrouter" &&
+      nextConfig.openrouter === undefined &&
+      Array.isArray(resolved.openrouter?.only) &&
+      resolved.openrouter.only.length > 0
+    ) {
+      nextConfig.openrouter = { only: resolved.openrouter.only };
+    }
+    // `contextWindow` and `provider` are server-side concerns, not provider
+    // request parameters: `contextWindow` is consumed by the agent loop's
+    // overflow recovery and the conversation manager directly from
+    // `config.llm.default.contextWindow.*`; `provider` selection is handled
+    // by `CallSiteRoutingProvider` upstream. Forwarding them as per-call
+    // config leaks unknown fields into provider request bodies — Anthropic
+    // (and other strict-schema clients) reject the request with
+    // "Extra inputs are not permitted".
+  }
 
   // thinking is Anthropic-specific on the wire; OpenRouter reads it as a
   // signal for its unified reasoning parameter. Strip it for other providers.
@@ -127,12 +200,10 @@ function normalizeSendMessageOptions(
     delete nextConfig.speed;
   }
 
-  if (explicitModel) {
-    nextConfig.model = explicitModel;
-  } else if (intent) {
-    nextConfig.model = resolveModelIntent(providerName, intent);
-  } else {
-    delete nextConfig.model;
+  // `openrouter.only` is OpenRouter-specific routing; strip for other
+  // providers so strict-schema clients don't see an unknown field.
+  if (providerName !== "openrouter" && nextConfig.openrouter !== undefined) {
+    delete nextConfig.openrouter;
   }
 
   return {
@@ -143,6 +214,10 @@ function normalizeSendMessageOptions(
 
 export class RetryProvider implements Provider {
   public readonly name: string;
+
+  get tokenEstimationProvider(): string | undefined {
+    return this.inner.tokenEstimationProvider;
+  }
 
   constructor(private readonly inner: Provider) {
     this.name = inner.name;

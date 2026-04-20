@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { parseTrustFileData, parseTrustRule } from "@vellumai/ces-contracts";
 import { Minimatch } from "minimatch";
 import { v4 as uuid } from "uuid";
 
@@ -151,7 +152,7 @@ function ruleOrder(a: TrustRule, b: TrustRule): number {
   if (b.priority !== a.priority) return b.priority - a.priority;
   if (a.decision !== b.decision) {
     // deny > ask > allow
-    const order = { deny: 0, ask: 1, allow: 2 };
+    const order: Record<string, number> = { deny: 0, ask: 1, allow: 2 };
     return (order[a.decision] ?? 2) - (order[b.decision] ?? 2);
   }
   return 0;
@@ -201,6 +202,9 @@ function backfillDefaults(rules: TrustRule[]): boolean {
   // or allowHighRisk has changed in the template (e.g. host_bash pattern
   // changed from '*' to '**', host tool priorities changed from 1000 to 50,
   // workspace scope changed from getRootDir()+workspace to getWorkspaceDir()).
+  //
+  // Rules with `userModifiedAt` set are skipped — the user explicitly
+  // customized them and their override should be preserved across upgrades.
   for (const template of getDefaultRuleTemplates()) {
     if (existingIds.has(template.id)) {
       const rule = rules.find((r) => r.id === template.id);
@@ -212,6 +216,13 @@ function backfillDefaults(rules: TrustRule[]): boolean {
           rule.decision !== template.decision ||
           rule.allowHighRisk !== template.allowHighRisk)
       ) {
+        if (rule.userModifiedAt != null) {
+          log.info(
+            { ruleId: rule.id, userModifiedAt: rule.userModifiedAt },
+            "Skipping migration of user-modified default rule",
+          );
+          continue;
+        }
         log.info(
           {
             ruleId: rule.id,
@@ -240,19 +251,13 @@ function backfillDefaults(rules: TrustRule[]): boolean {
 
   for (const template of getDefaultRuleTemplates()) {
     if (!existingIds.has(template.id)) {
-      const rule: TrustRule = {
-        id: template.id,
-        tool: template.tool,
-        pattern: template.pattern,
-        scope: template.scope,
-        decision: template.decision,
-        priority: template.priority,
+      // Canonicalize through parseTrustRule so family-specific field
+      // validation is applied (consistent with fileAddRule/fileUpdateRule).
+      const { rule } = parseTrustRule({
+        ...template,
         createdAt: Date.now(),
-      };
-      if (template.allowHighRisk != null) {
-        rule.allowHighRisk = template.allowHighRisk;
-      }
-      rules.push(rule);
+      });
+      rules.push(rule as TrustRule);
       changed = true;
       log.info({ ruleId: template.id }, "Backfilled default trust rule");
     }
@@ -294,7 +299,6 @@ function loadFromDisk(): TrustRule[] {
         data.version === 1 ||
         data.version === 2
       ) {
-        rules = sanitizedRules;
         if (sanitizedRules.length < rawRules.length) {
           needsSave = true;
         }
@@ -304,6 +308,22 @@ function loadFromDisk(): TrustRule[] {
             { version: data.version, targetVersion: TRUST_FILE_VERSION },
             "Migrating legacy trust file version",
           );
+        }
+
+        // Apply canonical parser for family-aware normalization.
+        // The parser strips fields that are invalid for a rule's tool family
+        // (e.g. executionTarget on URL rules), preserves compatible optional
+        // fields like allowHighRisk, and coerces malformed values.
+        const { data: parsedData, normalized } = parseTrustFileData({
+          ...data,
+          rules: sanitizedRules,
+        });
+        // The contracts parser returns the union TrustRule type; our local
+        // TrustRule flattens the union with optional fields for backward
+        // compatibility. The structural overlap is safe to cast here.
+        rules = parsedData.rules as TrustRule[];
+        if (normalized) {
+          needsSave = true;
         }
 
         // Strip legacy principal-scoped fields from persisted v3 rules.
@@ -406,11 +426,11 @@ function fileAddRule(
 ): TrustRule {
   if (tool.startsWith("__internal:"))
     throw new Error(`Cannot create internal pseudo-rule via addRule: ${tool}`);
-  // Re-read from disk to avoid lost updates if another call modified rules
-  // between our last read and now (e.g. two rapid trust rule additions).
-  cachedRules = null;
-  const rules = [...getRules()];
-  const rule: TrustRule = {
+
+  // Canonicalize through the shared parser so fields invalid for the tool's
+  // family are stripped before persistence, regardless of which callsite
+  // invoked addRule.
+  const { rule: canonical } = parseTrustRule({
     id: uuid(),
     tool,
     pattern,
@@ -418,13 +438,19 @@ function fileAddRule(
     decision,
     priority,
     createdAt: Date.now(),
-  };
-  if (options?.allowHighRisk != null) {
-    rule.allowHighRisk = options.allowHighRisk;
-  }
-  if (options?.executionTarget != null) {
-    rule.executionTarget = options.executionTarget;
-  }
+    ...(options?.allowHighRisk != null
+      ? { allowHighRisk: options.allowHighRisk }
+      : {}),
+    ...(options?.executionTarget != null
+      ? { executionTarget: options.executionTarget }
+      : {}),
+  });
+  const rule = canonical as TrustRule;
+
+  // Re-read from disk to avoid lost updates if another call modified rules
+  // between our last read and now (e.g. two rapid trust rule additions).
+  cachedRules = null;
+  const rules = [...getRules()];
   rules.push(rule);
   rules.sort(ruleOrder);
   cachedRules = rules;
@@ -445,9 +471,6 @@ function fileUpdateRule(
     priority?: number;
   },
 ): TrustRule {
-  const defaultIds = new Set(getDefaultRuleTemplates().map((t) => t.id));
-  if (defaultIds.has(id))
-    throw new Error(`Cannot modify default trust rule: ${id}`);
   if (updates.tool?.startsWith("__internal:"))
     throw new Error(
       `Cannot update tool to internal pseudo-rule: ${updates.tool}`,
@@ -458,12 +481,42 @@ function fileUpdateRule(
   const rules = [...getRules()];
   const index = rules.findIndex((r) => r.id === id);
   if (index === -1) throw new Error(`Trust rule not found: ${id}`);
-  const rule = { ...rules[index] };
-  if (updates.tool != null) rule.tool = updates.tool;
-  if (updates.pattern != null) rule.pattern = updates.pattern;
-  if (updates.scope != null) rule.scope = updates.scope;
-  if (updates.decision != null) rule.decision = updates.decision;
-  if (updates.priority != null) rule.priority = updates.priority;
+  const merged = { ...rules[index] };
+  if (updates.tool != null) merged.tool = updates.tool;
+  if (updates.pattern != null) merged.pattern = updates.pattern;
+  if (updates.scope != null) merged.scope = updates.scope;
+  if (updates.decision != null) merged.decision = updates.decision;
+  if (updates.priority != null) merged.priority = updates.priority;
+
+  // Mark default rules with userModifiedAt so backfillDefaults() preserves
+  // the user's customization across upgrades instead of overwriting it.
+  // Only set the timestamp when the merged result actually diverges from the
+  // template — a no-op PATCH (same values) should not permanently opt a rule
+  // out of future template migrations.
+  const templates = getDefaultRuleTemplates();
+  const template = templates.find((t) => t.id === id);
+  if (template) {
+    const diverges =
+      merged.tool !== template.tool ||
+      merged.pattern !== template.pattern ||
+      merged.scope !== template.scope ||
+      merged.decision !== template.decision ||
+      merged.priority !== template.priority ||
+      merged.allowHighRisk !== template.allowHighRisk;
+    if (diverges) {
+      merged.userModifiedAt = Date.now();
+    } else {
+      // Rule matches the template again — clear the override marker so
+      // future template changes are applied normally.
+      delete merged.userModifiedAt;
+    }
+  }
+
+  // Canonicalize through parseTrustRule so that fields invalid for the
+  // (potentially changed) tool family are stripped. For example, if a rule's
+  // tool is changed from "bash" to "web_fetch", executionTarget is dropped
+  // because URL-family tools don't support target scoping.
+  const { rule } = parseTrustRule(merged as unknown as Record<string, unknown>);
   rules[index] = rule;
   rules.sort(ruleOrder);
   cachedRules = rules;
@@ -493,6 +546,18 @@ function fileRemoveRule(id: string): boolean {
   return true;
 }
 
+/**
+ * Resolve the effective scope of a trust rule.
+ *
+ * Not all trust rule families require a scope — after canonical parsing,
+ * rules that had no scope are normalized to `"everywhere"`. This helper
+ * ensures any residual rules without a scope field default to `"everywhere"`
+ * for safe matching.
+ */
+function effectiveScope(rule: TrustRule): string {
+  return rule.scope || "everywhere";
+}
+
 function matchesScope(ruleScope: string, workingDir: string): boolean {
   if (ruleScope === "everywhere") return true;
   // Strip optional trailing wildcard, then enforce a directory-boundary match
@@ -514,7 +579,7 @@ function findRuleByDecision(
     if (rule.decision !== decision) continue;
     const compiled = getCompiledPattern(rule.pattern);
     if (!compiled || !compiled.match(command)) continue;
-    if (!matchesScope(rule.scope, scope)) continue;
+    if (!matchesScope(effectiveScope(rule), scope)) continue;
     return rule;
   }
   return null;
@@ -525,6 +590,10 @@ function findRuleByDecision(
  *
  * If the rule does not specify an executionTarget it matches any target
  * (wildcard). If specified, it must match exactly.
+ *
+ * Not all trust rule families carry `executionTarget` — URL, managed-skill,
+ * and skill-load rules never have it. For those families the check is a
+ * no-op (wildcard match).
  */
 function matchesExecutionTarget(rule: TrustRule, ctx?: PolicyContext): boolean {
   if (rule.executionTarget == null) return true;
@@ -561,7 +630,7 @@ function fileFindHighestPriorityRule(
 
   for (const rule of allRules) {
     if (rule.tool !== tool) continue;
-    if (!matchesScope(rule.scope, scope)) continue;
+    if (!matchesScope(effectiveScope(rule), scope)) continue;
     if (!matchesExecutionTarget(rule, ctx)) continue;
     const compiled = getCompiledPattern(rule.pattern);
     if (!compiled) continue;
@@ -914,7 +983,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
 
     for (const rule of allRules) {
       if (rule.tool !== tool) continue;
-      if (!matchesScope(rule.scope, scope)) continue;
+      if (!matchesScope(effectiveScope(rule), scope)) continue;
       if (!matchesExecutionTarget(rule, ctx)) continue;
       const compiled = this.getCompiledPattern(rule.pattern);
       if (!compiled) continue;
@@ -938,7 +1007,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
       if (rule.decision !== "allow") continue;
       const compiled = this.getCompiledPattern(rule.pattern);
       if (!compiled || !compiled.match(command)) continue;
-      if (!matchesScope(rule.scope, scope)) continue;
+      if (!matchesScope(effectiveScope(rule), scope)) continue;
       return rule;
     }
     return null;
@@ -951,7 +1020,7 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
       if (rule.decision !== "deny") continue;
       const compiled = this.getCompiledPattern(rule.pattern);
       if (!compiled || !compiled.match(command)) continue;
-      if (!matchesScope(rule.scope, scope)) continue;
+      if (!matchesScope(effectiveScope(rule), scope)) continue;
       return rule;
     }
     return null;
@@ -972,15 +1041,46 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
       throw new Error(
         `Cannot create internal pseudo-rule via addRule: ${tool}`,
       );
-    this.ensureInitialized();
-    const rule = trustClient.addRuleSync({
+
+    // Canonicalize through the shared parser so fields invalid for the tool's
+    // family are stripped before sending to the gateway.
+    const { rule: canonical } = parseTrustRule({
+      id: "",
       tool,
       pattern,
       scope,
       decision,
       priority,
-      allowHighRisk: options?.allowHighRisk,
-      executionTarget: options?.executionTarget,
+      createdAt: 0,
+      ...(options?.allowHighRisk != null
+        ? { allowHighRisk: options.allowHighRisk }
+        : {}),
+      ...(options?.executionTarget != null
+        ? { executionTarget: options.executionTarget }
+        : {}),
+    });
+    const canonicalOpts: { allowHighRisk?: boolean; executionTarget?: string } =
+      {};
+    if ("allowHighRisk" in canonical) {
+      canonicalOpts.allowHighRisk = (
+        canonical as { allowHighRisk?: boolean }
+      ).allowHighRisk;
+    }
+    if ("executionTarget" in canonical) {
+      canonicalOpts.executionTarget = (
+        canonical as { executionTarget?: string }
+      ).executionTarget;
+    }
+
+    this.ensureInitialized();
+    const rule = trustClient.addRuleSync({
+      tool: canonical.tool,
+      pattern: canonical.pattern,
+      scope: canonical.scope,
+      decision: canonical.decision,
+      priority: canonical.priority,
+      allowHighRisk: canonicalOpts.allowHighRisk,
+      executionTarget: canonicalOpts.executionTarget,
     });
     // Update local cache
     this.rules = [...this.rules, rule].sort(ruleOrder);
@@ -1005,6 +1105,11 @@ class GatewayTrustStoreAdapter implements TrustStoreBackend {
         `Cannot update tool to internal pseudo-rule: ${updates.tool}`,
       );
     this.ensureInitialized();
+
+    // Send only the caller's partial updates to the gateway.  The gateway's
+    // own updateRule merges and canonicalizes via parseTrustRule, so doing a
+    // full-rule merge here against the local cache would risk overwriting
+    // concurrent edits with stale cached values.
     const rule = trustClient.updateRuleSync(id, updates);
     // Update local cache
     const idx = this.rules.findIndex((r) => r.id === id);

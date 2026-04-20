@@ -9,7 +9,6 @@ let mockConfig = {
   heartbeat: {
     enabled: true,
     intervalMs: 60_000,
-    speed: "standard" as "standard" | "fast",
     activeHoursStart: undefined as number | undefined,
     activeHoursEnd: undefined as number | undefined,
   },
@@ -126,11 +125,44 @@ const IDENTITY_TEMPLATE = readFileSync(
 const { stripCommentLines } = await import("../util/strip-comment-lines.js");
 const SCAFFOLD_PERSONA = stripCommentLines(GUARDIAN_PERSONA_TEMPLATE).trim();
 
+// Resolver wiring — used by the end-to-end resolution test below to verify
+// that `callSite: 'heartbeatAgent'` resolves to the correct config when
+// `llm.callSites.heartbeatAgent` is defined.
+const { resolveCallSiteConfig } = await import("../config/llm-resolver.js");
+const { LLMSchema } = await import("../config/schemas/llm.js");
+
+// Minimal fully-specified `llm.default` block. The resolver requires every
+// `LLMConfigBase` field to be present in `default`, so we provide the same
+// fixture the resolver test suite uses.
+const LLM_DEFAULT = {
+  provider: "anthropic" as const,
+  model: "claude-opus-4-7",
+  maxTokens: 64000,
+  effort: "max" as const,
+  speed: "standard" as const,
+  temperature: null,
+  thinking: { enabled: true, streamThinking: true },
+  contextWindow: {
+    enabled: true,
+    maxInputTokens: 200000,
+    targetBudgetRatio: 0.3,
+    compactThreshold: 0.8,
+    summaryBudgetRatio: 0.05,
+    overflowRecovery: {
+      enabled: true,
+      safetyMarginRatio: 0.05,
+      maxAttempts: 3,
+      interactiveLatestTurnCompression: "summarize" as const,
+      nonInteractiveLatestTurnCompression: "truncate" as const,
+    },
+  },
+};
+
 describe("HeartbeatService", () => {
   let processMessageCalls: Array<{
     conversationId: string;
     content: string;
-    options?: { speed?: string };
+    options?: { callSite?: string };
   }>;
   let alerterCalls: Array<{ type: string; title: string; body: string }>;
 
@@ -152,7 +184,6 @@ describe("HeartbeatService", () => {
       heartbeat: {
         enabled: true,
         intervalMs: 60_000,
-        speed: "standard",
         activeHoursStart: undefined,
         activeHoursEnd: undefined,
       },
@@ -163,7 +194,7 @@ describe("HeartbeatService", () => {
     processMessage?: (
       id: string,
       content: string,
-      options?: { speed?: string },
+      options?: { callSite?: string },
     ) => Promise<{ messageId: string }>;
     getCurrentHour?: () => number;
   }) {
@@ -173,7 +204,7 @@ describe("HeartbeatService", () => {
         (async (
           conversationId: string,
           content: string,
-          options?: { speed?: string },
+          options?: { callSite?: string },
         ) => {
           processMessageCalls.push({ conversationId, content, options });
           return { messageId: "msg-1" };
@@ -504,32 +535,52 @@ describe("HeartbeatService", () => {
     expect(service.nextRunAt).toBeNull();
   });
 
-  test("passes heartbeat config speed to processMessage", async () => {
-    mockConfig.heartbeat.speed = "standard";
+  test("passes callSite='heartbeatAgent' to processMessage", async () => {
     const service = createService();
     await service.runOnce();
 
     expect(processMessageCalls).toHaveLength(1);
-    expect(processMessageCalls[0].options).toEqual({ speed: "standard" });
+    expect(processMessageCalls[0].options).toEqual({
+      callSite: "heartbeatAgent",
+    });
   });
 
-  test("heartbeat uses its own speed even when global config differs", async () => {
-    // Simulate: global config has fast, but heartbeat config has standard
-    mockConfig.heartbeat.speed = "standard";
+  test("processMessage receives only callSite — no legacy speed knob", async () => {
+    // The heartbeat service unconditionally passes `callSite:
+    // 'heartbeatAgent'` and nothing else. The resolver maps that identifier
+    // to whatever `llm.callSites.heartbeatAgent` (or `llm.default`)
+    // configures.
     const service = createService();
     await service.runOnce();
 
     expect(processMessageCalls).toHaveLength(1);
-    expect(processMessageCalls[0].options?.speed).toBe("standard");
+    expect(processMessageCalls[0].options).toEqual({
+      callSite: "heartbeatAgent",
+    });
   });
 
-  test("heartbeat passes fast speed when explicitly configured", async () => {
-    mockConfig.heartbeat.speed = "fast";
+  test("end-to-end: llm.callSites.heartbeatAgent.speed resolves to 'fast'", async () => {
+    // Verifies the contract that PR 7 establishes: heartbeat passes
+    // `callSite: 'heartbeatAgent'`, and the LLM resolver maps that to the
+    // configured speed via `llm.callSites.heartbeatAgent`. The heartbeat
+    // service itself doesn't call the resolver — that happens downstream in
+    // the provider layer (see PR 5) — so this test asserts both halves of
+    // the wiring: (a) the call site identifier flows through to
+    // processMessage, and (b) the resolver maps that identifier to the
+    // user's configured speed.
+    const llm = LLMSchema.parse({
+      default: LLM_DEFAULT,
+      callSites: {
+        heartbeatAgent: { speed: "fast" },
+      },
+    });
     const service = createService();
     await service.runOnce();
 
     expect(processMessageCalls).toHaveLength(1);
-    expect(processMessageCalls[0].options?.speed).toBe("fast");
+    expect(processMessageCalls[0].options?.callSite).toBe("heartbeatAgent");
+    const resolved = resolveCallSiteConfig("heartbeatAgent", llm);
+    expect(resolved.speed).toBe("fast");
   });
 
   describe("isShallowProfile", () => {

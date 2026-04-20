@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/node";
 
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import { estimateToolsTokens } from "../context/token-estimator.js";
 import { truncateOversizedToolResults } from "../context/tool-result-truncation.js";
 import { getHookManager } from "../hooks/manager.js";
@@ -204,8 +205,10 @@ export class AgentLoop {
     signal?: AbortSignal,
     requestId?: string,
     onCheckpoint?: (checkpoint: CheckpointInfo) => CheckpointDecision,
+    callSite?: LLMCallSite,
   ): Promise<Message[]> {
     const history = [...messages];
+    const initialHistoryLength = messages.length;
     let toolUseTurns = 0;
     let consecutiveErrorTurns = 0;
     let emptyResponseRetries = 0;
@@ -221,6 +224,11 @@ export class AgentLoop {
     while (true) {
       if (signal?.aborted) break;
 
+      rlog.info(
+        { turn: toolUseTurns, messageCount: history.length },
+        "Agent loop iteration start",
+      );
+
       let toolUseBlocks: Extract<ContentBlock, { type: "tool_use" }>[] = [];
 
       try {
@@ -235,25 +243,47 @@ export class AgentLoop {
           ? this.resolveSystemPrompt(history)
           : null;
         const turnSystemPrompt = resolved?.systemPrompt ?? this.systemPrompt;
-        const turnMaxTokens = resolved?.maxTokens ?? this.config.maxTokens;
         const turnModel = resolved?.model;
 
-        const providerConfig: Record<string, unknown> = {
-          max_tokens: turnMaxTokens,
-        };
+        // Field precedence (highest wins):
+        //   1. Per-turn explicit (`resolved.maxTokens` / `resolved.model`)
+        //   2. Call-site resolved values (filled by
+        //      `RetryProvider.normalizeSendMessageOptions` from
+        //      `resolveCallSiteConfig(callSite, llm)`)
+        //   3. Conversation defaults (`this.config.*`, sourced from
+        //      `llm.default`)
+        //
+        // When `callSite` is present we deliberately leave
+        // `max_tokens`/`thinking`/`effort`/`speed` *unset* in `providerConfig`
+        // so the normalizer can fill them from the call-site resolution. The
+        // normalizer only writes these fields when they're undefined; if we
+        // pre-set them from `this.config` here, every per-call-site override
+        // for these knobs is silently ignored.
+        //
+        // `toolChoice` and `cacheTtl` are not part of the call-site schema, so
+        // they always come from `this.config` regardless of `callSite`.
+        const providerConfig: Record<string, unknown> = {};
+
+        if (resolved?.maxTokens !== undefined) {
+          providerConfig.max_tokens = resolved.maxTokens;
+        } else if (!callSite) {
+          providerConfig.max_tokens = this.config.maxTokens;
+        }
+
         if (turnModel) {
           providerConfig.model = turnModel;
         }
-        if (this.config.thinking?.enabled) {
-          providerConfig.thinking = { type: "adaptive" };
-        }
 
-        if (this.config.effort) {
-          providerConfig.effort = this.config.effort;
-        }
-
-        if (this.config.speed && this.config.speed !== "standard") {
-          providerConfig.speed = this.config.speed;
+        if (!callSite) {
+          if (this.config.thinking?.enabled) {
+            providerConfig.thinking = { type: "adaptive" };
+          }
+          if (this.config.effort) {
+            providerConfig.effort = this.config.effort;
+          }
+          if (this.config.speed && this.config.speed !== "standard") {
+            providerConfig.speed = this.config.speed;
+          }
         }
 
         if (this.config.toolChoice) {
@@ -262,6 +292,17 @@ export class AgentLoop {
 
         if (this.config.cacheTtl) {
           providerConfig.cacheTtl = this.config.cacheTtl;
+        }
+
+        // Per-call LLM call-site identifier. Surfaces on the per-call
+        // `config.callSite` so `RetryProvider.normalizeSendMessageOptions`
+        // can route through `resolveCallSiteConfig` against
+        // `llm.callSites.<id>` (falling back to `llm.default` when absent).
+        // User-initiated conversation turns default to `mainAgent` in the
+        // agent loop's caller; other invocation contexts (heartbeat, filing,
+        // analyze, etc.) pass their own `callSite`.
+        if (callSite) {
+          providerConfig.callSite = callSite;
         }
 
         const preLlmResult = await getHookManager().trigger("pre-llm-call", {
@@ -291,6 +332,8 @@ export class AgentLoop {
 
         const providerStart = Date.now();
         lastLlmCallTime = providerStart;
+
+        rlog.info({ turn: toolUseTurns }, "LLM call start");
 
         // Strip image contentBlocks from older tool results to prevent
         // screenshots from accumulating in the context window. The LLM
@@ -407,6 +450,17 @@ export class AgentLoop {
             block.type === "tool_use",
         );
 
+        rlog.info(
+          {
+            turn: toolUseTurns,
+            stopReason: response.stopReason,
+            contentBlocks: response.content.length,
+            toolUseCount: toolUseBlocks.length,
+            durationMs: providerDurationMs,
+          },
+          "LLM call complete",
+        );
+
         // Detect empty responses: no user-visible text and no tool calls.
         // This can happen when the model fails to produce output after
         // receiving a large tool result. Retry once with a nudge before
@@ -418,19 +472,35 @@ export class AgentLoop {
         // a side-effect tool like `remember`), an empty follow-up is the model
         // correctly ending its turn — nudging would mislead it into thinking
         // its earlier text didn't land and cause a verbatim re-send.
+        //
+        // Note: we check ANY prior assistant turn from this run()
+        // invocation, not just the most recent one. In multi-step tool-use
+        // chains (say-something → call-tool → call-another-tool → end),
+        // the "say-something" text lives on an earlier assistant turn while
+        // the most recent assistant turn is a pure tool_use with no text.
+        // Restricting the check to the most recent assistant turn would
+        // falsely nudge in that case and trigger a duplicate re-send of
+        // text the user already saw.
+        //
+        // Scope the scan to messages appended during this run() call only.
+        // Assistant text from prior conversation turns (earlier run()
+        // invocations passed in via `messages`) must NOT suppress the
+        // nudge — those turns completed long ago and have no bearing on
+        // whether the current tool-use chain has delivered text yet.
         const hasVisibleText = response.content.some(
           (block) => block.type === "text" && block.text.trim().length > 0,
         );
         const priorAssistantHadVisibleText = (() => {
-          for (let i = history.length - 1; i >= 0; i--) {
+          for (let i = history.length - 1; i >= initialHistoryLength; i--) {
             const msg = history[i];
             if (msg.role !== "assistant") continue;
-            return msg.content.some(
+            const hasText = msg.content.some(
               (block) =>
                 block.type === "text" &&
                 typeof (block as { text?: unknown }).text === "string" &&
                 (block as { text: string }).text.trim().length > 0,
             );
+            if (hasText) return true;
           }
           return false;
         })();
@@ -505,6 +575,15 @@ export class AgentLoop {
         // Execute all tools concurrently for reduced latency.
         // Race against the abort signal so cancellation isn't blocked by
         // stuck tools (e.g. a hung browser navigation).
+        const toolExecStart = Date.now();
+        rlog.info(
+          {
+            turn: toolUseTurns,
+            toolNames: toolUseBlocks.map((t) => t.name),
+          },
+          "Tool execution start",
+        );
+
         const toolExecutionPromise = Promise.all(
           toolUseBlocks.map(async (toolUse) => {
             const result = await this.toolExecutor!(
@@ -547,6 +626,15 @@ export class AgentLoop {
         } else {
           toolResults = await toolExecutionPromise;
         }
+
+        rlog.info(
+          {
+            turn: toolUseTurns,
+            toolCount: toolResults.length,
+            durationMs: Date.now() - toolExecStart,
+          },
+          "Tool execution complete",
+        );
 
         // Merge sensitive output bindings from tool results into the
         // per-run substitution map. Bindings carry placeholder->value pairs
@@ -684,6 +772,15 @@ export class AgentLoop {
         break;
       }
     }
+
+    rlog.info(
+      {
+        turns: toolUseTurns,
+        finalMessageCount: history.length,
+        aborted: signal?.aborted ?? false,
+      },
+      "Agent loop exited",
+    );
 
     return history;
   }

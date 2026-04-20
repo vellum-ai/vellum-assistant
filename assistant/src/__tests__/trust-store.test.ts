@@ -305,6 +305,56 @@ describe("Trust Store", () => {
       expect(updated.priority).toBe(100);
       expect(updated.createdAt).toBe(rule.createdAt);
     });
+
+    test("does not set userModifiedAt on non-default rules", () => {
+      const rule = addRule("bash", "git *", "/tmp");
+      const updated = updateRule(rule.id, { decision: "deny" });
+      expect(updated.userModifiedAt).toBeUndefined();
+    });
+
+    test("sets userModifiedAt when updating a default rule", () => {
+      const before = Date.now();
+      const updated = updateRule("default:ask-host_bash-global", {
+        decision: "allow",
+      });
+      expect(updated.userModifiedAt).toBeGreaterThanOrEqual(before);
+      expect(updated.userModifiedAt).toBeLessThanOrEqual(Date.now());
+    });
+
+    test("persists userModifiedAt to disk for default rules", () => {
+      updateRule("default:ask-host_bash-global", { decision: "allow" });
+      clearCache();
+      const rules = getAllRules();
+      const found = rules.find((r) => r.id === "default:ask-host_bash-global");
+      expect(found).toBeDefined();
+      expect(found!.userModifiedAt).toBeGreaterThan(0);
+    });
+
+    test("does not set userModifiedAt on no-op default rule update", () => {
+      // Updating a default rule with values identical to the template
+      // should NOT set userModifiedAt — the rule hasn't actually diverged.
+      const updated = updateRule("default:ask-host_bash-global", {
+        decision: "ask",
+      });
+      expect(updated.userModifiedAt).toBeUndefined();
+    });
+
+    test("clears userModifiedAt when default rule is reset to template values", () => {
+      // First, modify the rule to diverge from the template
+      updateRule("default:ask-host_bash-global", { decision: "allow" });
+      let found = getAllRules().find(
+        (r) => r.id === "default:ask-host_bash-global",
+      )!;
+      expect(found.userModifiedAt).toBeGreaterThan(0);
+
+      // Now reset it back to the template value
+      updateRule("default:ask-host_bash-global", { decision: "ask" });
+      found = getAllRules().find(
+        (r) => r.id === "default:ask-host_bash-global",
+      )!;
+      // userModifiedAt should be cleared since rule matches template again
+      expect(found.userModifiedAt).toBeUndefined();
+    });
   });
 
   // ── findMatchingRule ────────────────────────────────────────────
@@ -740,23 +790,6 @@ describe("Trust Store", () => {
       ].sort();
       expect(defaultTools).toEqual([
         "bash",
-        "browser_attach",
-        "browser_click",
-        "browser_close",
-        "browser_detach",
-        "browser_extract",
-        "browser_fill_credential",
-        "browser_hover",
-        "browser_navigate",
-        "browser_press_key",
-        "browser_screenshot",
-        "browser_scroll",
-        "browser_select_option",
-        "browser_snapshot",
-        "browser_status",
-        "browser_type",
-        "browser_wait_for",
-        "browser_wait_for_download",
         "computer_use_click",
         "computer_use_drag",
         "computer_use_key",
@@ -1079,58 +1112,6 @@ describe("Trust Store", () => {
       expect(match!.decision).toBe("allow");
     });
 
-    // ── default allow: browser tools ────────────────────────────
-
-    test("all browser tools have default allow rules", () => {
-      const templates = getDefaultRuleTemplates();
-      const browserTools = [
-        "browser_navigate",
-        "browser_snapshot",
-        "browser_screenshot",
-        "browser_close",
-        "browser_attach",
-        "browser_detach",
-        "browser_click",
-        "browser_type",
-        "browser_press_key",
-        "browser_scroll",
-        "browser_select_option",
-        "browser_hover",
-        "browser_wait_for",
-        "browser_extract",
-        "browser_wait_for_download",
-        "browser_fill_credential",
-        "browser_status",
-      ];
-
-      for (const tool of browserTools) {
-        const rule = templates.find(
-          (t) => t.id === `default:allow-${tool}-global`,
-        );
-        expect(rule).toBeDefined();
-        expect(rule!.tool).toBe(tool);
-        // browser_navigate uses standalone "**" because its candidates
-        // contain URLs with "/" that single "*" cannot match.
-        const expectedPattern =
-          tool === "browser_navigate" ? "**" : `${tool}:*`;
-        expect(rule!.pattern).toBe(expectedPattern);
-        expect(rule!.decision).toBe("allow");
-        expect(rule!.scope).toBe("everywhere");
-      }
-    });
-
-    test("browser tool default rules match via findHighestPriorityRule", () => {
-      // Use a candidate without slashes so the `browser_snapshot:*` pattern
-      // matches (minimatch `*` does not cross `/` boundaries).
-      const result = findHighestPriorityRule(
-        "browser_snapshot",
-        ["browser_snapshot:"],
-        "/tmp",
-      );
-      expect(result).toBeDefined();
-      expect(result!.decision).toBe("allow");
-    });
-
     test("no default ask rules exist for file_read on skill source paths", () => {
       const rules = getAllRules();
       // There should be no default rules with IDs matching file_read for skill sources
@@ -1166,6 +1147,71 @@ describe("Trust Store", () => {
       expect(match).not.toBeNull();
       expect(match!.id).toBe("default:ask-file_edit-managed-skills");
       expect(match!.decision).toBe("ask");
+    });
+
+    // ── userModifiedAt and backfill migration ──────────────────────
+
+    test("default rules without userModifiedAt are migrated when template changes", () => {
+      // First load backfills defaults
+      getAllRules();
+      // Manually alter a default rule on disk to simulate a template change
+      // (the rule on disk has old values, template has new ones)
+      const raw = JSON.parse(readFileSync(trustPath, "utf-8"));
+      const idx = raw.rules.findIndex(
+        (r: { id: string }) => r.id === "default:ask-host_bash-global",
+      );
+      expect(idx).toBeGreaterThanOrEqual(0);
+      // Manually set an old priority to simulate the rule diverging from template
+      raw.rules[idx].priority = 9999;
+      writeFileSync(trustPath, JSON.stringify(raw, null, 2));
+      clearCache();
+      const rules = getAllRules();
+      const found = rules.find((r) => r.id === "default:ask-host_bash-global");
+      expect(found).toBeDefined();
+      // Should be migrated back to the template priority (50)
+      expect(found!.priority).toBe(50);
+    });
+
+    test("default rules with userModifiedAt are preserved during backfill migration", () => {
+      // First load backfills defaults
+      getAllRules();
+      // Modify the rule via updateRule to set userModifiedAt
+      updateRule("default:ask-host_bash-global", { decision: "allow" });
+      // Verify userModifiedAt is set
+      let rules = getAllRules();
+      let found = rules.find((r) => r.id === "default:ask-host_bash-global");
+      expect(found).toBeDefined();
+      expect(found!.userModifiedAt).toBeGreaterThan(0);
+      expect(found!.decision).toBe("allow");
+
+      // Now simulate a template change by altering what the template expects:
+      // on disk the rule has decision=allow + userModifiedAt, but the template
+      // would try to migrate it back to decision=ask. Since userModifiedAt is
+      // set, backfillDefaults should skip it.
+      clearCache();
+      rules = getAllRules();
+      found = rules.find((r) => r.id === "default:ask-host_bash-global");
+      expect(found).toBeDefined();
+      // The user's override should be preserved
+      expect(found!.decision).toBe("allow");
+      expect(found!.userModifiedAt).toBeGreaterThan(0);
+    });
+
+    test("userModifiedAt survives round-trip through disk", () => {
+      getAllRules(); // backfill
+      updateRule("default:ask-host_bash-global", { priority: 999 });
+      const before = getAllRules().find(
+        (r) => r.id === "default:ask-host_bash-global",
+      )!;
+      expect(before.userModifiedAt).toBeGreaterThan(0);
+
+      // Round-trip through disk
+      clearCache();
+      const after = getAllRules().find(
+        (r) => r.id === "default:ask-host_bash-global",
+      )!;
+      expect(after.userModifiedAt).toBe(before.userModifiedAt);
+      expect(after.priority).toBe(999);
     });
   });
 
@@ -1528,7 +1574,7 @@ describe("Trust Store", () => {
 
     test("single-star wildcard matches flat candidates only", () => {
       // "network_request:*" won't match URLs with slashes — consistent
-      // with the behavior of web_fetch:* and browser_navigate:* patterns.
+      // with the behavior of web_fetch:* patterns.
       addRule("network_request", "network_request:*", "everywhere");
       const noSlashMatch = findHighestPriorityRule(
         "network_request",
@@ -1676,5 +1722,299 @@ describe("computer-use tool trust rule matching", () => {
       const defaultRule = DEFAULT_TEMPLATES.find((t) => t.tool === name);
       expect(defaultRule).toBeUndefined();
     }
+  });
+});
+
+// ── canonical parser normalization-on-load ─────────────────────────────────
+
+describe("canonical parser normalization-on-load", () => {
+  beforeEach(() => {
+    clearCache();
+    try {
+      rmSync(trustPath);
+    } catch {
+      /* may not exist */
+    }
+  });
+
+  test("URL rule with executionTarget is stripped on load and re-saved", () => {
+    // A URL rule (web_fetch) should not carry executionTarget — the canonical
+    // parser strips it and marks the file for re-save.
+    mkdirSync(dirname(trustPath), { recursive: true });
+    writeFileSync(
+      trustPath,
+      JSON.stringify({
+        version: 3,
+        rules: [
+          {
+            id: "url-rule-with-et",
+            tool: "web_fetch",
+            pattern: "web_fetch:https://example.com/*",
+            scope: "everywhere",
+            decision: "allow",
+            priority: 100,
+            createdAt: 1000,
+            executionTarget: "/usr/bin/node",
+          },
+        ],
+      }),
+    );
+    clearCache();
+    const rules = getAllRules();
+    const found = rules.find((r) => r.id === "url-rule-with-et");
+    expect(found).toBeDefined();
+    // executionTarget should have been stripped by the canonical parser
+    expect(found).not.toHaveProperty("executionTarget");
+
+    // Verify the re-save persisted the normalized rule
+    const disk = JSON.parse(readFileSync(trustPath, "utf-8"));
+    const diskRule = disk.rules.find(
+      (r: { id: string }) => r.id === "url-rule-with-et",
+    );
+    expect(diskRule).toBeDefined();
+    expect(diskRule).not.toHaveProperty("executionTarget");
+  });
+
+  test("URL rule with allowHighRisk is preserved on load", () => {
+    mkdirSync(dirname(trustPath), { recursive: true });
+    writeFileSync(
+      trustPath,
+      JSON.stringify({
+        version: 3,
+        rules: [
+          {
+            id: "url-rule-with-ahr",
+            tool: "web_fetch",
+            pattern: "**",
+            scope: "everywhere",
+            decision: "allow",
+            priority: 100,
+            createdAt: 2000,
+            allowHighRisk: true,
+          },
+        ],
+      }),
+    );
+    clearCache();
+    const rules = getAllRules();
+    const found = rules.find((r) => r.id === "url-rule-with-ahr");
+    expect(found).toBeDefined();
+    expect((found as { allowHighRisk?: boolean }).allowHighRisk).toBe(true);
+  });
+
+  test("scoped rule preserves executionTarget and allowHighRisk on load", () => {
+    mkdirSync(dirname(trustPath), { recursive: true });
+    writeFileSync(
+      trustPath,
+      JSON.stringify({
+        version: 3,
+        rules: [
+          {
+            id: "scoped-rule-with-opts",
+            tool: "bash",
+            pattern: "npm *",
+            scope: "/tmp",
+            decision: "allow",
+            priority: 100,
+            createdAt: 3000,
+            executionTarget: "/usr/local/bin/node",
+            allowHighRisk: true,
+          },
+        ],
+      }),
+    );
+    clearCache();
+    const rules = getAllRules();
+    const found = rules.find((r) => r.id === "scoped-rule-with-opts");
+    expect(found).toBeDefined();
+    expect((found as { executionTarget?: string }).executionTarget).toBe(
+      "/usr/local/bin/node",
+    );
+    expect((found as { allowHighRisk?: boolean }).allowHighRisk).toBe(true);
+  });
+
+  test("normalization on v2 file triggers re-save as v3", () => {
+    mkdirSync(dirname(trustPath), { recursive: true });
+    writeFileSync(
+      trustPath,
+      JSON.stringify({
+        version: 2,
+        rules: [
+          {
+            id: "v2-url-rule",
+            tool: "network_request",
+            pattern: "network_request:https://api.test.com/*",
+            scope: "everywhere",
+            decision: "allow",
+            priority: 100,
+            createdAt: 4000,
+            executionTarget: "stale-value",
+          },
+        ],
+      }),
+    );
+    clearCache();
+    getAllRules();
+
+    // File should be re-saved as v3 with normalized rules
+    const disk = JSON.parse(readFileSync(trustPath, "utf-8"));
+    expect(disk.version).toBe(3);
+    const diskRule = disk.rules.find(
+      (r: { id: string }) => r.id === "v2-url-rule",
+    );
+    expect(diskRule).toBeDefined();
+    expect(diskRule).not.toHaveProperty("executionTarget");
+  });
+});
+
+// ── optional-scope matching fallback ──────────────────────────────────────
+
+describe("optional-scope matching fallback", () => {
+  beforeEach(() => {
+    clearCache();
+    try {
+      rmSync(trustPath);
+    } catch {
+      /* may not exist */
+    }
+  });
+
+  test("rule with missing scope is normalized to everywhere and matches any dir", () => {
+    // Simulate a persisted rule that somehow lacks a scope field —
+    // the canonical parser normalizes it to "everywhere".
+    mkdirSync(dirname(trustPath), { recursive: true });
+    writeFileSync(
+      trustPath,
+      JSON.stringify({
+        version: 3,
+        rules: [
+          {
+            id: "no-scope-rule",
+            tool: "bash",
+            pattern: "echo *",
+            decision: "allow",
+            priority: 200,
+            createdAt: 5000,
+          },
+        ],
+      }),
+    );
+    clearCache();
+    const rules = getAllRules();
+    const found = rules.find((r) => r.id === "no-scope-rule");
+    expect(found).toBeDefined();
+    expect(found!.scope).toBe("everywhere");
+
+    // Should match any working directory since scope defaults to everywhere
+    const match = findHighestPriorityRule(
+      "bash",
+      ["echo hello"],
+      "/any/random/dir",
+    );
+    expect(match).not.toBeNull();
+    expect(match!.id).toBe("no-scope-rule");
+  });
+
+  test("rule with empty-string scope is normalized to everywhere", () => {
+    mkdirSync(dirname(trustPath), { recursive: true });
+    writeFileSync(
+      trustPath,
+      JSON.stringify({
+        version: 3,
+        rules: [
+          {
+            id: "empty-scope-rule",
+            tool: "bash",
+            pattern: "ls *",
+            scope: "",
+            decision: "allow",
+            priority: 200,
+            createdAt: 6000,
+          },
+        ],
+      }),
+    );
+    clearCache();
+    const rules = getAllRules();
+    const found = rules.find((r) => r.id === "empty-scope-rule");
+    expect(found).toBeDefined();
+    // The effectiveScope helper treats "" as "everywhere"
+    const match = findHighestPriorityRule(
+      "bash",
+      ["ls -la"],
+      "/some/other/dir",
+    );
+    expect(match).not.toBeNull();
+    expect(match!.id).toBe("empty-scope-rule");
+  });
+});
+
+// ── unknown-version no-overwrite semantics ────────────────────────────────
+
+describe("unknown-version no-overwrite semantics", () => {
+  beforeEach(() => {
+    clearCache();
+    try {
+      rmSync(trustPath);
+    } catch {
+      /* may not exist */
+    }
+  });
+
+  test("unknown version file is never overwritten even if normalization would apply", () => {
+    mkdirSync(dirname(trustPath), { recursive: true });
+    // A future version file with rules that would normally be normalized —
+    // the unknown-version guard must prevent any disk writes.
+    const originalContent = JSON.stringify({
+      version: 9999,
+      rules: [
+        {
+          id: "future-url-rule",
+          tool: "web_fetch",
+          pattern: "web_fetch:https://future.io/*",
+          scope: "everywhere",
+          decision: "allow",
+          priority: 50,
+          createdAt: 7000,
+          executionTarget: "should-be-stripped-but-file-not-overwritten",
+        },
+      ],
+    });
+    writeFileSync(trustPath, originalContent);
+    clearCache();
+    const rules = getAllRules();
+    // Defaults should be present in-memory
+    const defaults = rules.filter((r) => r.id.startsWith("default:"));
+    expect(defaults).toHaveLength(NUM_DEFAULTS);
+    // The on-disk file must NOT be overwritten
+    const diskContent = readFileSync(trustPath, "utf-8");
+    expect(diskContent).toBe(originalContent);
+  });
+
+  test("unknown version returns only in-memory defaults, not file rules", () => {
+    mkdirSync(dirname(trustPath), { recursive: true });
+    writeFileSync(
+      trustPath,
+      JSON.stringify({
+        version: 42,
+        rules: [
+          {
+            id: "v42-rule",
+            tool: "bash",
+            pattern: "dangerous *",
+            scope: "everywhere",
+            decision: "allow",
+            priority: 500,
+            createdAt: 8000,
+          },
+        ],
+      }),
+    );
+    clearCache();
+    const rules = getAllRules();
+    // The file's rules should NOT appear in the loaded set
+    expect(rules.find((r) => r.id === "v42-rule")).toBeUndefined();
+    // Only defaults should be present
+    expect(rules.every((r) => r.id.startsWith("default:"))).toBe(true);
   });
 });

@@ -64,6 +64,13 @@ const statusDot = document.getElementById('status-dot') as HTMLDivElement;
 const statusText = document.getElementById('status-text') as HTMLParagraphElement;
 const statusBadge = document.getElementById('status-badge') as HTMLSpanElement;
 const errorText = document.getElementById('error-text') as HTMLParagraphElement;
+const debugDetails = document.getElementById('debug-details') as HTMLDivElement;
+const debugDetailsText = document.getElementById(
+  'debug-details-text',
+) as HTMLParagraphElement;
+const copyDebugDetailsButton = document.getElementById(
+  'copy-debug-details',
+) as HTMLButtonElement;
 const setupMessage = document.getElementById('setup-message') as HTMLParagraphElement;
 const btnCloudSignIn = document.getElementById('btn-cloud-signin') as HTMLButtonElement;
 const cloudStatus = document.getElementById('cloud-status') as HTMLParagraphElement;
@@ -101,6 +108,7 @@ let currentAuthProfile: AssistantAuthProfile | null = null;
 // section can react to state changes.
 
 let currentHealthState: ConnectionHealthState = 'paused';
+let currentDebugDetails: string | null = null;
 
 // ── Connection phase management ─────────────────────────────────────
 
@@ -185,6 +193,7 @@ function applyHealthState(
 
   if (health === 'connected') {
     errorText.style.display = 'none';
+    hideDebugDetails();
   }
 
   // Update troubleshooting section visibility and expansion.
@@ -234,9 +243,55 @@ function showErrorText(msg: string): void {
   errorText.style.display = 'block';
 }
 
-function showError(msg: string): void {
-  showErrorText(msg);
+function hideDebugDetails(): void {
+  currentDebugDetails = null;
+  debugDetailsText.textContent = '';
+  debugDetails.style.display = 'none';
 }
+
+function maybeShowDebugDetails(message: string, details?: string): void {
+  const traceMatch = message.match(/\[trace=([^\]]+)\]/);
+  const traceLine = traceMatch ? `trace_id=${traceMatch[1]}` : null;
+  const rendered =
+    details && details.trim().length > 0
+      ? details.trim()
+      : traceLine;
+
+  if (!rendered) {
+    hideDebugDetails();
+    return;
+  }
+
+  currentDebugDetails = rendered;
+  debugDetailsText.textContent = rendered;
+  debugDetails.style.display = 'block';
+}
+
+function showErrorTextWithDebug(msg: string, debugText?: string): void {
+  errorText.textContent = msg;
+  errorText.style.display = 'block';
+  maybeShowDebugDetails(msg, debugText);
+}
+
+function showError(msg: string, debugText?: string): void {
+  showErrorTextWithDebug(msg, debugText);
+}
+
+copyDebugDetailsButton.addEventListener('click', async () => {
+  if (!currentDebugDetails) return;
+  try {
+    await navigator.clipboard.writeText(currentDebugDetails);
+    const originalLabel = copyDebugDetailsButton.textContent;
+    copyDebugDetailsButton.textContent = 'Copied';
+    setTimeout(() => {
+      copyDebugDetailsButton.textContent = originalLabel;
+    }, 1000);
+  } catch (err) {
+    showError(
+      `Failed to copy debug details: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+});
 
 // ── Advanced section ─────────────────────────────────────────────────
 
@@ -335,18 +390,20 @@ function updateAuthSections(authProfile: AssistantAuthProfile | null): void {
 /**
  * Load the assistant catalog from the worker and render the selector.
  */
-function isNativeHostUnavailable(error: string | undefined): boolean {
+function isNativeHostMissing(error: string | undefined): boolean {
   if (!error) return false;
   const lower = error.toLowerCase();
-  // Match only Chrome's specific host-not-installed error messages:
+  // Match only Chrome's host-not-installed error message:
   //   "Specified native messaging host not found."
-  //   "Access to the specified native messaging host is forbidden."
-  // Recoverable errors like timeouts, generic helper errors, and
-  // disconnect-before-response must NOT trigger the no-native-host phase.
-  return (
-    (lower.includes('native messaging host') && lower.includes('not found')) ||
-    (lower.includes('native messaging host') && lower.includes('forbidden'))
-  );
+  // Recoverable errors, allowlist errors ("forbidden"), generic helper
+  // errors, and disconnect-before-response must NOT trigger no-native-host.
+  return lower.includes('native messaging host') && lower.includes('not found');
+}
+
+function isNativeHostForbidden(error: string | undefined): boolean {
+  if (!error) return false;
+  const lower = error.toLowerCase();
+  return lower.includes('native messaging host') && lower.includes('forbidden');
 }
 
 function loadAssistantCatalog(): void {
@@ -354,8 +411,15 @@ function loadAssistantCatalog(): void {
     if (chrome.runtime.lastError || !response?.ok) {
       const errMsg = response?.error ?? chrome.runtime.lastError?.message ?? 'Failed to load assistants';
 
-      if (isNativeHostUnavailable(errMsg)) {
+      if (isNativeHostMissing(errMsg)) {
         setPhase('no-native-host');
+        return;
+      }
+
+      if (isNativeHostForbidden(errMsg)) {
+        showError(
+          'Native host access is blocked for this extension ID. Add the ID to ~/.vellum/chrome-extension-allowlist.local.json, restart the assistant, then reload Chrome.',
+        );
         return;
       }
 
@@ -388,6 +452,7 @@ assistantSelect.addEventListener('change', () => {
   if (!assistantId) return;
 
   errorText.style.display = 'none';
+  hideDebugDetails();
 
   chrome.runtime.sendMessage(
     { type: 'assistant-select', assistantId },
@@ -451,6 +516,7 @@ async function requestConnect(): Promise<void> {
   const port = getPort();
 
   errorText.style.display = 'none';
+  hideDebugDetails();
   setPhase('connecting');
 
   try {
@@ -466,9 +532,12 @@ async function requestConnect(): Promise<void> {
   }
 
   await new Promise<void>((resolve) => {
-    chrome.runtime.sendMessage({ type: 'connect' }, (response: { ok: boolean; error?: string }) => {
+    chrome.runtime.sendMessage({ type: 'connect' }, (response: { ok: boolean; error?: string; debugDetails?: string }) => {
       if (chrome.runtime.lastError || !response?.ok) {
-        showError(response?.error ?? chrome.runtime.lastError?.message ?? 'Unknown error');
+        showError(
+          response?.error ?? chrome.runtime.lastError?.message ?? 'Unknown error',
+          response?.debugDetails,
+        );
         applyHealthState('error');
         resolve();
         return;
@@ -650,6 +719,12 @@ async function refreshCloudStatus(): Promise<void> {
       typeof (authErr as { message?: unknown }).message === 'string'
     ) {
       showErrorText((authErr as { message: string }).message);
+      if (typeof (authErr as { debugDetails?: unknown }).debugDetails === 'string') {
+        maybeShowDebugDetails(
+          (authErr as { message: string }).message,
+          (authErr as { debugDetails: string }).debugDetails,
+        );
+      }
     }
   } catch (err) {
     setCloudStatus(`Error: ${err instanceof Error ? err.message : String(err)}`, false);
@@ -660,6 +735,7 @@ interface CloudSignInResponse {
   ok: boolean;
   token?: StoredCloudToken;
   error?: string;
+  debugDetails?: string;
 }
 
 function requestCloudSignIn(): Promise<CloudSignInResponse> {
@@ -678,6 +754,7 @@ btnCloudSignIn.addEventListener('click', async () => {
   btnCloudSignIn.disabled = true;
   setCloudStatus('Signing in\u2026', false);
   errorText.style.display = 'none';
+  hideDebugDetails();
   // Clear any stale auth-error the worker persisted during a failed
   // reconnect -- the user is explicitly retrying sign-in now.
   await chrome.storage.local.remove('vellum.relayAuthError');
@@ -685,8 +762,11 @@ btnCloudSignIn.addEventListener('click', async () => {
   const response = await requestCloudSignIn();
   if (response.ok && response.token) {
     setCloudStatus(`Signed in as guardian:${response.token.guardianId}`, true);
+    hideDebugDetails();
   } else {
-    setCloudStatus(`Sign-in failed: ${response.error ?? 'Unknown error'}`, false);
+    const message = `Sign-in failed: ${response.error ?? 'Unknown error'}`;
+    setCloudStatus(message, false);
+    showErrorTextWithDebug(message, response.debugDetails);
   }
   btnCloudSignIn.disabled = false;
 });

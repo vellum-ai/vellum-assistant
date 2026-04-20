@@ -7,18 +7,25 @@
  *   1. Bring up PulseAudio virtual devices (null-sinks + virtual source).
  *      Skipped under `SKIP_PULSE=1` so the boot smoke test can run on
  *      macOS developer machines.
- *   2. Start Xvfb + launch Chromium via `createBrowserSession(MEET_URL)`.
- *   3. Drive the prejoin surface with `joinMeet(page, { displayName,
- *      consentMessage })`.
- *   4. Instantiate `DaemonClient`; publish `lifecycle:joining`, wait
- *      briefly for the meeting-room UI to settle, then publish
- *      `lifecycle:joined`.
- *   5. Start the DOM scrapers (participant, speaker, chat) with callbacks
- *      that funnel events into the daemon client.
- *   6. Start the audio capture pipeline (`startAudioCapture`) so PCM is
+ *   2. Start Xvfb (virtual display) for Chrome to render into.
+ *   3. Start the NMH Unix-socket server the extension's native-messaging
+ *      shim will connect to.
+ *   4. Launch google-chrome-stable as a plain user process with the
+ *      controller extension loaded via `--load-extension`. Chrome must NOT
+ *      be driven via CDP — Meet's bot detection rejects CDP-attached
+ *      joiners. Extension-side DOM work happens via Chrome Native
+ *      Messaging rather than via any CDP-based automation library.
+ *   5. Instantiate `DaemonClient` and wait for the extension handshake
+ *      (`{ type: "ready" }`) to land on the socket server.
+ *   6. Publish `lifecycle:joining` and send the `join` command to the
+ *      extension over the socket. The extension drives the Meet prejoin
+ *      UI and, on success, emits `lifecycle:joined` over the same pipe —
+ *      which we forward to the daemon client.
+ *   7. Start the audio capture pipeline (`startAudioCapture`) so PCM is
  *      shipped to the daemon over the Unix socket.
- *   7. Stand up the HTTP control surface so the daemon can issue `/leave`,
- *      `/send_chat` (Phase 2), `/play_audio` (Phase 3).
+ *   8. Stand up the HTTP control surface so the daemon can issue `/leave`,
+ *      `/send_chat` (routes through the socket with requestId correlation),
+ *      `/play_audio` (Phase 3).
  *
  * `SIGTERM`, `SIGINT`, and an inbound `POST /leave` all converge on a
  * single graceful-shutdown path. We guard against re-entry so multiple
@@ -33,50 +40,65 @@
  *
  * Every subsystem is injected through `runBot(deps)` so the main-test
  * suite can verify the boot order, the shutdown order, and the error
- * paths without touching PulseAudio / Playwright / network sockets.
+ * paths without touching PulseAudio / Xvfb / Chrome / real sockets.
  * `defaultDeps()` returns the real wiring; `runBot(defaultDeps())` is
  * what `void main()` invokes at the bottom of this file.
  */
 
-import type { Page } from "playwright";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+import { randomUUID } from "node:crypto";
 
 import type {
-  InboundChatEvent,
   LifecycleEvent,
   LifecycleState,
   MeetBotEvent,
-  ParticipantChangeEvent,
-  SpeakerChangeEvent,
 } from "../../contracts/index.js";
+import type {
+  BotToExtensionMessage,
+  ExtensionToBotMessage,
+} from "../../contracts/native-messaging.js";
 
-import { sendChat } from "./browser/chat-bridge.js";
-import { startChatReader, type ChatReader } from "./browser/chat-reader.js";
-import { joinMeet, type JoinMeetOptions } from "./browser/join-flow.js";
 import {
-  startParticipantScraper,
-  type ParticipantScraperHandle,
-} from "./browser/participant-scraper.js";
-import {
-  startSpeakerScraper,
-  type SpeakerScraperHandle,
-} from "./browser/speaker-scraper.js";
-import {
-  createBrowserSession,
-  type BrowserSession,
-} from "./browser/session.js";
+  launchChrome,
+  type ChromeProcessHandle,
+  type LaunchChromeOptions,
+} from "./browser/chrome-launcher.js";
+import { xdotoolClick } from "./browser/xdotool-click.js";
+import { xdotoolType } from "./browser/xdotool-type.js";
+import { startXvfb, stopXvfb, type XvfbHandle } from "./browser/xvfb.js";
 import { DaemonClient } from "./control/daemon-client.js";
 import {
   createHttpServer,
+  type HttpServerAvatarOptions,
   type HttpServerCallbacks,
   type HttpServerHandle,
 } from "./control/http-server.js";
 import { BotState } from "./control/state.js";
+// Importing the avatar barrel has the side effect of registering the noop
+// factory and the TalkingHead.js factory. Individual renderer-backend PRs
+// extend this list with their own side-effect imports.
+import {
+  AvatarRendererUnavailableError,
+  resolveAvatarRenderer,
+  type AvatarConfig,
+  type AvatarNativeMessagingSender,
+} from "./media/avatar/index.js";
 import {
   startAudioCapture,
   type AudioCaptureHandle,
   type AudioCaptureOptions,
 } from "./media/audio-capture.js";
 import { setupPulseAudio } from "./media/pulse.js";
+import {
+  createCameraChannel,
+  type CameraChannel,
+} from "./native-messaging/camera-channel.js";
+import {
+  createNmhSocketServer,
+  type NmhSocketServer,
+  type NmhSocketServerOptions,
+} from "./native-messaging/socket-server.js";
 
 // ---------------------------------------------------------------------------
 // Env
@@ -100,6 +122,64 @@ interface BotEnv {
   skipPulse: boolean;
   /** Bind port for the HTTP control surface. Defaults to 3000. */
   httpPort: number;
+  /** Absolute path to the loaded Chrome extension directory. */
+  extensionPath: string;
+  /** Unix socket path the NMH shim connects to. */
+  nmhSocketPath: string;
+  /** X display string Xvfb listens on. */
+  xvfbDisplay: string;
+  /** User-data directory root for Chrome — suffixed with meetingId per launch. */
+  chromeUserDataRoot: string;
+  /**
+   * Phase 4 avatar opt-in. `AVATAR_ENABLED=1` (or a common truthy
+   * synonym — `true`, `yes`, `on`) threads the v4l2loopback camera flags
+   * through to {@link launchChrome}. Absent or any non-truthy value falls
+   * back to the Phase 1 launcher argv byte-for-byte. The session manager
+   * in the daemon sets this env on the bot container when the assistant
+   * has the Meet avatar feature enabled.
+   */
+  avatarEnabled: boolean;
+  /**
+   * Phase 4 renderer selector. Defaults to `"noop"` (safe fallback)
+   * when unset. Drives which factory the registry resolves when the
+   * daemon calls `/avatar/enable`. The session-manager sets this env
+   * from `services.meet.avatar.renderer` on the bot container.
+   */
+  avatarRenderer: string;
+  /**
+   * Optional JSON-encoded avatar-config bundle. The session-manager
+   * serializes the fully-resolved `services.meet.avatar.*` block (with
+   * vault-resolved credentials substituted in) and passes it as a
+   * single env var so the bot can hand the whole thing to each
+   * renderer factory without having to juggle a dozen env vars.
+   */
+  avatarConfigJson: string | undefined;
+  /**
+   * Explicit device-path override. Mirrors
+   * `services.meet.avatar.devicePath` from the daemon config. When
+   * unset, the bot falls back to `/dev/video10` (the default
+   * {@link launchChrome} also uses).
+   */
+  avatarDevicePath: string | undefined;
+}
+
+/**
+ * Parse a truthy env value. Accepts `"1"`, `"true"`, `"yes"`, `"on"`
+ * (case-insensitive, trimmed). Anything else — including `undefined`,
+ * `"0"`, `"false"`, `"no"`, `"off"`, and empty strings — is false.
+ * Kept deliberately narrow so an accidental leading/trailing space or an
+ * operator typing `AVATAR_ENABLED=true` both flip the same switch as
+ * `AVATAR_ENABLED=1`.
+ */
+function parseBooleanEnv(raw: string | undefined): boolean {
+  if (!raw) return false;
+  const normalized = raw.trim().toLowerCase();
+  return (
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "on"
+  );
 }
 
 function readEnv(env: NodeJS.ProcessEnv = process.env): BotEnv {
@@ -113,17 +193,20 @@ function readEnv(env: NodeJS.ProcessEnv = process.env): BotEnv {
     socketDir: env.SOCKET_DIR ?? "/sockets",
     skipPulse: env.SKIP_PULSE === "1",
     httpPort: env.HTTP_PORT ? Number(env.HTTP_PORT) : 3000,
+    extensionPath: env.EXTENSION_PATH ?? "/app/ext",
+    nmhSocketPath: env.NMH_SOCKET_PATH ?? "/run/nmh.sock",
+    xvfbDisplay: env.XVFB_DISPLAY ?? ":99",
+    chromeUserDataRoot: env.CHROME_USER_DATA_ROOT ?? "/tmp/chrome-profile",
+    avatarEnabled: parseBooleanEnv(env.AVATAR_ENABLED),
+    avatarRenderer: env.AVATAR_RENDERER ?? "noop",
+    avatarConfigJson: env.AVATAR_CONFIG_JSON,
+    avatarDevicePath: env.AVATAR_DEVICE_PATH,
   };
 }
 
 // ---------------------------------------------------------------------------
 // Dep injection
 // ---------------------------------------------------------------------------
-
-/** Handle a scraper hands back to its caller for teardown. */
-interface ScraperStopHandle {
-  stop: () => void | Promise<void>;
-}
 
 /**
  * Factories the main wiring calls through. Keeping them on a single
@@ -133,31 +216,37 @@ interface ScraperStopHandle {
 export interface BotDeps {
   env: () => BotEnv;
   setupPulseAudio: () => Promise<void>;
-  createBrowserSession: (url: string) => Promise<BrowserSession>;
-  joinMeet: (page: Page, opts: JoinMeetOptions) => Promise<void>;
-  startParticipantScraper: (
-    page: Page,
-    onEvent: (event: ParticipantChangeEvent) => void,
-    opts: { meetingId: string; selfName: string },
-  ) => ParticipantScraperHandle;
-  startSpeakerScraper: (
-    page: Page,
-    onEvent: (event: SpeakerChangeEvent) => void,
-    opts: { meetingId: string },
-  ) => SpeakerScraperHandle;
-  startChatReader: (
-    page: Page,
-    onEvent: (event: InboundChatEvent) => void,
-    opts: { meetingId: string; selfName: string },
-  ) => Promise<ChatReader>;
-  startAudioCapture: (opts: AudioCaptureOptions) => Promise<AudioCaptureHandle>;
+  /** Start Xvfb on the requested display. */
+  startXvfb: (display: string) => Promise<XvfbHandle>;
+  /** Tear down an Xvfb handle. */
+  stopXvfb: (handle: XvfbHandle) => Promise<void>;
+  /** Create (but do not start) the NMH socket server. */
+  createNmhSocketServer: (opts: NmhSocketServerOptions) => NmhSocketServer;
+  /** Spawn chromium. Returns a handle with exitPromise + stop. */
+  launchChrome: (opts: LaunchChromeOptions) => Promise<ChromeProcessHandle>;
   /**
-   * Type `text` into the Meet chat composer and submit it. Invoked by the
-   * HTTP `/send_chat` endpoint. Separated from the other browser helpers
-   * so the main-test suite can inject a mock that captures the text
-   * without spinning up Playwright.
+   * Dispatch a real X-server click at the given screen coordinates. Used to
+   * clear Meet's `event.isTrusted` gate on the prejoin admission button.
+   * See `browser/xdotool-click.ts` for rationale.
    */
-  sendChat: (page: Page, text: string) => Promise<void>;
+  xdotoolClick: (opts: {
+    x: number;
+    y: number;
+    display: string;
+  }) => Promise<void>;
+  /**
+   * Type text via real X-server keystrokes into whatever is currently
+   * focused on the Xvfb display. Used as belt-and-suspenders for the
+   * chat composer when Meet gates input on `event.isTrusted === true`.
+   * The extension is responsible for focusing the right element before
+   * emitting `trusted_type`. See `browser/xdotool-type.ts` for rationale.
+   */
+  xdotoolType: (opts: {
+    text: string;
+    display: string;
+    delayMs?: number;
+  }) => Promise<void>;
+  startAudioCapture: (opts: AudioCaptureOptions) => Promise<AudioCaptureHandle>;
   createDaemonClient: (opts: {
     daemonUrl: string;
     meetingId: string;
@@ -165,8 +254,16 @@ export interface BotDeps {
     onError: (err: Error) => void;
   }) => DaemonClientLike;
   createHttpServer: (
-    opts: HttpServerCallbacks & { apiToken: string },
+    opts: HttpServerCallbacks & {
+      apiToken: string;
+      avatar?: HttpServerAvatarOptions;
+    },
   ) => HttpServerHandle;
+  /**
+   * Ensure a directory exists (recursive). Exposed as a dep so tests can
+   * intercept filesystem writes — prod calls `fs.mkdirSync(..., recursive: true)`.
+   */
+  ensureDir: (path: string) => void;
   /**
    * Signal handler hooks. The test harness stubs these out so the
    * Bun/Node signal machinery isn't wired up during unit tests.
@@ -174,7 +271,7 @@ export interface BotDeps {
   onSignal: (signal: "SIGTERM" | "SIGINT", handler: () => void) => () => void;
   /**
    * Short settle delay between `lifecycle:joining` and `lifecycle:joined`.
-   * Exposed as a dep so tests can pass 0 and not hang.
+   * Retained as a dep for backward-compat with tests that pass 0.
    */
   joinedSettleMs: number;
   /** Sleep shim — tests can substitute a tick-accurate implementation. */
@@ -184,6 +281,27 @@ export interface BotDeps {
   /** Logger — routed to console in production. Keep separate hooks so tests can capture. */
   logInfo: (msg: string) => void;
   logError: (msg: string) => void;
+  /** Milliseconds to wait for the extension's `ready` handshake. */
+  extensionReadyTimeoutMs: number;
+  /**
+   * Milliseconds to wait for the extension to reach `lifecycle:joined` (or
+   * emit `lifecycle:error`) after the bot dispatches the `join` command.
+   * If nothing arrives in this window, assume Chrome never landed on a
+   * Meet tab (restore-session dialog, redirect loop, non-Meet URL, etc.)
+   * and shut down with `lifecycle:error` rather than sitting in
+   * `phase=joining` indefinitely.
+   *
+   * The default (120s) gives the prejoin flow enough slack for the Meet
+   * "ask to join" → host admission cycle, on top of the separate 30s
+   * `extensionReadyTimeoutMs` that bounds the earlier handshake.
+   */
+  extensionJoinedTimeoutMs: number;
+  /** Milliseconds before a `send_chat` request times out with a failure. */
+  sendChatTimeoutMs: number;
+  /** Grace period after sending `leave` for the extension to animate out. */
+  leaveGraceMs: number;
+  /** Factory for correlation ids on outbound `send_chat` commands. */
+  generateRequestId: () => string;
 }
 
 /** Minimal slice of `DaemonClient` the main wiring depends on. */
@@ -198,13 +316,13 @@ export function defaultDeps(): BotDeps {
   return {
     env: () => readEnv(process.env),
     setupPulseAudio,
-    createBrowserSession,
-    joinMeet,
-    startParticipantScraper,
-    startSpeakerScraper,
-    startChatReader,
+    startXvfb,
+    stopXvfb,
+    createNmhSocketServer: (opts) => createNmhSocketServer(opts),
+    launchChrome: (opts) => launchChrome(opts),
+    xdotoolClick: (opts) => xdotoolClick(opts),
+    xdotoolType: (opts) => xdotoolType(opts),
     startAudioCapture,
-    sendChat,
     createDaemonClient: (opts) =>
       new DaemonClient({
         daemonUrl: opts.daemonUrl,
@@ -213,6 +331,7 @@ export function defaultDeps(): BotDeps {
         onError: (err) => opts.onError(err),
       }),
     createHttpServer,
+    ensureDir: (path) => mkdirSync(path, { recursive: true }),
     onSignal: (signal, handler) => {
       process.on(signal, handler);
       return () => {
@@ -224,6 +343,11 @@ export function defaultDeps(): BotDeps {
     exit: (code) => process.exit(code),
     logInfo: (msg) => console.log(msg),
     logError: (msg) => console.error(msg),
+    extensionReadyTimeoutMs: 30_000,
+    extensionJoinedTimeoutMs: 120_000,
+    sendChatTimeoutMs: 10_000,
+    leaveGraceMs: 2_000,
+    generateRequestId: () => randomUUID(),
   };
 }
 
@@ -281,62 +405,33 @@ export async function runBot(deps: BotDeps): Promise<void> {
   deps.logInfo("meet-bot booted");
 
   // -------------------------------------------------------------------------
-  // Legacy screenshot-only boot path (used by the boot smoke test).
+  // Smoke-test short-circuit.
   //
-  // If there's no MEET_URL at all, the boot test just wants to confirm the
-  // package can start and log the marker. Return without going further.
-  //
-  // If MEET_URL is set but MEETING_ID / DAEMON_URL / BOT_API_TOKEN / JOIN_NAME
-  // are missing, we fall back to the previous "open a browser and screenshot"
-  // behavior so existing smoke paths keep working. Full join + daemon wiring
-  // requires the full env.
+  // The boot smoke test (`boot.test.ts`) runs the package with `SKIP_PULSE=1`
+  // and no MEET_URL; it just needs to see the boot marker and exit 0. Any
+  // missing required env falls into the same "bail out cleanly" bucket — we
+  // only enter full wiring when EVERY value is set.
   // -------------------------------------------------------------------------
 
-  if (!env.meetUrl) {
-    return;
-  }
-
-  const needsFullWiring =
+  const hasFullEnv =
+    env.meetUrl &&
     env.meetingId &&
     env.joinName &&
     env.consentMessage &&
     env.daemonUrl &&
     env.botApiToken;
 
-  if (!needsFullWiring) {
-    const session = await deps.createBrowserSession(env.meetUrl);
-    try {
-      if (env.joinName && env.consentMessage) {
-        try {
-          await deps.joinMeet(session.page, {
-            displayName: env.joinName,
-            consentMessage: env.consentMessage,
-          });
-          deps.logInfo(`meet-bot joined ${env.meetUrl} as ${env.joinName}`);
-        } catch (err) {
-          deps.logError(`meet-bot: join flow failed: ${errMsg(err)}`);
-          deps.exit(1);
-          return;
-        }
-      } else {
-        await session.page.screenshot({ path: "/tmp/boot-screenshot.png" });
-        deps.logInfo(
-          `meet-bot captured boot screenshot for ${env.meetUrl} at /tmp/boot-screenshot.png`,
-        );
-      }
-    } finally {
-      await session.close();
-    }
+  if (!hasFullEnv) {
     return;
   }
 
-  // TypeScript narrowing — `needsFullWiring` already verified these.
+  // TypeScript narrowing — `hasFullEnv` already verified these.
   const meetingId = env.meetingId!;
   const joinName = env.joinName!;
   const consentMessage = env.consentMessage!;
   const daemonUrl = env.daemonUrl!;
   const botApiToken = env.botApiToken!;
-  const meetUrl = env.meetUrl;
+  const meetUrl = env.meetUrl!;
 
   BotState.setMeeting(meetingId);
 
@@ -345,34 +440,65 @@ export async function runBot(deps: BotDeps): Promise<void> {
   // still produce a usable shutdown even if the daemon client never gets
   // instantiated.
   type Subsystems = {
-    session: BrowserSession | null;
+    xvfb: XvfbHandle | null;
+    socketServer: NmhSocketServer | null;
+    chrome: ChromeProcessHandle | null;
     daemonClient: DaemonClientLike | null;
-    participantScraper: ScraperStopHandle | null;
-    speakerScraper: ScraperStopHandle | null;
-    chatReader: ScraperStopHandle | null;
     audioCapture: AudioCaptureHandle | null;
     httpServer: HttpServerHandle | null;
+    /**
+     * Camera-toggle channel. Constructed alongside the avatar HTTP
+     * options (when avatar is enabled AND the NMH socket server is up)
+     * so the HTTP server's `/avatar/enable`/`/avatar/disable` routes can
+     * flip the Meet camera on/off via the extension. `shutdown()` is
+     * called during bot teardown so in-flight round-trips reject
+     * deterministically rather than waiting for their 7s timeout.
+     */
+    cameraChannel: CameraChannel | null;
   };
   const subsystems: Subsystems = {
-    session: null,
+    xvfb: null,
+    socketServer: null,
+    chrome: null,
     daemonClient: null,
-    participantScraper: null,
-    speakerScraper: null,
-    chatReader: null,
     audioCapture: null,
     httpServer: null,
+    cameraChannel: null,
   };
 
-  // Dedup guard: signals, HTTP /leave, and boot errors can all race to
-  // trigger shutdown. Only the first one wins.
+  // Pending `send_chat` requests, correlated by requestId so the extension's
+  // `send_chat_result` can resolve the awaiting HTTP route.
+  const pendingSendChat = new Map<
+    string,
+    {
+      resolve: () => void;
+      reject: (err: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
+
+  // Dedup guard: signals, HTTP /leave, daemon-error flaps, and boot errors
+  // can all race to trigger shutdown. Only the first one wins.
   let shutdownInProgress = false;
   let shutdownDonePromise: Promise<void> | null = null;
 
+  // Timer armed after `join` is dispatched that trips shutdown if the
+  // extension never reaches `lifecycle:joined` / `lifecycle:error`. Cleared
+  // from the lifecycle-message handler and on shutdown. See the timer
+  // setup site below for full rationale.
+  let extensionJoinedTimer: ReturnType<typeof setTimeout> | null = null;
+  const clearExtensionJoinedTimer = (): void => {
+    if (extensionJoinedTimer) {
+      clearTimeout(extensionJoinedTimer);
+      extensionJoinedTimer = null;
+    }
+  };
+
   /**
    * Graceful shutdown. Tears down subsystems in the reverse order of
-   * startup: HTTP server (so no new commands arrive) → scrapers → audio
-   * → browser → daemon client (flushed last so `lifecycle:left` is
-   * delivered). Safe to call multiple times.
+   * startup: HTTP → tell the extension to leave → Chrome → audio →
+   * Xvfb → socket server → daemon client (flushed last so
+   * `lifecycle:left`/`error` is delivered). Safe to call multiple times.
    */
   async function shutdown(
     finalState: "left" | "error",
@@ -386,32 +512,94 @@ export async function runBot(deps: BotDeps): Promise<void> {
     shutdownDonePromise = (async () => {
       BotState.setPhase(finalState === "error" ? "error" : "leaving");
 
+      // Any in-flight join-deadline timer is now moot.
+      clearExtensionJoinedTimer();
+
+      // Reject any pending send_chat promises so the HTTP handlers unblock
+      // with a clear error rather than hanging until their own timer fires.
+      for (const [requestId, pending] of pendingSendChat.entries()) {
+        clearTimeout(pending.timer);
+        pending.reject(
+          new Error(`send_chat: bot shutting down (requestId=${requestId})`),
+        );
+      }
+      pendingSendChat.clear();
+
       /** Run a subsystem teardown without letting its failure poison the rest. */
       const stopSafely = async (
         label: string,
-        handle: { stop: () => void | Promise<void> } | null,
+        fn: (() => void | Promise<void>) | null,
       ): Promise<void> => {
-        if (!handle) return;
+        if (!fn) return;
         try {
-          await handle.stop();
+          await fn();
         } catch (err) {
           deps.logError(`meet-bot: ${label} stop failed: ${errMsg(err)}`);
         }
       };
 
-      // Teardown order (reverse of boot): HTTP first so no new commands
-      // arrive, then the scrapers (halts scraper-generated events), then
-      // audio (so parec sees clean EOF before Chrome tears down), then
-      // the browser. The daemon client is stopped last so the terminal
-      // lifecycle event gets flushed.
-      await stopSafely("http server", subsystems.httpServer);
-      await stopSafely("participant scraper", subsystems.participantScraper);
-      await stopSafely("speaker scraper", subsystems.speakerScraper);
-      await stopSafely("chat reader", subsystems.chatReader);
-      await stopSafely("audio capture", subsystems.audioCapture);
+      // Teardown order (reverse of boot):
+      //   1. HTTP first so no new commands arrive.
+      //   2. Best-effort `leave` to the extension so it animates out.
+      //   3. Chrome (SIGTERM → SIGKILL after 5s).
+      //   4. Audio capture (parec sees EOF before Pulse tears down).
+      //   5. Xvfb (no more rendering to do).
+      //   6. Socket server (closes the listener, unlinks the socket).
+      //   7. Daemon client (flushed last so the terminal lifecycle event
+      //      gets delivered).
       await stopSafely(
-        "browser session",
-        subsystems.session ? { stop: () => subsystems.session!.close() } : null,
+        "http server",
+        subsystems.httpServer ? () => subsystems.httpServer!.stop() : null,
+      );
+      // Abort any in-flight camera round-trips so HTTP handlers awaiting
+      // enableCamera / disableCamera don't hang for the full 7s channel
+      // timeout. Runs after HTTP stop (no new requests can enter) and
+      // before chrome/socket teardown (so the extension is still notionally
+      // around to respond, but we no longer care about the result). Safe
+      // when the channel was never created (avatar disabled, or booted
+      // without a socket server).
+      if (subsystems.cameraChannel) {
+        try {
+          subsystems.cameraChannel.shutdown(
+            detail ?? (finalState === "error" ? "error" : "shutdown"),
+          );
+        } catch (err) {
+          deps.logError(
+            `meet-bot: camera-channel shutdown failed: ${errMsg(err)}`,
+          );
+        }
+      }
+      // Send `leave` best-effort; swallow errors because the extension
+      // may already be gone. Give it a short grace period to animate out.
+      if (subsystems.socketServer) {
+        try {
+          subsystems.socketServer.sendToExtension({
+            type: "leave",
+            reason: detail ?? (finalState === "error" ? "error" : "shutdown"),
+          });
+          await deps.sleep(deps.leaveGraceMs);
+        } catch (err) {
+          // Extension may already be disconnected; fine.
+          deps.logError(
+            `meet-bot: leave command to extension failed: ${errMsg(err)}`,
+          );
+        }
+      }
+      await stopSafely(
+        "chrome",
+        subsystems.chrome ? () => subsystems.chrome!.stop() : null,
+      );
+      await stopSafely(
+        "audio capture",
+        subsystems.audioCapture ? () => subsystems.audioCapture!.stop() : null,
+      );
+      await stopSafely(
+        "xvfb",
+        subsystems.xvfb ? () => deps.stopXvfb(subsystems.xvfb!) : null,
+      );
+      await stopSafely(
+        "socket server",
+        subsystems.socketServer ? () => subsystems.socketServer!.stop() : null,
       );
 
       publishLifecycle(
@@ -421,7 +609,10 @@ export async function runBot(deps: BotDeps): Promise<void> {
         deps,
         detail,
       );
-      await stopSafely("daemon client", subsystems.daemonClient);
+      await stopSafely(
+        "daemon client",
+        subsystems.daemonClient ? () => subsystems.daemonClient!.stop() : null,
+      );
 
       BotState.setPhase(finalState);
     })();
@@ -475,19 +666,51 @@ export async function runBot(deps: BotDeps): Promise<void> {
   // error we publish `lifecycle:error`, drain the daemon client, and
   // exit 1.
   try {
-    // ---------------------------------------------------------------------
-    // Step 2 — Xvfb + browser.
-    // ---------------------------------------------------------------------
     BotState.setPhase("joining");
-    subsystems.session = await deps.createBrowserSession(meetUrl);
 
     // ---------------------------------------------------------------------
-    // Step 3 — join the meeting.
+    // Step 2 — Xvfb.
+    // ---------------------------------------------------------------------
+    subsystems.xvfb = await deps.startXvfb(env.xvfbDisplay);
+
+    // ---------------------------------------------------------------------
+    // Step 3 — NMH socket server.
     //
-    // We need the daemon client up to *report* a join failure, so
-    // instantiate it before invoking joinMeet. That way a selector
-    // timeout (host never admits the bot, prejoin URL expired, etc.)
-    // still produces a `lifecycle:error` event on the wire.
+    // Ensure the socket's parent directory exists and the Chrome user-data
+    // directory is ready before spawning anything. The socket lives under
+    // `/run/` in production which may not exist in all base images.
+    // ---------------------------------------------------------------------
+    const socketDir = dirname(env.nmhSocketPath);
+    deps.ensureDir(socketDir);
+
+    const userDataDir = `${env.chromeUserDataRoot}-${meetingId}`;
+    deps.ensureDir(userDataDir);
+
+    subsystems.socketServer = deps.createNmhSocketServer({
+      socketPath: env.nmhSocketPath,
+      logger: {
+        info: (m) => deps.logInfo(m),
+        warn: (m) => deps.logError(m),
+      },
+    });
+
+    // Inbound messages from the extension. This single handler routes every
+    // validated frame: lifecycle + telemetry forward to the daemon,
+    // diagnostics get logged, send_chat_result completes pending HTTP
+    // requests. The `ready` handshake is handled separately by
+    // `socketServer.waitForReady`; we log it here too for visibility.
+    subsystems.socketServer.onExtensionMessage((msg) =>
+      handleExtensionMessage(msg),
+    );
+
+    await subsystems.socketServer.start();
+
+    // ---------------------------------------------------------------------
+    // Step 4 — daemon client.
+    //
+    // Instantiate BEFORE Chrome + extension so any lifecycle events the
+    // extension produces during early join can be forwarded to the daemon
+    // immediately.
     // ---------------------------------------------------------------------
     subsystems.daemonClient = deps.createDaemonClient({
       daemonUrl,
@@ -496,64 +719,132 @@ export async function runBot(deps: BotDeps): Promise<void> {
       onError: onDaemonTerminalError,
     });
 
-    publishLifecycle(subsystems.daemonClient, meetingId, "joining", deps);
+    // ---------------------------------------------------------------------
+    // Step 5 — Chrome.
+    //
+    // The handle's `exitPromise` is watched below; if Chrome dies before
+    // we've intentionally shut down, treat it as an unexpected failure.
+    // ---------------------------------------------------------------------
+    subsystems.chrome = await deps.launchChrome({
+      meetingUrl: meetUrl,
+      displayNumber: env.xvfbDisplay,
+      extensionPath: env.extensionPath,
+      userDataDir,
+      avatarEnabled: env.avatarEnabled,
+      // When an operator overrides `services.meet.avatar.devicePath`
+      // (threaded here as `AVATAR_DEVICE_PATH`), the renderer will write
+      // frames to that path — Chrome's `--use-file-for-fake-video-capture`
+      // flag must target the same device or Meet reads from the wrong
+      // node and participants see a black frame. Omitting the key when
+      // unset preserves the launcher's module-local default (/dev/video10).
+      ...(env.avatarDevicePath
+        ? { avatarDevicePath: env.avatarDevicePath }
+        : {}),
+      logger: {
+        info: (m) => deps.logInfo(m),
+        error: (m) => deps.logError(m),
+      },
+    });
 
-    try {
-      await deps.joinMeet(subsystems.session.page, {
-        displayName: joinName,
-        consentMessage,
+    // Watch for an unexpected Chrome exit. If Chrome dies on its own before
+    // the bot has decided to shut down, we escalate to an error shutdown.
+    void subsystems.chrome.exitPromise.then((code) => {
+      if (shutdownInProgress) return;
+      void shutdown(
+        "error",
+        `chrome exited unexpectedly with code ${code}`,
+      ).then(() => {
+        detachSigterm();
+        detachSigint();
+        deps.exit(1);
       });
+    });
+
+    // ---------------------------------------------------------------------
+    // Step 6 — wait for the extension, then issue `join`.
+    // ---------------------------------------------------------------------
+    try {
+      await subsystems.socketServer.waitForReady(deps.extensionReadyTimeoutMs);
     } catch (err) {
       const msg = errMsg(err);
-      deps.logError(`meet-bot: join flow failed: ${msg}`);
-      publishLifecycle(subsystems.daemonClient, meetingId, "error", deps, msg);
-      await shutdown("error", msg);
+      deps.logError(`meet-bot: ${msg}`);
+      await shutdown("error", `extension never signaled ready: ${msg}`);
       detachSigterm();
       detachSigint();
       deps.exit(1);
       return;
     }
 
-    // ---------------------------------------------------------------------
-    // Step 4 — settle, then publish `lifecycle:joined`.
-    // ---------------------------------------------------------------------
+    // Publish `lifecycle:joining` directly so the daemon sees the transition
+    // even if the extension's own `joining` message is delayed by tab load.
+    publishLifecycle(subsystems.daemonClient, meetingId, "joining", deps);
+
+    try {
+      subsystems.socketServer.sendToExtension({
+        type: "join",
+        meetingUrl: meetUrl,
+        displayName: joinName,
+        consentMessage,
+      });
+    } catch (err) {
+      const msg = errMsg(err);
+      deps.logError(`meet-bot: failed to send join to extension: ${msg}`);
+      await shutdown("error", `failed to send join to extension: ${msg}`);
+      detachSigterm();
+      detachSigint();
+      deps.exit(1);
+      return;
+    }
+
+    // Arm the extension-joined deadline. `waitForReady` guarantees the
+    // extension is alive, but it doesn't guarantee Chrome actually landed
+    // on a Meet tab — a restore-session dialog or a redirect loop leaves
+    // the content script unmounted and the background bridge silently
+    // drops the `join` relay. Without this timer the bot would sit in
+    // `phase=joining` indefinitely. The lifecycle message handler clears
+    // `extensionJoinedTimer` on `joined` / `error`; the clear is idempotent
+    // so repeated events are safe.
+    extensionJoinedTimer = setTimeout(() => {
+      if (shutdownInProgress) return;
+      const detail = `extension did not reach joined state within ${deps.extensionJoinedTimeoutMs}ms`;
+      deps.logError(`meet-bot: ${detail}`);
+      void shutdown("error", detail).then(() => {
+        detachSigterm();
+        detachSigint();
+        deps.exit(1);
+      });
+    }, deps.extensionJoinedTimeoutMs);
+
+    // Short settle before wiring up the audio pipeline so the page has a
+    // moment to render after admission. The extension will emit its own
+    // `lifecycle:joined` which we forward; this sleep only keeps historical
+    // test timing semantics (`joinedSettleMs`) intact.
     await deps.sleep(deps.joinedSettleMs);
-    BotState.setPhase("joined");
-    publishLifecycle(subsystems.daemonClient, meetingId, "joined", deps);
 
     // ---------------------------------------------------------------------
-    // Step 5 — scrapers.
-    // ---------------------------------------------------------------------
-    const enqueue = (ev: MeetBotEvent): void => {
-      if (subsystems.daemonClient) subsystems.daemonClient.enqueue(ev);
-    };
-
-    subsystems.participantScraper = deps.startParticipantScraper(
-      subsystems.session.page,
-      (event) => enqueue(event),
-      { meetingId, selfName: joinName },
-    );
-    subsystems.speakerScraper = deps.startSpeakerScraper(
-      subsystems.session.page,
-      (event) => enqueue(event),
-      { meetingId },
-    );
-    subsystems.chatReader = await deps.startChatReader(
-      subsystems.session.page,
-      (event) => enqueue(event),
-      { meetingId, selfName: joinName },
-    );
-
-    // ---------------------------------------------------------------------
-    // Step 6 — audio capture.
+    // Step 7 — audio capture.
     // ---------------------------------------------------------------------
     subsystems.audioCapture = await deps.startAudioCapture({
       socketPath: `${env.socketDir}/audio.sock`,
     });
 
     // ---------------------------------------------------------------------
-    // Step 7 — HTTP control surface.
+    // Step 8 — HTTP control surface.
+    //
+    // When `AVATAR_ENABLED=1` is set, construct the avatar options bag
+    // the server needs to wire the `/avatar/*` routes. We ALSO eagerly
+    // attempt to resolve the configured renderer here so a misconfig
+    // (missing credential, bad id, unreachable sidecar) surfaces in
+    // the bot boot log rather than the first time the agent tries to
+    // turn the avatar on. Note that we intentionally only CONSTRUCT —
+    // we do not call `start()` — so an eager construction failure
+    // just logs; the renderer is actually started on the daemon's
+    // `/avatar/enable` HTTP call.
     // ---------------------------------------------------------------------
+    const { options: avatarHttpOptions, cameraChannel } =
+      buildAvatarHttpOptions(env, deps, subsystems.socketServer);
+    subsystems.cameraChannel = cameraChannel;
+
     subsystems.httpServer = deps.createHttpServer({
       apiToken: botApiToken,
       onLeave: (reason) => {
@@ -563,21 +854,11 @@ export async function runBot(deps: BotDeps): Promise<void> {
           deps.exit(0);
         });
       },
-      onSendChat: async (text) => {
-        // Surfacing errors back to the HTTP server lets it respond 502 to
-        // the daemon when Playwright can't reach the chat panel (selector
-        // drift, panel closed, Meet DOM still loading, etc.). The HTTP
-        // server is responsible for validation and the 2000-char limit —
-        // at this layer we just drive the browser.
-        const page = subsystems.session?.page;
-        if (!page) {
-          throw new Error("send_chat: browser session is not ready");
-        }
-        await deps.sendChat(page, text);
-      },
+      onSendChat: (text) => sendChatViaExtension(text),
       onPlayAudio: () => {
         // Phase 3 will replace the 501 stub with a real implementation.
       },
+      avatar: avatarHttpOptions,
     });
     await subsystems.httpServer.start(env.httpPort);
 
@@ -585,16 +866,299 @@ export async function runBot(deps: BotDeps): Promise<void> {
   } catch (err) {
     const msg = errMsg(err);
     deps.logError(`meet-bot: boot failed: ${msg}`);
-    publishLifecycle(subsystems.daemonClient, meetingId, "error", deps, msg);
     await shutdown("error", msg);
     detachSigterm();
     detachSigint();
     deps.exit(1);
   }
+
+  // -------------------------------------------------------------------------
+  // Helpers defined in-scope so they capture the subsystems / pending map.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Route a single validated inbound message from the extension. Lifecycle
+   * + telemetry forward to the daemon, diagnostics get logged, and
+   * `send_chat_result` completes the pending HTTP request.
+   */
+  function handleExtensionMessage(msg: ExtensionToBotMessage): void {
+    switch (msg.type) {
+      case "ready":
+        deps.logInfo(
+          `meet-bot: extension ready (version=${msg.extensionVersion})`,
+        );
+        return;
+      case "lifecycle": {
+        const state: LifecycleState = msg.state;
+        // Drive local bot-state on `joined` / terminal states; the
+        // `joining` emitted by the extension is informational — we already
+        // set BotState before `waitForReady` returned.
+        if (state === "joined") BotState.setPhase("joined");
+        if (state === "error") BotState.setPhase("error");
+        if (state === "left") BotState.setPhase("leaving");
+        // Clear the extension-joined deadline as soon as the extension
+        // reaches a terminal post-prejoin state. Idempotent.
+        if (state === "joined" || state === "error") {
+          clearExtensionJoinedTimer();
+        }
+        // Rewrite meetingId to the authoritative UUID from env. The
+        // extension derives its `meetingId` from `location.pathname` (the
+        // Meet URL code, e.g. `abc-defg-hij`), but the daemon keys
+        // sessions by the UUID passed via `MEETING_ID` env. Stamping here
+        // at the bot boundary keeps the extension simple while ensuring
+        // every daemon-facing event correlates to the correct session.
+        publishLifecycle(
+          subsystems.daemonClient,
+          meetingId,
+          state,
+          deps,
+          msg.detail,
+        );
+        return;
+      }
+      case "participant.change":
+      case "speaker.change":
+      case "chat.inbound":
+        // Belt-and-suspenders: overwrite meetingId with the authoritative
+        // UUID before forwarding. See lifecycle case above for rationale.
+        if (subsystems.daemonClient) {
+          subsystems.daemonClient.enqueue({ ...msg, meetingId });
+        }
+        return;
+      case "diagnostic":
+        if (msg.level === "error") deps.logError(`[ext] ${msg.message}`);
+        else deps.logInfo(`[ext] ${msg.message}`);
+        return;
+      case "trusted_click": {
+        // Fire-and-forget: the extension confirms success by observing the
+        // subsequent DOM transition (waitForSelector on the in-meeting UI).
+        // We surface any xdotool failure as a logError so operators see
+        // them even though the extension can't synchronously react.
+        deps
+          .xdotoolClick({
+            x: msg.x,
+            y: msg.y,
+            display: env.xvfbDisplay,
+          })
+          .then(() =>
+            deps.logInfo(
+              `meet-bot: trusted_click dispatched at (${msg.x},${msg.y})`,
+            ),
+          )
+          .catch((err: unknown) => {
+            const detail = err instanceof Error ? err.message : String(err);
+            deps.logError(`meet-bot: trusted_click failed: ${detail}`);
+          });
+        return;
+      }
+      case "trusted_type": {
+        // Mirror of trusted_click: fire-and-forget, log on success /
+        // failure, never cascade into a bot shutdown. The extension has
+        // already focused the target element; the bot just types into
+        // whatever is focused on the Xvfb display.
+        deps
+          .xdotoolType({
+            text: msg.text,
+            delayMs: msg.delayMs,
+            display: env.xvfbDisplay,
+          })
+          .then(() =>
+            deps.logInfo(
+              `meet-bot: trusted_type dispatched (${msg.text.length} chars)`,
+            ),
+          )
+          .catch((err: unknown) => {
+            const detail = err instanceof Error ? err.message : String(err);
+            deps.logError(`meet-bot: trusted_type failed: ${detail}`);
+          });
+        return;
+      }
+      case "send_chat_result": {
+        const pending = pendingSendChat.get(msg.requestId);
+        if (!pending) {
+          // Late reply for a request we already gave up on, or a fabricated
+          // requestId. Log and drop.
+          deps.logError(
+            `meet-bot: send_chat_result for unknown requestId=${msg.requestId}`,
+          );
+          return;
+        }
+        clearTimeout(pending.timer);
+        pendingSendChat.delete(msg.requestId);
+        if (msg.ok) {
+          pending.resolve();
+        } else {
+          pending.reject(
+            new Error(
+              msg.error
+                ? `send_chat failed: ${msg.error}`
+                : "send_chat failed (extension did not provide a reason)",
+            ),
+          );
+        }
+        return;
+      }
+    }
+  }
+
+  /**
+   * Dispatch a `send_chat` command to the extension and wait for the
+   * matching `send_chat_result`. Resolves on `ok: true`, rejects on
+   * `ok: false` or on a 10s timeout. Called from the HTTP `/send_chat`
+   * route.
+   */
+  async function sendChatViaExtension(text: string): Promise<void> {
+    if (!subsystems.socketServer) {
+      throw new Error("send_chat: socket server not started");
+    }
+    const requestId = deps.generateRequestId();
+    const waitForResult = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pendingSendChat.delete(requestId);
+        reject(
+          new Error(
+            `send_chat: extension did not reply within ${deps.sendChatTimeoutMs}ms (requestId=${requestId})`,
+          ),
+        );
+      }, deps.sendChatTimeoutMs);
+      pendingSendChat.set(requestId, { resolve, reject, timer });
+    });
+
+    const cmd: BotToExtensionMessage = {
+      type: "send_chat",
+      text,
+      requestId,
+    };
+    try {
+      subsystems.socketServer.sendToExtension(cmd);
+    } catch (err) {
+      const pending = pendingSendChat.get(requestId);
+      if (pending) {
+        clearTimeout(pending.timer);
+        pendingSendChat.delete(requestId);
+      }
+      throw err;
+    }
+    await waitForResult;
+  }
 }
 
 function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Assemble the avatar options bag passed to `createHttpServer` when the
+ * avatar feature is enabled. Returns `undefined` options when
+ * `AVATAR_ENABLED=0` (or unset) so the HTTP server short-circuits
+ * `/avatar/*` routes with 503. Also performs an eager construction
+ * probe: if the configured renderer can't be resolved the failure is
+ * logged — but we do NOT bail the bot boot, since the renderer is not
+ * strictly required for the meeting to proceed.
+ *
+ * When `socketServer` is non-null the caller forwards a narrowed
+ * `AvatarNativeMessagingSender` so the TalkingHead.js renderer (and
+ * any future extension-mediated renderer) can drive the avatar tab.
+ * In that same case we also construct a {@link CameraChannel} bound
+ * to the full `sendToExtension` surface (so `camera.enable` /
+ * `camera.disable` frames round-trip through the extension) and thread
+ * its `enableCamera`/`disableCamera` into `HttpServerAvatarOptions.camera`
+ * so `/avatar/enable` and `/avatar/disable` actually flip the Meet
+ * camera toggle. The channel handle is returned separately so the
+ * caller can invoke `shutdown()` during bot teardown.
+ */
+function buildAvatarHttpOptions(
+  env: BotEnv,
+  deps: BotDeps,
+  socketServer: NmhSocketServer | null,
+): {
+  options: HttpServerAvatarOptions | undefined;
+  cameraChannel: CameraChannel | null;
+} {
+  if (!env.avatarEnabled) return { options: undefined, cameraChannel: null };
+
+  // Parse the JSON-encoded config blob the daemon passed down. Fall
+  // back to a minimal config derived from `AVATAR_RENDERER` + the
+  // device-path env so tests and operators can exercise the path
+  // without populating the full blob.
+  let parsed: Record<string, unknown> | null = null;
+  if (env.avatarConfigJson) {
+    try {
+      const raw = JSON.parse(env.avatarConfigJson);
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        parsed = raw as Record<string, unknown>;
+      }
+    } catch (err) {
+      deps.logError(
+        `meet-bot: AVATAR_CONFIG_JSON is not valid JSON: ${errMsg(err)} — falling back to env defaults`,
+      );
+    }
+  }
+
+  const config: AvatarConfig = {
+    ...(parsed ?? {}),
+    enabled: true,
+    renderer: env.avatarRenderer,
+  };
+
+  // Narrow the NMH socket server to the three avatar.* outbound
+  // commands + the inbound listener hook. The renderer gets a
+  // hard-typed surface it can't use to smuggle `join`/`leave`/etc.
+  const nativeMessaging: AvatarNativeMessagingSender | undefined = socketServer
+    ? {
+        sendToExtension: (msg) => socketServer.sendToExtension(msg),
+        onExtensionMessage: (cb) => socketServer.onExtensionMessage(cb),
+      }
+    : undefined;
+
+  // Eager construction probe — non-fatal on failure.
+  try {
+    resolveAvatarRenderer(config, {
+      ...(nativeMessaging ? { nativeMessaging } : {}),
+    });
+  } catch (err) {
+    if (err instanceof AvatarRendererUnavailableError) {
+      deps.logError(
+        `meet-bot: avatar renderer "${err.rendererId}" unavailable at boot: ${err.reason} (will respond 503 on /avatar/enable)`,
+      );
+    } else {
+      deps.logError(
+        `meet-bot: avatar renderer eager-probe threw: ${errMsg(err)} (will surface on /avatar/enable)`,
+      );
+    }
+  }
+
+  // Stand up the camera-toggle channel when the NMH socket server is
+  // wired up. Uses the full `sendToExtension` / `onExtensionMessage`
+  // surface (NOT the narrowed avatar-only `AvatarNativeMessagingSender`)
+  // because `camera.enable` / `camera.disable` live outside the narrow
+  // avatar.* command set. Absent a socket server (boot smoke builds,
+  // tests without a socket-server mock), the channel stays null and the
+  // HTTP server falls back to its "renderer-only, no camera toggle"
+  // path — which is the correct behavior because there's no extension
+  // to receive the toggle command anyway.
+  const cameraChannel: CameraChannel | null = socketServer
+    ? createCameraChannel({
+        sendToExtension: (msg) => socketServer.sendToExtension(msg),
+        onExtensionMessage: (cb) => socketServer.onExtensionMessage(cb),
+      })
+    : null;
+
+  const options: HttpServerAvatarOptions = {
+    config,
+    ...(nativeMessaging ? { nativeMessaging } : {}),
+    ...(env.avatarDevicePath ? { devicePath: env.avatarDevicePath } : {}),
+    ...(cameraChannel
+      ? {
+          camera: {
+            enableCamera: () => cameraChannel.enableCamera(),
+            disableCamera: () => cameraChannel.disableCamera(),
+          },
+        }
+      : {}),
+  };
+
+  return { options, cameraChannel };
 }
 
 // ---------------------------------------------------------------------------

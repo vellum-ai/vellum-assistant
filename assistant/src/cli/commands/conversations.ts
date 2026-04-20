@@ -35,11 +35,14 @@ import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { timeAgo } from "../../util/time.js";
 import { initializeDb } from "../db.js";
 import { log } from "../logger.js";
+import { registerConversationsImportCommand } from "./conversations-import.js";
 
 export function registerConversationsCommand(program: Command): void {
   const conversations = program
     .command("conversations")
     .description("Manage conversations");
+
+  registerConversationsImportCommand(conversations);
 
   conversations.addHelpText(
     "after",
@@ -432,6 +435,7 @@ Examples:
         const result = await cliIpcCall<{
           invoked: boolean;
           producedToolCalls: boolean;
+          reason?: "not_found" | "timeout" | "no_resolver";
         }>("wake_conversation", {
           conversationId,
           hint: opts.hint,
@@ -451,11 +455,20 @@ Examples:
         const wake = result.result!;
         if (opts.json) {
           log.info(JSON.stringify({ ok: true, ...wake }));
-        } else if (wake.invoked) {
+          return;
+        }
+        if (wake.invoked) {
           log.info(
             wake.producedToolCalls
               ? `Wake produced output on conversation ${conversationId}`
               : `Wake invoked on ${conversationId} (no output produced)`,
+          );
+        } else if (wake.reason === "timeout") {
+          // Conversation exists but stayed busy past the wait-until-idle
+          // window. This is a transient condition, not an error — the
+          // caller can retry later. Exit 0.
+          log.info(
+            `Conversation ${conversationId} is busy — wake skipped (retry later)`,
           );
         } else {
           log.error(

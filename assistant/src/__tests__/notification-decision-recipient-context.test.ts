@@ -15,15 +15,6 @@ mock.module("../channels/config.js", () => ({
   getDeliverableChannels: () => ["vellum"],
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    ui: {},
-    notifications: {
-      decisionModelIntent: "latency-optimized",
-    },
-  }),
-}));
-
 mock.module("../notifications/decisions-store.js", () => ({
   createDecision: () => {},
 }));

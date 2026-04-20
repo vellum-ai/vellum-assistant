@@ -28,7 +28,7 @@ const VERIFICATION_PATH_REGEX = /\/v1\/channel-verification-sessions/;
 const COMMAND_TOOLS = new Set(["bash", "host_bash"]);
 
 /** Tools whose `input.url` (string) may contain verification endpoint paths. */
-const URL_TOOLS = new Set(["network_request", "web_fetch", "browser_navigate"]);
+const URL_TOOLS = new Set(["network_request", "web_fetch"]);
 
 /**
  * Normalize a string to defeat common URL obfuscation techniques before matching:

@@ -165,7 +165,7 @@ export async function runNarrativeRefinement(
     .sort((a, b) => b.significance - a.significance)
     .slice(0, 150);
 
-  const provider = await getConfiguredProvider();
+  const provider = await getConfiguredProvider("narrativeRefinement");
   if (!provider) {
     throw new BackendUnavailableError(
       "Provider unavailable for narrative refinement",
@@ -196,7 +196,7 @@ export async function runNarrativeRefinement(
     systemPrompt,
     {
       config: {
-        modelIntent: "quality-optimized" as const,
+        callSite: "narrativeRefinement" as const,
         tool_choice: { type: "tool" as const, name: "refine_narratives" },
       },
     },

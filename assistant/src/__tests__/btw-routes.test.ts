@@ -73,6 +73,15 @@ mock.module("../prompts/persona-resolver.js", () => ({
   resolveUserSlug: () => null,
 }));
 
+// Force the identity-intro fast-path to miss so the handler always falls
+// through to the LLM call — the call-site assertions need a real provider
+// invocation to inspect.
+mock.module("../runtime/routes/identity-intro-cache.js", () => ({
+  getCachedIntro: () => null,
+  setCachedIntro: () => {},
+  computeIdentityContentHash: () => "test-hash",
+}));
+
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
@@ -324,7 +333,44 @@ describe("POST /v1/btw", () => {
 
     // Options: tool_choice must be "none"
     expect(options!.config!.tool_choice).toEqual({ type: "none" });
-    expect(options!.config!.modelIntent).toBe("latency-optimized");
+    // Default call-site for the BTW side-chain is the identity intro path.
+    // `callSite` and `modelIntent` are mutually exclusive (PR 5 contract);
+    // when a caller passes neither, the default `callSite` is set and
+    // `modelIntent` stays undefined.
+    expect(options!.config!.callSite).toBe("identityIntro");
+    expect(options!.config!.modelIntent).toBeUndefined();
+  });
+
+  test("greeting requests pass callSite: 'emptyStateGreeting'", async () => {
+    const provider = makeMockProvider();
+    const session = makeMockSession(provider);
+    const deps = makeSendMessageDeps(session);
+
+    const res = await callHandler(
+      { conversationKey: "greeting", content: "Generate a greeting" },
+      { sendMessageDeps: deps },
+    );
+    await readStream(res);
+
+    expect(provider.sendMessage).toHaveBeenCalledTimes(1);
+    const [, , , options] = provider.sendMessage.mock.calls[0];
+    expect(options!.config!.callSite).toBe("emptyStateGreeting");
+  });
+
+  test("identity intro requests pass callSite: 'identityIntro'", async () => {
+    const provider = makeMockProvider();
+    const session = makeMockSession(provider);
+    const deps = makeSendMessageDeps(session);
+
+    const res = await callHandler(
+      { conversationKey: "identity-intro", content: "Generate an intro" },
+      { sendMessageDeps: deps },
+    );
+    await readStream(res);
+
+    expect(provider.sendMessage).toHaveBeenCalledTimes(1);
+    const [, , , options] = provider.sendMessage.mock.calls[0];
+    expect(options!.config!.callSite).toBe("identityIntro");
   });
 
   // -- No persistence --

@@ -4,6 +4,11 @@
  * All endpoints require "edge" auth. The assistant daemon will call these
  * endpoints instead of reading trust.json directly once the migration is
  * complete (PR 14-16 in the docker-volume-security plan).
+ *
+ * Payloads are canonicalized centrally in trust-store addRule/updateRule:
+ * legacy clients can keep sending current shapes without 4xx regressions,
+ * but fields invalid for a tool's family (e.g. `executionTarget` on a
+ * URL-tool rule) are silently stripped before persistence.
  */
 
 import { getLogger } from "../../logger.js";
@@ -68,8 +73,15 @@ export function createTrustRulesAddHandler() {
       );
     }
 
-    const { tool, pattern, scope, decision, priority, allowHighRisk, executionTarget } =
-      body as Record<string, unknown>;
+    const {
+      tool,
+      pattern,
+      scope,
+      decision,
+      priority,
+      allowHighRisk,
+      executionTarget,
+    } = body as Record<string, unknown>;
 
     if (typeof tool !== "string" || !tool) {
       return Response.json(
@@ -95,7 +107,10 @@ export function createTrustRulesAddHandler() {
         { status: 400 },
       );
     }
-    if (priority !== undefined && (typeof priority !== "number" || !Number.isFinite(priority))) {
+    if (
+      priority !== undefined &&
+      (typeof priority !== "number" || !Number.isFinite(priority))
+    ) {
       return Response.json(
         { error: '"priority" must be a finite number' },
         { status: 400 },
@@ -115,20 +130,22 @@ export function createTrustRulesAddHandler() {
     }
 
     try {
+      // Canonicalization is handled inside trust-store addRule.
       const rule = addRule(
-        tool,
-        pattern,
-        scope,
+        tool as string,
+        pattern as string,
+        scope as string,
         (decision as TrustDecision) ?? "allow",
         (priority as number) ?? 100,
         {
-          allowHighRisk: allowHighRisk as boolean | undefined,
-          executionTarget: executionTarget as string | undefined,
+          ...(allowHighRisk != null ? { allowHighRisk } : {}),
+          ...(executionTarget != null ? { executionTarget } : {}),
         },
       );
       return Response.json({ rule }, { status: 201 });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Internal server error";
+      const message =
+        err instanceof Error ? err.message : "Internal server error";
       log.error({ err }, "Failed to add trust rule");
       return Response.json({ error: message }, { status: 400 });
     }
@@ -142,10 +159,7 @@ export function createTrustRulesAddHandler() {
 export function createTrustRulesUpdateHandler() {
   return async (req: Request, ruleId: string): Promise<Response> => {
     if (!ruleId) {
-      return Response.json(
-        { error: "Rule ID is required" },
-        { status: 400 },
-      );
+      return Response.json({ error: "Rule ID is required" }, { status: 400 });
     }
 
     let body: unknown;
@@ -165,8 +179,10 @@ export function createTrustRulesUpdateHandler() {
       );
     }
 
-    const { tool, pattern, scope, decision, priority } =
-      body as Record<string, unknown>;
+    const { tool, pattern, scope, decision, priority } = body as Record<
+      string,
+      unknown
+    >;
 
     if (tool !== undefined && (typeof tool !== "string" || !tool)) {
       return Response.json(
@@ -192,7 +208,10 @@ export function createTrustRulesUpdateHandler() {
         { status: 400 },
       );
     }
-    if (priority !== undefined && (typeof priority !== "number" || !Number.isFinite(priority))) {
+    if (
+      priority !== undefined &&
+      (typeof priority !== "number" || !Number.isFinite(priority))
+    ) {
       return Response.json(
         { error: '"priority" must be a finite number' },
         { status: 400 },
@@ -209,7 +228,8 @@ export function createTrustRulesUpdateHandler() {
       });
       return Response.json({ rule });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Internal server error";
+      const message =
+        err instanceof Error ? err.message : "Internal server error";
       if (message.includes("not found")) {
         return Response.json({ error: message }, { status: 404 });
       }
@@ -226,10 +246,7 @@ export function createTrustRulesUpdateHandler() {
 export function createTrustRulesDeleteHandler() {
   return async (_req: Request, ruleId: string): Promise<Response> => {
     if (!ruleId) {
-      return Response.json(
-        { error: "Rule ID is required" },
-        { status: 400 },
-      );
+      return Response.json({ error: "Rule ID is required" }, { status: 400 });
     }
 
     try {

@@ -6,6 +6,7 @@ import {
   saveAssistantEntry,
 } from "../lib/assistant-config.js";
 import { dockerResourceNames, wakeContainers } from "../lib/docker.js";
+import { seedGuardianTokenFromSiblingEnv } from "../lib/guardian-token.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
 import {
   generateLocalSigningKey,
@@ -180,6 +181,16 @@ export async function wake(): Promise<void> {
     } else {
       await startGateway(watch, resources, { signingKey });
     }
+  }
+
+  // Self-heal the guardian token when the current environment's config dir
+  // is missing it. Hatch cross-writes the lockfile across env dirs but the
+  // guardian token is only persisted under the hatch-time env, so a desktop
+  // app built under a different VELLUM_ENVIRONMENT can't find a bearer and
+  // cascades into 401 → auth-rate-limit → 429. A sibling env copy is cheap
+  // and strictly additive.
+  if (seedGuardianTokenFromSiblingEnv(entry.assistantId)) {
+    console.log("   Seeded guardian token from sibling environment.");
   }
 
   // Auto-start ngrok if webhook integrations (e.g. Telegram) are configured.

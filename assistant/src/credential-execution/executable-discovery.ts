@@ -67,17 +67,28 @@ function getManagedBootstrapSocketPath(): string {
  * a malicious binary there. Removed to close the sandbox-escape vector.
  *
  * Search order:
- * 1. Alongside the running executable (packaged macOS app:
- *    `<App>.app/Contents/MacOS/credential-executor`). When running from
- *    source via `bun run`, `process.execPath` points at the bun binary
- *    itself, so this path won't exist and the search falls through.
+ * 1. Alongside the running executable, but ONLY when running from a
+ *    packaged macOS app bundle (`<App>.app/Contents/MacOS/credential-executor`).
+ *    In dev mode, `process.execPath` points at the bun/node install dir
+ *    (e.g. `~/.bun/bin`), where an unrelated file named `credential-executor`
+ *    could be picked up by accident.
  * 2. `<binDir>/credential-executor` — user-installed override (dev flow).
  */
 function getLocalBinarySearchPaths(): string[] {
-  return [
-    join(dirname(process.execPath), "credential-executor"),
-    join(getBinDir(), "credential-executor"),
-  ];
+  const paths: string[] = [];
+
+  // Only check the sibling of process.execPath when running from a packaged
+  // app bundle — the .app/Contents/MacOS directory is a controlled location.
+  // In dev mode, process.execPath is the bun/node binary (e.g. ~/.bun/bin/bun)
+  // and a sibling lookup there could discover an unrelated or untrusted
+  // executable.
+  const execDir = dirname(process.execPath);
+  if (execDir.includes(".app/Contents/MacOS")) {
+    paths.push(join(execDir, "credential-executor"));
+  }
+
+  paths.push(join(getBinDir(), "credential-executor"));
+  return paths;
 }
 
 // ---------------------------------------------------------------------------

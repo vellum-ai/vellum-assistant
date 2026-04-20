@@ -1,3 +1,5 @@
+import type { LLMCallSite } from "../config/schemas/llm.js";
+
 export interface TextContent {
   type: "text";
   text: string;
@@ -130,7 +132,13 @@ export type ProviderEvent =
 
 export interface SendMessageConfig {
   model?: string;
-  modelIntent?: ModelIntent;
+  /**
+   * LLM call-site identifier. `RetryProvider` resolves
+   * provider/model/maxTokens/effort/speed/temperature/thinking/contextWindow
+   * via `resolveCallSiteConfig(callSite, config.llm)`, falling back to
+   * `llm.default` when no callSite-specific entry is present.
+   */
+  callSite?: LLMCallSite;
   effort?: "low" | "medium" | "high" | "xhigh" | "max";
   speed?: "standard" | "fast";
   [key: string]: unknown;

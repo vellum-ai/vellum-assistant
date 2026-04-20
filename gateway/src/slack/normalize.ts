@@ -254,6 +254,28 @@ export interface SlackMessageChangedEvent {
 }
 
 /**
+ * Slack `message_deleted` event shape — subtype `message_deleted` carries
+ * the original message's `ts` in `event.deleted_ts` and the prior content
+ * in `event.previous_message`.
+ */
+export interface SlackMessageDeletedEvent {
+  type: "message";
+  subtype: "message_deleted";
+  channel: string;
+  channel_type?: "im" | "channel" | "group" | "mpim";
+  hidden?: boolean;
+  ts: string;
+  event_ts?: string;
+  deleted_ts: string;
+  previous_message?: {
+    user?: string;
+    text: string;
+    ts: string;
+    thread_ts?: string;
+  };
+}
+
+/**
  * Strip leading bot-mention tokens (`<@U...>`) from the message text.
  * Slack wraps mentions as `<@UXXXXXX>`, often at the start of an
  * app_mention event's text field. We remove all leading occurrences
@@ -264,9 +286,7 @@ export function stripBotMention(text: string): string {
   return stripped || text.trim();
 }
 
-function extractSlackAttachments(
-  files: SlackFile[] | undefined,
-): Array<{
+function extractSlackAttachments(files: SlackFile[] | undefined): Array<{
   type: "image" | "document";
   fileId: string;
   fileName?: string;
@@ -376,6 +396,7 @@ export function normalizeSlackDirectMessage(
       source: {
         updateId: eventId,
         messageId: event.ts,
+        ...(event.thread_ts ? { threadId: event.thread_ts } : {}),
       },
       raw: event as unknown as Record<string, unknown>,
     },
@@ -448,6 +469,7 @@ export function normalizeSlackChannelMessage(
         updateId: eventId,
         messageId: event.ts,
         chatType: "channel",
+        ...(event.thread_ts ? { threadId: event.thread_ts } : {}),
       },
       raw: event as unknown as Record<string, unknown>,
     },
@@ -515,6 +537,7 @@ export function normalizeSlackAppMention(
       source: {
         updateId: eventId,
         messageId: event.ts,
+        ...(event.thread_ts ? { threadId: event.thread_ts } : {}),
       },
       raw: event as unknown as Record<string, unknown>,
     },
@@ -549,6 +572,23 @@ export interface SlackBlockActionsPayload {
  */
 export interface SlackReactionAddedEvent {
   type: "reaction_added";
+  user: string;
+  reaction: string;
+  item: {
+    type: string;
+    channel: string;
+    ts: string;
+  };
+  item_user?: string;
+  event_ts?: string;
+}
+
+/**
+ * Slack `reaction_removed` event shape — same payload as `reaction_added`,
+ * differentiated only by the `type` discriminator.
+ */
+export interface SlackReactionRemovedEvent {
+  type: "reaction_removed";
   user: string;
   reaction: string;
   item: {
@@ -626,16 +666,15 @@ export function normalizeSlackBlockActions(
 }
 
 /**
- * Normalize a Slack `reaction_added` event into the gateway's canonical
- * inbound event shape. The reaction emoji name is placed in `callbackData`
- * so downstream handlers can process it like a callback action.
- *
- * Returns null if the event is missing required fields or cannot be routed.
+ * Shared normalizer for Slack reaction events. Both `reaction_added` and
+ * `reaction_removed` carry the same payload shape and differ only in the
+ * downstream callback prefix and externalMessageId suffix.
  */
-export function normalizeSlackReactionAdded(
-  event: SlackReactionAddedEvent,
+function normalizeSlackReaction(
+  event: SlackReactionAddedEvent | SlackReactionRemovedEvent,
   eventId: string,
   config: GatewayConfig,
+  op: "added" | "removed",
   botUserId?: string,
 ): NormalizedSlackEvent | null {
   if (!event.user || !event.item?.channel || !event.item?.ts) return null;
@@ -660,7 +699,16 @@ export function normalizeSlackReactionAdded(
   }
   if (isRejection(routing)) return null;
 
-  const callbackData = `reaction:${event.reaction}`;
+  const prefix = op === "added" ? "reaction" : "reaction_removed";
+  const callbackData = `${prefix}:${event.reaction}`;
+  // Include reactor user ID to prevent dedup collisions when multiple
+  // users react with the same emoji on the same message. Append the op
+  // suffix so an add and a subsequent remove of the same emoji by the
+  // same user produce distinct externalMessageIds.
+  const externalMessageId =
+    op === "added"
+      ? `${channel}:${event.item.ts}:${event.reaction}:${event.user}`
+      : `${channel}:${event.item.ts}:${event.reaction}:${event.user}:removed`;
 
   return {
     event: {
@@ -670,9 +718,7 @@ export function normalizeSlackReactionAdded(
       message: {
         content: callbackData,
         conversationExternalId: channel,
-        // Include reactor user ID to prevent dedup collisions when multiple
-        // users react with the same emoji on the same message.
-        externalMessageId: `${channel}:${event.item.ts}:${event.reaction}:${event.user}`,
+        externalMessageId,
         callbackData,
       },
       actor: {
@@ -681,6 +727,7 @@ export function normalizeSlackReactionAdded(
       source: {
         updateId: eventId,
         messageId: event.item.ts,
+        threadId: event.item.ts,
       },
       raw: event as unknown as Record<string, unknown>,
     },
@@ -688,6 +735,40 @@ export function normalizeSlackReactionAdded(
     threadTs: event.item.ts,
     channel,
   };
+}
+
+/**
+ * Normalize a Slack `reaction_added` event into the gateway's canonical
+ * inbound event shape. The reaction emoji name is placed in `callbackData`
+ * (prefixed with `reaction:`) so downstream handlers can process it like a
+ * callback action.
+ *
+ * Returns null if the event is missing required fields or cannot be routed.
+ */
+export function normalizeSlackReactionAdded(
+  event: SlackReactionAddedEvent,
+  eventId: string,
+  config: GatewayConfig,
+  botUserId?: string,
+): NormalizedSlackEvent | null {
+  return normalizeSlackReaction(event, eventId, config, "added", botUserId);
+}
+
+/**
+ * Normalize a Slack `reaction_removed` event into the gateway's canonical
+ * inbound event shape. The emoji name is placed in `callbackData` with a
+ * `reaction_removed:` prefix so downstream handlers can distinguish removals
+ * from additions.
+ *
+ * Returns null if the event is missing required fields or cannot be routed.
+ */
+export function normalizeSlackReactionRemoved(
+  event: SlackReactionRemovedEvent,
+  eventId: string,
+  config: GatewayConfig,
+  botUserId?: string,
+): NormalizedSlackEvent | null {
+  return normalizeSlackReaction(event, eventId, config, "removed", botUserId);
 }
 
 /**
@@ -752,13 +833,89 @@ export function normalizeSlackMessageEdit(
         // The original message's ts lets the runtime identify which message was edited
         messageId: edited.ts,
         ...(isDm ? {} : { chatType: "channel" }),
+        ...(edited.thread_ts ? { threadId: edited.thread_ts } : {}),
       },
       raw: event as unknown as Record<string, unknown>,
     },
     routing,
     // For DMs without a thread, omit threadTs so the reply goes directly in conversation.
     // For channels (or DMs already in a thread), fall back to edited.ts.
-    ...(isDm && !edited.thread_ts ? {} : { threadTs: edited.thread_ts ?? edited.ts }),
+    ...(isDm && !edited.thread_ts
+      ? {}
+      : { threadTs: edited.thread_ts ?? edited.ts }),
+    channel: event.channel,
+  };
+}
+
+/**
+ * Normalize a Slack `message_deleted` event into the gateway's canonical
+ * inbound event shape.
+ *
+ * The deleted message's `ts` arrives as `event.deleted_ts` and the prior
+ * content (including any `thread_ts`) lives in `event.previous_message`.
+ * The daemon detects deletes via the `message_deleted` sentinel placed in
+ * `callbackData` and uses `source.messageId` (= `deleted_ts`) to look up
+ * the stored row. `message.content` is intentionally empty — the daemon
+ * just marks the row deleted and does not re-process content.
+ *
+ * Each delete event gets a unique `externalMessageId` (= eventId) so the
+ * dedup pipeline does not collide if Slack re-delivers the event.
+ *
+ * Returns null if the event cannot be routed.
+ */
+export function normalizeSlackMessageDelete(
+  event: SlackMessageDeletedEvent,
+  eventId: string,
+  config: GatewayConfig,
+): NormalizedSlackEvent | null {
+  if (!event.deleted_ts) return null;
+
+  // Use the previous author for actor identity when available; otherwise fall
+  // back to a synthetic identifier so routing/trust still has something to key on.
+  const actorId = event.previous_message?.user ?? "slack-system";
+
+  const isDm = event.channel_type === "im";
+  let routing = resolveAssistant(config, event.channel, actorId);
+  if (isRejection(routing) && isDm && config.defaultAssistantId) {
+    routing = {
+      assistantId: config.defaultAssistantId,
+      routeSource: "default" as const,
+    };
+  }
+  if (isRejection(routing)) return null;
+
+  const previousThreadTs = event.previous_message?.thread_ts;
+
+  return {
+    event: {
+      version: "v1",
+      sourceChannel: "slack",
+      receivedAt: new Date().toISOString(),
+      message: {
+        content: "",
+        conversationExternalId: event.channel,
+        // Unique per delete event to avoid dedup collisions
+        externalMessageId: eventId,
+        // Sentinel value the daemon uses to detect deletions
+        callbackData: "message_deleted",
+      },
+      actor: {
+        actorExternalId: actorId,
+      },
+      source: {
+        updateId: eventId,
+        // Original message's ts — the lookup key the daemon uses to find
+        // the stored row to mark deleted.
+        messageId: event.deleted_ts,
+        ...(isDm ? {} : { chatType: "channel" }),
+        ...(previousThreadTs ? { threadId: previousThreadTs } : {}),
+      },
+      raw: event as unknown as Record<string, unknown>,
+    },
+    routing,
+    // Preserve thread context so downstream handling stays scoped to the
+    // original conversation thread when applicable.
+    ...(previousThreadTs ? { threadTs: previousThreadTs } : {}),
     channel: event.channel,
   };
 }

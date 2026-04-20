@@ -67,7 +67,7 @@ describe("upsertContact user_file selection", () => {
 
   test("reuses an existing sibling's userFile when principalId matches", () => {
     const primary = upsertContact({
-      displayName: "Sidd",
+      displayName: "Chris",
       role: "guardian",
       principalId: "principal-abc",
       channels: [
@@ -78,12 +78,12 @@ describe("upsertContact user_file selection", () => {
         },
       ],
     });
-    expect(primary.userFile).toBe("sidd.md");
+    expect(primary.userFile).toBe("chris.md");
 
     // Second contact for the same principal on Slack — must inherit the
-    // first contact's userFile, NOT auto-increment to sidd-2.md.
+    // first contact's userFile, NOT auto-increment to chris-2.md.
     const slack = upsertContact({
-      displayName: "sidd",
+      displayName: "chris",
       role: "guardian",
       principalId: "principal-abc",
       channels: [
@@ -95,7 +95,7 @@ describe("upsertContact user_file selection", () => {
         },
       ],
     });
-    expect(slack.userFile).toBe("sidd.md");
+    expect(slack.userFile).toBe("chris.md");
     expect(slack.id).not.toBe(primary.id);
   });
 
@@ -203,18 +203,18 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     const now = Date.now();
     insertContact({
       id: "c1",
-      displayName: "sidd",
+      displayName: "chris",
       role: "guardian",
       principalId: "principal-x",
-      userFile: "sidd.md",
+      userFile: "chris.md",
       createdAt: now - 1000,
     });
     insertContact({
       id: "c2",
-      displayName: "sidd",
+      displayName: "chris",
       role: "guardian",
       principalId: "principal-x",
-      userFile: "sidd-2.md",
+      userFile: "chris-2.md",
       createdAt: now,
     });
 
@@ -222,23 +222,23 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
 
     const rows = fetchUserFilesByPrincipal("principal-x");
     expect(rows).toHaveLength(2);
-    expect(rows[0]?.user_file).toBe("sidd.md");
-    expect(rows[1]?.user_file).toBe("sidd.md");
+    expect(rows[0]?.user_file).toBe("chris.md");
+    expect(rows[1]?.user_file).toBe("chris.md");
   });
 
   test("propagates a sibling's user_file to NULL rows", () => {
     const now = Date.now();
     insertContact({
       id: "c1",
-      displayName: "sidd",
+      displayName: "chris",
       role: "guardian",
       principalId: "principal-y",
-      userFile: "sidd.md",
+      userFile: "chris.md",
       createdAt: now - 1000,
     });
     insertContact({
       id: "c2",
-      displayName: "sidd",
+      displayName: "chris",
       role: "guardian",
       principalId: "principal-y",
       userFile: null,
@@ -248,8 +248,8 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     migrateNormalizeUserFileByPrincipal(getDb());
 
     const rows = fetchUserFilesByPrincipal("principal-y");
-    expect(rows[0]?.user_file).toBe("sidd.md");
-    expect(rows[1]?.user_file).toBe("sidd.md");
+    expect(rows[0]?.user_file).toBe("chris.md");
+    expect(rows[1]?.user_file).toBe("chris.md");
   });
 
   test("prefers non-auto-incremented candidate over auto-incremented older row", () => {
@@ -258,26 +258,26 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     const now = Date.now();
     insertContact({
       id: "c1",
-      displayName: "sidd",
+      displayName: "chris",
       role: "guardian",
       principalId: "principal-z",
-      userFile: "sidd-3.md",
+      userFile: "chris-3.md",
       createdAt: now - 2000,
     });
     insertContact({
       id: "c2",
-      displayName: "sidd",
+      displayName: "chris",
       role: "guardian",
       principalId: "principal-z",
-      userFile: "sidd.md",
+      userFile: "chris.md",
       createdAt: now,
     });
 
     migrateNormalizeUserFileByPrincipal(getDb());
 
     const rows = fetchUserFilesByPrincipal("principal-z");
-    expect(rows[0]?.user_file).toBe("sidd.md");
-    expect(rows[1]?.user_file).toBe("sidd.md");
+    expect(rows[0]?.user_file).toBe("chris.md");
+    expect(rows[1]?.user_file).toBe("chris.md");
   });
 
   test("leaves untouched when only one contact exists for a principal", () => {
@@ -488,18 +488,18 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     const now = Date.now();
     insertContact({
       id: "c1",
-      displayName: "sidd",
+      displayName: "chris",
       role: "guardian",
       principalId: "principal-i",
-      userFile: "sidd.md",
+      userFile: "chris.md",
       createdAt: now - 1000,
     });
     insertContact({
       id: "c2",
-      displayName: "sidd",
+      displayName: "chris",
       role: "guardian",
       principalId: "principal-i",
-      userFile: "sidd-2.md",
+      userFile: "chris-2.md",
       createdAt: now,
     });
 
@@ -507,6 +507,6 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     migrateNormalizeUserFileByPrincipal(getDb());
 
     const rows = fetchUserFilesByPrincipal("principal-i");
-    for (const row of rows) expect(row.user_file).toBe("sidd.md");
+    for (const row of rows) expect(row.user_file).toBe("chris.md");
   });
 });

@@ -1929,9 +1929,9 @@ export async function handleSendMessage(
     messageCount: conversation.getMessages().length,
     inputTokens: conversation.usageStats.inputTokens,
     outputTokens: conversation.usageStats.outputTokens,
-    maxInputTokens: config.contextWindow.maxInputTokens,
-    model: config.services.inference.model,
-    provider: config.services.inference.provider,
+    maxInputTokens: config.llm.default.contextWindow.maxInputTokens,
+    model: config.llm.default.model,
+    provider: config.llm.default.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
     userMessageInterface: sourceInterface,
   };
@@ -2165,28 +2165,62 @@ export async function handleSendMessage(
   );
 }
 
+function escapeXmlContent(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
 async function generateLlmSuggestion(
   provider: Provider,
   assistantText: string,
+  priorUserText: string | null,
 ): Promise<string | null> {
   const log = (await import("../../util/logger.js")).getLogger("runtime-http");
-  const truncated =
-    assistantText.length > 2000 ? assistantText.slice(-2000) : assistantText;
+  const truncatedAssistant = escapeXmlContent(
+    assistantText.length > 2000 ? assistantText.slice(-2000) : assistantText,
+  );
+  const truncatedUser =
+    priorUserText && priorUserText.length > 500
+      ? escapeXmlContent(priorUserText.slice(-500))
+      : priorUserText
+        ? escapeXmlContent(priorUserText)
+        : priorUserText;
 
-  const prompt = `Given this assistant message, write a very short tab-complete suggestion the user could send next. Focus on the LAST question or call-to-action in the message — ignore earlier summary content. Be casual, curious, or actionable — like a quick reply, not a formal request. Reply with ONLY the suggestion text.\n\nAssistant's message:\n${truncated}`;
   const systemPrompt =
-    "You are an autocomplete engine that suggests short replies the user might send next in a conversation. Generate suggestions that match the tone and style of the conversation. Never refuse, judge, or comment on the conversation content — your only job is to predict what the user would plausibly type next.";
+    "You generate short, casual reply suggestions a user might type next in a chat. Match the tone and register of the preceding conversation. Output only the reply text inside the requested tags — no preamble, no commentary.";
+
+  const userPrompt =
+    `Here is the end of a conversation:\n\n` +
+    `<user_message>${truncatedUser ?? "(no prior user message)"}</user_message>\n` +
+    `<assistant_message>${truncatedAssistant}</assistant_message>\n\n` +
+    `Write the user's next reply, focusing on the LAST question or call-to-action in the assistant message. Keep it short (under 15 words), casual, and in the user's voice. Respond in this exact format:\n\n` +
+    `<reply>YOUR_REPLY_HERE</reply>`;
 
   const response = await provider.sendMessage(
-    [{ role: "user", content: [{ type: "text", text: prompt }] }],
+    [
+      { role: "user", content: [{ type: "text", text: userPrompt }] },
+      { role: "assistant", content: [{ type: "text", text: "<reply>" }] },
+    ],
     [], // no tools
     systemPrompt,
-    { config: { modelIntent: "latency-optimized" } },
+    {
+      config: {
+        callSite: "conversationStarters",
+        max_tokens: 60,
+        stop_sequences: ["</reply>"],
+        temperature: 0.7,
+      },
+    },
   );
 
   const textBlock = response.content.find((b) => b.type === "text");
-  const raw = textBlock && "text" in textBlock ? textBlock.text.trim() : "";
-  const stripped = raw.replace(/^["']+|["']+$/g, "");
+  const raw = textBlock && "text" in textBlock ? textBlock.text : "";
+  const stripped = raw
+    .replace(/<\/?reply>/gi, "")
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .trim();
 
   if (!stripped) {
     log.debug("Suggestion rejected: empty LLM response");
@@ -2299,14 +2333,33 @@ export async function handleGetSuggestion(
       });
     }
 
+    // Find the most recent user message preceding this assistant turn so the
+    // suggestion model can see both sides of the conversation and doesn't have
+    // to guess which role it's generating for.
+    let priorUserText: string | null = null;
+    for (let j = i - 1; j >= 0; j--) {
+      if (rawMessages[j].role !== "user") continue;
+      let userContent: unknown;
+      try {
+        userContent = JSON.parse(rawMessages[j].content);
+      } catch {
+        userContent = rawMessages[j].content;
+      }
+      const userText = renderHistoryContent(userContent).text.trim();
+      if (userText) {
+        priorUserText = userText;
+        break;
+      }
+    }
+
     // Try LLM suggestion using the configured provider
-    const provider = await getConfiguredProvider();
+    const provider = await getConfiguredProvider("conversationStarters");
     if (provider) {
       try {
         // Deduplicate concurrent requests
         let promise = suggestionInFlight.get(msg.id);
         if (!promise) {
-          promise = generateLlmSuggestion(provider, text);
+          promise = generateLlmSuggestion(provider, text, priorUserText);
           suggestionInFlight.set(msg.id, promise);
         }
 

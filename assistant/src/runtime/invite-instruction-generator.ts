@@ -70,7 +70,7 @@ export async function generateInviteInstruction(params: {
     ? `Send ${contact} this link: ${params.shareUrl} — or tell them to message me${handle} with the code below.`
     : `Tell ${contact} to message me${handle} with the code below.`;
 
-  const resolved = await resolveConfiguredProvider();
+  const resolved = await resolveConfiguredProvider("inviteInstructionGenerator");
   if (!resolved) {
     log.debug(
       "No provider available for invite instruction generation, using fallback",
@@ -123,7 +123,7 @@ export async function generateInviteInstruction(params: {
       [userMessage(prompt)],
       undefined,
       undefined,
-      { signal, config: { modelIntent: "latency-optimized" } },
+      { signal, config: { callSite: "inviteInstructionGenerator" } },
     );
 
     const text = extractText(response).trim();

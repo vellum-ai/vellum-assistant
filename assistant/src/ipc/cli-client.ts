@@ -5,7 +5,8 @@
  * Returns a typed result object so callers can distinguish success
  * from connection failures and method errors.
  *
- * The socket lives at `{workspaceDir}/assistant-cli.sock`.
+ * The preferred socket path is `{workspaceDir}/assistant-cli.sock`, with a
+ * deterministic fallback for long AF_UNIX paths.
  */
 
 import { connect, type Socket } from "node:net";

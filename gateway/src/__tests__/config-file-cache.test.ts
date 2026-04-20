@@ -1,40 +1,22 @@
-import {
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-  unlinkSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, afterEach } from "bun:test";
 import { ConfigFileCache } from "../config-file-cache.js";
+import { testWorkspaceDir } from "./test-preload.js";
 
-let testBaseDir: string;
-let workspaceDir: string;
-let configPath: string;
-let savedWorkspaceDir: string | undefined;
+const configPath = join(testWorkspaceDir, "config.json");
 
 function writeConfig(data: Record<string, unknown>): void {
   writeFileSync(configPath, JSON.stringify(data));
 }
 
-beforeEach(() => {
-  savedWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
-  testBaseDir = mkdtempSync(join(tmpdir(), "config-file-cache-test-"));
-  workspaceDir = join(testBaseDir, ".vellum", "workspace");
-  mkdirSync(workspaceDir, { recursive: true });
-  configPath = join(workspaceDir, "config.json");
-  process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
-});
-
 afterEach(() => {
-  if (savedWorkspaceDir === undefined) {
-    delete process.env.VELLUM_WORKSPACE_DIR;
-  } else {
-    process.env.VELLUM_WORKSPACE_DIR = savedWorkspaceDir;
+  // Remove config.json between tests so each test starts with a clean slate.
+  try {
+    if (existsSync(configPath)) unlinkSync(configPath);
+  } catch {
+    // best-effort
   }
-  rmSync(testBaseDir, { recursive: true, force: true });
 });
 
 describe("ConfigFileCache: getString", () => {

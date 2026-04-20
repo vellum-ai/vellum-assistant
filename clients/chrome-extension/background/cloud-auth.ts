@@ -1,15 +1,16 @@
 /**
  * Cloud OAuth sign-in state machine for the Vellum chrome extension.
  *
- * Launches chrome.identity.launchWebAuthFlow against the Vellum gateway and
- * persists the guardian-bound JWT in chrome.storage.local. The token is used
- * to authenticate the browser-relay WebSocket against the cloud gateway.
+ * Launches chrome.identity.launchWebAuthFlow against the Vellum web app
+ * and persists the guardian-bound JWT in chrome.storage.local. The token
+ * is used to authenticate the browser-relay WebSocket against the cloud
+ * gateway.
  *
- * The gateway base URL is now resolved per-assistant: cloud-managed
- * assistants carry a `runtimeUrl` in their lockfile entry, which the
- * worker passes as `CloudAuthConfig.gatewayBaseUrl` when signing in or
- * refreshing. When no assistant-specific URL is available, the caller
- * falls back to the default cloud gateway (`https://api.vellum.ai`).
+ * The `CloudAuthConfig.webBaseUrl` field points to the Next.js web app
+ * that serves the browser-facing OAuth start page
+ * (`/accounts/chrome-extension/start`). Always `https://www.vellum.ai` in
+ * production. The gateway / relay URL is managed separately by the
+ * caller (worker.ts) and is not part of the auth config.
  *
  * Also exposes {@link refreshCloudToken}, the non-interactive refresh helper
  * used by the relay reconnect path when the stored token has expired or the
@@ -25,8 +26,18 @@
  */
 
 export interface CloudAuthConfig {
-  /** Gateway base URL, e.g. https://api.vellum.ai */
-  gatewayBaseUrl: string;
+  /** Web app base URL for browser-facing pages, e.g. https://www.vellum.ai */
+  webBaseUrl: string;
+  /**
+   * Optional runtime/gateway origin for the selected assistant.
+   *
+   * Used only as a fallback when Chrome reports the primary authorization
+   * page could not be loaded. Platform API hosts (for example
+   * `platform.vellum.ai`) are remapped to their assistant-web hosts
+   * (`www.vellum.ai`) before use so WorkOS redirect URI validation
+   * remains valid.
+   */
+  runtimeBaseUrl?: string;
   /** OAuth client id registered for the chrome extension. */
   clientId: string;
 }
@@ -35,6 +46,24 @@ export interface StoredCloudToken {
   token: string;
   expiresAt: number; // ms since epoch
   guardianId: string;
+}
+
+export interface CloudAuthCandidateFailure {
+  candidateIndex: number;
+  baseUrl: string;
+  error: string;
+}
+
+export class CloudAuthFlowError extends Error {
+  readonly traceId: string;
+  readonly debugDetails: string;
+
+  constructor(message: string, traceId: string, debugDetails: string) {
+    super(message);
+    this.name = 'CloudAuthFlowError';
+    this.traceId = traceId;
+    this.debugDetails = debugDetails;
+  }
 }
 
 /**
@@ -208,6 +237,14 @@ async function persistToken(assistantId: string, token: StoredCloudToken): Promi
 function parseAuthResponseUrl(responseUrl: string): StoredCloudToken {
   const hash = new URL(responseUrl).hash.replace(/^#/, '');
   const params = new URLSearchParams(hash);
+  const error = params.get('error');
+  if (error) {
+    const description = params.get('error_description');
+    const traceId = params.get('trace_id');
+    const detail = description ? `${error} (${description})` : error;
+    const traceSuffix = traceId ? ` [trace=${traceId}]` : '';
+    throw new Error(`cloud sign-in failed: ${detail}${traceSuffix}`);
+  }
   const token = params.get('token');
   const expiresIn = parseInt(params.get('expires_in') ?? '0', 10);
   const guardianId = params.get('guardian_id') ?? '';
@@ -221,13 +258,232 @@ function parseAuthResponseUrl(responseUrl: string): StoredCloudToken {
   };
 }
 
-function buildAuthUrl(config: CloudAuthConfig): string {
+function normalizeBaseUrl(raw: string): string {
+  return raw.trim().replace(/\/$/, '');
+}
+
+function remapPlatformHostnameForWebAuth(hostname: string): string {
+  const host = hostname.toLowerCase();
+  if (host === 'platform.vellum.ai') {
+    return 'www.vellum.ai';
+  }
+  if (host === 'local-platform.vellum.ai') {
+    return 'local-assistant.vellum.ai';
+  }
+  if (host.endsWith('-platform.vellum.ai')) {
+    return host.replace('-platform.vellum.ai', '-assistant.vellum.ai');
+  }
+  return host;
+}
+
+function normalizeRuntimeFallbackBaseUrl(runtimeBaseUrl: string): string {
+  const normalized = normalizeBaseUrl(runtimeBaseUrl);
+  try {
+    const url = new URL(normalized);
+    const remappedHost = remapPlatformHostnameForWebAuth(url.hostname);
+    if (remappedHost !== url.hostname) {
+      url.hostname = remappedHost;
+      return normalizeBaseUrl(url.toString());
+    }
+  } catch {
+    // Ignore malformed runtime URLs and let the caller decide whether
+    // this fallback candidate can be used.
+  }
+  return normalized;
+}
+
+function buildAuthUrl(
+  config: CloudAuthConfig,
+  assistantId: string,
+  options: {
+    baseUrl?: string;
+    traceId?: string;
+    candidateIndex?: number;
+  } = {},
+): string {
   const redirectUri = chrome.identity.getRedirectURL('cloud-auth');
-  return (
-    `${config.gatewayBaseUrl.replace(/\/$/, '')}/oauth/chrome-extension/start` +
+  const baseUrl = normalizeBaseUrl(options.baseUrl ?? config.webBaseUrl);
+  let url =
+    `${baseUrl}/accounts/chrome-extension/start` +
     `?client_id=${encodeURIComponent(config.clientId)}` +
-    `&redirect_uri=${encodeURIComponent(redirectUri)}`
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&assistant_id=${encodeURIComponent(assistantId)}`;
+  if (typeof options.traceId === 'string' && options.traceId.length > 0) {
+    url += `&trace_id=${encodeURIComponent(options.traceId)}`;
+    if (typeof options.candidateIndex === 'number') {
+      url += `&trace_candidate=${options.candidateIndex}`;
+    }
+  }
+  return url;
+}
+
+interface AuthUrlCandidate {
+  url: string;
+  baseUrl: string;
+  candidateIndex: number;
+}
+
+function createAuthTraceId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `trace-${Date.now()}-${Math.floor(Math.random() * 1_000_000)
+    .toString(16)
+    .padStart(5, '0')}`;
+}
+
+function buildAuthUrlCandidates(
+  config: CloudAuthConfig,
+  assistantId: string,
+  traceId: string,
+): AuthUrlCandidate[] {
+  const runtimeFallbackBaseUrl =
+    typeof config.runtimeBaseUrl === 'string' && config.runtimeBaseUrl.trim().length > 0
+      ? normalizeRuntimeFallbackBaseUrl(config.runtimeBaseUrl)
+      : undefined;
+
+  const baseCandidates = [config.webBaseUrl, runtimeFallbackBaseUrl]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .map((value) => normalizeBaseUrl(value));
+  const baseUrls = Array.from(new Set(baseCandidates));
+
+  const seenUrls = new Set<string>();
+  const candidates: AuthUrlCandidate[] = [];
+  for (const baseUrl of baseUrls) {
+    const candidateIndex = candidates.length;
+    const url = buildAuthUrl(config, assistantId, {
+      baseUrl,
+      traceId,
+      candidateIndex,
+    });
+    if (seenUrls.has(url)) continue;
+    seenUrls.add(url);
+    candidates.push({ url, baseUrl, candidateIndex });
+  }
+
+  if (candidates.length === 0) {
+    const baseUrl = normalizeBaseUrl(config.webBaseUrl);
+    candidates.push({
+      url: buildAuthUrl(config, assistantId, {
+        baseUrl,
+        traceId,
+        candidateIndex: 0,
+      }),
+      baseUrl,
+      candidateIndex: 0,
+    });
+  }
+
+  return candidates;
+}
+
+function isAuthorizationPageLoadError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.toLowerCase().includes('authorization page could not be loaded');
+}
+
+function sanitizeResponseUrlForLog(responseUrl: string): string {
+  try {
+    const url = new URL(responseUrl);
+    return `${url.origin}${url.pathname}${url.search}`;
+  } catch {
+    return '<unparseable-response-url>';
+  }
+}
+
+function formatCloudAuthDebugDetails(
+  traceId: string,
+  interactive: boolean,
+  failures: CloudAuthCandidateFailure[],
+): string {
+  const header = [
+    `trace_id=${traceId}`,
+    `interactive=${interactive}`,
+    `failure_count=${failures.length}`,
+  ].join(" ");
+
+  const body = failures.map(
+    (failure) =>
+      `candidate[${failure.candidateIndex}] base=${failure.baseUrl} error=${failure.error}`,
   );
+
+  return [header, ...body].join("\n");
+}
+
+function toCloudAuthFlowError(
+  err: unknown,
+  traceId: string,
+  interactive: boolean,
+  failures: CloudAuthCandidateFailure[],
+): CloudAuthFlowError {
+  const baseMessage = err instanceof Error ? err.message : String(err);
+  const messageWithTrace = `${baseMessage} [trace=${traceId}]`;
+  const debugDetails = formatCloudAuthDebugDetails(traceId, interactive, failures);
+  return new CloudAuthFlowError(messageWithTrace, traceId, debugDetails);
+}
+
+async function launchWebAuthFlowWithFallback(
+  assistantId: string,
+  config: CloudAuthConfig,
+  interactive: boolean,
+): Promise<string | undefined> {
+  const traceId = createAuthTraceId();
+  const candidates = buildAuthUrlCandidates(config, assistantId, traceId);
+  let lastError: unknown = null;
+  const failures: CloudAuthCandidateFailure[] = [];
+  console.info(
+    `[vellum-cloud-auth] launching web auth flow trace=${traceId} interactive=${interactive} candidates=${candidates.length}`,
+  );
+
+  for (let i = 0; i < candidates.length; i++) {
+    const candidate = candidates[i]!;
+    console.info(
+      `[vellum-cloud-auth] launching candidate trace=${traceId} idx=${candidate.candidateIndex} base=${candidate.baseUrl}`,
+    );
+    try {
+      const responseUrl = await chrome.identity.launchWebAuthFlow({
+        url: candidate.url,
+        interactive,
+      });
+      if (responseUrl) {
+        console.info(
+          `[vellum-cloud-auth] candidate succeeded trace=${traceId} idx=${candidate.candidateIndex} response=${sanitizeResponseUrlForLog(responseUrl)}`,
+        );
+      } else {
+        console.warn(
+          `[vellum-cloud-auth] candidate returned no URL trace=${traceId} idx=${candidate.candidateIndex}`,
+        );
+      }
+      return responseUrl;
+    } catch (err) {
+      lastError = err;
+      const hasNext = i < candidates.length - 1;
+      const message = err instanceof Error ? err.message : String(err);
+      failures.push({
+        candidateIndex: candidate.candidateIndex,
+        baseUrl: candidate.baseUrl,
+        error: message,
+      });
+      console.warn(
+        `[vellum-cloud-auth] candidate failed trace=${traceId} idx=${candidate.candidateIndex} base=${candidate.baseUrl} error=${message}`,
+      );
+      if (hasNext && isAuthorizationPageLoadError(err)) {
+        const next = candidates[i + 1]!;
+        console.warn(
+          `[vellum-cloud-auth] authorization page failed to load for ` +
+            `trace=${traceId} idx=${candidate.candidateIndex} base=${candidate.baseUrl}; ` +
+            `retrying idx=${next.candidateIndex} base=${next.baseUrl}`,
+        );
+        continue;
+      }
+      throw toCloudAuthFlowError(err, traceId, interactive, failures);
+    }
+  }
+
+  if (lastError) {
+    throw toCloudAuthFlowError(lastError, traceId, interactive, failures);
+  }
+  return undefined;
 }
 
 /**
@@ -235,9 +491,7 @@ function buildAuthUrl(config: CloudAuthConfig): string {
  * The extension receives the token via the redirect URI fragment.
  */
 export async function signInCloud(assistantId: string, config: CloudAuthConfig): Promise<StoredCloudToken> {
-  const authUrl = buildAuthUrl(config);
-
-  const responseUrl = await chrome.identity.launchWebAuthFlow({ url: authUrl, interactive: true });
+  const responseUrl = await launchWebAuthFlowWithFallback(assistantId, config, true);
   if (!responseUrl) throw new Error('cloud sign-in cancelled');
 
   const stored = parseAuthResponseUrl(responseUrl);
@@ -264,14 +518,9 @@ export async function refreshCloudToken(
   assistantId: string,
   config: CloudAuthConfig,
 ): Promise<StoredCloudToken | null> {
-  const authUrl = buildAuthUrl(config);
-
   let responseUrl: string | undefined;
   try {
-    responseUrl = await chrome.identity.launchWebAuthFlow({
-      url: authUrl,
-      interactive: false,
-    });
+    responseUrl = await launchWebAuthFlowWithFallback(assistantId, config, false);
   } catch (err) {
     // Chrome rejects non-interactive flows with messages like
     // "OAuth2 not granted or revoked", "user interaction required",

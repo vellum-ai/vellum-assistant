@@ -58,6 +58,19 @@ public final class SettingsStore: ObservableObject {
     /// Full provider catalog from daemon. Seeded with inline defaults for pre-fetch rendering.
     @Published var providerCatalog: [ProviderCatalogEntry] = []
 
+    // MARK: - Per-Call-Site LLM Overrides
+
+    /// Catalog of every LLM call site, merged with whatever overrides the
+    /// user has configured under `llm.callSites.<id>` in the workspace
+    /// config. Order matches `CallSiteCatalog.all` so the UI renders a
+    /// stable list grouped by `CallSiteDomain`.
+    ///
+    /// Seeded from the static catalog so the picker has every row available
+    /// before the first daemon fetch completes. Replaced by
+    /// `loadCallSiteOverrides(config:)` once the daemon reports the
+    /// authoritative config.
+    @Published var callSiteOverrides: [CallSiteOverride] = CallSiteCatalog.all
+
     static let availableImageGenModels: [String] = [
         "gemini-3.1-flash-image-preview",
         "gemini-3-pro-image-preview",
@@ -1061,6 +1074,44 @@ public final class SettingsStore: ObservableObject {
 
     func dynamicProviderApiKeyPlaceholder(_ provider: String) -> String? {
         providerCatalog.first { $0.id == provider }?.apiKeyPlaceholder
+    }
+
+    // MARK: - Provider Capability Helpers
+
+    /// Provider IDs that support managed proxy routing (i.e., can be used in managed mode).
+    /// Mirrors the `MANAGED_PROVIDER_META` table in the backend.
+    private static let managedCapableProviderIds: Set<String> = ["anthropic", "openai", "gemini"]
+
+    /// Provider IDs that support native web search (inference-provider-native).
+    /// Anthropic and OpenAI pass `useNativeWebSearch` to their providers; others do not.
+    private static let nativeWebSearchCapableProviderIds: Set<String> = ["anthropic", "openai"]
+
+    /// Returns the catalog entries for providers that support managed proxy routing.
+    var managedCapableProviders: [ProviderCatalogEntry] {
+        providerCatalog.filter { Self.managedCapableProviderIds.contains($0.id) }
+    }
+
+    /// Returns the catalog entries for providers that support native web search.
+    var nativeWebSearchCapableProviders: [ProviderCatalogEntry] {
+        providerCatalog.filter { Self.nativeWebSearchCapableProviderIds.contains($0.id) }
+    }
+
+    /// Whether a given provider supports managed proxy routing.
+    func isManagedCapable(_ provider: String) -> Bool {
+        Self.managedCapableProviderIds.contains(provider)
+    }
+
+    /// Whether the current inference selection supports native web search.
+    /// OpenRouter routes `anthropic/*` models through the Anthropic-compat
+    /// endpoint, which accepts Anthropic's native `web_search_20250305` tool.
+    func isNativeWebSearchCapable(_ provider: String, model: String) -> Bool {
+        if Self.nativeWebSearchCapableProviderIds.contains(provider) {
+            return true
+        }
+        if provider == "openrouter" && model.hasPrefix("anthropic/") {
+            return true
+        }
+        return false
     }
 
     // MARK: - Embedding Config Actions
@@ -2156,19 +2207,41 @@ public final class SettingsStore: ObservableObject {
 
     /// Loads service modes (inference, image-generation) from workspace config.
     /// Called during init and when the daemon reconnects.
+    ///
+    /// Inference provider/model are resolved from `llm.default.*` first
+    /// (the canonical unified-LLM location), falling back per-field to
+    /// `services.inference.{provider,model}` when the corresponding
+    /// `llm.default.*` field is absent. The fallback covers unmigrated
+    /// configs and early-return cases (missing config.json, malformed JSON,
+    /// fresh installs that pre-date the workspace migration). The
+    /// `services.inference.mode` field stays under `services` because it
+    /// is an inference-delivery setting (managed vs. your-own), orthogonal
+    /// to model selection.
     func loadServiceModes(config: [String: Any]) {
-        guard let services = config["services"] as? [String: Any] else { return }
-        if let inference = services["inference"] as? [String: Any] {
-            if let mode = inference["mode"] as? String { self.inferenceMode = mode }
-            // Only apply local config provider/model as a fallback when the daemon
-            // hasn't yet reported an authoritative value. Once the daemon responds
-            // via applyModelInfoResponse, its values take precedence over local
-            // config which may be stale (especially for remote assistants).
-            if lastDaemonProvider == nil,
-               let provider = inference["provider"] as? String { self.selectedInferenceProvider = provider }
-            if lastDaemonProvider == nil,
-               let model = inference["model"] as? String { self.selectedModel = model }
+        let services = config["services"] as? [String: Any]
+        let llmDefault = (config["llm"] as? [String: Any])?["default"] as? [String: Any]
+        let inference = services?["inference"] as? [String: Any]
+
+        if let inference, let mode = inference["mode"] as? String {
+            self.inferenceMode = mode
         }
+        // Only apply local config provider/model as a fallback when the daemon
+        // hasn't yet reported an authoritative value. Once the daemon responds
+        // via applyModelInfoResponse, its values take precedence over local
+        // config which may be stale (especially for remote assistants).
+        if lastDaemonProvider == nil {
+            if let provider = llmDefault?["provider"] as? String {
+                self.selectedInferenceProvider = provider
+            } else if let provider = inference?["provider"] as? String {
+                self.selectedInferenceProvider = provider
+            }
+            if let model = llmDefault?["model"] as? String {
+                self.selectedModel = model
+            } else if let model = inference?["model"] as? String {
+                self.selectedModel = model
+            }
+        }
+        guard let services else { return }
         if let imageGen = services["image-generation"] as? [String: Any] {
             if let mode = imageGen["mode"] as? String {
                 self.imageGenMode = mode
@@ -2930,19 +3003,385 @@ public final class SettingsStore: ObservableObject {
         return task
     }
 
+    /// Persists the selected default LLM provider to the daemon config under
+    /// the unified `llm.default.provider` key.
+    ///
+    /// Prefer `setLLMDefault(provider:model:)` when both keys change together
+    /// — it writes them atomically in a single PATCH so the daemon's
+    /// `ConfigWatcher` cannot observe a half-applied state with the new
+    /// provider but the old (potentially incompatible) model. This single-key
+    /// variant is kept for future flows that legitimately want to change just
+    /// the provider without touching the model.
     @discardableResult
-    func setInferenceProvider(_ provider: String) -> Task<Bool, Never> {
+    func setLLMDefaultProvider(_ provider: String) -> Task<Bool, Never> {
         selectedInferenceProvider = provider
         let task = Task {
             let success = await settingsClient.patchConfig([
-                "services": ["inference": ["provider": provider]]
+                "llm": ["default": ["provider": provider]]
             ])
             if !success {
-                log.error("Failed to patch config for inference provider")
+                log.error("Failed to patch config for llm.default.provider")
             }
             return success
         }
         scheduleRoutingSourceRefresh()
+        return task
+    }
+
+    /// Persists the default LLM provider+model pair under `llm.default`.
+    /// Both keys are written together so the daemon's read-modify-write cycle
+    /// observes a consistent pair.
+    ///
+    /// Prefer `setLLMDefault(provider:model:)` when both keys are being
+    /// changed in response to a single user action — it skips the dedup
+    /// gating below and writes a clean atomic PATCH. This entry point is
+    /// retained for flows that want the dedup-aware "only patch if the
+    /// resolved pair actually moved" semantics, e.g. routing-source refresh
+    /// pushing the daemon's authoritative selection back through the same
+    /// helper.
+    @discardableResult
+    func setLLMDefaultModel(
+        _ model: String,
+        provider: String,
+        force: Bool = false
+    ) -> Task<Bool, Never> {
+        if !force {
+            let modelUnchanged = model == lastDaemonModel
+            let providerUnchanged = provider == lastDaemonProvider
+            if modelUnchanged && providerUnchanged {
+                return Task { true }
+            }
+        }
+        lastDaemonModel = model
+        lastDaemonProvider = provider
+        selectedModel = model
+        selectedInferenceProvider = provider
+        let task = Task {
+            let success = await settingsClient.patchConfig([
+                "llm": ["default": ["provider": provider, "model": model]]
+            ])
+            if !success {
+                log.error("Failed to patch config for llm.default.{provider,model}")
+                if lastDaemonModel == model {
+                    lastDaemonModel = nil
+                    lastDaemonProvider = nil
+                }
+            }
+            return success
+        }
+        scheduleRoutingSourceRefresh()
+        return task
+    }
+
+    /// Persists the default LLM provider+model pair atomically in a single
+    /// `llm.default` PATCH. Use this whenever both keys are being changed in
+    /// response to a single user action (e.g. the inference settings save).
+    ///
+    /// Splitting the write into two PATCH requests (provider first, model
+    /// second) gives the daemon's `ConfigWatcher` a window to fire on the
+    /// provider-only change and reload providers with the OLD model — which
+    /// may not exist in the new provider's catalog (Anthropic provider trying
+    /// to use an OpenAI model ID, etc.). Writing both keys in one PATCH
+    /// closes that window.
+    @discardableResult
+    func setLLMDefault(provider: String, model: String) -> Task<Bool, Never> {
+        lastDaemonModel = model
+        lastDaemonProvider = provider
+        selectedModel = model
+        selectedInferenceProvider = provider
+        let task = Task {
+            let success = await settingsClient.patchConfig([
+                "llm": ["default": ["provider": provider, "model": model]]
+            ])
+            if !success {
+                log.error("Failed to patch config for llm.default.{provider,model}")
+                if lastDaemonModel == model {
+                    lastDaemonModel = nil
+                    lastDaemonProvider = nil
+                }
+            }
+            return success
+        }
+        scheduleRoutingSourceRefresh()
+        return task
+    }
+
+    // MARK: - Per-Call-Site Override Read / Write
+
+    /// Number of entries in `callSiteOverrides` that have at least one
+    /// explicit override (`provider`, `model`, or `profile`). Useful for
+    /// rendering a badge on the overrides settings entry.
+    var overridesCount: Int {
+        callSiteOverrides.lazy.filter { $0.hasOverride }.count
+    }
+
+    /// Reads `llm.callSites.<id>` from the workspace config dictionary,
+    /// merges every entry against `CallSiteCatalog.all`, and replaces
+    /// `callSiteOverrides`. Catalog entries missing from the config map to
+    /// "no override" (all fields `nil`), preserving display order.
+    ///
+    /// Unknown call-site IDs in the config (e.g. ones added on a newer
+    /// daemon) are silently ignored — the catalog is the source of truth
+    /// for what the UI can render.
+    func loadCallSiteOverrides(config: [String: Any]) {
+        let llm = config["llm"] as? [String: Any]
+        let callSitesRaw = (llm?["callSites"] as? [String: Any]) ?? [:]
+        var byId: [String: (provider: String?, model: String?, profile: String?)] = [:]
+        for (id, raw) in callSitesRaw {
+            guard CallSiteCatalog.validIds.contains(id),
+                  let entry = raw as? [String: Any] else { continue }
+            let provider = (entry["provider"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let model = (entry["model"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let profile = (entry["profile"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            byId[id] = (provider: provider, model: model, profile: profile)
+        }
+        self.callSiteOverrides = CallSiteCatalog.all.map { entry in
+            var merged = entry
+            if let raw = byId[entry.id] {
+                merged.provider = raw.provider
+                merged.model = raw.model
+                merged.profile = raw.profile
+            } else {
+                merged.provider = nil
+                merged.model = nil
+                merged.profile = nil
+            }
+            return merged
+        }
+    }
+
+    /// Persists an override for a single call site at
+    /// `llm.callSites.<id>.{provider,model,profile}`. Nil arguments are
+    /// omitted from the patch payload — passing `provider: nil` does
+    /// **not** clear an existing provider override; use
+    /// `clearCallSiteOverride(_:)` for that.
+    ///
+    /// The local `callSiteOverrides` cache is updated optimistically so
+    /// SwiftUI views reflect the change immediately.
+    @discardableResult
+    func setCallSiteOverride(
+        _ id: String,
+        provider: String? = nil,
+        model: String? = nil,
+        profile: String? = nil
+    ) -> Task<Bool, Never> {
+        guard CallSiteCatalog.validIds.contains(id) else {
+            log.error("setCallSiteOverride: unknown call-site id \(id, privacy: .public)")
+            return Task { false }
+        }
+        if let index = callSiteOverrides.firstIndex(where: { $0.id == id }) {
+            if let provider { callSiteOverrides[index].provider = provider }
+            if let model { callSiteOverrides[index].model = model }
+            if let profile { callSiteOverrides[index].profile = profile }
+        }
+        var entry: [String: Any] = [:]
+        if let provider { entry["provider"] = provider }
+        if let model { entry["model"] = model }
+        if let profile { entry["profile"] = profile }
+        let payload: [String: Any] = ["llm": ["callSites": [id: entry]]]
+        let task = Task {
+            let success = await settingsClient.patchConfig(payload)
+            if !success {
+                log.error("Failed to patch config for llm.callSites.\(id, privacy: .public)")
+            }
+            return success
+        }
+        return task
+    }
+
+    /// Clears the override for a single call site by writing `null` to
+    /// `llm.callSites.<id>` itself, which the Zod fragment treats as
+    /// "absent" and the resolver falls back to `llm.default`.
+    ///
+    /// We null the entire entry rather than just `provider`/`model`/`profile`
+    /// because `LLMCallSiteConfig` supports additional leaves
+    /// (`maxTokens`, `effort`, `speed`, `temperature`, `thinking`,
+    /// `contextWindow`) that may have been set via manual config edits or
+    /// other clients. Clearing only the three Settings-UI-managed fields
+    /// would leave hidden overrides applied — the user couldn't truly
+    /// reset the call site.
+    @discardableResult
+    func clearCallSiteOverride(_ id: String) -> Task<Bool, Never> {
+        guard CallSiteCatalog.validIds.contains(id) else {
+            log.error("clearCallSiteOverride: unknown call-site id \(id, privacy: .public)")
+            return Task { false }
+        }
+        if let index = callSiteOverrides.firstIndex(where: { $0.id == id }) {
+            callSiteOverrides[index].provider = nil
+            callSiteOverrides[index].model = nil
+            callSiteOverrides[index].profile = nil
+        }
+        let payload: [String: Any] = [
+            "llm": ["callSites": [id: NSNull()]],
+        ]
+        let task = Task {
+            let success = await settingsClient.patchConfig(payload)
+            if !success {
+                log.error("Failed to patch config to clear llm.callSites.\(id, privacy: .public)")
+            }
+            return success
+        }
+        return task
+    }
+
+    /// Full-replacement write for a single call site. Clears the entire
+    /// `llm.callSites.<id>` entry first (removing all leaves including
+    /// non-UI ones like `maxTokens`, `effort`, `speed`, `thinking`,
+    /// `contextWindow`), then writes the new values. The clear and set
+    /// are sequenced so the daemon sees them in order.
+    ///
+    /// Use this instead of `setCallSiteOverride` when the caller needs
+    /// "replace" semantics — e.g. per-row Save in the overrides sheet,
+    /// where toggling off and back on may nil fields that were previously
+    /// set, and those nil fields must be cleared on the daemon rather
+    /// than silently retained.
+    @discardableResult
+    func replaceCallSiteOverride(
+        _ id: String,
+        provider: String? = nil,
+        model: String? = nil,
+        profile: String? = nil
+    ) -> Task<Bool, Never> {
+        guard CallSiteCatalog.validIds.contains(id) else {
+            log.error("replaceCallSiteOverride: unknown call-site id \(id, privacy: .public)")
+            return Task { false }
+        }
+        // Snapshot only the target row's prior state, not the entire
+        // array. Row and batch saves are fire-and-forget and daemon
+        // config refreshes can mutate `callSiteOverrides` concurrently,
+        // so restoring a full-array snapshot on failure would clobber
+        // newer changes from other rows with stale data.
+        let previousRow: CallSiteOverride? = callSiteOverrides.first(where: { $0.id == id })
+        if let index = callSiteOverrides.firstIndex(where: { $0.id == id }) {
+            callSiteOverrides[index].provider = provider
+            callSiteOverrides[index].model = model
+            callSiteOverrides[index].profile = profile
+        }
+        let task = Task {
+            let clearSuccess = await settingsClient.patchConfig([
+                "llm": ["callSites": [id: NSNull()]]
+            ])
+            if !clearSuccess {
+                log.error("Failed to clear llm.callSites.\(id, privacy: .public) before replace")
+                // Roll back optimistic UI state for just this row — the
+                // daemon still holds whatever it had before this call,
+                // so the UI should match. Leave other rows untouched so
+                // concurrent in-flight edits and daemon refreshes are
+                // preserved.
+                if let previousRow, let index = callSiteOverrides.firstIndex(where: { $0.id == id }) {
+                    callSiteOverrides[index] = previousRow
+                }
+                return false
+            }
+            var entry: [String: Any] = [:]
+            if let provider { entry["provider"] = provider }
+            if let model { entry["model"] = model }
+            if let profile { entry["profile"] = profile }
+            guard !entry.isEmpty else { return true }
+            let setSuccess = await settingsClient.patchConfig([
+                "llm": ["callSites": [id: entry]]
+            ])
+            if !setSuccess {
+                log.error("Failed to set llm.callSites.\(id, privacy: .public) after clear")
+                // Clear succeeded but write failed. The daemon now has no
+                // override for this id, so converge the UI by clearing
+                // the row's fields locally too.
+                if let index = callSiteOverrides.firstIndex(where: { $0.id == id }) {
+                    callSiteOverrides[index].provider = nil
+                    callSiteOverrides[index].model = nil
+                    callSiteOverrides[index].profile = nil
+                }
+            }
+            return setSuccess
+        }
+        return task
+    }
+
+    /// Batch update of every entry in `overrides`. Mirrors
+    /// `replaceCallSiteOverride`'s per-row semantics in batch form: first
+    /// nulls every catalog entry at the `callSites.<id>` level so stale
+    /// leaves (including non-UI fields like `maxTokens`/`effort`/`speed`/
+    /// `thinking`/`contextWindow`) are cleared, then writes the new
+    /// values in a second PATCH with nil fields omitted entirely.
+    ///
+    /// Omitting nil fields (rather than emitting JSON null) is required
+    /// now that the daemon's deep-merge is type-aware: assigning null to
+    /// a scalar leaf persists `null` in config, which fails Zod since
+    /// `LLMCallSiteConfig` declares fields as `.optional()` but not
+    /// `.nullable()`. The entry-level pre-clear handles field deletions.
+    ///
+    /// Useful for "reset all overrides" or "apply preset" actions that
+    /// touch many call sites. The local `callSiteOverrides` cache is
+    /// replaced so SwiftUI views reflect the new state immediately.
+    @discardableResult
+    func setCallSiteOverrides(_ overrides: [CallSiteOverride]) -> Task<Bool, Never> {
+        let validOverrides = overrides.filter { CallSiteCatalog.validIds.contains($0.id) }
+        // Preserve catalog order in the local cache so SwiftUI lists stay stable.
+        // Use `uniquingKeysWith:` (last-write-wins) instead of
+        // `uniqueKeysWithValues:` to tolerate duplicate IDs from external
+        // input — the latter traps at runtime on collisions.
+        let overrideById = Dictionary(
+            validOverrides.map { ($0.id, $0) },
+            uniquingKeysWith: { _, new in new }
+        )
+        let previousSnapshot = callSiteOverrides
+        callSiteOverrides = CallSiteCatalog.all.map { entry in
+            var merged = entry
+            if let provided = overrideById[entry.id] {
+                merged.provider = provided.provider
+                merged.model = provided.model
+                merged.profile = provided.profile
+            } else {
+                merged.provider = nil
+                merged.model = nil
+                merged.profile = nil
+            }
+            return merged
+        }
+        // Step 1 payload: null every catalog entry at the entry level so
+        // any existing leaves are deleted. This is the "entry-level
+        // NSNull pre-clear" — it works correctly under type-aware
+        // deep-merge because a null at the object level is still treated
+        // as deletion.
+        var clearPayload: [String: Any] = [:]
+        for entry in CallSiteCatalog.all {
+            clearPayload[entry.id] = NSNull()
+        }
+        // Step 2 payload: write only the non-nil fields for entries the
+        // caller wants to set. Omitting nil fields avoids persisting
+        // `null` scalars that would fail Zod's `.optional()`-but-not-
+        // `.nullable()` validation on the next config load.
+        var setPayload: [String: Any] = [:]
+        for entry in validOverrides {
+            var rawEntry: [String: Any] = [:]
+            if let provider = entry.provider { rawEntry["provider"] = provider }
+            if let model = entry.model { rawEntry["model"] = model }
+            if let profile = entry.profile { rawEntry["profile"] = profile }
+            guard !rawEntry.isEmpty else { continue }
+            setPayload[entry.id] = rawEntry
+        }
+        let task = Task {
+            let clearSuccess = await settingsClient.patchConfig([
+                "llm": ["callSites": clearPayload]
+            ])
+            if !clearSuccess {
+                log.error("Failed to clear llm.callSites before batch write (\(validOverrides.count, privacy: .public) entries)")
+                // Roll back — the daemon still holds its previous state.
+                callSiteOverrides = previousSnapshot
+                return false
+            }
+            guard !setPayload.isEmpty else { return true }
+            let setSuccess = await settingsClient.patchConfig([
+                "llm": ["callSites": setPayload]
+            ])
+            if !setSuccess {
+                log.error("Failed to patch config for batch llm.callSites update (\(validOverrides.count, privacy: .public) entries)")
+                // Clear succeeded but write failed — daemon now has no
+                // overrides. Converge the UI by clearing all rows too.
+                callSiteOverrides = CallSiteCatalog.all
+            }
+            return setSuccess
+        }
         return task
     }
 
@@ -3462,31 +3901,6 @@ public final class SettingsStore: ObservableObject {
         return "http://\(ip):\(LockfilePaths.resolveGatewayPort(connectedAssistantId: connectedId))"
     }
 
-    // MARK: - Model Actions
-
-    func setModel(_ model: String, provider: String? = nil, force: Bool = false) {
-        // Skip if neither model nor provider changed (unless forced,
-        // e.g. after an inference-mode switch that requires re-persisting
-        // the model+provider pair even when IDs haven't changed).
-        if !force {
-            let modelUnchanged = model == lastDaemonModel
-            let providerUnchanged = provider == nil || provider == lastDaemonProvider
-            guard !modelUnchanged || !providerUnchanged else { return }
-        }
-        lastDaemonModel = model
-        if let provider { lastDaemonProvider = provider }
-        Task {
-            let info = await settingsClient.setModel(model: model, provider: provider)
-            if let info {
-                applyModelInfoResponse(info)
-            } else if lastDaemonModel == model {
-                // Request failed — revert only if no newer call overwrote lastDaemonModel
-                lastDaemonModel = nil
-                lastDaemonProvider = nil
-            }
-        }
-    }
-
     // MARK: - User Timezone Actions
 
     /// Saves a user timezone override under `ui.userTimezone`.
@@ -3731,6 +4145,7 @@ public final class SettingsStore: ObservableObject {
         Self.applyHostBrowserCdpInspectConfig(config, into: self)
 
         loadServiceModes(config: config)
+        loadCallSiteOverrides(config: config)
 
         // Persist enabledSince when it was defaulted so subsequent loads
         // produce a deterministic timestamp.

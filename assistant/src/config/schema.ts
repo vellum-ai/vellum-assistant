@@ -62,17 +62,13 @@ export {
 export type {
   ContextOverflowRecoveryConfig,
   ContextWindowConfig,
-  Effort,
   ModelPricingOverride,
-  Speed,
   ThinkingConfig,
 } from "./schemas/inference.js";
 export {
   ContextOverflowRecoveryConfigSchema,
   ContextWindowConfigSchema,
-  EffortSchema,
   ModelPricingOverrideSchema,
-  SpeedSchema,
   ThinkingConfigSchema,
 } from "./schemas/inference.js";
 export type {
@@ -87,6 +83,14 @@ export {
 } from "./schemas/ingress.js";
 export type { JournalConfig } from "./schemas/journal.js";
 export { JournalConfigSchema } from "./schemas/journal.js";
+export type {
+  LLMCallSite,
+  LLMCallSiteConfig,
+  LLMConfig,
+  LLMConfigBase,
+  LLMConfigFragment,
+} from "./schemas/llm.js";
+export { LLMCallSiteEnum, LLMSchema } from "./schemas/llm.js";
 export type { AuditLogConfig, LogFileConfig } from "./schemas/logging.js";
 export {
   AuditLogConfigSchema,
@@ -239,15 +243,9 @@ import {
 import { FilingConfigSchema } from "./schemas/filing.js";
 import { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
 import { HostBrowserConfigSchema } from "./schemas/host-browser.js";
-import {
-  ContextWindowConfigSchema,
-  EffortSchema,
-  ModelPricingOverrideSchema,
-  SpeedSchema,
-  ThinkingConfigSchema,
-} from "./schemas/inference.js";
 import { IngressConfigSchema } from "./schemas/ingress.js";
 import { JournalConfigSchema } from "./schemas/journal.js";
+import { LLMSchema } from "./schemas/llm.js";
 import {
   AuditLogConfigSchema,
   LogFileConfigSchema,
@@ -276,18 +274,6 @@ import { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 export const AssistantConfigSchema = z
   .object({
     services: ServicesSchema.default(ServicesSchema.parse({})),
-    maxTokens: z
-      .number({ error: "maxTokens must be a number" })
-      .int("maxTokens must be an integer")
-      .positive("maxTokens must be a positive integer")
-      .default(64000)
-      .describe("Maximum number of output tokens per LLM response"),
-    effort: EffortSchema,
-    speed: SpeedSchema,
-    thinking: ThinkingConfigSchema.default(ThinkingConfigSchema.parse({})),
-    contextWindow: ContextWindowConfigSchema.default(
-      ContextWindowConfigSchema.parse({}),
-    ),
     memory: MemoryConfigSchema.default(MemoryConfigSchema.parse({})),
     dataDir: z
       .string({ error: "dataDir must be a string" })
@@ -305,12 +291,16 @@ export const AssistantConfigSchema = z
     logFile: LogFileConfigSchema.default(
       LogFileConfigSchema.parse({ dir: getDataDir() + "/logs" }),
     ),
-    pricingOverrides: z
-      .array(ModelPricingOverrideSchema)
-      .default([])
-      .describe(
-        "Custom pricing overrides for specific provider/model combinations",
-      ),
+    // Unified LLM configuration block. The unique source of truth for
+    // provider/model/maxTokens/effort/speed/temperature/thinking/contextWindow
+    // and pricing overrides for every call site in the assistant.
+    //
+    // Default values live on each leaf inside `LLMSchema` (see
+    // `schemas/llm.ts`), so `LLMSchema.parse({})` returns a fully-populated
+    // object. This matches the pattern used by sibling schemas above and
+    // ensures the loader's leaf-deletion recovery path can repair a partially
+    // invalid `llm` block without falling back to `cloneDefaultConfig()`.
+    llm: LLMSchema.default(LLMSchema.parse({})),
     filing: FilingConfigSchema.default(FilingConfigSchema.parse({})),
     heartbeat: HeartbeatConfigSchema.default(HeartbeatConfigSchema.parse({})),
     updates: UpdatesConfigSchema.default(UpdatesConfigSchema.parse({})),
@@ -364,30 +354,29 @@ export const AssistantConfigSchema = z
       ),
   })
   .superRefine((config, ctx) => {
+    const llmContextWindow = config.llm?.default?.contextWindow;
     if (
-      config.contextWindow?.targetBudgetRatio != null &&
-      config.contextWindow?.compactThreshold != null &&
-      config.contextWindow.targetBudgetRatio >=
-        config.contextWindow.compactThreshold
+      llmContextWindow?.targetBudgetRatio != null &&
+      llmContextWindow?.compactThreshold != null &&
+      llmContextWindow.targetBudgetRatio >= llmContextWindow.compactThreshold
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["contextWindow", "targetBudgetRatio"],
+        path: ["llm", "default", "contextWindow", "targetBudgetRatio"],
         message:
-          "contextWindow.targetBudgetRatio must be less than contextWindow.compactThreshold",
+          "llm.default.contextWindow.targetBudgetRatio must be less than llm.default.contextWindow.compactThreshold",
       });
     }
     if (
-      config.contextWindow?.targetBudgetRatio != null &&
-      config.contextWindow?.summaryBudgetRatio != null &&
-      config.contextWindow.targetBudgetRatio <=
-        config.contextWindow.summaryBudgetRatio
+      llmContextWindow?.targetBudgetRatio != null &&
+      llmContextWindow?.summaryBudgetRatio != null &&
+      llmContextWindow.targetBudgetRatio <= llmContextWindow.summaryBudgetRatio
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["contextWindow", "targetBudgetRatio"],
+        path: ["llm", "default", "contextWindow", "targetBudgetRatio"],
         message:
-          "contextWindow.targetBudgetRatio must be greater than contextWindow.summaryBudgetRatio",
+          "llm.default.contextWindow.targetBudgetRatio must be greater than llm.default.contextWindow.summaryBudgetRatio",
       });
     }
     const segmentation = config.memory?.segmentation;

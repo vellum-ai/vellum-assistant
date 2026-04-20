@@ -38,3 +38,17 @@ skills/meet-join/bot/__tests__
 skills/meet-join/contracts/node_modules
 skills/meet-join/contracts/dist
 skills/meet-join/contracts/__tests__
+
+# Un-ignore the sibling extension package. The Dockerfile needs both the
+# manifest.json (copied to /tmp so the render script can extract the
+# public key and derive the extension ID that pins `allowed_origins` in
+# the rendered native-messaging host manifest) and the full source tree
+# (copied to /app/ext-src so `bun run build` can produce the dist/ that
+# gets installed at /app/ext/ for Chrome to load via --load-extension).
+!skills/meet-join/meet-controller-ext
+!skills/meet-join/meet-controller-ext/**
+
+# Re-ignore dev artifacts in the extension tree.
+skills/meet-join/meet-controller-ext/node_modules
+skills/meet-join/meet-controller-ext/dist
+skills/meet-join/meet-controller-ext/src/__tests__

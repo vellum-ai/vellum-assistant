@@ -157,12 +157,12 @@ describe("ConfigWatcher workspace file handlers", () => {
     expect(evictCallCount).toBe(1);
   });
 
-  test("UPDATES.md change triggers onConversationEvict", async () => {
+  test("UPDATES.md change does NOT trigger onConversationEvict", async () => {
     watcher.start(onConversationEvict);
     simulateFileChange(WORKSPACE_DIR, "UPDATES.md");
 
     await new Promise((r) => setTimeout(r, 300));
-    expect(evictCallCount).toBe(1);
+    expect(evictCallCount).toBe(0);
   });
 
   test("config.json change calls refreshConfigFromSources", async () => {

@@ -147,7 +147,13 @@ export function truncate(text: string, max: number): string {
 
 export async function embedAndUpsert(
   config: AssistantConfig,
-  targetType: "segment" | "item" | "summary" | "media" | "graph_node",
+  targetType:
+    | "segment"
+    | "item"
+    | "summary"
+    | "media"
+    | "graph_node"
+    | "pkb_file",
   targetId: string,
   input: EmbeddingInput,
   extraPayload?: Record<string, unknown>,

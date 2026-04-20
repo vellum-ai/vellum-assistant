@@ -447,6 +447,41 @@ describe("RetryProvider — network error retries", () => {
     );
     expect(inner.calls).toBe(1);
   });
+
+  test("does NOT retry a ProviderError tagged with abortReason", async () => {
+    // Defensive: if any future retryable pattern matches an error carrying
+    // a daemon/user-initiated abortReason, the abortReason guard in
+    // providers/retry.ts:isRetryableError must still short-circuit it.
+    const inner = makeFailing(
+      new ProviderError(
+        "Anthropic request failed: socket closed unexpectedly",
+        "anthropic",
+        undefined,
+        { abortReason: { kind: "user_cancel", source: "test" } },
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow(
+      "socket closed",
+    );
+    expect(inner.calls).toBe(1);
+  });
+
+  test("does NOT retry 'Anthropic stream timed out' (inner streamTimeoutMs fired)", async () => {
+    const inner = makeFailing(
+      new ProviderError(
+        "Anthropic API error (undefined): Anthropic stream timed out after 1800s (inner streamTimeoutMs)",
+        "anthropic",
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow(
+      "stream timed out",
+    );
+    expect(inner.calls).toBe(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

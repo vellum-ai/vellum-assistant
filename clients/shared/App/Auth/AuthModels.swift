@@ -45,40 +45,6 @@ public struct SessionData: Codable, Sendable {
     public let flows: [AllauthFlow]?
 }
 
-public struct ProviderConfig: Codable, Sendable {
-    public let id: String
-    public let name: String?
-    public let client_id: String?
-    public let openid_configuration_url: String?
-    public let flows: [String]?
-}
-
-public struct SocialAccountConfig: Codable, Sendable {
-    public let providers: [ProviderConfig]?
-}
-
-public struct AccountConfig: Codable, Sendable {
-    public let is_open_for_signup: Bool?
-    public let login_methods: [String]?
-}
-
-public struct ConfigData: Codable, Sendable {
-    public let account: AccountConfig?
-    public let socialaccount: SocialAccountConfig?
-}
-
-public struct OIDCDiscovery: Codable, Sendable {
-    public let authorization_endpoint: String?
-    public let token_endpoint: String?
-}
-
-public struct OIDCTokenResponse: Codable, Sendable {
-    public let id_token: String?
-    public let access_token: String?
-    public let error: String?
-    public let error_description: String?
-}
-
 public struct AllauthResponse<T: Codable>: Codable {
     public let status: Int
     public let data: T?
@@ -92,8 +58,7 @@ public enum AuthServiceError: LocalizedError {
     case decodingError(Error)
     case serverError(Int, [AllauthError])
     case noSessionToken
-    case oidcDiscoveryFailed
-    case oidcTokenExchangeFailed(String)
+    case authCallbackFailed(String)
 
     public var errorDescription: String? {
         switch self {
@@ -103,8 +68,7 @@ public enum AuthServiceError: LocalizedError {
         case .serverError(_, let errors):
             return errors.first?.message ?? "Server error"
         case .noSessionToken: return "No session token received"
-        case .oidcDiscoveryFailed: return "Unable to fetch OIDC discovery document"
-        case .oidcTokenExchangeFailed(let msg): return msg
+        case .authCallbackFailed(let msg): return msg
         }
     }
 }

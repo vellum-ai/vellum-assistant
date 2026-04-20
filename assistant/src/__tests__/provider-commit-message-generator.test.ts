@@ -20,15 +20,11 @@ mock.module("../security/secure-keys.js", () => ({
 // ---------------------------------------------------------------------------
 function cloneConfig(): AssistantConfig {
   const cfg = structuredClone(DEFAULT_CONFIG);
-  cfg.services.inference.provider = "anthropic";
+  cfg.llm.default.provider = "anthropic";
   cfg.workspaceGit.commitMessageLLM = {
     ...cfg.workspaceGit.commitMessageLLM,
     enabled: true,
-    useConfiguredProvider: true,
-    providerFastModelOverrides: {},
     timeoutMs: 5000,
-    maxTokens: 120,
-    temperature: 0.2,
     maxFilesInPrompt: 30,
     maxDiffBytes: 12000,
     minRemainingTurnBudgetMs: 1000,
@@ -140,17 +136,6 @@ describe("ProviderCommitMessageGenerator", () => {
     expect(result.reason).toBe("disabled");
   });
 
-  // 2. useConfiguredProvider false
-  test('useConfiguredProvider false → returns deterministic, reason "disabled"', async () => {
-    currentConfig.workspaceGit.commitMessageLLM.useConfiguredProvider = false;
-    const gen = getCommitMessageGenerator();
-    const result = await gen.generateCommitMessage(baseContext, {
-      changedFiles: baseContext.changedFiles,
-    });
-    expect(result.source).toBe("deterministic");
-    expect(result.reason).toBe("disabled");
-  });
-
   // 3. missing API key
   test('missing API key → returns deterministic, reason "missing_provider_api_key"', async () => {
     mockSecureKeys = {};
@@ -221,7 +206,7 @@ describe("ProviderCommitMessageGenerator", () => {
   });
 
   // 6. LLM success
-  test('LLM success → returns LLM message, source "llm", fast model passed', async () => {
+  test('LLM success → returns LLM message, source "llm", callSite passed', async () => {
     const commitMsg = "feat: add new feature";
     mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(commitMsg));
     const gen = getCommitMessageGenerator();
@@ -232,29 +217,13 @@ describe("ProviderCommitMessageGenerator", () => {
     expect(result.message).toBe(commitMsg);
     expect(result.reason).toBeUndefined();
 
-    // Verify the fast model was passed in the config
+    // Verify the callSite was passed so the provider's RetryProvider routes
+    // through `resolveCallSiteConfig` for model/max_tokens/temperature.
     const callArgs = mockSendMessage.mock.calls[0];
-    const options = callArgs[3] as { config: { model: string } };
-    expect(options.config.model).toBe("claude-haiku-4-5-20251001");
-  });
-
-  // 7. fast-model override
-  test("fast-model override → uses override instead of default", async () => {
-    currentConfig.workspaceGit.commitMessageLLM.providerFastModelOverrides = {
-      anthropic: "claude-sonnet-4-20250514",
+    const options = callArgs[3] as {
+      config: { callSite: string };
     };
-    const commitMsg = "fix: resolve issue";
-    mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(commitMsg));
-    const gen = getCommitMessageGenerator();
-    const result = await gen.generateCommitMessage(baseContext, {
-      changedFiles: baseContext.changedFiles,
-    });
-    expect(result.source).toBe("llm");
-    expect(result.message).toBe(commitMsg);
-
-    const callArgs = mockSendMessage.mock.calls[0];
-    const options = callArgs[3] as { config: { model: string } };
-    expect(options.config.model).toBe("claude-sonnet-4-20250514");
+    expect(options.config.callSite).toBe("commitMessage");
   });
 
   // 8. LLM timeout
@@ -330,52 +299,15 @@ describe("ProviderCommitMessageGenerator", () => {
     expect(result.message).toBe("b".repeat(72) + body);
   });
 
-  // 12. Keyless provider (Ollama) without fast model → missing_fast_model (skips API key check)
-  test('Ollama without API key or fast model → returns deterministic, reason "missing_fast_model"', async () => {
-    currentConfig.services.inference.provider = "ollama";
+  // 12. Ollama (keyless provider) — passes the API-key preflight even without
+  // a stored secret, then succeeds because the call-site resolver supplies
+  // the model from `llm.default`/`llm.callSites.commitMessage`.
+  test("Ollama (keyless) — succeeds because call-site resolver supplies the model", async () => {
+    currentConfig.llm.default.provider = "ollama";
     mockSecureKeys = {};
     resolvedProvider = {
       provider: mockProvider,
       configuredProviderName: "ollama",
-    };
-    const gen = getCommitMessageGenerator();
-    const result = await gen.generateCommitMessage(baseContext, {
-      changedFiles: baseContext.changedFiles,
-    });
-    expect(result.source).toBe("deterministic");
-    expect(result.reason).toBe("missing_fast_model");
-    expect(result.reason).not.toBe("missing_provider_api_key");
-    expect(mockSendMessage).not.toHaveBeenCalled();
-  });
-
-  // 13. Unknown provider without fast model default → missing_fast_model, no provider call
-  test('Unknown provider without fast model default → returns deterministic, reason "missing_fast_model"', async () => {
-    (currentConfig.services.inference as Record<string, unknown>).provider =
-      "exotic-provider";
-    mockSecureKeys = { "exotic-provider": "sk-exotic" };
-    resolvedProvider = {
-      provider: mockProvider,
-      configuredProviderName: "exotic-provider",
-    };
-    const gen = getCommitMessageGenerator();
-    const result = await gen.generateCommitMessage(baseContext, {
-      changedFiles: baseContext.changedFiles,
-    });
-    expect(result.source).toBe("deterministic");
-    expect(result.reason).toBe("missing_fast_model");
-    expect(mockSendMessage).not.toHaveBeenCalled();
-  });
-
-  // 14. Fast-model override enables LLM path for provider without built-in default
-  test("fast-model override enables LLM path for provider without built-in default", async () => {
-    currentConfig.services.inference.provider = "ollama";
-    mockSecureKeys = {}; // Ollama is keyless
-    resolvedProvider = {
-      provider: mockProvider,
-      configuredProviderName: "ollama",
-    };
-    currentConfig.workspaceGit.commitMessageLLM.providerFastModelOverrides = {
-      ollama: "llama3.2:3b",
     };
     const commitMsg = "fix: local model commit";
     mockSendMessage.mockResolvedValueOnce(makeSuccessResponse(commitMsg));
@@ -385,10 +317,8 @@ describe("ProviderCommitMessageGenerator", () => {
     });
     expect(result.source).toBe("llm");
     expect(result.message).toBe(commitMsg);
-
-    // Verify the override model was passed
     const callArgs = mockSendMessage.mock.calls[0];
-    const options = callArgs[3] as { config: { model: string } };
-    expect(options.config.model).toBe("llama3.2:3b");
+    const options = callArgs[3] as { config: { callSite: string } };
+    expect(options.config.callSite).toBe("commitMessage");
   });
 });

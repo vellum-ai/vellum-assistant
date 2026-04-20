@@ -403,6 +403,14 @@ describe("buildSanitizedEnv", () => {
     expect(env.TERM).toBe("xterm-256color");
   });
 
+  test("passes through BASE_DATA_DIR when present", () => {
+    process.env.BASE_DATA_DIR = "/tmp/vellum-instance-test";
+
+    const env = buildSanitizedEnv();
+
+    expect(env.BASE_DATA_DIR).toBe("/tmp/vellum-instance-test");
+  });
+
   test("strips non-allowlisted variables", () => {
     // Set some variables that are NOT on the safe list
     const unsafeKeys = ["MY_CUSTOM_KEY", "SOME_TOKEN", "DB_CONNECTION"];

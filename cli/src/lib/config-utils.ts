@@ -5,8 +5,8 @@ import { join } from "path";
 /**
  * Convert flat dot-notation key=value pairs into a nested config object.
  *
- * e.g. {"services.inference.provider": "anthropic", "services.inference.model": "claude-opus-4-6"}
- *   → {services: {inference: {provider: "anthropic", model: "claude-opus-4-6"}}}
+ * e.g. {"llm.default.provider": "anthropic", "llm.default.model": "claude-opus-4-6"}
+ *   → {llm: {default: {provider: "anthropic", model: "claude-opus-4-6"}}}
  */
 export function buildNestedConfig(
   configValues: Record<string, string>,
@@ -39,8 +39,8 @@ export function buildNestedConfig(
  * values into its workspace config on first boot.
  *
  * Keys use dot-notation to address nested fields. For example:
- *   "services.inference.provider" → {services: {inference: {provider: ...}}}
- *   "services.inference.model"    → {services: {inference: {model: ...}}}
+ *   "llm.default.provider" → {llm: {default: {provider: ...}}}
+ *   "llm.default.model"    → {llm: {default: {model: ...}}}
  *
  * Returns undefined when configValues is empty (nothing to write).
  */

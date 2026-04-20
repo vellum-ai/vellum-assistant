@@ -11,7 +11,7 @@ let providerRefreshCalls = 0;
 const PLATFORM_BASE_URL = "https://platform.example.com";
 const ASSISTANT_API_KEY_PATH = credentialKey("vellum", "assistant_api_key");
 const PLATFORM_BASE_URL_PATH = credentialKey("vellum", "platform_base_url");
-const MANAGED_PROVIDERS = ["anthropic", "gemini"] as const;
+const MANAGED_PROVIDERS = ["anthropic", "openai", "gemini"] as const;
 
 let platformBaseUrlOverride: string | undefined;
 
@@ -19,8 +19,6 @@ const mockConfig = {
   services: {
     inference: {
       mode: "your-own" as const,
-      provider: "anthropic",
-      model: "test-model",
     },
     "image-generation": {
       mode: "your-own" as const,
@@ -32,6 +30,7 @@ const mockConfig = {
       provider: "inference-provider-native",
     },
   },
+  llm: { default: { provider: "anthropic", model: "test-model" } },
 };
 
 mock.module("@google/genai", () => ({

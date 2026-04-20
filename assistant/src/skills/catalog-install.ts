@@ -51,15 +51,28 @@ export function getSkillsIndexPath(): string {
   return join(getWorkspaceSkillsDir(), "SKILLS.md");
 }
 
-/**
- * Resolve the repo-level skills/ directory when running in dev mode.
- * Returns the path if VELLUM_DEV is set and the directory exists, or undefined.
- */
 export function getRepoSkillsDir(): string | undefined {
+  const importDir = import.meta.dir;
+
+  if (importDir.startsWith("/$bunfs/")) {
+    const execDir = dirname(process.execPath);
+    // macOS .app bundle: binary in Contents/MacOS/, resources in Contents/Resources/
+    const resourcesPath = join(execDir, "..", "Resources", "first-party-skills");
+    if (existsSync(join(resourcesPath, "catalog.json"))) {
+      return resourcesPath;
+    }
+    // Next to the binary (non-app-bundle compiled deployments)
+    const execDirPath = join(execDir, "first-party-skills");
+    if (existsSync(join(execDirPath, "catalog.json"))) {
+      return execDirPath;
+    }
+    return undefined;
+  }
+
   if (!process.env.VELLUM_DEV) return undefined;
 
   // assistant/src/skills/catalog-install.ts -> ../../../skills/
-  const candidate = join(import.meta.dir, "..", "..", "..", "skills");
+  const candidate = join(importDir, "..", "..", "..", "skills");
   if (existsSync(join(candidate, "catalog.json"))) {
     return candidate;
   }

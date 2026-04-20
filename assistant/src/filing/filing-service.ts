@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
-import type { Speed } from "../config/schemas/inference.js";
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
@@ -17,23 +17,24 @@ const FILING_PROMPT_TEMPLATE = `You are running a periodic knowledge base filing
 ## Part 1: File the buffer
 
 Read \`pkb/buffer.md\`. For each item in the buffer:
-1. Determine which topic file it belongs in. Check \`pkb/INDEX.md\` to see what topic files exist.
-2. Read the target topic file, then append or integrate the new fact.
+1. Determine which topic file(s) it belongs in. Check \`pkb/INDEX.md\` to see what topic files exist.
+2. Read the target topic file(s), then integrate the new fact.
 3. If the fact is important enough to always be in context, add it to \`pkb/essentials.md\` instead.
 4. If the fact is a commitment, follow-up, or active project, add it to \`pkb/threads.md\`.
 5. If no existing topic file fits, create a new one and update \`pkb/INDEX.md\`.
+6. If the topic file is getting too long (>1500 tokens), compress it or split it into multiple topic files.
 
 After all items are filed, clear the processed items from \`pkb/buffer.md\` (leave the file empty, don't delete it).
 
-## Part 2: Nest
+## Part 2: Review
 
-Pick 1-2 topic files from your knowledge base and review them:
+Pick 3 random topic files from your knowledge base and review them:
 - Is the information still accurate and up to date?
 - Are there duplicates that should be consolidated?
 - Is anything important enough to promote to \`pkb/essentials.md\`?
 - Is anything in \`pkb/essentials.md\` that's no longer essential? Demote it to a topic file.
 - Are any threads in \`pkb/threads.md\` completed or stale? Remove them.
-- Is any file getting too long? Consider splitting it.
+- Is any file getting too long (>1500 tokens)? Strongly consider compressing it or splitting it into multiple topic files.
 - Should any topic file be restructured for clarity?
 
 Make improvements as you see fit. This is your knowledge base — keep it sharp.`;
@@ -42,7 +43,7 @@ export interface FilingDeps {
   processMessage: (
     conversationId: string,
     content: string,
-    options?: { speed?: Speed },
+    options?: { callSite?: LLMCallSite },
   ) => Promise<{ messageId: string }>;
   onConversationCreated?: (info: {
     conversationId: string;
@@ -190,8 +191,6 @@ export class FilingService {
     log.info("Running filing job");
 
     try {
-      const config = getConfig().filing;
-
       const conversation = bootstrapConversation({
         conversationType: "background",
         source: "filing",
@@ -206,7 +205,7 @@ export class FilingService {
       });
 
       await this.deps.processMessage(conversation.id, FILING_PROMPT_TEMPLATE, {
-        speed: config.speed,
+        callSite: "filingAgent",
       });
 
       log.info({ conversationId: conversation.id }, "Filing job completed");

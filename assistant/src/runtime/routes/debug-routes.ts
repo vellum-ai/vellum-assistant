@@ -65,7 +65,7 @@ function handleDebug(): Response {
       startedAt: new Date(startedAt).toISOString(),
     },
     provider: {
-      configuredProvider: config.services.inference.provider,
+      configuredProvider: config.llm.default.provider,
       registeredProviders,
       routingSources,
       inferenceMode: config.services.inference.mode,
