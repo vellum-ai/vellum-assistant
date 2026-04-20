@@ -332,25 +332,24 @@ struct HomePageView<DetailPanel: View>: View {
     /// first paint doesn't shift when real data lands.
     private var skeleton: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
-            // Greeting row
+            // Greeting row: avatar + title bone + New Chat CTA bone
             HStack(spacing: VSpacing.md) {
                 VSkeletonBone(width: 40, height: 40, radius: 20)
-                VSkeletonBone(width: 280, height: 24)
+                VSkeletonBone(width: 280, height: 28)
                 Spacer()
+                VSkeletonBone(width: 96, height: 32, radius: VRadius.md)
             }
             .padding(.top, VSpacing.xxl)
 
             // Suggestion bar
-            VSkeletonBone(height: 60, radius: VRadius.xl)
+            VSkeletonBone(height: 72, radius: VRadius.lg)
 
-            // First time group
-            VStack(alignment: .leading, spacing: VSpacing.md) {
+            // First time group: "Today" label + three recap-row bones
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
                 VSkeletonBone(width: 60, height: 12)
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    VSkeletonBone(height: 48, radius: VRadius.md)
-                    VSkeletonBone(height: 48, radius: VRadius.md)
-                    VSkeletonBone(height: 48, radius: VRadius.md)
-                }
+                VSkeletonBone(height: 48, radius: VRadius.md)
+                VSkeletonBone(height: 48, radius: VRadius.md)
+                VSkeletonBone(height: 48, radius: VRadius.md)
             }
         }
         .frame(maxWidth: maxContentWidth, alignment: .top)
