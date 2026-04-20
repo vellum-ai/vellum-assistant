@@ -47,7 +47,7 @@ const RISK_ORD: Record<Risk, number> = {
  * known-medium one, but not as definitive as a known-high one.
  */
 export function riskOrd(risk: Risk): number {
-  return RISK_ORD[risk] ?? 2; // default to unknown
+  return RISK_ORD[risk];
 }
 
 /** Return the higher of two risk levels. */
@@ -82,6 +82,11 @@ function getCompiledPattern(pattern: string): RegExp {
     compiledPatterns.set(pattern, re);
   }
   return re;
+}
+
+/** Clear the compiled regex cache. Exposed for tests and hot-swap scenarios. */
+export function clearCompiledPatterns(): void {
+  compiledPatterns.clear();
 }
 
 // ── Arg rule matching ────────────────────────────────────────────────────────
