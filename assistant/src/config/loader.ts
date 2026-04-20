@@ -108,7 +108,7 @@ function quarantineCorruptConfig(configPath: string, err: unknown): string {
  * prior append succeeded but the process crashed before control returned, or
  * the file was hand-edited), the function is a no-op. This mirrors the
  * pattern release-notes workspace migrations use — see the "Release Update
- * Hygiene" section in the root `CLAUDE.md`.
+ * Hygiene" section in the root `AGENTS.md`.
  *
  * Best-effort: any write failure is logged at `warn` and swallowed. The
  * quarantine path must never block startup, and the error log from
@@ -138,8 +138,8 @@ function appendQuarantineBulletin(
     const block =
       `## Config was reset to defaults\n\n` +
       `Your \`config.json\` was unreadable at ${timestamp} and couldn't be parsed ` +
-      `as JSON. The daemon preserved the original file at \`${quarantinePath}\` ` +
-      `and booted on defaults so the app stays working.\n\n` +
+      `as JSON. The assistant preserved the original file at \`${quarantinePath}\` ` +
+      `and loaded defaults so the app stays working.\n\n` +
       `If you had custom settings (API keys, model choices, voice preferences), ` +
       `they are still in the quarantined file — \`cat ${quarantinePath}\` to ` +
       `recover them, then re-enter through Settings or the CLI.\n\n` +

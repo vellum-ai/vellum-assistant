@@ -1,13 +1,13 @@
 /**
  * When loadConfig()/loadRawConfig() quarantines a corrupt config.json, it
- * appends a user-facing bulletin to <workspace>/UPDATES.md so the background
- * update-bulletin job picks up the event and the agent can proactively tell
- * the user their settings reset to defaults and where to recover the original
- * from the quarantined file.
+ * appends a bulletin to <workspace>/UPDATES.md so the background update-
+ * bulletin job picks up the event inside a background-only conversation.
+ * The agent decides whether to surface the quarantine to the user — it's
+ * agent-visible context, not a push notification.
  *
  * The bulletin is keyed on the quarantine filename via an HTML marker so
  * repeated appends for the same quarantine are idempotent — per the
- * Release-Update-Hygiene rule in the root CLAUDE.md, idempotency at both the
+ * Release-Update-Hygiene rule in the root AGENTS.md, idempotency at both the
  * runner level AND an in-file marker is required to close the crash-mid-append
  * window.
  */
