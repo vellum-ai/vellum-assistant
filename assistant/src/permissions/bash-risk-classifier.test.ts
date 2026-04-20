@@ -13,6 +13,7 @@ mock.module("../util/logger.js", () => ({
 
 import {
   BashRiskClassifier,
+  clearCompiledPatterns,
   escalateOne,
   matchesArgRule,
   maxRisk,
@@ -1029,5 +1030,35 @@ describe("riskToRiskLevel", () => {
 
   test("unknown → RiskLevel.Medium (fallback)", () => {
     expect(riskToRiskLevel("unknown")).toBe(RiskLevel.Medium);
+  });
+});
+
+// ── Go subcommand classification ──────────────────────────────────────────────
+
+describe("go subcommand classification", () => {
+  const classifier = makeClassifier();
+
+  test("go get github.com/pkg → medium", async () => {
+    const result = await classifier.classify({
+      command: "go get github.com/pkg",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
+  test("go generate ./... → high", async () => {
+    const result = await classifier.classify({
+      command: "go generate ./...",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+});
+
+// ── clearCompiledPatterns smoke test ──────────────────────────────────────────
+
+describe("clearCompiledPatterns", () => {
+  test("runs without error", () => {
+    expect(() => clearCompiledPatterns()).not.toThrow();
   });
 });

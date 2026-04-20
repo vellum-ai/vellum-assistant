@@ -496,6 +496,8 @@ export const DEFAULT_COMMAND_REGISTRY = {
   },
   ruby: { baseRisk: "high", reason: "Executes arbitrary Ruby code" },
   go: {
+    // baseRisk is low (unlike npm's medium) because bare `go` prints help.
+    // Dangerous subcommands (run, test, generate, get) are handled individually.
     baseRisk: "low",
     subcommands: {
       mod: { baseRisk: "low" },
@@ -504,6 +506,15 @@ export const DEFAULT_COMMAND_REGISTRY = {
       build: { baseRisk: "medium" },
       test: { baseRisk: "high", reason: "Executes arbitrary test code" },
       run: { baseRisk: "high", reason: "Compiles and executes Go code" },
+      get: {
+        baseRisk: "medium",
+        reason:
+          "Downloads and installs packages; can execute arbitrary code via install hooks",
+      },
+      generate: {
+        baseRisk: "high",
+        reason: "Runs arbitrary commands via //go:generate directives",
+      },
     },
   },
 
