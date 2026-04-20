@@ -28,6 +28,9 @@ function makeFakePort(): FakePort {
     onMessage(cb) {
       messageCallbacks.push(cb);
     },
+    onConnect() {
+      /* no-op */
+    },
     onDisconnect() {
       /* no-op */
     },

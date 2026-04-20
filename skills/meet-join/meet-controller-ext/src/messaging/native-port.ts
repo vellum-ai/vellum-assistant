@@ -44,6 +44,12 @@ export interface NativePort {
   /** Register a callback for every validated inbound {@link BotToExtensionMessage}. */
   onMessage(cb: (msg: BotToExtensionMessage) => void): void;
   /**
+   * Register a callback fired after every successful `connectNative` call,
+   * including reconnects. Use this to (re-)send any handshake the native host
+   * expects on a fresh connection.
+   */
+  onConnect(cb: () => void): void;
+  /**
    * Register a callback fired whenever the underlying port disconnects, whether
    * via transport failure, protocol error, or explicit {@link NativePort.close}.
    */
@@ -61,6 +67,7 @@ export function openNativePort(opts: OpenNativePortOptions = {}): NativePort {
   const maxMs = opts.reconnectMaxMs ?? DEFAULT_RECONNECT_MAX_MS;
 
   const messageCallbacks: Array<(msg: BotToExtensionMessage) => void> = [];
+  const connectCallbacks: Array<() => void> = [];
   const disconnectCallbacks: Array<(reason: string) => void> = [];
 
   let closed = false;
@@ -138,6 +145,18 @@ export function openNativePort(opts: OpenNativePortOptions = {}): NativePort {
       emitDisconnect(reason);
       scheduleReconnect();
     });
+
+    // Notify listeners after the port is fully wired. This is the confirmed
+    // "connection is usable" signal that callers use to post handshake
+    // frames — posting synchronously at module scope risks racing with a
+    // transient connectNative failure and killing the service worker.
+    for (const cb of connectCallbacks) {
+      try {
+        cb();
+      } catch (err) {
+        console.warn("[meet-ext] onConnect callback threw", err);
+      }
+    }
   }
 
   connect();
@@ -153,6 +172,18 @@ export function openNativePort(opts: OpenNativePortOptions = {}): NativePort {
     },
     onMessage(cb: (msg: BotToExtensionMessage) => void): void {
       messageCallbacks.push(cb);
+    },
+    onConnect(cb: () => void): void {
+      connectCallbacks.push(cb);
+      // If we're already connected by the time the caller subscribes, fire
+      // immediately so the handshake still goes out.
+      if (currentPort !== null) {
+        try {
+          cb();
+        } catch (err) {
+          console.warn("[meet-ext] onConnect callback threw", err);
+        }
+      }
     },
     onDisconnect(cb: (reason: string) => void): void {
       disconnectCallbacks.push(cb);
