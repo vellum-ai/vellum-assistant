@@ -349,6 +349,51 @@ export function summarizeRun(runId: string): RunSummary | null {
 }
 
 // ---------------------------------------------------------------------------
+// Dry-run summary
+// ---------------------------------------------------------------------------
+
+export interface DryRunSummary {
+  run_id: string;
+  total_ops: number;
+  by_op: Record<string, number>;
+  by_phase: Record<string, { count: number; examples: string[] }>;
+}
+
+/** Build a summary suitable for dry-run output — counts by op type and phase with examples. */
+export function summarizeDryRun(runId: string): DryRunSummary | null {
+  const entries = readLog(runId);
+  if (entries.length === 0) return null;
+
+  const byOp: Record<string, number> = {};
+  const byPhase: Record<string, { count: number; examples: string[] }> = {};
+  let totalOps = 0;
+
+  for (const entry of entries) {
+    if (entry.status !== "staged" || !entry.op) continue;
+    totalOps++;
+
+    const opKey = entry.op;
+    byOp[opKey] = (byOp[opKey] ?? 0) + 1;
+
+    const phase = entry.phase ?? "unknown";
+    if (!byPhase[phase]) {
+      byPhase[phase] = { count: 0, examples: [] };
+    }
+    byPhase[phase].count++;
+
+    // Collect up to 3 example descriptions per phase
+    if (byPhase[phase].examples.length < 3) {
+      const desc = [entry.from, entry.subject, entry.reason]
+        .filter(Boolean)
+        .join(" — ");
+      if (desc) byPhase[phase].examples.push(desc);
+    }
+  }
+
+  return { run_id: runId, total_ops: totalOps, by_op: byOp, by_phase: byPhase };
+}
+
+// ---------------------------------------------------------------------------
 // Listing & pruning
 // ---------------------------------------------------------------------------
 

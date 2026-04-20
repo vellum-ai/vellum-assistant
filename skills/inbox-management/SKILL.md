@@ -34,9 +34,9 @@ A single wrong archive of an important email kills trust. Earn autonomy in stage
 
 | Stage | Archive behavior | Draft behavior | Alerts |
 |-------|------------------|----------------|--------|
-| **0 — Flag-only** (default) | Nothing archived. Everything that *would* be archived is listed in a summary for user review. | Drafts created in-thread, listed in summary. | Urgent scan active. |
-| **1 — Standard** | Silent archive of known-safe categories only (calendar responses, no-reply, newsletters). Cold outreach still flagged. | Drafts created in-thread, summarized per run. | Urgent scan active. |
-| **2 — Aggressive** | Above + cold outreach archived by LLM judgment (default archive, flag only when relevant to user). | Same as Stage 1. | Urgent scan active. |
+| **0 — Flag-only** (default) | Nothing archived. All archive calls use `--dry-run`. Summary shows what *would* be archived for user review. | Drafts created in-thread, listed in summary. | Urgent scan active. |
+| **1 — Standard** | Silent archive of known-safe categories only (calendar responses, no-reply, newsletters). Cold outreach still flagged. Batches > 1,000 ops auto-dry-run. | Drafts created in-thread, summarized per run. | Urgent scan active. |
+| **2 — Aggressive** | Above + cold outreach archived by LLM judgment (default archive, flag only when relevant to user). All ops logged for reversal. | Same as Stage 1. | Urgent scan active. |
 
 **Graduation requires the user to explicitly say "graduate me" or equivalent.** Do not infer from silence.
 

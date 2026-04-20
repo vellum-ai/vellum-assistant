@@ -24,6 +24,7 @@ import {
   writeCheckpoint,
   writeCompleted,
   summarizeRun,
+  summarizeDryRun,
   getPendingOps,
   runExists,
 } from "./lib/op-log.js";
@@ -95,15 +96,17 @@ function recordBlocklist(senderEmails: string[]): void {
 /**
  * Batch modify messages in chunks of BATCH_MODIFY_LIMIT.
  * Each chunk is logged to the op log before execution for resumability.
+ * In dry-run mode, writes staged entries but skips all API calls.
  */
 async function batchArchive(
   messageIds: string[],
   account?: string,
-  opts?: { runId?: string; phase?: string; reason?: string },
-): Promise<{ runId: string; committed: number; failed: number }> {
+  opts?: { runId?: string; phase?: string; reason?: string; dryRun?: boolean },
+): Promise<{ runId: string; committed: number; failed: number; staged: number }> {
   const runId = opts?.runId ?? generateRunId();
   let committed = 0;
   let failed = 0;
+  let staged = 0;
 
   for (let i = 0; i < messageIds.length; i += BATCH_MODIFY_LIMIT) {
     const chunkIndex = Math.floor(i / BATCH_MODIFY_LIMIT);
@@ -117,6 +120,10 @@ async function batchArchive(
       message_ids: chunk,
       reason: opts?.reason,
     });
+    staged++;
+
+    // In dry-run mode, only stage — don't execute
+    if (opts?.dryRun) continue;
 
     try {
       const resp = await gmailPost(
@@ -148,8 +155,10 @@ async function batchArchive(
     }
   }
 
-  writeCompleted(runId, committed, failed);
-  return { runId, committed, failed };
+  if (!opts?.dryRun) {
+    writeCompleted(runId, committed, failed);
+  }
+  return { runId, committed, failed, staged };
 }
 
 /** Checkpoint interval — write pagination state every N IDs. */
@@ -219,10 +228,11 @@ async function archiveByQuery(
   skipConfirm?: boolean,
   runId?: string,
   phase?: string,
+  dryRun?: boolean,
 ): Promise<void> {
   const rid = runId ?? generateRunId();
 
-  if (!skipConfirm) {
+  if (!dryRun && !skipConfirm) {
     const confirmed = await requestConfirmation({
       title: "Archive messages",
       message: `Archive all messages matching query: ${query}`,
@@ -245,14 +255,29 @@ async function archiveByQuery(
     runId: rid,
     phase,
     reason: `query:${query}`,
+    dryRun,
   });
-  ok({
-    archived: messageIds.length,
-    method: "query",
-    run_id: result.runId,
-    committed: result.committed,
-    failed: result.failed,
-  });
+
+  if (dryRun) {
+    const summary = summarizeDryRun(rid);
+    ok({
+      dry_run: true,
+      run_id: result.runId,
+      would_archive: messageIds.length,
+      method: "query",
+      summary,
+      commit_command: `bun run scripts/gmail-commit.ts commit --run-id ${result.runId}`,
+      cancel_command: `bun run scripts/gmail-commit.ts cancel --run-id ${result.runId}`,
+    });
+  } else {
+    ok({
+      archived: messageIds.length,
+      method: "query",
+      run_id: result.runId,
+      committed: result.committed,
+      failed: result.failed,
+    });
+  }
 }
 
 /** Path 2: --cache-key + --sender-emails — retrieve from cache, fall back to per-sender query. */
@@ -263,10 +288,11 @@ async function archiveByCacheKey(
   skipConfirm?: boolean,
   runId?: string,
   phase?: string,
+  dryRun?: boolean,
 ): Promise<void> {
   const rid = runId ?? generateRunId();
 
-  if (!skipConfirm) {
+  if (!dryRun && !skipConfirm) {
     const confirmed = await requestConfirmation({
       title: "Archive messages",
       message: `Archive messages from ${senderEmails.length} sender(s)`,
@@ -333,15 +359,30 @@ async function archiveByCacheKey(
     runId: rid,
     phase,
     reason: `cache:${senderEmails.join(",")}`,
+    dryRun,
   });
-  recordBlocklist(senderEmails);
-  ok({
-    archived: allMessageIds.length,
-    method: "cache",
-    run_id: result.runId,
-    committed: result.committed,
-    failed: result.failed,
-  });
+
+  if (dryRun) {
+    const summary = summarizeDryRun(rid);
+    ok({
+      dry_run: true,
+      run_id: result.runId,
+      would_archive: allMessageIds.length,
+      method: "cache",
+      summary,
+      commit_command: `bun run scripts/gmail-commit.ts commit --run-id ${result.runId}`,
+      cancel_command: `bun run scripts/gmail-commit.ts cancel --run-id ${result.runId}`,
+    });
+  } else {
+    recordBlocklist(senderEmails);
+    ok({
+      archived: allMessageIds.length,
+      method: "cache",
+      run_id: result.runId,
+      committed: result.committed,
+      failed: result.failed,
+    });
+  }
 }
 
 /** Path 3: --message-ids — direct batch archive. */
@@ -351,10 +392,11 @@ async function archiveByMessageIds(
   skipConfirm?: boolean,
   runId?: string,
   phase?: string,
+  dryRun?: boolean,
 ): Promise<void> {
   const rid = runId ?? generateRunId();
 
-  if (!skipConfirm) {
+  if (!dryRun && !skipConfirm) {
     const confirmed = await requestConfirmation({
       title: "Archive messages",
       message: `Archive ${messageIds.length} message(s)`,
@@ -370,14 +412,29 @@ async function archiveByMessageIds(
     runId: rid,
     phase,
     reason: `batch:${messageIds.length} messages`,
+    dryRun,
   });
-  ok({
-    archived: messageIds.length,
-    method: "batch",
-    run_id: result.runId,
-    committed: result.committed,
-    failed: result.failed,
-  });
+
+  if (dryRun) {
+    const summary = summarizeDryRun(rid);
+    ok({
+      dry_run: true,
+      run_id: result.runId,
+      would_archive: messageIds.length,
+      method: "batch",
+      summary,
+      commit_command: `bun run scripts/gmail-commit.ts commit --run-id ${result.runId}`,
+      cancel_command: `bun run scripts/gmail-commit.ts cancel --run-id ${result.runId}`,
+    });
+  } else {
+    ok({
+      archived: messageIds.length,
+      method: "batch",
+      run_id: result.runId,
+      committed: result.committed,
+      failed: result.failed,
+    });
+  }
 }
 
 /** Path 4: --message-id — single message archive (no confirmation). */
@@ -485,6 +542,7 @@ async function main(): Promise<void> {
 
   const account = optionalArg(args, "account");
   const skipConfirm = args["skip-confirm"] === true;
+  const dryRun = args["dry-run"] === true;
   const runId = optionalArg(args, "run-id");
   const phase = optionalArg(args, "phase");
 
@@ -503,7 +561,7 @@ async function main(): Promise<void> {
 
   // Priority: --query > --cache-key > --message-ids > --message-id
   if (query) {
-    await archiveByQuery(query, account, skipConfirm, runId, phase);
+    await archiveByQuery(query, account, skipConfirm, runId, phase, dryRun);
   } else if (cacheKey && senderEmailsRaw) {
     const senderEmails = parseCsv(senderEmailsRaw);
     await archiveByCacheKey(
@@ -513,10 +571,11 @@ async function main(): Promise<void> {
       skipConfirm,
       runId,
       phase,
+      dryRun,
     );
   } else if (messageIdsRaw) {
     const messageIds = parseCsv(messageIdsRaw);
-    await archiveByMessageIds(messageIds, account, skipConfirm, runId, phase);
+    await archiveByMessageIds(messageIds, account, skipConfirm, runId, phase, dryRun);
   } else if (messageId) {
     await archiveSingleMessage(messageId, account);
   } else {
