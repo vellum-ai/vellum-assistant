@@ -10,6 +10,10 @@ import {
   leaseGuardianToken,
   seedGuardianTokenFromSiblingEnv,
 } from "../lib/guardian-token.js";
+import {
+  RESET_BOOTSTRAP_AUTH_HEADER,
+  ensureResetBootstrapSecret,
+} from "../lib/reset-bootstrap-secret.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
 import {
   generateLocalSigningKey,
@@ -199,14 +203,24 @@ export async function wake(): Promise<void> {
   // Retry the guardian-token lease if the hatch failed to persist it. The
   // gateway has written `guardian-init.lock`, so a fresh `/v1/guardian/init`
   // would be rejected — but the loopback-only `/v1/guardian/reset-bootstrap`
-  // endpoint clears the lock and lets the lease proceed.
+  // endpoint clears the lock and lets the lease proceed. The endpoint also
+  // requires the X-Reset-Bootstrap-Secret header to match a file that only
+  // processes running as the same Unix user can read, which defends against
+  // unprivileged local processes on shared hosts.
   if (entry.hatchedWithoutToken) {
     const loopbackUrl = `http://127.0.0.1:${resources.gatewayPort}`;
+    const gatewaySecurityDir = join(
+      resources.instanceDir,
+      ".vellum",
+      "protected",
+    );
     try {
+      const authProof = ensureResetBootstrapSecret(gatewaySecurityDir);
       const resetRes = await fetch(
         `${loopbackUrl}/v1/guardian/reset-bootstrap`,
         {
           method: "POST",
+          headers: { [RESET_BOOTSTRAP_AUTH_HEADER]: authProof },
         },
       );
       if (!resetRes.ok) {

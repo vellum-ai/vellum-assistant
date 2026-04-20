@@ -656,14 +656,23 @@ async function main() {
       // Loopback-only recovery endpoint. Clears the bare-metal bootstrap lock
       // so the local client can re-run `/v1/guardian/init` after losing its
       // actor token (e.g. corrupted UserDefaults entry on macOS).
+      //
+      // Uses the raw socket peer IP (ignoring `X-Forwarded-For`) for the
+      // loopback-origin check. An external attacker that can reach this
+      // port could otherwise spoof `X-Forwarded-For: 127.0.0.1` and pass
+      // the loopback check when `trustProxy` is enabled. Since this endpoint
+      // is only meaningful for a process running on the same host as the
+      // gateway, the raw peer IP is the authoritative source of truth.
       path: "/v1/guardian/reset-bootstrap",
       method: "POST",
       auth: "none",
-      handler: (req, _params, getClientIp) =>
-        channelVerificationSessionProxy.handleGuardianResetBootstrap(
+      handler: (req, _params, _getClientIp, svr) => {
+        const rawPeerIp = svr?.requestIP(req)?.address;
+        return channelVerificationSessionProxy.handleGuardianResetBootstrap(
           req,
-          getClientIp(),
-        ),
+          rawPeerIp,
+        );
+      },
     },
     {
       path: "/v1/channel-verification-sessions",

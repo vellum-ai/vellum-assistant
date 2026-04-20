@@ -51,11 +51,18 @@ export interface RouteDefinition {
    * or null to continue to the handler.
    */
   precondition?: () => Response | null;
-  /** Route handler. Params are populated from regex capture groups. */
+  /**
+   * Route handler. Params are populated from regex capture groups.
+   * `server` is provided so handlers that need the raw socket peer IP
+   * (ignoring `X-Forwarded-For`) can call `server.requestIP(req)` —
+   * `getClientIp` honors `trustProxy` and is spoofable by untrusted callers
+   * that can reach the gateway with arbitrary headers.
+   */
   handler: (
     req: Request,
     params: RouteParams,
     getClientIp: GetClientIp,
+    server?: Server<unknown>,
   ) => Promise<Response> | Response;
 }
 
@@ -106,7 +113,7 @@ export function createRouter(
       switch (auth) {
         case "none":
         case "custom":
-          return route.handler(req, matchResult.params, getClientIp);
+          return route.handler(req, matchResult.params, getClientIp, server);
 
         case "edge": {
           const { requireEdgeAuth } = createAuthMiddleware(
@@ -115,7 +122,7 @@ export function createRouter(
           );
           const authError = requireEdgeAuth(req, server);
           if (authError) return authError;
-          return route.handler(req, matchResult.params, getClientIp);
+          return route.handler(req, matchResult.params, getClientIp, server);
         }
 
         case "edge-scoped": {
@@ -125,12 +132,12 @@ export function createRouter(
           );
           const authError = requireEdgeAuthWithScope(req, route.scope!, server);
           if (authError) return authError;
-          return route.handler(req, matchResult.params, getClientIp);
+          return route.handler(req, matchResult.params, getClientIp, server);
         }
 
         case "track-failures": {
           return wrapWithAuthFailureTracking(
-            (r) => route.handler(r, matchResult.params, getClientIp),
+            (r) => route.handler(r, matchResult.params, getClientIp, server),
             authRateLimiter,
             getClientIp,
             route.trackFailureStatuses,
