@@ -839,11 +839,10 @@ describe("ContextWindowManager", () => {
   test.todo(
     "force compaction with loose target override still summarizes persisted messages",
     async () => {
-      // Regression test for the mid-loop compaction no-op reported in
-      // feedback submission 019d9c7d-9439 (Apr 17 2026): Marina's
-      // conversation sat at
-      // 247k/200k tokens with the UI spinning on "compacting" while
-      // compaction ran repeatedly and summarized nothing.
+      // Regression test for a mid-loop compaction no-op observed in a
+      // user feedback report: a long conversation reached ~247k tokens
+      // against a 200k budget with the UI spinning on "compacting"
+      // while compaction ran repeatedly and summarized nothing.
       //
       // Root cause (window-manager.ts:278-312 truncate-only early-exit):
       // mid-loop compaction invokes maybeCompact with
