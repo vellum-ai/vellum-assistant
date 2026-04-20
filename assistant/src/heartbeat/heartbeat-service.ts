@@ -271,10 +271,13 @@ export class HeartbeatService {
         await this.notifyUnhealthyCredentials(report.unhealthy);
         // Only block providers for hard-failure statuses — expiring and ping_failed
         // are transient/still-usable and should not disable provider tools.
+        // missing_scopes is a hard failure because required scopes are absent and
+        // provider tools will predictably fail.
         const hardFailureStatuses = new Set([
           "revoked",
           "missing_token",
           "expired",
+          "missing_scopes",
         ]);
         const hardFailures = report.unhealthy.filter((r) =>
           hardFailureStatuses.has(r.status),
