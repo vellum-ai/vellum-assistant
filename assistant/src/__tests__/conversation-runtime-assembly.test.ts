@@ -2517,9 +2517,9 @@ describe("Slack channel chronological rendering — multi-thread", () => {
         content: [
           {
             type: "text",
-            text: "<memory __injected>\nrecalled fact about Sidd\n</memory>",
+            text: "<memory __injected>\nrecalled fact about the user\n</memory>",
           },
-          { type: "text", text: "hey kitten" },
+          { type: "text", text: "hello there" },
         ],
       },
     ];
@@ -2528,7 +2528,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       slackChronologicalMessages: [
         {
           role: "user",
-          content: [{ type: "text", text: "[19:55 sidd]: hey kitten" }],
+          content: [{ type: "text", text: "[19:55 alice]: hello there" }],
         },
       ],
     });
@@ -2539,16 +2539,16 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       .map((b) => b.text)
       .join("\n");
     expect(allText).toContain("<memory __injected>");
-    expect(allText).toContain("recalled fact about Sidd");
-    expect(allText).toContain("[19:55 sidd]: hey kitten");
+    expect(allText).toContain("recalled fact about the user");
+    expect(allText).toContain("[19:55 alice]: hello there");
     // Memory block must appear before the Slack transcript tail so the
     // model sees recalled context ahead of the conversation view.
     const memoryIdx = allText.indexOf("<memory __injected>");
-    const transcriptIdx = allText.indexOf("[19:55 sidd]: hey kitten");
+    const transcriptIdx = allText.indexOf("[19:55 alice]: hello there");
     expect(memoryIdx).toBeLessThan(transcriptIdx);
-    // The pre-replacement "hey kitten" text from the original runMessages
+    // The pre-replacement "hello there" text from the original runMessages
     // must NOT leak through — only the Slack-rendered line appears.
-    expect(allText.match(/hey kitten/g)?.length).toBe(1);
+    expect(allText.match(/hello there/g)?.length).toBe(1);
   });
 
   test("slack replacement preserves memory-image groups + text block", async () => {
