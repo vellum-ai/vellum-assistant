@@ -1561,6 +1561,16 @@ export class RuntimeHttpServer {
     const assistantAttention = this.buildAssistantAttention(attentionState);
     const forkParent = this.buildForkParent(conversation, parentCache);
 
+    log.info(
+      {
+        conversationId: conversation.id,
+        isPinned: displayMeta?.isPinned ?? false,
+        groupId: displayMeta?.groupId ?? null,
+        displayOrder: displayMeta?.displayOrder ?? null,
+      },
+      "[pin-debug] serializeConversationSummary response",
+    );
+
     return {
       id: conversation.id,
       title: conversation.title ?? "Untitled",

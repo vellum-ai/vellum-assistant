@@ -420,9 +420,7 @@ export function findAnalysisConversationFor(
  * not found. Tiny convenience used by the recursion guard in the
  * auto-analyze loop.
  */
-export function getConversationSource(
-  conversationId: string,
-): string | null {
+export function getConversationSource(conversationId: string): string | null {
   const db = getDb();
   const row = db
     .select({ source: conversations.source })
@@ -1669,6 +1667,15 @@ export function batchSetDisplayOrders(
   rawExec("BEGIN");
   try {
     for (const update of updates) {
+      log.info(
+        {
+          conversationId: update.id,
+          isPinned: update.isPinned,
+          groupId: update.groupId,
+          displayOrder: update.displayOrder,
+        },
+        "[pin-debug] batchSetDisplayOrders write",
+      );
       if (update.groupId !== undefined) {
         // New client: groupId is authoritative.
         // Derive is_pinned from groupId.

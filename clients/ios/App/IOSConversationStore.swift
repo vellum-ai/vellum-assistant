@@ -3,6 +3,9 @@ import Combine
 import Observation
 import SwiftUI
 import VellumAssistantShared
+import os
+
+private let pinDebugLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "pin-debug")
 
 // MARK: - IOSConversation
 
@@ -355,6 +358,7 @@ class IOSConversationStore: ObservableObject {
         conversation.originChannel = restored.originChannel ?? conversation.originChannel
         conversation.forkParent = restored.forkParent
         let hasLocalPinEdit = conversation.conversationId.map { locallyEditedPinConversationIds.contains($0) } ?? false
+        pinDebugLog.info("[pin-debug] mergeConversationMetadata conv=\(conversation.conversationId ?? "nil", privacy: .public) hasLocalPinEdit=\(hasLocalPinEdit, privacy: .public) restored.isPinned=\(restored.isPinned, privacy: .public) conversation.isPinned=\(conversation.isPinned, privacy: .public)")
         if !hasLocalPinEdit {
             conversation.isPinned = restored.isPinned
             conversation.displayOrder = restored.displayOrder
