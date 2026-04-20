@@ -68,6 +68,18 @@ struct ContentView: View {
         .onChange(of: clientProvider.isConnected) { _, connected in
             if connected { connectPhase = .ready }
         }
+        // Re-attempt connect when the user finishes signing in mid-session.
+        // The initial connect in `.task` runs before `AuthManager` has a session token,
+        // so the health check returns `Not authenticated`. Without this observer the
+        // connection manager stays stale-disconnected until a background→foreground
+        // transition, and every `MessageSendCoordinator.sendUserMessage` buffers to the
+        // offline queue.
+        .onChange(of: authManager.isAuthenticated) { _, nowAuthenticated in
+            guard nowAuthenticated, !clientProvider.isConnected else { return }
+            Task { @MainActor in
+                try? await clientProvider.client.connect()
+            }
+        }
         // When rebuildClient() replaces the GatewayConnectionManager, re-bind the conversation store
         // to the new client so it doesn't keep targeting the old disconnected daemon.
         // ObjectIdentifier changes whenever the client object is replaced.
