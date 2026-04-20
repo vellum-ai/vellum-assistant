@@ -960,10 +960,11 @@ export async function runAgentLoopImpl(
 
     let currentInjectionMode: InjectionMode = "full";
 
-    runMessages = await applyRuntimeInjections(runMessages, {
+    const injection = await applyRuntimeInjections(runMessages, {
       ...injectionOpts,
       mode: currentInjectionMode,
     });
+    runMessages = injection.messages;
 
     // ── Preflight budget evaluation ──────────────────────────────
     // After runtime injections are applied, estimate the prompt token count
@@ -1081,7 +1082,7 @@ export async function runAgentLoopImpl(
         // When compaction ran it strips existing NOW.md / PKB blocks, so we
         // must re-inject the current content. Otherwise rely on the deduplicated
         // value from injectionOpts to avoid duplicate injection.
-        runMessages = await applyRuntimeInjections(ctx.messages, {
+        const injection = await applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
           ...(step.compactionResult?.compacted && {
             pkbContext: currentPkbContent,
@@ -1101,6 +1102,7 @@ export async function runAgentLoopImpl(
             : injectionOpts.slackChronologicalMessages,
           mode: currentInjectionMode,
         });
+        runMessages = injection.messages;
         if (isTrustedActor && currentInjectionMode !== "minimal") {
           const memResult = ctx.graphMemory.reinjectCachedMemory(runMessages);
           runMessages = memResult.runMessages;
@@ -1314,7 +1316,7 @@ export async function runAgentLoopImpl(
       // stripInjectionsForCompaction() unconditionally removed the existing
       // NOW.md block from ctx.messages above, so we must always re-inject
       // the current content regardless of whether compaction actually ran.
-      runMessages = await applyRuntimeInjections(ctx.messages, {
+      const injection = await applyRuntimeInjections(ctx.messages, {
         ...injectionOpts,
         pkbContext: currentPkbContent,
         nowScratchpad: currentNowContent,
@@ -1329,6 +1331,7 @@ export async function runAgentLoopImpl(
           : injectionOpts.slackChronologicalMessages,
         mode: currentInjectionMode,
       });
+      runMessages = injection.messages;
       if (isTrustedActor && currentInjectionMode !== "minimal") {
         ctx.graphMemory.retrackCachedNodes();
       }
@@ -1548,7 +1551,7 @@ export async function runAgentLoopImpl(
         // Only re-inject NOW.md when ctx.messages was actually stripped;
         // otherwise the existing NOW.md block is still present and
         // re-injecting would duplicate it.
-        runMessages = await applyRuntimeInjections(ctx.messages, {
+        const injection = await applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
           pkbContext: currentPkbContent,
           nowScratchpad: convergenceStripped ? currentNowContent : null,
@@ -1560,6 +1563,7 @@ export async function runAgentLoopImpl(
             : injectionOpts.slackChronologicalMessages,
           mode: currentInjectionMode,
         });
+        runMessages = injection.messages;
         if (isTrustedActor && currentInjectionMode !== "minimal") {
           ctx.graphMemory.retrackCachedNodes();
         }
@@ -1688,7 +1692,7 @@ export async function runAgentLoopImpl(
 
             // Only re-inject NOW.md when ctx.messages was actually stripped;
             // otherwise the existing block is still present.
-            runMessages = await applyRuntimeInjections(ctx.messages, {
+            const injection = await applyRuntimeInjections(ctx.messages, {
               ...injectionOpts,
               pkbContext: currentPkbContent,
               nowScratchpad: convergenceStripped ? currentNowContent : null,
@@ -1700,6 +1704,7 @@ export async function runAgentLoopImpl(
                 : injectionOpts.slackChronologicalMessages,
               mode: currentInjectionMode,
             });
+            runMessages = injection.messages;
             if (isTrustedActor && currentInjectionMode !== "minimal") {
               ctx.graphMemory.retrackCachedNodes();
             }
@@ -1824,7 +1829,7 @@ export async function runAgentLoopImpl(
 
           // Only re-inject NOW.md when ctx.messages was actually stripped;
           // otherwise the existing block is still present.
-          runMessages = await applyRuntimeInjections(ctx.messages, {
+          const injection = await applyRuntimeInjections(ctx.messages, {
             ...injectionOpts,
             pkbContext: currentPkbContent,
             nowScratchpad: convergenceStripped ? currentNowContent : null,
@@ -1836,6 +1841,7 @@ export async function runAgentLoopImpl(
               : injectionOpts.slackChronologicalMessages,
             mode: currentInjectionMode,
           });
+          runMessages = injection.messages;
           if (isTrustedActor && currentInjectionMode !== "minimal") {
             ctx.graphMemory.retrackCachedNodes();
           }

@@ -1713,10 +1713,26 @@ export function findLastInjectedNowContent(messages: Message[]): string | null {
 export type InjectionMode = "full" | "minimal";
 
 /**
+ * Per-turn injection bytes captured for later persistence to message
+ * metadata. Empty in this PR — later PRs capture `<turn_context>` and
+ * `<system_reminder>` bodies so they survive daemon restarts.
+ */
+export interface RuntimeInjectionBlocks {
+  unifiedTurnContext?: string;
+  pkbSystemReminder?: string;
+}
+
+export interface RuntimeInjectionResult {
+  messages: Message[];
+  blocks: RuntimeInjectionBlocks;
+}
+
+/**
  * Apply a chain of user-message injections to `runMessages`.
  *
  * Each injection is optional — pass `null`/`undefined` to skip it.
- * Returns the final message array ready for the provider.
+ * Returns the final message array ready for the provider, along with a
+ * `blocks` object reserved for captured injection bytes (currently empty).
  */
 export async function applyRuntimeInjections(
   runMessages: Message[],
@@ -1796,7 +1812,7 @@ export async function applyRuntimeInjections(
     slackActiveThreadFocusBlock?: string | null;
     mode?: InjectionMode;
   },
-): Promise<Message[]> {
+): Promise<RuntimeInjectionResult> {
   const mode = options.mode ?? "full";
   const slackChannel = isSlackChannelConversation(options.channelCapabilities);
   // Slack DMs and channels both assemble context from persisted message
@@ -2078,5 +2094,5 @@ export async function applyRuntimeInjections(
     }
   }
 
-  return result;
+  return { messages: result, blocks: {} };
 }

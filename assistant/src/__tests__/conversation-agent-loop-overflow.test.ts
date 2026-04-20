@@ -216,8 +216,10 @@ mock.module("../daemon/conversation-memory.js", () => ({
 
 let mockApplyRuntimeInjections: (msgs: Message[]) => Message[] = (msgs) => msgs;
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
-  applyRuntimeInjections: async (msgs: Message[]) =>
-    mockApplyRuntimeInjections(msgs),
+  applyRuntimeInjections: async (msgs: Message[]) => ({
+    messages: mockApplyRuntimeInjections(msgs),
+    blocks: {},
+  }),
   stripInjectionsForCompaction: (msgs: Message[]) => msgs,
   findLastInjectedNowContent: () => null,
   readNowScratchpad: () => null,
