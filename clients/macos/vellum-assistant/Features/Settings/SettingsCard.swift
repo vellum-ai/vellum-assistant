@@ -12,6 +12,17 @@ struct SettingsCard<Content: View, Accessory: View>: View {
     @ViewBuilder let content: () -> Content
 
     var body: some View {
+        if showBorder {
+            VCard {
+                cardContent
+            }
+        } else {
+            cardContent
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var cardContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -38,9 +49,7 @@ struct SettingsCard<Content: View, Accessory: View>: View {
             }
             content()
         }
-        .padding(showBorder ? VSpacing.lg : 0)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .modifier(ConditionalCardModifier(showBorder: showBorder))
     }
 }
 
@@ -58,18 +67,6 @@ extension SettingsCard where Accessory == EmptyView {
         self.showBorder = showBorder
         self.accessory = { EmptyView() }
         self.content = content
-    }
-}
-
-/// Conditionally applies vCard styling.
-private struct ConditionalCardModifier: ViewModifier {
-    let showBorder: Bool
-    func body(content: Content) -> some View {
-        if showBorder {
-            content.vCard(background: VColor.surfaceLift)
-        } else {
-            content
-        }
     }
 }
 
