@@ -6,6 +6,9 @@
  *   - Error when the provider is not configured (TTS_PROVIDER_NOT_CONFIGURED)
  *   - Generic synthesis failure (TTS_SYNTHESIS_FAILED)
  *   - Success case: writes audio to a temp file and prints its path
+ *   - Flexible input: positional args, stdin fallback, empty input rejection
+ *   - Option pass-through: --voice, --use-case, default, invalid use-case
+ *   - --json output for success and failure
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -26,6 +29,7 @@ let mockSynthesisResult: MockSynthesisResult = {
   contentType: "audio/mpeg",
 };
 let mockSynthesizeThrow: Error | null = null;
+let mockSynthesizeTextArg: string | undefined;
 let logErrorMessages: string[] = [];
 let writeFileCalls: Array<{ path: string; buffer: Buffer }> = [];
 let synthesizeCalls: Array<{
@@ -33,6 +37,10 @@ let synthesizeCalls: Array<{
   useCase: string;
   voiceId?: string;
 }> = [];
+let mkdirCalls: Array<{ path: string; options: unknown }> = [];
+let readFileSyncImpl: (path: string, encoding: string) => string = () => {
+  throw new Error("stdin unavailable");
+};
 
 // ---------------------------------------------------------------------------
 // Mocks — must be before module-under-test import
@@ -57,15 +65,16 @@ mock.module("../../../config/assistant-feature-flags.js", () => ({
 }));
 
 mock.module("../../../tts/synthesize-text.js", () => ({
-  synthesizeText: async (opts: {
+  synthesizeText: async (args: {
     text: string;
     useCase: string;
     voiceId?: string;
   }) => {
+    mockSynthesizeTextArg = args.text;
     synthesizeCalls.push({
-      text: opts.text,
-      useCase: opts.useCase,
-      voiceId: opts.voiceId,
+      text: args.text,
+      useCase: args.useCase,
+      voiceId: args.voiceId,
     });
     if (mockSynthesizeThrow) throw mockSynthesizeThrow;
     return mockSynthesisResult;
@@ -86,7 +95,11 @@ mock.module("../../../tts/providers/register-builtins.js", () => ({
 
 mock.module("node:fs", () => ({
   existsSync: () => true,
-  mkdirSync: () => {},
+  mkdirSync: (path: string, options: unknown) => {
+    mkdirCalls.push({ path, options });
+  },
+  readFileSync: (path: string, encoding: string) =>
+    readFileSyncImpl(path, encoding),
   writeFileSync: (path: string, buffer: Buffer) => {
     writeFileCalls.push({ path, buffer });
   },
@@ -166,9 +179,14 @@ beforeEach(() => {
     contentType: "audio/mpeg",
   };
   mockSynthesizeThrow = null;
+  mockSynthesizeTextArg = undefined;
   logErrorMessages = [];
   writeFileCalls = [];
   synthesizeCalls = [];
+  mkdirCalls = [];
+  readFileSyncImpl = () => {
+    throw new Error("stdin unavailable");
+  };
   process.exitCode = 0;
 });
 
@@ -257,6 +275,69 @@ describe("success cases", () => {
     expect(call.buffer.equals(Buffer.from("fake-audio"))).toBe(true);
 
     expect(stdout).toContain(call.path);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Flexible input
+// ---------------------------------------------------------------------------
+
+describe("flexible input", () => {
+  test("positional args are joined with spaces and passed as text", async () => {
+    const { exitCode } = await runCommand([
+      "tts",
+      "synthesize",
+      "hello",
+      "world",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(mockSynthesizeTextArg).toBe("hello world");
+    expect(writeFileCalls.length).toBe(1);
+  });
+
+  test("stdin fallback is used when no --text or positional arg is given", async () => {
+    readFileSyncImpl = (path: string) => {
+      if (path === "/dev/stdin") return "piped text\n";
+      throw new Error("unexpected readFileSync call");
+    };
+
+    const { exitCode } = await runCommand(["tts", "synthesize"]);
+
+    expect(exitCode).toBe(0);
+    expect(mockSynthesizeTextArg).toBe("piped text");
+  });
+
+  test("empty input from every channel exits 1 with actionable error", async () => {
+    readFileSyncImpl = () => {
+      throw new Error("stdin unavailable");
+    };
+
+    const { exitCode, stderr } = await runCommand(["tts", "synthesize"]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("No text provided");
+    expect(mockSynthesizeTextArg).toBeUndefined();
+    expect(writeFileCalls.length).toBe(0);
+  });
+
+  test("--output override writes to the given path and creates parent dir", async () => {
+    const { exitCode } = await runCommand([
+      "tts",
+      "synthesize",
+      "--text",
+      "hello",
+      "--output",
+      "/custom/path/out.mp3",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(writeFileCalls.length).toBe(1);
+    expect(writeFileCalls[0].path).toBe("/custom/path/out.mp3");
+
+    const mkdirForParent = mkdirCalls.find((c) => c.path === "/custom/path");
+    expect(mkdirForParent).toBeDefined();
+    expect(mkdirForParent?.options).toEqual({ recursive: true });
   });
 });
 

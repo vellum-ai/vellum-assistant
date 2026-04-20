@@ -6,7 +6,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -72,7 +72,8 @@ Built-in providers: elevenlabs, fish-audio, deepgram.
 
 Examples:
   $ assistant tts synthesize --text "hello world"
-  $ assistant tts synthesize --text "announcement"`,
+  $ assistant tts synthesize "spoken sentence"
+  $ echo "piped input" | assistant tts synthesize`,
   );
 
   // ── synthesize ──────────────────────────────────────────────────────
@@ -80,7 +81,14 @@ Examples:
   ttsCmd
     .command("synthesize")
     .description("Synthesize text to audio using the configured TTS provider")
-    .requiredOption("--text <text>", "Text to synthesize to audio")
+    .option(
+      "--text <text>",
+      "Text to synthesize to audio (alternative: pass as positional arg or pipe via stdin)",
+    )
+    .option(
+      "--output <path>",
+      "Path to write the audio file (defaults to system temp dir with auto-generated name)",
+    )
     .option(
       "--voice <id>",
       "Provider-specific voice identifier (ElevenLabs voiceId, Fish Audio referenceId, etc.) — overrides configured default",
@@ -91,36 +99,52 @@ Examples:
       "message-playback",
     )
     .option("--json", "Output structured JSON instead of plain file path")
+    .argument(
+      "[text...]",
+      "Text to synthesize (joined with spaces; alternative to --text or stdin)",
+    )
     .addHelpText(
       "after",
       `
-Arguments:
-  --text <text>       Text to synthesize to audio (required).
-  --voice <id>        Provider-specific voice identifier that overrides the
-                      configured default. Format depends on the provider
-                      (e.g. an ElevenLabs voiceId or a Fish Audio referenceId).
-  --use-case <case>   Synthesis use case — 'message-playback' (default,
-                      higher quality) or 'phone-call' (lower latency).
-  --json              Output a single-line JSON object on stdout instead of
-                      the plain file path. Errors are also emitted as JSON.
+Input modes (pick one):
+  --text <text>         Text to synthesize to audio.
+  [text...]             Positional argument(s) joined with spaces.
+  stdin                 Piped input when neither --text nor a positional is given.
 
-Writes the audio file to the system temp directory with a random name.
-The file extension is derived from the provider's returned MIME type
-(mp3 for ElevenLabs, wav for Deepgram/Fish Audio in WAV mode).
+Options:
+  --output <path>       Path to write the audio file. When omitted, a file is
+                        written to the system temp directory with a random
+                        name and the extension derived from the provider's
+                        returned MIME type (mp3 for ElevenLabs, wav for
+                        Deepgram/Fish Audio in WAV mode). Parent directories
+                        are created as needed.
+  --voice <id>          Provider-specific voice identifier that overrides the
+                        configured default. Format depends on the provider
+                        (e.g. an ElevenLabs voiceId or a Fish Audio referenceId).
+  --use-case <case>     Synthesis use case — 'message-playback' (default,
+                        higher quality) or 'phone-call' (lower latency).
+  --json                Output a single-line JSON object on stdout instead of
+                        the plain file path. Errors are also emitted as JSON.
 
 Examples:
   $ assistant tts synthesize --text "hello world"
+  $ assistant tts synthesize "spoken sentence" --output /tmp/out.mp3
+  $ echo "hello" | assistant tts synthesize
   $ assistant tts synthesize --text "hi" --voice <voice-id>
   $ assistant tts synthesize --text "hi" --use-case phone-call
   $ assistant tts synthesize --text "hi" --json`,
     )
     .action(
-      async (opts: {
-        text: string;
-        voice?: string;
-        useCase: string;
-        json?: boolean;
-      }) => {
+      async (
+        positionalParts: string[],
+        opts: {
+          text?: string;
+          output?: string;
+          voice?: string;
+          useCase: string;
+          json?: boolean;
+        },
+      ) => {
         const jsonOutput = opts.json ?? false;
 
         const emitError = (msg: string): void => {
@@ -132,6 +156,25 @@ Examples:
             log.error(msg);
           }
         };
+
+        // Resolve effective text from --text, positional args, or stdin.
+        let messageText =
+          opts.text ??
+          (positionalParts.length > 0 ? positionalParts.join(" ") : "");
+        if (!messageText) {
+          try {
+            messageText = readFileSync("/dev/stdin", "utf-8").trim();
+          } catch {
+            /* stdin unavailable */
+          }
+        }
+        if (!messageText) {
+          emitError(
+            "No text provided. Pass --text, a positional argument, or pipe via stdin.",
+          );
+          process.exitCode = 1;
+          return;
+        }
 
         // Validate --use-case
         if (!VALID_USE_CASES.includes(opts.useCase as TtsUseCase)) {
@@ -149,18 +192,22 @@ Examples:
 
         try {
           const result = await synthesizeText({
-            text: opts.text,
+            text: messageText,
             useCase,
             voiceId: opts.voice,
           });
 
-          const filePath = join(
-            tmpdir(),
-            `vellum-tts-${randomUUID()}.${extensionForMime(result.contentType)}`,
-          );
+          const filePath =
+            opts.output ??
+            join(
+              tmpdir(),
+              `vellum-tts-${randomUUID()}.${extensionForMime(result.contentType)}`,
+            );
 
           const dir = dirname(filePath);
-          if (!existsSync(dir)) {
+          if (opts.output) {
+            mkdirSync(dir, { recursive: true });
+          } else if (!existsSync(dir)) {
             mkdirSync(dir, { recursive: true });
           }
 
