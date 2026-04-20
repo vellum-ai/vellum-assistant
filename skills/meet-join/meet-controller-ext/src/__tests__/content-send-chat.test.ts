@@ -1,5 +1,5 @@
 /**
- * Unit tests for the content-script `handleSendChat` handler.
+ * Unit tests for the `handleSendChat` runtime tool-path handler.
  *
  * `handleSendChat` is the path Meet takes when the daemon routes a
  * `meet_send_chat` tool invocation through the extension. We need to
@@ -9,12 +9,15 @@
  * from inside `runJoinFlow`. Without those emits, Meet's `isTrusted`
  * gate silently swallows every post-admission send.
  *
- * `content.ts` runs extension-scoped side effects at import time
- * (`console.log(location.href)` and `chrome.runtime.onMessage.addListener`),
- * so we install a fake `chrome` + JSDOM globals before the dynamic import
- * below. The test then drives the `__handleSendChat` export directly and
- * inspects the `chrome.runtime.sendMessage` call log for the expected
- * event sequence.
+ * The handler and queue live in `handle-send-chat.ts` — separate from
+ * `content.ts` so the content-script entrypoint stays side-effect-only
+ * (Chrome loads MV3 content scripts as classic scripts; a stray
+ * `export` at the top level of `content.js` makes the whole bundle
+ * fail to parse at load time). Tests install a fake `chrome` + JSDOM
+ * globals before the dynamic import below so `sendChat`'s bare
+ * `document` / `chrome.runtime` references resolve to the fixture, then
+ * drive the exported handler directly and inspect the
+ * `chrome.runtime.sendMessage` call log for the expected event sequence.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -155,15 +158,14 @@ describe("handleSendChat (content-script meet_send_chat tool path)", () => {
 
   beforeEach(async () => {
     harness = installHarness();
-    // Dynamic import so the content-script side effects (addListener,
-    // location.href console.log) execute against the installed harness
-    // instead of the bare Bun runtime.
-    const mod = (await import("../content.js")) as {
-      __handleSendChat: typeof handleSendChat;
-      __enqueueSendChat: typeof enqueueSendChat;
+    // Dynamic import so `sendChat`'s module-scoped references to DOM
+    // globals resolve against the installed harness on first evaluation.
+    const mod = (await import("../handle-send-chat.js")) as {
+      handleSendChat: typeof handleSendChat;
+      enqueueSendChat: typeof enqueueSendChat;
     };
-    handleSendChat = mod.__handleSendChat;
-    enqueueSendChat = mod.__enqueueSendChat;
+    handleSendChat = mod.handleSendChat;
+    enqueueSendChat = mod.enqueueSendChat;
   });
 
   afterEach(() => {
