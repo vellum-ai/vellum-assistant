@@ -43,7 +43,7 @@ Each renderer is scored across five axes:
 | Renderer                        | Latency (expected)                                                                                                                                                                           | Fidelity                                                                                                                                                                                                                                 | Op. cost                                                                                                                                                              | Complexity                                                                                                                                                                                                                                                                  | Input (`capabilities`)                                                                                  |
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | **TalkingHead.js** (OSS, WebGL) | 80-200ms in-browser once the GLB is loaded; add <50ms for the native-messaging hop to the bot and JPEG→Y4M transcode. Playback-timestamp alignment (PR 9) pulls sustained drift under 150ms. | Good for "virtual assistant" aesthetics with Ready Player Me avatars. Blendshape-driven lips look clearly animated but are obviously stylized; no photorealism. Frame rate should hold at 24-30fps on a modern CPU with no GPU required. | $0 (runs in-process in a second Chrome tab opened by the extension). Memory: ~150-300 MB extra Chrome-tab RSS. CPU: 1 core at 30-50% sustained.                       | **Low-medium.** One second Chrome tab via `chrome.tabs.create`; frames captured with `canvas.captureStream` / `toBlob`; native-messaging round-trips for visemes-in, frames-out. No sidecar, no paid API, no GPU. Adds a JPEG→Y4M ffmpeg child on the bot side.             | `{ needsVisemes: true, needsAudio: true }` — visemes drive blendshapes; audio feeds amplitude fallback. |
-| **Simli** (hosted WebRTC)       | ~150-300ms end-to-end per vendor docs (audio upload → WebRTC video track back), dominated by their server-side inference. No PR 9 alignment needed.                                          | High. Photoreal-ish preset avatars; smoother lips than TalkingHead.js because motion is generated from audio server-side. Frame rate 25-30fps per their docs.                                                                            | Hosted, per-minute billing (mid single-digit $ / hr as of last public pricing — verify at integration time). External dependency on the Simli API; paid key required. | **Medium.** Second Chrome tab to host the WebRTC session; renderer pushes PCM through a data channel and captures the inbound video track via CDP `Media.startCapture` (or `chrome.desktopCapture`). No GPU, no sidecar, but adds a paid credential and network dependency. | `{ needsVisemes: false, needsAudio: true }` — audio only.                                               |
+| **Simli** (hosted WebRTC)       | ~150-300ms end-to-end per vendor docs (audio upload → WebRTC video track back), dominated by their server-side inference. No PR 9 alignment needed.                                          | High. Photoreal-ish preset avatars; smoother lips than TalkingHead.js because motion is generated from audio server-side. Frame rate 25-30fps per their docs.                                                                            | Hosted, per-minute billing (mid single-digit $ / hr as of last public pricing — verify at integration time). External dependency on the Simli API; paid key required. | **Medium.** Second Chrome tab to host the WebRTC session; renderer pushes PCM through a data channel. Inbound video track is attached to a `<video>` element, drawn onto a `<canvas>`, and captured via `canvas.captureStream()` → `toBlob` — the exact same in-page capture pipeline TalkingHead.js uses, so no CDP attachment is required (see "Capture constraint" below). No GPU, no sidecar, but adds a paid credential and network dependency. | `{ needsVisemes: false, needsAudio: true }` — audio only.                                               |
 | **HeyGen** (hosted WebRTC)      | ~200-400ms expected per their real-time streaming docs; similar shape to Simli.                                                                                                              | Very high. HeyGen's streaming avatars are the current state of the art for per-minute-priced hosted renderers.                                                                                                                           | Hosted, per-minute billing (roughly HeyGen's "Interactive Avatar" credits; tiered, currently expensive at volume). Paid API key; quota ceilings apply.                | **Medium**, identical to Simli's shape — second Chrome tab + WebRTC + paid credential.                                                                                                                                                                                      | `{ needsVisemes: false, needsAudio: true }`.                                                            |
 | **Tavus** (hosted WebRTC)       | ~250-500ms expected per their docs; they emphasize persona customization over raw latency.                                                                                                   | High. Good lip-sync; tuned for long-form conversational AI rather than burst-mode TTS, so audio chunking matters.                                                                                                                        | Hosted, per-minute billing, paid API key. Tiered pricing similar to HeyGen.                                                                                           | **Medium**, identical shape to Simli / HeyGen.                                                                                                                                                                                                                              | `{ needsVisemes: false, needsAudio: true }`.                                                            |
 | **SadTalker** (GPU sidecar)     | ~800-1500ms expected on a single modern NVIDIA GPU (T4 / L4 / 3060-class) — the model is batch-oriented and operates on full utterance chunks rather than streaming.                         | High for short-form utterances; can look uncanny on long ones. Frame rate is whatever the GPU produces, usually 15-25fps depending on resolution.                                                                                        | Self-hosted but requires an NVIDIA GPU. Container RAM: ~6-10 GB VRAM; CPU: 2 cores; a beefy GPU sidecar costs real money to run 24/7 if not sized per-meeting.        | **High.** Separate sidecar container launched by `MeetSessionManager` when the renderer is configured; HTTP streaming between bot and sidecar; Y4M frame transport. Reference portrait asset committed. Requires GPU host.                                                  | `{ needsVisemes: false, needsAudio: true }` — audio plus a static reference image.                      |
@@ -92,6 +92,45 @@ measurements, and a screen recording link will be added to the PR 5a
 description. The comparison-matrix numbers above are all labelled
 "expected" rather than "measured" to make that status explicit.
 
+## Capture constraint: no CDP, ever
+
+**Every renderer in this doc must capture frames without attaching the
+Chrome DevTools Protocol to the bot's Chrome process.** Google Meet's
+BotGuard detects CDP attachment and rejects the join before prejoin —
+the meet-bot launcher (`skills/meet-join/bot/src/browser/chrome-launcher.ts`)
+deliberately omits `--remote-debugging-port`, `--remote-debugging-pipe`,
+and `--enable-automation` for exactly this reason. Any integration PR
+that pulls frames via CDP (`Page.startScreencast`, `Media.startCapture`,
+etc.) will reintroduce those flags or an attached debugger and fail at
+BotGuard before a single participant sees the avatar.
+
+The allowed capture mechanisms, in order of preference, are:
+
+1. **In-page `captureStream()`** — the renderer's second Chrome tab
+   draws its output (WebGL canvas, `<video>` element bound to an
+   inbound WebRTC track, etc.) onto a `<canvas>`, then emits frames
+   via `canvas.captureStream()` + `toBlob` or `ImageCapture.grabFrame()`.
+   The frames cross into the bot process over the existing Chrome
+   Native Messaging channel the extension already owns — no CDP, no
+   debugger, no `chrome.desktopCapture` prompt. **This is the default
+   path for every renderer listed below.**
+2. **xvfb framebuffer grab via ffmpeg** — ffmpeg reads `-f x11grab` off
+   the same Xvfb display the bot already uses for Meet's own render,
+   cropped to the avatar-tab window geometry. Useful as a fallback if
+   a future hosted renderer only exposes frames through a DOM element
+   whose contents cannot be drawn to a canvas (e.g. DRM-protected
+   video tracks). No CDP involvement either way.
+3. **`chrome.tabCapture` extension API** — last-resort fallback for
+   renderers that cannot cooperate with `captureStream()`. Runs
+   entirely through the extension's permission surface and does not
+   attach CDP.
+
+`chrome.desktopCapture`, `Media.startCapture`, and any "attach a
+debugger and pull frames" shape are **out of scope** for every PR in
+this phase. An earlier draft of this doc suggested CDP-based capture
+for the hosted renderers; that guidance has been removed because it
+conflicts with the BotGuard constraint above.
+
 ## Per-renderer integration notes
 
 Each non-default renderer is a purely additive PR after PR 5 lands. The
@@ -138,9 +177,11 @@ backend's specifics.
   (`simli.apiKeyCredentialId`). Without a key, the renderer throws
   `AvatarRendererUnavailableError` at construction time.
 - **Unique moving parts:** a minimal local HTML page hosted inside a
-  second Chrome tab that establishes the Simli WebRTC session; CDP
-  `Media.startCapture` (or `chrome.desktopCapture`) to grab the
-  inbound video track; PCM pushed through the data channel.
+  second Chrome tab that establishes the Simli WebRTC session; the
+  inbound video track is attached to a hidden `<video>` element,
+  drawn onto a `<canvas>`, and captured via `canvas.captureStream()`
+  (see "Capture constraint" above — no CDP); PCM pushed through the
+  data channel.
 - **Notes:** ignores visemes; the server-side pipeline is audio-to-
   video end-to-end, so PR 9's alignment work is inert here.
 
