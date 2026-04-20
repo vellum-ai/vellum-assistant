@@ -71,6 +71,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
         case .display:
             return [
                 GalleryComponent("vCard", "VCard", keywords: ["card"], description: "Container with surface background, border, and configurable padding. Use .vCard() modifier for simple wrapping.", useInsteadOf: "Manual padding + background + cornerRadius"),
+                GalleryComponent("vAppCard", "VAppCard", keywords: ["app card", "app tile", "skill card"], description: "App-tile card with preview thumbnail, title, description, and a button row (Open / Pin / secondary icon). Matches the Figma App Card spec."),
 
                 GalleryComponent("vEmptyState", "VEmptyState", keywords: ["empty state"], description: "Centered placeholder with icon, title, subtitle, and optional action button for empty content areas."),
                 GalleryComponent("vDisclosureSection", "VDisclosureSection", keywords: ["disclosure", "collapsible"], description: "Full-row clickable disclosure with animated chevron. Replaces DisclosureGroup.", useInsteadOf: "Raw DisclosureGroup"),

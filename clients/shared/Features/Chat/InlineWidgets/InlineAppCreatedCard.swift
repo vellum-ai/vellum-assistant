@@ -2,7 +2,8 @@
 import SwiftUI
 
 /// Rich card shown inline in chat when a new app is created via `app_create`.
-/// Displays a preview image, icon + title + description, metrics, and action buttons.
+/// Wraps the shared `VAppCard` and adds the preview-capture + pin-state
+/// plumbing specific to the app-builder flow.
 struct InlineAppCreatedCard: View {
     let preview: DynamicPagePreview
     let appId: String?
@@ -13,72 +14,33 @@ struct InlineAppCreatedCard: View {
     let isToolCallComplete: Bool
     let onOpenApp: () -> Void
     var onTogglePin: ((_ isPinned: Bool) -> Void)?
+
     @State private var previewImage: String?
     @State private var isPinned: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            // Preview image
+        VAppCard(
+            title: preview.title,
+            description: preview.description ?? preview.subtitle,
+            icon: VAppIconGenerator.generate(from: preview.title, type: appId),
+            isPinned: isPinned,
+            isOpenDisabled: !isToolCallComplete,
+            pinLabel: "Pin to Nav",
+            onOpen: onOpenApp,
+            onPin: onTogglePin.map { handler in
+                { handler(isPinned) }
+            }
+        ) {
             if let base64 = previewImage,
                let data = Data(base64Encoded: base64),
                let nsImage = NSImage(data: data) {
                 Image(nsImage: nsImage)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .frame(height: 140)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            }
-
-            // Icon + title row
-            HStack(spacing: VSpacing.sm) {
-                if let icon = preview.icon {
-                    Text(icon)
-                        .font(.system(size: 14))
-                }
-
-                Text(preview.title)
-                    .font(VFont.bodyMediumEmphasised)
-                    .foregroundStyle(VColor.contentDefault)
-                    .lineLimit(2)
-            }
-
-            if let description = preview.description, !description.isEmpty {
-                Text(description)
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-                    .lineLimit(3)
-            }
-
-            if let metrics = preview.metrics, !metrics.isEmpty {
-                HStack(spacing: VSpacing.sm) {
-                    ForEach(Array(metrics.prefix(3).enumerated()), id: \.offset) { _, metric in
-                        metricPill(label: metric.label, value: metric.value)
-                    }
-                }
-            }
-
-            // Action buttons
-            HStack(spacing: VSpacing.sm) {
-                VButton(label: "Open App", leftIcon: VIcon.arrowUpRight.rawValue, style: .primary, isDisabled: !isToolCallComplete) {
-                    onOpenApp()
-                }
-
-                if let onTogglePin = onTogglePin {
-                    VButton(
-                        label: isPinned ? "Unpin" : "Pin to Nav",
-                        leftIcon: isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue,
-                        style: .outlined
-                    ) {
-                        onTogglePin(isPinned)
-                    }
-                }
-
-                Spacer()
+            } else {
+                VColor.surfaceActive
             }
         }
-        .padding(16)
-        .background(RoundedRectangle(cornerRadius: VRadius.lg).fill(VColor.surfaceOverlay))
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .onAppear {
             previewImage = preview.previewImage
             // Fallback request: fires ONLY for history-loaded surfaces where the
@@ -138,22 +100,6 @@ struct InlineAppCreatedCard: View {
                   let pinned = notification.userInfo?["isPinned"] as? Bool else { return }
             isPinned = pinned
         }
-    }
-
-    private func metricPill(label: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: VSpacing.xxs) {
-            Text(label)
-                .font(VFont.labelSmall)
-                .foregroundStyle(VColor.contentTertiary)
-            Text(value)
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentDefault)
-                .lineLimit(1)
-        }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
-        .background(VColor.surfaceOverlay)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
     }
 }
 #endif
