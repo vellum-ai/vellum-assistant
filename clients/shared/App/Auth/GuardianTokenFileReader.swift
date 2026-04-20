@@ -6,8 +6,8 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Guard
 /// Reads guardian tokens persisted by the CLI at
 /// `$XDG_CONFIG_HOME/vellum{-env}/assistants/<assistantId>/guardian-token.json`.
 ///
-/// During non-local hatches (Docker, GCP, AWS, etc.) the CLI bootstraps the
-/// guardian token via `POST /v1/guardian/init` and writes the result to disk.
+/// The CLI bootstraps the guardian token via `POST /v1/guardian/init` and
+/// writes the result to disk during Docker, GCP, AWS, and local hatches.
 /// The desktop app can import these credentials into `ActorTokenManager`
 /// instead of repeating the HTTP bootstrap (which may fail with 403 when the
 /// daemon is running inside a container).

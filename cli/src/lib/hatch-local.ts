@@ -141,6 +141,49 @@ function installCLISymlink(): void {
   );
 }
 
+/**
+ * Best-effort guardian-token lease with retry. The gateway may not accept
+ * local-loopback bootstrap requests for a short window after startup, so a
+ * single attempt from the hatch path is fragile. Failures here are logged
+ * loudly but not thrown — the hatch has already succeeded; this step just
+ * persists `guardian-token.json` for the desktop app's file-based recovery
+ * path. If all attempts fail, the user can still use the assistant; they
+ * will need to re-hatch if their in-memory token is later lost.
+ */
+async function leaseGuardianTokenWithRetry(
+  loopbackUrl: string,
+  instanceName: string,
+): Promise<void> {
+  const delaysMs = [2000, 4000, 8000];
+  const maxAttempts = delaysMs.length;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await leaseGuardianToken(loopbackUrl, instanceName);
+      return;
+    } catch (err) {
+      const isLast = attempt === maxAttempts;
+      const suffix = isLast
+        ? ""
+        : ` — retrying in ${delaysMs[attempt - 1]! / 1000}s`;
+      console.warn(
+        `⚠️  Guardian token lease attempt ${attempt}/${maxAttempts} failed: ${err}${suffix}`,
+      );
+      if (isLast) {
+        console.error(
+          "❌ Guardian token lease failed after all retries; guardian-token.json was not written.",
+        );
+        console.error(
+          "   The assistant is running, but if the desktop app loses its in-memory actor token it will not be able to recover from disk. Re-hatch this assistant to regenerate the file.",
+        );
+        return;
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, delaysMs[attempt - 1]),
+      );
+    }
+  }
+}
+
 export async function hatchLocal(
   species: Species,
   name: string | null,
@@ -305,11 +348,7 @@ export async function hatchLocal(
   // IP which the daemon rejects as non-loopback.
   emitProgress(6, 7, "Securing connection...");
   const loopbackUrl = `http://127.0.0.1:${resources.gatewayPort}`;
-  try {
-    await leaseGuardianToken(loopbackUrl, instanceName);
-  } catch (err) {
-    console.error(`⚠️  Guardian token lease failed: ${err}`);
-  }
+  await leaseGuardianTokenWithRetry(loopbackUrl, instanceName);
 
   // Auto-start ngrok if webhook integrations (e.g. Telegram, Twilio) are configured.
   // Set BASE_DATA_DIR so ngrok reads the correct instance config. Keep the
