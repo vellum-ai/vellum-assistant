@@ -1508,6 +1508,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     // Validates and persists an environment override. Pass
     // `environment: null` to clear the override and revert to the
     // build default.
+    //
+    // NOTE: This handler intentionally only persists the override — it
+    // does NOT disconnect or reconnect the active relay connection. The
+    // caller (popup) is responsible for orchestrating disconnect/reconnect
+    // after receiving the response if it wants the new environment to take
+    // effect immediately. `getCloudUrls()` is called fresh on each
+    // connect/reconnect cycle, so the persisted override is picked up
+    // automatically on the next connection without any additional plumbing.
     const rawEnv = message.environment;
     if (rawEnv === null || rawEnv === undefined) {
       // Clear override
