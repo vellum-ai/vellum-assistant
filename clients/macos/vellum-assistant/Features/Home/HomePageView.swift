@@ -102,8 +102,8 @@ struct HomePageView<DetailPanel: View>: View {
                     greeting: "Here's what's been going on",
                     onStartNewChat: onStartNewChat
                 ) {
-                    // Reuse the same avatar resolution HomeHeroView uses,
-                    // inlined so this view owns its own avatar rendering.
+                    // Inline avatar rendering so this view owns its own
+                    // avatar resolution without depending on other views.
                     greetingAvatar
                 }
                 .padding(.top, VSpacing.xxl)
@@ -150,9 +150,9 @@ struct HomePageView<DetailPanel: View>: View {
 
     // MARK: - Greeting avatar
 
-    /// Mirrors ``HomeHeroView.avatarView`` — inline instead of nested so
-    /// this view doesn't depend on HomeHeroView's internals. 40pt sizing
-    /// matches the Figma spec for the new greeting row.
+    /// Inline avatar rendering so this view doesn't depend on another
+    /// view's internals. 40pt sizing matches the Figma spec for the new
+    /// greeting row.
     @ViewBuilder
     private var greetingAvatar: some View {
         let appearance = AvatarAppearanceManager.shared
