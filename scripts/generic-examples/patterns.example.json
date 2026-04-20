@@ -1,0 +1,9 @@
+[
+  {
+    "name": "example-pattern",
+    "regex": "do-not-use-this-literal-string-anywhere",
+    "flags": "i",
+    "severity": "BLOCK",
+    "description": "placeholder — replace with your own patterns"
+  }
+]
