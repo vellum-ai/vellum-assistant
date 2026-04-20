@@ -682,10 +682,10 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
     }
 
     this.inactivityTimer = setTimeout(() => {
-      // Belt-and-suspenders guard. stop() clears this timer before the
-      // CLOSE_GRACE window starts, but a future refactor that re-arms
-      // or forgets to clear it must not resurrect the spurious-timeout
-      // bug where an intentional stop emits a timeout error event.
+      // Belt-and-suspenders guard: stop() clears this timer before the
+      // CLOSE_GRACE window starts, but if a future refactor re-arms it
+      // or forgets to clear it, this check prevents the inactivity
+      // callback from emitting a timeout error during an intentional stop.
       if (this.closed || this.stopping) return;
 
       log.warn("xAI realtime inactivity timeout");
