@@ -68,6 +68,10 @@ public final class AuthManager {
     }
 
     public func checkSession() async {
+        // Snapshot the prior state so cancellation can restore it instead
+        // of leaving the manager stuck in `.loading` — which would suppress
+        // both login and logout UI until another successful check ran.
+        let priorState = state
         state = .loading
         errorMessage = nil
 
@@ -78,7 +82,7 @@ public final class AuthManager {
 
         var lastError: Error?
         for attempt in 1...3 {
-            if Task.isCancelled { return }
+            if Task.isCancelled { state = priorState; return }
             do {
                 let response = try await authService.getSession(timeout: 10)
                 if response.status == 200, response.meta?.is_authenticated != false, let user = response.data?.user {
@@ -93,15 +97,15 @@ public final class AuthManager {
                 }
             } catch is CancellationError {
                 // Task was cancelled (app backgrounded, view dismissed, etc).
-                // Do not mutate state — the caller is tearing down or will
-                // re-invoke. Leaving state alone avoids spurious logout UI.
+                // Restore prior state so cancellation is invisible to UI.
+                state = priorState
                 return
             } catch {
                 lastError = error
                 log.warning("Session check attempt \(attempt)/3 failed: \(error.localizedDescription, privacy: .public)")
                 if attempt < 3 {
                     try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds between retries
-                    if Task.isCancelled { return }
+                    if Task.isCancelled { state = priorState; return }
                 }
             }
         }
