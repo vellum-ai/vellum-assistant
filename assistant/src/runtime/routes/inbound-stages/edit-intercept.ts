@@ -118,6 +118,31 @@ export async function handleEditIntercept(
   }
 
   if (original) {
+    const newContent = content ?? "";
+    // Short-circuit no-op edits: Slack fires `message_changed` for link
+    // unfurls and other decorations where the text is identical to the
+    // previous revision. Skipping the DB write here covers that case and
+    // also drops trivially-redundant edit webhooks. We only have the
+    // authoritative previous text once the original row is located, so
+    // this check lives after the lookup.
+    const existingRow = getMessageById(original.messageId);
+    if (existingRow && existingRow.content === newContent) {
+      log.debug(
+        {
+          assistantId,
+          sourceChannel,
+          sourceMessageId,
+          messageId: original.messageId,
+        },
+        "Edit text unchanged; skipping update",
+      );
+      return Response.json({
+        accepted: true,
+        duplicate: false,
+        noop: true,
+        eventId: editResult.eventId,
+      });
+    }
     if (sourceChannel === "slack") {
       // Slack edits stamp `slackMeta.editedAt` so the chronological
       // transcript renderer can surface the edited marker. The merge
@@ -127,10 +152,10 @@ export async function handleEditIntercept(
         messageId: original.messageId,
         conversationExternalId,
         sourceMessageId,
-        newContent: content ?? "",
+        newContent,
       });
     } else {
-      updateMessageContent(original.messageId, content ?? "");
+      updateMessageContent(original.messageId, newContent);
     }
     log.info(
       { assistantId, sourceMessageId, messageId: original.messageId },
@@ -226,7 +251,11 @@ function applySlackEditMetadata(params: {
 function safeParseRecord(raw: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(raw);
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed)
+    ) {
       return {};
     }
     return parsed as Record<string, unknown>;
