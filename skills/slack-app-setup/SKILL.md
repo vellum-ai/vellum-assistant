@@ -1,6 +1,6 @@
 ---
 name: slack-app-setup
-description: Connect a Slack app to the Vellum Assistant via Socket Mode with guided app creation and identity verification
+description: Connect a Slack app to the Vellum Assistant via Socket Mode with one-click app creation and identity verification
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "💬"
@@ -9,13 +9,11 @@ metadata:
     includes: ["guardian-verify-setup"]
 ---
 
-You are helping your user connect a Slack bot to the Vellum Assistant via Socket Mode. Walk through each step below.
+You are helping your user connect a Slack bot to the Vellum Assistant via Socket Mode.
 
 **Before starting, set expectations:** "We're creating a custom Slack app for your assistant — this gives you your own bot identity, avatar, and name in Slack. There are a few steps to get through, but most of it is automated."
 
 **CRITICAL: This skill contains exact commands to run. You MUST execute the bash commands as written — do NOT improvise, summarize, or "walk through manually." The manifest, scopes, and settings are precise. If you skip the bash command and show raw YAML/JSON instead, the manifest will be incomplete and setup will fail.**
-
-**CRITICAL: Follow these steps strictly in order. Do NOT combine steps or skip ahead.**
 
 ## Value Classification
 
@@ -56,11 +54,11 @@ Then branch on the state of `app_token` and `bot_token` first (those are the req
 
 Note: `user_token` is optional. Missing `user_token` is **not** blocking — setup is considered complete with just the app and bot tokens (bot-only visibility).
 
-## Step 1: Generate Manifest & Create Slack App
+## Step 1: Create Slack App (One-Click)
 
-Ask the user what they'd like to name their Slack bot and optionally provide a short description. Use their answers (or sensible defaults) to generate the manifest creation URL.
+Ask the user what they'd like to name their Slack bot and optionally provide a short description. Then generate the manifest creation URL.
 
-**MANDATORY — you MUST run the script below to build the manifest URL.** Do NOT write your own manifest. Do NOT show YAML or JSON to the user. Do NOT tell the user to paste a manifest. The script contains the complete, correct manifest with all required scopes, event subscriptions, and socket mode settings. Running it produces a single pre-filled URL that the user clicks to create the app with everything already configured.
+**MANDATORY — you MUST run the script below to build the manifest URL.** Do NOT write your own manifest. Do NOT show YAML or JSON to the user. Do NOT tell the user to paste a manifest. The script contains the complete, correct manifest with all required scopes, event subscriptions, OAuth redirect URL, and socket mode settings. Running it produces a single pre-filled URL that creates the app with everything configured.
 
 Run this `bash` command, replacing `<user_name>` and `<user_description>` with the user's chosen values:
 
@@ -73,62 +71,39 @@ bash {
 
 If a value contains a single quote, escape it as `'\''` (closes the quote, adds an escaped literal quote, reopens the quote).
 
-The command outputs a ready-to-click URL. **Present it as a markdown link** so the full URL renders as a single clickable element — e.g. `[Click here to create your Slack app](URL)`. Do NOT paste the raw URL as plain text — it is too long and will break across lines, preventing the user from clicking it. Tell them: "It's pre-configured with all the right permissions, events, and Socket Mode. Just select your workspace (Vellum) and click **Create**."
-
-**Important:** Use `JSON.stringify(manifest)` with no extra arguments — do NOT pass indentation (`JSON.stringify(manifest, null, 2)`) as that adds newlines and spaces that bloat the encoded URL.
+The command outputs a ready-to-click URL. **Present it as a markdown link** so the full URL renders as a single clickable element — e.g. `[Click here to create your Slack app](URL)`. Do NOT paste the raw URL as plain text — it is too long and will break across lines, preventing the user from clicking it. Tell them: "Click the link, select your workspace, and click **Create**. All permissions, events, Socket Mode, and the OAuth redirect URL are pre-configured."
 
 Wait for the user to confirm they've created the app before proceeding.
 
-## Step 2: Add Redirect URL
+## Step 2: Collect Credentials & Install via OAuth
 
-**Do NOT skip this step.** The redirect URL is required for the OAuth install in Step 3d to work.
+Now collect three values from the app's **Basic Information** page, then automate the rest via OAuth.
 
-After creating the app, tell the user to navigate to **OAuth & Permissions** in the sidebar, then scroll to **Redirect URLs** and:
+### Step 2a: App Token
 
-1. Click **Add New Redirect URL**
-2. Enter: `http://localhost:17322/oauth/callback`
-3. Click **Add**, then click **Save URLs**
+The app token does not exist yet — the user must generate it. Tell the user: on the Basic Information page, scroll to **App-Level Tokens**, click **Generate Token and Scopes**, name it "Socket Mode", add scope `connections:write`, and click **Generate**. Copy the token (starts with `xapp-`).
 
-This enables the automated OAuth install in Step 3. Wait for the user to confirm before proceeding.
-
-## Step 3: Collect Credentials & Install via OAuth
-
-**CRITICAL — this step has sub-steps that MUST be done sequentially. Do NOT parallelize or skip ahead.** Each sub-step requires the user to perform an action in the Slack UI, then you collect the result. Walk the user through each action explicitly before prompting for the value.
-
-The user should navigate back to **Basic Information**. We need three values from this page, then we'll automate the rest.
-
-### Step 3a: App Token
-
-**First, guide the user to CREATE the token.** The app token does not exist yet — the user must generate it. Tell the user to scroll to **App-Level Tokens** on the Basic Information page, then:
-
-1. Click **Generate Token and Scopes**
-2. Token name: "Socket Mode" (or any name they prefer)
-3. Add scope: `connections:write`
-4. Click **Generate**
-
-Tell the user to copy the token that appears (starts with `xapp-`). **Wait for the user to confirm they've generated it**, then collect it securely:
+Then collect it securely:
 
 - Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "app_token"`, `label: "App-Level Token"`, `placeholder: "xapp-..."`, `description: "Paste the App-Level Token you just generated"`
 
-If it succeeds, continue. If it returns an error, ask the user to re-enter the token.
-
-### Step 3b: Client ID
+### Step 2b: Client ID
 
 Tell the user to scroll to **App Credentials** on the same Basic Information page. The Client ID is displayed there.
 
 - Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "client_id"`, `label: "Client ID"`, `description: "From Basic Information > App Credentials"`
 
-### Step 3c: Client Secret
+### Step 2c: Client Secret
 
 The Client Secret is right below the Client ID on the same page (the user may need to click "Show" to reveal it).
 
 - Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "client_secret"`, `label: "Client Secret"`, `placeholder: "starts with a long alphanumeric string"`, `description: "From Basic Information > App Credentials (click Show to reveal)"`
 
-### Step 3d: Run OAuth Install
+### Step 2d: Run OAuth Install
 
 Now that all three credentials are stored, trigger the automated OAuth install. This opens the user's browser to Slack's authorization page — they just click **Allow**.
 
-Tell the user: "Opening your browser now — just select your workspace and click **Allow** to install the app."
+Tell the user: "Opening your browser now — just click **Allow** to install the app."
 
 Then call the OAuth install endpoint via the gateway:
 
@@ -144,23 +119,13 @@ This endpoint reads the stored Client ID and Client Secret, opens a browser to S
 
 Parse the JSON response:
 
-- If `success: true` — bot and user tokens were captured and stored automatically. Continue to Step 4.
+- If `success: true` — bot and user tokens were captured and stored automatically. Continue to Step 3.
 - If `success: false` — show the `error` field and troubleshoot. Common issues:
-  - "Client ID not found" / "Client Secret not found" — re-collect the missing credential via Step 3b/3c.
-  - "OAuth flow failed: OAuth2 loopback callback timed out" — the user didn't complete authorization in time. Re-run Step 3d.
+  - "Client ID not found" / "Client Secret not found" — re-collect the missing credential via Step 2b/2c.
+  - "OAuth flow failed: OAuth2 loopback callback timed out" — the user didn't complete authorization in time. Re-run Step 2d.
   - "OAuth flow failed: OAuth2 authorization denied" — the user clicked Cancel or the workspace requires admin approval.
 
-After the OAuth install succeeds, show the user their setup progress:
-
-"Setup progress:
-✅ App created
-✅ Tokens configured (bot + user tokens captured automatically)
-✅ Connection active
-⬜ Connection tested
-
-Almost there — let's do a quick test!"
-
-## Step 4: Test Your Connection
+## Step 3: Test Your Connection
 
 Now let's test the connection by verifying the user can receive messages from the bot. This confirms everything works and links the user's Slack identity for future message delivery.
 
@@ -168,9 +133,9 @@ Load the **guardian-verify-setup** skill:
 
 - Call `skill_load` with `skill: "guardian-verify-setup"`.
 
-If the user explicitly wants to skip this step, proceed to Step 5, but let them know they can always verify later by saying "verify me on slack".
+If the user explicitly wants to skip this step, proceed to Step 4, but let them know they can always verify later by saying "verify me on slack".
 
-## Step 5: Report Success
+## Step 4: Report Success
 
 Summarize with the completed checklist.
 
@@ -225,10 +190,10 @@ Verify that `message.channels` event subscription is enabled in your Slack app s
 
 ### OAuth install failed
 
-If the OAuth flow fails or times out, re-run Step 3d. Ensure:
+If the OAuth flow fails or times out, re-run Step 2d. Ensure:
 
 - The Client ID and Client Secret are correct (re-collect via credential_store if unsure)
-- The Slack app has `http://localhost:17322/oauth/callback` in its OAuth redirect URLs (added in Step 2)
+- The Slack app has `http://localhost:17322/oauth/callback` in its OAuth redirect URLs (pre-configured by the manifest)
 - No other process is using port 17322
 
 ## Implementation Rules
@@ -237,7 +202,6 @@ If the OAuth flow fails or times out, re-run Step 3d. Ensure:
 - **Do NOT skip the script in Step 1.** You must run it to generate the pre-filled URL. The user should never have to paste a manifest — they click a link.
 - App Token, Client ID, and Client Secret collection goes through `credential_store` prompts. Do NOT use `ui_show`, `ui_update`, `assistant credentials reveal`, or other mechanisms. Do NOT ask the user to paste them in chat — always use the secure credential prompt.
 - Bot Token and User Token are captured automatically by the OAuth install flow. Do NOT ask the user to copy-paste these tokens.
-- **Do NOT combine multiple steps into a single message.** Each step must be its own turn in the conversation. Wait for the user to confirm completion before moving on.
 - **Do NOT tell the user to manually copy the bot token.** The OAuth flow captures it automatically.
 
 ## Clearing Credentials

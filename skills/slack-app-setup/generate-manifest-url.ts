@@ -34,6 +34,7 @@ const manifest = {
     },
   },
   oauth_config: {
+    redirect_urls: ["http://localhost:17322/oauth/callback"],
     scopes: {
       bot: [
         "app_mentions:read",
