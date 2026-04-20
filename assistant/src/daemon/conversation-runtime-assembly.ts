@@ -1209,9 +1209,9 @@ export function stripTransportHints(messages: Message[]): Message[] {
  * The gateway normalizer sets `chatType: "channel"` for every non-DM Slack
  * conversation (public, private, and mpim alike — see
  * `gateway/src/slack/normalize.ts`) and omits the field entirely for DMs.
- * We therefore accept on `chatType === "channel"` rather than negating
- * against `"im"` — the prior `!== "im"` check incorrectly classified DMs
- * (where the gateway-omitted field is `undefined`) as channels.
+ * We therefore accept only `chatType === "channel"` — when the gateway
+ * omits `chatType` (as it does for DMs), the check correctly returns
+ * `false`.
  *
  * The chronological-transcript override applies to ALL Slack
  * conversations (channels and DMs) — gate that on
@@ -1585,8 +1585,7 @@ export function assembleSlackActiveThreadFocusBlock(
   // DMs do not have threads, so the focus block is always a no-op.
   // The gateway sets `chatType: "channel"` for every non-DM Slack
   // conversation and omits the field for DMs, so gate the focus block
-  // on the positive match rather than negating against `"im"` (which
-  // leaks through when `chatType` is `undefined`).
+  // on the positive `"channel"` match.
   if (capabilities.chatType !== "channel") return null;
   const renderable = rows.map(rowToRenderable);
   const activeThreadTs = detectActiveThreadTs(renderable);

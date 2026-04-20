@@ -972,6 +972,9 @@ export async function runAgentLoopImpl(
 
     const injection = await applyRuntimeInjections(runMessages, {
       ...injectionOpts,
+      slackChronologicalMessages: reducerCompacted
+        ? null
+        : injectionOpts.slackChronologicalMessages,
       mode: currentInjectionMode,
     });
     runMessages = injection.messages;
