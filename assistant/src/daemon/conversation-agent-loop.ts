@@ -1088,7 +1088,6 @@ export async function runAgentLoopImpl(
         // loop would never converge.
         runMessages = await applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
-          slackChronologicalMessages: null,
           ...(step.compactionResult?.compacted && {
             pkbContext: currentPkbContent,
           }),
@@ -1324,7 +1323,6 @@ export async function runAgentLoopImpl(
       // reducer loop above for the rationale.
       runMessages = await applyRuntimeInjections(ctx.messages, {
         ...injectionOpts,
-        slackChronologicalMessages: null,
         pkbContext: currentPkbContent,
         nowScratchpad: currentNowContent,
         workspaceTopLevelContext: shouldInjectWorkspace
@@ -1560,7 +1558,6 @@ export async function runAgentLoopImpl(
         // override — the reducer has already shaped ctx.messages.
         runMessages = await applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
-          slackChronologicalMessages: null,
           pkbContext: currentPkbContent,
           nowScratchpad: convergenceStripped ? currentNowContent : null,
           workspaceTopLevelContext: shouldInjectWorkspace
@@ -1703,7 +1700,6 @@ export async function runAgentLoopImpl(
             // shaped ctx.messages.
             runMessages = await applyRuntimeInjections(ctx.messages, {
               ...injectionOpts,
-              slackChronologicalMessages: null,
               pkbContext: currentPkbContent,
               nowScratchpad: convergenceStripped ? currentNowContent : null,
               workspaceTopLevelContext: shouldInjectWorkspace
@@ -1842,7 +1838,6 @@ export async function runAgentLoopImpl(
           // ctx.messages.
           runMessages = await applyRuntimeInjections(ctx.messages, {
             ...injectionOpts,
-            slackChronologicalMessages: null,
             pkbContext: currentPkbContent,
             nowScratchpad: convergenceStripped ? currentNowContent : null,
             workspaceTopLevelContext: shouldInjectWorkspace
