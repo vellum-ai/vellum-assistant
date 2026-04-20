@@ -167,7 +167,7 @@ describe("enableCamera", () => {
     expect(isCameraOn()).toBe(true);
   });
 
-  test("emits a trusted_click with computed screen coords before clicking", async () => {
+  test("emits a trusted_click with computed screen coords and skips the JS click fallback when onEvent is wired", async () => {
     installed!.setCameraState(false);
 
     // Stub the toggle's getBoundingClientRect so the coordinate math is
@@ -193,15 +193,17 @@ describe("enableCamera", () => {
       }) as DOMRect;
 
     const events: ExtensionToBotMessage[] = [];
-    // Record the trusted_click emit against the JS click fallback so the
-    // ordering assertion has something to compare.
-    const callOrder: string[] = [];
-    toggle.addEventListener("click", () => callOrder.push("js-click"));
+    // Because the camera toggle inverts state on every accepted click, the
+    // production path fires trusted_click ONLY (no JS `.click()` fallback).
+    // Simulate xdotool landing the X-server click by flipping aria-label
+    // from the onEvent sink — same state transition Meet would publish on a
+    // real trusted click.
+    const clicksBeforeEmit = installed!.clicks();
 
     const result = await enableCamera({
       onEvent: (ev) => {
         events.push(ev);
-        if (ev.type === "trusted_click") callOrder.push("trusted-click");
+        if (ev.type === "trusted_click") installed!.setCameraState(true);
       },
       // chrome = outerHeight - innerHeight = 100; screen origin = (0, 0).
       // Expected: x = 800 + 30 = 830, y = 100 + 680 + 20 = 800.
@@ -223,10 +225,9 @@ describe("enableCamera", () => {
     expect(trustedClicks[0]!.x).toBe(830);
     expect(trustedClicks[0]!.y).toBe(800);
 
-    // trusted_click emits BEFORE the JS click fallback — so the bot will
-    // have dispatched the real xdotool click by the time the fallback
-    // runs, mirroring `features/chat.ts`.
-    expect(callOrder).toEqual(["trusted-click", "js-click"]);
+    // No JS `.click()` was dispatched — trusted_click is the only path in
+    // production, and a second click would invert the toggle back off.
+    expect(installed!.clicks()).toBe(clicksBeforeEmit);
   });
 
   test("throws a descriptive error when the toggle is missing", async () => {

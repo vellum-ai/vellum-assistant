@@ -33,9 +33,13 @@
  *      keeps the feature modules symmetric.
  *
  * We therefore emit a `trusted_click` over native messaging with the
- * button's computed screen coordinates, then also call the JS `.click()`
- * fallback so the jsdom test harness exercises a real click path and any
- * Meet build that ever relaxes the `isTrusted` gate continues to work.
+ * button's computed screen coordinates when an `onEvent` sink is wired,
+ * and fall back to a JS `.click()` ONLY when `onEvent` is absent (jsdom
+ * unit tests that don't stand up the native-messaging bridge). We cannot
+ * do both per attempt because the camera toggle is a stateful flip —
+ * unlike chat-send or panel-open, each accepted click inverts the state,
+ * so if Meet ever relaxes the `isTrusted` gate and both clicks land the
+ * toggle inverts twice per attempt and settles in the wrong state.
  *
  * ## Polling confirmation
  *
@@ -191,6 +195,7 @@ async function toggleCameraTo(
   // the assumptions about screenX/Y, chrome offsets, and DPI. Production
   // Xvfb pins the window to (0,0) with no bottom chrome, so the
   // `outerHeight - innerHeight` delta is the top chrome offset.
+  let trustedClickEmitted = false;
   if (opts.onEvent) {
     try {
       const rect = toggle.getBoundingClientRect();
@@ -210,18 +215,27 @@ async function toggleCameraTo(
           rect.height / 2,
       );
       opts.onEvent({ type: "trusted_click", x: screenX, y: screenY });
+      trustedClickEmitted = true;
     } catch {
-      // If the rect or window shape is bogus, fall through to the JS click
-      // fallback rather than swallowing the whole toggle attempt.
+      // If the rect or window shape is bogus, or the sink throws, fall
+      // through to the JS click fallback rather than swallowing the whole
+      // toggle attempt.
     }
   }
 
-  try {
-    toggle.click();
-  } catch {
-    // `.click()` can fail if the button is detached mid-flight; fall
-    // through to the poll — if the trusted_click also failed to produce a
-    // state transition, we'll time out below with a descriptive error.
+  // Only click as a fallback when trusted_click did not fire. The camera
+  // toggle inverts state on every accepted click, so firing both paths
+  // would flip twice if Meet's isTrusted gate is ever relaxed. If the
+  // trusted_click is dropped (e.g. xdotool crashes mid-emit), we'll time
+  // out below with a descriptive error rather than second-guessing the
+  // bridge here.
+  if (!trustedClickEmitted) {
+    try {
+      toggle.click();
+    } catch {
+      // `.click()` can fail if the button is detached mid-flight; fall
+      // through to the poll — we'll time out below with a descriptive error.
+    }
   }
 
   // Poll the aria-state for the post-click transition. Shared between
