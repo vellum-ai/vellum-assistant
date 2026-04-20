@@ -119,6 +119,13 @@ let currentAuthProfile: AssistantAuthProfile | null = null;
 let currentHealthState: ConnectionHealthState = 'paused';
 let currentDebugDetails: string | null = null;
 
+// ── Current environment state ───────────────────────────────────────
+//
+// Tracks the build-default environment so the change handler can
+// detect when the user re-selects the default and clear the override.
+
+let currentBuildDefaultEnvironment: string | undefined;
+
 // ── Connection phase management ─────────────────────────────────────
 
 /**
@@ -800,6 +807,8 @@ function loadEnvironmentState(): void {
   chrome.runtime.sendMessage({ type: 'environment-get' }, (response: EnvironmentStateResponse) => {
     if (chrome.runtime.lastError || !response?.ok) return;
 
+    currentBuildDefaultEnvironment = response.buildDefaultEnvironment;
+
     const effective = response.effectiveEnvironment ?? 'dev';
     environmentSelect.value = effective;
     environmentHint.textContent = deriveEnvironmentHint(
@@ -826,10 +835,16 @@ environmentSelect.addEventListener('change', async () => {
   errorText.style.display = 'none';
   hideDebugDetails();
 
+  // When the user selects the build-default environment, clear the
+  // override so future bundle updates can change the default without
+  // the user staying pinned to a stale value.
+  const isDefault = currentBuildDefaultEnvironment != null && newEnv === currentBuildDefaultEnvironment;
+  const overrideValue = isDefault ? null : newEnv;
+
   // Persist the environment override via the worker.
   const response = await new Promise<EnvironmentStateResponse>((resolve) => {
     chrome.runtime.sendMessage(
-      { type: 'environment-set', environment: newEnv },
+      { type: 'environment-set', environment: overrideValue },
       (r: EnvironmentStateResponse) => {
         if (chrome.runtime.lastError) {
           resolve({ ok: false, error: chrome.runtime.lastError.message ?? 'Unknown error' });
