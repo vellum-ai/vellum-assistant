@@ -412,6 +412,38 @@ describe("subcommand resolution", () => {
     });
     expect(result.riskLevel).toBe("high");
   });
+
+  test("gh --repo owner/repo pr merge 123 → high (resolves past --repo value flag)", async () => {
+    const result = await classifier.classify({
+      command: "gh --repo owner/repo pr merge 123",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("docker --host tcp://remote:2375 rm container1 → high (resolves past --host value flag)", async () => {
+    const result = await classifier.classify({
+      command: "docker --host tcp://remote:2375 rm container1",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("npm --prefix /some/path test → high (resolves past --prefix value flag)", async () => {
+    const result = await classifier.classify({
+      command: "npm --prefix /some/path test",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("gh pr view 123 → low (no global flags, still works)", async () => {
+    const result = await classifier.classify({
+      command: "gh pr view 123",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
 });
 
 // ── Wrapper unwrapping ───────────────────────────────────────────────────────

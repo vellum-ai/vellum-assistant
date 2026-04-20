@@ -254,6 +254,15 @@ export const DEFAULT_COMMAND_REGISTRY = {
   // Divergences are noted inline.
   git: {
     baseRisk: "medium",
+    globalValueFlags: [
+      "-C",
+      "-c",
+      "--git-dir",
+      "--work-tree",
+      "--namespace",
+      "--super-prefix",
+      "--config-env",
+    ],
     subcommands: {
       // LOW_RISK_GIT_SUBCOMMANDS from checker.ts:
       status: { baseRisk: "low" },
@@ -348,6 +357,7 @@ export const DEFAULT_COMMAND_REGISTRY = {
   // they download and execute code, with subcommand-level overrides.
   npm: {
     baseRisk: "medium",
+    globalValueFlags: ["--prefix", "--userconfig", "--globalconfig", "--cache"],
     subcommands: {
       ls: { baseRisk: "low" },
       list: { baseRisk: "low" },
@@ -521,6 +531,15 @@ export const DEFAULT_COMMAND_REGISTRY = {
   // ── Docker ─────────────────────────────────────────────────────────────────
   docker: {
     baseRisk: "medium",
+    globalValueFlags: [
+      "--host",
+      "-H",
+      "--config",
+      "--context",
+      "-c",
+      "--log-level",
+      "-l",
+    ],
     subcommands: {
       ps: { baseRisk: "low" },
       images: { baseRisk: "low" },
@@ -719,6 +738,7 @@ export const DEFAULT_COMMAND_REGISTRY = {
   // ── Version control tools ──────────────────────────────────────────────────
   gh: {
     baseRisk: "low",
+    globalValueFlags: ["--repo", "-R"],
     subcommands: {
       pr: {
         baseRisk: "low",
