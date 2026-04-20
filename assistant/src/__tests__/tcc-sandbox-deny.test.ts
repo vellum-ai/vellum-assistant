@@ -108,6 +108,35 @@ describe("macOS TCC sandbox deny rules", () => {
       }
     });
 
+    test("working directory under TCC path gets file-read re-allowed", async () => {
+      const { NativeBackend } =
+        await import("../tools/terminal/backends/native.js");
+      const backend = new NativeBackend();
+      const home = process.env.HOME ?? "";
+      const workDir = join(home, "Documents", "my-project");
+      const result = backend.wrap("true", workDir, {
+        networkMode: "off",
+      });
+
+      const profilePath = result.args[1]!;
+      profilePaths.push(profilePath);
+      const profile = readFileSync(profilePath, "utf-8");
+
+      // The deny rule for Documents should still be present
+      expect(profile).toContain(
+        `(deny file-read* (subpath "${join(home, "Documents")}") (with no-log))`,
+      );
+
+      // But the working directory should have a file-read allow AFTER the deny
+      const denyIdx = profile.indexOf(
+        `(deny file-read* (subpath "${join(home, "Documents")}")`,
+      );
+      const allowWorkDirIdx = profile.indexOf(
+        `(allow file-read* (subpath "${workDir}"))`,
+      );
+      expect(allowWorkDirIdx).toBeGreaterThan(denyIdx);
+    });
+
     test("paths with spaces are handled correctly", async () => {
       const { NativeBackend } =
         await import("../tools/terminal/backends/native.js");
