@@ -124,6 +124,9 @@ mock.module("../hooks/manager.js", () => ({
   }),
 }));
 
+const updateMessageMetadataMock = mock(
+  (_id: string, _updates: Record<string, unknown>) => {},
+);
 mock.module("../memory/conversation-crud.js", () => ({
   getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
@@ -150,6 +153,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOriginChannel: () => null,
   getMessageById: () => null,
   getLastUserTimestampBefore: () => 0,
+  updateMessageMetadata: updateMessageMetadataMock,
 }));
 
 const syncMessageToDiskMock = mock(() => {});
@@ -206,11 +210,16 @@ mock.module("../daemon/conversation-memory.js", () => ({
   }),
 }));
 
+let mockInjectionBlocks: {
+  pkbSystemReminder?: string;
+  unifiedTurnContext?: string;
+} = {};
+const applyRuntimeInjectionsMock = mock(async (msgs: Message[]) => ({
+  messages: msgs,
+  blocks: { ...mockInjectionBlocks },
+}));
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
-  applyRuntimeInjections: async (msgs: Message[]) => ({
-    messages: msgs,
-    blocks: {},
-  }),
+  applyRuntimeInjections: applyRuntimeInjectionsMock,
   stripInjectionsForCompaction: (msgs: Message[]) => msgs,
   findLastInjectedNowContent: () => null,
   readNowScratchpad: () => null,
@@ -502,6 +511,9 @@ beforeEach(() => {
   recordRequestLogMock.mockClear();
   syncMessageToDiskMock.mockClear();
   rebuildConversationDiskViewFromDbStateMock.mockClear();
+  updateMessageMetadataMock.mockClear();
+  applyRuntimeInjectionsMock.mockClear();
+  mockInjectionBlocks = {};
 });
 
 describe("session-agent-loop", () => {
@@ -2153,6 +2165,83 @@ describe("session-agent-loop", () => {
         (e) => e.type === "conversation_error",
       );
       expect(conversationErrors.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe("pkbSystemReminderBlock metadata persistence", () => {
+    test("persists pkbSystemReminderBlock in full mode with PKB active", async () => {
+      const reminder = "<system_reminder>\npkb content\n</system_reminder>";
+      mockInjectionBlocks = { pkbSystemReminder: reminder };
+      const ctx = makeCtx();
+
+      await runAgentLoopImpl(ctx, "hello", "user-msg-1", () => {});
+
+      const pkbCalls = updateMessageMetadataMock.mock.calls.filter(
+        (call) =>
+          (call[1] as Record<string, unknown>).pkbSystemReminderBlock !==
+          undefined,
+      );
+      expect(pkbCalls.length).toBe(1);
+      expect(pkbCalls[0][0]).toBe("user-msg-1");
+      expect(
+        (pkbCalls[0][1] as Record<string, unknown>).pkbSystemReminderBlock,
+      ).toBe(reminder);
+    });
+
+    test("skips persistence when pkbSystemReminder is absent (minimal mode or PKB inactive)", async () => {
+      mockInjectionBlocks = {}; // no pkbSystemReminder key
+      const ctx = makeCtx();
+
+      await runAgentLoopImpl(ctx, "hello", "user-msg-2", () => {});
+
+      const pkbCalls = updateMessageMetadataMock.mock.calls.filter(
+        (call) =>
+          (call[1] as Record<string, unknown>).pkbSystemReminderBlock !==
+          undefined,
+      );
+      expect(pkbCalls.length).toBe(0);
+    });
+
+    test("does not propagate errors when updateMessageMetadata throws", async () => {
+      mockInjectionBlocks = {
+        pkbSystemReminder: "<system_reminder>\nboom\n</system_reminder>",
+      };
+      updateMessageMetadataMock.mockImplementationOnce(() => {
+        throw new Error("db write failed");
+      });
+      const ctx = makeCtx();
+
+      // Must not throw — the persist block wraps writes in try/catch.
+      await expect(
+        runAgentLoopImpl(ctx, "hello", "user-msg-3", () => {}),
+      ).resolves.toBeUndefined();
+    });
+
+    test("coexists with turnContextBlock write as independent calls", async () => {
+      // If PR 5 landed, both blocks will be persisted by separate calls.
+      // This test asserts the pkbSystemReminderBlock write is independent
+      // (keyed on its own call site) so merging with turnContextBlock is
+      // never required for correctness.
+      const reminder = "<system_reminder>\npkb\n</system_reminder>";
+      const turnContext = "<turn_context>\nnow\n</turn_context>";
+      mockInjectionBlocks = {
+        pkbSystemReminder: reminder,
+        unifiedTurnContext: turnContext,
+      };
+      const ctx = makeCtx();
+
+      await runAgentLoopImpl(ctx, "hello", "user-msg-4", () => {});
+
+      const pkbCalls = updateMessageMetadataMock.mock.calls.filter(
+        (call) =>
+          (call[1] as Record<string, unknown>).pkbSystemReminderBlock !==
+          undefined,
+      );
+      expect(pkbCalls.length).toBe(1);
+      expect(pkbCalls[0][0]).toBe("user-msg-4");
+      expect(
+        (pkbCalls[0][1] as Record<string, unknown>).pkbSystemReminderBlock,
+      ).toBe(reminder);
     });
   });
 });
