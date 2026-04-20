@@ -122,6 +122,7 @@ import {
   type MeetTtsBridgeDeps,
   MeetTtsCancelledError,
   type SpeakInput,
+  type VisemeListener,
 } from "./tts-bridge.js";
 import {
   startTtsLipsync,
@@ -457,14 +458,22 @@ export interface MeetStorageWriterLike {
 /**
  * Thin interface for the TTS-bridge surface the session manager uses. Lets
  * tests swap in a fake without spinning up ffmpeg or a real HTTP client.
+ *
+ * Includes the `onViseme` / `botBaseUrl` / `meetingId` surface consumed by
+ * {@link startTtsLipsync} so a Like-only fake passed via
+ * {@link MeetSessionManagerDeps.ttsBridgeFactory} remains compatible with
+ * the default lipsync factory without an unsafe cast.
  */
 export interface MeetTtsBridgeLike {
+  readonly meetingId: string;
+  readonly botBaseUrl: string;
   speak(
     input: SpeakInput,
   ): Promise<{ streamId: string; completion: Promise<void> }>;
   cancel(streamId: string): Promise<void>;
   cancelAll(): Promise<void>;
   activeStreamCount(): number;
+  onViseme(listener: VisemeListener): () => void;
 }
 
 /**
@@ -2241,17 +2250,15 @@ function defaultTtsBridgeFactory(
  * the session manager never observes a rejection from this path. Tests
  * can inject a fake via {@link MeetSessionManagerDeps.ttsLipsyncFactory}
  * to observe start/stop without touching the bridge's emit path or the
- * bot HTTP surface. The default cast is only safe because
- * {@link MeetTtsBridgeLike} is a strict subset of the {@link MeetTtsBridge}
- * shape {@link startTtsLipsync} reads — `onViseme`, `botBaseUrl`, and
- * `meetingId` are only accessed through the real bridge instance, not
- * through the narrow session-manager interface.
+ * bot HTTP surface. {@link MeetTtsBridgeLike} declares the `onViseme`,
+ * `botBaseUrl`, and `meetingId` surface {@link startTtsLipsync} reads, so
+ * a Like-only fake works without an unsafe cast.
  */
 function defaultTtsLipsyncFactory(
   args: MeetTtsLipsyncFactoryArgs,
 ): TtsLipsyncHandle {
   const lipsyncArgs: StartTtsLipsyncArgs = {
-    bridge: args.bridge as unknown as MeetTtsBridge,
+    bridge: args.bridge,
     botApiToken: args.botApiToken,
   };
   return startTtsLipsync(lipsyncArgs);
