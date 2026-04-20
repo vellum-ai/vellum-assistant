@@ -51,7 +51,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getConfig } from "../../../assistant/src/config/loader.js";
@@ -69,6 +69,8 @@ import type {
 } from "../../../assistant/src/providers/types.js";
 import { wakeAgentForOpportunity } from "../../../assistant/src/runtime/agent-wake.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../assistant/src/runtime/assistant-scope.js";
+import type { DaemonRuntimeMode } from "../../../assistant/src/runtime/runtime-mode.js";
+import { getDaemonRuntimeMode } from "../../../assistant/src/runtime/runtime-mode.js";
 import { getProviderKeyAsync } from "../../../assistant/src/security/secure-keys.js";
 import { getTtsProvider } from "../../../assistant/src/tts/provider-registry.js";
 import { resolveTtsConfig } from "../../../assistant/src/tts/tts-config-resolver.js";
@@ -247,6 +249,38 @@ export class MeetBotAvatarError extends Error {
       `Meet bot ${endpoint} returned ${status} for meetingId=${meetingId}: ${detail}`,
     );
     this.status = status;
+  }
+}
+
+/**
+ * Thrown by {@link MeetSessionManager.join} when the avatar feature is
+ * enabled in `services.meet.avatar` but the configured v4l2loopback device
+ * node is not present inside the daemon container.
+ *
+ * In Docker mode the CLI must bind-mount the host device into the assistant
+ * container on hatch/wake — opt-in via `VELLUM_MEET_AVATAR=1`. If an
+ * operator enables the avatar in config without setting the env var, the
+ * daemon's Docker Engine API `--device` pass-through would otherwise fail
+ * much later with a cryptic "device not found" error from the inner
+ * `dockerd`. This class surfaces the root cause at meet-join time with an
+ * actionable pointer at the CLI env-var.
+ *
+ * Bare-metal mode does not raise this error because the device is expected
+ * to exist on the host — if it does not, the operator is missing the
+ * `v4l2loopback` kernel module entirely, which is a separate host-setup
+ * problem outside this check's scope.
+ */
+export class MeetAvatarDeviceMissingError extends Error {
+  readonly name = "MeetAvatarDeviceMissingError";
+  readonly devicePath: string;
+
+  constructor(devicePath: string) {
+    super(
+      `Meet avatar is enabled in services.meet.avatar but ${devicePath} is not present inside the assistant container. ` +
+        `In Docker mode, set VELLUM_MEET_AVATAR=1 in the CLI environment before spawning the instance so the CLI bind-mounts the device. ` +
+        `If you changed services.meet.avatar.devicePath from the default, also set VELLUM_MEET_AVATAR_DEVICE to the same path.`,
+    );
+    this.devicePath = devicePath;
   }
 }
 
@@ -629,6 +663,22 @@ export interface MeetSessionManagerDeps {
     source: string;
   }) => Promise<void>;
   /**
+   * Override the daemon runtime-mode resolver. Defaults to
+   * {@link getDaemonRuntimeMode}. Only consulted by the avatar-device
+   * preflight in {@link MeetSessionManager.join}; tests inject a fixed
+   * value to exercise the Docker-mode branch without touching
+   * `IS_CONTAINERIZED`.
+   */
+  resolveRuntimeMode?: () => DaemonRuntimeMode;
+  /**
+   * Override the avatar-device existence check. Defaults to
+   * {@link existsSync}. Used by the preflight in
+   * {@link MeetSessionManager.join} so tests can simulate a missing
+   * `/dev/video10` without needing the device to actually not exist (or
+   * worse, to exist) on the test machine.
+   */
+  avatarDeviceExists?: (path: string) => boolean;
+  /**
    * Disables the one-shot startup orphan-reaper sweep. Only used by unit
    * tests that don't want a background reaper call polluting docker-client
    * mocks. Production and integration paths leave this as the default
@@ -655,6 +705,16 @@ class MeetSessionManagerImpl {
    * the audio-socket connect or the meet "Ask to join" click.
    */
   private pendingBotTokens = new Map<string, string>();
+  /**
+   * Device paths that have already passed the Docker-mode avatar preflight
+   * in {@link join}. Cached per-daemon so a repeated join with the same
+   * `services.meet.avatar.devicePath` does not re-stat the filesystem —
+   * device nodes do not disappear across join calls in practice, and the
+   * check is expected to be a no-op on the happy path. A Set keyed on the
+   * device path keeps the cache correct if an operator reconfigures
+   * `services.meet.avatar.devicePath` at runtime.
+   */
+  private avatarPreflightPassedPaths = new Set<string>();
   private deps: Required<MeetSessionManagerDeps>;
 
   constructor(deps: MeetSessionManagerDeps = {}) {
@@ -696,6 +756,8 @@ class MeetSessionManagerImpl {
       bargeInWatcherFactory:
         deps.bargeInWatcherFactory ?? defaultBargeInWatcherFactory,
       wakeAgent: deps.wakeAgent ?? defaultWakeAgent,
+      resolveRuntimeMode: deps.resolveRuntimeMode ?? getDaemonRuntimeMode,
+      avatarDeviceExists: deps.avatarDeviceExists ?? existsSync,
       disableStartupOrphanReaper: deps.disableStartupOrphanReaper ?? false,
     };
 
@@ -778,6 +840,37 @@ class MeetSessionManagerImpl {
     }
     this.sessions.clear();
     this.pendingBotTokens.clear();
+    this.avatarPreflightPassedPaths.clear();
+  }
+
+  /**
+   * Preflight check invoked from {@link join} when the avatar feature is
+   * enabled. In Docker mode, verifies that the configured v4l2loopback
+   * device node is present inside the daemon container — the CLI
+   * (`cli/src/lib/docker.ts`) is responsible for bind-mounting it, gated
+   * on `VELLUM_MEET_AVATAR=1`. If the config enables the avatar but the
+   * CLI opt-in is missing, the device will not exist inside the container
+   * and the downstream `DockerRunner.run()` would fail with a cryptic
+   * "device not found" error from the inner `dockerd`. This check moves
+   * the failure to a deterministic point (meet-join time) with a clear
+   * pointer at the env-var the operator forgot to set.
+   *
+   * In bare-metal mode the check is skipped — the device is expected to
+   * exist on the host, and if it does not the operator is missing the
+   * `v4l2loopback` kernel module entirely (a separate host-setup problem
+   * outside this check's scope). Callers where `avatar.enabled` is false
+   * should not reach this method.
+   *
+   * Results are cached in {@link avatarPreflightPassedPaths} so a repeated
+   * join with the same device path does not re-stat the filesystem.
+   */
+  private assertAvatarDeviceAvailable(devicePath: string): void {
+    if (this.deps.resolveRuntimeMode() !== "docker") return;
+    if (this.avatarPreflightPassedPaths.has(devicePath)) return;
+    if (!this.deps.avatarDeviceExists(devicePath)) {
+      throw new MeetAvatarDeviceMissingError(devicePath);
+    }
+    this.avatarPreflightPassedPaths.add(devicePath);
   }
 
   /**
@@ -819,6 +912,15 @@ class MeetSessionManagerImpl {
     let ttsKey: string;
     try {
       meet = getMeetConfig();
+
+      // Preflight: in Docker mode, avatar config + CLI env-var opt-in are
+      // two orthogonal controls (see `cli/src/lib/docker.ts`'s
+      // `VELLUM_MEET_AVATAR` handling). Fail fast here with a pointer at
+      // the env-var rather than letting the inner `dockerd` reject the
+      // bot-container create with an opaque "device not found" error.
+      if (meet.avatar.enabled) {
+        this.assertAvatarDeviceAvailable(meet.avatar.devicePath);
+      }
 
       workspaceDir = this.deps.getWorkspaceDir();
       meetingDir = join(workspaceDir, "meets", meetingId);
