@@ -26,30 +26,63 @@ public struct VFormattingToolbar: View {
         case quote
     }
 
-    public let actions: [Action]
+    /// Actions organized into visual groups. Each inner array is rendered
+    /// as a tight cluster of buttons; between clusters a flexible spacer
+    /// is inserted so the groups distribute across the available width
+    /// (leading / middle / trailing for a 3-group toolbar, matching the
+    /// Figma mock).
+    public let groups: [[Action]]
     public let onAction: (Action) -> Void
 
+    /// Default 3-group layout from the email composer mock
+    /// (Figma `3496:72522`): text style, alignment, misc.
     public init(
-        actions: [Action] = [.bold, .italic, .underline, .alignLeft, .alignCenter, .alignRight, .link],
+        groups: [[Action]] = [
+            [.bold, .italic, .underline],
+            [.alignLeft, .alignCenter, .alignRight],
+            [.link, .quote]
+        ],
         onAction: @escaping (Action) -> Void
     ) {
-        self.actions = actions
+        self.groups = groups
         self.onAction = onAction
     }
 
+    /// Convenience for callers that want a single flat group of actions
+    /// (e.g. a trimmed bold/italic/underline/link bar). Renders the
+    /// actions as one cluster pushed to the leading edge.
+    public init(
+        actions: [Action],
+        onAction: @escaping (Action) -> Void
+    ) {
+        self.init(groups: [actions], onAction: onAction)
+    }
+
     public var body: some View {
-        HStack(spacing: VSpacing.sm) {
-            ForEach(actions, id: \.self) { action in
-                VButton(
-                    label: label(for: action),
-                    iconOnly: iconName(for: action),
-                    style: .ghost,
-                    size: .pill
-                ) {
-                    onAction(action)
+        HStack(spacing: 0) {
+            ForEach(Array(groups.enumerated()), id: \.offset) { idx, group in
+                if idx > 0 {
+                    Spacer(minLength: VSpacing.md)
+                }
+                HStack(spacing: VSpacing.xs) {
+                    ForEach(group, id: \.self) { action in
+                        VButton(
+                            label: label(for: action),
+                            iconOnly: iconName(for: action),
+                            style: .ghost,
+                            size: .pill
+                        ) {
+                            onAction(action)
+                        }
+                    }
                 }
             }
-            Spacer(minLength: 0)
+            // When there's only one group, keep it pinned to the leading
+            // edge — callers passing a flat `actions:` array expect the
+            // original "left-aligned row" layout.
+            if groups.count < 2 {
+                Spacer(minLength: 0)
+            }
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)

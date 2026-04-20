@@ -42,6 +42,9 @@ struct HomeEmailEditor: View {
         VStack(alignment: .leading, spacing: 0) {
             VFormattingToolbar(onAction: onFormatAction)
 
+            // The first hairline, directly under the toolbar, sits flush
+            // against the panel edges — matches the Figma mock's full-bleed
+            // divider beneath the header.
             VColor.borderBase
                 .frame(height: 1)
                 .accessibilityHidden(true)
@@ -49,15 +52,11 @@ struct HomeEmailEditor: View {
             VStack(alignment: .leading, spacing: 0) {
                 labeledField("to:", $toAddress)
 
-                VColor.borderBase
-                    .frame(height: 1)
-                    .accessibilityHidden(true)
+                insetHairline
 
                 labeledField("subject:", $subject)
 
-                VColor.borderBase
-                    .frame(height: 1)
-                    .accessibilityHidden(true)
+                insetHairline
             }
 
             TextField("Compose your reply…", text: $bodyText, axis: .vertical)
@@ -68,19 +67,26 @@ struct HomeEmailEditor: View {
                 .padding(VSpacing.md)
 
             if !attachments.isEmpty {
-                VColor.borderBase
-                    .frame(height: 1)
-                    .accessibilityHidden(true)
+                insetHairline
 
                 attachmentsRow
             }
 
-            VColor.borderBase
-                .frame(height: 1)
-                .accessibilityHidden(true)
+            insetHairline
 
             sendFooter
         }
+    }
+
+    /// 1pt hairline inset by `VSpacing.lg` on each side so it stops short
+    /// of the panel's rounded edges — matches the Figma mock, where every
+    /// divider except the one directly under the header is held in from
+    /// the panel edges.
+    private var insetHairline: some View {
+        VColor.borderBase
+            .frame(height: 1)
+            .padding(.horizontal, VSpacing.lg)
+            .accessibilityHidden(true)
     }
 
     // MARK: - Footer sub-views
@@ -144,12 +150,25 @@ struct HomeEmailEditor: View {
 
     // MARK: - Labeled field
 
+    /// Row that renders a fixed prefix (e.g. `to:`, `subject:`) followed
+    /// by an editable text field. The prefix is rendered as real text, not
+    /// a `TextField` placeholder, so it stays visible once the user has
+    /// typed a value — matches the Figma mock's "to: john@johnstown.com"
+    /// single-line rendering.
     @ViewBuilder
     private func labeledField(_ label: String, _ value: Binding<String>) -> some View {
-        TextField(label, text: value)
-            .textFieldStyle(.plain)
-            .font(VFont.bodyMediumLighter)
-            .foregroundStyle(VColor.contentSecondary)
-            .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.md, bottom: VSpacing.sm, trailing: VSpacing.md))
+        HStack(spacing: VSpacing.xs) {
+            Text(label)
+                .font(VFont.bodyMediumLighter)
+                .foregroundStyle(VColor.contentSecondary)
+                .accessibilityHidden(true)
+
+            TextField("", text: value)
+                .textFieldStyle(.plain)
+                .font(VFont.bodyMediumLighter)
+                .foregroundStyle(VColor.contentSecondary)
+                .accessibilityLabel(Text(label))
+        }
+        .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.md, bottom: VSpacing.sm, trailing: VSpacing.md))
     }
 }
