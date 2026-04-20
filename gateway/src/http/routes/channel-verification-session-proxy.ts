@@ -5,7 +5,7 @@
  * disabled, so skills and clients can use gateway URLs exclusively.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { mintServiceToken } from "../../auth/token-exchange.js";
@@ -338,6 +338,65 @@ export function createChannelVerificationSessionProxyHandler(
 
     async handleGuardianRefresh(req: Request): Promise<Response> {
       return proxyToRuntime(req, "/v1/guardian/refresh", "");
+    },
+
+    /**
+     * Clear the bare-metal guardian bootstrap lock so the local client can
+     * re-run `POST /v1/guardian/init`. Used to recover a macOS install whose
+     * actor token was wiped (e.g. a corrupted UserDefaults entry) after the
+     * initial hatch already wrote `guardian-init.lock`.
+     *
+     * Loopback-origin-only. Bare-metal only: in Docker / secret-gated topology,
+     * the lock lives on the gateway security volume and recovery is a re-hatch
+     * with a fresh bootstrap secret, not a client action.
+     */
+    async handleGuardianResetBootstrap(
+      _req: Request,
+      clientIp?: string,
+    ): Promise<Response> {
+      if (!clientIp || !isLoopbackAddress(clientIp)) {
+        log.warn(
+          { clientIp },
+          "Guardian reset-bootstrap rejected — non-loopback origin",
+        );
+        return Response.json({ error: "Forbidden" }, { status: 403 });
+      }
+
+      const expectedSecrets = parseBootstrapSecrets();
+      if (expectedSecrets.length > 0) {
+        log.warn(
+          "Guardian reset-bootstrap rejected — not supported in secret-gated mode",
+        );
+        return Response.json(
+          { error: "Reset not supported in this deployment mode" },
+          { status: 403 },
+        );
+      }
+
+      const securityDir = getGatewaySecurityDir();
+      const lockPath = join(securityDir, "guardian-init.lock");
+      const consumedPath = join(securityDir, "guardian-init-consumed.json");
+
+      const removed: string[] = [];
+      for (const path of [lockPath, consumedPath]) {
+        if (!existsSync(path)) continue;
+        try {
+          unlinkSync(path);
+          removed.push(path);
+        } catch (err) {
+          log.error({ err, path }, "Failed to remove guardian-init file");
+          return Response.json(
+            { error: "Failed to reset bootstrap" },
+            { status: 500 },
+          );
+        }
+      }
+
+      guardianInitInFlight = false;
+      secretsInFlight.clear();
+
+      log.warn({ removed }, "Guardian bootstrap reset by local client");
+      return Response.json({ reset: true }, { status: 200 });
     },
   };
 }

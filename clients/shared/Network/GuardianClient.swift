@@ -72,6 +72,30 @@ public struct GuardianClient: GuardianClientProtocol {
 
     // MARK: - Actor Token Bootstrap
 
+    /// Calls `POST /v1/guardian/reset-bootstrap` on the loopback gateway to clear
+    /// the bare-metal `guardian-init.lock`, allowing a subsequent `/v1/guardian/init`
+    /// to succeed. Used as a recovery primitive when the client has lost its actor
+    /// token after an initial bootstrap. The gateway enforces loopback-origin and
+    /// bare-metal-mode preconditions; Docker and managed deployments return 403.
+    ///
+    /// - Returns: `true` on success (200), `false` on any failure.
+    public func resetBootstrapLock() async -> Bool {
+        do {
+            let response = try await GatewayHTTPClient.post(
+                path: "guardian/reset-bootstrap", json: [:], timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("resetBootstrapLock failed (HTTP \(response.statusCode))")
+                return false
+            }
+            log.info("Bootstrap lock cleared — client can re-run /v1/guardian/init")
+            return true
+        } catch {
+            log.error("resetBootstrapLock error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
     /// Calls `POST /v1/guardian/init` to obtain a JWT access token bound to
     /// (assistantId, platform, deviceId). Stores credentials in credential storage via
     /// `ActorTokenManager`.

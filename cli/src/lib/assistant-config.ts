@@ -100,6 +100,10 @@ export interface AssistantEntry {
   previousDbMigrationVersion?: number;
   /** Pre-upgrade workspace migration ID — used by rollback to know how far back to revert. */
   previousWorkspaceMigrationId?: string;
+  /** Set when a bare-metal hatch finished successfully but `leaseGuardianToken`
+   *  failed, so the desktop app cannot import `guardian-token.json` on first
+   *  launch. `wake` retries the lease and clears the flag on success. */
+  hatchedWithoutToken?: boolean;
   [key: string]: unknown;
 }
 

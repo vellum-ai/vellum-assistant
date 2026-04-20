@@ -27,6 +27,7 @@ struct SettingsGeneralTab: View {
     @State private var dockerOperationTimeoutTask: Task<Void, Never>?
     @State private var healthzLoaded = false
     @State private var isRefreshingHealthz = false
+    @State private var isResettingConnection = false
 
 
     private var currentAssistant: LockfileAssistant? {
@@ -44,9 +45,20 @@ struct SettingsGeneralTab: View {
             : .remote
     }
 
+    /// The app is "wedged" when the connection manager has tripped its
+    /// auth-failed tracker and we have no stored actor token — the state
+    /// described in ATL-188. In that state every authenticated gateway call
+    /// 401s and the user has no automatic path out.
+    private var isWedged: Bool {
+        (connectionManager?.isAuthFailed ?? false) && !ActorTokenManager.hasToken
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             accountSection
+            if isWedged {
+                recoverySection
+            }
             if !lockfileAssistants.isEmpty, let updateManager = AppDelegate.shared?.updateManager {
                 AssistantUpgradeSection(
                     currentVersion: connectionManager?.assistantVersion ?? healthz?.version,
@@ -322,6 +334,31 @@ struct SettingsGeneralTab: View {
             } else {
                 VButton(label: "Pair Device", leftIcon: VIcon.qrCode.rawValue, style: .primary) {
                     showingPairingQR = true
+                }
+            }
+        }
+    }
+
+    // MARK: - Recovery
+
+    /// Recovery card shown when the app is wedged (auth-failed with no stored
+    /// actor token — ATL-188). Clicking "Reset connection" clears local
+    /// credentials, asks the loopback gateway to drop `guardian-init.lock`,
+    /// and re-runs `performInitialBootstrap` to mint a fresh actor token.
+    private var recoverySection: some View {
+        SettingsCard(
+            title: "Connection Problem",
+            subtitle: "Vellum can't authenticate with your local assistant. Reset the connection to re-provision credentials."
+        ) {
+            VButton(
+                label: isResettingConnection ? "Resetting…" : "Reset connection",
+                style: .primary,
+                isDisabled: isResettingConnection
+            ) {
+                Task {
+                    isResettingConnection = true
+                    await AppDelegate.shared?.forceReBootstrap(resetBootstrapLock: true)
+                    isResettingConnection = false
                 }
             }
         }
