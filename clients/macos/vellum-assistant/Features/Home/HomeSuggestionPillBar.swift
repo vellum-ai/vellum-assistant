@@ -95,19 +95,3 @@ struct HomeSuggestionPillBar: View {
         )
     }
 }
-
-#Preview("HomeSuggestionPillBar") {
-    HomeSuggestionPillBar(
-        headline: "By the way, have you tried one of these:",
-        suggestions: [
-            HomeSuggestion(id: "a", icon: .sparkles, label: "Summarize my inbox"),
-            HomeSuggestion(id: "b", icon: .calendar, label: "Plan my week"),
-            HomeSuggestion(id: "c", icon: .listChecks, label: "Draft a standup"),
-        ],
-        onSelect: { _ in },
-        onDismiss: {}
-    )
-    .padding(32)
-    .frame(width: 720)
-    .background(VColor.surfaceBase)
-}
