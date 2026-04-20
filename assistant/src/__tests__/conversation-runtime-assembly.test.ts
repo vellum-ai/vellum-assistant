@@ -30,6 +30,7 @@ import {
   injectNowScratchpad,
   injectSubagentStatus,
   isGroupChatType,
+  isSlackChannelConversation,
   loadSlackActiveThreadFocusBlock,
   loadSlackChronologicalMessages,
   resolveChannelCapabilities,
@@ -366,6 +367,56 @@ describe("isGroupChatType", () => {
   test("returns false for undefined/empty", () => {
     expect(isGroupChatType(undefined)).toBe(false);
     expect(isGroupChatType("")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isSlackChannelConversation
+// ---------------------------------------------------------------------------
+
+describe("isSlackChannelConversation", () => {
+  const base = {
+    dashboardCapable: false,
+    supportsDynamicUi: false,
+    supportsVoiceInput: false,
+  } as const;
+
+  test("returns true for Slack channels (chatType === channel)", () => {
+    expect(
+      isSlackChannelConversation({
+        channel: "slack",
+        chatType: "channel",
+        ...base,
+      }),
+    ).toBe(true);
+  });
+
+  test("returns false for Slack DMs regardless of chatType shape", () => {
+    // Gateway omits chatType entirely for DM message events — the prior
+    // `chatType !== "im"` check misclassified these (undefined !== "im")
+    // as channels and leaked thread-only behaviour into DMs.
+    expect(isSlackChannelConversation({ channel: "slack", ...base })).toBe(
+      false,
+    );
+    expect(
+      isSlackChannelConversation({
+        channel: "slack",
+        chatType: "im",
+        ...base,
+      }),
+    ).toBe(false);
+  });
+
+  test("returns false for non-Slack channels", () => {
+    expect(
+      isSlackChannelConversation({
+        channel: "telegram",
+        chatType: "channel",
+        ...base,
+      }),
+    ).toBe(false);
+    expect(isSlackChannelConversation(null)).toBe(false);
+    expect(isSlackChannelConversation()).toBe(false);
   });
 });
 
@@ -2171,7 +2222,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     const slackChronologicalMessages = loadSlackChronologicalMessages(
       "conv-1",
       slackChannelCaps,
-      () => rows,
+      { loader: () => rows, trustClass: "guardian" },
     );
     const lastUserMessage: Message = {
       role: "user",
@@ -2661,7 +2712,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     const slackChronologicalMessages = loadSlackChronologicalMessages(
       "conv-1",
       slackChannelCaps,
-      () => rows,
+      { loader: () => rows, trustClass: "guardian" },
     );
 
     const result = await applyRuntimeInjections(
@@ -2735,6 +2786,52 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     expect(allText).toContain("please answer concisely");
   });
 
+  // ── trust-filter regression for loadSlackChronologicalMessages ───────
+  // PR 26628 originally bypassed the trust filter by calling `getMessages`
+  // directly. For untrusted actors, guardian-scoped rows must be excluded
+  // from the chronological transcript the same way `loadFromDb` filters
+  // them out of the default history.
+  test("loadSlackChronologicalMessages filters guardian-scoped rows for untrusted actors", () => {
+    const caps: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "channel",
+    };
+    // Row 1 has no provenance → guardian-scoped (filtered out).
+    // Row 2 has provenance.trustClass === "trusted_contact" (kept).
+    const rows: MessageRow[] = [
+      userRow({
+        id: "m1",
+        createdAt: 1700000000_000,
+        text: "guardian-only context",
+        slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
+      }),
+      userRow({
+        id: "m2",
+        createdAt: 1700000010_000,
+        text: "from untrusted actor",
+        slackMeta: buildSlackMeta({ channelTs: T1, displayName: "bob" }),
+        extraOuterMetadata: {
+          provenanceTrustClass: "trusted_contact",
+        },
+      }),
+    ];
+    const result = loadSlackChronologicalMessages("conv-1", caps, {
+      loader: () => rows,
+      trustClass: "trusted_contact",
+    });
+    expect(result).not.toBeNull();
+    const allText = result!
+      .flatMap((m) => m.content)
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    expect(allText).not.toContain("guardian-only context");
+    expect(allText).toContain("from untrusted actor");
+  });
+
   // ── loadSlackChronologicalMessages returns null for non-slack channels ─
   test("loadSlackChronologicalMessages returns null for non-slack channels", () => {
     const result = loadSlackChronologicalMessages(
@@ -2746,7 +2843,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
         supportsVoiceInput: false,
         chatType: "private",
       },
-      () => [],
+      { loader: () => [] },
     );
     expect(result).toBeNull();
   });
@@ -2779,12 +2876,12 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     const slackChronologicalMessages = loadSlackChronologicalMessages(
       "conv-1",
       slackChannelCaps,
-      () => rows,
+      { loader: () => rows, trustClass: "guardian" },
     );
     const focusBlock = loadSlackActiveThreadFocusBlock(
       "conv-1",
       slackChannelCaps,
-      () => rows,
+      { loader: () => rows, trustClass: "guardian" },
     );
     const lastUserMessage: Message = {
       role: "user",
@@ -3139,7 +3236,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
         supportsVoiceInput: false,
         chatType: "private",
       },
-      () => [],
+      { loader: () => [] },
     );
     expect(result).toBeNull();
   });
@@ -3147,23 +3244,39 @@ describe("Slack channel chronological rendering — multi-thread", () => {
   test("loadSlackActiveThreadFocusBlock returns null for Slack DMs (no threads)", () => {
     // DMs do not have threads, so the focus block is always a no-op.
     // The loader short-circuits before invoking the row loader so the
-    // DB read is skipped entirely.
+    // DB read is skipped entirely. Covers both the gateway-omitted
+    // `chatType === undefined` case and the explicit `chatType === "im"`
+    // shape some fixtures still emit.
     let loaderCalls = 0;
-    const result = loadSlackActiveThreadFocusBlock(
-      "conv-1",
-      {
-        channel: "slack",
-        dashboardCapable: false,
-        supportsDynamicUi: false,
-        supportsVoiceInput: false,
-        chatType: "im",
-      },
-      () => {
-        loaderCalls += 1;
-        return [];
-      },
-    );
-    expect(result).toBeNull();
+    const dmCapsWithImType: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+      chatType: "im",
+    };
+    expect(
+      loadSlackActiveThreadFocusBlock("conv-1", dmCapsWithImType, {
+        loader: () => {
+          loaderCalls += 1;
+          return [];
+        },
+      }),
+    ).toBeNull();
+    const dmCapsNoChatType: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+    };
+    expect(
+      loadSlackActiveThreadFocusBlock("conv-1", dmCapsNoChatType, {
+        loader: () => {
+          loaderCalls += 1;
+          return [];
+        },
+      }),
+    ).toBeNull();
     expect(loaderCalls).toBe(0);
   });
 });
