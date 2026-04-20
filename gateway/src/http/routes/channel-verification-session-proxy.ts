@@ -5,6 +5,7 @@
  * disabled, so skills and clients can use gateway URLs exclusively.
  */
 
+import { timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -346,12 +347,23 @@ export function createChannelVerificationSessionProxyHandler(
      * actor token was wiped (e.g. a corrupted UserDefaults entry) after the
      * initial hatch already wrote `guardian-init.lock`.
      *
-     * Loopback-origin-only. Bare-metal only: in Docker / secret-gated topology,
-     * the lock lives on the gateway security volume and recovery is a re-hatch
-     * with a fresh bootstrap secret, not a client action.
+     * Defense-in-depth:
+     *   1. Raw peer IP must be loopback (the caller here passes the transport
+     *      peer address, never a header-derived value, so X-Forwarded-For
+     *      spoofing on multi-user hosts does not bypass this check).
+     *   2. The `X-Reset-Bootstrap-Secret` header must match the
+     *      `reset-bootstrap-secret` file under the gateway security dir,
+     *      which is 0600 — only processes running as the same Unix user can
+     *      read it. This is the caller-bound proof that distinguishes
+     *      legitimate local CLI / desktop-app callers from an unprivileged
+     *      process on a shared host that happens to reach loopback.
+     *
+     * Bare-metal only: in Docker / secret-gated topology, the lock lives on
+     * the gateway security volume and recovery is a re-hatch with a fresh
+     * bootstrap secret, not a client action.
      */
     async handleGuardianResetBootstrap(
-      _req: Request,
+      req: Request,
       clientIp?: string,
     ): Promise<Response> {
       if (!clientIp || !isLoopbackAddress(clientIp)) {
@@ -374,6 +386,38 @@ export function createChannelVerificationSessionProxyHandler(
       }
 
       const securityDir = getGatewaySecurityDir();
+
+      // Require the caller to present the on-disk secret. The file is 0600,
+      // so only processes running as the same Unix user can read it.
+      const secretPath = join(securityDir, "reset-bootstrap-secret");
+      let onDiskSecret: string;
+      try {
+        onDiskSecret = readFileSync(secretPath, "utf-8").trim();
+      } catch (err) {
+        log.warn(
+          { err },
+          "Guardian reset-bootstrap rejected — secret file unreadable",
+        );
+        return Response.json({ error: "Forbidden" }, { status: 403 });
+      }
+      if (onDiskSecret.length === 0) {
+        log.warn("Guardian reset-bootstrap rejected — on-disk secret is empty");
+        return Response.json({ error: "Forbidden" }, { status: 403 });
+      }
+
+      const providedSecret = req.headers.get("x-reset-bootstrap-secret") ?? "";
+      const providedBuf = Buffer.from(providedSecret, "utf-8");
+      const onDiskBuf = Buffer.from(onDiskSecret, "utf-8");
+      if (
+        providedBuf.length !== onDiskBuf.length ||
+        !timingSafeEqual(providedBuf, onDiskBuf)
+      ) {
+        log.warn(
+          "Guardian reset-bootstrap rejected — missing or invalid X-Reset-Bootstrap-Secret header",
+        );
+        return Response.json({ error: "Forbidden" }, { status: 403 });
+      }
+
       const lockPath = join(securityDir, "guardian-init.lock");
       const consumedPath = join(securityDir, "guardian-init-consumed.json");
 

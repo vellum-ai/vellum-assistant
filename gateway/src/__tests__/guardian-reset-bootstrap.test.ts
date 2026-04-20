@@ -6,8 +6,11 @@ import { initSigningKey } from "../auth/token-service.js";
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
 
+const VALID_SECRET = "a".repeat(64);
+
 let lockFileExists = false;
 let consumedSecretsContent: string | null = null;
+let onDiskSecret: string | null = VALID_SECRET;
 const unlinked: string[] = [];
 
 mock.module("node:fs", () => ({
@@ -20,6 +23,17 @@ mock.module("node:fs", () => ({
       return consumedSecretsContent !== null;
     }
     return actualFs.existsSync(p);
+  },
+  readFileSync: (p: string, encoding?: BufferEncoding) => {
+    if (typeof p === "string" && p.endsWith("reset-bootstrap-secret")) {
+      if (onDiskSecret === null) {
+        const err = new Error("ENOENT") as NodeJS.ErrnoException;
+        err.code = "ENOENT";
+        throw err;
+      }
+      return onDiskSecret;
+    }
+    return actualFs.readFileSync(p, encoding);
   },
   unlinkSync: (p: string) => {
     if (typeof p === "string" && p.endsWith("guardian-init.lock")) {
@@ -67,27 +81,33 @@ function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
   };
 }
 
-function makeReq(): Request {
+function makeReq(secret?: string): Request {
+  const headers: Record<string, string> = {};
+  if (secret !== undefined) {
+    headers["x-reset-bootstrap-secret"] = secret;
+  }
   return new Request("http://localhost:7830/v1/guardian/reset-bootstrap", {
     method: "POST",
+    headers,
   });
 }
 
 afterEach(() => {
   lockFileExists = false;
   consumedSecretsContent = null;
+  onDiskSecret = VALID_SECRET;
   unlinked.length = 0;
   delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
 });
 
 describe("guardian/reset-bootstrap", () => {
-  test("deletes lock and consumed files on loopback request in bare-metal mode", async () => {
+  test("deletes lock and consumed files on loopback request with correct secret", async () => {
     lockFileExists = true;
     consumedSecretsContent = "[0]";
 
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
     const res = await handler.handleGuardianResetBootstrap(
-      makeReq(),
+      makeReq(VALID_SECRET),
       "127.0.0.1",
     );
 
@@ -104,7 +124,7 @@ describe("guardian/reset-bootstrap", () => {
 
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
     const res = await handler.handleGuardianResetBootstrap(
-      makeReq(),
+      makeReq(VALID_SECRET),
       "127.0.0.1",
     );
 
@@ -116,7 +136,10 @@ describe("guardian/reset-bootstrap", () => {
     lockFileExists = true;
 
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
-    const res = await handler.handleGuardianResetBootstrap(makeReq(), "::1");
+    const res = await handler.handleGuardianResetBootstrap(
+      makeReq(VALID_SECRET),
+      "::1",
+    );
 
     expect(res.status).toBe(200);
     expect(lockFileExists).toBe(false);
@@ -127,7 +150,7 @@ describe("guardian/reset-bootstrap", () => {
 
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
     const res = await handler.handleGuardianResetBootstrap(
-      makeReq(),
+      makeReq(VALID_SECRET),
       "192.168.1.50",
     );
 
@@ -140,7 +163,7 @@ describe("guardian/reset-bootstrap", () => {
 
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
     const res = await handler.handleGuardianResetBootstrap(
-      makeReq(),
+      makeReq(VALID_SECRET),
       undefined,
     );
 
@@ -154,7 +177,7 @@ describe("guardian/reset-bootstrap", () => {
 
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
     const res = await handler.handleGuardianResetBootstrap(
-      makeReq(),
+      makeReq(VALID_SECRET),
       "127.0.0.1",
     );
 
@@ -162,5 +185,61 @@ describe("guardian/reset-bootstrap", () => {
     expect(lockFileExists).toBe(true);
     const body = await res.json();
     expect(body.error).toContain("not supported");
+  });
+
+  test("rejects loopback requests missing the X-Reset-Bootstrap-Secret header", async () => {
+    lockFileExists = true;
+
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    const res = await handler.handleGuardianResetBootstrap(
+      makeReq(),
+      "127.0.0.1",
+    );
+
+    expect(res.status).toBe(403);
+    expect(lockFileExists).toBe(true);
+    expect(unlinked.length).toBe(0);
+  });
+
+  test("rejects loopback requests with a wrong secret", async () => {
+    lockFileExists = true;
+
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    const res = await handler.handleGuardianResetBootstrap(
+      makeReq("b".repeat(64)),
+      "127.0.0.1",
+    );
+
+    expect(res.status).toBe(403);
+    expect(lockFileExists).toBe(true);
+    expect(unlinked.length).toBe(0);
+  });
+
+  test("rejects loopback requests when the on-disk secret file is missing", async () => {
+    lockFileExists = true;
+    onDiskSecret = null;
+
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    const res = await handler.handleGuardianResetBootstrap(
+      makeReq(VALID_SECRET),
+      "127.0.0.1",
+    );
+
+    expect(res.status).toBe(403);
+    expect(lockFileExists).toBe(true);
+  });
+
+  test("rejects loopback requests when the on-disk secret file is empty", async () => {
+    lockFileExists = true;
+    onDiskSecret = "";
+
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+    const res = await handler.handleGuardianResetBootstrap(
+      makeReq(""),
+      "127.0.0.1",
+    );
+
+    expect(res.status).toBe(403);
+    expect(lockFileExists).toBe(true);
   });
 });

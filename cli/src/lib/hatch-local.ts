@@ -42,6 +42,7 @@ import { detectOrphanedProcesses } from "./orphan-detection.js";
 import { isProcessAlive, stopProcess } from "./process.js";
 import { generateInstanceName } from "./random-name.js";
 import { leaseGuardianToken } from "./guardian-token.js";
+import { ensureResetBootstrapSecret } from "./reset-bootstrap-secret.js";
 import { archiveLogFile, resetLogFile } from "./xdg-log.js";
 import { emitProgress } from "./desktop-progress.js";
 
@@ -297,6 +298,28 @@ export async function hatchLocal(
     );
     await stopLocalProcesses(resources);
     throw error;
+  }
+
+  // Seed the reset-bootstrap secret under the gateway security directory so
+  // that later recovery calls to POST /v1/guardian/reset-bootstrap can prove
+  // same-user local access via the X-Reset-Bootstrap-Secret header in
+  // addition to the gateway's raw-peer-IP loopback check. The file is
+  // mode 0600, so unprivileged processes running as a different Unix user
+  // on a shared host cannot read it — this is the caller-bound proof.
+  const gatewaySecurityDir = join(
+    resources.instanceDir,
+    ".vellum",
+    "protected",
+  );
+  try {
+    ensureResetBootstrapSecret(gatewaySecurityDir);
+  } catch (err) {
+    console.error(
+      `\n⚠️  Failed to persist reset-bootstrap secret: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    console.error(
+      `   Recovery via Settings → Reset connection may fail until 'vellum wake' regenerates it.`,
+    );
   }
 
   // Lease a guardian token so the desktop app can import it on first launch
