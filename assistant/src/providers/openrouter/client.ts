@@ -42,9 +42,7 @@ export function extractOnlyList(config: unknown): string[] {
   const cfg = config as { openrouter?: { only?: unknown } } | undefined;
   const only = cfg?.openrouter?.only;
   if (!Array.isArray(only)) return [];
-  return only.filter(
-    (x): x is string => typeof x === "string" && x.length > 0,
-  );
+  return only.filter((x): x is string => typeof x === "string" && x.length > 0);
 }
 
 /**
@@ -66,7 +64,11 @@ export function withOpenRouterBodyExtras(
     string,
     unknown
   >;
-  return { ...options, config: { ...rest, provider: { only } } };
+  const existingProvider = (rest.provider ?? {}) as Record<string, unknown>;
+  return {
+    ...options,
+    config: { ...rest, provider: { ...existingProvider, only } },
+  };
 }
 
 export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
