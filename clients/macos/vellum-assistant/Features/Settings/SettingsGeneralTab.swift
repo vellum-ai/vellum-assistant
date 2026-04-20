@@ -359,6 +359,23 @@ struct SettingsGeneralTab: View {
                 VButton(label: "Log Out", style: .danger) {
                     AppDelegate.shared?.performLogout()
                 }
+            } else if authManager.isValidationFailed {
+                // Token on disk couldn't be validated (transient network /
+                // server failure). Do NOT offer a login button — the user is
+                // still logged in; the next successful validation will
+                // recover. See AuthState.validationFailed documentation.
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    HStack(spacing: VSpacing.sm) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Reconnecting to Vellum...")
+                            .font(VFont.bodyMediumLighter)
+                            .foregroundStyle(VColor.contentSecondary)
+                    }
+                    VButton(label: "Retry", style: .outlined) {
+                        Task { await authManager.checkSession() }
+                    }
+                }
             } else {
                 VButton(
                     label: authManager.isSubmitting ? "Logging in..." : "Log In",
