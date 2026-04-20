@@ -1924,6 +1924,49 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages.count, 0)
     }
 
+    func testPopulateFromHistoryReconcilesStaleRunningSubagentToTerminal() {
+        viewModel.activeSubagents = [
+            SubagentInfo(id: "s-stuck", label: "Stuck", status: .running)
+        ]
+        let historyItems: [HistoryResponseMessage] = [
+            HistoryResponseMessage(
+                id: nil, role: "assistant", text: "", timestamp: 1000,
+                toolCalls: nil, toolCallsBeforeText: nil, attachments: nil,
+                textSegments: nil, thinkingSegments: nil, contentOrder: nil, surfaces: nil,
+                subagentNotification: HistoryResponseMessageSubagentNotification(
+                    subagentId: "s-stuck", label: "Stuck", status: "completed",
+                    error: nil, conversationId: nil
+                )
+            ),
+        ]
+        viewModel.populateFromHistory(historyItems, hasMore: false)
+        XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-stuck" })?.status, .completed,
+                       "History's terminal status must overwrite a locally-stuck `.running` entry")
+    }
+
+    func testPopulateFromHistoryDoesNotOverwriteRunningWithRunning() {
+        viewModel.activeSubagents = [
+            SubagentInfo(id: "s-live", label: "Live", status: .running, parentMessageId: UUID())
+        ]
+        let originalParentId = viewModel.activeSubagents[0].parentMessageId
+        let historyItems: [HistoryResponseMessage] = [
+            HistoryResponseMessage(
+                id: nil, role: "assistant", text: "", timestamp: 1000,
+                toolCalls: nil, toolCallsBeforeText: nil, attachments: nil,
+                textSegments: nil, thinkingSegments: nil, contentOrder: nil, surfaces: nil,
+                subagentNotification: HistoryResponseMessageSubagentNotification(
+                    subagentId: "s-live", label: "Live", status: "running",
+                    error: nil, conversationId: nil
+                )
+            ),
+        ]
+        viewModel.populateFromHistory(historyItems, hasMore: false)
+        // Non-terminal history status must not replace the existing entry
+        // (preserving `parentMessageId` and the live in-memory copy).
+        XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-live" })?.status, .running)
+        XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-live" })?.parentMessageId, originalParentId)
+    }
+
     // MARK: - Interleaved Text/Tool-Call Segments
 
     func testTextToolTextCreatesInterleavedSegments() {
