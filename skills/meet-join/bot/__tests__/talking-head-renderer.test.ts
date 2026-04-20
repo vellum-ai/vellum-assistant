@@ -242,6 +242,56 @@ describe("TalkingHeadRenderer", () => {
     expect(avatarErr.reason).toContain("did not ack");
   });
 
+  test("start() throws AvatarRendererUnavailableError when the ack reports a placeholder GLB", async () => {
+    const nativeMessaging = new FakeNativeMessaging();
+    const r = new TalkingHeadRenderer({
+      nativeMessaging,
+      startedAckTimeoutMs: 1_000,
+    });
+    const startPromise = r.start();
+
+    // Simulate the extension's ack with placeholderDetected=true,
+    // matching what avatar.ts posts when the resolved GLB is below
+    // AVATAR_GLB_MIN_SIZE_BYTES (e.g. the committed 0-byte stub).
+    nativeMessaging.emit({
+      type: "avatar.started",
+      placeholderDetected: true,
+      glbSize: 0,
+    });
+
+    let err: unknown;
+    try {
+      await startPromise;
+    } catch (caught) {
+      err = caught;
+    }
+    expect(err).toBeInstanceOf(AvatarRendererUnavailableError);
+    const avatarErr = err as AvatarRendererUnavailableError;
+    expect(avatarErr.rendererId).toBe(TALKING_HEAD_RENDERER_ID);
+    // The error message must point operators at the README so they
+    // can take action without spelunking through logs.
+    expect(avatarErr.reason).toContain("placeholder GLB");
+    expect(avatarErr.reason).toContain("README");
+    expect(avatarErr.reason).toContain("default-avatar.glb");
+    expect(avatarErr.reason).toContain("size=0");
+  });
+
+  test("start() resolves when the ack explicitly reports placeholderDetected=false", async () => {
+    const nativeMessaging = new FakeNativeMessaging();
+    const r = new TalkingHeadRenderer({
+      nativeMessaging,
+      startedAckTimeoutMs: 1_000,
+    });
+    const startPromise = r.start();
+    nativeMessaging.emit({
+      type: "avatar.started",
+      placeholderDetected: false,
+      glbSize: 2_000_000,
+    });
+    // Must not throw — a valid GLB passed the probe.
+    await startPromise;
+  });
+
   test("start() is a no-op on a second invocation against the same instance", async () => {
     const nativeMessaging = new FakeNativeMessaging();
     const r = new TalkingHeadRenderer({

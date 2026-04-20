@@ -55,6 +55,7 @@ import type {
   ExtensionAvatarFrameMessage,
   ExtensionAvatarStartedMessage,
 } from "../../../contracts/native-messaging.js";
+import { AVATAR_GLB_MIN_SIZE_BYTES } from "../../../contracts/native-messaging.js";
 
 /** Default capture cadence the avatar loop targets. */
 const DEFAULT_TARGET_FPS = 24;
@@ -140,11 +141,57 @@ function resolveModelUrl(): string {
 /**
  * Render-loop context. Keeps the active canvas and the TalkingHead.js
  * instance so the viseme handler and capture loop share state.
+ *
+ * `glbProbe` is the result of fetching the resolved GLB at boot — the
+ * `avatar.started` ack carries this through to the bot so the bot-side
+ * renderer can fail fast when the bundled placeholder is still in use
+ * instead of silently emitting a blank video stream. See
+ * `avatar/README.md` for the operator replacement procedure.
  */
 interface AvatarContext {
   canvas: HTMLCanvasElement;
   head: TalkingHeadInstance | null;
   targetFps: number;
+  glbProbe: GlbProbeResult;
+}
+
+/**
+ * Outcome of fetching the resolved GLB URL at boot time. Used only to
+ * annotate the `avatar.started` ack so the bot can detect the
+ * 0-byte-placeholder case and surface a clear operator error.
+ *
+ * `size` is `0` when the fetch failed outright (network error, 4xx,
+ * etc.) — a failed fetch is treated as a placeholder signal because
+ * TalkingHead.js will also fail to load the model in that case.
+ */
+interface GlbProbeResult {
+  placeholderDetected: boolean;
+  size: number;
+}
+
+/**
+ * Fetch the resolved GLB URL and check its byte size. Returns a
+ * best-effort signal the avatar tab attaches to `avatar.started` so
+ * the bot can fail fast when the bundled placeholder
+ * (`default-avatar.glb` — committed as a 0-byte stub) is still in
+ * place. Any fetch error is reported as `placeholderDetected: true,
+ * size: 0` because a GLB the tab can't even retrieve will not render.
+ */
+async function probeGlb(modelUrl: string): Promise<GlbProbeResult> {
+  try {
+    const response = await fetch(modelUrl);
+    if (!response.ok) {
+      return { placeholderDetected: true, size: 0 };
+    }
+    const blob = await response.blob();
+    return {
+      placeholderDetected: blob.size < AVATAR_GLB_MIN_SIZE_BYTES,
+      size: blob.size,
+    };
+  } catch (err) {
+    console.warn("[avatar-tab] GLB probe fetch failed:", err);
+    return { placeholderDetected: true, size: 0 };
+  }
 }
 
 /**
@@ -182,8 +229,18 @@ async function bootAvatar(): Promise<AvatarContext> {
   }
 
   const modelUrl = resolveModelUrl();
+
+  // Probe the GLB before attempting TalkingHead.js init so the ack
+  // carries a reliable placeholder signal back to the bot even when
+  // the module load below succeeds but the render ultimately fails.
+  // Running the probe in parallel with the module load keeps boot
+  // latency unchanged when the GLB is valid.
+  const [TalkingHeadCtor, glbProbe] = await Promise.all([
+    loadTalkingHeadCtor(),
+    probeGlb(modelUrl),
+  ]);
+
   let head: TalkingHeadInstance | null = null;
-  const TalkingHeadCtor = await loadTalkingHeadCtor();
   if (TalkingHeadCtor) {
     try {
       head = new TalkingHeadCtor(canvas, {
@@ -206,6 +263,7 @@ async function bootAvatar(): Promise<AvatarContext> {
     canvas,
     head,
     targetFps: DEFAULT_TARGET_FPS,
+    glbProbe,
   };
 }
 
@@ -323,6 +381,14 @@ function installVisemeListener(ctx: AvatarContext): void {
  * we never throw into the page runtime because the only thing that
  * would do is kill the tab and leave the bot stuck waiting for the
  * `avatar.started` ack.
+ *
+ * The ack carries `placeholderDetected` when the GLB probe observed a
+ * sub-threshold file (the repo's bundled `default-avatar.glb` is a
+ * 0-byte stub operators must replace). The bot-side renderer's
+ * `start()` inspects the flag and throws
+ * `AvatarRendererUnavailableError` so the session-manager can fall
+ * back to the noop renderer with a clear diagnostic instead of
+ * silently streaming a blank camera feed.
  */
 async function main(): Promise<void> {
   let ctx: AvatarContext;
@@ -330,9 +396,14 @@ async function main(): Promise<void> {
     ctx = await bootAvatar();
   } catch (err) {
     console.error("[avatar-tab] bootAvatar failed:", err);
-    // Post `avatar.started` anyway so the bot's renderer doesn't
-    // hit its timeout. The bot will just see a static canvas.
-    const ack: ExtensionAvatarStartedMessage = { type: "avatar.started" };
+    // bootAvatar never had a chance to probe the GLB. Treat this path
+    // as placeholder-equivalent so the bot fails fast with a clear
+    // pointer to the README rather than sitting on a static canvas.
+    const ack: ExtensionAvatarStartedMessage = {
+      type: "avatar.started",
+      placeholderDetected: true,
+      glbSize: 0,
+    };
     try {
       void chrome.runtime.sendMessage(ack);
     } catch {
@@ -345,8 +416,14 @@ async function main(): Promise<void> {
   startCaptureLoop(ctx);
 
   // Handshake: the bot's renderer awaits this ack before resolving
-  // start().
+  // start(). `placeholderDetected` is only attached when the probe
+  // actually flagged the GLB — omitting it keeps the wire payload
+  // compatible with older contract builds that don't know the field.
   const ack: ExtensionAvatarStartedMessage = { type: "avatar.started" };
+  if (ctx.glbProbe.placeholderDetected) {
+    ack.placeholderDetected = true;
+    ack.glbSize = ctx.glbProbe.size;
+  }
   try {
     void chrome.runtime.sendMessage(ack);
   } catch (err) {

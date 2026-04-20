@@ -195,14 +195,48 @@ export type ExtensionSendChatResultMessage = z.infer<
 >;
 
 /**
+ * Minimum byte size a resolved GLB must have before the extension
+ * treats it as a real asset. The repo ships a 0-byte placeholder at
+ * `meet-controller-ext/avatar/default-avatar.glb` (see the README in
+ * that directory) that operators must replace before production use.
+ * A real Ready Player Me GLB is multi-MB; 1 KiB is well below any
+ * valid GLB header so the threshold is safe to use as a placeholder
+ * sentinel without false positives on legitimately-small models.
+ */
+export const AVATAR_GLB_MIN_SIZE_BYTES = 1024;
+
+/**
  * Ack emitted by the extension once its avatar tab has mounted and the
  * TalkingHead.js renderer is ready to receive visemes. This is the
  * extension-side counterpart to the bot's `avatar.start` command and lets
  * the bot's TalkingHead renderer complete its own `start()` promise with a
  * bounded wait (fallback to noop on timeout).
+ *
+ * `placeholderDetected` + `glbSize` are set by the avatar tab when it
+ * fetches the resolved GLB URL and observes a size below
+ * {@link AVATAR_GLB_MIN_SIZE_BYTES} (or the fetch fails entirely, in
+ * which case `glbSize` is `0`). The bot-side renderer inspects these
+ * fields on the ack and throws `AvatarRendererUnavailableError` with a
+ * pointer to the avatar README so operators who enabled the avatar
+ * without replacing the bundled placeholder get a clear error rather
+ * than a blank video stream. Both fields are optional for
+ * backwards-compatibility with older extension builds that predate the
+ * check — a missing `placeholderDetected` is treated as "no signal".
  */
 export const ExtensionAvatarStartedMessageSchema = z.object({
   type: z.literal("avatar.started"),
+  /**
+   * True when the avatar tab fetched its configured GLB at load time
+   * and found the file was smaller than {@link AVATAR_GLB_MIN_SIZE_BYTES}
+   * (or the fetch failed entirely).
+   */
+  placeholderDetected: z.boolean().optional(),
+  /**
+   * Byte size of the resolved GLB as observed by the avatar tab.
+   * `0` when the fetch failed entirely. Only present when
+   * `placeholderDetected` is also set.
+   */
+  glbSize: z.number().int().nonnegative().optional(),
 });
 export type ExtensionAvatarStartedMessage = z.infer<
   typeof ExtensionAvatarStartedMessageSchema

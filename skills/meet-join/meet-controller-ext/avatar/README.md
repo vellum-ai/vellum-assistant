@@ -20,10 +20,21 @@ in the repo.
 ## Replacing the placeholder GLB
 
 The shipped `default-avatar.glb` is a 0-byte placeholder. It is NOT a
-valid GLB file. With the placeholder in place, TalkingHead.js fails
-to load the model and the avatar tab falls back to streaming a
-static colored background — the Meet camera stream is still live,
-but there is no moving face.
+valid GLB file.
+
+**The avatar renderer now fails fast when the placeholder is in
+place.** At tab boot, the avatar page fetches the resolved GLB URL
+and reports its byte size to the bot over the `avatar.started` ack.
+When the size is below `AVATAR_GLB_MIN_SIZE_BYTES` (1 KiB — well
+below any real GLB), or the fetch fails entirely, the bot-side
+TalkingHead renderer throws `AvatarRendererUnavailableError` with a
+pointer back to this README. The session-manager catches that error
+and falls back to the noop renderer, so the meeting continues
+without a broken camera stream — but the operator gets a clear error
+in the logs rather than an invisible blank avatar.
+
+To run the TalkingHead.js renderer, replace the placeholder using
+one of the two options below.
 
 ### Option 1 — bundle a real model at build time
 
