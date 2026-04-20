@@ -70,6 +70,7 @@ mock.module("../../../security/credential-key.js", () => ({
 const deepgramCtorCalls: Array<{ apiKey: string; options: unknown }> = [];
 const geminiCtorCalls: Array<{ apiKey: string; options: unknown }> = [];
 const whisperCtorCalls: Array<{ apiKey: string; options: unknown }> = [];
+const xaiCtorCalls: Array<{ apiKey: string; options: unknown }> = [];
 
 mock.module("../deepgram-realtime.js", () => ({
   DeepgramRealtimeTranscriber: class {
@@ -97,6 +98,16 @@ mock.module("../openai-whisper-stream.js", () => ({
     readonly boundaryId = "daemon-streaming" as const;
     constructor(apiKey: string, options: unknown) {
       whisperCtorCalls.push({ apiKey, options });
+    }
+  },
+}));
+
+mock.module("../xai-realtime.js", () => ({
+  XAIRealtimeTranscriber: class {
+    readonly providerId = "xai" as const;
+    readonly boundaryId = "daemon-streaming" as const;
+    constructor(apiKey: string, options: unknown) {
+      xaiCtorCalls.push({ apiKey, options });
     }
   },
 }));
@@ -541,6 +552,7 @@ describe("telephony routing catalog alignment", () => {
       "openai-whisper": "openai",
       deepgram: "deepgram",
       "google-gemini": "gemini",
+      xai: "xai",
     };
 
     for (const id of listProviderIds()) {
@@ -714,6 +726,7 @@ describe("resolveStreamingTranscriber diarize preference", () => {
     deepgramCtorCalls.length = 0;
     geminiCtorCalls.length = 0;
     whisperCtorCalls.length = 0;
+    xaiCtorCalls.length = 0;
     loggerWarnings.length = 0;
   });
 
@@ -824,5 +837,47 @@ describe("resolveStreamingTranscriber diarize preference", () => {
     const options = deepgramCtorCalls[0]!.options as Record<string, unknown>;
     expect(options.sampleRate).toBe(48000);
     expect(options.diarize).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // xAI realtime streaming
+  // -------------------------------------------------------------------------
+
+  test("resolves a non-null xai transcriber when xai is configured and credentials are available", async () => {
+    mockProviderKeys["xai"] = "xai-key";
+    mockConfig = buildConfig({ provider: "xai" });
+
+    const transcriber = await resolveStreamingTranscriber();
+
+    expect(transcriber).not.toBeNull();
+    expect(transcriber!.providerId).toBe("xai");
+    expect(transcriber!.boundaryId).toBe("daemon-streaming");
+    expect(xaiCtorCalls).toHaveLength(1);
+  });
+
+  test("diarize: 'required' with xai constructs the transcriber (does not reject)", async () => {
+    mockProviderKeys["xai"] = "xai-key";
+    mockConfig = buildConfig({ provider: "xai" });
+
+    const transcriber = await resolveStreamingTranscriber({
+      diarize: "required",
+    });
+
+    expect(transcriber).not.toBeNull();
+    expect(xaiCtorCalls).toHaveLength(1);
+    const options = xaiCtorCalls[0]!.options as Record<string, unknown>;
+    expect(options.diarize).toBe(true);
+    // No warning logged — xai supports diarization per the catalog.
+    expect(loggerWarnings).toHaveLength(0);
+  });
+
+  test("returns null for xai when no credential is set", async () => {
+    mockProviderKeys = {};
+    mockConfig = buildConfig({ provider: "xai" });
+
+    const transcriber = await resolveStreamingTranscriber();
+
+    expect(transcriber).toBeNull();
+    expect(xaiCtorCalls).toHaveLength(0);
   });
 });
