@@ -8564,7 +8564,7 @@ paths:
                   description: Allowlist pattern
                 scope:
                   type: string
-                  description: Scope
+                  description: Scope (required for scoped tools, ignored for others)
                 decision:
                   type: string
                   description: allow, deny, or ask
@@ -8577,7 +8577,6 @@ paths:
               required:
                 - toolName
                 - pattern
-                - scope
                 - decision
               additionalProperties: false
   /v1/trust-rules/manage/{id}:
