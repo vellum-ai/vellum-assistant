@@ -407,7 +407,8 @@ function filterOrphanToolPairs(messages: Message[]): Message[] {
   for (const msg of messages) {
     for (const b of msg.content) {
       if (b.type === "tool_use") produced.add(b.id);
-      else if (b.type === "tool_result") consumed.add(b.tool_use_id);
+      else if (b.type === "tool_result" || b.type === "web_search_tool_result")
+        consumed.add(b.tool_use_id);
     }
   }
   const out: Message[] = [];
@@ -415,7 +416,11 @@ function filterOrphanToolPairs(messages: Message[]): Message[] {
     const kept: ContentBlock[] = [];
     for (const b of msg.content) {
       if (b.type === "tool_use" && !consumed.has(b.id)) continue;
-      if (b.type === "tool_result" && !produced.has(b.tool_use_id)) continue;
+      if (
+        (b.type === "tool_result" || b.type === "web_search_tool_result") &&
+        !produced.has(b.tool_use_id)
+      )
+        continue;
       kept.push(b);
     }
     if (kept.length > 0) out.push({ role: msg.role, content: kept });
