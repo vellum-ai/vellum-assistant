@@ -96,11 +96,12 @@ function quarantineCorruptConfig(configPath: string, err: unknown): string {
 }
 
 /**
- * Append a user-visible bulletin to `<workspace>/UPDATES.md` describing a
- * config-quarantine event. The background update-bulletin job picks up
- * UPDATES.md on the next daemon boot and fires a background conversation so
- * the agent can tell the user their settings reset to defaults and point them
- * at the quarantined file for recovery.
+ * Append a config-quarantine bulletin to `<workspace>/UPDATES.md`. On the
+ * next daemon boot the background update-bulletin job picks up UPDATES.md
+ * and processes it inside a background-only conversation (not the user's
+ * chat). The agent decides whether and when to surface the event — typical
+ * cases are the user asking why their settings changed or noticing missing
+ * API keys. The bulletin is agent-visible context, not a push notification.
  *
  * Idempotency: the appended block embeds a marker keyed on the quarantine
  * filename's basename. If that marker is already present in UPDATES.md (a
