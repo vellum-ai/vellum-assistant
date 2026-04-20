@@ -836,6 +836,103 @@ describe("ContextWindowManager", () => {
     );
   });
 
+  test.todo(
+    "force compaction with loose target override still summarizes persisted messages",
+    async () => {
+      // Regression test for a mid-loop compaction no-op observed in a
+      // user feedback report: a long conversation reached ~247k tokens
+      // against a 200k budget with the UI spinning on "compacting"
+      // while compaction ran repeatedly and summarized nothing.
+      //
+      // Root cause (window-manager.ts:278-312 truncate-only early-exit):
+      // mid-loop compaction invokes maybeCompact with
+      //   { force: true, targetInputTokensOverride: preflightBudget }
+      // where preflightBudget ≈ maxInputTokens * 0.85. When the current
+      // history estimate is BELOW the override, pickKeepBoundary's
+      // projected-fit check finds "all turns already fit" and takes the
+      // early-exit branch that truncates tool results without running a
+      // summary call. Result: `compacted: true` but
+      // `compactedPersistedMessages: 0` — a silent no-op.
+      //
+      // Expected behavior (once compaction logic is cleaned up): a
+      // forced compaction that fires above the compact threshold must
+      // actually summarize persisted messages, regardless of whether a
+      // loose override was passed.
+
+      let summaryCalls = 0;
+      const provider = createProvider(() => {
+        summaryCalls += 1;
+        return {
+          content: [{ type: "text", text: "## Goals\n- real summary" }],
+          model: "mock-model",
+          usage: { inputTokens: 80, outputTokens: 20 },
+          stopReason: "end_turn",
+        };
+      });
+
+      // Scaled mirror of production config (200k → 1000):
+      //   maxInputTokens       = 1000 (prod 200k)
+      //   compactThreshold     = 0.3  → threshold 300   (prod 160k)
+      //   targetBudgetRatio    = 0.1  → post-compact target 50 (prod 50k)
+      //   summaryBudgetRatio   = 0.05
+      //
+      // Production uses maxInputTokens=200_000, compactThreshold=0.8,
+      // targetBudgetRatio=0.3, summaryBudgetRatio=0.05. We shrink the
+      // absolute numbers to keep the test fast while preserving the key
+      // ratio: the mid-loop override (~0.85 × max) is roughly 17× the
+      // post-compaction target (~0.05 × max), so any history that sits
+      // between "above threshold" and "below override" hits the bug.
+      const manager = new ContextWindowManager({
+        provider,
+        systemPrompt: "system prompt",
+        config: makeConfig({
+          maxInputTokens: 1000,
+          targetBudgetRatio: 0.1,
+          summaryBudgetRatio: 0.05,
+          compactThreshold: 0.3,
+        }),
+      });
+
+      // Build a history sized in the "no-op zone": well above the
+      // 300-token compact threshold, well below the 850-token preflight
+      // budget analog.
+      const long = "x".repeat(180);
+      const history: Message[] = [
+        message("user", `u1 ${long}`),
+        message("assistant", `a1 ${long}`),
+        message("user", `u2 ${long}`),
+        message("assistant", `a2 ${long}`),
+        message("user", `u3 ${long}`),
+        message("assistant", `a3 ${long}`),
+        message("user", `u4 ${long}`),
+        message("assistant", `a4 ${long}`),
+        message("user", `u5 ${long}`),
+      ];
+
+      // Simulate the mid-loop caller pattern: force + override set to
+      // preflightBudget (maxInputTokens * 0.85 = 850).
+      const preflightBudgetAnalog = Math.floor(1000 * 0.85);
+      const result = await manager.maybeCompact(history, undefined, {
+        force: true,
+        targetInputTokensOverride: preflightBudgetAnalog,
+      });
+
+      // The reported token count (to prove we were actually in the
+      // "should compact" zone).
+      expect(result.previousEstimatedInputTokens).toBeGreaterThan(
+        result.thresholdTokens,
+      );
+
+      // ── Expected post-fix behavior ───────────────────────────────
+      // At least one real summarization happened. (Under the current
+      // buggy code path this fails — `compactedPersistedMessages` is 0
+      // and `summaryCalls` is 0 because pickKeepBoundary short-circuits
+      // into the truncate-only early-exit.)
+      expect(result.compactedPersistedMessages).toBeGreaterThan(0);
+      expect(summaryCalls).toBeGreaterThan(0);
+    },
+  );
+
   test("force=true compacts below minFloor when a kept turn exceeds target", async () => {
     // A giant paste in the last user turn means minFloor=1 alone exceeds target.
     // Under force, pickKeepBoundary should walk keepTurns below minFloor (down to
