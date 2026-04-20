@@ -1820,6 +1820,7 @@ export async function applyRuntimeInjections(
   // rows, so suppress hint injection for any Slack conversation. Other
   // channels (telegram, email, etc.) keep the generic hint pipeline.
   const slackConversation = options.channelCapabilities?.channel === "slack";
+  let turnContextCaptured: string | undefined;
   let result = runMessages;
   // Slack channels AND DMs both override `runMessages` with a pre-rendered
   // chronological transcript built from persisted message rows. The shared
@@ -2016,6 +2017,7 @@ export async function applyRuntimeInjections(
   if (options.unifiedTurnContext) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
+      turnContextCaptured = options.unifiedTurnContext;
       result = [
         ...result.slice(0, -1),
         {
@@ -2099,6 +2101,7 @@ export async function applyRuntimeInjections(
   return {
     messages: result,
     blocks: {
+      unifiedTurnContext: turnContextCaptured,
       pkbSystemReminder: pkbSystemReminderCaptured,
     },
   };
