@@ -15,7 +15,9 @@ import {
   fetchOrganizationId,
   getPlatformUrl,
   injectCredentialsIntoAssistant,
+  readGatewayCredential,
   readPlatformToken,
+  reprovisionAssistantApiKey,
   savePlatformToken,
 } from "../lib/platform-client";
 
@@ -193,12 +195,40 @@ export async function login(): Promise<void> {
           `Registered assistant: ${registration.assistant.name} (${registration.assistant.id})`,
         );
 
+        // Resolve the API key to inject, mirroring the macOS app's
+        // LocalAssistantBootstrapService 3-step flow:
+        // 1. Use fresh key from registration (first-time only)
+        // 2. Use existing key from the daemon's credential store
+        // 3. Reprovision (rotate) as a last resort — this revokes the
+        //    old key server-side, so we avoid it when possible.
+        let assistantApiKey = registration.assistant_api_key;
+        if (!assistantApiKey) {
+          const existingKey = await readGatewayCredential(
+            entry.runtimeUrl,
+            "vellum:assistant_api_key",
+            entry.bearerToken,
+          );
+          if (existingKey) {
+            assistantApiKey = existingKey;
+          } else {
+            console.log("No API key available locally — reprovisioning...");
+            const reprovision = await reprovisionAssistantApiKey(
+              token,
+              orgId,
+              clientInstallationId,
+              entry.assistantId,
+              "cli",
+            );
+            assistantApiKey = reprovision.provisioning.assistant_api_key;
+          }
+        }
+
         // Inject credentials into the running assistant via the gateway,
         // mirroring the desktop app's LocalAssistantBootstrapService flow.
         const allInjected = await injectCredentialsIntoAssistant({
           gatewayUrl: entry.runtimeUrl,
           bearerToken: entry.bearerToken,
-          assistantApiKey: registration.assistant_api_key,
+          assistantApiKey,
           platformAssistantId: registration.assistant.id,
           platformBaseUrl: getPlatformUrl(),
           organizationId: orgId,

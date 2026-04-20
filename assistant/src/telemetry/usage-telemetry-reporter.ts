@@ -157,6 +157,15 @@ export class UsageTelemetryReporter {
       // Resolve auth context — authenticated path uses client, anonymous path
       // sends unauthenticated (telemetry endpoints are public).
       const client = await VellumPlatformClient.create();
+      log.debug(
+        {
+          authenticated: !!client,
+          usageCount: events.length,
+          turnCount: turnEvents.length,
+          lifecycleCount: lifecycleEvents.length,
+        },
+        "Telemetry flush: resolved auth context",
+      );
 
       // Build payload
       const typedEvents: TelemetryEvent[] = [
@@ -222,9 +231,9 @@ export class UsageTelemetryReporter {
       }
 
       if (!resp.ok) {
-        await resp.text(); // consume body to release connection
+        const body = await resp.text();
         log.warn(
-          { status: resp.status },
+          { status: resp.status, authenticated: !!client, body },
           "Usage telemetry POST failed — will retry next cycle",
         );
         return;
