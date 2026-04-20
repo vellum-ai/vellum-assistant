@@ -320,6 +320,96 @@ struct HomeGallerySection: View {
                 }
             }
 
+            // MARK: - HomeFeedGroupHeader
+
+            if filter == nil || filter == "homeFeedGroupHeader" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "HomeFeedGroupHeader",
+                    description: "Section header for time-bucketed feed groups (Today / Yesterday / Older)."
+                )
+
+                VCard(background: VColor.surfaceBase) {
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        HomeFeedGroupHeader(label: "Today")
+                        Divider().background(VColor.borderBase)
+                        HomeFeedGroupHeader(label: "Yesterday")
+                        Divider().background(VColor.borderBase)
+                        HomeFeedGroupHeader(label: "Older")
+                    }
+                }
+            }
+
+            // MARK: - HomeRecapRow
+
+            if filter == nil || filter == "homeRecapRow" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "HomeRecapRow",
+                    description: "Compact row used in the time-bucketed Home feed. Icon tint communicates severity; optional trailing Action button is isolated from the row tap."
+                )
+
+                VCard(background: VColor.surfaceBase) {
+                    VStack(spacing: VSpacing.xs) {
+                        // Heartbeat: danger tint, no action.
+                        // Note: plan referenced `Danger._500` / `Danger._900`, which do
+                        // not exist in this codebase; using the closest semantic pair
+                        // `systemNegativeStrong` / `systemNegativeWeak` (see
+                        // HomeRecapRow docs + ColorTokens.swift).
+                        HomeRecapRow(
+                            icon: .heart,
+                            iconForeground: VColor.systemNegativeStrong,
+                            iconBackground: VColor.systemNegativeWeak,
+                            title: "Heartbeat – all systems healthy",
+                            onTap: {}
+                        )
+
+                        // Permission: blue/primary tint, with action.
+                        // Note: plan referenced a blue/primary scale; the codebase
+                        // has no semantic blue pair, so using `funBlue` for the
+                        // glyph and `surfaceLift` for the subtle tinted background.
+                        HomeRecapRow(
+                            icon: .arrowLeft,
+                            iconForeground: VColor.funBlue,
+                            iconBackground: VColor.surfaceLift,
+                            title: "I need your permission on authorising a transaction to NBA",
+                            actionLabel: "Action",
+                            onAction: {},
+                            onTap: {}
+                        )
+
+                        // Digest: emerald tint, with action.
+                        // Note: plan referenced `Forest._500` / `Forest._900`, which
+                        // do not exist; using the closest semantic pair
+                        // `systemPositiveStrong` / `systemPositiveWeak`.
+                        HomeRecapRow(
+                            icon: .bell,
+                            iconForeground: VColor.systemPositiveStrong,
+                            iconBackground: VColor.systemPositiveWeak,
+                            title: "Last, while you were away, I ran the email clean job and deleted 26 emails…",
+                            actionLabel: "Action",
+                            onAction: {},
+                            onTap: {}
+                        )
+
+                        // Passive digest: emerald tint, no action.
+                        HomeRecapRow(
+                            icon: .bell,
+                            iconForeground: VColor.systemPositiveStrong,
+                            iconBackground: VColor.systemPositiveWeak,
+                            title: "There's also 4 low priority updates if you want to have a look.",
+                            onTap: {}
+                        )
+                    }
+                }
+            }
+
             // MARK: - HomeDetailPanel
 
             if filter == nil || filter == "homeDetailPanel" {
@@ -631,6 +721,8 @@ extension HomeGallerySection {
         case "homeImageCard": HomeGallerySection(filter: "homeImageCard")
         case "homeFileCard": HomeGallerySection(filter: "homeFileCard")
         case "homeUpdatesListCard": HomeGallerySection(filter: "homeUpdatesListCard")
+        case "homeFeedGroupHeader": HomeGallerySection(filter: "homeFeedGroupHeader")
+        case "homeRecapRow": HomeGallerySection(filter: "homeRecapRow")
         case "homeDetailPanel": HomeGallerySection(filter: "homeDetailPanel")
         case "homeEmailEditor": HomeGallerySection(filter: "homeEmailEditor")
         case "homeInvoicePreview": HomeGallerySection(filter: "homeInvoicePreview")
