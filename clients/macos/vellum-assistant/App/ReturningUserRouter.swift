@@ -103,6 +103,12 @@ public final class ReturningUserRouter {
         decide(for: await fetchLandscape())
     }
 
+    /// Fetches the platform list with a bounded wait. Uses unstructured
+    /// tasks (rather than `withTaskGroup`) because a task group blocks its
+    /// `body` until every child task has finished, which would extend the
+    /// wait past `platformTimeout` if the network call does not cooperate
+    /// with cancellation. `URLSession` does, but keeping the upper bound
+    /// independent of the fetch's cancellation behaviour is safer.
     private func fetchPlatformAssistants() async -> ([PlatformAssistant], Bool) {
         guard let orgId = organizationIdProvider(), !orgId.isEmpty else {
             return ([], false)
@@ -111,25 +117,25 @@ public final class ReturningUserRouter {
             return ([], false)
         }
         let timeout = platformTimeout
-        return await withTaskGroup(of: ([PlatformAssistant], Bool)?.self) { group in
-            group.addTask { @MainActor in
-                do {
-                    let list = try await auth.listAssistants(organizationId: orgId)
-                    return (list, true)
-                } catch {
-                    log.warning("platform fetch failed: \(String(describing: error), privacy: .public)")
-                    return ([], false)
-                }
+        let fetchTask = Task { @MainActor () -> ([PlatformAssistant], Bool) in
+            do {
+                let list = try await auth.listAssistants(organizationId: orgId)
+                return (list, true)
+            } catch is CancellationError {
+                return ([], false)
+            } catch {
+                log.warning("platform fetch failed: \(String(describing: error), privacy: .public)")
+                return ([], false)
             }
-            group.addTask {
-                try? await Task.sleep(for: timeout)
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            if let first { return first }
-            log.warning("platform fetch timed out")
-            return ([], false)
         }
+        let timeoutTask = Task { [fetchTask] in
+            try? await Task.sleep(for: timeout)
+            if !Task.isCancelled {
+                log.warning("platform fetch timed out after \(timeout, privacy: .public)")
+                fetchTask.cancel()
+            }
+        }
+        defer { timeoutTask.cancel() }
+        return await fetchTask.value
     }
 }
