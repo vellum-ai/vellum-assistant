@@ -193,6 +193,37 @@ function startMeetingSession(
  */
 let activeSession: MeetingSessionHandle | null = null;
 
+/**
+ * Per-tab serialization chain for `send_chat` handling. `sendChat` mutates
+ * a single shared textarea (`.value = text`) and then clicks the send
+ * button, so overlapping requests would otherwise race on the composer.
+ * Chaining onto this promise forces strict arrival-order processing while
+ * leaving the `onMessage` listener synchronous (the listener returns
+ * immediately; handling happens off-thread).
+ */
+let sendChatQueue: Promise<void> = Promise.resolve();
+
+/**
+ * Chain a `send_chat` invocation onto the per-tab queue so it runs
+ * strictly after any prior in-flight `sendChat` call has completed.
+ * Extracted from the inline listener wiring so tests can drive the queue
+ * directly (Bun caches ESM modules across tests, so the listener's
+ * `chrome.runtime.onMessage.addListener` registration happens once at
+ * first-import time — not re-runnable against a fresh fake chrome on
+ * each test).
+ */
+function enqueueSendChat(cmd: BotSendChatCommand): Promise<void> {
+  sendChatQueue = sendChatQueue
+    .catch(() => {
+      // A prior `handleSendChat` rejection must not poison subsequent
+      // sends — the handler catches its own errors and reports them via
+      // `send_chat_result(ok=false)`, so any rejection here is a bug we
+      // still want to isolate from the next request.
+    })
+    .then(() => handleSendChat(cmd));
+  return sendChatQueue;
+}
+
 chrome.runtime.onMessage.addListener(
   (
     raw: unknown,
@@ -239,7 +270,14 @@ chrome.runtime.onMessage.addListener(
     }
 
     if (msg.type === "send_chat") {
-      void handleSendChat(msg);
+      // Serialize send_chat handling per tab. `sendChat` mutates a single
+      // shared textarea (`.value = text`) and then clicks the send button,
+      // so two overlapping commands would race on the composer — the
+      // second call's value-write can clobber the first before its click
+      // lands, posting the wrong text while both requests still report
+      // ok=true. `enqueueSendChat` chains invocations onto a per-tab
+      // Promise so they run strictly in arrival order.
+      void enqueueSendChat(msg);
       return false;
     }
 
@@ -442,3 +480,9 @@ async function handleCameraToggle(
 // extension's public surface — the background SW never imports content.ts.
 export { handleSendChat as __handleSendChat };
 export { handleCameraToggle as __handleCameraToggle };
+// Exported so the per-tab serialization queue can be exercised directly
+// by tests. The `chrome.runtime.onMessage` listener is registered once at
+// module-load time (Bun's ESM cache prevents re-running module top level
+// across tests), so tests that want to assert ordering for overlapping
+// `send_chat` frames drive this helper instead of the raw listener.
+export { enqueueSendChat as __enqueueSendChat };

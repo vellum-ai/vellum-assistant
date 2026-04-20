@@ -244,12 +244,37 @@ export async function sendChat(
     );
   }
 
-  // Meet's composer is a React-controlled textarea. Simply setting `.value`
-  // doesn't update React's internal state — we have to dispatch a synthetic
-  // `input` event so React's onChange handler picks up the new value. This
-  // mirrors the technique the bot-side `page.fill` ultimately uses under the
-  // hood through Playwright's element-handle bindings.
-  input.value = text;
+  // Meet's composer is a React-controlled textarea. React 16+ installs an
+  // instance-level property-descriptor interceptor (`inputValueTracking`)
+  // that hijacks `.value = ...`: when the synthetic `input` event fires,
+  // React compares the DOM value to its internal tracker and — because the
+  // interceptor updated the tracker in lockstep with the assignment —
+  // observes no change and skips the onChange dispatch. The result is a
+  // composer that visually shows the text but never commits to React state,
+  // so Send posts empty/stale content.
+  //
+  // The workaround is Playwright's `page.fill` trick: grab the native
+  // setter off `HTMLTextAreaElement.prototype` (which the React interceptor
+  // shadows at the instance level) and invoke it with `.call(input, text)`.
+  // That routes through the prototype setter without touching React's
+  // tracker, so the subsequent `input` event fires with a genuine value
+  // change and onChange runs normally. We still dispatch the synthetic
+  // `input` event ourselves — React relies on it as the trigger for
+  // onChange even after the value has been updated.
+  //
+  // If the native setter isn't resolvable for any reason (e.g. a jsdom
+  // build that doesn't expose the prototype descriptor), fall back to the
+  // direct `.value = ...` assignment. That path is adequate for the test
+  // harness and any pre-React-tracker Meet build.
+  const nativeSetter = Object.getOwnPropertyDescriptor(
+    HTMLTextAreaElement.prototype,
+    "value",
+  )?.set;
+  if (nativeSetter) {
+    nativeSetter.call(input, text);
+  } else {
+    input.value = text;
+  }
   input.dispatchEvent(new Event("input", { bubbles: true }));
 
   // If the caller wired up an `onEvent` sink, also drive the composer via

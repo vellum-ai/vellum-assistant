@@ -37,21 +37,23 @@ const CHAT_FIXTURE = readFileSync(
   "utf8",
 );
 
+type OnMessageListener = (
+  raw: unknown,
+  sender: unknown,
+  sendResponse: (response?: unknown) => void,
+) => boolean;
+
 interface FakeChrome {
   runtime: {
     sendMessage: (msg: unknown) => void;
     onMessage: {
-      addListener: (
-        cb: (
-          raw: unknown,
-          sender: unknown,
-          sendResponse: (response?: unknown) => void,
-        ) => boolean,
-      ) => void;
+      addListener: (cb: OnMessageListener) => void;
     };
   };
   /** Log of every frame the handler forwarded to the bot via sendMessage. */
   sent: unknown[];
+  /** Listeners registered on `chrome.runtime.onMessage` (drives the queue). */
+  listeners: OnMessageListener[];
 }
 
 interface InstalledHarness {
@@ -76,16 +78,22 @@ function installHarness(): InstalledHarness {
   const document = window.document;
 
   const sent: unknown[] = [];
+  const listeners: OnMessageListener[] = [];
   const chrome: FakeChrome = {
     sent,
+    listeners,
     runtime: {
       sendMessage: (msg) => {
         sent.push(msg);
       },
       onMessage: {
-        // content.ts calls addListener at module-load time; we just
-        // record that it happened by accepting any callback here.
-        addListener: () => {},
+        // Capture the listener so tests that need to exercise the
+        // listener-level serialization queue can dispatch raw frames
+        // through it (and the exported `__handleSendChat` remains
+        // available for tests that don't care about the queue).
+        addListener: (cb) => {
+          listeners.push(cb);
+        },
       },
     },
   };
@@ -137,6 +145,13 @@ describe("handleSendChat (content-script meet_send_chat tool path)", () => {
         requestId: string;
       }) => Promise<void>)
     | null = null;
+  let enqueueSendChat:
+    | ((cmd: {
+        type: "send_chat";
+        text: string;
+        requestId: string;
+      }) => Promise<void>)
+    | null = null;
 
   beforeEach(async () => {
     harness = installHarness();
@@ -145,8 +160,10 @@ describe("handleSendChat (content-script meet_send_chat tool path)", () => {
     // instead of the bare Bun runtime.
     const mod = (await import("../content.js")) as {
       __handleSendChat: typeof handleSendChat;
+      __enqueueSendChat: typeof enqueueSendChat;
     };
     handleSendChat = mod.__handleSendChat;
+    enqueueSendChat = mod.__enqueueSendChat;
   });
 
   afterEach(() => {
@@ -155,6 +172,7 @@ describe("handleSendChat (content-script meet_send_chat tool path)", () => {
       harness = null;
     }
     handleSendChat = null;
+    enqueueSendChat = null;
   });
 
   test("emits trusted_type + trusted_click and a send_chat_result when Meet accepts the send", async () => {
@@ -311,5 +329,71 @@ describe("handleSendChat (content-script meet_send_chat tool path)", () => {
     const trustedClicks = sent.filter((e) => e.type === "trusted_click");
     expect(trustedTypes.length).toBe(0);
     expect(trustedClicks.length).toBe(0);
+  });
+
+  test("serializes overlapping send_chat commands so the wrong text is never posted", async () => {
+    // `sendChat` mutates a single shared textarea (`.value = text`) before
+    // clicking the send button, so two overlapping invocations would race
+    // on the composer: the second call's value-write lands before the
+    // first call's `.click()` fires, posting the wrong text while both
+    // requests still report ok=true. The fix chains `handleSendChat`
+    // invocations onto a per-tab Promise inside the `chrome.runtime
+    // .onMessage` listener, so the second call can't touch the DOM until
+    // the first has fully completed its send-button click.
+    //
+    // This regression test drives two `send_chat` frames into the
+    // exported `__enqueueSendChat` helper (the same entry point the
+    // listener uses) back-to-back and records the textarea value
+    // observed at each send-button click. With serialization, the clicks
+    // see "first" and "second" in order. Without it, both clicks see
+    // "second" because the second call's value-write clobbers the first
+    // before its click lands.
+    const doc = harness!.dom.window.document;
+    const input = doc.querySelector<HTMLTextAreaElement>(chatSelectors.INPUT)!;
+    const sendButton = doc.querySelector<HTMLButtonElement>(
+      chatSelectors.SEND_BUTTON,
+    )!;
+
+    const clickValues: string[] = [];
+    sendButton.addEventListener("click", () => {
+      clickValues.push(input.value);
+    });
+
+    // Fire both frames synchronously into the queue, then wait for it to
+    // drain. If the handler still `void`-launched each `handleSendChat`,
+    // both would run concurrently — the `setTimeout(250)` inside
+    // `sendChat` (onEvent-path delay before clicking send) would
+    // interleave the two calls and the second's value-write would
+    // clobber the first before click-1 fires.
+    const p1 = enqueueSendChat!({
+      type: "send_chat",
+      text: "first",
+      requestId: "req-a",
+    });
+    const p2 = enqueueSendChat!({
+      type: "send_chat",
+      text: "second",
+      requestId: "req-b",
+    });
+    await Promise.all([p1, p2]);
+
+    expect(clickValues).toEqual(["first", "second"]);
+
+    // Both results must still be emitted in order, each correlated with
+    // the right requestId.
+    const sent = harness!.chrome.sent as ExtensionToBotMessage[];
+    const results = sent.filter((e) => e.type === "send_chat_result");
+    expect(results.length).toBe(2);
+    const r0 = results[0]!;
+    const r1 = results[1]!;
+    if (
+      r0.type === "send_chat_result" &&
+      r1.type === "send_chat_result"
+    ) {
+      expect(r0.requestId).toBe("req-a");
+      expect(r0.ok).toBe(true);
+      expect(r1.requestId).toBe("req-b");
+      expect(r1.ok).toBe(true);
+    }
   });
 });

@@ -506,6 +506,62 @@ describe("sendChat", () => {
     }
   });
 
+  test("writes the textarea via the prototype value setter (React controlled-input bypass)", async () => {
+    // Meet's composer is a React-controlled textarea: React 16+ wraps the
+    // element's `.value` setter with an instance-level interceptor so
+    // direct assignment (`input.value = "x"`) updates React's tracker in
+    // lockstep with the DOM, and the subsequent synthetic `input` event
+    // sees "no change" and skips onChange. `sendChat` must therefore go
+    // through `HTMLTextAreaElement.prototype`'s native setter (the
+    // prototype descriptor, which the React shim shadows at the instance
+    // level) to drive a real value change. This regression test installs
+    // an instance-level setter that records whether it was hit — if the
+    // old `input.value = text` code path regresses, the instance setter
+    // fires and the assertion flips.
+    const doc = installed!.dom.window.document;
+    const input = doc.querySelector<HTMLTextAreaElement>(chatSelectors.INPUT)!;
+
+    let instanceSetterHits = 0;
+    let lastProtoWrite = "";
+    // Shadow the prototype `value` setter at the instance level the same
+    // way React's `inputValueTracking` does. The native prototype setter
+    // (which `sendChat` must call) bypasses this shim entirely, while the
+    // old `.value = text` assignment goes through it.
+    const protoDesc = Object.getOwnPropertyDescriptor(
+      installed!.dom.window.HTMLTextAreaElement.prototype,
+      "value",
+    );
+    if (!protoDesc || !protoDesc.set || !protoDesc.get) {
+      throw new Error("jsdom HTMLTextAreaElement.prototype has no value descriptor");
+    }
+    const protoSetter = protoDesc.set;
+    const protoGetter = protoDesc.get;
+    Object.defineProperty(input, "value", {
+      configurable: true,
+      get() {
+        return protoGetter.call(input);
+      },
+      set(v: string) {
+        instanceSetterHits += 1;
+        // Forward to the prototype so the textarea still receives the
+        // value — we only care about counting instance-level hits.
+        protoSetter.call(input, v);
+      },
+    });
+
+    // Record every input event's captured value so we can cross-check
+    // that the native-setter write landed before the synthetic event.
+    input.addEventListener("input", () => {
+      lastProtoWrite = protoGetter.call(input);
+    });
+
+    await sendChat("react-controlled");
+
+    expect(instanceSetterHits).toBe(0);
+    expect(lastProtoWrite).toBe("react-controlled");
+    expect(protoGetter.call(input)).toBe("react-controlled");
+  });
+
   test("accepts exactly 2000 characters", async () => {
     const doc = installed!.dom.window.document;
     const sendButton = doc.querySelector<HTMLButtonElement>(
