@@ -132,6 +132,12 @@ export interface CommandRiskSpec {
    */
   isWrapper?: boolean;
   /**
+   * Flags that put a wrapper into a non-exec mode (e.g. command -v, env -0).
+   * When the first arg matches a non-exec flag, skip unwrapping and classify
+   * the wrapper standalone against its own arg rules.
+   */
+  nonExecFlags?: string[];
+  /**
    * Does this command have non-standard syntax where intermediate scope
    * options would be confusing? (find, xargs, awk, etc.)
    * When true, the scope ladder only offers exact match and command-level wildcard.

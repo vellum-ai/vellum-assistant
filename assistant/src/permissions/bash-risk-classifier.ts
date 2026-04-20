@@ -294,16 +294,16 @@ export function classifySegment(
   }
 
   // 3. Handle wrappers — unwrap and classify inner command (recursive)
-  //    Special case: `command -v` / `command -V` are read-only lookups, not
-  //    wrapper invocations. Don't unwrap — instead fall through to arg/base
-  //    risk evaluation (the argRule for -v/-V will keep it low).
+  //    When a wrapper's first arg matches a nonExecFlags entry, the wrapper is
+  //    in a non-exec mode (e.g. `command -v`, `env -0`). Skip unwrapping and
+  //    fall through to arg/base risk evaluation.
   if (spec.isWrapper) {
-    const isCommandLookup =
-      programName === "command" &&
+    const isNonExecMode =
+      spec.nonExecFlags &&
       segment.args.length > 0 &&
-      (segment.args[0] === "-v" || segment.args[0] === "-V");
+      spec.nonExecFlags.includes(segment.args[0]);
 
-    if (!isCommandLookup) {
+    if (!isNonExecMode) {
       const inner = getWrappedProgramWithArgs(segment);
       if (inner) {
         // Build a synthetic segment for the inner command
@@ -333,7 +333,7 @@ export function classifySegment(
         matchType: "registry",
       };
     }
-    // `command -v/-V`: fall through to subcommand/arg rule evaluation
+    // Non-exec mode: fall through to subcommand/arg rule evaluation
   }
 
   // 4. Subcommand resolution

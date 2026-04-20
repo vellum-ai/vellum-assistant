@@ -489,6 +489,46 @@ describe("wrapper unwrapping", () => {
     });
     expect(result.riskLevel).toBe("low");
   });
+
+  test("command -v git → low (nonExecFlags, no unwrapping)", async () => {
+    const result = await classifier.classify({
+      command: "command -v git",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("command -V ls → low (nonExecFlags, no unwrapping)", async () => {
+    const result = await classifier.classify({
+      command: "command -V ls",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("env -0 → low (nonExecFlags, non-exec mode)", async () => {
+    const result = await classifier.classify({
+      command: "env -0",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("timeout --help → low (nonExecFlags, non-exec mode)", async () => {
+    const result = await classifier.classify({
+      command: "timeout --help",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("env PATH=/usr/bin node script.js → high (wrapper unwraps, no non-exec flag matched)", async () => {
+    const result = await classifier.classify({
+      command: "env PATH=/usr/bin node script.js",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
 });
 
 // ── Pipeline composition ─────────────────────────────────────────────────────
