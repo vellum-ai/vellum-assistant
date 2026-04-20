@@ -860,6 +860,24 @@ describe("P2 regression: arg rule de-escalation", () => {
     });
     expect(result.riskLevel).toBe("high");
   });
+
+  test("rm /tmp/foo /etc/passwd → high (unmatched arg prevents de-escalation)", async () => {
+    const result = await regressionClassifier.classify({
+      command: "rm /tmp/foo /etc/passwd",
+      toolName: "bash",
+    });
+    // /tmp/foo matches rm:tmp (medium), but /etc/passwd is unmatched.
+    // baseRisk (high) must be the floor when unmatched args exist.
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("rm /tmp/foo /tmp/bar → medium (all args matched, safe to de-escalate)", async () => {
+    const result = await regressionClassifier.classify({
+      command: "rm /tmp/foo /tmp/bar",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
 });
 
 describe("P3 regression: non-empty reason for low-risk commands", () => {

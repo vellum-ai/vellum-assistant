@@ -301,27 +301,30 @@ export function classifySegment(
 
   // 5. Evaluate arg rules
   //
-  // Arg rules can both escalate AND de-escalate from baseRisk. When arg rules
-  // match, they *replace* the base risk — the first match for each arg sets
-  // that arg's risk, and the final risk is the max across all matched args.
-  // If no arg rules match at all, baseRisk stands.
+  // Arg rules can both escalate AND de-escalate from baseRisk.
   //
-  // This allows patterns like:
-  //   node (baseRisk=high) + --version rule (risk=low) → low
-  //   curl (baseRisk=medium) + -d @file rule (risk=high) → high
-  //   node --version server.js → max(low, high) if both rules match
+  // De-escalation is only safe when ALL non-flag args are covered by rules.
+  // If any arg goes unmatched, baseRisk is the floor — we can't assume an
+  // unknown arg is safe. Example: `rm /tmp/foo /etc/passwd` should stay high
+  // even though /tmp/foo matches the rm:tmp de-escalation rule, because
+  // /etc/passwd is unmatched.
+  //
+  // Escalation always applies — any matched rule that's higher than baseRisk
+  // raises the risk regardless of unmatched args.
   let risk: Risk = resolvedSpec.baseRisk;
   let reason = resolvedSpec.reason || `${segment.program} (default)`;
 
   const argRules = resolvedSpec.argRules;
   if (argRules && argRules.length > 0) {
     let anyArgRuleMatched = false;
+    let hasUnmatchedNonFlagArg = false;
     let argRuleMaxRisk: Risk = "low";
     let argRuleReason = "";
 
     const allArgs = segment.args;
     for (let i = 0; i < allArgs.length; i++) {
       const arg = allArgs[i];
+      let matched = false;
       for (const rule of argRules) {
         // Standard match: flag or positional against this arg
         if (matchesArgRule(rule, arg)) {
@@ -330,6 +333,7 @@ export function classifySegment(
             argRuleReason = rule.reason;
           }
           anyArgRuleMatched = true;
+          matched = true;
           break; // first match per arg wins
         }
         // Flag+value lookahead: if this arg is a flag listed in the rule and
@@ -349,17 +353,31 @@ export function classifySegment(
               argRuleReason = rule.reason;
             }
             anyArgRuleMatched = true;
+            matched = true;
             break;
           }
         }
       }
+      // Track unmatched non-flag args. Flags (starting with -) are structural
+      // and don't need rule coverage for de-escalation safety.
+      if (!matched && !arg.startsWith("-")) {
+        hasUnmatchedNonFlagArg = true;
+      }
     }
 
-    // If any arg rule matched, use the max of matched rules (which may be
-    // lower than baseRisk — that's the point of de-escalation rules).
     if (anyArgRuleMatched) {
-      risk = argRuleMaxRisk;
-      reason = argRuleReason;
+      if (riskOrd(argRuleMaxRisk) >= riskOrd(risk)) {
+        // Escalation: always apply (matched rule is >= baseRisk)
+        risk = argRuleMaxRisk;
+        reason = argRuleReason;
+      } else if (!hasUnmatchedNonFlagArg) {
+        // De-escalation: only safe when ALL non-flag args matched rules.
+        // Every arg is accounted for, so the lower risk is justified.
+        risk = argRuleMaxRisk;
+        reason = argRuleReason;
+      }
+      // Otherwise: some args matched low rules but other args went unmatched.
+      // Keep baseRisk as the floor — can't safely de-escalate.
     }
   }
 
