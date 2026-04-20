@@ -341,7 +341,6 @@ final class ConversationRestorer {
                 // Copy-modify-writeback for non-attention fields: write back once
                 // so conversations.didSet fires once instead of per-field.
                 var existing = delegate.conversations[existingIdx]
-                log.info("[pin-debug] conv=\(session.id, privacy: .public) old=\(existing.groupId ?? "nil", privacy: .public) new=\(groupId ?? "nil", privacy: .public) sessionIsPinned=\(session.isPinned ?? false, privacy: .public) sessionGroupId=\(session.groupId ?? "nil", privacy: .public)")
                 existing.groupId = groupId
                 existing.displayOrder = session.displayOrder.map { Int($0) }
                 existing.hostAccess = session.hostAccess ?? false
