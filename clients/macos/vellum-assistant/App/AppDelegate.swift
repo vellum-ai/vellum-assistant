@@ -670,7 +670,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupFileMenu()
         patchAppMenuTitles()
         registerNavigationMonitor()
-        registerConversationNavMonitor()
         registerZoomMonitor()
         registerSidebarToggleMonitor()
         setupHotKey()

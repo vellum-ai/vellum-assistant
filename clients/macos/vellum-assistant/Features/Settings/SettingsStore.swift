@@ -91,6 +91,8 @@ public final class SettingsStore: ObservableObject {
     @Published var currentConversationShortcut: String
     @Published var markConversationUnreadShortcut: String
     @Published var popOutShortcut: String
+    @Published var previousConversationShortcut: String
+    @Published var nextConversationShortcut: String
     @Published var cmdEnterToSend: Bool
 
     // MARK: - Media Embed Settings
@@ -505,6 +507,16 @@ public final class SettingsStore: ObservableObject {
         } else {
             self.popOutShortcut = UserDefaults.standard.string(forKey: "popOutShortcut") ?? ""
         }
+        if UserDefaults.standard.object(forKey: "previousConversationShortcut") == nil {
+            self.previousConversationShortcut = "cmd+up"
+        } else {
+            self.previousConversationShortcut = UserDefaults.standard.string(forKey: "previousConversationShortcut") ?? ""
+        }
+        if UserDefaults.standard.object(forKey: "nextConversationShortcut") == nil {
+            self.nextConversationShortcut = "cmd+down"
+        } else {
+            self.nextConversationShortcut = UserDefaults.standard.string(forKey: "nextConversationShortcut") ?? ""
+        }
 
         // Use defaults for config-dependent properties; the daemon will
         // provide authoritative values once reachable via loadConfigFromDaemon().
@@ -601,6 +613,16 @@ public final class SettingsStore: ObservableObject {
         $popOutShortcut
             .dropFirst()
             .sink { value in UserDefaults.standard.set(value, forKey: "popOutShortcut") }
+            .store(in: &cancellables)
+
+        $previousConversationShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "previousConversationShortcut") }
+            .store(in: &cancellables)
+
+        $nextConversationShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "nextConversationShortcut") }
             .store(in: &cancellables)
 
         // Re-resolve lockfile-derived state whenever the connected assistant changes

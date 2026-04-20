@@ -84,6 +84,18 @@ extension UserDefaults {
         }
         return string(forKey: "popOutShortcut") ?? ""
     }
+    @objc dynamic var previousConversationShortcut: String {
+        if UserDefaults.standard.object(forKey: "previousConversationShortcut") == nil {
+            return "cmd+up"
+        }
+        return string(forKey: "previousConversationShortcut") ?? ""
+    }
+    @objc dynamic var nextConversationShortcut: String {
+        if UserDefaults.standard.object(forKey: "nextConversationShortcut") == nil {
+            return "cmd+down"
+        }
+        return string(forKey: "nextConversationShortcut") ?? ""
+    }
     @objc dynamic var connectedOrganizationId: String? {
         return string(forKey: "connectedOrganizationId")
     }
@@ -105,6 +117,7 @@ extension AppDelegate {
         registerCurrentConversationMonitor()
         registerMarkConversationUnreadMonitor()
         registerPopOutMonitor()
+        registerConversationNavMonitor()
 
         globalHotkeyObserver = Publishers.Merge4(
             UserDefaults.standard.publisher(for: \.globalHotkeyShortcut).map { _ in () },
@@ -116,6 +129,8 @@ extension AppDelegate {
         .merge(with: UserDefaults.standard.publisher(for: \.currentConversationShortcut).map { _ in () })
         .merge(with: UserDefaults.standard.publisher(for: \.markConversationUnreadShortcut).map { _ in () })
         .merge(with: UserDefaults.standard.publisher(for: \.popOutShortcut).map { _ in () })
+        .merge(with: UserDefaults.standard.publisher(for: \.previousConversationShortcut).map { _ in () })
+        .merge(with: UserDefaults.standard.publisher(for: \.nextConversationShortcut).map { _ in () })
         .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
         .sink { [weak self] _ in
             self?.registerGlobalHotkeyMonitor()
@@ -125,6 +140,7 @@ extension AppDelegate {
             self?.registerCurrentConversationMonitor()
             self?.registerMarkConversationUnreadMonitor()
             self?.registerPopOutMonitor()
+            self?.registerConversationNavMonitor()
             self?.updateNewChatMenuItemShortcut()
             self?.updateCurrentConversationMenuItemShortcut()
             self?.updateMarkConversationUnreadMenuItemShortcut()
@@ -474,27 +490,49 @@ extension AppDelegate {
         popOutLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
     }
 
-    /// Registers Cmd+Up / Cmd+Down as local shortcuts for navigating between
-    /// conversations in the sidebar. Uses arrow key codes (126 = up, 125 = down)
-    /// rather than `charactersIgnoringModifiers` which is unreliable for arrow keys
-    /// on some keyboard layouts.
+    /// Registers configurable shortcuts for navigating between conversations
+    /// in the sidebar (default: Cmd+Up / Cmd+Down). The shortcuts are read
+    /// dynamically from UserDefaults so they can be reconfigured without
+    /// restarting. Skips the event when the first responder is a text view
+    /// to avoid stealing standard text editing key bindings.
     func registerConversationNavMonitor() {
-        guard conversationNavLocalMonitor == nil else { return }
+        if let existing = conversationNavLocalMonitor {
+            NSEvent.removeMonitor(existing)
+            conversationNavLocalMonitor = nil
+        }
+
+        let prevShortcut = UserDefaults.standard.string(forKey: "previousConversationShortcut") ?? "cmd+up"
+        let nextShortcut = UserDefaults.standard.string(forKey: "nextConversationShortcut") ?? "cmd+down"
+
+        guard !prevShortcut.isEmpty || !nextShortcut.isEmpty else { return }
+
+        let (prevModifiers, prevKey) = ShortcutHelper.parseShortcut(prevShortcut)
+        let (nextModifiers, nextKey) = ShortcutHelper.parseShortcut(nextShortcut)
+
         let handler: (NSEvent) -> NSEvent? = { [weak self] event in
             guard self?.isBootstrapping != true,
                   self?.mainWindow?.isVisible == true else { return event }
-            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.numericPad)
-            guard mods == [.command] else { return event }
-            switch event.keyCode {
-            case 126: // Up arrow
+
+            // Don't steal shortcuts from text views (e.g. Cmd+Up/Down for caret movement)
+            if NSApp.mainWindow?.firstResponder is NSTextView { return event }
+
+            // Arrow keys include .numericPad and .function in modifierFlags — strip both
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                .subtracting([.numericPad, .function])
+
+            if !prevShortcut.isEmpty,
+               mods == prevModifiers,
+               event.charactersIgnoringModifiers?.lowercased() == prevKey.lowercased() {
                 Task { @MainActor in self?.selectPreviousConversation() }
                 return nil
-            case 125: // Down arrow
+            }
+            if !nextShortcut.isEmpty,
+               mods == nextModifiers,
+               event.charactersIgnoringModifiers?.lowercased() == nextKey.lowercased() {
                 Task { @MainActor in self?.selectNextConversation() }
                 return nil
-            default:
-                return event
             }
+            return event
         }
         conversationNavLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
     }
