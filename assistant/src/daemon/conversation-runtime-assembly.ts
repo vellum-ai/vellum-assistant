@@ -1930,6 +1930,12 @@ export async function applyRuntimeInjections(
             workingDir,
           );
           const pkbRoot = options.pkbRoot;
+          // Gate on `denseScore` (cosine, [0, 1]) so the quality bar is stable
+          // regardless of whether sparse was provided. Rank by `hybridScore`
+          // (RRF) when available — that captures the sparse signal for
+          // re-ordering eligible hits. hybridScore and denseScore live on
+          // different scales, so items with hybridScore are ordered together
+          // and placed ahead of items that only have denseScore.
           hints = results
             .filter((r) => {
               const abs = resolve(pkbRoot, r.path);
@@ -1939,7 +1945,17 @@ export async function applyRuntimeInjections(
                 .startsWith("archive/")
                 ? PKB_HINT_ARCHIVE_THRESHOLD
                 : PKB_HINT_THRESHOLD;
-              return r.score >= threshold;
+              return r.denseScore >= threshold;
+            })
+            .sort((a, b) => {
+              const aHasHybrid = a.hybridScore !== undefined;
+              const bHasHybrid = b.hybridScore !== undefined;
+              if (aHasHybrid && !bHasHybrid) return -1;
+              if (!aHasHybrid && bHasHybrid) return 1;
+              if (aHasHybrid && bHasHybrid) {
+                return b.hybridScore! - a.hybridScore!;
+              }
+              return b.denseScore - a.denseScore;
             })
             .slice(0, 3)
             .map((r) => r.path);

@@ -197,7 +197,10 @@ describe("retrieveForTurn — query/sparse vector surfacing", () => {
     // nothing), the queryVector should still be surfaced so the PKB hint
     // retriever can fire on every turn.
     expect(result.queryVector).toEqual([0.9, 0.8, 0.7]);
-    expect(result.sparseVector).toBeUndefined();
+    // Per-turn now populates sparseVector from the user message (TF-IDF),
+    // paired with the combined-text dense for PKB hybrid search.
+    expect(result.sparseVector).toBeDefined();
+    expect(result.sparseVector!.indices.length).toBeGreaterThan(0);
   });
 
   test("returns undefined queryVector when the embedding backend throws", async () => {
@@ -212,10 +215,12 @@ describe("retrieveForTurn — query/sparse vector surfacing", () => {
       tracker,
     });
 
-    // Circuit-breaker path: embedding failure is swallowed; no throw and no
-    // vector surfaced.
+    // Circuit-breaker path: embedding failure is swallowed; no dense vector
+    // surfaced. Sparse vector (local TF-IDF) is independent of the embedding
+    // backend, so it is still produced from the user message.
     expect(result.queryVector).toBeUndefined();
-    expect(result.sparseVector).toBeUndefined();
+    expect(result.sparseVector).toBeDefined();
+    expect(result.sparseVector!.indices.length).toBeGreaterThan(0);
   });
 
   test("returns undefined queryVector when there is no text to embed", async () => {
@@ -383,6 +388,45 @@ describe("loadContextMemory — dual-query capability ranking (PR 3)", () => {
 
     expect(result.userQueryVector).toBeDefined();
     expect(embedCallCount).toBe(2);
+  });
+
+  test("produces userQuerySparseVector alongside userQueryVector when user query is non-empty", async () => {
+    embedRouter = keywordEmbedRouter;
+    searchRouter = vectorSearchRouter;
+
+    const result = await loadContextMemory({
+      scopeId: "default",
+      recentSummaries: [LONG_HEARTBEAT_SUMMARY],
+      userQuery: "clean up my inbox",
+      config: DUAL_QUERY_CONFIG,
+    });
+
+    expect(result.userQueryVector).toBeDefined();
+    expect(result.userQuerySparseVector).toBeDefined();
+    expect(result.userQuerySparseVector!.indices.length).toBeGreaterThan(0);
+    expect(result.userQuerySparseVector!.values.length).toBe(
+      result.userQuerySparseVector!.indices.length,
+    );
+  });
+
+  test("omits userQuerySparseVector when user query is absent or whitespace-only", async () => {
+    embedRouter = keywordEmbedRouter;
+    searchRouter = vectorSearchRouter;
+
+    const missing = await loadContextMemory({
+      scopeId: "default",
+      recentSummaries: [LONG_HEARTBEAT_SUMMARY],
+      config: DUAL_QUERY_CONFIG,
+    });
+    expect(missing.userQuerySparseVector).toBeUndefined();
+
+    const blank = await loadContextMemory({
+      scopeId: "default",
+      recentSummaries: [LONG_HEARTBEAT_SUMMARY],
+      userQuery: "   ",
+      config: DUAL_QUERY_CONFIG,
+    });
+    expect(blank.userQuerySparseVector).toBeUndefined();
   });
 
   test("skips the dedicated embed when userQuery is missing or empty", async () => {

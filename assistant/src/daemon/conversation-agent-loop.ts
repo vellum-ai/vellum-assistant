@@ -667,13 +667,22 @@ export async function runAgentLoopImpl(
         onEvent,
       );
       runMessages = graphResult.runMessages;
-      pkbQueryVector = graphResult.userQueryVector ?? graphResult.queryVector;
-      // Reset sparse vector when the dense vector came from `userQueryVector` —
-      // there is no matching user-query sparse vector today, and pairing a
-      // user-query dense with a summary-aligned sparse is incorrect.
-      pkbSparseVector = graphResult.userQueryVector
-        ? undefined
-        : graphResult.sparseVector;
+      // Select dense+sparse as a matched pair so RRF fusion combines two
+      // signals aligned to the same query text:
+      //   1. Context-load with a user query: user-query dense + user-query
+      //      sparse — the cleanest pairing.
+      //   2. Otherwise (context-load without a user query, or per-turn):
+      //      whatever `queryVector` / `sparseVector` the retriever produced,
+      //      which are themselves co-aligned (both summary-derived in
+      //      context-load, both user-last-message-derived in per-turn).
+      // Never pair a user-query dense with a summary-aligned sparse.
+      if (graphResult.userQueryVector) {
+        pkbQueryVector = graphResult.userQueryVector;
+        pkbSparseVector = graphResult.userQuerySparseVector;
+      } else {
+        pkbQueryVector = graphResult.queryVector;
+        pkbSparseVector = graphResult.sparseVector;
+      }
 
       // Persist the injected block text in message metadata so it survives
       // conversation reloads (eviction, restart, fork). loadFromDb re-injects
