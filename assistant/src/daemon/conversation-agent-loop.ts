@@ -899,8 +899,7 @@ export async function runAgentLoopImpl(
     // model sees one channel-wide view instead of the gateway's per-turn
     // hints. DMs render as a flat sequence (no thread tags), channels
     // include sibling threads.
-    const isSlackConversation =
-      ctx.channelCapabilities?.channel === "slack";
+    const isSlackConversation = ctx.channelCapabilities?.channel === "slack";
     const slackChronologicalMessages = isSlackConversation
       ? loadSlackChronologicalMessages(
           ctx.conversationId,
@@ -1535,6 +1534,14 @@ export async function runAgentLoopImpl(
         if (isTrustedActor && currentInjectionMode !== "minimal") {
           ctx.graphMemory.retrackCachedNodes();
         }
+        const convergenceStrip = stripHistoricalWebSearchResults(runMessages);
+        if (convergenceStrip.stats.blocksStripped > 0) {
+          rlog.info(
+            { phase: "convergence", ...convergenceStrip.stats },
+            "Converted historical web_search_tool_result blocks to text summaries",
+          );
+          runMessages = convergenceStrip.messages;
+        }
         preRepairMessages = runMessages;
         preRunHistoryLength = runMessages.length;
         state.contextTooLargeDetected = false;
@@ -1663,6 +1670,14 @@ export async function runAgentLoopImpl(
             if (isTrustedActor && currentInjectionMode !== "minimal") {
               ctx.graphMemory.retrackCachedNodes();
             }
+            const emergencyStrip = stripHistoricalWebSearchResults(runMessages);
+            if (emergencyStrip.stats.blocksStripped > 0) {
+              rlog.info(
+                { phase: "emergency_compact", ...emergencyStrip.stats },
+                "Converted historical web_search_tool_result blocks to text summaries",
+              );
+              runMessages = emergencyStrip.messages;
+            }
             preRepairMessages = runMessages;
             preRunHistoryLength = runMessages.length;
             state.contextTooLargeDetected = false;
@@ -1786,6 +1801,14 @@ export async function runAgentLoopImpl(
           });
           if (isTrustedActor && currentInjectionMode !== "minimal") {
             ctx.graphMemory.retrackCachedNodes();
+          }
+          const fallbackStrip = stripHistoricalWebSearchResults(runMessages);
+          if (fallbackStrip.stats.blocksStripped > 0) {
+            rlog.info(
+              { phase: "fail_gracefully_compact", ...fallbackStrip.stats },
+              "Converted historical web_search_tool_result blocks to text summaries",
+            );
+            runMessages = fallbackStrip.messages;
           }
           preRepairMessages = runMessages;
           preRunHistoryLength = runMessages.length;
