@@ -20,7 +20,7 @@ It learns how you work, remembers what matters, and acts before you ask. Yours t
 <tr>
 <td width="50%" valign="top">
 
-**Remembers what matters**
+**Remembers everything**
 
 Long-term memory with source attribution, per-channel isolation, and its own sense of what's worth keeping.
 
