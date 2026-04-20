@@ -966,6 +966,19 @@ export async function runAgentLoopImpl(
     });
     runMessages = injection.messages;
 
+    if (injection.blocks.pkbSystemReminder) {
+      try {
+        updateMessageMetadata(userMessageId, {
+          pkbSystemReminderBlock: injection.blocks.pkbSystemReminder,
+        });
+      } catch (err) {
+        rlog.warn(
+          { err },
+          "Failed to persist pkbSystemReminderBlock metadata (non-fatal)",
+        );
+      }
+    }
+
     // ── Preflight budget evaluation ──────────────────────────────
     // After runtime injections are applied, estimate the prompt token count
     // and proactively invoke the reducer if already above budget. This avoids
