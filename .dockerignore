@@ -14,6 +14,7 @@
 !skills/meet-join/bun.lock
 !skills/meet-join/config-schema.ts
 !skills/meet-join/meet-config.ts
+!skills/meet-join/register.ts
 !skills/meet-join/contracts/
 !skills/meet-join/contracts/**
 !skills/meet-join/daemon/
