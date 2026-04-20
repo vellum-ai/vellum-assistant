@@ -28,21 +28,25 @@
 
 import { randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { mkdir, rename, rm } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
 import { invalidateConfigCache } from "../../config/loader.js";
+import { sanitizeConfigForTransfer } from "../../config/sanitize-for-transfer.js";
 import { resetDb } from "../../memory/db-connection.js";
 import { clearCache as clearTrustCache } from "../../permissions/trust-store.js";
+import { isGuardianPersonaCustomized } from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
 import type { PathResolver } from "./vbundle-import-analyzer.js";
-import type {
-  ImportCommitReport,
-  ImportCommitResult,
-  ImportedFileReport,
-  ImportFileAction,
+import {
+  CONFIG_ARCHIVE_PATHS,
+  type ImportCommitReport,
+  type ImportCommitResult,
+  type ImportedFileReport,
+  type ImportFileAction,
+  LEGACY_USER_MD_ARCHIVE_PATH,
 } from "./vbundle-importer.js";
 import {
   createHashVerifier,
@@ -114,6 +118,11 @@ export async function streamCommitImport(
   // memory. They intentionally never touch disk: DefaultPathResolver returns
   // null for `credentials/*`, and CES is the only consumer.
   const bufferedCredentials: Array<{ account: string; value: string }> = [];
+  // Count entries that actually resulted in a file being written into the
+  // temp workspace dir. If zero, we skip the atomic rename pair at the end
+  // so the real workspace is left untouched — matches commitImport's
+  // "no workspace entries" behavior for legacy bundles / all-skipped bundles.
+  let workspaceWrites = 0;
 
   // Create the temp workspace dir up front so any failure between here and
   // the atomic swap can be cleaned up by the catch block below.
@@ -268,6 +277,46 @@ export async function streamCommitImport(
         continue;
       }
 
+      // Legacy guardian persona (prompts/USER.md) is translated to the
+      // current guardian's users/<slug>.md by DefaultPathResolver. If
+      // that target already holds user-authored content, skip rather
+      // than clobber — the user has curated their persona since the
+      // bundle was exported. We check against the LIVE workspace path
+      // (diskPath) because the swap hasn't happened yet.
+      if (
+        archivePath === LEGACY_USER_MD_ARCHIVE_PATH &&
+        isGuardianPersonaCustomized(diskPath)
+      ) {
+        log.warn(
+          { archivePath, diskPath },
+          "Skipping legacy prompts/USER.md import: guardian persona is already customized",
+        );
+        await drainThroughVerifier(entry.body, {
+          sha256: expectedEntry.sha256,
+          size: expectedEntry.size,
+          archivePath,
+        });
+        importedFiles.push({
+          path: archivePath,
+          disk_path: diskPath,
+          action: "skipped",
+          size: expectedEntry.size,
+          sha256: expectedEntry.sha256,
+          backup_path: null,
+        });
+        warnings.push(
+          `Skipped "${archivePath}": guardian persona at "${diskPath}" is already customized`,
+        );
+        seen.add(archivePath);
+        onProgress?.({
+          archivePath,
+          bytesWritten: expectedEntry.size,
+          entryIndex,
+        });
+        entryIndex += 1;
+        continue;
+      }
+
       // Rebase the resolved path onto the temp workspace.
       const tempDiskPath = rebaseOntoTempWorkspace(
         diskPath,
@@ -313,6 +362,47 @@ export async function streamCommitImport(
         );
       }
 
+      // Config files need sanitization before writing to strip
+      // environment-specific fields (defense-in-depth; matches commitImport).
+      // Configs are small (KB-scale) so buffering them is fine. Hash
+      // verification still runs on the RAW bytes — the manifest declares the
+      // sha/size of the archive content, not the sanitized output.
+      if (CONFIG_ARCHIVE_PATHS.has(archivePath)) {
+        const rawBytes = await collectHashVerified(entry.body, {
+          sha256: expectedEntry.sha256,
+          size: expectedEntry.size,
+          archivePath,
+        });
+        const sanitized = sanitizeConfigForTransfer(
+          new TextDecoder().decode(rawBytes),
+        );
+        const sanitizedBytes = new TextEncoder().encode(sanitized);
+        try {
+          await writeFile(tempDiskPath, sanitizedBytes, { mode: 0o600 });
+        } catch (err) {
+          throw wrapWriteError(`Failed to write "${tempDiskPath}"`, err);
+        }
+        importedFiles.push({
+          path: archivePath,
+          disk_path: diskPath,
+          action: "created",
+          // Report the sanitized on-disk size, not the archive's raw size —
+          // matches what commitImport reports.
+          size: sanitizedBytes.length,
+          sha256: expectedEntry.sha256,
+          backup_path: null,
+        });
+        workspaceWrites += 1;
+        seen.add(archivePath);
+        onProgress?.({
+          archivePath,
+          bytesWritten: expectedEntry.size,
+          entryIndex,
+        });
+        entryIndex += 1;
+        continue;
+      }
+
       const verifier = createHashVerifier({
         sha256: expectedEntry.sha256,
         size: expectedEntry.size,
@@ -344,6 +434,7 @@ export async function streamCommitImport(
         sha256: expectedEntry.sha256,
         backup_path: null,
       });
+      workspaceWrites += 1;
       seen.add(archivePath);
       onProgress?.({
         archivePath,
@@ -383,6 +474,33 @@ export async function streamCommitImport(
   // -------------------------------------------------------------------------
   // Atomic swap
   // -------------------------------------------------------------------------
+
+  // If the bundle contained zero entries that resolved into the workspace
+  // (legacy-format bundle with no workspace/ entries, or every entry was
+  // skipped as out-of-workspace / credential / customized-persona), the
+  // temp tree is empty/incomplete. Swapping it in would erase unrelated
+  // existing workspace state, so skip the rename pair entirely — matches
+  // commitImport, which never clears the workspace without workspace/
+  // entries to replace.
+  if (workspaceWrites === 0) {
+    await cleanupTempDir();
+
+    // Post-commit side effects still run for things like credential import.
+    if (importCredentials && bufferedCredentials.length > 0) {
+      try {
+        await importCredentials(bufferedCredentials);
+      } catch (err) {
+        log.warn(
+          { err, count: bufferedCredentials.length },
+          "Post-commit credential import failed",
+        );
+        warnings.push(`Credential import failed: ${errMessage(err)}`);
+      }
+    }
+
+    const report = buildReport(manifest, importedFiles, warnings);
+    return { ok: true, report };
+  }
 
   // Close the live SQLite connection so the DB file inside the real
   // workspace can be replaced. The singleton lazily reopens on next use.

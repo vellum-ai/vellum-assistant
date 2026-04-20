@@ -42,6 +42,24 @@ import { commitImport } from "../vbundle-importer.js";
 import { streamCommitImport } from "../vbundle-streaming-importer.js";
 import { canonicalizeJson } from "../vbundle-validator.js";
 
+/**
+ * Fixed "customized" guardian persona content used by the USER.md-skip
+ * test. Has user-authored content past the bare scaffold, so
+ * `isGuardianPersonaCustomized` returns true.
+ */
+const CUSTOMIZED_PERSONA_FIXTURE = `_ Lines starting with _ are comments - they won't appear in the system prompt
+
+# User Profile
+
+- Preferred name/reference: Real User
+- Pronouns: she/her
+- Locale: en-US
+- Work role: Staff Engineer
+- Goals: Ship drop-user-md
+- Hobbies/fun: Reading papers
+- Daily tools: Terminal, Vellum
+`;
+
 // ---------------------------------------------------------------------------
 // Fixture helpers
 // ---------------------------------------------------------------------------
@@ -684,5 +702,326 @@ describe("streamCommitImport — report parity with commitImport", () => {
         }
       }
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Parity with commitImport: workspace-swap gating, config sanitization,
+// legacy USER.md skip when persona is customized. Each of these regressed
+// when the streaming path was first introduced.
+// ---------------------------------------------------------------------------
+
+describe("streamCommitImport — no workspace entries means no swap", () => {
+  let workspaceDir: string;
+  beforeEach(() => {
+    workspaceDir = freshWorkspace();
+  });
+  afterEach(() => {
+    const parent = join(workspaceDir, "..");
+    try {
+      rmSync(parent, { recursive: true, force: true });
+    } catch {
+      // best-effort
+    }
+  });
+
+  test("bundle with only credentials leaves the real workspace untouched", async () => {
+    // Seed the real workspace with a marker file. A successful import that
+    // had workspace entries would wipe-and-swap this file out of existence,
+    // so its survival post-import proves we skipped the rename pair.
+    mkdirSync(workspaceDir, { recursive: true });
+    writeFileSync(
+      join(workspaceDir, "marker-please-preserve.txt"),
+      "do not touch\n",
+    );
+    mkdirSync(join(workspaceDir, "deep", "nested"), { recursive: true });
+    writeFileSync(
+      join(workspaceDir, "deep", "nested", "file.txt"),
+      "nested content\n",
+    );
+
+    // Credential entries resolve to null via DefaultPathResolver — they are
+    // buffered in memory for CES, never land on disk. A bundle consisting
+    // entirely of credentials therefore has zero workspace-targeted writes.
+    const { archive } = buildVBundle({
+      files: [
+        {
+          path: "credentials/openai-key",
+          data: new TextEncoder().encode("sk-test-creds-only"),
+        },
+      ],
+    });
+
+    const received: Array<{ account: string; value: string }> = [];
+    const result = await streamCommitImport({
+      source: readableFrom(archive),
+      pathResolver: new DefaultPathResolver(workspaceDir),
+      workspaceDir,
+      importCredentials: async (creds) => {
+        received.push(...creds);
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+
+    // Real workspace's pre-existing files are STILL THERE — the temp tree
+    // was not swapped in.
+    expect(
+      readFileSync(join(workspaceDir, "marker-please-preserve.txt"), "utf8"),
+    ).toBe("do not touch\n");
+    expect(
+      readFileSync(join(workspaceDir, "deep", "nested", "file.txt"), "utf8"),
+    ).toBe("nested content\n");
+
+    // Credentials still flowed through post-commit as they should.
+    expect(received).toEqual([
+      { account: "openai-key", value: "sk-test-creds-only" },
+    ]);
+
+    // Report should reflect "nothing imported into the workspace".
+    expect(result.report.summary.files_created).toBe(0);
+    expect(result.report.summary.files_overwritten).toBe(0);
+
+    // Cleanup removed the temp dir — no sibling left behind.
+    const parent = join(workspaceDir, "..");
+    const base = workspaceDir.split("/").pop()!;
+    const siblings = readdirSync(parent);
+    const leftover = siblings.filter(
+      (name) =>
+        name.startsWith(`${base}.import-`) ||
+        name.startsWith(`${base}.pre-import-`),
+    );
+    expect(leftover).toEqual([]);
+  });
+
+  test("bundle with only out-of-workspace resolved targets leaves real workspace untouched", async () => {
+    mkdirSync(workspaceDir, { recursive: true });
+    writeFileSync(
+      join(workspaceDir, "marker-please-preserve.txt"),
+      "survive\n",
+    );
+
+    // A resolver that resolves paths OUTSIDE the workspace dir — the
+    // streaming importer drains these through the verifier and records
+    // them as skipped, so no writes land in the temp workspace.
+    const outOfWorkspaceDir = realpathSync(
+      mkdtempSync(join(tmpdir(), "oow-target-")),
+    );
+    const externalResolver = {
+      resolve(archivePath: string): string | null {
+        if (archivePath.startsWith("credentials/")) return null;
+        return join(outOfWorkspaceDir, archivePath.replace(/\//g, "_"));
+      },
+    };
+
+    const { archive } = buildVBundle({
+      files: [
+        {
+          path: "workspace/something.txt",
+          data: new TextEncoder().encode("ignored"),
+        },
+      ],
+    });
+
+    try {
+      const result = await streamCommitImport({
+        source: readableFrom(archive),
+        pathResolver: externalResolver,
+        workspaceDir,
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error("unreachable");
+
+      // Everything was skipped as "outside workspace".
+      expect(result.report.summary.files_skipped).toBeGreaterThanOrEqual(1);
+      expect(result.report.summary.files_created).toBe(0);
+
+      // Real workspace is still intact.
+      expect(
+        readFileSync(join(workspaceDir, "marker-please-preserve.txt"), "utf8"),
+      ).toBe("survive\n");
+    } finally {
+      try {
+        rmSync(outOfWorkspaceDir, { recursive: true, force: true });
+      } catch {
+        // best-effort
+      }
+    }
+  });
+});
+
+describe("streamCommitImport — config sanitization parity", () => {
+  let workspaceDir: string;
+  beforeEach(() => {
+    workspaceDir = freshWorkspace();
+  });
+  afterEach(() => {
+    const parent = join(workspaceDir, "..");
+    try {
+      rmSync(parent, { recursive: true, force: true });
+    } catch {
+      // best-effort
+    }
+  });
+
+  test("workspace/config.json is sanitized before being written", async () => {
+    // sanitizeConfigForTransfer strips `daemon` entirely, clears
+    // `ingress.publicBaseUrl`, deletes `ingress.enabled`, and zeros
+    // `skills.load.extraDirs`. We plant all of these in the archived
+    // config and assert they're gone on disk.
+    const tainted = JSON.stringify({
+      daemon: { pid: 1234, host: "private.example.com" },
+      ingress: { publicBaseUrl: "https://leaky.example", enabled: true },
+      skills: { load: { extraDirs: ["/tmp/leak-a", "/tmp/leak-b"] } },
+      unrelated: "keep-me",
+    });
+
+    const { archive } = buildVBundle({
+      files: [
+        {
+          path: "workspace/config.json",
+          data: new TextEncoder().encode(tainted),
+        },
+      ],
+    });
+
+    const result = await streamCommitImport({
+      source: readableFrom(archive),
+      pathResolver: new DefaultPathResolver(workspaceDir),
+      workspaceDir,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+
+    const writtenPath = join(workspaceDir, "config.json");
+    expect(existsSync(writtenPath)).toBe(true);
+    const writtenJson = JSON.parse(readFileSync(writtenPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
+
+    // Environment-specific fields have been stripped or reset.
+    expect(writtenJson.daemon).toBeUndefined();
+    expect((writtenJson.ingress as Record<string, unknown>).publicBaseUrl).toBe(
+      "",
+    );
+    expect(
+      (writtenJson.ingress as Record<string, unknown>).enabled,
+    ).toBeUndefined();
+    expect(
+      (
+        (writtenJson.skills as Record<string, unknown>).load as Record<
+          string,
+          unknown
+        >
+      ).extraDirs,
+    ).toEqual([]);
+
+    // Unrelated content is preserved verbatim.
+    expect(writtenJson.unrelated).toBe("keep-me");
+  });
+});
+
+describe("streamCommitImport — legacy USER.md skip on customized persona", () => {
+  let workspaceDir: string;
+  beforeEach(() => {
+    workspaceDir = freshWorkspace();
+  });
+  afterEach(() => {
+    const parent = join(workspaceDir, "..");
+    try {
+      rmSync(parent, { recursive: true, force: true });
+    } catch {
+      // best-effort
+    }
+  });
+
+  test("skips writing prompts/USER.md when guardian persona is customized", async () => {
+    // Seed the live workspace with a customized guardian persona file.
+    // `isGuardianPersonaCustomized` inspects its content vs the bare
+    // scaffold template; customized content must prevent the write.
+    //
+    // NOTE: the streaming importer uses an atomic temp-dir swap. The swap
+    // REPLACES the entire live workspace with the temp workspace — so the
+    // customized file at users/captain.md is expected to be gone after
+    // import regardless (its contents are not re-materialized into the
+    // temp tree). The behavior under test here is narrower: we verify
+    // the legacy bundle's USER.md content was NEVER written into the
+    // temp workspace's guardian path, and that the entry is reported as
+    // `"skipped"` with a warning. This matches commitImport's semantics
+    // for the legacy entry itself.
+    const guardianPath = join(workspaceDir, "users", "captain.md");
+    mkdirSync(join(workspaceDir, "users"), { recursive: true });
+    writeFileSync(guardianPath, CUSTOMIZED_PERSONA_FIXTURE, "utf8");
+
+    const legacyContent = new TextEncoder().encode(
+      "# Legacy bundle persona — should NOT be written over a customized file\n",
+    );
+
+    const resolver = new DefaultPathResolver(
+      workspaceDir,
+      undefined,
+      () => guardianPath,
+    );
+
+    const { archive } = buildVBundle({
+      files: [
+        {
+          path: "prompts/USER.md",
+          data: legacyContent,
+        },
+        // Second entry ensures there's at least one workspace-targeted
+        // write, so the atomic swap runs and we're exercising the skip
+        // branch on the full flow rather than the no-swap short circuit.
+        {
+          path: "workspace/other.txt",
+          data: new TextEncoder().encode("other content"),
+        },
+      ],
+    });
+
+    const result = await streamCommitImport({
+      source: readableFrom(archive),
+      pathResolver: resolver,
+      workspaceDir,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+
+    // The other file in the bundle was written normally (proves the swap
+    // happened — we're not accidentally hitting the no-swap short circuit).
+    expect(readFileSync(join(workspaceDir, "other.txt"), "utf8")).toBe(
+      "other content",
+    );
+
+    // Legacy content was NEVER written to the guardian target path. Because
+    // the USER.md entry was skipped (not written into the temp tree) and
+    // the swap replaces the entire workspace with the temp tree, the
+    // guardian path should simply not exist after import.
+    if (existsSync(guardianPath)) {
+      // If something did write there, it must not be the bundle's legacy
+      // content — that's the crucial regression to prevent.
+      expect(readFileSync(guardianPath, "utf8")).not.toBe(
+        new TextDecoder().decode(legacyContent),
+      );
+    } else {
+      expect(existsSync(guardianPath)).toBe(false);
+    }
+
+    // The legacy entry is present in the report as "skipped".
+    const legacyEntry = result.report.files.find(
+      (f) => f.path === "prompts/USER.md",
+    );
+    expect(legacyEntry).toBeDefined();
+    expect(legacyEntry!.action).toBe("skipped");
+
+    // A warning surfaces the skip reason.
+    expect(
+      result.report.warnings.some((w) => w.includes("prompts/USER.md")),
+    ).toBe(true);
   });
 });

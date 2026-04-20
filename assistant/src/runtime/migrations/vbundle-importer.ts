@@ -34,7 +34,17 @@ import { validateVBundle } from "./vbundle-validator.js";
 const log = getLogger("vbundle-importer");
 
 /** Archive path for the legacy guardian user persona file. */
-const LEGACY_USER_MD_ARCHIVE_PATH = "prompts/USER.md";
+export const LEGACY_USER_MD_ARCHIVE_PATH = "prompts/USER.md";
+
+/**
+ * Archive paths recognized as JSON config files that must be run through
+ * `sanitizeConfigForTransfer` before writing to disk. Exported so the
+ * streaming importer can apply the same defense-in-depth treatment.
+ */
+export const CONFIG_ARCHIVE_PATHS: ReadonlySet<string> = new Set([
+  "workspace/config.json",
+  "config/settings.json",
+]);
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -358,10 +368,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
 
     // Sanitize config files to strip environment-specific fields (defense-in-depth)
     let dataToWrite: Uint8Array = archiveEntry.data;
-    if (
-      fileEntry.path === "workspace/config.json" ||
-      fileEntry.path === "config/settings.json"
-    ) {
+    if (CONFIG_ARCHIVE_PATHS.has(fileEntry.path)) {
       const configJson = new TextDecoder().decode(archiveEntry.data);
       const sanitized = sanitizeConfigForTransfer(configJson);
       dataToWrite = new TextEncoder().encode(sanitized);
