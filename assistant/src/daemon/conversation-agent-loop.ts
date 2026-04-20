@@ -966,34 +966,29 @@ export async function runAgentLoopImpl(
     });
     runMessages = injection.messages;
 
-    // Persist the injected <turn_context> block in message metadata so it
-    // survives conversation reloads (eviction, restart, fork). loadFromDb
-    // re-injects from metadata. Only the first call site persists — the
-    // overflow-recovery re-entry sites send identical bytes and the tail
-    // row may not correspond to `userMessageId`.
-    if (injection.blocks.unifiedTurnContext) {
+    // Persist injected blocks in message metadata so they survive conversation
+    // reloads (eviction, restart, fork). loadFromDb re-injects from metadata.
+    // Only the first call site persists — the overflow-recovery re-entry sites
+    // send identical bytes and the tail row may not correspond to
+    // `userMessageId`. Both blocks are written in a single call to avoid
+    // doubling SQLite SELECT+UPDATE work on every turn.
+    if (
+      injection.blocks.unifiedTurnContext ||
+      injection.blocks.pkbSystemReminder
+    ) {
       try {
-        updateMessageMetadata(userMessageId, {
-          turnContextBlock: injection.blocks.unifiedTurnContext,
-        });
+        const metadataUpdates: Record<string, unknown> = {};
+        if (injection.blocks.unifiedTurnContext) {
+          metadataUpdates.turnContextBlock =
+            injection.blocks.unifiedTurnContext;
+        }
+        if (injection.blocks.pkbSystemReminder) {
+          metadataUpdates.pkbSystemReminderBlock =
+            injection.blocks.pkbSystemReminder;
+        }
+        updateMessageMetadata(userMessageId, metadataUpdates);
       } catch (err) {
-        rlog.warn(
-          { err },
-          "Failed to persist turnContextBlock metadata (non-fatal)",
-        );
-      }
-    }
-
-    if (injection.blocks.pkbSystemReminder) {
-      try {
-        updateMessageMetadata(userMessageId, {
-          pkbSystemReminderBlock: injection.blocks.pkbSystemReminder,
-        });
-      } catch (err) {
-        rlog.warn(
-          { err },
-          "Failed to persist pkbSystemReminderBlock metadata (non-fatal)",
-        );
+        rlog.warn({ err }, "Failed to persist injection metadata (non-fatal)");
       }
     }
 

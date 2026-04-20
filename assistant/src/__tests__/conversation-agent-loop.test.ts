@@ -2318,11 +2318,10 @@ describe("session-agent-loop", () => {
       ).resolves.toBeUndefined();
     });
 
-    test("coexists with turnContextBlock write as independent calls", async () => {
-      // If PR 5 landed, both blocks will be persisted by separate calls.
-      // This test asserts the pkbSystemReminderBlock write is independent
-      // (keyed on its own call site) so merging with turnContextBlock is
-      // never required for correctness.
+    test("writes both blocks in a single combined updateMessageMetadata call", async () => {
+      // Both blocks are persisted via one combined call to halve SQLite
+      // SELECT+UPDATE work on the hot user-turn path (the common case with
+      // PKB active).
       const reminder = "<system_reminder>\npkb\n</system_reminder>";
       const turnContext = "<turn_context>\nnow\n</turn_context>";
       mockInjectionBlocks = {
@@ -2333,16 +2332,25 @@ describe("session-agent-loop", () => {
 
       await runAgentLoopImpl(ctx, "hello", "user-msg-4", () => {});
 
-      const pkbCalls = updateMessageMetadataMock.mock.calls.filter(
-        (call) =>
-          (call[1] as Record<string, unknown>).pkbSystemReminderBlock !==
-          undefined,
+      const injectionCalls = updateMessageMetadataMock.mock.calls.filter(
+        (call) => {
+          const payload = call[1] as Record<string, unknown>;
+          return (
+            payload != null &&
+            (Object.prototype.hasOwnProperty.call(
+              payload,
+              "pkbSystemReminderBlock",
+            ) ||
+              Object.prototype.hasOwnProperty.call(payload, "turnContextBlock"))
+          );
+        },
       );
-      expect(pkbCalls.length).toBe(1);
-      expect(pkbCalls[0][0]).toBe("user-msg-4");
-      expect(
-        (pkbCalls[0][1] as Record<string, unknown>).pkbSystemReminderBlock,
-      ).toBe(reminder);
+      expect(injectionCalls.length).toBe(1);
+      expect(injectionCalls[0]![0]).toBe("user-msg-4");
+      expect(injectionCalls[0]![1]).toEqual({
+        turnContextBlock: turnContext,
+        pkbSystemReminderBlock: reminder,
+      });
     });
   });
 });
