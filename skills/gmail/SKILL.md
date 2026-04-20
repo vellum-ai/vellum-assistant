@@ -40,6 +40,8 @@ All operations use CLI scripts that return JSON:
 | `gmail-runs.ts`    | `list`                  | List recent operation runs with status summaries                             |
 | `gmail-runs.ts`    | `inspect`               | Show detailed log entries for a specific run                                 |
 | `gmail-runs.ts`    | `prune`                 | Delete operation logs older than 30 days                                     |
+| `gmail-reverse.ts` | `--run-id`              | Reverse all committed ops in a run (un-archive, un-label, un-trash)          |
+| `gmail-reverse.ts` | `--run-id --thread`     | Reverse a specific message within a committed run                            |
 | `gmail-prefs.ts`   | `list`                  | List blocklist and safelist preferences                                      |
 | `gmail-prefs.ts`   | `add-blocklist`         | Add sender emails to the blocklist                                           |
 | `gmail-prefs.ts`   | `add-safelist`          | Add sender emails to the safelist                                            |
@@ -175,6 +177,27 @@ bun run scripts/gmail-archive.ts archive --query "..." --run-id "run_20260420_a1
 ```
 
 When a run is interrupted (e.g. Gmail daily quota exceeded), the operation log records the interruption with a resume hint. The assistant should detect interrupted runs and offer to resume them rather than starting fresh.
+
+#### Reversing a Run
+
+If a committed run archived messages incorrectly, reverse it:
+
+```bash
+# Reverse all committed operations in a run (requires confirmation)
+bun run scripts/gmail-reverse.ts --run-id "run_20260420_a1b2c3d4"
+
+# Reverse a specific message within a run (no confirmation needed)
+bun run scripts/gmail-reverse.ts --run-id "run_20260420_a1b2c3d4" --thread "18f..."
+```
+
+Reversal semantics:
+- **archive** → adds INBOX label back (un-archives)
+- **label_add** → removes the labels that were added
+- **label_remove** → adds back the labels that were removed
+- **trash** → removes TRASH label and adds INBOX (un-trashes, within Gmail's 30-day window)
+- **filter_create** → not auto-reversible; delete manually via `gmail-manage.ts filters --action delete`
+
+Reversals are themselves logged as runs (auditable, resumable). The reversal only touches labels/state that the original run modified — it does not touch user-applied labels.
 
 ### Preferences Operations
 

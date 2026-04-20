@@ -168,9 +168,10 @@ All archive outputs now include a `run_id`. Pass `--run-id` to group multiple pa
 
 ## Phase 5: Post-Cleanup
 
-1. **Report totals** — how many archived per pass, which categories
+1. **Report totals** — how many archived per pass, which categories, and the `run_id` for each pass
 2. **Update blocklist** — remember which senders/domains were archived; use for faster future passes
 3. **Surface any urgents found** — if financial/legal/suspension items surfaced during the pass, present them now with recommended actions
+4. **Mention reversal** — remind the user: "If any of these archives were wrong, I can reverse specific threads: `bun run scripts/gmail-reverse.ts --run-id <id> --thread <message-id>`"
 
 ---
 
