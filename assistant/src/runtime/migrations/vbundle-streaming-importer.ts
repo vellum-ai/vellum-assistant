@@ -27,9 +27,9 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { createWriteStream } from "node:fs";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, resolve, sep } from "node:path";
+import { createWriteStream, existsSync } from "node:fs";
+import { cp, mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, join, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
@@ -47,6 +47,7 @@ import {
   type ImportedFileReport,
   type ImportFileAction,
   LEGACY_USER_MD_ARCHIVE_PATH,
+  WORKSPACE_PRESERVE_PATHS,
 } from "./vbundle-importer.js";
 import {
   createHashVerifier,
@@ -512,6 +513,24 @@ export async function streamCommitImport(
     log.warn({ err }, "resetDb threw before swap; continuing");
   }
 
+  // Carry-over: for every path in WORKSPACE_PRESERVE_PATHS, if the bundle
+  // did NOT populate it inside the temp workspace but the LIVE workspace
+  // has it, move the live copy into the temp workspace at the same
+  // relative location. Without this step the atomic swap erases live
+  // user data (SQLite DB, Qdrant store, embedding-models cache,
+  // deprecated/ quarantine) whenever the bundle omits those paths —
+  // e.g. partial bundles carrying only prompts/config.
+  try {
+    await carryOverPreservedPaths(realWorkspaceDir, tempWorkspaceDir);
+  } catch (err) {
+    await cleanupTempDir();
+    return {
+      ok: false,
+      reason: "write_failed",
+      message: `Failed to carry over preserved workspace paths: ${errMessage(err)}`,
+    };
+  }
+
   const backupDir = `${realWorkspaceDir}.pre-import-${Date.now()}`;
   let realDirRenamedToBackup = false;
   try {
@@ -626,6 +645,70 @@ function buildReport(
     manifest,
     warnings,
   };
+}
+
+/**
+ * Copy any WORKSPACE_PRESERVE_PATHS entries from the live workspace into
+ * the temp workspace when the bundle did not already write them. Runs
+ * immediately before the atomic swap so the swap-in tree has the union
+ * of bundle-provided files and live-preserved files.
+ *
+ * For each preserved relative path:
+ *   - If the temp workspace already contains something at that path, the
+ *     bundle populated it. Leave it untouched.
+ *   - Otherwise, if the live workspace has the path, try `fs.rename`
+ *     first (atomic & cheap when both dirs are on the same filesystem);
+ *     fall back to `fs.cp` with recursive copy on EXDEV or similar.
+ *   - If neither has it, there's nothing to preserve.
+ */
+async function carryOverPreservedPaths(
+  realWorkspaceDir: string,
+  tempWorkspaceDir: string,
+): Promise<void> {
+  for (const rel of WORKSPACE_PRESERVE_PATHS) {
+    const livePath = join(realWorkspaceDir, rel);
+    const tempPath = join(tempWorkspaceDir, rel);
+
+    // Bundle already wrote to this path — leave it alone.
+    if (existsSync(tempPath)) continue;
+
+    // Live workspace doesn't have it either — nothing to carry.
+    let liveStat;
+    try {
+      liveStat = await stat(livePath);
+    } catch (err) {
+      if (isENOENT(err)) continue;
+      throw err;
+    }
+
+    // Make sure the temp-side parent directory exists so the rename /
+    // copy can land.
+    await mkdir(dirname(tempPath), { recursive: true });
+
+    try {
+      await rename(livePath, tempPath);
+    } catch (err) {
+      // EXDEV: different filesystems — rename can't work. Fall back to a
+      // recursive copy, then remove the live copy so the swap leaves a
+      // clean state.
+      if (isEXDEV(err)) {
+        await cp(livePath, tempPath, {
+          recursive: true,
+          preserveTimestamps: true,
+          // Dereference is false by default — symlinks stay symlinks.
+        });
+        await rm(livePath, { recursive: true, force: true });
+      } else {
+        throw err;
+      }
+    }
+    // Log only when we actually preserved something, to keep successful
+    // imports quiet in the common no-op case.
+    log.debug(
+      { rel, size: liveStat.size, isDir: liveStat.isDirectory() },
+      "Preserved live workspace path across streaming import swap",
+    );
+  }
 }
 
 /**
@@ -744,5 +827,13 @@ function isENOENT(err: unknown): boolean {
     typeof err === "object" &&
     err !== null &&
     (err as { code?: string }).code === "ENOENT"
+  );
+}
+
+function isEXDEV(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { code?: string }).code === "EXDEV"
   );
 }
