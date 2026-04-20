@@ -26,6 +26,7 @@ import {
   mergeSlackMetadata,
   readSlackMetadata,
 } from "../../../messaging/providers/slack/message-metadata.js";
+import { safeParseRecord } from "../../../util/json.js";
 import { getLogger } from "../../../util/logger.js";
 
 const log = getLogger("runtime-http");
@@ -146,8 +147,8 @@ export async function handleEditIntercept(
     if (sourceChannel === "slack") {
       // Slack edits stamp `slackMeta.editedAt` so the chronological
       // transcript renderer can surface the edited marker. The merge
-      // tolerates rows that pre-date PR 11's slackMeta enrichment by
-      // synthesizing the minimum-required fields from the lookup data.
+      // tolerates rows that lack slackMeta enrichment by synthesizing
+      // the minimum-required fields from the lookup data.
       applySlackEditMetadata({
         messageId: original.messageId,
         conversationExternalId,
@@ -200,8 +201,8 @@ export async function handleEditIntercept(
  * `slackMeta.editedAt` in the same transaction.
  *
  * If the row already has a valid `slackMeta` sub-object, the merge preserves
- * all existing fields and only sets/refreshes `editedAt`. If the row has no
- * `slackMeta` envelope, the helper synthesizes the minimum-required fields
+ * all existing fields and only sets/refreshes `editedAt`. If the row lacks
+ * `slackMeta` enrichment, the helper synthesizes the minimum-required fields
  * (`source`, `channelId`, `channelTs`, `eventKind`) from the values that
  * brought us here so the resulting metadata is still readable by
  * `readSlackMetadata`.
@@ -226,7 +227,7 @@ function applySlackEditMetadata(params: {
   const editedAt = Date.now();
   const parsedExisting = readSlackMetadata(existingSlackMeta ?? null);
 
-  // For pre-PR-11 rows (no valid existing slackMeta), `mergeSlackMetadata`
+  // When the row has no valid existing slackMeta, `mergeSlackMetadata`
   // would produce a record missing the required fields and fail subsequent
   // `readSlackMetadata` calls. Seed defaults from the lookup-derived facts
   // so the post-merge value is always a valid `SlackMessageMetadata`.
@@ -245,21 +246,4 @@ function applySlackEditMetadata(params: {
   updateMessageContentAndMetadata(messageId, newContent, {
     slackMeta: mergedSlackMeta,
   });
-}
-
-/** Tolerant JSON.parse that returns `{}` for invalid or non-object payloads. */
-function safeParseRecord(raw: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(raw);
-    if (
-      parsed === null ||
-      typeof parsed !== "object" ||
-      Array.isArray(parsed)
-    ) {
-      return {};
-    }
-    return parsed as Record<string, unknown>;
-  } catch {
-    return {};
-  }
 }

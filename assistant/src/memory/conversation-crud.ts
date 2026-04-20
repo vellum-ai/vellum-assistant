@@ -23,6 +23,7 @@ import { CHANNEL_IDS, INTERFACE_IDS, isChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import { UserError } from "../util/errors.js";
+import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import { getConversationsDir } from "../util/platform.js";
 import { createRowMapper } from "../util/row-mapper.js";
@@ -420,9 +421,7 @@ export function findAnalysisConversationFor(
  * not found. Tiny convenience used by the recursion guard in the
  * auto-analyze loop.
  */
-export function getConversationSource(
-  conversationId: string,
-): string | null {
+export function getConversationSource(conversationId: string): string | null {
   const db = getDb();
   const row = db
     .select({ source: conversations.source })
@@ -1478,7 +1477,7 @@ export function updateMessageContentAndMetadata(
       .from(messages)
       .where(eq(messages.id, messageId))
       .get();
-    const existing = row?.metadata ? JSON.parse(row.metadata) : {};
+    const existing = row?.metadata ? safeParseRecord(row.metadata) : {};
     tx.update(messages)
       .set({
         content: newContent,
