@@ -207,6 +207,17 @@ function firstPositionalArg(
 // High) in sandboxed bash. Matches checker.ts isRmOfKnownSafeFile behavior.
 const RM_SAFE_BARE_FILES = new Set(["BOOTSTRAP.md", "UPDATES.md"]);
 
+// Flags that don't affect rm safety — they don't enable recursive deletion or
+// change which files are targeted.
+const RM_BENIGN_FLAGS = new Set([
+  "-f",
+  "-i",
+  "-v",
+  "--force",
+  "--interactive",
+  "--verbose",
+]);
+
 // ── Segment classification ───────────────────────────────────────────────────
 
 /**
@@ -438,24 +449,24 @@ export function classifySegment(
   }
 
   // 7. rm safe-file downgrade (sandbox only)
-  // When rm targets a single known safe bare file (no flags, no path separators),
+  // When rm targets a single known safe bare file (with only benign flags),
   // downgrade to medium in sandboxed bash. host_bash keeps high because it has a
   // global ask rule that would prompt medium-risk commands. Matches checker.ts
   // isRmOfKnownSafeFile + toolName guard.
-  if (
-    programName === "rm" &&
-    toolName === "bash" &&
-    risk === "high" &&
-    segment.args.length === 1
-  ) {
-    const target = segment.args[0];
+  if (programName === "rm" && toolName === "bash" && risk === "high") {
+    // Strip benign flags (-f, -i, -v) and check if exactly one bare filename remains
+    const positionalArgs = segment.args.filter((a) => !a.startsWith("-"));
+    const flagArgs = segment.args.filter((a) => a.startsWith("-"));
+    const allFlagsBenign = flagArgs.every((f) => RM_BENIGN_FLAGS.has(f));
+
     if (
-      !target.startsWith("-") &&
-      !target.includes("/") &&
-      RM_SAFE_BARE_FILES.has(target)
+      positionalArgs.length === 1 &&
+      allFlagsBenign &&
+      !positionalArgs[0].includes("/") &&
+      RM_SAFE_BARE_FILES.has(positionalArgs[0])
     ) {
       risk = "medium";
-      reason = `rm of known safe file: ${target}`;
+      reason = `rm of known safe file: ${positionalArgs[0]}`;
     }
   }
 

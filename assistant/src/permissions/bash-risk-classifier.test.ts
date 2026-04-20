@@ -967,9 +967,35 @@ describe("rm safe-file downgrade", () => {
     expect(result.riskLevel).toBe("high");
   });
 
-  test("rm -f BOOTSTRAP.md with toolName bash → high (has flags, no downgrade)", async () => {
+  test("rm -f BOOTSTRAP.md with toolName bash → medium (benign flag, safe file)", async () => {
     const result = await classifier.classify({
       command: "rm -f BOOTSTRAP.md",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+    expect(result.reason).toContain("BOOTSTRAP.md");
+  });
+
+  test("rm -v UPDATES.md with toolName bash → medium (benign flag)", async () => {
+    const result = await classifier.classify({
+      command: "rm -v UPDATES.md",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+    expect(result.reason).toContain("UPDATES.md");
+  });
+
+  test("rm -fi BOOTSTRAP.md with toolName bash → high (combined flag not in benign set)", async () => {
+    const result = await classifier.classify({
+      command: "rm -fi BOOTSTRAP.md",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("rm -rf BOOTSTRAP.md with toolName bash → high (-rf not benign)", async () => {
+    const result = await classifier.classify({
+      command: "rm -rf BOOTSTRAP.md",
       toolName: "bash",
     });
     expect(result.riskLevel).toBe("high");
