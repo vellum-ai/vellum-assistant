@@ -65,6 +65,7 @@ import {
   getLastAssistantTimestampBefore,
   getMessages,
   getMessagesPaginated,
+  hasMessages,
   type MessageRow,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
@@ -1066,7 +1067,20 @@ function makeHubPublisher(
       typeof (msg as { conversationId?: unknown }).conversationId === "string"
         ? (msg as { conversationId: string }).conversationId
         : undefined;
-    const resolvedConversationId = msgConversationId ?? conversationId;
+    // `conversation_list_invalidated` is a list-level system event: it
+    // describes no particular conversation and every connected client
+    // should refresh its sidebar. Publish it unscoped so the SSE hub does
+    // not filter it out by the subscriber's `filter.conversationId`.
+    // Other events (including `conversation_title_updated`) stay scoped to
+    // their conversation — unscoped scoped-events would leak foreign
+    // `conversationId` values to native clients' speculative ID-resolution
+    // path. For `conversation_title_updated` we instead enqueue a matching
+    // unscoped `conversation_list_invalidated` below so other clients'
+    // sidebars can refresh and pick up the new title.
+    const resolvedConversationId =
+      msg.type === "conversation_list_invalidated"
+        ? undefined
+        : (msgConversationId ?? conversationId);
     const event = buildAssistantEvent(
       DAEMON_INTERNAL_ASSISTANT_ID,
       msg,
@@ -1081,6 +1095,29 @@ function makeHubPublisher(
           { err },
           "assistant-events hub subscriber threw during POST /messages",
         );
+      }
+
+      // When the agent loop auto-generates a conversation title, also
+      // broadcast an unscoped `conversation_list_invalidated` so every
+      // connected client's sidebar can refresh and pick up the new title.
+      // Without this, clients viewing other conversations (or a draft)
+      // would never learn that the title for this conversation changed.
+      // The scoped `conversation_title_updated` above still handles the
+      // in-place update for the client currently viewing this conversation.
+      if (msg.type === "conversation_title_updated") {
+        try {
+          await deps.assistantEventHub.publish(
+            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+              type: "conversation_list_invalidated",
+              reason: "renamed",
+            }),
+          );
+        } catch (err) {
+          log.warn(
+            { err },
+            "Failed to publish conversation_list_invalidated after title update",
+          );
+        }
       }
     })();
   };
@@ -1414,19 +1451,27 @@ export async function handleSendMessage(
 
   const smDeps = deps.sendMessageDeps;
 
-  // Notify all connected clients that the conversation list changed when a
-  // new standard conversation is created so sidebars can refresh.
-  if (mapping.created && mapping.conversationType === "standard") {
-    smDeps.assistantEventHub
-      .publish(
-        buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
-          type: "conversation_list_invalidated",
-          reason: "created",
-        }),
-      )
-      .catch((err) => {
-        log.warn({ err }, "Failed to publish conversation_list_invalidated");
-      });
+  // Notify all connected clients that the conversation list changed when
+  // this is the first message in a standard conversation, so sidebars on
+  // other devices can refresh. We check for first-message rather than
+  // first-create because the SSE subscribe handler (events-routes.ts) may
+  // have already materialised the conversation from a draft key before any
+  // message was sent — in that case `mapping.created` is `false` even
+  // though, from the user's perspective, this is a brand-new conversation
+  // that other clients don't yet know about.
+  if (mapping.conversationType === "standard") {
+    if (!hasMessages(mapping.conversationId)) {
+      smDeps.assistantEventHub
+        .publish(
+          buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+            type: "conversation_list_invalidated",
+            reason: "created",
+          }),
+        )
+        .catch((err) => {
+          log.warn({ err }, "Failed to publish conversation_list_invalidated");
+        });
+    }
   }
 
   // Build transport metadata from the request so the daemon can inject

@@ -28,7 +28,12 @@ export const DEFAULT_MAX_FPS = 30;
 
 /** Minimal slice of {@link VideoDeviceHandle} the writer actually consumes. */
 export interface DeviceWriterSink {
-  /** Write a chunk of frame bytes. */
+  /**
+   * Write a chunk of frame bytes. Returns `true` when the chunk was
+   * accepted cleanly, `false` to signal backpressure — matching the
+   * Node `stream.Writable.write()` contract (see
+   * https://nodejs.org/api/stream.html#writablewritechunk-encoding-callback).
+   */
   write(chunk: Uint8Array): boolean;
 }
 
@@ -121,14 +126,23 @@ export function attachDeviceWriter(
 
     lastDispatchedAt = ts;
     try {
-      sink.write(frame.bytes);
-      dispatched += 1;
-      onFrameProcessed?.(frame, true);
+      // Node writable streams (and our v4l2 sink) return `false` from
+      // `write()` to signal backpressure — the chunk was buffered but
+      // the consumer can't keep up. Treat that as a drop: incrementing
+      // `dispatched` would hide the overload in diagnostics and
+      // continued writes would balloon the internal buffer.
+      const accepted = sink.write(frame.bytes);
+      if (accepted) {
+        dispatched += 1;
+        onFrameProcessed?.(frame, true);
+      } else {
+        dropped += 1;
+        onFrameProcessed?.(frame, false);
+      }
     } catch {
-      // Sink errors are best-effort — a failed write usually means the
-      // kernel buffer hit back-pressure or the device handle was torn
-      // down out from under us. Count it as a drop so the diagnostic
-      // counters stay consistent.
+      // Sink errors are best-effort — a thrown write usually means the
+      // device handle was torn down out from under us. Count it as a
+      // drop so the diagnostic counters stay consistent.
       dropped += 1;
       onFrameProcessed?.(frame, false);
     }

@@ -115,11 +115,24 @@ echo "iteration,start_ms,booted_ms,ready_ms,total_ms,booted_delta_ms,ready_delta
 declare -a booted_deltas=()
 declare -a ready_deltas=()
 
+# Track the currently-running container id so the EXIT trap can kill it if
+# the script is interrupted (Ctrl-C, set -e failure) before the iteration
+# clean-up runs. Otherwise a detached bot keeps burning CPU and skews later
+# runs on the same host.
+container_id=""
+cleanup() {
+  if [[ -n "${container_id}" ]]; then
+    docker kill "${container_id}" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${log_file:-}" ]]; then
+    rm -f "${log_file}"
+  fi
+}
+trap cleanup EXIT
+
 for ((i = 1; i <= ITERATIONS; i++)); do
   meeting_id="${MEETING_ID:-$(gen_id)}"
   log_file="$(mktemp -t bench-join-latency-XXXXXX.log)"
-  # Ensure log cleanup even if we exit mid-loop.
-  trap 'rm -f "${log_file}"' EXIT
 
   start_ms="$(now_ms)"
   deadline_ms=$(( start_ms + BENCH_TIMEOUT * 1000 ))
@@ -185,7 +198,8 @@ for ((i = 1; i <= ITERATIONS; i++)); do
     "${ready_delta:-}"
 
   rm -f "${log_file}"
-  trap - EXIT
+  log_file=""
+  container_id=""
 done
 
 # ---------------------------------------------------------------------------
@@ -223,5 +237,9 @@ aggregate() {
   echo "# ${label}: n=${n} mean=${mean}ms median=${median}ms p95=${p95}ms" >&2
 }
 
-aggregate "booted_delta (start → meet-bot booted)" "${booted_deltas[@]}"
-aggregate "ready_delta  (start → meet-bot ready)" "${ready_deltas[@]}"
+# Guarded expansion: bash < 4.4 (macOS default bash 3.2) errors under `set -u`
+# when `"${arr[@]}"` expands an empty array, so use `${arr+"${arr[@]}"}` to
+# pass zero args when the array has no elements. `ready_deltas` in particular
+# is often empty when iterations time out before the readiness marker.
+aggregate "booted_delta (start → meet-bot booted)" ${booted_deltas+"${booted_deltas[@]}"}
+aggregate "ready_delta  (start → meet-bot ready)" ${ready_deltas+"${ready_deltas[@]}"}

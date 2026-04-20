@@ -24,7 +24,19 @@
 
 import { getLogger } from "../../../assistant/src/util/logger.js";
 
-import type { MeetTtsBridge, VisemeEvent } from "./tts-bridge.js";
+import type { VisemeEvent, VisemeListener } from "./tts-bridge.js";
+
+/**
+ * Minimal bridge surface the forwarder reads — matches the overlap between
+ * {@link MeetTtsBridge} and `MeetTtsBridgeLike` in session-manager.ts so
+ * the session manager's narrow fake (or the real bridge) can be passed in
+ * without casting.
+ */
+export interface TtsLipsyncBridge {
+  readonly meetingId: string;
+  readonly botBaseUrl: string;
+  onViseme(listener: VisemeListener): () => void;
+}
 
 const log = getLogger("meet-tts-lipsync");
 
@@ -43,7 +55,7 @@ export type LipsyncFetchFn = (
 
 export interface StartTtsLipsyncArgs {
   /** Bridge whose `onViseme` channel drives the forwarder. */
-  bridge: MeetTtsBridge;
+  bridge: TtsLipsyncBridge;
   /** Per-meeting bearer token — matches the token used for `/play_audio`. */
   botApiToken: string;
   /**

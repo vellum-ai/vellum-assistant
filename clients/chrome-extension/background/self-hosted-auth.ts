@@ -38,9 +38,9 @@ export interface StoredLocalToken {
   /**
    * Assistant runtime HTTP port echoed by the native messaging helper.
    * When present the chrome extension uses this as the base URL for the
-   * self-hosted relay WebSocket instead of the hard-coded
-   * `DEFAULT_RELAY_PORT`. Optional for forward/back-compat with older
-   * native helpers that predate PR 3 of the browser-remediation plan.
+   * self-hosted relay WebSocket instead of the default port (7830).
+   * Optional for forward/back-compat with older native helpers that
+   * predate PR 3 of the browser-remediation plan.
    */
   assistantPort?: number;
   /**
@@ -104,6 +104,14 @@ export interface BootstrapLocalTokenOptions {
    * in the extension itself should rely on the default.
    */
   timeoutMs?: number;
+  /**
+   * Optional environment override. When provided, the native host uses
+   * this environment to resolve lockfile paths and daemon ports instead of
+   * the process-level `VELLUM_ENVIRONMENT`. This lets the extension switch
+   * environments (e.g. `dev`, `staging`, `production`) without restarting
+   * Chrome.
+   */
+  environment?: string;
 }
 
 /**
@@ -381,6 +389,9 @@ export async function bootstrapLocalToken(
     const pairMessage: Record<string, unknown> = { type: 'request_token' };
     if (assistantId) {
       pairMessage.assistantId = assistantId;
+    }
+    if (options.environment) {
+      pairMessage.environment = options.environment;
     }
     port.postMessage(pairMessage);
   });

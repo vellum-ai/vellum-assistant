@@ -92,7 +92,11 @@ When `pinnedLatestTurnAnchorMessageId` is set, the newest turn is carved out int
 
 The section is flipped as a single unit (cancelling the outer ScrollView flip), so the visual order matches source order: anchor at the visual top, response below, the spacer fills the rest, sentinel at the bottom.
 
-The section's height is bound to the scroll viewport via SwiftUI's `containerRelativeFrame(.vertical, alignment: .top) { length, _ in length - VSpacing.md * 2 }` (subtracting the outer LazyVStack's vertical padding). Because `containerRelativeFrame` reads the nearest scroll container's visible height during layout, the section resizes in the **same** layout pass as composer-induced viewport changes. The remaining empty space is absorbed by the `Spacer`, eliminating the previous `LatestTurnSpacerCalculator` + `viewportHeight` `@State` pipeline (which lagged one frame and caused the anchor row to briefly clip on every Enter keystroke in the composer).
+The section's height is bound to the scroll viewport as a minimum — not a fixed size. A zero-width `Color.clear` probe in the section's `.background` uses `containerRelativeFrame(.vertical, alignment: .top) { length, _ in max(0, length - VSpacing.md * 2) }` to measure the scroll container's visible height, and `onGeometryChange` mirrors the result into a local `@State` that drives the VStack's `.frame(minHeight:, alignment: .top)`. The `max(0, …)` clamp keeps the probe non-negative during transient zero-height layout passes. This replaces the previous `LatestTurnSpacerCalculator` + `viewportHeight` `@State` pipeline (which lagged one frame and caused the anchor row to briefly clip on every Enter keystroke in the composer).
+
+### Tall-response behavior
+
+When the anchor row plus response cluster exceeds the viewport height, the VStack grows past its `minHeight` floor: the `Spacer` collapses to 0 and the LazyVStack sees the section's true (content-sized) height. This keeps the newest portion of a long assistant response scrollable. A fixed `containerRelativeFrame` on the VStack itself would cap the section at viewport height and make overflow content unreachable by scrolling, so the `minHeight` + probe approach is load-bearing, not an optimization — do not collapse it back to a single `containerRelativeFrame` modifier on the VStack.
 
 ---
 

@@ -154,6 +154,16 @@ describe("startAvatarFeature", () => {
     );
   });
 
+  test("avatar.start forwards targetFps as a query string", async () => {
+    await feature.handleBotCommand({
+      type: "avatar.start",
+      targetFps: 30,
+    });
+    expect(tabs.createCalls).toHaveLength(1);
+    const url = new URL(tabs.createCalls[0]!.url);
+    expect(url.searchParams.get("fps")).toBe("30");
+  });
+
   test("avatar.push_viseme is forwarded to the avatar tab", async () => {
     await feature.handleBotCommand({ type: "avatar.start" });
     await feature.handleBotCommand({

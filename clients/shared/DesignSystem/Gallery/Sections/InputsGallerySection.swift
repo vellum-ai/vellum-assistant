@@ -480,6 +480,38 @@ struct InputsGallerySection: View {
                 }
             }
 
+            if filter == nil || filter == "vFormattingToolbar" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VFormattingToolbar
+                GallerySectionHeader(
+                    title: "VFormattingToolbar",
+                    description: "Horizontal row of icon-only formatting action buttons (B/I/U, alignment, link, lists, quote). Stateless — fires callbacks on tap."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("Default action set")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                        VFormattingToolbar(onAction: { _ in })
+                    }
+                }
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("Trimmed subset (bold/italic/underline/link)")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                        VFormattingToolbar(
+                            actions: [.bold, .italic, .underline, .link],
+                            onAction: { _ in }
+                        )
+                    }
+                }
+            }
+
             if filter == nil || filter == "combinedForm" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
@@ -528,6 +560,7 @@ extension InputsGallerySection {
         case "vTextEditor": InputsGallerySection(filter: "vTextEditor")
         case "vToggle": InputsGallerySection(filter: "vToggle")
         case "vDropdown": InputsGallerySection(filter: "vDropdown")
+        case "vFormattingToolbar": InputsGallerySection(filter: "vFormattingToolbar")
         case "combinedForm": InputsGallerySection(filter: "combinedForm")
         default: EmptyView()
         }

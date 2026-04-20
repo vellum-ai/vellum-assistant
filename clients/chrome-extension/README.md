@@ -66,6 +66,40 @@ For automated publishing, the `release.yml` GitHub Actions workflow builds, pack
 
 That's it. The extension auto-reconnects on browser restarts, network drops, and assistant restarts. Click **Pause** to intentionally stop the relay.
 
+## Environment Selector
+
+The popup's **Advanced** section includes an **Environment** dropdown that lets you switch between `local`, `dev`, `staging`, and `production` without rebuilding the extension. This controls which cloud API and web URLs are used for sign-in, pairing, and relay connections.
+
+### Precedence rules
+
+The effective environment is resolved in this order:
+
+| Priority | Source | Description |
+|---|---|---|
+| 1 (highest) | Popup override | Selected in the dropdown, persisted in `chrome.storage.local` |
+| 2 | Build-time default | Injected via `--define process.env.VELLUM_ENVIRONMENT=...` at bundle time |
+| 3 (fallback) | Hard-coded default | `dev` |
+
+### Expected defaults by context
+
+| Context | Build default | Notes |
+|---|---|---|
+| Local dev build (`bash build.sh`) | `dev` | No `--define` injection; falls back to `dev` |
+| `vel up` (local assistant) | `dev` build / `local` override | Build defaults to `dev`; use the popup dropdown to select `local` to target `localhost` endpoints |
+| Staging release artifact | `staging` | Set by `release.yml` via `--define` |
+| Production release artifact (CWS) | `production` | Set by `release.yml` via `--define` |
+
+### Behavior on change
+
+When you change the environment in the dropdown:
+
+1. The override is persisted immediately (survives popup close/reopen).
+2. The assistant catalog is refreshed (different environments may list different assistants).
+3. Local and cloud auth status panels are refreshed.
+4. If the extension is currently connected, it automatically disconnects and reconnects using the new environment's endpoints.
+
+To clear the override and revert to the build default, the dropdown simply selects the build-default value (no separate "reset" action needed since the worker treats selecting the same value as the build default equivalently).
+
 ## Debugging
 
 - **Service worker logs:** `chrome://extensions` > extension card > **Service worker** link

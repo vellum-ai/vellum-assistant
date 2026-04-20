@@ -32,6 +32,10 @@ import { describe, test, expect } from 'bun:test';
 
 import { resolveAuthProfile, type AssistantAuthProfile } from '../assistant-auth-profile.js';
 import type { AssistantDescriptor } from '../native-host-assistants.js';
+import {
+  cloudUrlsForEnvironment,
+  resolveBuildDefaultEnvironment,
+} from '../extension-environment.js';
 
 // ── Fixtures ────────────────────────────────────────────────────────
 
@@ -181,16 +185,20 @@ describe('relay mode derivation from assistant descriptor', () => {
     expect(assistant.runtimeUrl).toBe('https://custom-gateway.vellum.cloud');
   });
 
-  test('cloud-oauth assistant without runtimeUrl falls back to default gateway', () => {
+  test('cloud-oauth assistant without runtimeUrl falls back to environment-resolved gateway', () => {
     const assistant = makeCloudAssistant({ runtimeUrl: '' });
     const profile = resolveAuthProfile({
       cloud: assistant.cloud,
       runtimeUrl: assistant.runtimeUrl,
     });
     expect(profile).toBe('cloud-oauth');
-    // Empty runtimeUrl triggers the CLOUD_GATEWAY_BASE_URL fallback
-    // in buildRelayModeForAssistant.
+    // Empty runtimeUrl triggers the environment-resolved apiBaseUrl fallback
+    // in buildRelayModeForAssistant. The gateway URL depends on the effective
+    // environment (e.g. dev -> dev-api.vellum.ai, production -> api.vellum.ai).
     expect(assistant.runtimeUrl).toBe('');
+    const { apiBaseUrl } = cloudUrlsForEnvironment(resolveBuildDefaultEnvironment());
+    expect(typeof apiBaseUrl).toBe('string');
+    expect(apiBaseUrl.length).toBeGreaterThan(0);
   });
 });
 
@@ -249,5 +257,70 @@ describe('assistant switch behavior', () => {
       runtimeUrl: unsupported.runtimeUrl,
     });
     expect(profile).toBe('unsupported');
+  });
+});
+
+// ── Environment-resolved URL contract ────────────────────────────────
+//
+// The worker no longer uses hardcoded production constants for cloud auth
+// config. All cloud URL derivation flows through `cloudUrlsForEnvironment`
+// backed by the effective environment. These tests verify the contract
+// that sign-in/refresh configs use the correct URLs per environment.
+
+describe('environment-resolved cloud auth URLs', () => {
+  test('production environment resolves production cloud URLs', () => {
+    const { apiBaseUrl, webBaseUrl } = cloudUrlsForEnvironment('production');
+    expect(apiBaseUrl).toBe('https://api.vellum.ai');
+    expect(webBaseUrl).toBe('https://www.vellum.ai');
+  });
+
+  test('staging environment resolves staging cloud URLs', () => {
+    const { apiBaseUrl, webBaseUrl } = cloudUrlsForEnvironment('staging');
+    expect(apiBaseUrl).toBe('https://staging-api.vellum.ai');
+    expect(webBaseUrl).toBe('https://staging-assistant.vellum.ai');
+  });
+
+  test('dev environment resolves dev cloud URLs', () => {
+    const { apiBaseUrl, webBaseUrl } = cloudUrlsForEnvironment('dev');
+    expect(apiBaseUrl).toBe('https://dev-api.vellum.ai');
+    expect(webBaseUrl).toBe('https://dev-assistant.vellum.ai');
+  });
+
+  test('local environment resolves localhost URLs', () => {
+    const { apiBaseUrl, webBaseUrl } = cloudUrlsForEnvironment('local');
+    expect(apiBaseUrl).toBe('http://localhost:8080');
+    expect(webBaseUrl).toBe('http://localhost:3000');
+  });
+
+  test('build default environment resolves to dev when VELLUM_ENVIRONMENT is unset', () => {
+    // In test environments (unbundled), process.env.VELLUM_ENVIRONMENT is
+    // typically unset, so resolveBuildDefaultEnvironment returns 'dev'.
+    const buildDefault = resolveBuildDefaultEnvironment();
+    expect(buildDefault).toBe('dev');
+  });
+
+  test('cloud auth sign-in config uses environment-resolved web URL (not hardcoded production)', () => {
+    // Simulates what the worker does: resolve webBaseUrl from the effective
+    // environment and pass it to signInCloud / refreshCloudToken configs.
+    const envs = ['local', 'dev', 'staging', 'production'] as const;
+    for (const env of envs) {
+      const { webBaseUrl } = cloudUrlsForEnvironment(env);
+      // The webBaseUrl should differ per environment — not always production
+      if (env !== 'production') {
+        expect(webBaseUrl).not.toBe('https://www.vellum.ai');
+      }
+    }
+  });
+
+  test('cloud relay fallback gateway uses environment-resolved API URL (not hardcoded production)', () => {
+    // Simulates what the worker does: when assistant has no runtimeUrl,
+    // the relay base URL falls back to apiBaseUrl from the effective env.
+    const envs = ['local', 'dev', 'staging', 'production'] as const;
+    for (const env of envs) {
+      const { apiBaseUrl } = cloudUrlsForEnvironment(env);
+      if (env !== 'production') {
+        expect(apiBaseUrl).not.toBe('https://api.vellum.ai');
+      }
+    }
   });
 });

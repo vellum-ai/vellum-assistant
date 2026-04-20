@@ -20,20 +20,21 @@ ENV PATH="/root/.bun/bin:${PATH}"
 COPY packages/ces-contracts ./packages/ces-contracts
 COPY packages/credential-storage ./packages/credential-storage
 COPY packages/egress-proxy ./packages/egress-proxy
-# Copy meet-join manifests for dependency install (source copied after install for layer cache)
-COPY skills/meet-join/package.json skills/meet-join/bun.lock ./skills/meet-join/
 # Install assistant dependencies first for cache reuse
 COPY assistant/package.json assistant/bun.lock ./assistant/
-RUN cd /app/skills/meet-join && bun install --frozen-lockfile 2>/dev/null || bun install
 RUN cd /app/assistant && bun install --frozen-lockfile
 
-# Copy meet-join skill source (contracts + daemon + config) needed at runtime
-COPY skills/meet-join/contracts ./skills/meet-join/contracts
-COPY skills/meet-join/config-schema.ts skills/meet-join/meet-config.ts skills/meet-join/register.ts ./skills/meet-join/
-COPY skills/meet-join/daemon ./skills/meet-join/daemon
-COPY skills/meet-join/shared ./skills/meet-join/shared
-COPY skills/meet-join/tools ./skills/meet-join/tools
-COPY skills/meet-join/routes ./skills/meet-join/routes
+# Copy bundled first-party skills and install their deps. The repo-root
+# .dockerignore is the single source of truth for which skills (and which
+# files within them) ship in the assistant image -- adding or removing a
+# bundled skill is a .dockerignore edit, not a Dockerfile edit.
+COPY skills ./skills
+RUN set -eu; for pkg in /app/skills/*/package.json; do \
+      [ -e "$pkg" ] || continue; \
+      dir="$(dirname "$pkg")"; \
+      echo "Installing dependencies for $dir"; \
+      (cd "$dir" && (bun install --frozen-lockfile 2>/dev/null || bun install)); \
+    done
 
 # Copy source
 COPY assistant ./assistant

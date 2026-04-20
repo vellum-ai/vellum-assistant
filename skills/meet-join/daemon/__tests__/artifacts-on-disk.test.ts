@@ -435,22 +435,39 @@ describe("Meet artifacts on disk (integration)", () => {
 });
 
 /**
- * Wait until a file exists and its size has stopped changing between two
- * consecutive samples, which means the writing process has finished
- * flushing. We don't have a direct handle on the ffmpeg child's exit, so
- * this poll-based approach is the cleanest way to bound the wait.
+ * Wait until a file exists and its size has stopped changing across
+ * multiple consecutive samples, which means the writing process has
+ * finished flushing. We don't have a direct handle on the ffmpeg child's
+ * exit, so this poll-based approach is the cleanest way to bound the wait.
+ *
+ * A single unchanged interval is not enough: ffmpeg writes Opus in bursts
+ * with pauses that can exceed a 100ms poll window, so we'd otherwise return
+ * mid-write. Require `stableSamples` consecutive unchanged observations
+ * (default: 5 samples × 100ms = 500ms of quiet) before declaring the file
+ * stable.
  */
 async function waitForStableFile(
   path: string,
-  opts: { timeoutMs: number; pollIntervalMs?: number } = { timeoutMs: 5000 },
+  opts: {
+    timeoutMs: number;
+    pollIntervalMs?: number;
+    stableSamples?: number;
+  } = { timeoutMs: 5000 },
 ): Promise<void> {
   const pollInterval = opts.pollIntervalMs ?? 100;
+  const requiredStable = opts.stableSamples ?? 5;
   const deadline = Date.now() + opts.timeoutMs;
   let prevSize = -1;
+  let stableCount = 0;
   while (Date.now() < deadline) {
     if (existsSync(path)) {
       const size = statSync(path).size;
-      if (size > 0 && size === prevSize) return;
+      if (size > 0 && size === prevSize) {
+        stableCount += 1;
+        if (stableCount >= requiredStable) return;
+      } else {
+        stableCount = 0;
+      }
       prevSize = size;
     }
     await new Promise((r) => setTimeout(r, pollInterval));

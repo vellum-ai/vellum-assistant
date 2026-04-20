@@ -8,6 +8,7 @@ export const VALID_STT_PROVIDERS = [
   "deepgram",
   "google-gemini",
   "openai-whisper",
+  "xai",
 ] as const;
 
 /**

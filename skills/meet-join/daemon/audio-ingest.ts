@@ -576,7 +576,7 @@ async function defaultCreateTranscriber(): Promise<StreamingTranscriber> {
   if (!transcriber) {
     throw new MeetAudioIngestError(
       "The configured STT provider is unusable for Meet transcription. " +
-        "Set services.stt.provider to deepgram, google-gemini, or openai-whisper " +
+        "Set services.stt.provider to deepgram, google-gemini, openai-whisper, or xai " +
         "and ensure credentials are present.",
     );
   }

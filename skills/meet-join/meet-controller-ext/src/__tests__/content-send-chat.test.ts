@@ -1,5 +1,5 @@
 /**
- * Unit tests for the content-script `handleSendChat` handler.
+ * Unit tests for the `handleSendChat` runtime tool-path handler.
  *
  * `handleSendChat` is the path Meet takes when the daemon routes a
  * `meet_send_chat` tool invocation through the extension. We need to
@@ -9,12 +9,15 @@
  * from inside `runJoinFlow`. Without those emits, Meet's `isTrusted`
  * gate silently swallows every post-admission send.
  *
- * `content.ts` runs extension-scoped side effects at import time
- * (`console.log(location.href)` and `chrome.runtime.onMessage.addListener`),
- * so we install a fake `chrome` + JSDOM globals before the dynamic import
- * below. The test then drives the `__handleSendChat` export directly and
- * inspects the `chrome.runtime.sendMessage` call log for the expected
- * event sequence.
+ * The handler and queue live in `handle-send-chat.ts` — separate from
+ * `content.ts` so the content-script entrypoint stays side-effect-only
+ * (Chrome loads MV3 content scripts as classic scripts; a stray
+ * `export` at the top level of `content.js` makes the whole bundle
+ * fail to parse at load time). Tests install a fake `chrome` + JSDOM
+ * globals before the dynamic import below so `sendChat`'s bare
+ * `document` / `chrome.runtime` references resolve to the fixture, then
+ * drive the exported handler directly and inspect the
+ * `chrome.runtime.sendMessage` call log for the expected event sequence.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -155,15 +158,14 @@ describe("handleSendChat (content-script meet_send_chat tool path)", () => {
 
   beforeEach(async () => {
     harness = installHarness();
-    // Dynamic import so the content-script side effects (addListener,
-    // location.href console.log) execute against the installed harness
-    // instead of the bare Bun runtime.
-    const mod = (await import("../content.js")) as {
-      __handleSendChat: typeof handleSendChat;
-      __enqueueSendChat: typeof enqueueSendChat;
+    // Dynamic import so `sendChat`'s module-scoped references to DOM
+    // globals resolve against the installed harness on first evaluation.
+    const mod = (await import("../handle-send-chat.js")) as {
+      handleSendChat: typeof handleSendChat;
+      enqueueSendChat: typeof enqueueSendChat;
     };
-    handleSendChat = mod.__handleSendChat;
-    enqueueSendChat = mod.__enqueueSendChat;
+    handleSendChat = mod.handleSendChat;
+    enqueueSendChat = mod.enqueueSendChat;
   });
 
   afterEach(() => {
@@ -255,11 +257,13 @@ describe("handleSendChat (content-script meet_send_chat tool path)", () => {
     expect(trustedClickIdx).toBeGreaterThan(trustedTypeIdx);
     expect(resultIdx).toBeGreaterThan(trustedClickIdx);
 
-    // Composer value must also be populated via the native-setter path so
-    // the JS fallback still works for jsdom and any Meet build that does
-    // not enforce isTrusted on the composer.
+    // With `onEvent` wired (the handler always passes one), sendChat
+    // relies on xdotool to type the composer — the synthetic
+    // `.value = text` + `input` dispatch is skipped so that xdotool's
+    // appended keystrokes do not produce doubled text. In-test, where
+    // xdotool is stubbed out, the composer therefore remains empty.
     const input = doc.querySelector<HTMLTextAreaElement>(chatSelectors.INPUT)!;
-    expect(input.value).toBe("hello from runtime tool");
+    expect(input.value).toBe("");
   });
 
   test("still forwards send_chat_result(ok=false) when sendChat throws, without emitting trusted events", async () => {
@@ -332,39 +336,54 @@ describe("handleSendChat (content-script meet_send_chat tool path)", () => {
   });
 
   test("serializes overlapping send_chat commands so the wrong text is never posted", async () => {
-    // `sendChat` mutates a single shared textarea (`.value = text`) before
-    // clicking the send button, so two overlapping invocations would race
-    // on the composer: the second call's value-write lands before the
-    // first call's `.click()` fires, posting the wrong text while both
-    // requests still report ok=true. The fix chains `handleSendChat`
-    // invocations onto a per-tab Promise inside the `chrome.runtime
-    // .onMessage` listener, so the second call can't touch the DOM until
-    // the first has fully completed its send-button click.
+    // `sendChat` emits a `trusted_type` for the composer then waits
+    // (scaled to text length) before the send-button JS `.click()` +
+    // `trusted_click`, so two overlapping invocations would race on the
+    // shared Xvfb keyboard focus: the second call's trusted_type would
+    // interleave with the first call's keystrokes still in flight,
+    // producing a composer that contains "firstsecond" when the first
+    // send-click lands. The fix chains `handleSendChat` invocations onto
+    // a per-tab Promise inside the `chrome.runtime.onMessage` listener,
+    // so the second call can't emit its trusted_type until the first has
+    // fully completed its send-button click.
     //
     // This regression test drives two `send_chat` frames into the
     // exported `__enqueueSendChat` helper (the same entry point the
-    // listener uses) back-to-back and records the textarea value
-    // observed at each send-button click. With serialization, the clicks
-    // see "first" and "second" in order. Without it, both clicks see
-    // "second" because the second call's value-write clobbers the first
-    // before its click lands.
+    // listener uses) back-to-back and records the emitted-event stream
+    // so the ordering is visible. With serialization, the stream is
+    // [trusted_type("first"), trusted_click, js-click, trusted_type(
+    // "second"), trusted_click, js-click]. Without it, both
+    // trusted_types would fire before either click.
     const doc = harness!.dom.window.document;
-    const input = doc.querySelector<HTMLTextAreaElement>(chatSelectors.INPUT)!;
     const sendButton = doc.querySelector<HTMLButtonElement>(
       chatSelectors.SEND_BUTTON,
     )!;
 
-    const clickValues: string[] = [];
+    const timeline: string[] = [];
     sendButton.addEventListener("click", () => {
-      clickValues.push(input.value);
+      timeline.push("js-click");
     });
+
+    // Wrap sendMessage so emitted frames interleave with the js-click
+    // records above — must happen BEFORE enqueueing any handler call,
+    // since the first trusted_type emit fires synchronously on the
+    // handler's first turn.
+    const originalSendMessage = harness!.chrome.runtime.sendMessage;
+    harness!.chrome.runtime.sendMessage = (msg: unknown) => {
+      originalSendMessage.call(harness!.chrome.runtime, msg);
+      const m = msg as ExtensionToBotMessage;
+      if (m.type === "trusted_type") {
+        timeline.push(`trusted_type(${m.text})`);
+      } else if (m.type === "trusted_click") {
+        timeline.push("trusted_click");
+      }
+    };
 
     // Fire both frames synchronously into the queue, then wait for it to
     // drain. If the handler still `void`-launched each `handleSendChat`,
-    // both would run concurrently — the `setTimeout(250)` inside
-    // `sendChat` (onEvent-path delay before clicking send) would
-    // interleave the two calls and the second's value-write would
-    // clobber the first before click-1 fires.
+    // both would run concurrently — the length-scaled `setTimeout` inside
+    // `sendChat` (onEvent-path wait before clicking send) would
+    // interleave the two calls.
     const p1 = enqueueSendChat!({
       type: "send_chat",
       text: "first",
@@ -375,9 +394,18 @@ describe("handleSendChat (content-script meet_send_chat tool path)", () => {
       text: "second",
       requestId: "req-b",
     });
+
     await Promise.all([p1, p2]);
 
-    expect(clickValues).toEqual(["first", "second"]);
+    // Serialized ordering: every first-call event lands before any
+    // second-call event. In particular the first send-click fires before
+    // the second's trusted_type emits.
+    const firstTypeIdx = timeline.indexOf("trusted_type(first)");
+    const firstClickIdx = timeline.indexOf("js-click");
+    const secondTypeIdx = timeline.indexOf("trusted_type(second)");
+    expect(firstTypeIdx).toBeGreaterThanOrEqual(0);
+    expect(firstClickIdx).toBeGreaterThan(firstTypeIdx);
+    expect(secondTypeIdx).toBeGreaterThan(firstClickIdx);
 
     // Both results must still be emitted in order, each correlated with
     // the right requestId.

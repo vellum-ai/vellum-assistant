@@ -939,7 +939,7 @@ describe("plain-text channel approval decisions", () => {
     const approvalSpy = spyOn(
       gatewayClient,
       "deliverApprovalPrompt",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
 
     const initReq = makePlainTextInboundRequest({ content: "init" });
     await handleChannelInbound(initReq, noopProcessMessage);
@@ -2845,7 +2845,7 @@ describe("background channel processing approval prompts", () => {
     const deliverPromptSpy = spyOn(
       gatewayClient,
       "deliverApprovalPrompt",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
     const processCalls: Array<{ options?: Record<string, unknown> }> = [];
 
     const processMessage = mock(
@@ -2908,7 +2908,7 @@ describe("background channel processing approval prompts", () => {
     const deliverPromptSpy = spyOn(
       gatewayClient,
       "deliverApprovalPrompt",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
     const processCalls: Array<{ options?: Record<string, unknown> }> = [];
 
     const processMessage = mock(
@@ -3011,7 +3011,7 @@ describe("background channel processing approval prompts", () => {
     const deliverPromptSpy = spyOn(
       gatewayClient,
       "deliverApprovalPrompt",
-    ).mockResolvedValue(undefined);
+    ).mockResolvedValue({ ok: true });
     const processCalls: Array<{ options?: Record<string, unknown> }> = [];
 
     const processMessage = mock(

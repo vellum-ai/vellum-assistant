@@ -52,6 +52,13 @@ import { isCapabilityNode } from "./types.js";
 
 const log = getLogger("graph-retriever");
 
+function extractCapabilityId(node: MemoryNode): string | null {
+  const match = node.content.match(
+    /^skill:(\S+)\n|^cli:(\S+)\n|^\s*The ".*?" skill \(([^)]+)\)|^\s*The "assistant (\S+)" CLI command/,
+  );
+  return match?.[1] ?? match?.[2] ?? match?.[3] ?? match?.[4] ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // LLM re-ranking + deduplication
 // ---------------------------------------------------------------------------
@@ -435,14 +442,11 @@ export async function loadContextMemory(
     }
   }
 
-  // 1b. (PR 3) Dedicated user-query embedding. Always run the dedicated
-  //     user-query embed when a user query is present. Summaries and the
-  //     user query are now disjoint signals (the unshift was removed in
-  //     PR 6), so there is no redundancy between the two vectors — the
-  //     length-ratio short-circuit that previously lived here was written
-  //     against pre-PR-6 semantics and would drop the embed precisely in
-  //     the workloads that benefit most (short summaries + substantive
-  //     user question).
+  // 1b. Dedicated user-query embedding. Always embed the user query
+  //     independently when present. Summaries and the user query are
+  //     disjoint signals, so both vectors carry unique retrieval value —
+  //     especially in workloads with short summaries and a substantive
+  //     user question.
   let userQueryVector: number[] | null = null;
   const userQueryCandidateIds = new Map<string, number>(); // nodeId → score
   const trimmedUserQuery = opts.userQuery?.trim() ?? "";
@@ -642,13 +646,8 @@ export async function loadContextMemory(
 
   // 5b. Reserve slots for skill/CLI capabilities.
   //
-  // Source candidates primarily from the semantic-search candidate set
-  // (the same strategy `retrieveForTurn` uses). A prior approach pulled
-  // top-N procedural rows ordered by significance, but organic procedural
-  // memories share `type = 'procedural'` with capability nodes and
-  // dominate the significance ordering on mature assistants, starving
-  // the capability slots entirely.
-  //
+  // Source candidates from the hydrated semantic-search set (the same
+  // strategy `retrieveForTurn` uses) so ranking reflects query relevance.
   // For cold-start cases (capability nodes exist in SQLite but their
   // embeddings haven't landed in Qdrant yet), fall back to a narrow
   // SQL pull that matches only capability-shaped content so organic
@@ -656,6 +655,8 @@ export async function loadContextMemory(
   const capabilityReserve = ctxLoadCfg.capabilityReserve;
   const capabilityEntries: { node: MemoryNode; sim: number }[] = [];
   if (capabilityReserve > 0) {
+    const uniqueCapabilityIds = new Set<string>();
+    let untaggedCount = 0;
     for (const [nodeId, node] of nodeMap) {
       if (node.fidelity === "gone") continue;
       if (!isCapabilityNode(node)) continue;
@@ -664,9 +665,18 @@ export async function loadContextMemory(
         semanticCandidateIds.get(nodeId) ??
         0;
       capabilityEntries.push({ node, sim });
+      const capId = extractCapabilityId(node);
+      if (capId) uniqueCapabilityIds.add(capId);
+      else untaggedCount++;
     }
 
-    if (capabilityEntries.length < capabilityReserve) {
+    // Gate the fallback on distinct capability IDs (plus any entries
+    // whose content didn't match a known ID pattern), not raw entry
+    // count — duplicate capability-ID seeding formats can otherwise push
+    // `capabilityEntries.length` past the threshold and then collapse
+    // below it during the dedup pass below.
+    const distinctCount = uniqueCapabilityIds.size + untaggedCount;
+    if (distinctCount < capabilityReserve) {
       const alreadySeen = new Set(capabilityEntries.map((e) => e.node.id));
       const fallback = queryCapabilityNodes(
         opts.scopeId,
@@ -691,10 +701,7 @@ export async function loadContextMemory(
   const selectedCapabilities: MemoryNode[] = [];
   for (const { node } of capabilityEntries) {
     if (selectedCapabilities.length >= capabilityReserve) break;
-    const match = node.content.match(
-      /^skill:(\S+)\n|^cli:(\S+)\n|^\s*The ".*?" skill \(([^)]+)\)|^\s*The "assistant (\S+)" CLI command/,
-    );
-    const capId = match?.[1] ?? match?.[2] ?? match?.[3] ?? match?.[4];
+    const capId = extractCapabilityId(node);
     if (capId) {
       if (seenCapabilityIds.has(capId)) continue;
       seenCapabilityIds.add(capId);

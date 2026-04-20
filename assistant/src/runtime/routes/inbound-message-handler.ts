@@ -562,8 +562,8 @@ export async function handleChannelInbound(
   //   1. Guardian approval-by-reaction. A `reaction:` (added) event from
   //      the guardian on an active approval prompt is consumed by
   //      `handleApprovalInterception` to apply the decision. In that case
-  //      we do NOT persist the reaction as a transcript line — pre-upgrade
-  //      semantics carried no transcript trace for resolved reactions.
+  //      we do NOT persist the reaction as a transcript line — resolved
+  //      guardian approval reactions have no transcript representation.
   //   2. All other reactions (non-guardian, no pending approval, stale,
   //      and any `reaction_removed:` event regardless of actor) fall
   //      through to `persistSlackReactionAsMessage` so the chronological
@@ -904,7 +904,13 @@ export async function handleChannelInbound(
     // of whether content/attachments are present — callback payloads always
     // have non-empty content (normalize.ts sets message.content to cbq.data),
     // so checking for empty content alone would miss stale callbacks.
-    if (hasCallbackData) {
+    //
+    // Reaction events (`reaction:` / `reaction_removed:`) are persisted by
+    // the earlier `isSlackReactionEvent` branch and never reach here; guard
+    // explicitly so a future refactor can't let a reaction ts drive a
+    // "This approval request has been resolved." edit that would clobber
+    // the user's reacted-to message.
+    if (hasCallbackData && !isSlackReactionEvent(body)) {
       // Record seen signal even for stale callbacks — the user still interacted
       if (sourceChannel === "telegram" || sourceChannel === "slack") {
         try {
@@ -997,11 +1003,11 @@ export async function handleChannelInbound(
       }
 
       // Slack inbound metadata captured for thread-aware persistence. The
-      // gateway forwards `thread_ts` under `sourceMetadata.threadId` (PR 2)
-      // and the message's own ts under `sourceMetadata.messageId`. Persistence
-      // turns this into a `slackMeta` sub-object in the row's metadata column
-      // so the chronological renderer in later PRs can reconstruct thread
-      // structure without re-fetching from Slack.
+      // gateway forwards `thread_ts` under `sourceMetadata.threadId` and the
+      // message's own ts under `sourceMetadata.messageId`. Persistence turns
+      // this into a `slackMeta` sub-object in the row's metadata column so
+      // the chronological renderer can reconstruct thread structure without
+      // re-fetching from Slack.
       const slackThreadTs =
         sourceChannel === "slack" &&
         typeof sourceMetadata?.threadId === "string"
@@ -1051,6 +1057,7 @@ export async function handleChannelInbound(
           conversationId: result.conversationId,
           channelId: conversationExternalId,
           threadTs: slackThreadTs,
+          excludeChannelTs: slackInbound?.channelTs,
         });
       }
 
@@ -1236,6 +1243,10 @@ function countSlackMetaMessages(conversationId: string): number {
     if (typeof raw !== "string") continue;
     if (readSlackMetadata(raw)) {
       count++;
+      // Early-return: callers only need to know if the count meets the
+      // warm threshold. Avoids parsing every row on warm conversations
+      // that would otherwise full-scan on each Slack DM.
+      if (count >= SLACK_DM_BACKFILL_WARM_THRESHOLD) return count;
     }
   }
   return count;
@@ -1264,7 +1275,11 @@ function readStoredSlackChannelTs(conversationId: string): Set<string> {
     const raw = parent.slackMeta;
     if (typeof raw !== "string") continue;
     const meta = readSlackMetadata(raw);
-    if (meta) seen.add(meta.channelTs);
+    // Only message rows represent stored Slack messages. Reaction rows carry
+    // `channelTs` equal to the target message's ts, so including them would
+    // make a reaction on a thread parent wrongly short-circuit ancestor
+    // backfill (the parent itself may still be unseen).
+    if (meta && meta.eventKind === "message") seen.add(meta.channelTs);
   }
   return seen;
 }
@@ -1300,6 +1315,17 @@ async function persistBackfilledSlackMessage(params: {
 }
 
 /**
+ * In-memory map of in-flight DM cold-start backfills keyed by conversationId.
+ * Concurrent inbound DMs to the same cold conversation share a single
+ * backfill promise instead of each issuing their own Slack history fetch and
+ * write — without this, two near-simultaneous DMs would both observe a cold
+ * count, both fetch the same history window, and both insert duplicate rows
+ * (channelTs lives inside a JSON metadata blob, so the DB has no uniqueness
+ * constraint to fall back on).
+ */
+const _dmBackfillInFlight = new Map<string, Promise<void>>();
+
+/**
  * One-shot DM cold-start backfill. When a Slack DM lands in a conversation
  * with fewer than `SLACK_DM_BACKFILL_WARM_THRESHOLD` stored Slack-tagged
  * messages, fetch a window of recent history via `backfillDm` and persist
@@ -1311,6 +1337,22 @@ async function persistBackfilledSlackMessage(params: {
  * proceeds with only the new message.
  */
 async function tryBackfillSlackDmIfCold(params: {
+  conversationId: string;
+  channelId: string;
+}): Promise<void> {
+  const existing = _dmBackfillInFlight.get(params.conversationId);
+  if (existing) {
+    await existing;
+    return;
+  }
+  const promise = runBackfillSlackDmIfCold(params).finally(() => {
+    _dmBackfillInFlight.delete(params.conversationId);
+  });
+  _dmBackfillInFlight.set(params.conversationId, promise);
+  await promise;
+}
+
+async function runBackfillSlackDmIfCold(params: {
   conversationId: string;
   channelId: string;
 }): Promise<void> {
@@ -1459,8 +1501,17 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
   conversationId: string;
   channelId: string;
   threadTs: string;
+  /**
+   * The inbound message's own `channelTs`. Pre-seeded into the dedup set so
+   * this helper does not re-persist the just-received message when Slack's
+   * `conversations.replies` returns it in the thread window. Necessary
+   * because thread backfill runs concurrently with
+   * `processChannelMessageInBackground`, so the inbound row may not yet be
+   * in the DB when `readStoredSlackChannelTs` snapshots the conversation.
+   */
+  excludeChannelTs?: string;
 }): Promise<void> {
-  const { conversationId, channelId, threadTs } = params;
+  const { conversationId, channelId, threadTs, excludeChannelTs } = params;
   const cacheKey = `${conversationId}:${threadTs}`;
 
   try {
@@ -1469,6 +1520,7 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
     }
 
     const storedChannelTs = readStoredSlackChannelTs(conversationId);
+    if (excludeChannelTs) storedChannelTs.add(excludeChannelTs);
     if (storedChannelTs.has(threadTs)) {
       // Parent is already in the conversation; mark the cache so a burst of
       // replies in this thread does not redo the DB scan for each one.

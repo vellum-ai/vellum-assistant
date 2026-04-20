@@ -447,9 +447,14 @@ describe("sendChat", () => {
     expect(sendButton).not.toBeNull();
 
     // Record the temporal order of:
-    //   1. the synthetic "input" event firing on the textarea (post `.value = text`)
-    //   2. each onEvent call (trusted_type or trusted_click for the send button)
-    //   3. the send-button click.
+    //   1. each onEvent call (trusted_type or trusted_click for the send button)
+    //   2. the send-button click.
+    //
+    // When `onEvent` is wired, `sendChat` deliberately does NOT dispatch
+    // the synthetic `input` event on the textarea — it relies on xdotool
+    // to land the keystrokes via trusted X-server events. The synthetic
+    // path is only taken as a fallback when no `onEvent` sink is
+    // provided (see the regression test below for that path).
     const timeline: Array<
       | { kind: "input"; value: string }
       | { kind: "event"; ev: ExtensionToBotMessage }
@@ -488,22 +493,17 @@ describe("sendChat", () => {
       expect(trustedType.text).toBe("hello");
     }
 
-    // Ordering: input event first (carries the native-setter value), then
-    // trusted_type, then any send-button trusted_click, then the JS click.
+    // With `onEvent` wired, no synthetic `input` event is dispatched —
+    // xdotool is the sole text-entry path. Ordering: trusted_type first,
+    // then any send-button trusted_click, then the JS click.
     const inputIdx = timeline.findIndex((e) => e.kind === "input");
     const trustedTypeIdx = timeline.findIndex(
       (e) => e.kind === "event" && e.ev.type === "trusted_type",
     );
     const sendClickIdx = timeline.findIndex((e) => e.kind === "send-click");
-    expect(inputIdx).toBeGreaterThanOrEqual(0);
-    expect(trustedTypeIdx).toBeGreaterThan(inputIdx);
+    expect(inputIdx).toBe(-1);
+    expect(trustedTypeIdx).toBeGreaterThanOrEqual(0);
     expect(sendClickIdx).toBeGreaterThan(trustedTypeIdx);
-
-    // The textarea should still carry the native-setter value at send time.
-    const sendEntry = timeline[sendClickIdx];
-    if (sendEntry && sendEntry.kind === "send-click") {
-      expect(sendEntry.inputValue).toBe("hello");
-    }
   });
 
   test("writes the textarea via the prototype value setter (React controlled-input bypass)", async () => {
@@ -677,9 +677,13 @@ describe("sendChat", () => {
     expect(trustedClicks[0]!.x).toBe(1330);
     expect(trustedClicks[0]!.y).toBe(820);
 
-    // Text populated + input event dispatched before the trusted_click emits.
-    expect(input.value).toBe("hello");
-    expect(inputEvents).toBeGreaterThanOrEqual(1);
+    // With `onEvent` wired, sendChat relies on xdotool for text entry and
+    // skips the synthetic `.value = text` + `input` event dispatch — the
+    // composer is populated by the bot's xdotool-driven keystrokes, not
+    // by the extension. So the textarea stays empty in-test, and no
+    // synthetic `input` event fires.
+    expect(input.value).toBe("");
+    expect(inputEvents).toBe(0);
 
     // JS click fallback still fires AFTER the trusted_click — the bot will
     // already have dispatched the real xdotool click by the time the JS
@@ -719,6 +723,8 @@ describe("postConsentMessage", () => {
 
     expect(installed!.panelToggleClicks()).toBe(1);
     expect(sendClicks).toBe(1);
+    // No `onEvent` wired → sendChat takes the synthetic-setter fallback,
+    // which still populates the composer in the jsdom harness.
     const input = doc.querySelector<HTMLTextAreaElement>(chatSelectors.INPUT);
     expect(input!.value).toBe("consent please");
   });

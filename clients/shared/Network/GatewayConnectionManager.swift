@@ -758,6 +758,19 @@ public final class GatewayConnectionManager {
         defer { isAttemptingRePair = false }
 
         log.info("attemptRePair: started")
+
+        // Cancel and drain any in-flight `refreshTask`. Without this, a 401
+        // refresh that concludes as a terminal error AFTER the new bootstrap
+        // has provisioned fresh credentials will call
+        // `ActorTokenManager.deleteAllCredentials()` and clobber them,
+        // putting the app right back in the stuck `isAuthFailed` state we
+        // were trying to exit.
+        if let inFlightRefresh = refreshTask {
+            log.info("attemptRePair: cancelling in-flight refresh task")
+            inFlightRefresh.cancel()
+            await inFlightRefresh.value
+        }
+
         let handler = bootstrap ?? rePairHandler
         guard let handler else {
             log.error("attemptRePair: failed — no bootstrap handler configured")

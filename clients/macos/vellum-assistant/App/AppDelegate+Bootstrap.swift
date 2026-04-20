@@ -228,9 +228,20 @@ extension AppDelegate {
     /// the existing credential first so `performInitialBootstrap()` is forced
     /// to re-provision from scratch. Intended as a recovery primitive for
     /// stale/invalid credentials (see `GatewayConnectionManager.attemptRePair()`).
+    ///
+    /// In Docker/cloud hatches, the CLI-persisted `guardian-token.json` on
+    /// disk can still contain the same revoked token that produced the auth
+    /// failures. `performInitialBootstrap()` imports that file ahead of any
+    /// HTTP path, so without deleting it we would silently re-arm the bad
+    /// credential and the re-pair would "succeed" only to fall right back
+    /// into 401s. Delete the file here so the bootstrap is forced down a
+    /// genuine reprovision path.
     func forceReBootstrap() async {
         log.info("forceReBootstrap: clearing stored credentials and re-running bootstrap")
         ActorTokenManager.deleteAllCredentials()
+        if let assistantId = LockfileAssistant.loadActiveAssistantId() {
+            GuardianTokenFileReader.deleteTokenFile(assistantId: assistantId)
+        }
         await performInitialBootstrap()
     }
 

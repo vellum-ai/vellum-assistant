@@ -583,4 +583,139 @@ describe("lockfile — resolveDaemonPort", () => {
   test("returns undefined when lockfile is missing", () => {
     expect(resolveDaemonPort("anything")).toBeUndefined();
   });
+
+  test("uses environmentOverride to resolve the lockfile path", () => {
+    // Set process env to production (which reads .vellum.lock.json) but
+    // write the lockfile under the dev path. The override should win.
+    delete process.env.VELLUM_ENVIRONMENT;
+    delete process.env.VELLUM_LOCKFILE_DIR;
+    process.env.XDG_CONFIG_HOME = tempDir;
+
+    const devDir = join(tempDir, "vellum-dev");
+    mkdirSync(devDir, { recursive: true });
+    writeFileSync(
+      join(devDir, "lockfile.json"),
+      JSON.stringify({
+        assistants: [
+          {
+            assistantId: "dev-target",
+            cloud: "local",
+            runtimeUrl: "http://localhost:7830",
+            resources: { daemonPort: 8888 },
+          },
+        ],
+      }),
+    );
+
+    // Without override, falls back to production path (no lockfile there)
+    expect(resolveDaemonPort("dev-target")).toBeUndefined();
+
+    // With override, reads from the dev lockfile
+    expect(resolveDaemonPort("dev-target", "dev")).toBe(8888);
+  });
+});
+
+describe("lockfile — environment override for readAssistantInventory", () => {
+  test("frame environment override takes precedence over process.env.VELLUM_ENVIRONMENT", () => {
+    // Set process env to production
+    delete process.env.VELLUM_ENVIRONMENT;
+    delete process.env.VELLUM_LOCKFILE_DIR;
+    process.env.XDG_CONFIG_HOME = tempDir;
+
+    // Write a prod lockfile with one assistant
+    const prodDir = tempDir;
+    process.env.VELLUM_LOCKFILE_DIR = prodDir;
+    writeLockfile(".vellum.lock.json", {
+      assistants: [
+        {
+          assistantId: "prod-assistant",
+          cloud: "local",
+          runtimeUrl: "http://localhost:7830",
+          resources: { daemonPort: 7821 },
+        },
+      ],
+    });
+
+    // Write a dev lockfile with a different assistant
+    delete process.env.VELLUM_LOCKFILE_DIR;
+    const devDir = join(tempDir, "vellum-dev");
+    mkdirSync(devDir, { recursive: true });
+    writeFileSync(
+      join(devDir, "lockfile.json"),
+      JSON.stringify({
+        assistants: [
+          {
+            assistantId: "dev-assistant",
+            cloud: "local",
+            runtimeUrl: "http://localhost:7831",
+            resources: { daemonPort: 7822 },
+          },
+        ],
+      }),
+    );
+
+    // Without override, reads from production
+    process.env.VELLUM_LOCKFILE_DIR = prodDir;
+    const prodResult = readAssistantInventory();
+    expect(prodResult.assistants).toHaveLength(1);
+    expect(prodResult.assistants[0]!.assistantId).toBe("prod-assistant");
+
+    // With override "dev", reads from the dev lockfile
+    delete process.env.VELLUM_LOCKFILE_DIR;
+    const devResult = readAssistantInventory("dev");
+    expect(devResult.assistants).toHaveLength(1);
+    expect(devResult.assistants[0]!.assistantId).toBe("dev-assistant");
+  });
+
+  test("empty string override falls through to process.env.VELLUM_ENVIRONMENT", () => {
+    process.env.VELLUM_ENVIRONMENT = "dev";
+    writeLockfile("lockfile.json", {
+      assistants: [
+        {
+          assistantId: "env-dev",
+          cloud: "local",
+          runtimeUrl: "http://localhost:7830",
+        },
+      ],
+    });
+
+    // Empty string override should be treated as "no override"
+    const result = readAssistantInventory("");
+    expect(result.assistants).toHaveLength(1);
+    expect(result.assistants[0]!.assistantId).toBe("env-dev");
+  });
+
+  test("whitespace-only override falls through to process.env.VELLUM_ENVIRONMENT", () => {
+    process.env.VELLUM_ENVIRONMENT = "dev";
+    writeLockfile("lockfile.json", {
+      assistants: [
+        {
+          assistantId: "env-dev",
+          cloud: "local",
+          runtimeUrl: "http://localhost:7830",
+        },
+      ],
+    });
+
+    const result = readAssistantInventory("   ");
+    expect(result.assistants).toHaveLength(1);
+    expect(result.assistants[0]!.assistantId).toBe("env-dev");
+  });
+
+  test("invalid/unknown override falls back to production behavior", () => {
+    writeLockfile(".vellum.lock.json", {
+      assistants: [
+        {
+          assistantId: "prod-fallback",
+          cloud: "local",
+          runtimeUrl: "http://localhost:7830",
+        },
+      ],
+    });
+
+    // "foobar" is not a known environment, so falls back to production
+    const result = readAssistantInventory("foobar");
+    expect(result.assistants).toHaveLength(1);
+    expect(result.assistants[0]!.assistantId).toBe("prod-fallback");
+  });
 });

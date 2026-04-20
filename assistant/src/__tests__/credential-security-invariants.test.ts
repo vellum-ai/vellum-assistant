@@ -219,6 +219,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "inbound/platform-callback-registration.ts", // managed credential lookup for platform base URL, assistant ID, and API key
       "tts/providers/elevenlabs-provider.ts", // ElevenLabs TTS API key lookup
       "tts/providers/deepgram-provider.ts", // Deepgram TTS API key lookup
+      "tts/providers/xai-provider.ts", // xAI TTS API key lookup
       "meet/session-manager.ts", // Meet bot container provisioning (provider API key lookup for Deepgram/TTS)
       "credential-health/credential-health-service.ts", // credential health check reads access tokens for liveness pings
     ]);

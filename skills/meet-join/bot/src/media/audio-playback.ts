@@ -81,13 +81,6 @@ export interface StartAudioPlaybackOptions {
   rateHz?: number;
   channels?: number;
   spawn?: PacatSpawnFactory;
-  /**
-   * Override the wall-clock source for playback-timestamp estimation.
-   * Tests pass a deterministic clock so they can advance time in
-   * controlled increments without real delays. Production uses
-   * `performance.now()`.
-   */
-  now?: () => number;
 }
 
 /**
@@ -97,21 +90,18 @@ export interface StartAudioPlaybackOptions {
  * apply backpressure via a promise resolution). `flushSilence` pushes a
  * block of zeroes — typically 50ms at shutdown to avoid a popping sound.
  *
- * `onPlaybackTimestamp` exposes an estimate of the wall-clock time at
- * which the most recently written PCM byte will play out of the
- * `bot_out` sink. Consumers subscribe to this stream to align
- * audio-adjacent pipelines (e.g. the TalkingHead.js renderer aligning
- * viseme emission to audio) with the actual playback timeline rather
- * than with the time visemes are received from the daemon.
+ * `onPlaybackTimestamp` exposes an estimate of how many milliseconds
+ * into the current utterance the most recently queued PCM byte will
+ * play. The clock is **utterance-relative** — it starts at 0 on
+ * `startAudioPlayback` and advances by `byteCount / bytesPerMs` on
+ * every non-empty write, directly matching the coordinate system of
+ * `VisemeEvent.timestamp` (see `assistant/src/tts/types.ts`) so viseme-
+ * driven renderers can compare incoming timestamps against the stream
+ * without coordinate-system translation.
  *
- * The estimate is derived from
- *   `max(nowMs, lastEstimate) + byteCount / bytesPerMs`
- * so that sustained writes accumulate into the future (keeping track
- * of buffered audio) while a write after the buffer has drained snaps
- * back to real time. Because Chrome → PulseAudio → `bot_out` → WebRTC
- * resampler is all zero-copy for matching sample rates, the dominant
- * latency source is the ~10 ms pacat jitter buffer; the estimate is
- * therefore accurate to roughly ±30 ms.
+ * There is no real-wall-clock component — an utterance-relative clock
+ * stalls while no audio is being written, which is what downstream
+ * renderers want: if playback pauses, viseme emission pauses too.
  */
 export interface AudioPlaybackHandle {
   /** Whether this handle is still usable. Flips to `false` on stop. */
@@ -127,27 +117,18 @@ export interface AudioPlaybackHandle {
   /**
    * Subscribe to playback-timestamp updates. The callback fires after
    * every non-empty byte write (including silence flushes) with the
-   * wall-clock time at which the most recently written PCM byte is
-   * expected to play out of the sink. Returns an unsubscribe function;
-   * calling it more than once is a no-op.
+   * utterance-relative offset (ms since `startAudioPlayback`) at which
+   * the most recently written PCM byte will play out of the sink. This
+   * is the same coordinate system the daemon stamps on outbound
+   * `VisemeEvent.timestamp` values, so subscribers can compare the two
+   * directly. Returns an unsubscribe function; calling it more than
+   * once is a no-op.
    *
    * Timestamps are strictly monotonic: each emission advances the clock
-   * by at least `byteCount / bytesPerMs` past the previous emission, so
-   * subscribers can compare directly with `VisemeEvent.timestamp`
-   * values without worrying about equal-timestamp reordering.
+   * by exactly `byteCount / bytesPerMs` past the previous emission, so
+   * subscribers don't have to worry about equal-timestamp reordering.
    */
   onPlaybackTimestamp(cb: (ts: number) => void): () => void;
-}
-
-/**
- * Default monotonic clock — `performance.now()` gives millisecond-
- * resolution wall-clock time that tracks the same reference as the
- * `VisemeEvent.timestamp` field the daemon stamps on outbound viseme
- * events, so the alignment math works without coordinate-system
- * translation.
- */
-function defaultNow(): number {
-  return performance.now();
 }
 
 /** Default spawn factory — wraps `Bun.spawn` with the pacat flags. */
@@ -209,7 +190,6 @@ export function startAudioPlayback(
   const rateHz = opts.rateHz ?? DEFAULT_RATE_HZ;
   const channels = opts.channels ?? DEFAULT_CHANNELS;
   const spawn = opts.spawn ?? defaultSpawn;
-  const now = opts.now ?? defaultNow;
   const bytesPerMs = (rateHz * channels * DEFAULT_SAMPLE_BYTES) / 1000;
 
   const argv = buildPacatArgv(device, rateHz, channels);
@@ -232,17 +212,22 @@ export function startAudioPlayback(
 
   // --- playback-timestamp state ---------------------------------------
   //
-  // `effectivePlaybackMs` is the wall-clock time at which the most
-  // recently queued PCM byte is expected to play out. After every
-  // write we advance it by `byteCount / bytesPerMs` from either the
-  // current `effectivePlaybackMs` (buffer still has data) or from
-  // `now()` (buffer drained between writes) — whichever is later.
+  // `effectivePlaybackMs` is an UTTERANCE-RELATIVE offset (ms since
+  // this playback handle was started) at which the most recently queued
+  // PCM byte is expected to play out. It is seeded to 0 and advances by
+  // exactly `byteCount / bytesPerMs` on every non-empty write. This is
+  // the same coordinate system `VisemeEvent.timestamp` uses (see
+  // `assistant/src/tts/types.ts`), so viseme-driven renderers can
+  // compare the two values directly.
   //
-  // This matches the way the kernel's snd-aloop / PulseAudio scheduler
-  // model sink latency. Our error bound is dominated by pacat's
-  // internal jitter buffer (~10 ms) and the Pulse null-sink (~0 ms),
-  // so the estimate stays well under the 30 ms accuracy target.
-  let effectivePlaybackMs = now();
+  // There is deliberately no `performance.now()` / wall-clock input —
+  // mixing process-uptime-relative time into an utterance-relative
+  // clock would make every comparison against `VisemeEvent.timestamp`
+  // nonsensical (uptime dwarfs any plausible utterance offset). If
+  // playback pauses between writes the clock simply doesn't advance,
+  // which matches what downstream renderers want: no audio → no viseme
+  // emission.
+  let effectivePlaybackMs = 0;
   const timestampSubscribers: Array<(ts: number) => void> = [];
 
   const emitTimestamp = (): void => {
@@ -259,12 +244,7 @@ export function startAudioPlayback(
 
   const advanceAfterWrite = (byteCount: number): void => {
     if (byteCount <= 0) return;
-    const nowMs = now();
-    // If the buffer has fully drained since the last write (i.e. real
-    // time has moved past our previous estimate), rebase to now — the
-    // newly-written bytes play "now-ish", not at a stale pinned clock.
-    const baseline = Math.max(nowMs, effectivePlaybackMs);
-    effectivePlaybackMs = baseline + byteCount / bytesPerMs;
+    effectivePlaybackMs += byteCount / bytesPerMs;
     emitTimestamp();
   };
 
