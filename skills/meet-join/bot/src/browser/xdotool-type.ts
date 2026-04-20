@@ -15,7 +15,7 @@
  * a single argv token, NOT shell-interpolated, so arbitrary user content
  * is safe):
  *
- *     DISPLAY=:99 xdotool type --delay 25 --clearmodifiers "hello world"
+ *     DISPLAY=:99 xdotool type --delay 25 --clearmodifiers -- "hello world"
  *
  * Callers are responsible for ensuring the target element has keyboard
  * focus before invoking (e.g. via a prior `xdotoolClick` to focus the
@@ -91,15 +91,18 @@ export async function xdotoolType(opts: XdotoolTypeOptions): Promise<void> {
   const delayMs = opts.delayMs ?? DEFAULT_DELAY_MS;
 
   // `--clearmodifiers` ensures we don't accidentally inherit a stuck
-  // modifier key (Shift/Ctrl/Alt) from a prior input event. `text` is the
-  // final positional argv token; it is passed as a single argv entry so
-  // the shell is never involved and arbitrary content (including quotes,
-  // spaces, backticks) is handled safely.
+  // modifier key (Shift/Ctrl/Alt) from a prior input event. The `--`
+  // end-of-options marker is required before `text` so that arbitrary
+  // content starting with `-` (e.g. a negative number like `-14.7873`)
+  // is not re-parsed by xdotool as an option flag. `text` is passed as
+  // a single argv entry so the shell is never involved and arbitrary
+  // content (including quotes, spaces, backticks) is handled safely.
   const args = [
     "type",
     "--delay",
     String(delayMs),
     "--clearmodifiers",
+    "--",
     opts.text,
   ];
 
