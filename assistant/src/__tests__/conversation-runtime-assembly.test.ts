@@ -2682,9 +2682,9 @@ describe("Slack channel chronological rendering — multi-thread", () => {
   });
 
   // ── transport_hints suppression for slack DMs ─────────────────────────
-  // PR 25 removed the gateway-side `fetchDmContext` helper that produced
-  // DM hints; defensively suppress on the daemon side too so any stale
-  // hint forwarded from older paths cannot leak into the LLM input.
+  // Slack DMs assemble context from persisted message rows; defensively
+  // suppress transport hints on the daemon side too so any stale hint
+  // cannot leak into the LLM input.
   test("slack DM conversations skip <transport_hints> injection", async () => {
     const slackDmCaps: ChannelCapabilities = {
       channel: "slack",

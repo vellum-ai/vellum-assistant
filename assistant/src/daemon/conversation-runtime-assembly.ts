@@ -1754,10 +1754,8 @@ export async function applyRuntimeInjections(
   const mode = options.mode ?? "full";
   const slackChannel = isSlackChannelConversation(options.channelCapabilities);
   // Slack DMs and channels both assemble context from persisted message
-  // rows now (PR 25 removed the gateway-side `fetchThreadContext` /
-  // `fetchDmContext` helpers that produced `<transport_hints>` entries),
-  // so suppress hint injection for any Slack conversation. Other channels
-  // (telegram, email, etc.) keep the generic hint pipeline.
+  // rows, so suppress hint injection for any Slack conversation. Other
+  // channels (telegram, email, etc.) keep the generic hint pipeline.
   const slackConversation = options.channelCapabilities?.channel === "slack";
   let result = runMessages;
   // Slack channels AND DMs both override `runMessages` with a pre-rendered
