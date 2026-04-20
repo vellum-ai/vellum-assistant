@@ -438,7 +438,7 @@
     {
       "id": "slack-app-setup",
       "name": "slack-app-setup",
-      "description": "Connect a Slack app to the Vellum Assistant via Socket Mode with guided app creation and identity verification",
+      "description": "Connect a Slack app to the Vellum Assistant via Socket Mode with one-click app creation and identity verification",
       "metadata": {
         "emoji": "💬",
         "vellum": {
