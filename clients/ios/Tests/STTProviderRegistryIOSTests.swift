@@ -96,6 +96,7 @@ final class STTProviderRegistryIOSTests: XCTestCase {
             "openai-whisper": "openai",
             "deepgram": "deepgram",
             "google-gemini": "gemini",
+            "xai": "xai",
         ]
         for provider in registry.providers {
             guard let expected = expectedMappings[provider.id] else {
