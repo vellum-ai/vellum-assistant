@@ -1192,6 +1192,7 @@ async function persistSlackReactionAsMessage(params: {
     "user",
     "[reaction]",
     { slackMeta: writeSlackMetadata(slackMeta) },
+    { skipIndexing: true },
   );
   deliveryCrud.linkMessage(params.eventId, persisted.id);
   deliveryStatus.markProcessed(params.eventId);
