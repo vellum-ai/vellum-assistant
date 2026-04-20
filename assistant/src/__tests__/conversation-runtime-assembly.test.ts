@@ -1609,6 +1609,55 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
 });
 
 // ---------------------------------------------------------------------------
+// applyRuntimeInjections blocks.unifiedTurnContext
+// ---------------------------------------------------------------------------
+
+describe("applyRuntimeInjections blocks.unifiedTurnContext", () => {
+  const userTailMessages: Message[] = [
+    {
+      role: "user",
+      content: [{ type: "text", text: "Hello there" }],
+    },
+  ];
+
+  const sampleBlock =
+    "<turn_context>\ncurrent_time: 2026-04-02T12:00:00Z\ninterface: macos\n</turn_context>";
+
+  test("captures unifiedTurnContext when tail is a user message", async () => {
+    const result = await applyRuntimeInjections(userTailMessages, {
+      unifiedTurnContext: sampleBlock,
+    });
+
+    expect(result.blocks.unifiedTurnContext).toBe(sampleBlock);
+  });
+
+  test("does not capture when tail is not a user message", async () => {
+    const assistantTailMessages: Message[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Hello" }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Hi back" }],
+      },
+    ];
+
+    const result = await applyRuntimeInjections(assistantTailMessages, {
+      unifiedTurnContext: sampleBlock,
+    });
+
+    expect(result.blocks.unifiedTurnContext).toBeUndefined();
+  });
+
+  test("does not capture when unifiedTurnContext option is absent", async () => {
+    const result = await applyRuntimeInjections(userTailMessages, {});
+
+    expect(result.blocks.unifiedTurnContext).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // findLastInjectedNowContent
 // ---------------------------------------------------------------------------
 
