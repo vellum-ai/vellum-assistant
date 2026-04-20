@@ -13,12 +13,19 @@
  *
  * ## Feature-flag semantics
  *
- * Registration is gated by the `meet` feature flag at module-load time,
- * mirroring the CES-tools pattern in `registry.ts` — tools only
- * enter the registry (and therefore only occupy LLM tool-list tokens)
- * when the flag is on. Toggling the flag requires a daemon restart to
- * take effect, which is acceptable because the same is true for every
- * other feature-flag-gated capability on the daemon.
+ * Registration is gated by the `meet` feature flag, mirroring the
+ * CES-tools pattern in `tool-manifest.ts` — tools only enter the
+ * registry (and therefore only occupy LLM tool-list tokens) when the
+ * flag is on. Toggling the flag requires a daemon restart to take
+ * effect, which is acceptable because the same is true for every other
+ * feature-flag-gated capability on the daemon.
+ *
+ * The flag read is wrapped in a **lazy provider closure** passed to
+ * `registerExternalTools()`. The closure is invoked inside
+ * `getExternalTools()` — which `initializeTools()` calls after
+ * `mergeDefaultWorkspaceConfig()` — so the flag resolution sees the
+ * merged workspace config rather than forcing an early `loadConfig()`
+ * against unmerged defaults.
  *
  * Each tool also performs a defensive in-`execute()` flag check so
  * stale tool definitions cached by a long-running agent turn can't
@@ -37,20 +44,20 @@ import { meetLeaveTool } from "./tools/meet-leave-tool.js";
 import { meetSendChatTool } from "./tools/meet-send-chat-tool.js";
 import { meetCancelSpeakTool, meetSpeakTool } from "./tools/meet-speak-tool.js";
 
-function tryRegisterMeetTools(): void {
+registerExternalTools(() => {
   try {
     const config = getConfig();
     if (!isAssistantFeatureFlagEnabled(MEET_FLAG_KEY, config)) {
-      return;
+      return [];
     }
   } catch {
     // Config not yet loaded (e.g. during certain test setups) — treat as
     // flag off so tool definitions don't leak into test scopes that
     // haven't opted in.
-    return;
+    return [];
   }
 
-  registerExternalTools([
+  return [
     meetJoinTool,
     meetLeaveTool,
     meetSendChatTool,
@@ -58,7 +65,5 @@ function tryRegisterMeetTools(): void {
     meetCancelSpeakTool,
     meetEnableAvatarTool,
     meetDisableAvatarTool,
-  ]);
-}
-
-tryRegisterMeetTools();
+  ];
+});

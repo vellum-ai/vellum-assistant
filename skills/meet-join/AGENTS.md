@@ -11,6 +11,19 @@ The `assistant/` module must **never** import from `skills/meet-join/` via
 relative paths. The Docker build copies `assistant/` and `packages/` but not
 `skills/`, so any such import breaks at runtime.
 
+There is one narrow exception:
+`assistant/src/daemon/external-skills-bootstrap.ts` may do a single
+side-effect import of `skills/meet-join/register.js` so that
+`registerExternalTools()` fires before `initializeTools()`. The
+exception exists because `bun --compile` only bundles statically
+analyzed imports — a dynamic relative import would fail inside the
+compiled binary's `/$bunfs/` layer. It is limited to that one file,
+that one side-effect import, and requires the skill's source to be
+copied into the assistant image by `assistant/Dockerfile` (including
+`register.ts`). Named-export consumption from `skills/meet-join/` in
+`assistant/` code remains forbidden. See the root `AGENTS.md` "Skill
+Isolation" section for the full rule.
+
 Skills wire into the assistant through registries:
 
 - **Tools**: `registerExternalTools()` in `assistant/src/tools/registry.ts`
