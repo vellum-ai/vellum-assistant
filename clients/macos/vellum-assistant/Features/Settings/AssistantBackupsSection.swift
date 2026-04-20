@@ -543,7 +543,7 @@ struct AssistantBackupsSection: View {
         defer { isExporting = false }
 
         do {
-            let response = try await GatewayHTTPClient.post(path: "migrations/export", timeout: 300)
+            let response = try await GatewayHTTPClient.post(path: "migrations/export", timeout: 3600)
 
             guard response.isSuccess else {
                 errorMessage = "Export failed (HTTP \(response.statusCode))"

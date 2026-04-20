@@ -330,7 +330,7 @@ struct AssistantTransferSection: View {
     private func exportAssistantBundle() async throws -> Data {
         let response = try await GatewayHTTPClient.post(
             path: "migrations/export",
-            timeout: 300
+            timeout: 3600
         )
         guard response.isSuccess else {
             throw TransferError.exportFailed(statusCode: response.statusCode)
