@@ -139,6 +139,20 @@ For emails not caught by pattern queries, use LLM-based classification in Standa
 
 ---
 
+## Dry-Run Defaults
+
+When the user's inbox management trust stage is 0 (flag-only), or when a batch exceeds 1,000 operations at stage 1, default to `--dry-run` mode:
+
+1. Run the pipeline with `--dry-run` on all archive calls
+2. At the end, show a summary: counts by phase with example subjects
+3. Ask the user to confirm before committing: "This would archive X,XXX emails across Y passes. Commit?"
+4. If confirmed, commit via `bun run scripts/gmail-commit.ts commit --run-id "<run-id>"`
+5. If rejected, cancel via `bun run scripts/gmail-commit.ts cancel --run-id "<run-id>"`
+
+At stage 2 or for small batches at stage 1, archive directly (but still log for audit/reversal).
+
+---
+
 ## Error Recovery & Resume
 
 Archive operations are logged to an operation log for resumability. If a pass fails mid-run (rate limit, daily quota, OAuth expiry, crash):

@@ -33,7 +33,10 @@ All operations use CLI scripts that return JSON:
 | `gmail-scan.ts`    | `sender-digest`         | Scan inbox and group messages by sender for declutter workflows              |
 | `gmail-scan.ts`    | `outreach-scan`         | Identify cold outreach senders (no List-Unsubscribe header)                  |
 | `gmail-archive.ts` | `archive`               | Archive messages (single, batch message_ids, cache_key+sender-emails, query) |
+| `gmail-archive.ts` | `archive --dry-run`     | Preview what would be archived without executing (writes staged ops to log)  |
 | `gmail-archive.ts` | `archive --resume`      | Resume an interrupted archive run from its last checkpoint                    |
+| `gmail-commit.ts`  | `commit`                | Execute all staged ops from a dry-run                                        |
+| `gmail-commit.ts`  | `cancel`                | Delete a run log without executing anything                                  |
 | `gmail-runs.ts`    | `list`                  | List recent operation runs with status summaries                             |
 | `gmail-runs.ts`    | `inspect`               | Show detailed log entries for a specific run                                 |
 | `gmail-runs.ts`    | `prune`                 | Delete operation logs older than 30 days                                     |
@@ -135,6 +138,30 @@ bun run scripts/gmail-runs.ts inspect --run-id "run_20260420_a1b2c3d4"
 
 # Delete logs older than 30 days
 bun run scripts/gmail-runs.ts prune
+```
+
+#### Dry-Run Mode
+
+Dry-run mode runs the full pipeline (scanning, collecting message IDs) but skips all destructive API calls. Staged entries are written to the op log for review.
+
+```bash
+# Preview what would be archived
+bun run scripts/gmail-archive.ts archive --query "..." --dry-run
+
+# Review the staged operations
+bun run scripts/gmail-runs.ts inspect --run-id "<run-id>"
+
+# Commit the staged operations (executes the archive)
+bun run scripts/gmail-commit.ts commit --run-id "<run-id>"
+
+# Cancel (delete the log, nothing executed)
+bun run scripts/gmail-commit.ts cancel --run-id "<run-id>"
+```
+
+Label and filter operations also support `--dry-run`:
+```bash
+bun run scripts/gmail-manage.ts label --message-ids "..." --add-labels "..." --dry-run
+bun run scripts/gmail-manage.ts filters --action create --from "..." --remove-labels "INBOX" --dry-run
 ```
 
 Archive operations now return a `run_id` in their output. Use this to resume interrupted runs:
