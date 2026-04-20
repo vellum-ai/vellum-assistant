@@ -205,10 +205,13 @@ struct AssistantTransferSection: View {
                 throw TransferError.exportFailed(statusCode: 0)
             }
 
-            // Step 2 — Poll for completion (up to 5 minutes)
+            // Step 2 — Poll for completion (up to 60 minutes, to match large-bundle timeout budget)
             currentStep = "Waiting for export..."
             var downloadUrl: String?
-            for _ in 0..<100 {
+            let pollInterval: UInt64 = 3_000_000_000 // 3 seconds
+            let exportPollTimeout: TimeInterval = 3600 // 60 minutes
+            let exportPollStart = Date()
+            while Date().timeIntervalSince(exportPollStart) < exportPollTimeout {
                 try Task.checkCancellation()
                 let (statusResult, statusResponse): (ExportStatusResponse?, _) = try await GatewayHTTPClient.get(
                     path: "migrations/export/\(jobId)/status"
@@ -226,7 +229,7 @@ struct AssistantTransferSection: View {
                 } else if statusResult.status == "failed" {
                     throw TransferError.importFailed(message: statusResult.error ?? "Export job failed")
                 } else if statusResult.status == "pending" || statusResult.status == "processing" {
-                    try await Task.sleep(nanoseconds: 3_000_000_000)
+                    try await Task.sleep(nanoseconds: pollInterval)
                 } else {
                     throw TransferError.exportFailed(statusCode: 0)
                 }
