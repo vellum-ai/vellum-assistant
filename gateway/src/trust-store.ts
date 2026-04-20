@@ -535,7 +535,7 @@ export function acceptStarterBundle(): AcceptStarterBundleResult {
     } as TrustRule;
     // Only set scope on the pushed rule if the template has a defined scope.
     if (template.scope !== undefined) {
-      (newRule as Record<string, unknown>).scope = template.scope;
+      (newRule as unknown as Record<string, unknown>).scope = template.scope;
     }
     rules.push(newRule);
     added++;
