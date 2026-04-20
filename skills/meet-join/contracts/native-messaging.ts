@@ -42,10 +42,16 @@ export const ExtensionReadyMessageSchema = z.object({
 });
 export type ExtensionReadyMessage = z.infer<typeof ExtensionReadyMessageSchema>;
 
-/** Lifecycle state values reported by the extension to the bot. */
+/**
+ * Lifecycle state values reported by the extension to the bot. Mirrors
+ * {@link ./events.js}'s `LifecycleStateSchema` — keep these enums in sync so
+ * the extension-side and daemon-side lifecycle telemetry share a single
+ * vocabulary.
+ */
 export const ExtensionLifecycleStateSchema = z.enum([
   "joining",
   "joined",
+  "leaving",
   "left",
   "error",
 ]);
@@ -387,11 +393,16 @@ export const BotJoinCommandSchema = z.object({
 });
 export type BotJoinCommand = z.infer<typeof BotJoinCommandSchema>;
 
-/** Ask the extension to cleanly leave the current meeting. */
+/**
+ * Ask the extension to cleanly leave the current meeting. Mirrors the
+ * daemon-facing `LeaveCommandSchema` in {@link ./commands.js} — `reason` is
+ * optional there, so it is optional here too (a native-messaging bridge
+ * that forwards a reasonless leave must not be rejected).
+ */
 export const BotLeaveCommandSchema = z.object({
   type: z.literal("leave"),
-  /** Human-readable reason, surfaced in logs/telemetry. */
-  reason: z.string().min(1),
+  /** Optional human-readable reason, surfaced in logs/telemetry. */
+  reason: z.string().min(1).optional(),
 });
 export type BotLeaveCommand = z.infer<typeof BotLeaveCommandSchema>;
 
