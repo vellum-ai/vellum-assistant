@@ -1575,7 +1575,20 @@ class IOSConversationStore: ObservableObject {
             )
         }
         guard !updates.isEmpty else { return }
-        Task { await conversationListClient.reorderConversations(updates: updates) }
+        // Clear the pin-edit mask for these conversations once the POST
+        // completes. `mergeConversationMetadata` only clears the mask when
+        // server state exactly matches local state — which never holds if
+        // another device toggles the same pin between our POST and our next
+        // refetch, causing the mask to stick permanently and suppress all
+        // future server pin updates for that conversation.
+        let affectedIds = updates.map { $0.conversationId }
+        Task { [weak self] in
+            _ = await self?.conversationListClient.reorderConversations(updates: updates)
+            guard let self else { return }
+            for id in affectedIds {
+                self.locallyEditedPinConversationIds.remove(id)
+            }
+        }
     }
 
     // MARK: - Persistence
