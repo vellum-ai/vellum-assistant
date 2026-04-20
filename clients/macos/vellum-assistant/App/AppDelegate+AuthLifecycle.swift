@@ -18,17 +18,40 @@ extension AppDelegate {
             let hasKey = APIKeyManager.hasAnyKey()
             log.info("[authFlow] isAuthenticated=\(isAuthed) hasAnyKey=\(hasKey)")
             if isAuthed || hasKey {
-                // Verify there is at least one assistant from the current
-                // platform environment before entering the app. After a
-                // retire the lockfile may only contain cross-environment
-                // entries that cannot be connected to — in that case fall
-                // through to onboarding so the user can hatch a new one.
-                let hasConnectable = LockfileAssistant.loadAll().contains { $0.isCurrentEnvironment }
-                if hasConnectable {
-                    log.info("[authFlow] → proceedToApp()")
-                    proceedToApp()
+                // Delegate the post-auth decision to `ReturningUserRouter`
+                // so this entry point and `ReauthView` share one source of
+                // truth.
+                //
+                // The synchronous fast path is the only router call made
+                // here. When the lockfile has a current-environment entry
+                // it returns `.autoConnect` and the app proceeds without
+                // any network wait. When it returns `nil` the lockfile
+                // has zero current-env entries, which means
+                // `showAuthWindow` will land on `OnboardingFlowView`
+                // regardless of what the platform list says — awaiting
+                // `route()` here would only add up to 5s of platform-fetch
+                // latency without changing the resulting UI. Stale-
+                // lockfile detection (managed current-env entry present
+                // but platform returns 0) is handled downstream by
+                // `ReauthView`'s async router path, which runs after the
+                // auth window opens.
+                let router = ReturningUserRouter()
+                if let decision = router.decideFast() {
+                    log.info("[authFlow] router fast-path decision=\(String(describing: decision), privacy: .public)")
+                    switch decision {
+                    case .autoConnect:
+                        log.info("[authFlow] → proceedToApp()")
+                        proceedToApp()
+                    case .showHostingPicker:
+                        // Unreachable in PR 1: `decideFast` only returns
+                        // `.autoConnect` or `nil`. Handled explicitly so
+                        // the switch stays exhaustive as the router
+                        // evolves.
+                        log.info("[authFlow] Router fast-path returned showHostingPicker — presenting onboarding hosting picker")
+                        showAuthWindow(forceOnboarding: true)
+                    }
                 } else {
-                    log.info("[authFlow] Authenticated but no current-environment assistant — showing onboarding")
+                    log.info("[authFlow] Router fast-path returned nil (no current-env lockfile entry) — showing auth window")
                     showAuthWindow()
                 }
             } else {
@@ -54,14 +77,18 @@ extension AppDelegate {
         }
     }
 
-    func showAuthWindow(reusingWindow existingWindow: NSWindow? = nil) {
-        if let existing = authWindow {
+    func showAuthWindow(
+        reusingWindow existingWindow: NSWindow? = nil,
+        forceOnboarding: Bool = false
+    ) {
+        if let existing = authWindow, !forceOnboarding {
             existing.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        let hasManagedAssistants = LockfileAssistant.loadAll().contains { $0.isManaged && $0.isCurrentEnvironment }
+        let hasManagedAssistants = !forceOnboarding
+            && LockfileAssistant.loadAll().contains { $0.isManaged && $0.isCurrentEnvironment }
         let authView: AnyView
 
         if hasManagedAssistants {
@@ -70,6 +97,14 @@ extension AppDelegate {
                 authManager: authManager,
                 onComplete: { [weak self] in
                     self?.proceedToApp()
+                },
+                onNeedsHostingPicker: { [weak self] in
+                    // Router decided `.showHostingPicker` after re-auth
+                    // (platform has 0 assistants). Swap the reauth view
+                    // for the full onboarding so the user picks a hosting
+                    // option instead of silently hatching a managed
+                    // assistant.
+                    self?.showAuthWindow(forceOnboarding: true)
                 }
             ))
         } else {
@@ -93,8 +128,13 @@ extension AppDelegate {
 
         let hostingController = NSHostingController(rootView: authView)
 
+        // When forcing the onboarding picker after an active reauth, reuse
+        // the current `authWindow` so the view swap is in-place rather than
+        // closing and re-opening a window.
+        let windowToReuse = existingWindow ?? (forceOnboarding ? authWindow : nil)
+
         let window: NSWindow
-        if let existingWindow {
+        if let existingWindow = windowToReuse {
             window = existingWindow
             window.contentViewController = hostingController
             window.isMovableByWindowBackground = true

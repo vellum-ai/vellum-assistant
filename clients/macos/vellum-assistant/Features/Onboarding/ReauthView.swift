@@ -8,11 +8,21 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Reaut
 struct ReauthView: View {
     @Bindable var authManager: AuthManager
     var onComplete: () -> Void
+    /// Invoked when `ReturningUserRouter` decides `.showHostingPicker`
+    /// after re-auth (i.e. 0 assistants total). Lets the host swap this
+    /// view out for the onboarding hosting picker instead of
+    /// auto-hatching a managed assistant.
+    var onNeedsHostingPicker: (() -> Void)?
 
     @State private var showContent = false
     @State private var didComplete = false
     @State private var hasNonManagedAssistant = false
     @State private var isActivatingManagedAssistant = false
+    /// `true` while `routeAuthenticatedUser()` is awaiting
+    /// `ReturningUserRouter.route()`. Gates the view on a spinner
+    /// during the platform fetch so an already-authenticated user
+    /// can't tap "Log In" and kick off a redundant WorkOS session.
+    @State private var isRouting = false
 
     private static let appIcon: NSImage? = {
         guard let path = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png") else { return nil }
@@ -53,12 +63,12 @@ struct ReauthView: View {
                             .foregroundStyle(VColor.contentSecondary)
                     }
                     .frame(height: 36)
-                } else if authManager.isSubmitting || isActivatingManagedAssistant {
+                } else if authManager.isSubmitting || isActivatingManagedAssistant || isRouting {
                     HStack(spacing: VSpacing.sm) {
                         ProgressView()
                             .controlSize(.small)
                             .progressViewStyle(.circular)
-                        Text(isActivatingManagedAssistant ? "Loading your assistant..." : "Logging in...")
+                        Text(routingSpinnerLabel)
                             .font(VFont.titleSmall)
                             .foregroundStyle(VColor.contentSecondary)
                     }
@@ -117,13 +127,13 @@ struct ReauthView: View {
             // — callers (startAuthenticatedFlow, performLogout) have already
             // resolved the auth state before presenting this view.
             if authManager.isAuthenticated && !didComplete {
-                await completeManagedActivation()
+                await routeAuthenticatedUser()
             }
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
             if isAuthenticated && !didComplete {
                 Task {
-                    await completeManagedActivation()
+                    await routeAuthenticatedUser()
                 }
             }
         }
@@ -132,6 +142,13 @@ struct ReauthView: View {
     @MainActor
     private var primaryActionTitle: String {
         shouldShowActivationRetry ? "Try Again" : "Log In"
+    }
+
+    private var routingSpinnerLabel: String {
+        if isActivatingManagedAssistant || isRouting {
+            return "Loading your assistant..."
+        }
+        return "Logging in..."
     }
 
     private var shouldShowActivationRetry: Bool {
@@ -151,7 +168,50 @@ struct ReauthView: View {
     private func handleLoginTap() async {
         await authManager.startWorkOSLogin()
         if authManager.isAuthenticated {
+            await routeAuthenticatedUser()
+        }
+    }
+
+    /// Route a freshly-authenticated user through `ReturningUserRouter` so
+    /// this view and `AppDelegate+AuthLifecycle` share one post-auth
+    /// decision path.
+    ///
+    /// - `.autoConnect`: reuse the existing managed assistant via
+    ///   `completeManagedActivation()`.
+    /// - `.showHostingPicker`: hand off to the onboarding hosting picker
+    ///   via `onNeedsHostingPicker`. When no callback is wired, fall back
+    ///   to `completeManagedActivation()` so the reauth flow still
+    ///   terminates (its underlying `ensureManagedAssistant()` call
+    ///   will hatch a managed assistant as a last resort).
+    ///
+    /// Always takes the async router path (no fast-path). `ReauthView` is
+    /// only presented when the lockfile already contains a managed
+    /// current-environment entry, so `decideFast()` would always return
+    /// `.autoConnect` and the platform-count check that detects a stale
+    /// lockfile (platform has 0 assistants → hosting picker) would never
+    /// run. Consulting the platform here is the whole point of routing
+    /// through `ReturningUserRouter` on re-auth.
+    @MainActor
+    private func routeAuthenticatedUser() async {
+        guard !didComplete, !isRouting else { return }
+        isRouting = true
+        defer { isRouting = false }
+        let router = ReturningUserRouter()
+        let decision = await router.route()
+        log.info("ReauthView router decision=\(String(describing: decision), privacy: .public)")
+        guard !didComplete else { return }
+        switch decision {
+        case .autoConnect:
             await completeManagedActivation()
+        case .showHostingPicker:
+            if let onNeedsHostingPicker {
+                log.info("ReauthView router decided showHostingPicker — deferring to hosting picker")
+                didComplete = true
+                onNeedsHostingPicker()
+            } else {
+                log.info("ReauthView router decided showHostingPicker — no hosting-picker callback wired, falling back to managed activation")
+                await completeManagedActivation()
+            }
         }
     }
 

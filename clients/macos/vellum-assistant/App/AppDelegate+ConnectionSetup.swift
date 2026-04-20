@@ -22,6 +22,12 @@ extension AppDelegate {
     /// Rejects managed assistants from a different platform environment (e.g.
     /// dev-platform assistants in a production build) and falls back to the
     /// first valid current-environment assistant.
+    ///
+    /// ATL-173 PR 1: this helper runs *after* `ReturningUserRouter` has already
+    /// decided `.autoConnect`. It resolves *which* assistant to connect to —
+    /// it no longer decides whether to connect at all. PR 2 will replace the
+    /// "latest entry" fallback with a picker for multi-assistant users, at
+    /// which point this function becomes the single-assistant branch only.
     @discardableResult
     func loadAssistantFromLockfile() -> LockfileAssistant? {
         // Migration: fall back to UserDefaults for users upgrading from
