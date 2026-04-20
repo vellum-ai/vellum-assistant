@@ -149,6 +149,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOriginInterface: () => null,
   getConversationType: () => "standard",
   getConversationSource: () => null,
+  findAnalysisConversationFor: () => null,
   getConversationMemoryScopeId: () => "default",
   getConversationHostAccess: () => false,
   getConversationGroupId: () => null,
