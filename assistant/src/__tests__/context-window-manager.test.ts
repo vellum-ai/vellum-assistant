@@ -835,6 +835,83 @@ describe("ContextWindowManager", () => {
     );
   });
 
+  test("force=true compacts below minFloor when a kept turn exceeds target", async () => {
+    // A giant paste in the last user turn means minFloor=1 alone exceeds target.
+    // Under force, pickKeepBoundary should walk keepTurns below minFloor (down to
+    // 0) so the huge block falls into the compacted region and gets summarized
+    // instead of being kept at full size.
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- compressed large paste" }],
+      model: "mock-model",
+      usage: { inputTokens: 120, outputTokens: 20 },
+      stopReason: "end_turn",
+    }));
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({ maxInputTokens: 600, targetBudgetRatio: 0.2 }),
+    });
+    const hugePaste = "p".repeat(4000); // ~1000 tokens, well above targetInputTokens
+    const history: Message[] = [
+      message("user", "u1 small"),
+      message("assistant", "a1 small"),
+      message("user", `u2 ${hugePaste}`),
+    ];
+
+    const result = await manager.maybeCompact(history, undefined, {
+      force: true,
+    });
+
+    expect(result.compacted).toBe(true);
+    // With force=true the kept region is empty; all turns including the oversized
+    // paste were summarized, so the compacted result is just the summary.
+    expect(result.messages).toHaveLength(1);
+    expect(result.compactedMessages).toBe(history.length);
+    expect(getSummaryFromContextMessage(result.messages[0])).toContain(
+      "compressed large paste",
+    );
+    expect(result.estimatedInputTokens).toBeLessThan(
+      result.previousEstimatedInputTokens,
+    );
+  });
+
+  test("force=false honors minFloor even when the kept turn exceeds target", async () => {
+    // Same oversized paste, but without force the algorithm must preserve the
+    // minFloor=1 recent turn (auto mid-loop compaction needs the in-flight turn
+    // intact). Anything compactable before the floor still gets summarized.
+    const provider = createProvider(() => ({
+      content: [{ type: "text", text: "## Goals\n- summary" }],
+      model: "mock-model",
+      usage: { inputTokens: 60, outputTokens: 10 },
+      stopReason: "end_turn",
+    }));
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({ maxInputTokens: 600, targetBudgetRatio: 0.2 }),
+    });
+    const hugePaste = "p".repeat(4000);
+    const history: Message[] = [
+      message("user", "u1 small"),
+      message("assistant", "a1 small"),
+      message("user", "u2 small"),
+      message("assistant", "a2 small"),
+      message("user", `u3 ${hugePaste}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+
+    expect(result.compacted).toBe(true);
+    // The oversized last user turn is retained verbatim; the kept array starts
+    // with the summary followed by the messages from that turn onward.
+    const lastUser = result.messages
+      .filter((m) => m.role === "user")
+      .map((m) => (m.content[0].type === "text" ? m.content[0].text : ""))
+      .find((t) => t.startsWith("u3 "));
+    expect(lastUser).toBeDefined();
+    expect(lastUser!.length).toBeGreaterThan(hugePaste.length);
+  });
+
   test("shouldCompact returns needed=false with estimatedTokens when below threshold", () => {
     const provider = createProvider(() => {
       throw new Error("should not be called");

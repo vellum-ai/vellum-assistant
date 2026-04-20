@@ -283,6 +283,7 @@ export class ContextWindowManager {
       minKeepRecentUserTurns: options?.minKeepRecentUserTurns,
       targetInputTokensOverride: options?.targetInputTokensOverride,
       conversationOriginChannel: options?.conversationOriginChannel,
+      force: options?.force,
     });
     if (keepPlan.keepFromIndex <= summaryOffset) {
       // All turns fit after truncation projection, but the real in-memory
@@ -560,6 +561,7 @@ export class ContextWindowManager {
       minKeepRecentUserTurns?: number;
       targetInputTokensOverride?: number;
       conversationOriginChannel?: string;
+      force?: boolean;
     },
   ): { keepFromIndex: number; keepTurns: number } {
     // Slack-originated conversations rely on multi-turn thread context
@@ -613,6 +615,32 @@ export class ContextWindowManager {
       }
     } else {
       lo = hi;
+    }
+
+    // Under forced compaction with only the implicit default floor in play,
+    // that floor stops being an absolute override when the kept region still
+    // exceeds the target. Walk keepTurns below the floor — down to 0 if
+    // needed — so /compact can always drive the conversation toward target,
+    // even when the floor turn itself is oversized (e.g. a huge paste in the
+    // last user message). Exceptions that still treat the floor as hard:
+    //   - Explicit `minKeepRecentUserTurns` (the caller opted in to that
+    //     floor; emergency recovery already passes 0 when it wants to go all
+    //     the way down).
+    //   - Slack origin (the bumped 8-turn floor protects thread reply chains
+    //     and quoted-message context that the next reply may directly cite).
+    // Automatic mid-loop compaction (force !== true) always honors the floor
+    // so the in-flight agent turn isn't summarized away.
+    const floorIsImplicitDefault =
+      opts?.minKeepRecentUserTurns === undefined &&
+      opts?.conversationOriginChannel !== "slack";
+    if (
+      opts?.force &&
+      floorIsImplicitDefault &&
+      projectedTokensForKeep(lo) > targetTokens
+    ) {
+      while (lo > 0 && projectedTokensForKeep(lo) > targetTokens) {
+        lo--;
+      }
     }
 
     const keepTurns = lo;
