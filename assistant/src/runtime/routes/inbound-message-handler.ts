@@ -562,8 +562,8 @@ export async function handleChannelInbound(
   //   1. Guardian approval-by-reaction. A `reaction:` (added) event from
   //      the guardian on an active approval prompt is consumed by
   //      `handleApprovalInterception` to apply the decision. In that case
-  //      we do NOT persist the reaction as a transcript line — pre-upgrade
-  //      semantics carried no transcript trace for resolved reactions.
+  //      we do NOT persist the reaction as a transcript line — resolved
+  //      guardian approval reactions have no transcript representation.
   //   2. All other reactions (non-guardian, no pending approval, stale,
   //      and any `reaction_removed:` event regardless of actor) fall
   //      through to `persistSlackReactionAsMessage` so the chronological
