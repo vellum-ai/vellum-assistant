@@ -311,6 +311,13 @@ export class ConversationGraphMemory {
      * embed was computed.
      */
     userQueryVector?: number[];
+    /**
+     * Sparse (TF-IDF) vector of the user's latest message. Paired with
+     * `userQueryVector` by PKB hint search to run a hybrid dense+sparse
+     * query. `undefined` on the per-turn path and when no user query was
+     * available (empty message or embedding skipped).
+     */
+    userQuerySparseVector?: QdrantSparseVector;
   }> {
     this.tracker.advanceTurn();
 
@@ -396,6 +403,7 @@ export class ConversationGraphMemory {
         queryVector: result.queryVector,
         sparseVector: result.sparseVector,
         userQueryVector: result.userQueryVector,
+        userQuerySparseVector: result.userQuerySparseVector,
       };
     }
 
@@ -418,6 +426,7 @@ export class ConversationGraphMemory {
         queryVector: result.queryVector,
         sparseVector: result.sparseVector,
         userQueryVector: result.userQueryVector,
+        userQuerySparseVector: result.userQuerySparseVector,
       };
     }
 
@@ -453,6 +462,7 @@ export class ConversationGraphMemory {
       queryVector: result.queryVector,
       sparseVector: result.sparseVector,
       userQueryVector: result.userQueryVector,
+      userQuerySparseVector: result.userQuerySparseVector,
     };
   }
 
@@ -635,9 +645,7 @@ export function stripExistingMemoryInjections(messages: Message[]): Message[] {
  * memory block through transcript replacements (e.g. Slack chronological
  * rendering) that otherwise discard the prepended content.
  */
-export function extractMemoryPrefixBlocks(
-  messages: Message[],
-): ContentBlock[] {
+export function extractMemoryPrefixBlocks(messages: Message[]): ContentBlock[] {
   if (messages.length === 0) return [];
   const last = messages[messages.length - 1];
   if (!last || last.role !== "user") return [];

@@ -15,7 +15,10 @@ import {
 import type { ContentBlock, ImageContent } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { embedWithRetry } from "../embed.js";
-import { selectedBackendSupportsMultimodal } from "../embedding-backend.js";
+import {
+  generateSparseEmbedding,
+  selectedBackendSupportsMultimodal,
+} from "../embedding-backend.js";
 import type { QdrantSparseVector } from "../qdrant-client.js";
 import { searchGraphNodes } from "./graph-search.js";
 import type { InContextTracker } from "./injection.js";
@@ -396,6 +399,16 @@ export interface ContextLoadResult {
    * or the dedicated embed call was skipped/failed.
    */
   userQueryVector?: number[];
+  /**
+   * Sparse (TF-IDF) vector of `opts.userQuery`. Surfaced so PKB hint search
+   * can pair it with `userQueryVector` to run a hybrid dense+sparse query —
+   * RRF fusion captures lexical matches (exact filenames, proper nouns,
+   * uncommon tokens) that pure dense embeddings wash out. Computed locally
+   * (no embedding-service call), so it's cheap to produce whenever the user
+   * query is non-empty. `undefined` on the same conditions as
+   * `userQueryVector`.
+   */
+  userQuerySparseVector?: QdrantSparseVector;
 }
 
 /**
@@ -448,6 +461,7 @@ export async function loadContextMemory(
   //     especially in workloads with short summaries and a substantive
   //     user question.
   let userQueryVector: number[] | null = null;
+  let userQuerySparseVector: QdrantSparseVector | undefined = undefined;
   const userQueryCandidateIds = new Map<string, number>(); // nodeId → score
   const trimmedUserQuery = opts.userQuery?.trim() ?? "";
   const shouldEmbedUserQuery = trimmedUserQuery.length > 0;
@@ -463,6 +477,14 @@ export async function loadContextMemory(
       }
     } catch (err) {
       log.warn({ err }, "Failed to embed userQuery for context load");
+    }
+    // Sparse embedding is a local TF-IDF computation — no network call, so
+    // compute it independently of the dense embed. Even if the dense call
+    // failed, a sparse vector is still useful for downstream consumers that
+    // can operate on it alone.
+    const sparse = generateSparseEmbedding(trimmedUserQuery);
+    if (sparse.indices.length > 0) {
+      userQuerySparseVector = sparse;
     }
   }
 
@@ -815,6 +837,7 @@ export async function loadContextMemory(
     queryVector: queryVector ?? undefined,
     sparseVector,
     userQueryVector: userQueryVector ?? undefined,
+    userQuerySparseVector,
   };
 }
 
@@ -899,6 +922,24 @@ export async function retrieveForTurn(
     .filter((m) => m.length > 0)
     .join("\n\n");
 
+  // Sparse (TF-IDF) vector of the user's last message only. Surfaced so PKB
+  // hint search can pair it with the per-turn dense vector, pulling in
+  // lexical matches (exact filenames, proper nouns, uncommon tokens) that
+  // pure dense embeddings wash out. Computed locally with no network call.
+  // The dense `queryVector` for per-turn is the combined assistant+user
+  // embedding (it drives graph search), so this pairing is slightly
+  // asymmetric — the sparse signal is user-only while the dense is mixed.
+  // That's acceptable for PKB's purpose: lexical matches are overwhelmingly
+  // driven by the user's own wording.
+  const trimmedUserLast = opts.userLastMessage.trim();
+  let perTurnSparseVector: QdrantSparseVector | undefined = undefined;
+  if (trimmedUserLast.length > 0) {
+    const sparse = generateSparseEmbedding(trimmedUserLast);
+    if (sparse.indices.length > 0) {
+      perTurnSparseVector = sparse;
+    }
+  }
+
   // Image-to-image search: embed incoming user images as queries
   // Runs before the text-empty early return so image-only turns are handled
   const imageBlocks = (opts.userLastMessageBlocks ?? []).filter(
@@ -962,7 +1003,7 @@ export async function retrieveForTurn(
         queryContext: queryText || null,
       },
       queryVector: undefined,
-      sparseVector: undefined,
+      sparseVector: perTurnSparseVector,
     };
   }
 
@@ -1036,7 +1077,7 @@ export async function retrieveForTurn(
             queryContext: queryText || null,
           },
           queryVector: undefined,
-          sparseVector: undefined,
+          sparseVector: perTurnSparseVector,
         };
       }
     }
@@ -1090,7 +1131,7 @@ export async function retrieveForTurn(
         queryContext: queryText || null,
       },
       queryVector: queryEmbeddings[0],
-      sparseVector: undefined,
+      sparseVector: perTurnSparseVector,
     };
   }
 
@@ -1274,6 +1315,6 @@ export async function retrieveForTurn(
       topCandidates,
     },
     queryVector: queryEmbeddings[0],
-    sparseVector: undefined,
+    sparseVector: perTurnSparseVector,
   };
 }
