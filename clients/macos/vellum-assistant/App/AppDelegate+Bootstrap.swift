@@ -256,7 +256,11 @@ extension AppDelegate {
             GuardianTokenFileReader.deleteTokenFile(assistantId: assistantId)
         }
         if resetBootstrapLock {
-            let ok = await GuardianClient().resetBootstrapLock()
+            let secret = GuardianTokenFileReader.loadResetBootstrapSecret()
+            if secret == nil {
+                log.warning("Reset-bootstrap secret missing on disk — gateway will reject the request (expected outside bare-metal hatch)")
+            }
+            let ok = await GuardianClient().resetBootstrapLock(secret: secret)
             if !ok {
                 log.warning("Bootstrap-lock reset failed — proceeding with bootstrap anyway")
             }

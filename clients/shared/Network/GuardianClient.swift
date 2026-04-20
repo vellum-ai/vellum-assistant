@@ -75,14 +75,28 @@ public struct GuardianClient: GuardianClientProtocol {
     /// Calls `POST /v1/guardian/reset-bootstrap` on the loopback gateway to clear
     /// the bare-metal `guardian-init.lock`, allowing a subsequent `/v1/guardian/init`
     /// to succeed. Used as a recovery primitive when the client has lost its actor
-    /// token after an initial bootstrap. The gateway enforces loopback-origin and
-    /// bare-metal-mode preconditions; Docker and managed deployments return 403.
+    /// token after an initial bootstrap. The gateway enforces loopback-origin,
+    /// bare-metal-mode, and a timing-safe comparison of the caller-supplied
+    /// `X-Reset-Bootstrap-Secret` header against the on-disk proof written by
+    /// the CLI during hatch. Docker and managed deployments return 403.
     ///
+    /// - Parameter secret: The filesystem-secret proof read from
+    ///   `VellumPaths.current.resetBootstrapAuthFile`. When `nil` the header is
+    ///   omitted and the gateway rejects the request with 403 — callers are
+    ///   expected to load the secret via
+    ///   `GuardianTokenFileReader.loadResetBootstrapSecret()` before invoking.
     /// - Returns: `true` on success (200), `false` on any failure.
-    public func resetBootstrapLock() async -> Bool {
+    public func resetBootstrapLock(secret: String?) async -> Bool {
+        var extraHeaders: [String: String] = [:]
+        if let secret, !secret.isEmpty {
+            extraHeaders["x-reset-bootstrap-secret"] = secret
+        }
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "guardian/reset-bootstrap", json: [:], timeout: 10
+                path: "guardian/reset-bootstrap",
+                json: [:],
+                extraHeaders: extraHeaders.isEmpty ? nil : extraHeaders,
+                timeout: 10
             )
             guard response.isSuccess else {
                 log.error("resetBootstrapLock failed (HTTP \(response.statusCode))")

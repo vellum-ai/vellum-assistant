@@ -205,6 +205,27 @@ public enum GuardianTokenFileReader {
         }
     }
 
+    /// Reads the filesystem-secret proof persisted by the CLI during
+    /// bare-metal hatch. The contents must be sent in the
+    /// `X-Reset-Bootstrap-Secret` header when calling
+    /// `POST /v1/guardian/reset-bootstrap`; the gateway performs a
+    /// timing-safe comparison against the same on-disk value.
+    ///
+    /// - Returns: The trimmed secret string, or `nil` if the file is
+    ///   missing or empty. A missing file is expected outside bare-metal
+    ///   mode (Docker/managed deployments never provision the file and
+    ///   reject the endpoint at the topology check).
+    public static func loadResetBootstrapSecret() -> String? {
+        let url = VellumPaths.current.resetBootstrapAuthFile
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        guard let data = FileManager.default.contents(atPath: url.path),
+              let raw = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     // MARK: - Path Resolution
 
     /// Resolves `$XDG_CONFIG_HOME/vellum{-env}/assistants/<id>/guardian-token.json`,

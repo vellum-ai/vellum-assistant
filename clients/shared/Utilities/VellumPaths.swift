@@ -87,6 +87,21 @@ public struct VellumPaths {
         return configDir.appendingPathComponent("credentials")
     }
 
+    /// Proof-of-local-user secret persisted by the CLI during bare-metal
+    /// hatch. Callers present the contents in the `X-Reset-Bootstrap-Secret`
+    /// header when invoking `POST /v1/guardian/reset-bootstrap`. The file is
+    /// written with 0600 perms in the gateway security dir so that only
+    /// processes running as the same Unix user can read it, closing the
+    /// shared-host attack surface where loopback alone is insufficient.
+    public var resetBootstrapAuthFile: URL {
+        if environment == .production {
+            return homeDirectory.appendingPathComponent(
+                ".vellum/protected/reset-bootstrap-secret"
+            )
+        }
+        return configDir.appendingPathComponent("reset-bootstrap-secret")
+    }
+
     /// Shared with the daemon. Always XDG-rooted (no legacy branch).
     public var platformTokenFile: URL {
         configDir.appendingPathComponent("platform-token")
