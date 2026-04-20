@@ -120,7 +120,7 @@ struct HomeDetailPanel<Content: View>: View {
                 if let onDismiss {
                     VButton(
                         label: "Dismiss",
-                        iconOnly: "lucide-x",
+                        iconOnly: VIcon.x.rawValue,
                         style: .outlined,
                         size: .regular,
                         iconColor: VColor.primaryBase,
