@@ -39,7 +39,8 @@ export function isShallowProfile(): boolean {
   try {
     const identityPath = getWorkspacePromptPath("IDENTITY.md");
     const rawIdentity = readTextFileSync(identityPath);
-    const identity = rawIdentity != null ? stripCommentLines(rawIdentity) : null;
+    const identity =
+      rawIdentity != null ? stripCommentLines(rawIdentity) : null;
     // `resolveGuardianPersona` returns already-stripped, trimmed content
     // (or null for missing/empty files).
     const user = resolveGuardianPersona();
@@ -222,11 +223,13 @@ export class HeartbeatService {
     // permanently blocked. The .finally() handler still serves as the
     // normal-completion cleanup path and uses an identity guard to avoid
     // clearing a different run's activeRun.
-    run.finally(() => {
-      if (this.activeRun === run) {
-        this.activeRun = null;
-      }
-    }).catch(() => {}); // Suppress unhandled rejection if executeRun rejects
+    run
+      .finally(() => {
+        if (this.activeRun === run) {
+          this.activeRun = null;
+        }
+      })
+      .catch(() => {}); // Suppress unhandled rejection if executeRun rejects
 
     let timerId: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -257,15 +260,25 @@ export class HeartbeatService {
 
   private async runCredentialHealthCheck(): Promise<void> {
     try {
-      const { checkAllCredentials } = await import(
-        "../credential-health/credential-health-service.js"
-      );
+      const { checkAllCredentials } =
+        await import("../credential-health/credential-health-service.js");
       const report = await checkAllCredentials();
       if (report.unhealthy.length > 0) {
         await this.notifyUnhealthyCredentials(report.unhealthy);
       }
     } catch (err) {
-      log.warn({ err }, "Credential health check failed (non-fatal)");
+      log.error({ err }, "Credential health check failed");
+      try {
+        this.deps.alerter({
+          type: "heartbeat_alert",
+          title: "Credential Health Check Failed",
+          body:
+            "Could not verify OAuth credential health. " +
+            (err instanceof Error ? err.message : String(err)),
+        });
+      } catch {
+        // Last resort — alerter itself failed. Already logged above.
+      }
     }
   }
 
@@ -281,11 +294,13 @@ export class HeartbeatService {
   ): Promise<void> {
     let emitNotificationSignal: typeof import("../notifications/emit-signal.js").emitNotificationSignal;
     try {
-      ({ emitNotificationSignal } = await import(
-        "../notifications/emit-signal.js"
-      ));
-    } catch {
-      log.warn("Failed to import notification signal emitter");
+      ({ emitNotificationSignal } =
+        await import("../notifications/emit-signal.js"));
+    } catch (importErr) {
+      log.error(
+        { err: importErr },
+        "Failed to import notification signal emitter",
+      );
       return;
     }
 
@@ -317,7 +332,7 @@ export class HeartbeatService {
           routingIntent: "single_channel",
         });
       } catch (err) {
-        log.warn(
+        log.error(
           { err, provider: result.provider, connectionId: result.connectionId },
           "Failed to emit credential health notification",
         );
@@ -367,7 +382,7 @@ export class HeartbeatService {
           body: err instanceof Error ? err.message : String(err),
         });
       } catch (alertErr) {
-        log.warn({ alertErr }, "Failed to broadcast heartbeat alert");
+        log.error({ alertErr }, "Failed to broadcast heartbeat alert");
       }
     }
   }
@@ -380,7 +395,10 @@ export class HeartbeatService {
   }
 
   /** @internal Exposed for testing. */
-  buildPrompt(checklist: string): { prompt: string; includedReengagement: boolean } {
+  buildPrompt(checklist: string): {
+    prompt: string;
+    includedReengagement: boolean;
+  } {
     let prompt = `You are running a periodic heartbeat check. Review the following checklist and take any necessary actions.
 
 <heartbeat-checklist>
