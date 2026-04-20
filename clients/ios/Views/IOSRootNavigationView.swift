@@ -326,6 +326,15 @@ struct IOSRootNavigationView: View {
 
     private func applyPendingSelectionRequestIfNeeded() {
         guard let request = store.selectionRequest else { return }
+        // A selection request is always a jump-to-chat intent (push
+        // notification tap, fork navigation, etc.). Dismiss the Settings sheet
+        // if it's up so the user actually sees the target conversation
+        // instead of remaining behind the modal. This applies to both size
+        // classes — the sheet is owned by this view and covers the sidebar on
+        // iPad just as it covers the chat on iPhone.
+        if isSettingsPresented {
+            isSettingsPresented = false
+        }
         if horizontalSizeClass == .compact {
             activeConversationId = request.conversationLocalId
             closeDrawer()
