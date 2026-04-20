@@ -37,10 +37,14 @@ export interface RenderableSlackMessage {
   /**
    * Full structured content blocks parsed from the persisted row, when
    * available. Optional so existing fixtures and callers that only need the
-   * flattened `content` string continue to compile. The current
-   * `renderSlackTranscript` implementation ignores this field — it exists so
-   * downstream consumers (tool-block preservation) can access the original
-   * `tool_use` / `tool_result` blocks without re-parsing the row.
+   * flattened `content` string continue to compile. `renderSlackTranscript`
+   * consumes this field to preserve replayable Anthropic blocks
+   * (`tool_use`, `tool_result`, `thinking`, `redacted_thinking`, `image`,
+   * `file`) in their original order, emitting the tag line inline at the
+   * position of the first `text` block. Non-replayable blocks
+   * (`ui_surface`, `server_tool_use`, `web_search_tool_result`, unknown
+   * types) are stripped; when stripping empties the row entirely, a
+   * fallback tag-line text block is emitted so chronology is preserved.
    */
   readonly contentBlocks?: readonly ContentBlock[];
 }
@@ -200,6 +204,12 @@ function renderReaction(msg: RenderableSlackMessage): string | null {
  * - **Pure tool-only rows** (`contentBlocks` present but no `text` block):
  *   emit only the replayable blocks — no tag line. Anthropic accepts role-
  *   correct messages with only tool blocks.
+ * - **All-non-replayable rows** (`contentBlocks` present but every block is
+ *   filtered out — e.g. a row whose only blocks are `server_tool_use` or
+ *   `ui_surface`): emit a single fallback tag-line text block annotated
+ *   with the stripped block types/names. Dropping the row entirely would
+ *   silently alter chronology and can orphan adjacent tool_result context
+ *   in later repair/conversion steps.
  */
 function buildMessageContentBlocks(
   msg: RenderableSlackMessage,
@@ -220,6 +230,7 @@ function buildMessageContentBlocks(
 
   const out: ContentBlock[] = [];
   let tagEmitted = false;
+  const strippedLabels: string[] = [];
   for (const block of blocks) {
     if (block.type === "text") {
       if (!tagEmitted) {
@@ -234,7 +245,23 @@ function buildMessageContentBlocks(
       continue;
     }
     // Non-replayable (ui_surface, server_tool_use, web_search_tool_result,
-    // unknown) — drop silently.
+    // unknown) — drop, but remember what we saw in case we need a fallback.
+    if (block.type === "server_tool_use") {
+      strippedLabels.push(`server_tool_use(${block.name})`);
+    } else {
+      strippedLabels.push(block.type);
+    }
+  }
+
+  // Non-empty source fully filtered to nothing: emit a fallback tag line so
+  // the turn still appears in chronology. Annotate with the stripped block
+  // types/names so the model has a hint about what was there.
+  if (out.length === 0) {
+    const suffix =
+      strippedLabels.length > 0
+        ? ` [stripped non-replayable: ${strippedLabels.join(", ")}]`
+        : "";
+    return [{ type: "text", text: `${tagLine}${suffix}` }];
   }
   return out;
 }
