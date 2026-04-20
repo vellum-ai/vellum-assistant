@@ -73,12 +73,19 @@ public struct VInputChromeModifier: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: cornerRadius)
 
         content
-            .background(shape.fill(VColor.surfaceLift))
+            .background(shape.fill(backgroundFill))
             .overlay(
                 shape.strokeBorder(borderColor, lineWidth: 1)
             )
             .clipShape(shape)
             .opacity(isDisabled ? 0.6 : 1.0)
+    }
+
+    // Inputs use `surfaceLift` in light mode (cleaner white field on the warm
+    // page surface) but `contentBackground` in dark mode (the Figma spec color
+    // for dark inputs — `surfaceLift` dark is too close to the page bg).
+    private var backgroundFill: Color {
+        colorScheme == .dark ? VColor.contentBackground : VColor.surfaceLift
     }
 
     private var borderColor: Color {
@@ -88,7 +95,7 @@ public struct VInputChromeModifier: ViewModifier {
         if isFocused {
             return VColor.borderActive
         }
-        return colorScheme == .dark ? Color.clear : VColor.borderElement
+        return VColor.borderBase
     }
 }
 
