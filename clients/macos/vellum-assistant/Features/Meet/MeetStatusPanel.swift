@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Observation
 import SwiftUI
@@ -101,13 +102,40 @@ public final class MeetStatusViewModel {
             )
 
         case .meetError(let m):
+            // Guard against stale events: with multiple simultaneous meetings
+            // the daemon can publish a meet.error for meeting A while the
+            // panel is already rendering meeting B. Only transition when the
+            // event's meetingId matches the in-flight meeting — otherwise a
+            // stale error silently overwrites the live banner.
+            if let currentId = currentInFlightMeetingId(), currentId != m.meetingId {
+                log.debug("Ignoring meet.error for non-current meeting: event=\(m.meetingId, privacy: .public) current=\(currentId, privacy: .public)")
+                return
+            }
             state = .error(reason: m.detail)
 
-        case .meetLeft:
+        case .meetLeft(let m):
+            // Same guard as meet.error — a stale meet.left for meeting A must
+            // not collapse meeting B's live banner to idle.
+            if let currentId = currentInFlightMeetingId(), currentId != m.meetingId {
+                log.debug("Ignoring meet.left for non-current meeting: event=\(m.meetingId, privacy: .public) current=\(currentId, privacy: .public)")
+                return
+            }
             state = .idle
 
         default:
             break
+        }
+    }
+
+    /// Returns the meetingId of the currently displayed live meeting, if any.
+    /// Used by the meet.left/meet.error handlers to ignore events for stale
+    /// meetings that would otherwise wipe the live banner.
+    private func currentInFlightMeetingId() -> String? {
+        switch state {
+        case .joining(let id, _), .joined(let id, _, _):
+            return id
+        case .idle, .error:
+            return nil
         }
     }
 
@@ -131,10 +159,10 @@ public final class MeetStatusViewModel {
 ///
 /// - When the bot is idle, returns `EmptyView` so the panel is invisible.
 /// - When joining, shows "Joining meeting…" with the URL.
-/// - When joined, shows "In meeting" plus a live, `TimelineView`-driven
-///   elapsed clock. The clock is driven by `.periodic(from:by:)` rather than
-///   an explicit `Timer` so SwiftUI can throttle redraws and we don't hold a
-///   manual timer on the view model.
+/// - When joined, shows "In meeting" plus a live, `Timer.publish`-driven
+///   elapsed clock. `TimelineView(.periodic)` can silently stop firing on
+///   macOS during idle or heavy layout passes, freezing the counter; see
+///   `clients/AGENTS.md` for the full guidance.
 /// - When errored, shows the error detail in the negative accent color.
 public struct MeetStatusPanel: View {
     @Bindable public var viewModel: MeetStatusViewModel
@@ -150,7 +178,7 @@ public struct MeetStatusPanel: View {
                 EmptyView()
 
             case .joining(_, let url):
-                row(
+                MeetStatusRow(
                     title: "Joining meeting…",
                     subtitle: url,
                     trailing: nil,
@@ -158,17 +186,10 @@ public struct MeetStatusPanel: View {
                 )
 
             case .joined(_, let title, let joinedAt):
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    row(
-                        title: "In meeting",
-                        subtitle: title,
-                        trailing: Self.formatElapsed(from: joinedAt, now: context.date),
-                        tint: VColor.systemPositiveStrong
-                    )
-                }
+                JoinedRow(title: title, joinedAt: joinedAt)
 
             case .error(let reason):
-                row(
+                MeetStatusRow(
                     title: "Meeting error",
                     subtitle: reason,
                     trailing: nil,
@@ -181,8 +202,8 @@ public struct MeetStatusPanel: View {
     }
 
     // Stable, hashable discriminator of the panel's presentation so the
-    // animation only fires on logical transitions — not on every TimelineView
-    // tick within the `.joined` state.
+    // animation only fires on logical transitions — not on every timer tick
+    // within the `.joined` state.
     private var stateKey: String {
         switch viewModel.state {
         case .idle: return "idle"
@@ -192,13 +213,33 @@ public struct MeetStatusPanel: View {
         }
     }
 
-    @ViewBuilder
-    private func row(
-        title: String,
-        subtitle: String,
-        trailing: String?,
-        tint: Color
-    ) -> some View {
+    // MARK: - Helpers
+
+    /// Formats the elapsed interval between `start` and `now` as mm:ss, or
+    /// h:mm:ss once the meeting crosses the one-hour mark. Negative deltas
+    /// clamp to `0:00` so a clock-skewed `joinedAt` never produces garbage.
+    static func formatElapsed(from start: Date, now: Date) -> String {
+        let seconds = max(0, Int(now.timeIntervalSince(start)))
+        let h = seconds / 3600
+        let m = (seconds % 3600) / 60
+        let s = seconds % 60
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
+        }
+        return String(format: "%d:%02d", m, s)
+    }
+}
+
+// MARK: - Row
+
+/// Shared row layout used by every non-idle panel state.
+private struct MeetStatusRow: View {
+    let title: String
+    let subtitle: String
+    let trailing: String?
+    let tint: Color
+
+    var body: some View {
         HStack(spacing: VSpacing.md) {
             Circle()
                 .fill(tint)
@@ -232,20 +273,40 @@ public struct MeetStatusPanel: View {
                 .fill(VColor.surfaceOverlay)
         }
     }
+}
 
-    // MARK: - Helpers
+// MARK: - Joined Row (Timer-driven elapsed clock)
 
-    /// Formats the elapsed interval between `start` and `now` as mm:ss, or
-    /// h:mm:ss once the meeting crosses the one-hour mark. Negative deltas
-    /// clamp to `0:00` so a clock-skewed `joinedAt` never produces garbage.
-    static func formatElapsed(from start: Date, now: Date) -> String {
-        let seconds = max(0, Int(now.timeIntervalSince(start)))
-        let h = seconds / 3600
-        let m = (seconds % 3600) / 60
-        let s = seconds % 60
-        if h > 0 {
-            return String(format: "%d:%02d:%02d", h, m, s)
+/// Self-contained row for the `.joined` state. Drives the elapsed-time counter
+/// with `Timer.publish` on `.main` / `.common` rather than `TimelineView`
+/// because `TimelineView(.periodic)` can silently stop firing on macOS during
+/// idle or heavy layout passes, which freezes the counter (see
+/// `clients/AGENTS.md` for the full rule). The subscription is explicitly
+/// cancelled in `.onDisappear` so we never keep a live timer for a collapsed
+/// panel.
+private struct JoinedRow: View {
+    let title: String
+    let joinedAt: Date
+
+    @State private var now: Date = .init()
+    @State private var cancellable: AnyCancellable?
+
+    var body: some View {
+        MeetStatusRow(
+            title: "In meeting",
+            subtitle: title,
+            trailing: MeetStatusPanel.formatElapsed(from: joinedAt, now: now),
+            tint: VColor.systemPositiveStrong
+        )
+        .onAppear {
+            now = Date()
+            cancellable = Timer.publish(every: 1, on: .main, in: .common)
+                .autoconnect()
+                .sink { now = $0 }
         }
-        return String(format: "%d:%02d", m, s)
+        .onDisappear {
+            cancellable?.cancel()
+            cancellable = nil
+        }
     }
 }
