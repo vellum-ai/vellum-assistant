@@ -44,6 +44,14 @@ public enum FeedItemSource: String, Codable, Sendable, Hashable {
     case assistant
 }
 
+/// Visual urgency treatment — controls badge color independently of sort priority.
+public enum FeedItemUrgency: String, Codable, Sendable, Hashable {
+    case low
+    case medium
+    case high
+    case critical
+}
+
 /// Internal field used by the hybrid authoring resolver.
 ///
 /// Distinguishes items the assistant produced on its own from items
@@ -99,6 +107,8 @@ public struct FeedItem: Codable, Sendable, Identifiable, Hashable {
     /// Minimum seconds the user must be away before the item is shown.
     public let minTimeAway: TimeInterval?
     public let actions: [FeedAction]?
+    /// Visual urgency treatment — controls badge color independently of sort priority.
+    public let urgency: FeedItemUrgency?
     /// Internal: who authored this item.
     public let author: FeedItemAuthor
     /// Internal: writer-record time, used for ordering + TTL.
@@ -116,6 +126,7 @@ public struct FeedItem: Codable, Sendable, Identifiable, Hashable {
         expiresAt: Date? = nil,
         minTimeAway: TimeInterval? = nil,
         actions: [FeedAction]? = nil,
+        urgency: FeedItemUrgency? = nil,
         author: FeedItemAuthor,
         createdAt: Date
     ) {
@@ -130,6 +141,7 @@ public struct FeedItem: Codable, Sendable, Identifiable, Hashable {
         self.expiresAt = expiresAt
         self.minTimeAway = minTimeAway
         self.actions = actions
+        self.urgency = urgency
         self.author = author
         self.createdAt = createdAt
     }

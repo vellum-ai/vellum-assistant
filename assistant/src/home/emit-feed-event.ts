@@ -43,6 +43,7 @@ import {
   type FeedItem,
   feedItemSchema,
   type FeedItemSource,
+  type FeedItemUrgency,
 } from "./feed-types.js";
 import { appendFeedItem } from "./feed-writer.js";
 
@@ -93,6 +94,8 @@ export interface EmitFeedEventParams {
    * until the user dismisses it (default for activity-log actions).
    */
   expiresAt?: string;
+  /** Visual urgency treatment — controls badge color independently of sort priority. */
+  urgency?: FeedItemUrgency;
 }
 
 /**
@@ -144,6 +147,7 @@ export async function emitFeedEvent(
     timestamp: now,
     createdAt: now,
     actions: params.actions,
+    urgency: params.urgency,
     minTimeAway: params.minTimeAway,
     expiresAt: params.expiresAt,
   };
