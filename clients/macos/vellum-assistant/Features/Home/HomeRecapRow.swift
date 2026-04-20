@@ -83,8 +83,7 @@ struct HomeRecapRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, VSpacing.md)
-        .padding(.vertical, VSpacing.sm)
+        .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.md, bottom: VSpacing.sm, trailing: VSpacing.md))
         .background(
             RoundedRectangle(cornerRadius: VRadius.md, style: .continuous)
                 .fill(VColor.surfaceOverlay)
