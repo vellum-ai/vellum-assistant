@@ -396,9 +396,9 @@ describe("isSlackChannelConversation", () => {
   });
 
   test("returns false for Slack DMs regardless of chatType shape", () => {
-    // Gateway omits chatType entirely for DM message events — the prior
-    // `chatType !== "im"` check misclassified these (undefined !== "im")
-    // as channels and leaked thread-only behaviour into DMs.
+    // Gateway omits chatType entirely for DM message events, so
+    // `isSlackChannelConversation` must return false for both the
+    // `chatType === undefined` and `chatType === "im"` shapes.
     expect(isSlackChannelConversation({ channel: "slack", ...base })).toBe(
       false,
     );
@@ -2967,8 +2967,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
   });
 
   // ── trust-filter regression for loadSlackChronologicalMessages ───────
-  // PR 26628 originally bypassed the trust filter by calling `getMessages`
-  // directly. For untrusted actors, guardian-scoped rows must be excluded
+  // For untrusted actors, guardian-scoped rows must be excluded
   // from the chronological transcript the same way `loadFromDb` filters
   // them out of the default history.
   test("loadSlackChronologicalMessages filters guardian-scoped rows for untrusted actors", () => {
