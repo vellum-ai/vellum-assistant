@@ -24,9 +24,7 @@ It learns how you work, remembers what matters, and acts before you ask. Yours t
 | **Security** | **Fail-closed by design.** Actor identity is resolved once (guardian, trusted, or unknown) and enforced everywhere. Untrusted actors cannot read or write memory, trigger tools, or escalate. Credentials live in a separate process and never reach the model. Every tool runs in a sandbox. |
 
 <p align="center">
-  <img src="assets/screenshot-chat.png" alt="Chat with a proactive notification" width="48%">
-  &nbsp;
-  <img src="assets/screenshot-skills.png" alt="Skills view" width="48%">
+  <img src="assets/what-it-does.png" alt="Memory, identity, proactivity, and security in the Vellum Assistant" width="100%">
 </p>
 
 ---
