@@ -45,7 +45,6 @@ struct MessageListContentView: View, Equatable {
             && lhs.configuredProviders == rhs.configuredProviders
             && lhs.subagentDetailStore === rhs.subagentDetailStore
             && lhs.assistantStatusText == rhs.assistantStatusText
-            && lhs.viewportHeight == rhs.viewportHeight
             && lhs.pinnedLatestTurnAnchorMessageId == rhs.pinnedLatestTurnAnchorMessageId
     }
 
@@ -70,7 +69,6 @@ struct MessageListContentView: View, Equatable {
     let configuredProviders: Set<String>
     let subagentDetailStore: SubagentDetailStore
     let assistantStatusText: String?
-    let viewportHeight: CGFloat
     let pinnedLatestTurnAnchorMessageId: UUID?
 
     // MARK: - Closures (skipped in ==)
@@ -354,7 +352,6 @@ struct MessageListContentView: View, Equatable {
                let anchorRow = rowsByMessageId[anchorMessage.id] {
                 PinnedLatestTurnSection(
                     contentView: self,
-                    viewportHeight: viewportHeight,
                     partition: pinnedTurnPartition,
                     rowsByMessageId: rowsByMessageId,
                     anchorRow: anchorRow,
@@ -418,22 +415,6 @@ struct MessageListContentView: View, Equatable {
 
 // MARK: - Pinned Latest Turn
 
-struct LatestTurnSpacerCalculator {
-    static func spacerHeight(
-        viewportHeight: CGFloat,
-        anchorHeight: CGFloat,
-        responseHeight: CGFloat,
-        contentInsets: CGFloat = 0
-    ) -> CGFloat {
-        guard viewportHeight.isFinite, viewportHeight > 0 else { return 0 }
-
-        let safeAnchorHeight = anchorHeight.isFinite ? max(0, anchorHeight) : 0
-        let safeResponseHeight = responseHeight.isFinite ? max(0, responseHeight) : 0
-        let safeInsets = contentInsets.isFinite ? max(0, contentInsets) : 0
-        return max(0, viewportHeight - safeAnchorHeight - safeResponseHeight - safeInsets)
-    }
-}
-
 struct PinnedLatestTurnPartition: Equatable {
     let historyItems: [TranscriptItem]
     let anchorMessage: ChatMessage?
@@ -472,15 +453,11 @@ struct PinnedLatestTurnPartition: Equatable {
 
 private struct PinnedLatestTurnSection: View {
     let contentView: MessageListContentView
-    let viewportHeight: CGFloat
     let partition: PinnedLatestTurnPartition
     let rowsByMessageId: [UUID: TranscriptRowModel]
     let anchorRow: TranscriptRowModel
     let isUnanchoredThinking: Bool
     let thinkingLabel: String
-
-    @State private var anchorHeight: CGFloat = 0
-    @State private var responseHeight: CGFloat = 0
 
     private var hasResponseContent: Bool {
         contentView.showsStandaloneLatestEdgeActivity
@@ -488,22 +465,18 @@ private struct PinnedLatestTurnSection: View {
             || !partition.responseItems.isEmpty
     }
 
-    /// Vertical content insets from the outer LazyVStack padding (top + bottom).
-    private static let contentVerticalInsets: CGFloat = VSpacing.md * 2
-
-    private var spacerHeight: CGFloat {
-        LatestTurnSpacerCalculator.spacerHeight(
-            viewportHeight: viewportHeight,
-            anchorHeight: anchorHeight,
-            responseHeight: responseHeight,
-            contentInsets: Self.contentVerticalInsets
-        )
-    }
-
     var body: some View {
         // Two flips (ScrollView + section) cancel out, so source order
         // equals visual order: anchor at top, response below, spacer
         // fills remaining viewport, sentinel marks the latest edge.
+        //
+        // The section's height is bound to the scroll viewport via
+        // `containerRelativeFrame` so it tracks the chat area's height in
+        // the SAME layout pass as composer-induced viewport changes. A
+        // previous `viewportHeight` @State + computed-spacer pattern lagged
+        // one frame behind the AppKit clip-view frame change and caused the
+        // anchor row's top to briefly clip on every Enter keystroke in the
+        // composer.
         VStack(alignment: .leading, spacing: 0) {
             contentView.transcriptRow(
                 row: anchorRow,
@@ -512,26 +485,18 @@ private struct PinnedLatestTurnSection: View {
                 isFlipped: false
             )
             .id(anchorRow.id)
-            .onGeometryChange(for: CGFloat.self) { proxy in
-                proxy.size.height
-            } action: { newHeight in
-                if abs(anchorHeight - newHeight) > 0.5 {
-                    anchorHeight = newHeight
-                }
-            }
 
             responseCluster
-                .onGeometryChange(for: CGFloat.self) { proxy in
-                    proxy.size.height
-                } action: { newHeight in
-                    if abs(responseHeight - newHeight) > 0.5 {
-                        responseHeight = newHeight
-                    }
-                }
 
-            Color.clear.frame(height: spacerHeight)
+            Spacer(minLength: 0)
 
             contentView.latestEdgeSentinel(isFlipped: false)
+        }
+        .containerRelativeFrame(.vertical, alignment: .top) { length, _ in
+            // Subtract the outer LazyVStack's vertical padding (top + bottom
+            // of `MessageListContentView.body`) so the anchor row ends with
+            // the intentional VSpacing.md visual gap above it.
+            length - VSpacing.md * 2
         }
         .flipped()
     }
