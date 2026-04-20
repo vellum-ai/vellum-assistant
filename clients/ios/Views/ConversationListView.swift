@@ -29,19 +29,6 @@ func sortConversationsForDisplay(
     }
 }
 
-func applyConversationSelectionRequest(
-    _ request: ConversationSelectionRequest,
-    horizontalSizeClass: UserInterfaceSizeClass?,
-    navigationPath: inout [UUID],
-    selectedConversationId: inout UUID?
-) {
-    if horizontalSizeClass == .regular {
-        selectedConversationId = request.conversationLocalId
-    } else {
-        navigationPath = [request.conversationLocalId]
-    }
-}
-
 @MainActor
 func makeConversationForkFromMessageAction(
     store: IOSConversationStore,
@@ -211,13 +198,10 @@ struct ConversationListView: View {
 
     private func applyPendingSelectionRequestIfNeeded() {
         guard let request = store.selectionRequest else { return }
-        // The compact (drawer) branch runs in `IOSRootNavigationView`; this path
-        // only executes on the iPad `NavigationSplitView`, which selects via
-        // `selectedConversationId`. Write directly rather than routing through
-        // `applyConversationSelectionRequest(...)` — the free function's
-        // size-class branch would otherwise discard the request into a dead
-        // `navigationPath` the one frame SwiftUI reports `horizontalSizeClass`
-        // as `nil` during initial environment resolution.
+        // Only the iPad `NavigationSplitView` path reaches this code: on iPhone
+        // the drawer-mode `ConversationListView` skips the `.onAppear` /
+        // `.onChange` calls above, and `IOSRootNavigationView` consumes the
+        // request against its own `activeConversationId` instead.
         selectedConversationId = request.conversationLocalId
         store.consumeSelectionRequest(id: request.id)
     }

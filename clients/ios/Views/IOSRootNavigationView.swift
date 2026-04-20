@@ -103,6 +103,15 @@ struct IOSRootNavigationView: View {
                 isSettingsPresented = true
             }
         }
+        .onDisappear {
+            // `settingsPresentDelayTask` is spawned from the drawer's "Settings"
+            // footer to wait for the drawer's close animation before presenting
+            // the sheet. Cancel any pending delay when this view is torn down
+            // (e.g. when `ContentView.id(ObjectIdentifier(client))` recreates
+            // the navigation root) so it doesn't fire against stale state.
+            settingsPresentDelayTask?.cancel()
+            settingsPresentDelayTask = nil
+        }
     }
 
     // MARK: - Compact (iPhone)
