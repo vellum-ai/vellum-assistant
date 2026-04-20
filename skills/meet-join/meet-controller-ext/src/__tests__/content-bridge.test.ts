@@ -10,9 +10,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import type {
-  BotToExtensionMessage,
-} from "../../../contracts/native-messaging.js";
+import type { BotToExtensionMessage } from "../../../contracts/native-messaging.js";
 
 import { startContentBridge } from "../messaging/content-bridge.js";
 import type { NativePort } from "../messaging/native-port.js";
