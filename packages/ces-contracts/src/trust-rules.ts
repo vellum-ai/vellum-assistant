@@ -139,13 +139,13 @@ export interface SkillLoadTrustRule extends TrustRuleBase {
 /**
  * A trust rule for any tool that doesn't belong to a known family.
  *
- * Generic rules preserve `scope`, `executionTarget`, and `allowHighRisk` for
- * forward compatibility — existing rules for unknown/new tools may carry these
- * fields.
+ * Generic rules preserve `executionTarget` and `allowHighRisk` for backward
+ * compatibility — existing rules for unknown/new tools may carry these fields.
+ * Scope is intentionally absent: new tools that need scope must be explicitly
+ * added to `SCOPED_TOOLS` and use `ScopedTrustRule`.
  */
 export interface GenericTrustRule extends TrustRuleBase {
   tool: string;
-  scope?: string;
   executionTarget?: string;
   allowHighRisk?: boolean;
 }
@@ -199,12 +199,11 @@ export function isSkillLoadRule(rule: TrustRule): rule is SkillLoadTrustRule {
 // ---------------------------------------------------------------------------
 
 /**
- * Return the effective scope for any trust rule. Scoped rules carry a
- * required `scope` field; non-scoped rules may or may not have one. When
- * absent, the effective scope is `"everywhere"`.
+ * Return the effective scope for any trust rule. Only scoped rules carry a
+ * `scope` field; all other rule families return `"everywhere"`.
  */
 export function ruleScope(rule: TrustRule): string {
-  if ("scope" in rule && typeof rule.scope === "string") {
+  if (isScopedRule(rule)) {
     return rule.scope;
   }
   return "everywhere";
@@ -234,8 +233,9 @@ export interface ParsedTrustRule {
  * - Skill load rules: `executionTarget` and `scope` are stripped.
  * - Scoped rules: `scope` is preserved (defaulting to `"everywhere"`),
  *   `executionTarget` and `allowHighRisk` are preserved when valid.
- * - Generic (unknown) rules: all optional fields including `scope` are
- *   preserved for forward compatibility.
+ * - Generic (unknown) rules: `scope` is stripped (new tools that need scope
+ *   must be added to `SCOPED_TOOLS`); `executionTarget` and `allowHighRisk`
+ *   are preserved for backward compatibility.
  */
 export function parseTrustRule(raw: Record<string, unknown>): ParsedTrustRule {
   let normalized = false;
@@ -354,11 +354,15 @@ export function parseTrustRule(raw: Record<string, unknown>): ParsedTrustRule {
     return { rule, normalized };
   }
 
-  // Generic (unknown) tool — preserve all optional fields for forward compat,
-  // including scope when present.
+  // Generic (unknown) tool — strip scope (new tools that need scope must be
+  // added to SCOPED_TOOLS explicitly), preserve other optional fields.
   const rule: GenericTrustRule = { ...base };
-  if (typeof raw.scope === "string") {
-    rule.scope = raw.scope;
+  if (
+    typeof raw.scope === "string" &&
+    raw.scope !== "" &&
+    raw.scope !== "everywhere"
+  ) {
+    normalized = true;
   }
   if (
     typeof raw.executionTarget === "string" &&

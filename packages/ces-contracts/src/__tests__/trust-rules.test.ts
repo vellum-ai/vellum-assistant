@@ -240,8 +240,16 @@ describe("parseTrustRule — unknown tools", () => {
     const { rule, normalized } = parseTrustRule(raw);
     expect(normalized).toBe(false);
     expect(rule.tool).toBe("computer_use_click");
+    expect("scope" in rule).toBe(false);
     expect("executionTarget" in rule).toBe(false);
     expect("allowHighRisk" in rule).toBe(false);
+  });
+
+  test("unknown tool with non-everywhere scope strips scope and sets normalized", () => {
+    const raw = makeRaw({ tool: "future_tool_v99", scope: "/some/dir" });
+    const { rule, normalized } = parseTrustRule(raw);
+    expect(normalized).toBe(true);
+    expect("scope" in rule).toBe(false);
   });
 
   test("all type guards return false for generic rules", () => {
@@ -301,9 +309,10 @@ describe("ruleScope", () => {
     expect(ruleScope(rule)).toBe("everywhere");
   });
 
-  test("returns scope for generic rules that have scope", () => {
+  test("returns 'everywhere' for generic rules (scope is stripped)", () => {
     const { rule } = parseTrustRule(makeRaw({ tool: "future_tool", scope: "/custom" }));
-    expect(ruleScope(rule)).toBe("/custom");
+    expect("scope" in rule).toBe(false);
+    expect(ruleScope(rule)).toBe("everywhere");
   });
 
   test("returns 'everywhere' for scoped rules with default scope", () => {
