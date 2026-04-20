@@ -1053,13 +1053,11 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
   });
 
   test("row with only non-replayable blocks emits fallback tag line annotated with what was stripped", () => {
-    // Regression: previously `buildMessageContentBlocks` returned an empty
-    // array when every block was filtered out (e.g. a row whose only
-    // blocks are `server_tool_use` and `ui_surface`), causing the caller
-    // to drop the turn entirely — silently altering chronology and
-    // potentially orphaning adjacent tool_result context. The renderer
-    // now preserves the turn by emitting a single fallback text block
-    // annotated with the stripped block types/names.
+    // Rows whose only content blocks are non-replayable (e.g. `server_tool_use`,
+    // `ui_surface`) must still produce a turn so chronology and adjacent
+    // tool_result context are preserved. `buildMessageContentBlocks` emits a
+    // single fallback text block whose tag line names each stripped block's
+    // type (and tool name, when available).
     const base: RenderableSlackMessage = {
       ...userMsg(TS_14_25, null, "ran a web search", { role: "assistant" }),
       contentBlocks: [
