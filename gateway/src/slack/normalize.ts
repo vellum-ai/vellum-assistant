@@ -654,6 +654,9 @@ export function normalizeSlackBlockActions(
       source: {
         updateId: envelopeId,
         messageId: messageTs,
+        ...(payload.message?.thread_ts
+          ? { threadId: payload.message.thread_ts }
+          : {}),
       },
       raw: payload as unknown as Record<string, unknown>,
     },

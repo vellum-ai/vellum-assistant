@@ -1233,6 +1233,31 @@ describe("source.threadId propagation", () => {
     });
   });
 
+  describe("normalizeSlackBlockActions", () => {
+    it("populates source.threadId when message.thread_ts is present", () => {
+      const config = makeConfig();
+      const payload = makeBlockActionsPayload();
+      payload.message = {
+        ts: "1234567890.999999",
+        thread_ts: "1234567890.000001",
+        text: "Choose an option",
+      };
+      const result = normalizeSlackBlockActions(payload, "env-tid-1", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBe("1234567890.000001");
+    });
+
+    it("omits source.threadId when message.thread_ts is absent", () => {
+      const config = makeConfig();
+      const payload = makeBlockActionsPayload();
+      const result = normalizeSlackBlockActions(payload, "env-tid-2", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBeUndefined();
+    });
+  });
+
   describe("normalizeSlackMessageDelete", () => {
     it("populates source.threadId for deletes of threaded messages", () => {
       const config = makeConfig();
