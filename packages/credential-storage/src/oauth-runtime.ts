@@ -136,8 +136,9 @@ export class RefreshCircuitBreaker {
    * @param isCredential - When true, the failure is a credential error
    *   (revoked token, invalid client) that no amount of retrying will fix.
    *   Only credential errors count toward opening the circuit breaker.
-   *   Transient errors (network timeouts, 5xx) are recorded for diagnostics
-   *   but do not trip the breaker — they are handled by upstream retry logic.
+   *   Transient errors (network timeouts, 5xx) are silently ignored here —
+   *   they do not trip the breaker and are not recorded. Upstream retry logic
+   *   in refreshOAuth2Token handles transient failures with exponential backoff.
    */
   recordFailure(key: string, isCredential = true): void {
     if (!isCredential) {
