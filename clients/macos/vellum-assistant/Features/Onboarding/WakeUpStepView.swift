@@ -34,7 +34,8 @@ struct WakeUpStepView: View {
         VStack(spacing: VSpacing.md) {
             if managedSignInEnabled {
                 OnboardingVellumCloudCard(
-                    isLoading: authManager?.isLoading == true || authManager?.isSubmitting == true,
+                    isLoading: authManager?.isLoading == true,
+                    isSubmitting: authManager?.isSubmitting == true,
                     isDisabled: isAdvancing,
                     onContinue: { onContinueWithVellum() }
                 )

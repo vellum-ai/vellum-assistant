@@ -5,6 +5,7 @@ import SwiftUI
 ///
 /// Self-contained subview: no outside state. Composed into
 /// `WakeUpStepView` alongside the sibling "Your Machine" card.
+@MainActor
 struct OnboardingVellumCloudCard: View {
     // MARK: - Configuration
 
@@ -18,6 +19,9 @@ struct OnboardingVellumCloudCard: View {
     ]
     let primaryCTA: String = "Continue with Vellum"
     var isLoading: Bool = false
+    /// When true, the primary CTA is replaced with a "Logging in…" progress
+    /// row. Takes precedence over `isLoading`, which renders "Checking…".
+    var isSubmitting: Bool = false
     var isDisabled: Bool = false
     var onContinue: () -> Void
 
@@ -56,27 +60,25 @@ struct OnboardingVellumCloudCard: View {
                     benefitRow(benefit)
                 }
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(Text("Vellum Cloud benefits"))
 
             Spacer().frame(height: VSpacing.lg)
 
-            // CTA
-            if isLoading {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                        .progressViewStyle(.circular)
-                    Text("Checking…")
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.contentSecondary)
-                }
-                .frame(maxWidth: .infinity, minHeight: 32)
+            // CTA — "Logging in…" wins over "Checking…" when both bits are set,
+            // since the user has just submitted credentials and a generic
+            // "Checking…" would be misleading during the WorkOS round-trip.
+            if isSubmitting {
+                loadingRow(label: "Logging in…")
+            } else if isLoading {
+                loadingRow(label: "Checking…")
             } else {
                 VButton(
                     label: primaryCTA,
                     style: .primary,
                     size: .pillRegular,
                     isFullWidth: true,
-                    isDisabled: isDisabled || isLoading
+                    isDisabled: isDisabled
                 ) {
                     onContinue()
                 }
@@ -113,5 +115,20 @@ struct OnboardingVellumCloudCard: View {
                 .foregroundStyle(VColor.contentDefault)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(text))
+    }
+
+    @ViewBuilder
+    private func loadingRow(label: String) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            ProgressView()
+                .controlSize(.small)
+                .progressViewStyle(.circular)
+            Text(label)
+                .font(VFont.bodyMediumLighter)
+                .foregroundStyle(VColor.contentSecondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 32)
     }
 }
