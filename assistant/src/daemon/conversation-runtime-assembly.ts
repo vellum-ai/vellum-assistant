@@ -1379,9 +1379,7 @@ export function loadSlackChronologicalMessages(
  *
  * Pure: takes pre-mapped renderable rows and returns the ts string only.
  */
-function detectActiveThreadTs(
-  rows: RenderableSlackMessage[],
-): string | null {
+function detectActiveThreadTs(rows: RenderableSlackMessage[]): string | null {
   for (let i = rows.length - 1; i >= 0; i--) {
     const row = rows[i];
     if (row.role !== "user") continue;
@@ -1806,7 +1804,9 @@ export async function applyRuntimeInjections(
             .filter((r) => {
               const abs = resolve(pkbRoot, r.path);
               if (inContext.has(abs)) return false;
-              const threshold = r.path.startsWith("archive/")
+              const threshold = r.path
+                .replace(/\\/g, "/")
+                .startsWith("archive/")
                 ? PKB_HINT_ARCHIVE_THRESHOLD
                 : PKB_HINT_THRESHOLD;
               return r.score >= threshold;
