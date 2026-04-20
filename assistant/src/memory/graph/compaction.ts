@@ -237,15 +237,38 @@ export async function compactLongMemories(
         continue;
       }
 
-      recordNodeEdit({
-        nodeId: row.id,
-        previousContent: row.content,
-        newContent,
-        source: "manual",
-      });
-      updateNode(row.id, {
-        content: newContent,
-        lastConsolidated: Date.now(),
+      // Reject rewrites that are shorter than the original but still exceed
+      // the threshold cap — the whole point of the compaction is to land
+      // under the cap, not merely to reduce length.
+      if (newContent.length > threshold) {
+        result.skipped += 1;
+        result.afterChars += beforeLen;
+        opts.onProgress?.({
+          nodeId: row.id,
+          beforeLen,
+          afterLen: newContent.length,
+          action: "skipped",
+          reason: `rewrite still exceeds threshold (${newContent.length} > ${threshold})`,
+          newContent,
+        });
+        continue;
+      }
+
+      // Wrap edit recording + node update in a transaction so they are
+      // atomic: if updateNode fails, the edit record is rolled back. Without
+      // this, a mid-operation throw leaves an orphaned audit row pointing at
+      // a change that never committed.
+      getDb().transaction(() => {
+        recordNodeEdit({
+          nodeId: row.id,
+          previousContent: row.content,
+          newContent,
+          source: "manual",
+        });
+        updateNode(row.id, {
+          content: newContent,
+          lastConsolidated: Date.now(),
+        });
       });
 
       result.compacted += 1;

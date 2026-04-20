@@ -358,6 +358,18 @@ Examples:
         initializeDb();
         const apply = Boolean(opts.apply);
 
+        if (!Number.isFinite(opts.threshold) || opts.threshold <= 0) {
+          log.info("--threshold must be a positive integer");
+          return;
+        }
+        if (
+          opts.limit !== undefined &&
+          (!Number.isFinite(opts.limit) || opts.limit <= 0)
+        ) {
+          log.info("--limit must be a positive integer");
+          return;
+        }
+
         log.info(
           `Scanning memory_graph_nodes for content > ${opts.threshold} chars${
             apply ? "" : " (preview — no changes will be written)"
