@@ -76,7 +76,7 @@ Talk to it from the macOS app, Telegram, or Slack. Shared memory and identity ac
 
 ## Quick demo
 
-https://github.com/user-attachments/assets/009bd0ae-95ac-4cf3-81bc-d54cd8631583
+<video src="https://github.com/user-attachments/assets/009bd0ae-95ac-4cf3-81bc-d54cd8631583" controls autoplay muted loop playsinline width="100%"></video>
 
 ---
 
