@@ -48,6 +48,13 @@ final class ChatMessagesCollectionViewController: UIViewController {
     /// property on `ChatViewModel` (or the managers it forwards to) changes.
     /// Re-armed after every tracked read.
     private var observationRearmToken: UUID = UUID()
+    /// Coalescing handle for `rebuildSnapshot` — at most one rebuild per
+    /// `rebuildCoalescingWindowNanos` window is actually applied, so
+    /// per-token `@Observable` firings during streaming don't drive
+    /// unbounded diff churn. See `clients/AGENTS.md` → "Coalesce
+    /// high-frequency Combine publishes" (100 ms minimum default).
+    private var pendingRebuildTask: Task<Void, Never>?
+    private static let rebuildCoalescingWindowNanos: UInt64 = 100_000_000
     private var pendingAnchorTask: Task<Void, Never>?
 
     init(
@@ -70,6 +77,7 @@ final class ChatMessagesCollectionViewController: UIViewController {
 
     deinit {
         pendingAnchorTask?.cancel()
+        pendingRebuildTask?.cancel()
     }
 
     override func viewDidLoad() {
@@ -234,9 +242,23 @@ final class ChatMessagesCollectionViewController: UIViewController {
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, self.observationRearmToken == token else { return }
-                self.rebuildSnapshot(animated: false)
+                self.scheduleCoalescedRebuild()
                 self.observeViewModel()
             }
+        }
+    }
+
+    /// Schedules a `rebuildSnapshot` at most once per coalescing window.
+    /// Streaming text updates fire `@Observable` tracking on every token;
+    /// without coalescing each fire runs the full diff + apply pipeline
+    /// even though row identities haven't changed.
+    private func scheduleCoalescedRebuild() {
+        guard pendingRebuildTask == nil else { return }
+        pendingRebuildTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.rebuildCoalescingWindowNanos)
+            guard let self, !Task.isCancelled else { return }
+            self.pendingRebuildTask = nil
+            self.rebuildSnapshot(animated: false)
         }
     }
 
@@ -276,6 +298,10 @@ final class ChatMessagesCollectionViewController: UIViewController {
 
     private func rebuildSnapshot(animated: Bool) {
         guard isViewLoaded, dataSource != nil else { return }
+        // Cancel any pending coalesced rebuild — we're rebuilding now, so a
+        // queued one would be redundant.
+        pendingRebuildTask?.cancel()
+        pendingRebuildTask = nil
         let snapshot = buildSnapshot()
 
         // When the user sends a new message (`isSending` flips false -> true),
@@ -310,7 +336,11 @@ final class ChatMessagesCollectionViewController: UIViewController {
                     )
                 }
             } else if wasAutoFollowing {
-                self.scrollToLatestItem(animated: self.hasPerformedInitialScroll)
+                // Non-animated to match the legacy `ScrollView` behaviour on
+                // streaming updates — animating every token produces subtle
+                // jitter when already pinned at the bottom. The first-time
+                // initial scroll also lands non-animated, handled below.
+                self.scrollToLatestItem(animated: false)
             }
             self.isApplyingSnapshot = false
             self.updateVisibilityState()
@@ -394,9 +424,14 @@ final class ChatMessagesCollectionViewController: UIViewController {
     // MARK: - Pending anchor resolution
 
     private func startPendingAnchorResolution(requestId: UUID, daemonMessageId: String) {
+        // `[weak self]` is re-resolved inside the loop so the strong binding
+        // is scoped to a single iteration. Without this, the outer
+        // `guard let self` would pin `self` for the lifetime of the task;
+        // because the task is stored on `self` (`pendingAnchorTask`), that
+        // forms a retain cycle that blocks `deinit` and prevents cancellation.
         pendingAnchorTask = Task { @MainActor [weak self] in
-            guard let self else { return }
             while !Task.isCancelled {
+                guard let self else { return }
                 guard self.viewModel.isHistoryLoaded else {
                     try? await Task.sleep(nanoseconds: 50_000_000)
                     continue
@@ -426,7 +461,8 @@ final class ChatMessagesCollectionViewController: UIViewController {
                         self.onPendingAnchorHandled?(requestId)
                         return
                     }
-                    // Wait for the load to complete, then retry on next loop.
+                    // Wait for the load to complete, then fall through to
+                    // the next outer iteration (which re-resolves weak self).
                     while self.viewModel.isLoadingMoreMessages && !Task.isCancelled {
                         try? await Task.sleep(nanoseconds: 50_000_000)
                     }
