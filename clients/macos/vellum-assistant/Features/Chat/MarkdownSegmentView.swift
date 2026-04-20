@@ -1004,7 +1004,11 @@ private struct MathBlockView: View {
 
     @ViewBuilder
     private func rendered(image: NSImage, intrinsicSize: CGSize) -> some View {
-        let limit = maxContentWidth ?? intrinsicSize.width
+        // Match peer MarkdownSegment renderers: nil maxContentWidth means
+        // "no caller-specified limit", which collapses to the default chat
+        // bubble max. Treating nil as unlimited let long equations render
+        // at full intrinsic width in InlineFilePreviewView / SubagentDetailPanel.
+        let limit = maxContentWidth ?? VSpacing.chatBubbleMaxWidth
         let needsScroll = intrinsicSize.width > limit && intrinsicSize.width > 0
         let renderedWidth: CGFloat = needsScroll
             ? intrinsicSize.width
@@ -1021,6 +1025,8 @@ private struct MathBlockView: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: intrinsicSize.width, height: intrinsicSize.height)
+                    .accessibilityLabel(latex)
+                    .accessibilityValue("math equation")
             }
             .frame(height: intrinsicSize.height)
         } else {
@@ -1029,6 +1035,8 @@ private struct MathBlockView: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: renderedWidth, height: renderedHeight)
+                .accessibilityLabel(latex)
+                .accessibilityValue("math equation")
         }
     }
 
