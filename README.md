@@ -14,42 +14,14 @@ It learns how you work, remembers what matters, and acts before you ask. Yours t
 
 ---
 
-## What it does
+## Personality and intelligence
 
-<table>
-<tr>
-<td width="50%" valign="top">
-
-**Remembers everything**
-
-Long-term memory with source attribution, per-channel isolation, and its own sense of what's worth keeping.
-
-</td>
-<td width="50%" valign="top">
-
-**Acts before you ask**
-
-Checks in with itself every hour, notices what's unfinished, and reaches out on the right channel without interrupting.
-
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-
-**Yours to shape**
-
-Name, personality, and skills live in plain files. Bundle your own skills or install from the catalog.
-
-</td>
-<td width="50%" valign="top">
-
-**Same assistant everywhere**
-
-Talk to it from the macOS app, Telegram, or Slack. Shared memory and identity across all of them.
-
-</td>
-</tr>
-</table>
+| Area | Summary |
+|------|---------|
+| **Memory engine** | **Remembers what matters and forgets what doesn't.** Hybrid retrieval (dense + sparse with RRF) ranks results semantically and lexically. Each memory type has its own staleness window (e.g. identity facts last six months, events last three days). |
+| **Persistent memory** | **Long-term storage for what the assistant learns about you.** Structured memory items — identity, preferences, projects, events — are extracted by the LLM with source attribution and deduplication. Per-user and per-channel persona files, trusted contacts, and scoped memory isolation for private conversations. Embeddings run locally by default. |
+| **Identity layer** | **Defines who the assistant is, not just what it says.** Behavior lives in SOUL.md, and during onboarding, the assistant observes how you communicate and writes its own personality files. A per-user journal captures the assistant's reflections on past interactions. NOW.md acts as an ephemeral scratchpad for current focus and active threads. |
+| **Proactivity engine** | **Reaches out when something matters, without being asked.** Every hour it checks in with itself: re-reads its own notes, notices what's unfinished or due soon, and sends a message if needed. Notifications are routed to the right channel and won't interrupt you if you're already talking. |
 
 <p align="center">
   <img src="assets/screenshot-chat.png" alt="Chat with a proactive notification" width="48%">
