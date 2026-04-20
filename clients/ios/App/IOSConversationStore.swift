@@ -1596,9 +1596,9 @@ class IOSConversationStore: ObservableObject {
             displayOrder: displayOrder.map(Double.init),
             isPinned: isPinned
         )
-        Task { [weak self] in
-            _ = await self?.conversationListClient.reorderConversations(updates: [update])
+        Task { @MainActor [weak self] in
             guard let self else { return }
+            _ = await self.conversationListClient.reorderConversations(updates: [update])
             self.locallyEditedPinConversationIds.remove(conversationId)
         }
     }
