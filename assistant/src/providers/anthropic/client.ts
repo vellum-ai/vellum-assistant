@@ -1282,7 +1282,8 @@ export class AnthropicProvider implements Provider {
           abortReason?: unknown;
           cause?: unknown;
         } = {};
-        if (retryAfterMs !== undefined) errorOptions.retryAfterMs = retryAfterMs;
+        if (retryAfterMs !== undefined)
+          errorOptions.retryAfterMs = retryAfterMs;
         if (abortReason) errorOptions.abortReason = abortReason;
         // Only preserve the original error as `cause` for transport aborts
         // without a daemon-tagged reason — it's the diagnostic signal the
@@ -1295,8 +1296,14 @@ export class AnthropicProvider implements Provider {
           isAbortMessage && innerTimeoutFired
             ? `Anthropic stream timed out after ${Math.round(elapsedMs / 1000)}s (inner streamTimeoutMs)`
             : error.message;
+        // Only include the `(status)` parenthetical when the SDK surfaced a
+        // real HTTP status. Abort paths and mid-stream protocol errors have
+        // `error.status === undefined`, and string-interpolating that produces
+        // a confusing "Anthropic API error (undefined): …" message.
+        const statusPart =
+          error.status !== undefined ? ` (${error.status})` : "";
         throw new ProviderError(
-          `Anthropic API error (${error.status}): ${rewrittenMessage}`,
+          `Anthropic API error${statusPart}: ${rewrittenMessage}`,
           "anthropic",
           error.status,
           Object.keys(errorOptions).length > 0 ? errorOptions : undefined,

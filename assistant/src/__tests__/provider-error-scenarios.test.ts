@@ -217,6 +217,47 @@ describe("RetryProvider — rate limit backoff", () => {
     }
   });
 
+  test("tags final error with retriesExhausted=true after retry loop gives up (JARVIS-513)", async () => {
+    // Transient socket flap from Bun's native fetch: wrapped in a
+    // ProviderError but still network-retryable via message pattern match.
+    const inner = makeFailing(
+      new ProviderError(
+        "Anthropic request failed: The socket connection was closed unexpectedly",
+        "anthropic",
+      ),
+    );
+    const provider = new RetryProvider(inner);
+
+    try {
+      await provider.sendMessage(MESSAGES);
+      expect(true).toBe(false);
+    } catch (err) {
+      const flag = (err as Error & { retriesExhausted?: boolean })
+        .retriesExhausted;
+      expect(flag).toBe(true);
+      // Retry loop should have used all attempts before surrendering.
+      expect(inner.calls).toBe(DEFAULT_MAX_RETRIES + 1);
+    }
+  });
+
+  test("does NOT tag retriesExhausted on non-retryable errors (no retry was attempted)", async () => {
+    // ProviderError without statusCode and without a retryable pattern: the
+    // retry loop short-circuits on the first attempt. No "exhaustion"
+    // occurred, so the marker must stay unset.
+    const inner = makeFailing(new ProviderError("model not found", "test"));
+    const provider = new RetryProvider(inner);
+
+    try {
+      await provider.sendMessage(MESSAGES);
+      expect(true).toBe(false);
+    } catch (err) {
+      const flag = (err as Error & { retriesExhausted?: boolean })
+        .retriesExhausted;
+      expect(flag).toBeUndefined();
+      expect(inner.calls).toBe(1);
+    }
+  });
+
   test("uses retryAfterMs from ProviderError when present", async () => {
     const error = new ProviderError("rate limited", "anthropic", 429, {
       retryAfterMs: 30_000,
@@ -471,7 +512,7 @@ describe("RetryProvider — network error retries", () => {
   test("does NOT retry 'Anthropic stream timed out' (inner streamTimeoutMs fired)", async () => {
     const inner = makeFailing(
       new ProviderError(
-        "Anthropic API error (undefined): Anthropic stream timed out after 1800s (inner streamTimeoutMs)",
+        "Anthropic API error: Anthropic stream timed out after 1800s (inner streamTimeoutMs)",
         "anthropic",
       ),
     );
@@ -646,7 +687,7 @@ describe("RetryProvider — streaming response handling", () => {
         callCount++;
         if (callCount <= 1) {
           throw new ProviderError(
-            'Anthropic API error (undefined): {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
+            'Anthropic API error: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
             "anthropic",
             undefined,
           );
