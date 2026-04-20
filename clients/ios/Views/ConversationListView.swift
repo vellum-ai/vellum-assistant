@@ -195,22 +195,6 @@ struct ConversationListView: View {
                 }
             }
         }
-        .onAppear {
-            if !isDrawerMode { applyPendingSelectionRequestIfNeeded() }
-        }
-        .onChange(of: store.selectionRequest?.id) { _, _ in
-            if !isDrawerMode { applyPendingSelectionRequestIfNeeded() }
-        }
-    }
-
-    private func applyPendingSelectionRequestIfNeeded() {
-        guard let request = store.selectionRequest else { return }
-        // Only the iPad `NavigationSplitView` path reaches this code: on iPhone
-        // the drawer-mode `ConversationListView` skips the `.onAppear` /
-        // `.onChange` calls above, and `IOSRootNavigationView` consumes the
-        // request against its own `activeConversationId` instead.
-        selectedConversationId = request.conversationLocalId
-        store.consumeSelectionRequest(id: request.id)
     }
 
     private var loadingView: some View {

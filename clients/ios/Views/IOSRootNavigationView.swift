@@ -359,18 +359,17 @@ struct IOSRootNavigationView: View {
         if isSettingsPresented {
             isSettingsPresented = false
         }
-        // Treat a `nil` size class as compact for the same reason the body
-        // branches that way: on iPhone cold start SwiftUI can report
-        // `horizontalSizeClass` as `nil` for one frame, and if we gated on
-        // `== .compact` the request would never be consumed (no `.onChange`
-        // re-fires once the id is already in the store). Only `.regular`
-        // (iPad) is the explicit opt-out — `ConversationListView`'s own
-        // `NavigationSplitView` consumes the request there.
-        if horizontalSizeClass != .regular {
-            activeConversationId = request.conversationLocalId
-            closeDrawer()
-            store.consumeSelectionRequest(id: request.id)
-        }
+        // Consume the request at this single site regardless of size class.
+        // `activeConversationId` is the source of truth both for `compactRoot`
+        // and for `ConversationListView.selectedConversationId` (via binding),
+        // so writing it here drives both layouts. Centralizing the consume
+        // avoids a dual-observer race where the child would `consume` (nil'ing
+        // `store.selectionRequest`) before this handler could dismiss the
+        // Settings sheet, which would leave the target chat stranded behind
+        // the modal on iPad.
+        activeConversationId = request.conversationLocalId
+        closeDrawer()
+        store.consumeSelectionRequest(id: request.id)
     }
 }
 #endif
