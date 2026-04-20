@@ -95,7 +95,7 @@ public struct VInputChromeModifier: ViewModifier {
         if isFocused {
             return VColor.borderActive
         }
-        return VColor.borderBase
+        return colorScheme == .dark ? VColor.borderBase : VColor.borderElement
     }
 }
 
