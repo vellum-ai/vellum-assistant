@@ -890,16 +890,36 @@ export async function runBot(deps: BotDeps): Promise<void> {
         return;
       case "lifecycle": {
         const state: LifecycleState = msg.state;
-        // Drive local bot-state on `joined` / terminal states; the
-        // `joining` emitted by the extension is informational — we already
-        // set BotState before `waitForReady` returned.
+        // If shutdown is already in progress (SIGTERM, /leave, chrome-exit
+        // watcher, daemon-error), this lifecycle is either the extension
+        // echoing our own `leave` or a race with another trigger. shutdown()
+        // publishes the terminal lifecycle itself, so swallow here to avoid
+        // duplicate daemon events and double-firing the exit path.
+        if (shutdownInProgress) return;
+        // Drive local bot-state on `joined`; terminal states (`left`/`error`)
+        // delegate phase management to shutdown() below so we don't
+        // double-set. `joining` emitted by the extension is informational —
+        // we already set BotState before `waitForReady` returned.
         if (state === "joined") BotState.setPhase("joined");
-        if (state === "error") BotState.setPhase("error");
-        if (state === "left") BotState.setPhase("leaving");
         // Clear the extension-joined deadline as soon as the extension
         // reaches a terminal post-prejoin state. Idempotent.
-        if (state === "joined" || state === "error") {
+        if (state === "joined" || state === "error" || state === "left") {
           clearExtensionJoinedTimer();
+        }
+        // Terminal states from the extension — the meeting ended or the
+        // join irrecoverably failed. Fire a graceful shutdown so subsystems
+        // tear down promptly; otherwise the subsequent Chrome exit trips
+        // the unexpected-exit watcher and misclassifies a clean leave as
+        // an error. shutdown() publishes lifecycle:<state> itself, so we
+        // skip the forward-publish below to avoid a duplicate event.
+        if (state === "left" || state === "error") {
+          const exitCode = state === "error" ? 1 : 0;
+          void shutdown(state, msg.detail).then(() => {
+            detachSigterm();
+            detachSigint();
+            deps.exit(exitCode);
+          });
+          return;
         }
         // Rewrite meetingId to the authoritative UUID from env. The
         // extension derives its `meetingId` from `location.pathname` (the
