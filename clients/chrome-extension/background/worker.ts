@@ -335,7 +335,8 @@ async function getAssistantCatalogAndSelection(): Promise<{
   selected: AssistantDescriptor | null;
   authProfile: AssistantAuthProfile | null;
 }> {
-  const catalog = await listAssistants();
+  const environment = await getEffectiveEnvironment();
+  const catalog = await listAssistants({ environment });
   const selected = await resolveSelectedAssistant(catalog);
   const authProfile = selected
     ? resolveAuthProfile({ cloud: selected.cloud, runtimeUrl: selected.runtimeUrl })
@@ -680,7 +681,8 @@ async function buildRelayModeForAssistant(
     // without a manual re-pair click in startup/reconnect flows.
     if (isLocalTokenStale(local)) {
       try {
-        local = await bootstrapLocalToken(assistant.assistantId);
+        const environment = await getEffectiveEnvironment();
+        local = await bootstrapLocalToken(assistant.assistantId, { environment });
       } catch (err) {
         // Non-recoverable native-host failures (missing host, forbidden
         // origin, pair endpoint failure) — leave the original `local`
@@ -937,7 +939,8 @@ function createRelayConnection(
       // silently refresh tokens without user interaction.
       if (isLocalTokenStale(local) && selectedId) {
         try {
-          local = await bootstrapLocalToken(selectedId);
+          const environment = await getEffectiveEnvironment();
+          local = await bootstrapLocalToken(selectedId, { environment });
         } catch (err) {
           // Leave original `local` value unchanged so a stale-but-not-expired
           // token can still be used on reconnect.
@@ -1073,7 +1076,8 @@ async function connectPreflight(
     }
     // Interactive: auto-bootstrap the local capability token.
     const assistantId = assistant?.assistantId ?? null;
-    const stored = await bootstrapLocalToken(assistantId);
+    const environment = await getEffectiveEnvironment();
+    const stored = await bootstrapLocalToken(assistantId, { environment });
     const port = stored.assistantPort ?? assistant?.daemonPort ?? (await getRelayPort());
     return {
       kind: 'self-hosted',
@@ -1359,7 +1363,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       : loadSelectedAssistantId()
     )
       .then(async (resolvedId) => {
-        const stored = await bootstrapLocalToken(resolvedId);
+        const environment = await getEffectiveEnvironment();
+        const stored = await bootstrapLocalToken(resolvedId, { environment });
 
         // If the relay is intended to be connected, rotate the live socket
         // so the fresh paired token is applied immediately. Without this,
@@ -1413,7 +1418,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     // Fetch a fresh catalog so the selected ID is validated against the
     // current lockfile state — a stale ID from a previous session
     // should not be persisted.
-    listAssistants()
+    getEffectiveEnvironment()
+      .then((environment) => listAssistants({ environment }))
       .then(async (catalog) => {
         const match = catalog.assistants.find(
           (a) => a.assistantId === assistantId,
