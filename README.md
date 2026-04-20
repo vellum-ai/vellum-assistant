@@ -121,6 +121,28 @@ All commands target the default assistant. If you have multiple, pass the assist
 
 ---
 
+## Personality and intelligence
+
+| Area | Summary |
+|------|---------|
+| **Memory engine** | **Remembers what matters and forgets what doesn't.** Hybrid retrieval (dense + sparse with RRF) ranks results semantically and lexically. Each memory type has its own staleness window (e.g. identity facts last six months, events last three days). |
+| **Persistent memory** | **Long-term storage for what the assistant learns about you.** Structured memory items — identity, preferences, projects, events — are extracted by the LLM with source attribution and deduplication. Per-user and per-channel persona files, trusted contacts, and scoped memory isolation for private conversations. Embeddings run locally by default. |
+| **Identity layer** | **Defines who the assistant is, not just what it says.** Behavior lives in SOUL.md, and during onboarding, the assistant observes how you communicate and writes its own personality files. A per-user journal captures the assistant's reflections on past interactions. NOW.md acts as an ephemeral scratchpad for current focus and active threads. |
+| **Proactivity engine** | **Reaches out when something matters, without being asked.** Every hour it checks in with itself: re-reads its own notes, notices what's unfinished or due soon, and sends a message if needed. Notifications are routed to the right channel and won't interrupt you if you're already talking. |
+
+---
+
+## Infra and security
+
+| Area | Summary |
+|------|---------|
+| **Trust engine** | **Decides who can do what, and defaults to no.** Fail-closed trust system that resolves actor identity once (guardian, trusted, or unknown) and enforces it everywhere. Untrusted actors cannot read or write memory, trigger tools, or escalate. Your credentials live in a separate process and never reach the model. |
+| **Skills** | **Add new capabilities through sandboxed plugins.** Manifest-driven plugins (SKILL.md + TOOLS.json) that inject tools and prompt sections at runtime. Skills can be bundled, installed from a catalog, or added from the workspace. |
+| **Channels** | **One assistant, everywhere you need it.** Use it from the macOS app, Telegram, or Slack, with shared memory across all of them. More channels coming soon. |
+| **Multi-provider support** | **Swap models without changing anything else.** Supports Anthropic Claude, OpenAI, Google Gemini, and Ollama for local models. Embeddings follow the same pattern: local ONNX by default, with automatic fallback to cloud providers. |
+
+---
+
 ## Documentation
 
 | Section | What's covered |
