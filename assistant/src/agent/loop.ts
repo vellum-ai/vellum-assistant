@@ -16,7 +16,9 @@ import {
   applyStreamingSubstitution,
   applySubstitutions,
 } from "../tools/sensitive-output-placeholders.js";
+import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import { isRetryableNetworkError } from "../util/retry.js";
 
 const log = getLogger("agent-loop");
 
@@ -111,6 +113,42 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
 
 const MAX_CONSECUTIVE_ERROR_NUDGES = 3;
 const MAX_EMPTY_RESPONSE_RETRIES = 1;
+
+/**
+ * User-config HTTP status codes that should never page the on-call: billing
+ * exhaustion (402), invalid credentials (401), and forbidden/plan-gated (403).
+ * The user-facing error path already surfaces an actionable message (e.g.
+ * credits_exhausted); a Sentry issue adds noise without engineering signal.
+ */
+const USER_CONFIG_STATUS_CODES = new Set([401, 402, 403]);
+
+/**
+ * Whether an agent-loop error should be reported to Sentry. Suppresses:
+ *
+ *  - `ProviderError` carrying a user-config status code (401/402/403) — these
+ *    are bad API keys, exhausted billing, or plan gates, not engineering bugs.
+ *  - Retry-exhausted transient network errors (`retriesExhausted === true` +
+ *    still categorized as retryable network) — the retry loop already tried
+ *    its best; the user's network was flaky, not our code.
+ *
+ * Everything else (5xx with no retry-exhaustion tag, surprise errors, tool
+ * failures, etc.) still pages.
+ */
+export function shouldCaptureAgentLoopError(err: Error): boolean {
+  if (
+    err instanceof ProviderError &&
+    err.statusCode !== undefined &&
+    USER_CONFIG_STATUS_CODES.has(err.statusCode)
+  ) {
+    return false;
+  }
+  const exhausted = (err as Error & { retriesExhausted?: boolean })
+    .retriesExhausted;
+  if (exhausted === true && isRetryableNetworkError(err)) {
+    return false;
+  }
+  return true;
+}
 
 export interface ResolvedSystemPrompt {
   systemPrompt: string;
@@ -767,7 +805,9 @@ export class AgentLoop {
           { err, turn: toolUseTurns, messageCount: history.length },
           "Agent loop error during turn processing",
         );
-        Sentry.captureException(err);
+        if (shouldCaptureAgentLoopError(err)) {
+          Sentry.captureException(err);
+        }
         onEvent({ type: "error", error: err });
         break;
       }

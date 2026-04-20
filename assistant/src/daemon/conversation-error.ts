@@ -121,7 +121,7 @@ export interface ErrorContext {
  * instead of `conversation_error`.
  *
  * Provider SDKs wrap the underlying AbortError in their own error class
- * (e.g. `ProviderError("Anthropic API error (undefined): Request was aborted.")`),
+ * (e.g. `ProviderError("Anthropic API error: Request was aborted.")`),
  * which erases the `AbortError` name. To compensate, the daemon tags every
  * `controller.abort(reason)` call with an `AbortReason` object — when the
  * wrapped `ProviderError` carries that tagged reason, we treat it as a user
