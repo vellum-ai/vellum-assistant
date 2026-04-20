@@ -1698,6 +1698,22 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/guardian/reset-bootstrap": {
+        post: {
+          summary: "Reset guardian bootstrap lock",
+          description:
+            "Loopback-only endpoint (bare-metal mode) that clears the guardian bootstrap lockfile so the client can re-run guardian init. Used as a recovery path when the stored actor token has been lost but the bootstrap lock still blocks re-provisioning. Returns 403 in Docker mode.",
+          operationId: "guardianResetBootstrap",
+          responses: {
+            "200": { description: "Bootstrap lock cleared" },
+            "403": {
+              description:
+                "Forbidden — request not from loopback origin, or deployment is in Docker mode",
+            },
+            "500": { description: "Failed to clear bootstrap lock" },
+          },
+        },
+      },
       "/v1/channel-verification-sessions/revoke": {
         post: {
           summary: "Revoke verification binding",
