@@ -6,6 +6,11 @@ import { deleteMemoryCheckpoint } from "./checkpoints.js";
 import { getConversationMemoryScopeId } from "./conversation-crud.js";
 import { getDb, rawGet } from "./db.js";
 import { getMemoryBackendStatus } from "./embedding-backend.js";
+import {
+  type CompactionOptions,
+  type CompactionResult,
+  compactLongMemories,
+} from "./graph/compaction.js";
 import { handleRecall, type RecallResult } from "./graph/tool-handlers.js";
 import {
   enqueueBackfillJob,
@@ -136,6 +141,19 @@ export async function cleanupShortSegments(opts?: {
     "Cleaned up short segments",
   );
   return { removed, failed };
+}
+
+// ── Long-memory compaction ────────────────────────────────────────────
+
+/**
+ * One-off backfill that rewrites over-long memory node content to fit the
+ * extraction prompt's 1-3 sentence / ~300 character length cap. Preview
+ * mode (opts.apply=false) lists candidates without calling the LLM.
+ */
+export async function compactLongMemoryNodes(
+  opts: CompactionOptions = {},
+): Promise<CompactionResult> {
+  return compactLongMemories(opts);
 }
 
 // ── Re-extraction ──────────────────────────────────────────────────────
