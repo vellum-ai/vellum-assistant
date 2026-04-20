@@ -753,6 +753,12 @@ export function createHttpServer(
       try {
         await renderer.start();
       } catch (err) {
+        // `start()` may have partially initialized resources (GPU
+        // session, WebRTC connection, spawned tab) before throwing.
+        // Best-effort teardown so an unexpected error doesn't leak
+        // them — `avatarRenderer` is still null, so no later
+        // `/avatar/disable` call would clean up.
+        await renderer.stop().catch(() => {});
         if (err instanceof AvatarRendererUnavailableError) {
           return c.json(
             {
