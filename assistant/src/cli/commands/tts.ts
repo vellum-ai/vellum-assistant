@@ -46,6 +46,15 @@ function extensionForMime(mimeType: string): string {
       return "webm";
     case "audio/opus":
       return "opus";
+    // Raw PCM — ElevenLabs `pcm_{16000,22050,24000,44100}`, Deepgram
+    // `linear16`, xAI `pcm`. No universal container format; `.pcm` is the
+    // conventional extension for headerless linear-PCM samples.
+    case "audio/pcm":
+      return "pcm";
+    // µ-law telephony audio — ElevenLabs `ulaw_8000`. `.ulaw` is the
+    // conventional extension for raw 8 kHz µ-law samples.
+    case "audio/basic":
+      return "ulaw";
     default:
       return "bin";
   }
@@ -190,41 +199,15 @@ Examples:
         // a separate process and each process has its own registry.
         registerBuiltinTtsProviders();
 
+        // Synthesis step — any error here is a provider/synthesis failure.
+        // Billing has NOT yet occurred for the post-synthesis write path.
+        let result: Awaited<ReturnType<typeof synthesizeText>>;
         try {
-          const result = await synthesizeText({
+          result = await synthesizeText({
             text: messageText,
             useCase,
             voiceId: opts.voice,
           });
-
-          const filePath =
-            opts.output ??
-            join(
-              tmpdir(),
-              `vellum-tts-${randomUUID()}.${extensionForMime(result.contentType)}`,
-            );
-
-          const dir = dirname(filePath);
-          if (opts.output) {
-            mkdirSync(dir, { recursive: true });
-          } else if (!existsSync(dir)) {
-            mkdirSync(dir, { recursive: true });
-          }
-
-          writeFileSync(filePath, result.audio);
-
-          if (jsonOutput) {
-            process.stdout.write(
-              JSON.stringify({
-                ok: true,
-                path: filePath,
-                contentType: result.contentType,
-                sizeBytes: result.audio.length,
-              }) + "\n",
-            );
-          } else {
-            process.stdout.write(filePath + "\n");
-          }
         } catch (err) {
           if (
             err instanceof TtsSynthesisError &&
@@ -240,6 +223,47 @@ Examples:
           const msg = err instanceof Error ? err.message : String(err);
           emitError(`TTS synthesis failed: ${msg}`);
           process.exitCode = 1;
+          return;
+        }
+
+        // Write step — synthesis has already succeeded (and been billed) by
+        // this point. Errors from mkdir/writeFile are filesystem failures,
+        // NOT synthesis failures, and must be reported as such so the user
+        // understands their audio was generated but could not be persisted.
+        const filePath =
+          opts.output ??
+          join(
+            tmpdir(),
+            `vellum-tts-${randomUUID()}.${extensionForMime(result.contentType)}`,
+          );
+
+        try {
+          const dir = dirname(filePath);
+          if (opts.output) {
+            mkdirSync(dir, { recursive: true });
+          } else if (!existsSync(dir)) {
+            mkdirSync(dir, { recursive: true });
+          }
+
+          writeFileSync(filePath, result.audio);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          emitError(`Failed to write audio to ${filePath}: ${msg}`);
+          process.exitCode = 1;
+          return;
+        }
+
+        if (jsonOutput) {
+          process.stdout.write(
+            JSON.stringify({
+              ok: true,
+              path: filePath,
+              contentType: result.contentType,
+              sizeBytes: result.audio.length,
+            }) + "\n",
+          );
+        } else {
+          process.stdout.write(filePath + "\n");
         }
       },
     );

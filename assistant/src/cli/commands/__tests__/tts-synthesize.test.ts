@@ -41,6 +41,8 @@ let mkdirCalls: Array<{ path: string; options: unknown }> = [];
 let readFileSyncImpl: (path: string, encoding: string) => string = () => {
   throw new Error("stdin unavailable");
 };
+let writeFileSyncImpl: ((path: string, buffer: Buffer) => void) | null = null;
+let mkdirSyncImpl: ((path: string, options: unknown) => void) | null = null;
 
 // ---------------------------------------------------------------------------
 // Mocks — must be before module-under-test import
@@ -97,10 +99,12 @@ mock.module("node:fs", () => ({
   existsSync: () => true,
   mkdirSync: (path: string, options: unknown) => {
     mkdirCalls.push({ path, options });
+    if (mkdirSyncImpl) mkdirSyncImpl(path, options);
   },
   readFileSync: (path: string, encoding: string) =>
     readFileSyncImpl(path, encoding),
   writeFileSync: (path: string, buffer: Buffer) => {
+    if (writeFileSyncImpl) writeFileSyncImpl(path, buffer);
     writeFileCalls.push({ path, buffer });
   },
 }));
@@ -187,6 +191,8 @@ beforeEach(() => {
   readFileSyncImpl = () => {
     throw new Error("stdin unavailable");
   };
+  writeFileSyncImpl = null;
+  mkdirSyncImpl = null;
   process.exitCode = 0;
 });
 
@@ -457,5 +463,132 @@ describe("--json output", () => {
     expect(parsed.error).toContain(
       "assistant config set services.tts.provider",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MIME → extension coverage
+// ---------------------------------------------------------------------------
+
+describe("MIME → extension coverage", () => {
+  test("audio/pcm (ElevenLabs pcm_*, Deepgram linear16, xAI pcm) produces .pcm", async () => {
+    mockSynthesisResult = {
+      audio: Buffer.from("fake-pcm"),
+      contentType: "audio/pcm",
+    };
+
+    const { exitCode } = await runCommand([
+      "tts",
+      "synthesize",
+      "--text",
+      "hello",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(writeFileCalls.length).toBe(1);
+    expect(writeFileCalls[0].path.endsWith(".pcm")).toBe(true);
+  });
+
+  test("audio/basic (ElevenLabs ulaw_8000) produces .ulaw", async () => {
+    mockSynthesisResult = {
+      audio: Buffer.from("fake-ulaw"),
+      contentType: "audio/basic",
+    };
+
+    const { exitCode } = await runCommand([
+      "tts",
+      "synthesize",
+      "--text",
+      "hello",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(writeFileCalls.length).toBe(1);
+    expect(writeFileCalls[0].path.endsWith(".ulaw")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Write-path failure distinction
+// ---------------------------------------------------------------------------
+
+describe("write-path failures", () => {
+  test("writeFileSync EISDIR surfaces as 'Failed to write audio', not synthesis failure", async () => {
+    writeFileSyncImpl = () => {
+      const err = new Error(
+        "EISDIR: illegal operation on a directory, open '/tmp'",
+      ) as NodeJS.ErrnoException;
+      err.code = "EISDIR";
+      throw err;
+    };
+
+    const { exitCode, stderr } = await runCommand([
+      "tts",
+      "synthesize",
+      "--text",
+      "hello",
+      "--output",
+      "/tmp",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("Failed to write audio");
+    expect(stderr).toContain("/tmp");
+    expect(stderr).not.toContain("TTS synthesis failed");
+    // synthesizeText was called — synthesis succeeded before the write threw.
+    expect(synthesizeCalls.length).toBe(1);
+  });
+
+  test("mkdirSync EACCES surfaces as 'Failed to write audio', not synthesis failure", async () => {
+    mkdirSyncImpl = () => {
+      const err = new Error(
+        "EACCES: permission denied, mkdir '/readonly/dir'",
+      ) as NodeJS.ErrnoException;
+      err.code = "EACCES";
+      throw err;
+    };
+
+    const { exitCode, stderr } = await runCommand([
+      "tts",
+      "synthesize",
+      "--text",
+      "hello",
+      "--output",
+      "/readonly/dir/out.mp3",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("Failed to write audio");
+    expect(stderr).toContain("/readonly/dir/out.mp3");
+    expect(stderr).not.toContain("TTS synthesis failed");
+    expect(synthesizeCalls.length).toBe(1);
+    // writeFileSync never reached because mkdir threw first.
+    expect(writeFileCalls.length).toBe(0);
+  });
+
+  test("write-path failure in --json mode emits distinct error", async () => {
+    writeFileSyncImpl = () => {
+      const err = new Error(
+        "EISDIR: illegal operation on a directory",
+      ) as NodeJS.ErrnoException;
+      err.code = "EISDIR";
+      throw err;
+    };
+
+    const { exitCode, stdout } = await runCommand([
+      "tts",
+      "synthesize",
+      "--text",
+      "hello",
+      "--output",
+      "/tmp",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Failed to write audio");
+    expect(parsed.error).not.toContain("TTS synthesis failed");
   });
 });
