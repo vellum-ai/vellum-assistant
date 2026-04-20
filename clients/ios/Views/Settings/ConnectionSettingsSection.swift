@@ -4,7 +4,6 @@ import VellumAssistantShared
 
 struct DaemonConnectionSection: View {
     @EnvironmentObject var clientProvider: ClientProvider
-    @Bindable var authManager: AuthManager
 
     /// Describes which UserDefaults key populated the current connection, so the
     /// status row can label the URL appropriately. Mirrors the branches of
@@ -73,58 +72,6 @@ struct DaemonConnectionSection: View {
             } header: {
                 Text("Connection")
             }
-
-            // MARK: - Vellum Account
-
-            Section {
-                if authManager.isLoading {
-                    HStack {
-                        Text("Checking session...")
-                        Spacer()
-                        ProgressView()
-                    }
-                } else if let user = authManager.currentUser {
-                    if let email = user.email {
-                        LabeledContent("Email", value: email)
-                    }
-                    if let display = user.display {
-                        LabeledContent("Name", value: display)
-                    }
-                    Button("Log Out", role: .destructive) {
-                        Task {
-                            await authManager.logout()
-                        }
-                    }
-                } else {
-                    Button {
-                        Task { await authManager.startWorkOSLogin() }
-                    } label: {
-                        if authManager.isSubmitting {
-                            HStack {
-                                Text("Signing in...")
-                                Spacer()
-                                ProgressView()
-                            }
-                        } else {
-                            Text("Log in with Vellum")
-                        }
-                    }
-                    .disabled(authManager.isSubmitting)
-                }
-
-                if let error = authManager.errorMessage {
-                    Text(error)
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.systemNegativeStrong)
-                }
-                } header: {
-                    Text("Vellum Account")
-                } footer: {
-                    if !authManager.isAuthenticated {
-                        Text("Sign in to connect to your cloud assistant.")
-                    }
-                }
-
         }
         .navigationTitle("Connect")
         .navigationBarTitleDisplayMode(.inline)

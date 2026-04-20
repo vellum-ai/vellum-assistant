@@ -12,16 +12,11 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                // Account section hidden until platform.vellum.ai is deployed.
-                // Only show if the user is already authenticated (e.g. from a
-                // previous session) so they can see their info and log out.
-                if authManager.isAuthenticated {
-                    AccountSection(authManager: authManager)
-                }
+                AccountSection(authManager: authManager)
 
                 Section {
                     NavigationLink {
-                        DaemonConnectionSection(authManager: authManager)
+                        DaemonConnectionSection()
                     } label: {
                         Label { Text("Connect") } icon: { VIconView(.monitor, size: 14) }
                     }
@@ -41,7 +36,7 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .navigationDestination(isPresented: $navigateToConnect) {
-                DaemonConnectionSection(authManager: authManager)
+                DaemonConnectionSection()
             }
         }
     }
@@ -71,6 +66,15 @@ struct AccountSection: View {
                     Task {
                         await authManager.logout()
                     }
+                }
+            } else if authManager.isValidationFailed {
+                HStack {
+                    Text("Reconnecting to Vellum...")
+                    Spacer()
+                    ProgressView()
+                }
+                Button("Retry") {
+                    Task { await authManager.checkSession() }
                 }
             } else {
                 Button {

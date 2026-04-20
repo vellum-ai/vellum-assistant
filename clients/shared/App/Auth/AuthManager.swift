@@ -9,10 +9,19 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AuthManager")
 
+/// The four authoritative auth states.
+///
+/// `.validationFailed` distinguishes a transient session-validation failure
+/// (network unreachable, server 5xx) from `.unauthenticated` (server
+/// authoritatively rejected the session, or no session token on disk).
+/// UI must treat `.validationFailed` as "reconnecting" — not as "logged out"
+/// — because the token on disk may still be valid and the next successful
+/// validation can restore `.authenticated` without a new login.
 public enum AuthState {
     case loading
     case unauthenticated
     case authenticated(AllauthUser)
+    case validationFailed(lastError: Error)
 }
 
 @Observable
@@ -43,6 +52,21 @@ public final class AuthManager {
         return nil
     }
 
+    /// True when validation failed transiently despite a session token on
+    /// disk. The user is still (probably) logged in — UI should show a
+    /// "reconnecting" state, not a login button.
+    public var isValidationFailed: Bool {
+        if case .validationFailed = state { return true }
+        return false
+    }
+
+    /// Last error recorded when validation failed transiently, for logging
+    /// or optional user-facing display.
+    public var lastValidationError: Error? {
+        if case .validationFailed(let error) = state { return error }
+        return nil
+    }
+
     public func checkSession() async {
         state = .loading
         errorMessage = nil
@@ -54,7 +78,7 @@ public final class AuthManager {
 
         var lastError: Error?
         for attempt in 1...3 {
-            guard !Task.isCancelled else { state = .unauthenticated; return }
+            if Task.isCancelled { return }
             do {
                 let response = try await authService.getSession(timeout: 10)
                 if response.status == 200, response.meta?.is_authenticated != false, let user = response.data?.user {
@@ -62,29 +86,30 @@ public final class AuthManager {
                     await resolveOrganizationIdAfterAuth()
                     return
                 } else {
-                    // Server responded but session is invalid — no retry needed
+                    // Server authoritatively rejected the session —
+                    // no retry, drop straight to unauthenticated.
                     state = .unauthenticated
                     return
                 }
             } catch is CancellationError {
-                state = .unauthenticated
+                // Task was cancelled (app backgrounded, view dismissed, etc).
+                // Do not mutate state — the caller is tearing down or will
+                // re-invoke. Leaving state alone avoids spurious logout UI.
                 return
             } catch {
-                if Task.isCancelled {
-                    state = .unauthenticated
-                    return
-                }
                 lastError = error
                 log.warning("Session check attempt \(attempt)/3 failed: \(error.localizedDescription, privacy: .public)")
                 if attempt < 3 {
                     try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds between retries
-                    guard !Task.isCancelled else { state = .unauthenticated; return }
+                    if Task.isCancelled { return }
                 }
             }
         }
-        // All retries exhausted — network likely still unavailable
+        // All retries exhausted with a session token on disk: treat as
+        // transient validation failure, NOT as unauthenticated. The token
+        // may still be valid; the next re-validation can recover.
         log.error("Session check failed after 3 attempts: baseURL=\(VellumEnvironment.resolvedPlatformURL, privacy: .public) error=\(lastError?.localizedDescription ?? "unknown", privacy: .public)")
-        state = .unauthenticated
+        state = .validationFailed(lastError: lastError ?? AuthServiceError.networkError(URLError(.unknown)))
     }
 
     public func startWorkOSLogin() async {
