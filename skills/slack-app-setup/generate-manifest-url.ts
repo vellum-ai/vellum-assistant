@@ -12,7 +12,9 @@ const name = process.argv[2];
 const desc = process.argv[3] ?? "";
 
 if (!name) {
-  console.error("Usage: bun generate-manifest-url.ts <bot-name> [bot-description]");
+  console.error(
+    "Usage: bun generate-manifest-url.ts <bot-name> [bot-description]",
+  );
   process.exit(1);
 }
 
