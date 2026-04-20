@@ -43,12 +43,14 @@ import {
   healthToPhase,
   shouldExpandTroubleshooting,
   hasTroubleshootingControls,
+  deriveEnvironmentHint,
   type ConnectionHealthState,
   type ConnectionHealthDetail,
   type ConnectionPhase,
   type GetStatusResponse,
   type AssistantsGetResponse,
   type AssistantSelectResponse,
+  type EnvironmentStateResponse,
 } from './popup-state.js';
 
 const DEFAULT_RELAY_PORT = 7830;
@@ -93,6 +95,13 @@ const assistantSelectorGroup = document.getElementById(
 const assistantSelect = document.getElementById(
   'assistant-select',
 ) as HTMLSelectElement;
+
+const environmentSelect = document.getElementById(
+  'environment-select',
+) as HTMLSelectElement;
+const environmentHint = document.getElementById(
+  'environment-hint',
+) as HTMLParagraphElement;
 
 // ── Current assistant state ─────────────────────────────────────────
 //
@@ -772,3 +781,94 @@ btnCloudSignIn.addEventListener('click', async () => {
 });
 
 refreshCloudStatus();
+
+// ── Environment selector ────────────────────────────────────────────
+//
+// The environment dropdown allows developers to override the build-time
+// default environment for the current extension profile. This changes
+// which cloud API and web URLs are used for sign-in, pairing, and relay.
+//
+// On popup open we load the effective environment from the worker via
+// `environment-get` and render the selected value. On change we persist
+// the override via `environment-set`, refresh the assistant catalog and
+// auth status, and force a disconnect/reconnect if currently connected.
+
+/**
+ * Load environment state from the worker and render the selector.
+ */
+function loadEnvironmentState(): void {
+  chrome.runtime.sendMessage({ type: 'environment-get' }, (response: EnvironmentStateResponse) => {
+    if (chrome.runtime.lastError || !response?.ok) return;
+
+    const effective = response.effectiveEnvironment ?? 'dev';
+    environmentSelect.value = effective;
+    environmentHint.textContent = deriveEnvironmentHint(
+      response.overrideEnvironment,
+      response.buildDefaultEnvironment,
+    );
+  });
+}
+
+// Load on popup open.
+loadEnvironmentState();
+
+/**
+ * Handle environment dropdown changes.
+ *
+ * Orchestration after environment-set:
+ *   1. Refresh assistant catalog (endpoints may have changed).
+ *   2. Refresh local/cloud auth status panels.
+ *   3. If currently connected, disconnect and reconnect so the new
+ *      environment-sensitive endpoints take effect immediately.
+ */
+environmentSelect.addEventListener('change', async () => {
+  const newEnv = environmentSelect.value;
+  errorText.style.display = 'none';
+  hideDebugDetails();
+
+  // Persist the environment override via the worker.
+  const response = await new Promise<EnvironmentStateResponse>((resolve) => {
+    chrome.runtime.sendMessage(
+      { type: 'environment-set', environment: newEnv },
+      (r: EnvironmentStateResponse) => {
+        if (chrome.runtime.lastError) {
+          resolve({ ok: false, error: chrome.runtime.lastError.message ?? 'Unknown error' });
+          return;
+        }
+        resolve(r ?? { ok: false, error: 'No response from service worker' });
+      },
+    );
+  });
+
+  if (!response.ok) {
+    showError(response.error ?? 'Failed to set environment');
+    return;
+  }
+
+  // Update the hint to reflect the new state.
+  environmentHint.textContent = deriveEnvironmentHint(
+    response.overrideEnvironment,
+    response.buildDefaultEnvironment,
+  );
+
+  // Refresh the assistant catalog — environment change may affect
+  // which assistants are available and their auth endpoints.
+  loadAssistantCatalog();
+
+  // Refresh auth status panels.
+  void refreshLocalStatus();
+  void refreshCloudStatus();
+
+  // If currently connected, force disconnect then reconnect so the new
+  // environment-sensitive endpoints take effect immediately. The worker's
+  // `environment-set` handler does NOT auto-reconnect — the popup
+  // orchestrates this explicitly.
+  if (currentHealthState === 'connected' || currentHealthState === 'connecting' || currentHealthState === 'reconnecting') {
+    // Disconnect first.
+    await new Promise<void>((resolve) => {
+      chrome.runtime.sendMessage({ type: 'pause' }, () => resolve());
+    });
+    // Reconnect with the new environment.
+    await requestConnect();
+  }
+});

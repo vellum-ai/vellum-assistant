@@ -601,6 +601,17 @@
 
     <div id="troubleshoot-body" hidden>
       <div class="advanced-setting">
+        <label for="environment-select">Environment</label>
+        <select id="environment-select">
+          <option value="local">Local</option>
+          <option value="dev">Development</option>
+          <option value="staging">Staging</option>
+          <option value="production">Production</option>
+        </select>
+        <p class="hint" id="environment-hint">Overrides the build default for this extension profile.</p>
+      </div>
+
+      <div class="advanced-setting">
         <label for="port-input">Connection port</label>
         <input
           type="text"
