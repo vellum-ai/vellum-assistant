@@ -13,6 +13,14 @@ private let log = Logger(
     category: "InputBarView"
 )
 
+// Holder class so @StateObject's autoclosure init fires once per view lifetime. With plain
+// @State the AVAudioEngine() default is re-evaluated on every struct init, causing rapid
+// alloc/dealloc of CoreAudio resources.
+@MainActor
+private final class AudioEngineHolder: ObservableObject {
+    let engine = AVAudioEngine()
+}
+
 struct InputBarView: View {
     @Binding var text: String
     var isInputFocused: FocusState<Bool>.Binding
@@ -53,7 +61,8 @@ struct InputBarView: View {
     /// recognition task without requiring a direct SFSpeechRecognitionTask reference.
     @State private var cancelRecognitionTask: (() -> Void)?
     @State private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-    @State private var audioEngine = AVAudioEngine()
+    @StateObject private var audioEngineHolder = AudioEngineHolder()
+    private var audioEngine: AVAudioEngine { audioEngineHolder.engine }
     @State private var showPhotosPicker = false
     @State private var showDocumentPicker = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
