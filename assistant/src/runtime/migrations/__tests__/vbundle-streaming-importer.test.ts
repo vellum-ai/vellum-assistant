@@ -1160,3 +1160,381 @@ describe("streamCommitImport — preserves live workspace paths when bundle omit
     expect(readFileSync(postDbPath)).toEqual(Buffer.from(newDbBytes));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Gap A — legacy-only bundle (no `workspace/*` entries) writes each file in
+// place WITHOUT triggering the atomic workspace swap. This matches
+// commitImport's legacy branch: a `data/db/assistant.db`- or
+// `config/settings.json`- style bundle preserves arbitrary live files
+// outside WORKSPACE_PRESERVE_PATHS (where the swap path would have wiped
+// them). Regression test for the self-review Gap A finding.
+// ---------------------------------------------------------------------------
+
+describe("streamCommitImport — legacy-only bundle writes in place", () => {
+  let workspaceDir: string;
+  beforeEach(() => {
+    workspaceDir = freshWorkspace();
+  });
+  afterEach(() => {
+    const parent = join(workspaceDir, "..");
+    try {
+      rmSync(parent, { recursive: true, force: true });
+    } catch {
+      // best-effort
+    }
+  });
+
+  test("bundle carrying only `data/db/assistant.db` writes the DB in place and leaves unrelated live files untouched", async () => {
+    // Seed the live workspace with BOTH a pre-existing `data/db/assistant.db`
+    // (which the bundle will overwrite) AND an unrelated marker file at
+    // top-level that is not in WORKSPACE_PRESERVE_PATHS — proving the old
+    // atomic-swap path would have wiped it. Under the legacy-only branch
+    // that file must survive.
+    mkdirSync(join(workspaceDir, "data", "db"), { recursive: true });
+    writeFileSync(
+      join(workspaceDir, "data", "db", "assistant.db"),
+      "OLD-LIVE-DB",
+    );
+    writeFileSync(
+      join(workspaceDir, "unrelated-top-level.txt"),
+      "must-survive-legacy-import\n",
+    );
+    // A sibling directory — also outside preserve paths — that the atomic
+    // swap would have wiped.
+    mkdirSync(join(workspaceDir, "custom-user-dir"), { recursive: true });
+    writeFileSync(
+      join(workspaceDir, "custom-user-dir", "note.md"),
+      "custom note\n",
+    );
+
+    const newDbBytes = new TextEncoder().encode("NEW-LEGACY-BUNDLE-DB");
+    const { archive } = buildVBundle({
+      files: [
+        {
+          // Legacy archive path — NO `workspace/` prefix. This is what
+          // older bundle exports produce.
+          path: "data/db/assistant.db",
+          data: newDbBytes,
+        },
+      ],
+    });
+
+    const result = await streamCommitImport({
+      source: readableFrom(archive),
+      pathResolver: new DefaultPathResolver(workspaceDir),
+      workspaceDir,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+
+    // Bundle's DB landed at the right live location with the new bytes.
+    const postDbPath = join(workspaceDir, "data", "db", "assistant.db");
+    expect(readFileSync(postDbPath)).toEqual(Buffer.from(newDbBytes));
+
+    // Unrelated live files still present — the atomic-swap path would
+    // have wiped them. Their survival here proves we took the in-place
+    // legacy branch.
+    expect(
+      readFileSync(join(workspaceDir, "unrelated-top-level.txt"), "utf8"),
+    ).toBe("must-survive-legacy-import\n");
+    expect(
+      readFileSync(join(workspaceDir, "custom-user-dir", "note.md"), "utf8"),
+    ).toBe("custom note\n");
+
+    // The legacy entry is reported as "overwritten" (pre-existing DB),
+    // with a backup path captured alongside.
+    const dbEntry = result.report.files.find(
+      (f) => f.path === "data/db/assistant.db",
+    );
+    expect(dbEntry).toBeDefined();
+    expect(dbEntry!.action).toBe("overwritten");
+    expect(dbEntry!.backup_path).not.toBeNull();
+    // And the report summary reflects the same.
+    expect(result.report.summary.files_overwritten).toBe(1);
+    expect(result.report.summary.backups_created).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gap B — carry-over does per-file merge inside preserved directories.
+// A bundle that writes ONE file under `workspace/data/qdrant/` must not
+// cause the rest of the live `data/qdrant/` tree to be wiped by the
+// atomic swap. Regression test for the self-review Gap B finding.
+// ---------------------------------------------------------------------------
+
+describe("streamCommitImport — preserved-path carry-over is per-file", () => {
+  let workspaceDir: string;
+  beforeEach(() => {
+    workspaceDir = freshWorkspace();
+  });
+  afterEach(() => {
+    const parent = join(workspaceDir, "..");
+    try {
+      rmSync(parent, { recursive: true, force: true });
+    } catch {
+      // best-effort
+    }
+  });
+
+  test("bundle touching one file in data/qdrant/ does not wipe other live files in the same preserved dir", async () => {
+    // Populate the live qdrant store with several nested files / dirs.
+    // Only one of these paths overlaps with what the bundle will write;
+    // the rest must survive the atomic swap via per-file carry-over.
+    mkdirSync(join(workspaceDir, "data", "qdrant", "segments"), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(workspaceDir, "data", "qdrant", "segments", "0.seg"),
+      "seg-0-live",
+    );
+    writeFileSync(
+      join(workspaceDir, "data", "qdrant", "segments", "1.seg"),
+      "seg-1-live",
+    );
+    // A top-level file inside the preserved dir that the bundle will
+    // overwrite.
+    writeFileSync(
+      join(workspaceDir, "data", "qdrant", "meta.json"),
+      '{"stale":true}',
+    );
+    // A sibling directory the bundle never touches — must survive.
+    mkdirSync(join(workspaceDir, "data", "qdrant", "wal"), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(workspaceDir, "data", "qdrant", "wal", "wal-000"),
+      "wal-entry",
+    );
+
+    // Bundle carries exactly ONE file under `data/qdrant/` AND at least
+    // one other `workspace/*` entry so the atomic-swap path fires (not
+    // the legacy in-place path).
+    const newMeta = new TextEncoder().encode('{"fresh":true}');
+    const { archive } = buildVBundle({
+      files: [
+        {
+          path: "workspace/data/qdrant/meta.json",
+          data: newMeta,
+        },
+        {
+          path: "workspace/marker.txt",
+          data: new TextEncoder().encode("marker\n"),
+        },
+      ],
+    });
+
+    const result = await streamCommitImport({
+      source: readableFrom(archive),
+      pathResolver: new DefaultPathResolver(workspaceDir),
+      workspaceDir,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+
+    // Bundle's overwrite landed.
+    expect(
+      readFileSync(join(workspaceDir, "data", "qdrant", "meta.json")),
+    ).toEqual(Buffer.from(newMeta));
+
+    // All the other live files in the preserved dir survived.
+    expect(
+      readFileSync(
+        join(workspaceDir, "data", "qdrant", "segments", "0.seg"),
+        "utf8",
+      ),
+    ).toBe("seg-0-live");
+    expect(
+      readFileSync(
+        join(workspaceDir, "data", "qdrant", "segments", "1.seg"),
+        "utf8",
+      ),
+    ).toBe("seg-1-live");
+    expect(
+      readFileSync(
+        join(workspaceDir, "data", "qdrant", "wal", "wal-000"),
+        "utf8",
+      ),
+    ).toBe("wal-entry");
+
+    // And the workspace-targeted file outside the preserved dir landed.
+    expect(readFileSync(join(workspaceDir, "marker.txt"), "utf8")).toBe(
+      "marker\n",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gap C — resource ceilings. Bundles declaring too many entries or too
+// many bytes of data should abort with validation_failed before we commit
+// anything to disk. Uses the test-only `maxBundleEntries` /
+// `maxBundleBytes` knobs so we can exercise the abort with tiny
+// fixtures. Regression test for the self-review Gap C finding.
+// ---------------------------------------------------------------------------
+
+describe("streamCommitImport — bundle resource ceilings", () => {
+  let workspaceDir: string;
+  beforeEach(() => {
+    workspaceDir = freshWorkspace();
+  });
+  afterEach(() => {
+    const parent = join(workspaceDir, "..");
+    try {
+      rmSync(parent, { recursive: true, force: true });
+    } catch {
+      // best-effort
+    }
+  });
+
+  /** Assert no sibling temp/backup dirs remain. */
+  function assertNoLeftoverTempDirs(): void {
+    const parent = join(workspaceDir, "..");
+    const base = workspaceDir.split("/").pop()!;
+    const siblings = readdirSync(parent);
+    const leftover = siblings.filter(
+      (name) =>
+        name.startsWith(`${base}.import-`) ||
+        name.startsWith(`${base}.pre-import-`),
+    );
+    expect(leftover).toEqual([]);
+  }
+
+  test("bundle declaring more entries than maxBundleEntries → validation_failed with bundle_too_many_entries", async () => {
+    mkdirSync(workspaceDir, { recursive: true });
+    writeFileSync(join(workspaceDir, "existing.txt"), "keep me\n");
+
+    // Three small files — we'll set the cap to 2 so the manifest's
+    // declared-count check trips before any tar entry is processed.
+    const { archive } = buildVBundle({
+      files: [
+        { path: "workspace/a.txt", data: new TextEncoder().encode("a") },
+        { path: "workspace/b.txt", data: new TextEncoder().encode("b") },
+        { path: "workspace/c.txt", data: new TextEncoder().encode("c") },
+      ],
+    });
+
+    const result = await streamCommitImport({
+      source: readableFrom(archive),
+      pathResolver: new DefaultPathResolver(workspaceDir),
+      workspaceDir,
+      maxBundleEntries: 2,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.reason).toBe("validation_failed");
+    if (result.reason !== "validation_failed") throw new Error("unreachable");
+    expect(result.errors[0]!.code).toBe("bundle_too_many_entries");
+
+    // Real workspace untouched, temp dir cleaned up.
+    expect(readFileSync(join(workspaceDir, "existing.txt"), "utf8")).toBe(
+      "keep me\n",
+    );
+    assertNoLeftoverTempDirs();
+  });
+
+  test("bundle exceeding maxBundleBytes → validation_failed with bundle_too_large", async () => {
+    mkdirSync(workspaceDir, { recursive: true });
+    writeFileSync(join(workspaceDir, "existing.txt"), "keep me\n");
+
+    // Two files totaling 200 bytes of user data. Cap at 128 bytes so the
+    // second file's streamed size pushes totalBytesStreamed over.
+    const big = new Uint8Array(100).fill(0x41);
+    const { archive } = buildVBundle({
+      files: [
+        { path: "workspace/big1.bin", data: big },
+        { path: "workspace/big2.bin", data: big },
+      ],
+    });
+
+    const result = await streamCommitImport({
+      source: readableFrom(archive),
+      pathResolver: new DefaultPathResolver(workspaceDir),
+      workspaceDir,
+      maxBundleBytes: 128,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.reason).toBe("validation_failed");
+    if (result.reason !== "validation_failed") throw new Error("unreachable");
+    expect(result.errors[0]!.code).toBe("bundle_too_large");
+
+    expect(readFileSync(join(workspaceDir, "existing.txt"), "utf8")).toBe(
+      "keep me\n",
+    );
+    assertNoLeftoverTempDirs();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gap D — sanitized config reports sha256 of the BYTES ACTUALLY WRITTEN,
+// not the manifest-declared sha of the raw archive content. commitImport
+// already does this; the streaming importer regressed to reporting the
+// manifest sha, so downstream integrity re-checks failed. Regression test
+// for the self-review Gap D finding.
+// ---------------------------------------------------------------------------
+
+describe("streamCommitImport — report.sha256 reflects post-sanitization bytes", () => {
+  let workspaceDir: string;
+  beforeEach(() => {
+    workspaceDir = freshWorkspace();
+  });
+  afterEach(() => {
+    const parent = join(workspaceDir, "..");
+    try {
+      rmSync(parent, { recursive: true, force: true });
+    } catch {
+      // best-effort
+    }
+  });
+
+  test("workspace/config.json report.sha256 equals sha256 of the on-disk sanitized bytes, not the raw archive sha", async () => {
+    // Plant content that sanitizeConfigForTransfer will demonstrably
+    // change (`daemon` is deleted, `ingress.publicBaseUrl` cleared, etc).
+    // The raw archive bytes and the post-sanitization bytes therefore
+    // differ — a correctly implemented importer reports the latter's sha.
+    const tainted = JSON.stringify({
+      daemon: { pid: 9999, host: "private.example.com" },
+      ingress: { publicBaseUrl: "https://leak.example", enabled: true },
+      unrelated: "keep-me",
+    });
+    const rawArchiveBytes = new TextEncoder().encode(tainted);
+    const rawArchiveSha = sha256Hex(rawArchiveBytes);
+
+    const { archive } = buildVBundle({
+      files: [
+        {
+          path: "workspace/config.json",
+          data: rawArchiveBytes,
+        },
+      ],
+    });
+
+    const result = await streamCommitImport({
+      source: readableFrom(archive),
+      pathResolver: new DefaultPathResolver(workspaceDir),
+      workspaceDir,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+
+    const writtenPath = join(workspaceDir, "config.json");
+    const onDiskBytes = readFileSync(writtenPath);
+    const onDiskSha = sha256Hex(onDiskBytes);
+
+    // Sanity: sanitization actually changed the bytes (otherwise the test
+    // would be tautologically true).
+    expect(onDiskSha).not.toBe(rawArchiveSha);
+
+    const configEntry = result.report.files.find(
+      (f) => f.path === "workspace/config.json",
+    );
+    expect(configEntry).toBeDefined();
+    expect(configEntry!.sha256).toBe(onDiskSha);
+    // Reported size is also the post-sanitization size, not raw.
+    expect(configEntry!.size).toBe(onDiskBytes.length);
+  });
+});

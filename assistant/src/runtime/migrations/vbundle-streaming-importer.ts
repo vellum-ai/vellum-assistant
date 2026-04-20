@@ -4,9 +4,9 @@
  * Buffer-based `commitImport` decompresses the whole archive into RAM and
  * re-walks the tar to write each file — fine for small bundles, OOMs on an
  * 8 GB bundle running on a 3 GB pod. This module orchestrates the streaming
- * primitives from PR 2 (`parseVBundleStream`) and PR 3
- * (`readAndValidateManifest`, `createHashVerifier`) to import a bundle with
- * peak memory bounded by "one tar entry size", not bundle size.
+ * primitives (`parseVBundleStream`, `readAndValidateManifest`,
+ * `createHashVerifier`) to import a bundle with peak memory bounded by
+ * "one tar entry size", not bundle size.
  *
  * Atomicity is provided by a temp-dir + double-rename pattern:
  *
@@ -26,9 +26,18 @@
  * real workspace is left untouched.
  */
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createWriteStream, existsSync } from "node:fs";
-import { cp, mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  cp,
+  mkdir,
+  readdir,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -60,6 +69,30 @@ import type { ManifestType } from "./vbundle-validator.js";
 const log = getLogger("vbundle-streaming-importer");
 
 // ---------------------------------------------------------------------------
+// Resource ceilings
+//
+// These cap the streaming importer's exposure to attacker-controlled bundle
+// inputs (e.g. a signed-URL migration from an untrusted source). Both caps
+// are exposed as optional `opts.maxBundleBytes` / `opts.maxBundleEntries`
+// parameters so tests can exercise the abort path with small fixtures —
+// production callers should omit the opts and rely on the defaults.
+// ---------------------------------------------------------------------------
+
+/**
+ * Byte ceiling for the cumulative size of all file data streamed from the
+ * bundle. 16 GiB gives comfortable headroom over the 8 GB product limit
+ * while still bounding worst-case disk use for the temp workspace.
+ */
+const DEFAULT_MAX_BUNDLE_BYTES = 16 * 1024 * 1024 * 1024;
+
+/**
+ * Entry-count ceiling for the bundle. 100k is well above the largest
+ * workspace we ship; anything past that is almost certainly an attack or
+ * a corrupted archive.
+ */
+const DEFAULT_MAX_BUNDLE_ENTRIES = 100_000;
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -88,11 +121,21 @@ export interface StreamCommitArgs {
    * Optional callback for importing credentials into CES after the atomic
    * swap succeeds. Failures are treated as non-fatal warnings. When omitted,
    * credentials discovered in the bundle are ignored — the caller
-   * (`migration-routes.ts`) is responsible for wiring this in PR 5.
+   * (`migration-routes.ts`) is responsible for wiring this.
    */
   importCredentials?: (
     credentials: Array<{ account: string; value: string }>,
   ) => Promise<void>;
+  /**
+   * Test-only override for the bundle-size ceiling (bytes). Production
+   * callers should omit this and rely on the 16 GiB default.
+   */
+  maxBundleBytes?: number;
+  /**
+   * Test-only override for the entry-count ceiling. Production callers
+   * should omit this and rely on the 100_000 default.
+   */
+  maxBundleEntries?: number;
 }
 
 /**
@@ -105,8 +148,18 @@ export interface StreamCommitArgs {
 export async function streamCommitImport(
   args: StreamCommitArgs,
 ): Promise<ImportCommitResult> {
-  const { source, pathResolver, workspaceDir, onProgress, importCredentials } =
-    args;
+  const {
+    source,
+    pathResolver,
+    workspaceDir,
+    onProgress,
+    importCredentials,
+    maxBundleBytes,
+    maxBundleEntries,
+  } = args;
+
+  const bundleByteCap = maxBundleBytes ?? DEFAULT_MAX_BUNDLE_BYTES;
+  const bundleEntryCap = maxBundleEntries ?? DEFAULT_MAX_BUNDLE_ENTRIES;
 
   const realWorkspaceDir = resolve(workspaceDir);
   const tempWorkspaceDir = `${realWorkspaceDir}.import-${randomUUID()}`;
@@ -119,11 +172,33 @@ export async function streamCommitImport(
   // memory. They intentionally never touch disk: DefaultPathResolver returns
   // null for `credentials/*`, and CES is the only consumer.
   const bufferedCredentials: Array<{ account: string; value: string }> = [];
-  // Count entries that actually resulted in a file being written into the
-  // temp workspace dir. If zero, we skip the atomic rename pair at the end
-  // so the real workspace is left untouched — matches commitImport's
-  // "no workspace entries" behavior for legacy bundles / all-skipped bundles.
-  let workspaceWrites = 0;
+  // Track whether the bundle contains at least one `workspace/*` entry that
+  // resolves to a real disk path. The atomic swap path (which wipes anything
+  // outside WORKSPACE_PRESERVE_PATHS) is only safe to take when this is
+  // true — it matches commitImport's `hasWorkspaceEntries` gate. Legacy
+  // bundles (e.g. `data/db/*`, `config/*`, `prompts/*`, `skills/*` without a
+  // workspace/ prefix) fall through to the in-place write path below.
+  let hasWorkspaceNamespacedEntry = false;
+  // Accumulates the disk paths of files we staged into the temp workspace
+  // from legacy-format archive entries. If the bundle turns out to contain
+  // NO workspace/ entries we promote each of these into the live workspace
+  // with backup-before-overwrite semantics, matching commitImport's legacy
+  // handling. Each tuple carries (tempPath, livePath, archivePath, index).
+  const legacyStaged: Array<{
+    tempPath: string;
+    livePath: string;
+    archivePath: string;
+    importedFileIndex: number;
+  }> = [];
+  // Total bytes written through the verifier so far — used to abort early
+  // if the bundle exceeds `bundleByteCap`. We count manifest-declared
+  // `expectedEntry.size` (the raw archive bytes) rather than on-disk size
+  // so a sanitized config still counts against the cap as originally
+  // declared.
+  let totalBytesStreamed = 0;
+  // Number of file/directory entries processed (not counting the manifest).
+  // Compared against `bundleEntryCap`.
+  let entryCount = 0;
 
   // Create the temp workspace dir up front so any failure between here and
   // the atomic swap can be cleaned up by the catch block below.
@@ -162,6 +237,15 @@ export async function streamCommitImport(
         const manifestResult = await readAndValidateManifest(entry);
         manifest = manifestResult.manifest;
         expected = manifestResult.expected;
+        // Entry-count ceiling check. The manifest declares every file the
+        // bundle claims to contain, so one check here bounds the work the
+        // importer is willing to do for this bundle.
+        if (manifest.files.length > bundleEntryCap) {
+          throw new StreamingValidationError(
+            "bundle_too_many_entries",
+            `bundle contains more than ${bundleEntryCap} entries (declared: ${manifest.files.length})`,
+          );
+        }
         entryIndex += 1;
         continue;
       }
@@ -171,6 +255,19 @@ export async function streamCommitImport(
         throw new StreamingValidationError(
           "manifest_not_first",
           "Manifest processing did not complete before subsequent entries",
+        );
+      }
+
+      // Entry-count ceiling also applies to tar-level entries that arrive
+      // in the stream (pax headers, directories, extras). A bundle whose
+      // manifest stayed under the cap but whose tar carries padding-style
+      // extras is still bounded.
+      entryCount += 1;
+      if (entryCount > bundleEntryCap) {
+        entry.body.destroy();
+        throw new StreamingValidationError(
+          "bundle_too_many_entries",
+          `bundle contains more than ${bundleEntryCap} entries`,
         );
       }
 
@@ -236,6 +333,14 @@ export async function streamCommitImport(
             value: new TextDecoder().decode(buffered),
           });
         }
+        totalBytesStreamed += expectedEntry.size;
+        if (totalBytesStreamed > bundleByteCap) {
+          throw new StreamingValidationError(
+            "bundle_too_large",
+            `bundle exceeds ${bundleByteCap}-byte ceiling`,
+            archivePath,
+          );
+        }
         seen.add(archivePath);
         onProgress?.({
           archivePath,
@@ -268,6 +373,14 @@ export async function streamCommitImport(
         warnings.push(
           `Skipped "${archivePath}": no known disk target for this archive path`,
         );
+        totalBytesStreamed += expectedEntry.size;
+        if (totalBytesStreamed > bundleByteCap) {
+          throw new StreamingValidationError(
+            "bundle_too_large",
+            `bundle exceeds ${bundleByteCap}-byte ceiling`,
+            archivePath,
+          );
+        }
         seen.add(archivePath);
         onProgress?.({
           archivePath,
@@ -308,6 +421,14 @@ export async function streamCommitImport(
         warnings.push(
           `Skipped "${archivePath}": guardian persona at "${diskPath}" is already customized`,
         );
+        totalBytesStreamed += expectedEntry.size;
+        if (totalBytesStreamed > bundleByteCap) {
+          throw new StreamingValidationError(
+            "bundle_too_large",
+            `bundle exceeds ${bundleByteCap}-byte ceiling`,
+            archivePath,
+          );
+        }
         seen.add(archivePath);
         onProgress?.({
           archivePath,
@@ -344,6 +465,14 @@ export async function streamCommitImport(
         warnings.push(
           `Skipped "${archivePath}": disk target "${diskPath}" falls outside the workspace directory`,
         );
+        totalBytesStreamed += expectedEntry.size;
+        if (totalBytesStreamed > bundleByteCap) {
+          throw new StreamingValidationError(
+            "bundle_too_large",
+            `bundle exceeds ${bundleByteCap}-byte ceiling`,
+            archivePath,
+          );
+        }
         seen.add(archivePath);
         onProgress?.({
           archivePath,
@@ -362,6 +491,11 @@ export async function streamCommitImport(
           err,
         );
       }
+
+      // Classify the entry as `workspace/*` (namespaced) vs legacy format.
+      // Namespaced entries flip the swap-gate flag; legacy entries are
+      // staged for an in-place promote after the stream completes.
+      const isWorkspaceNamespaced = archivePath.startsWith("workspace/");
 
       // Config files need sanitization before writing to strip
       // environment-specific fields (defense-in-depth; matches commitImport).
@@ -383,6 +517,12 @@ export async function streamCommitImport(
         } catch (err) {
           throw wrapWriteError(`Failed to write "${tempDiskPath}"`, err);
         }
+        // commitImport reports the sha256 of the bytes actually written to
+        // disk (which differs from the manifest-declared sha once
+        // sanitization strips fields). Mirror that here so downstream
+        // integrity re-checks against the on-disk file succeed.
+        const onDiskSha = sha256Hex(sanitizedBytes);
+        const importedFileIndex = importedFiles.length;
         importedFiles.push({
           path: archivePath,
           disk_path: diskPath,
@@ -390,10 +530,27 @@ export async function streamCommitImport(
           // Report the sanitized on-disk size, not the archive's raw size —
           // matches what commitImport reports.
           size: sanitizedBytes.length,
-          sha256: expectedEntry.sha256,
+          sha256: onDiskSha,
           backup_path: null,
         });
-        workspaceWrites += 1;
+        if (isWorkspaceNamespaced) {
+          hasWorkspaceNamespacedEntry = true;
+        } else {
+          legacyStaged.push({
+            tempPath: tempDiskPath,
+            livePath: diskPath,
+            archivePath,
+            importedFileIndex,
+          });
+        }
+        totalBytesStreamed += expectedEntry.size;
+        if (totalBytesStreamed > bundleByteCap) {
+          throw new StreamingValidationError(
+            "bundle_too_large",
+            `bundle exceeds ${bundleByteCap}-byte ceiling`,
+            archivePath,
+          );
+        }
         seen.add(archivePath);
         onProgress?.({
           archivePath,
@@ -421,12 +578,13 @@ export async function streamCommitImport(
         throw wrapWriteError(`Failed to write "${tempDiskPath}"`, err);
       }
 
-      // Action is always "created" in the streaming path because we're
-      // writing into an empty temp workspace. After the swap the effect on
-      // the real workspace is functionally "overwrite" at the directory
-      // level, but per-file this is the right label — the existing
-      // workspace is replaced wholesale, not patched in place.
+      // Action is "created" for the in-temp-tree record. Whether the real
+      // workspace sees this as create vs overwrite is resolved later: the
+      // atomic-swap path wipes and replaces wholesale, while the legacy
+      // in-place promote checks against the live file and flips the action
+      // to "overwritten" with a backup.
       const action: ImportFileAction = "created";
+      const importedFileIndex = importedFiles.length;
       importedFiles.push({
         path: archivePath,
         disk_path: diskPath,
@@ -435,7 +593,24 @@ export async function streamCommitImport(
         sha256: expectedEntry.sha256,
         backup_path: null,
       });
-      workspaceWrites += 1;
+      if (isWorkspaceNamespaced) {
+        hasWorkspaceNamespacedEntry = true;
+      } else {
+        legacyStaged.push({
+          tempPath: tempDiskPath,
+          livePath: diskPath,
+          archivePath,
+          importedFileIndex,
+        });
+      }
+      totalBytesStreamed += expectedEntry.size;
+      if (totalBytesStreamed > bundleByteCap) {
+        throw new StreamingValidationError(
+          "bundle_too_large",
+          `bundle exceeds ${bundleByteCap}-byte ceiling`,
+          archivePath,
+        );
+      }
       seen.add(archivePath);
       onProgress?.({
         archivePath,
@@ -473,17 +648,24 @@ export async function streamCommitImport(
   }
 
   // -------------------------------------------------------------------------
-  // Atomic swap
+  // Commit strategy selection
+  //
+  // commitImport's in-place path only clears the workspace when the bundle
+  // carries at least one `workspace/*` entry that resolves to a real disk
+  // path — legacy-format bundles (`data/db/*`, `config/*`, `prompts/*`,
+  // `skills/*`, `hooks/*` without a workspace/ prefix) write individual
+  // files in place without wiping siblings. The streaming importer's
+  // atomic-swap path is equivalent to the selective-clear-and-write path;
+  // it must therefore only fire when `hasWorkspaceNamespacedEntry` is
+  // true. For legacy-only bundles we promote staged temp files into the
+  // live workspace one by one with backup-before-overwrite semantics.
   // -------------------------------------------------------------------------
 
-  // If the bundle contained zero entries that resolved into the workspace
-  // (legacy-format bundle with no workspace/ entries, or every entry was
-  // skipped as out-of-workspace / credential / customized-persona), the
-  // temp tree is empty/incomplete. Swapping it in would erase unrelated
-  // existing workspace state, so skip the rename pair entirely — matches
-  // commitImport, which never clears the workspace without workspace/
-  // entries to replace.
-  if (workspaceWrites === 0) {
+  // Empty result: no writable entries, no staged legacy files. Skip both
+  // commit paths — nothing can alter the live workspace. This matches
+  // commitImport's no-op behavior for all-credential or all-skipped
+  // bundles.
+  if (!hasWorkspaceNamespacedEntry && legacyStaged.length === 0) {
     await cleanupTempDir();
 
     // Post-commit side effects still run for things like credential import.
@@ -502,6 +684,60 @@ export async function streamCommitImport(
     const report = buildReport(manifest, importedFiles, warnings);
     return { ok: true, report };
   }
+
+  // Legacy-only bundle: we have files staged under the temp workspace but
+  // no `workspace/*` entries telling us the caller wants to replace the
+  // entire workspace. Promote each staged file into the live workspace in
+  // place, matching commitImport's legacy branch (backup-before-overwrite,
+  // parent-dir mkdir, no workspace-wide clear). The temp workspace is
+  // removed when done — it only served as a landing zone for the verified
+  // hash stream.
+  if (!hasWorkspaceNamespacedEntry) {
+    try {
+      await promoteLegacyStagedFiles(legacyStaged, importedFiles);
+    } catch (err) {
+      await cleanupTempDir();
+      return {
+        ok: false,
+        reason: "write_failed",
+        message: `Failed to promote legacy-format import into workspace: ${errMessage(err)}`,
+      };
+    }
+
+    await cleanupTempDir();
+
+    // Post-commit side effects. Config/trust caches can still be stale
+    // from a legacy config/settings.json write, and credentials still
+    // need to flow through CES.
+    if (importCredentials && bufferedCredentials.length > 0) {
+      try {
+        await importCredentials(bufferedCredentials);
+      } catch (err) {
+        log.warn(
+          { err, count: bufferedCredentials.length },
+          "Post-commit credential import failed",
+        );
+        warnings.push(`Credential import failed: ${errMessage(err)}`);
+      }
+    }
+
+    try {
+      invalidateConfigCache();
+    } catch (err) {
+      log.warn({ err }, "invalidateConfigCache threw after legacy import");
+    }
+
+    try {
+      clearTrustCache();
+    } catch (err) {
+      log.warn({ err }, "clearTrustCache threw after legacy import");
+    }
+
+    const report = buildReport(manifest, importedFiles, warnings);
+    return { ok: true, report };
+  }
+
+  // Atomic swap path for workspace/*-carrying bundles.
 
   // Close the live SQLite connection so the DB file inside the real
   // workspace can be replaced. The singleton lazily reopens on next use.
@@ -627,6 +863,70 @@ export async function streamCommitImport(
 // Helpers
 // ---------------------------------------------------------------------------
 
+function sha256Hex(data: Uint8Array): string {
+  return createHash("sha256").update(data).digest("hex");
+}
+
+function generateBackupPath(diskPath: string): string {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return `${diskPath}.backup-${timestamp}`;
+}
+
+/**
+ * Promote verified-into-temp files for a legacy-format bundle into the
+ * live workspace in place. Mirrors commitImport's legacy write path:
+ *
+ *   - If the live path already exists, copy it to a timestamped
+ *     `${livePath}.backup-<ts>` sibling first.
+ *   - Ensure the parent directory exists.
+ *   - `fs.rename` the temp file over the live path for per-file atomicity.
+ *     If that fails with EXDEV (cross-filesystem), fall back to `copyFile`
+ *     then `rm` of the temp source.
+ *   - Update the corresponding `ImportedFileReport` with the overwrite
+ *     action and backup path so the report matches commitImport's output.
+ */
+async function promoteLegacyStagedFiles(
+  staged: Array<{
+    tempPath: string;
+    livePath: string;
+    archivePath: string;
+    importedFileIndex: number;
+  }>,
+  importedFiles: ImportedFileReport[],
+): Promise<void> {
+  for (const entry of staged) {
+    // Backup before overwrite, matching commitImport.
+    let backupPath: string | null = null;
+    if (existsSync(entry.livePath)) {
+      backupPath = generateBackupPath(entry.livePath);
+      await copyFile(entry.livePath, backupPath);
+    }
+
+    await mkdir(dirname(entry.livePath), { recursive: true });
+
+    try {
+      await rename(entry.tempPath, entry.livePath);
+    } catch (err) {
+      if (isEXDEV(err)) {
+        await copyFile(entry.tempPath, entry.livePath);
+        await rm(entry.tempPath, { force: true });
+      } else {
+        throw err;
+      }
+    }
+
+    const report = importedFiles[entry.importedFileIndex];
+    if (report) {
+      if (backupPath) {
+        report.action = "overwritten";
+        report.backup_path = backupPath;
+      } else {
+        report.action = "created";
+      }
+    }
+  }
+}
+
 function buildReport(
   manifest: ManifestType,
   files: ImportedFileReport[],
@@ -649,17 +949,30 @@ function buildReport(
 
 /**
  * Copy any WORKSPACE_PRESERVE_PATHS entries from the live workspace into
- * the temp workspace when the bundle did not already write them. Runs
+ * the temp workspace when the bundle did not already populate them. Runs
  * immediately before the atomic swap so the swap-in tree has the union
  * of bundle-provided files and live-preserved files.
  *
+ * Per-file merge semantics (critical): a bundle that touches a SINGLE file
+ * under a preserved directory (e.g. writes `workspace/data/qdrant/config.json`)
+ * must NOT cause the rest of that directory to be wiped. We therefore walk
+ * each preserved path recursively and carry over any live file or
+ * subdirectory the bundle did not itself write. A whole-directory short-
+ * circuit would mis-handle that case by erasing unrelated qdrant segments,
+ * DB WALs, embedding-model shards, etc.
+ *
  * For each preserved relative path:
- *   - If the temp workspace already contains something at that path, the
- *     bundle populated it. Leave it untouched.
- *   - Otherwise, if the live workspace has the path, try `fs.rename`
- *     first (atomic & cheap when both dirs are on the same filesystem);
- *     fall back to `fs.cp` with recursive copy on EXDEV or similar.
- *   - If neither has it, there's nothing to preserve.
+ *   - If the preserved path is a FILE in the live workspace and the temp
+ *     tree already has that exact path, the bundle populated it — leave
+ *     it alone. Otherwise rename/copy the live file over.
+ *   - If the preserved path is a DIRECTORY in the live workspace, walk
+ *     it recursively. For each entry:
+ *       * If the temp tree has a matching entry at the same relative
+ *         path, the bundle wrote it — skip.
+ *       * If not, carry the live entry over (rename with EXDEV fallback
+ *         to recursive copy).
+ *     The walk stops descending on any subtree the bundle has completely
+ *     populated, since we only need to fill gaps.
  */
 async function carryOverPreservedPaths(
   realWorkspaceDir: string,
@@ -669,10 +982,8 @@ async function carryOverPreservedPaths(
     const livePath = join(realWorkspaceDir, rel);
     const tempPath = join(tempWorkspaceDir, rel);
 
-    // Bundle already wrote to this path — leave it alone.
-    if (existsSync(tempPath)) continue;
-
-    // Live workspace doesn't have it either — nothing to carry.
+    // Live workspace doesn't have anything at this preserved path —
+    // nothing to carry.
     let liveStat;
     try {
       liveStat = await stat(livePath);
@@ -681,33 +992,102 @@ async function carryOverPreservedPaths(
       throw err;
     }
 
-    // Make sure the temp-side parent directory exists so the rename /
-    // copy can land.
-    await mkdir(dirname(tempPath), { recursive: true });
-
-    try {
-      await rename(livePath, tempPath);
-    } catch (err) {
-      // EXDEV: different filesystems — rename can't work. Fall back to a
-      // recursive copy, then remove the live copy so the swap leaves a
-      // clean state.
-      if (isEXDEV(err)) {
-        await cp(livePath, tempPath, {
-          recursive: true,
-          preserveTimestamps: true,
-          // Dereference is false by default — symlinks stay symlinks.
-        });
-        await rm(livePath, { recursive: true, force: true });
-      } else {
-        throw err;
-      }
+    if (!liveStat.isDirectory()) {
+      // The preserved path is a regular file. Only carry it if the bundle
+      // did NOT write to that exact path.
+      if (existsSync(tempPath)) continue;
+      await mkdir(dirname(tempPath), { recursive: true });
+      await carryOverEntry(livePath, tempPath);
+      log.debug(
+        { rel, size: liveStat.size, isDir: false },
+        "Preserved live workspace file across streaming import swap",
+      );
+      continue;
     }
-    // Log only when we actually preserved something, to keep successful
-    // imports quiet in the common no-op case.
+
+    // Directory case: do a per-file merge so bundle-provided files inside
+    // the preserved directory coexist with live files the bundle didn't
+    // touch. We ensure the target dir exists on the temp side (it may not
+    // if the bundle didn't write any entries under this preserved dir)
+    // and then recursively fill gaps.
+    await mkdir(tempPath, { recursive: true });
+    await mergeLiveIntoTempDir(livePath, tempPath);
     log.debug(
-      { rel, size: liveStat.size, isDir: liveStat.isDirectory() },
-      "Preserved live workspace path across streaming import swap",
+      { rel, isDir: true },
+      "Merged live preserved directory into streaming import swap tree",
     );
+  }
+}
+
+/**
+ * Walk `liveDir` recursively; for every entry that does not already exist
+ * at the same relative path under `tempDir`, carry it over (rename with
+ * EXDEV fallback). Entries that the bundle already wrote are left
+ * untouched so the bundle's version wins.
+ */
+async function mergeLiveIntoTempDir(
+  liveDir: string,
+  tempDir: string,
+): Promise<void> {
+  let entries;
+  try {
+    entries = await readdir(liveDir, { withFileTypes: true });
+  } catch (err) {
+    if (isENOENT(err)) return;
+    throw err;
+  }
+
+  for (const entry of entries) {
+    const liveChild = join(liveDir, entry.name);
+    const tempChild = join(tempDir, entry.name);
+    const existsInTemp = existsSync(tempChild);
+
+    if (entry.isDirectory()) {
+      if (!existsInTemp) {
+        // The bundle didn't write anything under this subtree — carry the
+        // whole subtree over in one shot. Much cheaper than a recursive
+        // walk when the directory is a large cache (qdrant segments,
+        // embedding-models shards).
+        await carryOverEntry(liveChild, tempChild);
+        continue;
+      }
+      // Bundle wrote SOMETHING under here. Recurse to preserve any live
+      // files the bundle didn't write while leaving bundle-written files
+      // in place.
+      await mergeLiveIntoTempDir(liveChild, tempChild);
+      continue;
+    }
+
+    // Regular file / symlink: carry it only if the bundle didn't write
+    // at this exact path.
+    if (existsInTemp) continue;
+    await carryOverEntry(liveChild, tempChild);
+  }
+}
+
+/**
+ * Move a single live workspace entry (file or directory) into the temp
+ * workspace. Rename-first for POSIX atomicity on the same filesystem;
+ * fall back to a recursive copy on EXDEV (different mount point) and
+ * then remove the live copy so the post-swap state is clean.
+ */
+async function carryOverEntry(
+  liveChild: string,
+  tempChild: string,
+): Promise<void> {
+  try {
+    await rename(liveChild, tempChild);
+  } catch (err) {
+    if (isEXDEV(err)) {
+      await cp(liveChild, tempChild, {
+        recursive: true,
+        preserveTimestamps: true,
+        // Dereference is false by default — symlinks stay symlinks.
+      });
+      await rm(liveChild, { recursive: true, force: true });
+    } else {
+      throw err;
+    }
   }
 }
 
