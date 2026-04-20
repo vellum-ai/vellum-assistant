@@ -133,7 +133,9 @@ describe("Trust Store", () => {
       // allowHighRisk is no longer persisted — the parser strips it.
       const rule = addRule("bash", "sudo *", "everywhere", "allow", 100);
       // Verify the field is not on the rule
-      expect((rule as Record<string, unknown>).allowHighRisk).toBeUndefined();
+      expect(
+        (rule as unknown as Record<string, unknown>).allowHighRisk,
+      ).toBeUndefined();
     });
 
     test("at same priority deny rules sort before allow rules", () => {
@@ -1776,7 +1778,9 @@ describe("canonical parser normalization-on-load", () => {
     const found = rules.find((r) => r.id === "url-rule-with-ahr");
     expect(found).toBeDefined();
     // allowHighRisk is stripped during normalization
-    expect((found as Record<string, unknown>).allowHighRisk).toBeUndefined();
+    expect(
+      (found as unknown as Record<string, unknown>).allowHighRisk,
+    ).toBeUndefined();
   });
 
   test("scoped rule preserves executionTarget but strips allowHighRisk on load", () => {
@@ -1808,7 +1812,9 @@ describe("canonical parser normalization-on-load", () => {
       "/usr/local/bin/node",
     );
     // allowHighRisk is stripped during normalization
-    expect((found as Record<string, unknown>).allowHighRisk).toBeUndefined();
+    expect(
+      (found as unknown as Record<string, unknown>).allowHighRisk,
+    ).toBeUndefined();
   });
 
   test("normalization on v2 file triggers re-save as v3", () => {

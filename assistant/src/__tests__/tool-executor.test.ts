@@ -682,9 +682,8 @@ describe("ToolExecutor contextual rule creation", () => {
     expect(result.isError).toBe(false);
     expect(spy).toHaveBeenCalledTimes(1);
     const [, , , , , options] = spy.mock.calls[0];
-    expect(options).toBeDefined();
-    // No execution target for core tools
-    expect(options.executionTarget).toBeUndefined();
+    // Core tools have no executionTarget, so ruleOptions is empty → undefined
+    expect(options).toBeUndefined();
   });
 
   test("skill tool with host execution target records executionTarget in rule", async () => {

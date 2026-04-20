@@ -362,7 +362,6 @@ describe("ephemeral-permissions", () => {
 
       for (const rule of rules) {
         expect(rule.scope).toBe("everywhere");
-        expect(rule.allowHighRisk).toBeUndefined();
         expect(rule.executionTarget).toBeUndefined();
       }
     });

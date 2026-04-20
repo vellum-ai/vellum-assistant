@@ -2647,12 +2647,14 @@ describe("Permission Checker", () => {
     });
 
     test("high-risk bash with allow rule in containerized environment auto-allows", async () => {
+      // Seed the file-backed trust store BEFORE setting IS_CONTAINERIZED so
+      // addRule/clearCache go through the file backend (not the gateway).
+      clearCache();
+      addRule("bash", "**", "everywhere", "allow", 2000);
+
       const orig = process.env.IS_CONTAINERIZED;
       process.env.IS_CONTAINERIZED = "true";
       try {
-        // Re-seed trust store so the containerized default bash allow rule is present.
-        clearCache();
-        addRule("bash", "**", "everywhere", "allow", 2000);
         const result = await check("bash", { command: "kill -9 1234" }, "/tmp");
         expect(result.decision).toBe("allow");
         expect(result.reason).toContain("auto-allow-high-risk context");
