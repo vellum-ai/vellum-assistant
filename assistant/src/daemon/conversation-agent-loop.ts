@@ -45,6 +45,7 @@ import { getApp, listAppFiles, resolveAppDir } from "../memory/app-store.js";
 import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
 import {
   addMessage,
+  clearPkbSystemReminderMetadataForConversation,
   deleteMessageById,
   getConversation,
   getConversationOriginChannel,
@@ -1274,6 +1275,14 @@ export async function runAgentLoopImpl(
       // so we compact the "raw" persistent messages.
       const rawHistory = stripInjectionsForCompaction(updatedHistory);
       ctx.messages = rawHistory;
+      try {
+        clearPkbSystemReminderMetadataForConversation(ctx.conversationId);
+      } catch (err) {
+        rlog.warn(
+          { err },
+          "Failed to clear pkbSystemReminderBlock metadata after compaction strip (non-fatal)",
+        );
+      }
 
       ctx.emitActivityState(
         "thinking",
@@ -1445,6 +1454,14 @@ export async function runAgentLoopImpl(
 
       if (updatedHistory.length > preRunHistoryLength) {
         ctx.messages = stripInjectionsForCompaction(updatedHistory);
+        try {
+          clearPkbSystemReminderMetadataForConversation(ctx.conversationId);
+        } catch (err) {
+          rlog.warn(
+            { err },
+            "Failed to clear pkbSystemReminderBlock metadata after compaction strip (non-fatal)",
+          );
+        }
         convergenceStripped = true;
         preRepairMessages = updatedHistory;
         preRunHistoryLength = updatedHistory.length;
@@ -1634,6 +1651,14 @@ export async function runAgentLoopImpl(
           // pre-rerun messages.
           if (updatedHistory.length > preRunHistoryLength) {
             ctx.messages = stripInjectionsForCompaction(updatedHistory);
+            try {
+              clearPkbSystemReminderMetadataForConversation(ctx.conversationId);
+            } catch (err) {
+              rlog.warn(
+                { err },
+                "Failed to clear pkbSystemReminderBlock metadata after compaction strip (non-fatal)",
+              );
+            }
             convergenceStripped = true;
             preRepairMessages = updatedHistory;
             preRunHistoryLength = updatedHistory.length;

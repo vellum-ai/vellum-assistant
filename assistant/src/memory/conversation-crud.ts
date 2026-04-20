@@ -1475,6 +1475,27 @@ export function updateMessageMetadata(
 }
 
 /**
+ * Bulk-remove the `pkbSystemReminderBlock` field from every user-message
+ * metadata row in a conversation. Called from compaction-strip sites so
+ * post-restart rehydration stays consistent with the in-memory state
+ * produced by `stripInjectionsForCompaction` (which removes
+ * `<system_reminder>` from live messages but cannot touch the DB).
+ */
+export function clearPkbSystemReminderMetadataForConversation(
+  conversationId: string,
+): void {
+  rawRun(
+    `UPDATE messages
+        SET metadata = json_remove(metadata, '$.pkbSystemReminderBlock')
+      WHERE conversation_id = ?
+        AND role = 'user'
+        AND metadata IS NOT NULL
+        AND json_extract(metadata, '$.pkbSystemReminderBlock') IS NOT NULL`,
+    conversationId,
+  );
+}
+
+/**
  * Atomically update both `content` and (shallow-merged) `metadata` for a
  * message. Used by edit-propagation paths that need to update the message
  * body and stamp metadata (e.g. `slackMeta.editedAt`) in a single
