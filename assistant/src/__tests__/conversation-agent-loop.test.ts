@@ -125,7 +125,7 @@ mock.module("../hooks/manager.js", () => ({
 }));
 
 const updateMessageMetadataMock = mock(
-  (_id: string, _metadata: Record<string, unknown>) => {},
+  (_id: string, _updates: Record<string, unknown>) => {},
 );
 mock.module("../memory/conversation-crud.js", () => ({
   getConversationType: () => "default",
@@ -210,16 +210,16 @@ mock.module("../daemon/conversation-memory.js", () => ({
   }),
 }));
 
-let mockInjectionBlocks: Record<string, string> = {};
-let mockInjectionCallCount = 0;
+let mockInjectionBlocks: {
+  pkbSystemReminder?: string;
+  unifiedTurnContext?: string;
+} = {};
+const applyRuntimeInjectionsMock = mock(async (msgs: Message[]) => ({
+  messages: msgs,
+  blocks: { ...mockInjectionBlocks },
+}));
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
-  applyRuntimeInjections: async (msgs: Message[]) => {
-    mockInjectionCallCount += 1;
-    return {
-      messages: msgs,
-      blocks: { ...mockInjectionBlocks },
-    };
-  },
+  applyRuntimeInjections: applyRuntimeInjectionsMock,
   stripInjectionsForCompaction: (msgs: Message[]) => msgs,
   findLastInjectedNowContent: () => null,
   readNowScratchpad: () => null,
@@ -508,13 +508,13 @@ beforeEach(() => {
   mockOverflowAction = "fail_gracefully";
   mockApprovalResult = { approved: false };
   mockInjectionBlocks = {};
-  mockInjectionCallCount = 0;
   recordUsageMock.mockClear();
   recordRequestLogMock.mockClear();
   syncMessageToDiskMock.mockClear();
   rebuildConversationDiskViewFromDbStateMock.mockClear();
   updateMessageMetadataMock.mockClear();
   updateMessageMetadataMock.mockImplementation(() => {});
+  applyRuntimeInjectionsMock.mockClear();
 });
 
 describe("session-agent-loop", () => {
@@ -2194,7 +2194,7 @@ describe("session-agent-loop", () => {
       await runAgentLoopImpl(ctx, "hello", "user-msg-789", () => {});
 
       // Sanity check: overflow re-entry did fire (call count > 1).
-      expect(mockInjectionCallCount).toBeGreaterThan(1);
+      expect(applyRuntimeInjectionsMock.mock.calls.length).toBeGreaterThan(1);
 
       const turnContextCalls = updateMessageMetadataMock.mock.calls.filter(
         (call) => {
@@ -2266,6 +2266,83 @@ describe("session-agent-loop", () => {
         (e) => e.type === "conversation_error",
       );
       expect(conversationErrors.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe("pkbSystemReminderBlock metadata persistence", () => {
+    test("persists pkbSystemReminderBlock in full mode with PKB active", async () => {
+      const reminder = "<system_reminder>\npkb content\n</system_reminder>";
+      mockInjectionBlocks = { pkbSystemReminder: reminder };
+      const ctx = makeCtx();
+
+      await runAgentLoopImpl(ctx, "hello", "user-msg-1", () => {});
+
+      const pkbCalls = updateMessageMetadataMock.mock.calls.filter(
+        (call) =>
+          (call[1] as Record<string, unknown>).pkbSystemReminderBlock !==
+          undefined,
+      );
+      expect(pkbCalls.length).toBe(1);
+      expect(pkbCalls[0][0]).toBe("user-msg-1");
+      expect(
+        (pkbCalls[0][1] as Record<string, unknown>).pkbSystemReminderBlock,
+      ).toBe(reminder);
+    });
+
+    test("skips persistence when pkbSystemReminder is absent (minimal mode or PKB inactive)", async () => {
+      mockInjectionBlocks = {}; // no pkbSystemReminder key
+      const ctx = makeCtx();
+
+      await runAgentLoopImpl(ctx, "hello", "user-msg-2", () => {});
+
+      const pkbCalls = updateMessageMetadataMock.mock.calls.filter(
+        (call) =>
+          (call[1] as Record<string, unknown>).pkbSystemReminderBlock !==
+          undefined,
+      );
+      expect(pkbCalls.length).toBe(0);
+    });
+
+    test("does not propagate errors when updateMessageMetadata throws", async () => {
+      mockInjectionBlocks = {
+        pkbSystemReminder: "<system_reminder>\nboom\n</system_reminder>",
+      };
+      updateMessageMetadataMock.mockImplementationOnce(() => {
+        throw new Error("db write failed");
+      });
+      const ctx = makeCtx();
+
+      // Must not throw — the persist block wraps writes in try/catch.
+      await expect(
+        runAgentLoopImpl(ctx, "hello", "user-msg-3", () => {}),
+      ).resolves.toBeUndefined();
+    });
+
+    test("coexists with turnContextBlock write as independent calls", async () => {
+      // If PR 5 landed, both blocks will be persisted by separate calls.
+      // This test asserts the pkbSystemReminderBlock write is independent
+      // (keyed on its own call site) so merging with turnContextBlock is
+      // never required for correctness.
+      const reminder = "<system_reminder>\npkb\n</system_reminder>";
+      const turnContext = "<turn_context>\nnow\n</turn_context>";
+      mockInjectionBlocks = {
+        pkbSystemReminder: reminder,
+        unifiedTurnContext: turnContext,
+      };
+      const ctx = makeCtx();
+
+      await runAgentLoopImpl(ctx, "hello", "user-msg-4", () => {});
+
+      const pkbCalls = updateMessageMetadataMock.mock.calls.filter(
+        (call) =>
+          (call[1] as Record<string, unknown>).pkbSystemReminderBlock !==
+          undefined,
+      );
+      expect(pkbCalls.length).toBe(1);
+      expect(pkbCalls[0][0]).toBe("user-msg-4");
+      expect(
+        (pkbCalls[0][1] as Record<string, unknown>).pkbSystemReminderBlock,
+      ).toBe(reminder);
     });
   });
 });
