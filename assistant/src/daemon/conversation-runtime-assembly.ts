@@ -1995,6 +1995,7 @@ export async function applyRuntimeInjections(
   // interleaved. Stripped on subsequent rebuilds via the
   // `RUNTIME_INJECTION_PREFIXES` list so focus blocks never accumulate.
   if (
+    mode === "full" &&
     slackChannel &&
     typeof options.slackActiveThreadFocusBlock === "string" &&
     options.slackActiveThreadFocusBlock.length > 0
