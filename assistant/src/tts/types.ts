@@ -20,6 +20,7 @@ export type TtsProviderId =
   | "elevenlabs"
   | "fish-audio"
   | "deepgram"
+  | "xai"
   | (string & {});
 
 // ---------------------------------------------------------------------------
