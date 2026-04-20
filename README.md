@@ -76,9 +76,7 @@ Talk to it from the macOS app, Telegram, or Slack. Shared memory and identity ac
 
 ## Quick demo
 
-<a href="assets/demo.mp4">
-  <img src="assets/demo-poster.png" alt="Watch the demo" width="100%">
-</a>
+https://github.com/user-attachments/assets/009bd0ae-95ac-4cf3-81bc-d54cd8631583
 
 ---
 
