@@ -1209,7 +1209,7 @@ describe("runBot — Gap B: extension-joined deadline", () => {
     expect(handles.daemonStopped()).toBe(false);
   });
 
-  test("lifecycle:error from extension clears the timer (no duplicate shutdown)", async () => {
+  test("lifecycle:error from extension triggers shutdown with exit code 1", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps({ extensionJoinedTimeoutMs: 50 });
     const running = runBot(deps);
@@ -1217,10 +1217,10 @@ describe("runBot — Gap B: extension-joined deadline", () => {
     handles.fireExtensionReady();
     await running;
 
-    // Fire `error` — handler updates state and clears the timer, but does
-    // not itself initiate shutdown (that's the extension's signal the
-    // meet-side died; shutdown is a separate path we're validating is
-    // idempotent).
+    // Fire `error` — the extension is signaling the meet-side died. The
+    // handler must drive a graceful shutdown so subsystems tear down
+    // promptly and the chrome-exit watcher doesn't misclassify the
+    // subsequent clean Chrome exit as an unexpected crash.
     handles.fireExtensionMessage({
       type: "lifecycle",
       meetingId: "abc-defg-hij",
@@ -1229,18 +1229,76 @@ describe("runBot — Gap B: extension-joined deadline", () => {
       detail: "prejoin captcha",
     });
 
-    // Give the timer plenty of time to fire if it wasn't cleared.
-    await new Promise((r) => setTimeout(r, 100));
+    // Wait for shutdown to complete.
+    const deadline = Date.now() + 1_000;
+    while (handles.exitCode() === null && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
 
-    // The error lifecycle event was forwarded.
-    const lifecycleStates = handles.daemonEvents
+    expect(handles.exitCode()).toBe(1);
+
+    // shutdown() publishes lifecycle:error to the daemon with the detail
+    // forwarded from the extension; the handler itself no longer emits a
+    // separate error event, so we see exactly one.
+    const errEvents = handles.daemonEvents
       .filter((e): e is LifecycleEvent => e.type === "lifecycle")
-      .map((e) => e.state);
-    expect(lifecycleStates).toContain("error");
+      .filter((e) => e.state === "error");
+    expect(errEvents.length).toBe(1);
+    expect(errEvents[0]?.detail).toBe("prejoin captcha");
 
-    // But no timer-driven shutdown should have fired.
-    // exitCode remains null because nothing else triggered shutdown.
-    expect(handles.exitCode()).toBeNull();
+    // Full shutdown should have run.
+    const counts = handles.stopCounts();
+    expect(counts.httpServer).toBe(1);
+    expect(counts.chrome).toBe(1);
+    expect(counts.audio).toBe(1);
+    expect(counts.xvfb).toBe(1);
+    expect(counts.socketServer).toBe(1);
+    expect(handles.daemonStopped()).toBe(true);
+  });
+
+  test("lifecycle:left from extension triggers shutdown with exit code 0", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps({ extensionJoinedTimeoutMs: 50 });
+    const running = runBot(deps);
+    await new Promise((r) => setTimeout(r, 5));
+    handles.fireExtensionReady();
+    await running;
+
+    // Fire `left` — the meeting ended naturally (host ended it, bot was
+    // kicked, etc.). The handler must drive a graceful shutdown and exit 0
+    // so the clean leave isn't misclassified as an error.
+    handles.fireExtensionMessage({
+      type: "lifecycle",
+      meetingId: "abc-defg-hij",
+      timestamp: new Date().toISOString(),
+      state: "left",
+      detail: "meeting ended",
+    });
+
+    // Wait for shutdown to complete.
+    const deadline = Date.now() + 1_000;
+    while (handles.exitCode() === null && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    expect(handles.exitCode()).toBe(0);
+
+    // Exactly one lifecycle:left event (published by shutdown, not the
+    // handler, so there's no duplicate).
+    const leftEvents = handles.daemonEvents
+      .filter((e): e is LifecycleEvent => e.type === "lifecycle")
+      .filter((e) => e.state === "left");
+    expect(leftEvents.length).toBe(1);
+    expect(leftEvents[0]?.detail).toBe("meeting ended");
+
+    // Full shutdown should have run.
+    const counts = handles.stopCounts();
+    expect(counts.httpServer).toBe(1);
+    expect(counts.chrome).toBe(1);
+    expect(counts.audio).toBe(1);
+    expect(counts.xvfb).toBe(1);
+    expect(counts.socketServer).toBe(1);
+    expect(handles.daemonStopped()).toBe(true);
   });
 });
 
