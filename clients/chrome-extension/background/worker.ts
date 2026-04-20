@@ -38,7 +38,7 @@ import {
   refreshCloudToken,
   getStoredToken as getStoredCloudToken,
   getStoredTokenRaw as getStoredCloudTokenRaw,
-  clearStoredToken as clearCloudToken,
+
   validateCloudToken,
   isCloudTokenStale,
   CLOUD_AUTH_FAILURE_CLOSE_CODES,
@@ -68,7 +68,7 @@ import {
 import {
   bootstrapLocalToken,
   getStoredLocalToken,
-  clearLocalToken,
+
   validateLocalToken,
   isLocalTokenStale,
   LEGACY_LOCAL_STORAGE_KEY,
