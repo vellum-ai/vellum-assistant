@@ -292,26 +292,6 @@ public struct ToolCallProgressBar: View {
 
     // MARK: - Colors
 
-    private func stepBackgroundColor(for toolCall: ToolCallData) -> Color {
-        if toolCall.isError {
-            return VColor.systemNegativeStrong
-        } else if !toolCall.isComplete {
-            return VColor.primaryBase
-        } else {
-            return VColor.primaryBase
-        }
-    }
-
-    private func stepBorderColor(for toolCall: ToolCallData) -> Color {
-        if toolCall.isError {
-            return VColor.systemNegativeStrong
-        } else if !toolCall.isComplete {
-            return VColor.primaryBase.opacity(0.5)
-        } else {
-            return VColor.primaryBase.opacity(0.8)
-        }
-    }
-
     private func stepTextColor(for toolCall: ToolCallData) -> Color {
         if toolCall.isError {
             return VColor.systemNegativeStrong
