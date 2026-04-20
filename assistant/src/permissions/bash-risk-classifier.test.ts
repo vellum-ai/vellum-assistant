@@ -20,6 +20,8 @@ import {
 } from "./bash-risk-classifier.js";
 import { DEFAULT_COMMAND_REGISTRY } from "./command-registry.js";
 import type { ArgRule, CommandRiskSpec } from "./risk-types.js";
+import { riskToRiskLevel } from "./risk-types.js";
+import { RiskLevel } from "./types.js";
 
 // ── Helper ───────────────────────────────────────────────────────────────────
 
@@ -1004,5 +1006,25 @@ describe("opaque construct escalation", () => {
       toolName: "bash",
     });
     expect(result.riskLevel).toBe("high");
+  });
+});
+
+// ── riskToRiskLevel mapping ──────────────────────────────────────────────────
+
+describe("riskToRiskLevel", () => {
+  test("low → RiskLevel.Low", () => {
+    expect(riskToRiskLevel("low")).toBe(RiskLevel.Low);
+  });
+
+  test("medium → RiskLevel.Medium", () => {
+    expect(riskToRiskLevel("medium")).toBe(RiskLevel.Medium);
+  });
+
+  test("high → RiskLevel.High", () => {
+    expect(riskToRiskLevel("high")).toBe(RiskLevel.High);
+  });
+
+  test("unknown → RiskLevel.Medium (fallback)", () => {
+    expect(riskToRiskLevel("unknown")).toBe(RiskLevel.Medium);
   });
 });
