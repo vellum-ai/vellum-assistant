@@ -3,7 +3,6 @@ import Combine
 import Observation
 import SwiftUI
 import VellumAssistantShared
-import os
 
 // MARK: - IOSConversation
 
