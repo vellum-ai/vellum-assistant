@@ -89,6 +89,7 @@ const guardianPathSpy = spyOn(
   "resolveGuardianPersonaPath",
 ).mockImplementation(() => mockGuardianPersonaPath);
 
+import * as envRegistry from "../config/env-registry.js";
 import {
   check,
   classifyRisk,
@@ -97,6 +98,7 @@ import {
   SCOPE_AWARE_TOOLS,
 } from "../permissions/checker.js";
 import { getDefaultRuleTemplates } from "../permissions/defaults.js";
+import * as trustStoreModule from "../permissions/trust-store.js";
 import {
   addRule,
   clearCache,
@@ -2647,23 +2649,36 @@ describe("Permission Checker", () => {
     });
 
     test("high-risk bash with allow rule in containerized environment auto-allows", async () => {
-      // Seed the file-backed trust store BEFORE setting IS_CONTAINERIZED so
-      // addRule/clearCache go through the file backend (not the gateway).
-      clearCache();
+      // Add rule via file backend (IS_CONTAINERIZED is false in test env).
       addRule("bash", "**", "everywhere", "allow", 2000);
 
-      const orig = process.env.IS_CONTAINERIZED;
-      process.env.IS_CONTAINERIZED = "true";
+      // Capture the file-backend result so we can return it from the spy.
+      // We need this because setting getIsContainerized=true would route
+      // getTrustStore() to the gateway backend (no server in CI).
+      const fileRule = findHighestPriorityRule(
+        "bash",
+        ["kill -9 1234"],
+        "/tmp",
+      );
+      expect(fileRule).not.toBeNull();
+
+      // Spy on findHighestPriorityRule to bypass getTrustStore routing,
+      // and on getIsContainerized so shouldAutoAllowHighRisk returns true.
+      const ruleSpy = spyOn(
+        trustStoreModule,
+        "findHighestPriorityRule",
+      ).mockReturnValue(fileRule);
+      const containerSpy = spyOn(
+        envRegistry,
+        "getIsContainerized",
+      ).mockReturnValue(true);
       try {
         const result = await check("bash", { command: "kill -9 1234" }, "/tmp");
         expect(result.decision).toBe("allow");
         expect(result.reason).toContain("auto-allow-high-risk context");
       } finally {
-        if (orig === undefined) {
-          delete process.env.IS_CONTAINERIZED;
-        } else {
-          process.env.IS_CONTAINERIZED = orig;
-        }
+        ruleSpy.mockRestore();
+        containerSpy.mockRestore();
       }
     });
 
