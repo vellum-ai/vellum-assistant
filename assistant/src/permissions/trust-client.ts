@@ -211,7 +211,6 @@ export async function addRule(params: {
   scope: string;
   decision?: TrustRule["decision"];
   priority?: number;
-  allowHighRisk?: boolean;
   executionTarget?: string;
 }): Promise<TrustRule> {
   const data = await request<{ rule: unknown }>(
@@ -231,7 +230,6 @@ export async function updateRule(
     scope?: string;
     decision?: TrustRule["decision"];
     priority?: number;
-    allowHighRisk?: boolean;
     executionTarget?: string;
   },
 ): Promise<TrustRule> {
@@ -306,7 +304,6 @@ export function addRuleSync(params: {
   scope: string;
   decision?: TrustRule["decision"];
   priority?: number;
-  allowHighRisk?: boolean;
   executionTarget?: string;
 }): TrustRule {
   const data = requestSync<{ rule: unknown }>(
@@ -326,7 +323,6 @@ export function updateRuleSync(
     scope?: string;
     decision?: TrustRule["decision"];
     priority?: number;
-    allowHighRisk?: boolean;
     executionTarget?: string;
   },
 ): TrustRule {

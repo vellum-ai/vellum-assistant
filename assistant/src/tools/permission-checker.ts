@@ -453,18 +453,12 @@ export class PermissionChecker {
 
         if (
           promptOptions.persistentDecisionsAllowed &&
-          (decision === "always_allow" ||
-            decision === "always_allow_high_risk") &&
+          decision === "always_allow" &&
           response.selectedPattern
         ) {
           const ruleOptions: {
-            allowHighRisk?: boolean;
             executionTarget?: string;
           } = {};
-
-          if (decision === "always_allow_high_risk") {
-            ruleOptions.allowHighRisk = true;
-          }
 
           if (policyContext?.executionTarget != null) {
             ruleOptions.executionTarget = policyContext.executionTarget;

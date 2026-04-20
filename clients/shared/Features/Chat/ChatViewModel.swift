@@ -1959,7 +1959,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     private func markConfirmationInFlight(requestId: String, decision: String) {
         guard let index = messages.firstIndex(where: { $0.confirmation?.requestId == requestId }) else { return }
         let isApproval = decision == "allow" || decision == "allow_10m" || decision == "allow_conversation"
-            || decision == "always_allow" || decision == "always_allow_high_risk"
+            || decision == "always_allow"
         messages[index].confirmation?.state = isApproval ? .approved : .denied
         if isApproval {
             messages[index].confirmation?.approvedDecision = decision
@@ -2050,7 +2050,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     pattern: pattern,
                     scope: scope,
                     decision: decision,
-                    allowHighRisk: nil,
                     executionTarget: nil
                 )
             } catch {

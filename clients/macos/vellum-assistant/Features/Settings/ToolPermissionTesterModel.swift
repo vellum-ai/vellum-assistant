@@ -386,7 +386,6 @@ final class ToolPermissionTesterModel: ObservableObject {
                     pattern: pattern,
                     scope: scope,
                     decision: "allow",
-                    allowHighRisk: isHighRisk ? true : nil,
                     executionTarget: snapshot.snapshotExecutionTarget
                 )
                 // Re-simulate to show the updated outcome with the new rule in effect.
