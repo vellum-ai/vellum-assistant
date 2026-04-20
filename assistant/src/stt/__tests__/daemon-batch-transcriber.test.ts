@@ -45,6 +45,19 @@ mock.module("../../providers/speech-to-text/google-gemini.js", () => ({
   },
 }));
 
+let mockXAITranscribeResult: { text: string } = { text: "" };
+let mockXAITranscribeError: Error | null = null;
+
+mock.module("../../providers/speech-to-text/xai.js", () => ({
+  XAIProvider: class MockXAIProvider {
+    constructor(_apiKey: string) {}
+    async transcribe(_audio: Buffer, _mimeType: string, _signal?: AbortSignal) {
+      if (mockXAITranscribeError) throw mockXAITranscribeError;
+      return mockXAITranscribeResult;
+    }
+  },
+}));
+
 // Dynamic import so mocks are active when the module loads.
 const { createDaemonBatchTranscriber, normalizeSttError } =
   await import("../daemon-batch-transcriber.js");
@@ -61,6 +74,8 @@ describe("createDaemonBatchTranscriber", () => {
     mockDeepgramTranscribeError = null;
     mockGeminiTranscribeResult = { text: "" };
     mockGeminiTranscribeError = null;
+    mockXAITranscribeResult = { text: "" };
+    mockXAITranscribeError = null;
   });
 
   // -------------------------------------------------------------------------
@@ -304,6 +319,67 @@ describe("createDaemonBatchTranscriber", () => {
   test("returns null for google-gemini when no API key is provided", () => {
     expect(createDaemonBatchTranscriber(null, "google-gemini")).toBeNull();
     expect(createDaemonBatchTranscriber(undefined, "google-gemini")).toBeNull();
+  });
+
+  // -------------------------------------------------------------------------
+  // Provider identity — xAI
+  // -------------------------------------------------------------------------
+
+  test("reports providerId as xai when created with xai", () => {
+    const transcriber = createDaemonBatchTranscriber("xai-test-key", "xai");
+    expect(transcriber).not.toBeNull();
+    expect(transcriber!.providerId).toBe("xai");
+  });
+
+  test("reports boundaryId as daemon-batch for xai", () => {
+    const transcriber = createDaemonBatchTranscriber("xai-test-key", "xai");
+    expect(transcriber!.boundaryId).toBe("daemon-batch");
+  });
+
+  // -------------------------------------------------------------------------
+  // Successful transcription — xAI
+  // -------------------------------------------------------------------------
+
+  test("delegates transcription to the xAI provider", async () => {
+    mockXAITranscribeResult = { text: "Hello from xAI" };
+
+    const transcriber = createDaemonBatchTranscriber("xai-test-key", "xai");
+    const result = await transcriber!.transcribe({
+      audio: Buffer.from("fake-audio"),
+      mimeType: "audio/ogg",
+    });
+
+    expect(result).toEqual({ text: "Hello from xAI" });
+  });
+
+  // -------------------------------------------------------------------------
+  // Error propagation — xAI
+  // -------------------------------------------------------------------------
+
+  test("propagates xAI errors unchanged", async () => {
+    const original = new Error("xAI API error (401): Invalid credentials");
+    mockXAITranscribeError = original;
+
+    const transcriber = createDaemonBatchTranscriber("xai-test-key", "xai");
+
+    try {
+      await transcriber!.transcribe({
+        audio: Buffer.from("audio"),
+        mimeType: "audio/wav",
+      });
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBe(original);
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Null on missing key — xAI
+  // -------------------------------------------------------------------------
+
+  test("returns null for xai when no API key is provided", () => {
+    expect(createDaemonBatchTranscriber(null, "xai")).toBeNull();
+    expect(createDaemonBatchTranscriber(undefined, "xai")).toBeNull();
   });
 });
 

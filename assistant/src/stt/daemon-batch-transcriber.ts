@@ -10,6 +10,7 @@
  * - OpenAI Whisper (`openai-whisper`)
  * - Deepgram (`deepgram`)
  * - Google Gemini (`google-gemini`)
+ * - xAI (`xai`)
  */
 
 import type {
@@ -121,6 +122,36 @@ class GoogleGeminiBatchTranscriber implements BatchTranscriber {
 }
 
 // ---------------------------------------------------------------------------
+// xAI adapter — implements BatchTranscriber on top of the xAI audio
+// transcription provider.
+// ---------------------------------------------------------------------------
+
+/**
+ * Wraps `XAIProvider` behind the `BatchTranscriber` contract.
+ *
+ * Same error-propagation semantics as WhisperBatchTranscriber: raw provider
+ * errors pass through unchanged.
+ */
+class XAIBatchTranscriber implements BatchTranscriber {
+  readonly providerId = "xai" as const;
+  readonly boundaryId = "daemon-batch" as const;
+
+  private readonly apiKey: string;
+
+  constructor(apiKey: string) {
+    this.apiKey = apiKey;
+  }
+
+  async transcribe(
+    request: SttTranscribeRequest,
+  ): Promise<SttTranscribeResult> {
+    const { XAIProvider } = await import("../providers/speech-to-text/xai.js");
+    const provider = new XAIProvider(this.apiKey);
+    return provider.transcribe(request.audio, request.mimeType, request.signal);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Error normalization
 // ---------------------------------------------------------------------------
 
@@ -186,7 +217,7 @@ export function createDaemonBatchTranscriber(
     case "google-gemini":
       return new GoogleGeminiBatchTranscriber(apiKey);
     case "xai":
-      return null;
+      return new XAIBatchTranscriber(apiKey);
     default: {
       // Exhaustive check — compile error if a new SttProviderId is added
       // without a corresponding case here.
