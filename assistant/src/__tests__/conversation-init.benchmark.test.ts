@@ -165,6 +165,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateConversationTitle: () => {},
   updateConversationUsage: () => {},
   updateMessageContent: () => {},
+  updateMessageContentAndMetadata: () => {},
   batchSetDisplayOrders: () => {},
   getDisplayMetaForConversations: () => [],
   messageMetadataSchema: {
