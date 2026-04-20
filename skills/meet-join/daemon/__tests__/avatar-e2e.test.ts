@@ -1,18 +1,20 @@
 /**
  * Daemon-side avatar E2E test.
  *
- * Stands up a minimal bot HTTP server on a random loopback port that stands
- * in for a real meet-bot container, drives {@link MeetSessionManager} through
- * a full `join()` → `enableAvatar()` → `disableAvatar()` → `leave()` cycle
- * against that fake bot, and asserts both the HTTP wire (path, method, auth
- * header) and the bot-side lifecycle semantics the real `/avatar/enable` and
- * `/avatar/disable` handlers establish:
+ * Stands up the **real** meet-bot HTTP control surface (from
+ * `bot/src/control/http-server.ts`) on a random loopback port, drives
+ * {@link MeetSessionManager} through a full `join()` → `enableAvatar()` →
+ * `disableAvatar()` → `leave()` cycle against it, and asserts both the HTTP
+ * wire (path, method, auth header) and the bot-side lifecycle semantics
+ * that the real `/avatar/enable` and `/avatar/disable` handlers establish:
  *
  *   - On `enableAvatar`: the renderer is started, the device is opened, the
  *     device writer is attached, and the camera is flipped ON — in that
- *     order. The renderer is kept simple (a tracked {@link NoopAvatarRenderer})
- *     so the test is independent of any concrete renderer shipping state
- *     (TalkingHead.js, Simli, HeyGen, Tavus, SadTalker, MuseTalk).
+ *     order. A shared {@link FakeAvatarRenderer} fixture is registered
+ *     under the id `"fake"` so the test is independent of any concrete
+ *     renderer shipping state (TalkingHead.js, Simli, HeyGen, Tavus,
+ *     SadTalker, MuseTalk) while still exercising the real handler's
+ *     camera-channel wiring.
  *
  *   - On `disableAvatar`: the camera is flipped OFF FIRST, then the writer is
  *     stopped, the device is closed, and the renderer is stopped — so
@@ -21,24 +23,38 @@
  *
  *   - Idempotent retries: a second `enableAvatar` while already running short-
  *     circuits with `alreadyRunning: true` without re-initializing the
- *     renderer (matching PR 5's http-server contract).
+ *     renderer (matching the http-server contract covered by
+ *     `bot/__tests__/avatar-http-server.test.ts`).
  *
  * The test does not spin up real Docker, no real Meet, and does not touch the
  * daemon's long-running singletons — it uses `_createMeetSessionManagerForTests`
  * so each test gets an isolated manager with mock docker / audio-ingest deps.
- * The fake bot skips the real bot's bearer-token auth middleware because the
- * daemon generates its own per-session token and the bot's real
- * `createHttpServer` would require that token at construction time — one
- * chicken-and-egg step ahead of `manager.join()` resolving. Instead, we
- * record the `Authorization` header the daemon sent and assert it matches
- * `Bearer ${session.botApiToken}` after the fact, which covers the same
- * wire-protocol invariant.
+ *
+ * The daemon generates its own per-session `BOT_API_TOKEN` and passes it to
+ * the container via env var at `runner.run()` time, so the bot server is
+ * stood up lazily inside the mock runner's `run(opts)` callback using
+ * `opts.env.BOT_API_TOKEN` as the bearer-token that the real auth
+ * middleware will enforce. The bound port is threaded back through
+ * `boundPorts` so the daemon's `session.botBaseUrl` points at the real
+ * listener. This matches the production topology (daemon spawns bot
+ * container, bot reads `BOT_API_TOKEN` from env) one step more faithfully
+ * than a hand-rolled `Bun.serve` fake.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { createHttpServer } from "../../bot/src/control/http-server.js";
+import {
+  __resetAvatarRegistryForTests,
+  registerAvatarRenderer,
+  type AvatarConfig,
+} from "../../bot/src/media/avatar/index.js";
+import type { VideoDeviceHandle } from "../../bot/src/media/video-device.js";
+import { BotState } from "../../bot/src/control/state.js";
+import { FakeAvatarRenderer } from "../../bot/__tests__/avatar-interface.test.js";
 
 import { meetEventDispatcher } from "../event-publisher.js";
 import { __resetMeetSessionEventRouterForTests } from "../session-event-router.js";
@@ -48,43 +64,16 @@ import {
   type MeetAudioIngestLike,
 } from "../session-manager.js";
 
-// The fake bot's `/avatar/enable` handler talks to an in-test tracker
-// that stands in for the real `NoopAvatarRenderer` on the bot side —
-// we don't import the bot's NoopAvatarRenderer directly because the
-// daemon tests must stay behind the skill's daemon/bot runtime boundary
-// (bot code ships in a Docker container, daemon code runs on the host;
-// the two processes only meet over the HTTP wire this test exercises).
-// The counters below give the test the same observables
-// (`startCount` / `stopCount`) the real NoopAvatarRenderer exposes for
-// its own unit tests, so the assertions stay semantically aligned.
-interface RendererTracker {
-  startCount: number;
-  stopCount: number;
-  start(): Promise<void>;
-  stop(): Promise<void>;
-}
-
-function makeRendererTracker(): RendererTracker {
-  const tracker: RendererTracker = {
-    startCount: 0,
-    stopCount: 0,
-    start: async () => {
-      tracker.startCount += 1;
-    },
-    stop: async () => {
-      tracker.stopCount += 1;
-    },
-  };
-  return tracker;
-}
-
 // ---------------------------------------------------------------------------
-// Shared fixtures — the "fake bot" stands up a Bun.serve HTTP server that
-// replays the semantically-interesting parts of the real meet-bot's
-// `/avatar/enable` + `/avatar/disable` handlers against a tracked noop
-// renderer + fake camera + fake device. This matches the pattern used by
-// `chat-send-e2e.test.ts` (minimal bot server focused on the wire protocol
-// + the specific lifecycle verbs we want to assert on).
+// Shared fixtures — the "fake bot" stands up a real `createHttpServer`
+// from the bot source tree, backed by a {@link FakeAvatarRenderer}
+// registered under the id `"fake"`, a stubbed {@link VideoDeviceHandle},
+// and a fake camera channel. All the lifecycle calls the real HTTP
+// handler makes (renderer.start → openDevice → camera.enableCamera on
+// enable; camera.disableCamera → device.close → renderer.stop on disable)
+// land on these fixtures, and each one pushes its label into a shared
+// `trace` array so the test can assert the full handler-driven interleave
+// with a single `toEqual` call.
 // ---------------------------------------------------------------------------
 
 interface RecordedAvatarRequest {
@@ -96,58 +85,85 @@ interface RecordedAvatarRequest {
 interface FakeCamera {
   enableCalls: number;
   disableCalls: number;
-  /** Monotonic call trace — each call appends its label here. */
-  trace: string[];
   enableCamera: () => Promise<{ changed: boolean }>;
   disableCamera: () => Promise<{ changed: boolean }>;
 }
 
-interface FakeDevice {
+interface FakeDeviceFixture {
   /** Set to `true` the moment `close()` is awaited. */
   closed: boolean;
-  /** Monotonic call trace — each call appends its label here. */
-  trace: string[];
-  open: () => Promise<void>;
-  close: () => Promise<void>;
+  /** How many times `openDevice` was invoked. */
+  openCount: number;
+  /** Factory used as `avatar.openDevice`. */
+  openDevice: (devicePath: string) => Promise<VideoDeviceHandle>;
 }
 
 interface FakeBotServer {
   url: string;
   port: number;
-  /** One record per request the daemon sent. */
+  /** The bearer-token the bot's auth middleware enforces on every route. */
+  apiToken: string;
+  /** One record per request that hit the server. */
   requests: RecordedAvatarRequest[];
-  /** The tracked "noop" renderer the `/avatar/enable` handler starts. */
-  renderer: RendererTracker;
+  /** Every `FakeAvatarRenderer` instance the registry handed out, in order. */
+  renderers: FakeAvatarRenderer[];
   camera: FakeCamera;
-  device: FakeDevice;
+  device: FakeDeviceFixture;
   /**
-   * Monotonic call trace — every callback the enable/disable handler
-   * invokes appends to this. Drives the order-of-operations assertions
-   * (renderer-start → device-open → camera-enable on enable; camera-disable
-   * FIRST → device-close → renderer-stop on disable). Kept as a single
-   * shared array (not per-component) so the test can assert the full
-   * interleave with one `toEqual` call.
+   * Monotonic call trace — every lifecycle verb the real handler fires
+   * appends to this. Drives the order-of-operations assertions
+   * (renderer.start → device.open → camera.enableCamera on enable;
+   * camera.disableCamera → device.close → renderer.stop on disable). Kept
+   * as a single shared array (not per-component) so the test can assert
+   * the full interleave with one `toEqual` call.
    */
   trace: string[];
   stop: () => Promise<void>;
 }
 
 /**
- * Boot a Bun.serve on a random loopback port whose `/avatar/enable` and
- * `/avatar/disable` handlers drive a tracked noop renderer + fake camera +
- * fake device writer, then respond with the same JSON body shape the real
- * bot's `createHttpServer` would return (see
- * `bot/src/control/http-server.ts`).
+ * Build a {@link VideoDeviceHandle} stub whose `close()` flips a shared
+ * `closed` flag and appends a `device.close` trace entry. The `sink`
+ * accepts writes silently — the device-writer will subscribe to the
+ * renderer's `onFrame` channel but the `FakeAvatarRenderer` never emits
+ * frames, so no bytes actually land here.
  */
-function startFakeBot(): FakeBotServer {
-  const requests: RecordedAvatarRequest[] = [];
-  const renderer = makeRendererTracker();
-  const trace: string[] = [];
+function makeFakeDeviceFixture(trace: string[]): FakeDeviceFixture {
+  const fixture: FakeDeviceFixture = {
+    closed: false,
+    openCount: 0,
+    openDevice: async (_devicePath: string) => {
+      fixture.openCount += 1;
+      trace.push("device.open");
+      const handle: VideoDeviceHandle = {
+        devicePath: "/dev/video10",
+        width: 1280,
+        height: 720,
+        pixelFormat: "YU12",
+        sink: {
+          write: () => true,
+          end: (cb?: () => void) => {
+            cb?.();
+          },
+          destroy: () => {
+            /* noop */
+          },
+        },
+        close: async () => {
+          fixture.closed = true;
+          trace.push("device.close");
+        },
+      };
+      return handle;
+    },
+  };
+  return fixture;
+}
 
+function makeFakeCamera(trace: string[]): FakeCamera {
   const camera: FakeCamera = {
     enableCalls: 0,
     disableCalls: 0,
-    trace,
     enableCamera: async () => {
       camera.enableCalls += 1;
       trace.push("camera.enableCamera");
@@ -159,104 +175,69 @@ function startFakeBot(): FakeBotServer {
       return { changed: true };
     },
   };
+  return camera;
+}
 
-  const device: FakeDevice = {
-    closed: false,
-    trace,
-    open: async () => {
-      trace.push("device.open");
-    },
-    close: async () => {
-      device.closed = true;
-      trace.push("device.close");
-    },
-  };
+/**
+ * Stand up a real {@link createHttpServer} instance on a random loopback
+ * port using the given bearer token. The registry's `"fake"` factory
+ * (registered in `beforeEach`) hands out `FakeAvatarRenderer` instances;
+ * each one is captured into `renderers` so the test can assert on start /
+ * stop counts. The handler itself runs unmodified — `resolveAvatarRenderer`
+ * looks up the factory, and the renderer's `start` + the fake camera's
+ * `enableCamera` (etc.) fire in the exact order the production handler
+ * enforces.
+ *
+ * Every request is recorded via a `Bun.serve` wrapper that captures
+ * method/path/auth-header before delegating to `app.fetch`. The wrapper
+ * (rather than a post-hoc `app.use("*", ...)`) exists because Hono's
+ * middleware registration only takes effect for routes registered AFTER
+ * the middleware, and all of the handler routes are registered inside
+ * `createHttpServer` before we get a chance to `.use(...)` on the
+ * returned app. A fetch-level wrapper catches every inbound request
+ * uniformly — including 401s from the auth middleware — which matches
+ * the wire observations the previous hand-rolled `Bun.serve` fake was
+ * making.
+ */
+async function startRealBotServer(
+  apiToken: string,
+  camera: FakeCamera,
+  device: FakeDeviceFixture,
+): Promise<{
+  stop: () => Promise<void>;
+  url: string;
+  port: number;
+  requests: RecordedAvatarRequest[];
+}> {
+  const requests: RecordedAvatarRequest[] = [];
 
-  let rendererActive = false;
+  const config: AvatarConfig = { enabled: true, renderer: "fake" };
+
+  const handle = createHttpServer({
+    apiToken,
+    onLeave: () => {},
+    onSendChat: () => {},
+    onPlayAudio: () => {},
+    avatar: {
+      config,
+      openDevice: device.openDevice,
+      camera: {
+        enableCamera: camera.enableCamera,
+        disableCamera: camera.disableCamera,
+      },
+    },
+  });
 
   const server = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
-    fetch: async (req) => {
-      const path = new URL(req.url).pathname;
+    fetch: (req) => {
       requests.push({
         method: req.method,
-        path,
+        path: new URL(req.url).pathname,
         authorization: req.headers.get("authorization"),
       });
-
-      if (req.method === "POST" && path === "/avatar/enable") {
-        // Idempotent: a second enable while running short-circuits with
-        // `alreadyRunning: true`, matching the real bot handler's
-        // behavior (`bot/src/control/http-server.ts` — see the
-        // `if (avatarRenderer) { ... alreadyRunning: true }` branch).
-        if (rendererActive) {
-          return new Response(
-            JSON.stringify({
-              enabled: true,
-              renderer: "noop",
-              alreadyRunning: true,
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        }
-
-        // Setup ordering must match the real bot: renderer.start() →
-        // device open → camera.enableCamera(). The real handler also
-        // calls attachDeviceWriter between open and camera toggle —
-        // that's covered by the bot-side http-server tests and exercised
-        // here by the device open + renderer.start sequence (the writer
-        // is a pure-function bridge that has no observable effect at the
-        // wire level this test targets).
-        trace.push("renderer.start");
-        await renderer.start();
-        await device.open();
-        await camera.enableCamera();
-        rendererActive = true;
-
-        return new Response(
-          JSON.stringify({
-            enabled: true,
-            renderer: "noop",
-            active: true,
-            devicePath: "/dev/video10",
-            cameraChanged: true,
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-
-      if (req.method === "POST" && path === "/avatar/disable") {
-        // Teardown ordering: camera.disableCamera() FIRST, then device
-        // close, then renderer.stop(). This matches the real handler's
-        // deliberate ordering — drop the camera track before the frame
-        // source disappears so other participants don't see a black
-        // frame in the gap. See `bot/src/control/http-server.ts`'s
-        // `/avatar/disable` handler for the canonical sequence.
-        const wasActive = rendererActive;
-        if (rendererActive) {
-          await camera.disableCamera();
-          await device.close();
-          trace.push("renderer.stop");
-          await renderer.stop();
-        }
-        rendererActive = false;
-
-        return new Response(
-          JSON.stringify({
-            disabled: true,
-            wasActive,
-            cameraChanged: wasActive,
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-
-      // Unknown path — 404 so the daemon's fetch surfaces a clean error.
-      return new Response(JSON.stringify({ error: "not found" }), {
-        status: 404,
-        headers: { "content-type": "application/json" },
-      });
+      return handle.app.fetch(req);
     },
   });
 
@@ -264,18 +245,13 @@ function startFakeBot(): FakeBotServer {
   if (port === undefined) {
     throw new Error("fake bot server failed to bind a port");
   }
-
   return {
-    url: `http://127.0.0.1:${port}`,
-    port,
-    requests,
-    renderer,
-    camera,
-    device,
-    trace,
     stop: async () => {
       await server.stop(true);
     },
+    url: `http://127.0.0.1:${port}`,
+    port,
+    requests,
   };
 }
 
@@ -292,45 +268,120 @@ function makeFakeAudioIngest(): MeetAudioIngestLike {
 }
 
 /**
- * Build a mock Docker runner whose `run()` returns a container record
- * pinned to the real fake-bot server's host port. This is how we stitch
- * the session's `botBaseUrl` to something a real `fetch()` can hit.
+ * Build a mock Docker runner whose `run(opts)` lazily boots the real bot
+ * HTTP server using the `BOT_API_TOKEN` the daemon synthesized into the
+ * env. The returned `boundPorts` entry points the daemon's resulting
+ * `session.botBaseUrl` at the real listener, so subsequent
+ * `manager.enableAvatar()` / `manager.disableAvatar()` calls hit the real
+ * `/avatar/enable` and `/avatar/disable` handlers.
  */
-function makeMockRunnerPointingAt(fakeBot: FakeBotServer) {
-  const runResult = {
-    containerId: "container-avatar-e2e",
-    boundPorts: [
-      {
-        protocol: "tcp" as const,
-        containerPort: MEET_BOT_INTERNAL_PORT,
-        hostIp: "127.0.0.1",
-        hostPort: fakeBot.port,
-      },
-    ],
-  };
+function makeLazyRunner(fakeBotRef: { current: FakeBotServer | null }) {
   return {
-    run: mock(async () => runResult),
+    run: mock(async (opts: { env?: Record<string, string> }) => {
+      const token = opts.env?.BOT_API_TOKEN;
+      if (!token) {
+        throw new Error(
+          "mock runner expected BOT_API_TOKEN in opts.env — daemon should have set it",
+        );
+      }
+      const renderers: FakeAvatarRenderer[] = [];
+      const trace: string[] = [];
+      const camera = makeFakeCamera(trace);
+      const device = makeFakeDeviceFixture(trace);
+
+      // Register a fresh factory that captures every instance it hands
+      // out. The registry was reset in `beforeEach` so this is the only
+      // factory the `/avatar/enable` handler's `resolveAvatarRenderer`
+      // call can pick up.
+      registerAvatarRenderer("fake", () => {
+        const renderer = new FakeAvatarRenderer({
+          id: "fake",
+          // Match the real "noop-ish" capability profile the existing
+          // assertions expect — the handler's camera-toggle wiring is
+          // independent of these flags, but leaving them false keeps
+          // the renderer cheap and side-effect-free.
+          capabilities: { needsVisemes: false, needsAudio: false },
+        });
+        // Wrap start/stop so the handler-driven order lands in `trace`.
+        const origStart = renderer.start.bind(renderer);
+        renderer.start = async () => {
+          trace.push("renderer.start");
+          await origStart();
+        };
+        const origStop = renderer.stop.bind(renderer);
+        renderer.stop = async () => {
+          trace.push("renderer.stop");
+          await origStop();
+        };
+        renderers.push(renderer);
+        return renderer;
+      });
+
+      const server = await startRealBotServer(token, camera, device);
+
+      const fakeBot: FakeBotServer = {
+        url: server.url,
+        port: server.port,
+        apiToken: token,
+        requests: server.requests,
+        renderers,
+        camera,
+        device,
+        trace,
+        stop: server.stop,
+      };
+      fakeBotRef.current = fakeBot;
+
+      return {
+        containerId: "container-avatar-e2e",
+        boundPorts: [
+          {
+            protocol: "tcp" as const,
+            containerPort: MEET_BOT_INTERNAL_PORT,
+            hostIp: "127.0.0.1",
+            hostPort: server.port,
+          },
+        ],
+      };
+    }),
     stop: mock(async () => {}),
     remove: mock(async () => {}),
-    inspect: mock(async () => ({ Id: runResult.containerId })),
+    inspect: mock(async () => ({ Id: "container-avatar-e2e" })),
     logs: mock(async () => ""),
   };
 }
 
 let workspaceDir: string;
-let fakeBot: FakeBotServer;
+const fakeBotRef: { current: FakeBotServer | null } = { current: null };
 
 beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "avatar-e2e-"));
   __resetMeetSessionEventRouterForTests();
   meetEventDispatcher._resetForTests();
-  fakeBot = startFakeBot();
+  // Wipe the registry so tests can't leak factories across each other.
+  // The `"fake"` id is re-registered inside the lazy runner below, once
+  // per-test, so every test gets a clean factory whose closure captures
+  // that test's trace array + fixture handles.
+  __resetAvatarRegistryForTests();
+  BotState.__resetForTests();
+  fakeBotRef.current = null;
 });
 
 afterEach(async () => {
-  await fakeBot.stop();
+  if (fakeBotRef.current !== null) {
+    await fakeBotRef.current.stop();
+    fakeBotRef.current = null;
+  }
   rmSync(workspaceDir, { recursive: true, force: true });
 });
+
+function expectFakeBot(): FakeBotServer {
+  const bot = fakeBotRef.current;
+  if (!bot) {
+    throw new Error("fake bot was not booted — did manager.join() run?");
+  }
+  return bot;
+}
 
 // ---------------------------------------------------------------------------
 // enableAvatar — full enable chain
@@ -338,7 +389,7 @@ afterEach(async () => {
 
 describe("MeetSessionManager.enableAvatar end-to-end (real HTTP)", () => {
   test("drives renderer-start + device-open + camera-enable in that order via POST /avatar/enable", async () => {
-    const runner = makeMockRunnerPointingAt(fakeBot);
+    const runner = makeLazyRunner(fakeBotRef);
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async () => "tts-key",
@@ -353,8 +404,14 @@ describe("MeetSessionManager.enableAvatar end-to-end (real HTTP)", () => {
       conversationId: "conv-avatar-enable",
     });
 
-    // Sanity: session is pointed at our fake bot.
+    const fakeBot = expectFakeBot();
+
+    // Sanity: session is pointed at our real bot server.
     expect(session.botBaseUrl).toBe(fakeBot.url);
+    // Token handed to the bot's auth middleware matches the one the
+    // daemon minted — i.e. the auth gate is live and enforcing the same
+    // token from both sides of the wire.
+    expect(fakeBot.apiToken).toBe(session.botApiToken);
 
     const body = await manager.enableAvatar("m-avatar-enable");
 
@@ -369,15 +426,20 @@ describe("MeetSessionManager.enableAvatar end-to-end (real HTTP)", () => {
 
     // ---- Assert: the bot-side lifecycle fired exactly the operations the
     //      real `/avatar/enable` handler promises, in the right order.
-    //      renderer.start → device.open → camera.enableCamera.
+    //      renderer.start → device.open → camera.enableCamera. Every one
+    //      of those trace entries is produced by the real handler's call
+    //      into our fixture (renderer via the registry, device via
+    //      `openDevice`, camera via the `camera.enableCamera` callback).
     expect(fakeBot.trace).toEqual([
       "renderer.start",
       "device.open",
       "camera.enableCamera",
     ]);
-    expect(fakeBot.renderer.startCount).toBe(1);
+    expect(fakeBot.renderers).toHaveLength(1);
+    expect(fakeBot.renderers[0]!.startCount).toBe(1);
     expect(fakeBot.camera.enableCalls).toBe(1);
     expect(fakeBot.camera.disableCalls).toBe(0);
+    expect(fakeBot.device.openCount).toBe(1);
     expect(fakeBot.device.closed).toBe(false);
 
     // ---- Assert: the parsed JSON body the session-manager returned to
@@ -385,7 +447,7 @@ describe("MeetSessionManager.enableAvatar end-to-end (real HTTP)", () => {
     //      relay them to the model.
     expect(body).toMatchObject({
       enabled: true,
-      renderer: "noop",
+      renderer: "fake",
       active: true,
       devicePath: "/dev/video10",
       cameraChanged: true,
@@ -395,10 +457,10 @@ describe("MeetSessionManager.enableAvatar end-to-end (real HTTP)", () => {
   });
 
   test("a second enableAvatar while already running returns alreadyRunning=true and does NOT re-start the renderer", async () => {
-    // Matches the idempotent-retry contract established by PR 5: the bot
-    // short-circuits a second /avatar/enable with `alreadyRunning: true`
-    // so the daemon's retry path doesn't thrash the device.
-    const runner = makeMockRunnerPointingAt(fakeBot);
+    // Idempotent-retry contract: the bot short-circuits a second
+    // /avatar/enable with `alreadyRunning: true` so the daemon's retry
+    // path doesn't thrash the device.
+    const runner = makeLazyRunner(fakeBotRef);
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async () => "",
@@ -413,11 +475,16 @@ describe("MeetSessionManager.enableAvatar end-to-end (real HTTP)", () => {
       conversationId: "c",
     });
 
+    const fakeBot = expectFakeBot();
+
     await manager.enableAvatar("m-avatar-idempotent");
     const second = await manager.enableAvatar("m-avatar-idempotent");
 
     expect(second.alreadyRunning).toBe(true);
-    expect(fakeBot.renderer.startCount).toBe(1);
+    // Exactly one renderer instance was constructed — the short-circuit
+    // path must not reach the factory a second time.
+    expect(fakeBot.renderers).toHaveLength(1);
+    expect(fakeBot.renderers[0]!.startCount).toBe(1);
     // camera.enableCamera must not be called twice — the idempotent
     // short-circuit returns BEFORE touching the camera.
     expect(fakeBot.camera.enableCalls).toBe(1);
@@ -437,7 +504,7 @@ describe("MeetSessionManager.enableAvatar end-to-end (real HTTP)", () => {
 
 describe("MeetSessionManager.disableAvatar end-to-end (real HTTP)", () => {
   test("drives camera-disable FIRST, then device-close, then renderer-stop via POST /avatar/disable", async () => {
-    const runner = makeMockRunnerPointingAt(fakeBot);
+    const runner = makeLazyRunner(fakeBotRef);
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async () => "",
@@ -451,6 +518,8 @@ describe("MeetSessionManager.disableAvatar end-to-end (real HTTP)", () => {
       meetingId: "m-avatar-disable",
       conversationId: "c",
     });
+
+    const fakeBot = expectFakeBot();
 
     // Prime the avatar so disable has something to tear down.
     await manager.enableAvatar("m-avatar-disable");
@@ -480,7 +549,7 @@ describe("MeetSessionManager.disableAvatar end-to-end (real HTTP)", () => {
       "renderer.stop",
     ]);
     expect(fakeBot.camera.disableCalls).toBe(1);
-    expect(fakeBot.renderer.stopCount).toBe(1);
+    expect(fakeBot.renderers[0]!.stopCount).toBe(1);
     expect(fakeBot.device.closed).toBe(true);
 
     expect(body).toMatchObject({
@@ -492,8 +561,17 @@ describe("MeetSessionManager.disableAvatar end-to-end (real HTTP)", () => {
     await manager.leave("m-avatar-disable", "cleanup");
   });
 
-  test("disable when nothing is running returns wasActive=false and does not call the camera", async () => {
-    const runner = makeMockRunnerPointingAt(fakeBot);
+  test("disable when nothing is running returns wasActive=false; camera OFF fires but no renderer/device teardown", async () => {
+    // The real `/avatar/disable` handler (unlike the old hand-rolled
+    // fake) unconditionally flips the camera OFF whenever a camera
+    // channel is wired — even when no renderer was ever started.
+    // Rationale in the handler: a disable request means "ensure Meet
+    // isn't emitting a video track"; if the extension's camera toggle
+    // was somehow left ON by a prior boot / crash, the unconditional
+    // disableCamera call gets us back to a known-safe state. The
+    // renderer.stop and device.close branches remain gated on the
+    // presence of active handles, so no spurious teardown fires.
+    const runner = makeLazyRunner(fakeBotRef);
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async () => "",
@@ -508,12 +586,17 @@ describe("MeetSessionManager.disableAvatar end-to-end (real HTTP)", () => {
       conversationId: "c",
     });
 
+    const fakeBot = expectFakeBot();
+
     const body = await manager.disableAvatar("m-avatar-noop-disable");
     expect(body).toMatchObject({ disabled: true, wasActive: false });
-    // No lifecycle ops fired — nothing was running.
-    expect(fakeBot.trace).toEqual([]);
-    expect(fakeBot.camera.disableCalls).toBe(0);
-    expect(fakeBot.renderer.stopCount).toBe(0);
+    // Camera OFF always fires — see handler contract above.
+    expect(fakeBot.trace).toEqual(["camera.disableCamera"]);
+    expect(fakeBot.camera.disableCalls).toBe(1);
+    // But no renderer was ever constructed and no device was ever opened.
+    expect(fakeBot.renderers).toHaveLength(0);
+    expect(fakeBot.device.openCount).toBe(0);
+    expect(fakeBot.device.closed).toBe(false);
 
     await manager.leave("m-avatar-noop-disable", "cleanup");
   });
@@ -522,8 +605,10 @@ describe("MeetSessionManager.disableAvatar end-to-end (real HTTP)", () => {
     // Ensures the daemon's enable/disable path doesn't leak state between
     // cycles. Matches the bot-side `disable then re-enable produces a
     // fresh renderer instance` invariant from avatar-http-server.test.ts
-    // — here we mirror it one level up at the daemon boundary.
-    const runner = makeMockRunnerPointingAt(fakeBot);
+    // — here we mirror it one level up at the daemon boundary, and
+    // because the real handler now drives the trace the observation is
+    // end-to-end through the HTTP wire.
+    const runner = makeLazyRunner(fakeBotRef);
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async () => "",
@@ -537,6 +622,8 @@ describe("MeetSessionManager.disableAvatar end-to-end (real HTTP)", () => {
       meetingId: "m-avatar-cycle",
       conversationId: "c",
     });
+
+    const fakeBot = expectFakeBot();
 
     await manager.enableAvatar("m-avatar-cycle");
     await manager.disableAvatar("m-avatar-cycle");
@@ -554,8 +641,13 @@ describe("MeetSessionManager.disableAvatar end-to-end (real HTTP)", () => {
       "device.open",
       "camera.enableCamera",
     ]);
-    expect(fakeBot.renderer.startCount).toBe(2);
-    expect(fakeBot.renderer.stopCount).toBe(1);
+    // Two distinct renderer instances were constructed — the second
+    // enable must not reuse the first's torn-down instance.
+    expect(fakeBot.renderers).toHaveLength(2);
+    expect(fakeBot.renderers[0]!.startCount).toBe(1);
+    expect(fakeBot.renderers[0]!.stopCount).toBe(1);
+    expect(fakeBot.renderers[1]!.startCount).toBe(1);
+    expect(fakeBot.renderers[1]!.stopCount).toBe(0);
     expect(fakeBot.camera.enableCalls).toBe(2);
     expect(fakeBot.camera.disableCalls).toBe(1);
 
