@@ -377,8 +377,6 @@ final class ToolPermissionTesterModel: ObservableObject {
             return
         }
 
-        let isHighRisk = snapshot.riskLevel.lowercased() == "high"
-
         Task {
             do {
                 try await trustRuleClient.addTrustRule(

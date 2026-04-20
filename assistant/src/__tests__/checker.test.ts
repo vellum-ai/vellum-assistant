@@ -2646,6 +2646,25 @@ describe("Permission Checker", () => {
       expect(result.reason).toContain("High risk");
     });
 
+    test("high-risk bash with allow rule in containerized environment auto-allows", async () => {
+      const orig = process.env.IS_CONTAINERIZED;
+      process.env.IS_CONTAINERIZED = "true";
+      try {
+        // Re-seed trust store so the containerized default bash allow rule is present.
+        clearCache();
+        addRule("bash", "**", "everywhere", "allow", 2000);
+        const result = await check("bash", { command: "kill -9 1234" }, "/tmp");
+        expect(result.decision).toBe("allow");
+        expect(result.reason).toContain("auto-allow-high-risk context");
+      } finally {
+        if (orig === undefined) {
+          delete process.env.IS_CONTAINERIZED;
+        } else {
+          process.env.IS_CONTAINERIZED = orig;
+        }
+      }
+    });
+
     test("high-risk host_bash with no matching user rule returns prompt", async () => {
       const result = await check(
         "host_bash",
