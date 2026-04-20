@@ -247,8 +247,11 @@ function buildMessageContentBlocks(
  *
  * Reactions are rendered as their own lines (`[time @actor reacted ... to Mxxx]`),
  * but capped per-target at `opts.maxReactionsPerMessage` (default 5). Excess
- * reactions on the same target are collapsed into a single trailer line:
- * `[…and N more reactions to Mxxx]`.
+ * reactions on the same target are collapsed into a single trailer line
+ * (`[…and N more reactions to Mxxx]`, singular `reaction` when N===1), emitted
+ * at the point the overflow window closes — i.e. immediately before the next
+ * event that is not an overflowing reaction for the same target — so trailers
+ * stay in chronological position instead of batching at the tail.
  */
 export function renderSlackTranscript(
   messages: RenderableSlackMessage[],
@@ -271,13 +274,35 @@ export function renderSlackTranscript(
 
   // Per-target reaction counters used to enforce the cap.
   const reactionCount = new Map<string, number>();
-  // Accumulate excess reactions per target so we can emit one trailer line
-  // each at the end. Map insertion order is the discovery order during the
-  // chronological walk, which keeps trailer emission deterministic.
+  // Open per-target overflow windows. Excess reactions accumulate here; the
+  // window is closed (trailer emitted) as soon as the chronological walk
+  // reaches an event that is not an overflowing reaction for that target.
   const overflowAccumulator = new Map<
     string,
     { excess: number; role: "user" | "assistant" }
   >();
+
+  const trailerMessage = (
+    target: string,
+    acc: { excess: number; role: "user" | "assistant" },
+  ): Message => ({
+    role: acc.role,
+    content: [
+      {
+        type: "text" as const,
+        text: `[…and ${acc.excess} more ${acc.excess === 1 ? "reaction" : "reactions"} to ${parentAlias(target)}]`,
+      },
+    ],
+  });
+
+  const flushOverflowExcept = (out: Message[], keepTarget: string | null) => {
+    for (const target of Array.from(overflowAccumulator.keys())) {
+      if (target === keepTarget) continue;
+      const acc = overflowAccumulator.get(target)!;
+      out.push(trailerMessage(target, acc));
+      overflowAccumulator.delete(target);
+    }
+  };
 
   const out: Message[] = [];
   for (const m of sorted) {
@@ -286,6 +311,9 @@ export function renderSlackTranscript(
       const target = meta.reaction.targetChannelTs;
       const seen = reactionCount.get(target) ?? 0;
       if (seen < maxReactions) {
+        // Reaction fits under the cap for `target`. Any open overflow windows
+        // for other targets are now behind us chronologically — close them.
+        flushOverflowExcept(out, null);
         reactionCount.set(target, seen + 1);
         const line = renderReaction(m);
         if (line !== null) {
@@ -295,6 +323,9 @@ export function renderSlackTranscript(
           });
         }
       } else {
+        // Reaction overflows for `target`. Close any other open windows, then
+        // extend this target's open window.
+        flushOverflowExcept(out, target);
         const acc = overflowAccumulator.get(target) ?? {
           excess: 0,
           role: m.role,
@@ -304,6 +335,8 @@ export function renderSlackTranscript(
       }
       continue;
     }
+    // Non-reaction event: every open overflow window closes here.
+    flushOverflowExcept(out, null);
     const tagLine = renderMessage(m);
     const blocks = buildMessageContentBlocks(m, tagLine);
     if (blocks.length === 0) continue;
@@ -313,17 +346,8 @@ export function renderSlackTranscript(
     });
   }
 
-  for (const [target, acc] of overflowAccumulator) {
-    out.push({
-      role: acc.role,
-      content: [
-        {
-          type: "text" as const,
-          text: `[…and ${acc.excess} more reactions to ${parentAlias(target)}]`,
-        },
-      ],
-    });
-  }
+  // End of the walk: flush any still-open overflow windows.
+  flushOverflowExcept(out, null);
 
   return filterOrphanToolPairs(out);
 }

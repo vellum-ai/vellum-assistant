@@ -426,9 +426,83 @@ describe("renderSlackTranscript — reaction cap", () => {
     const out = renderSlackTranscript(messages, { maxReactionsPerMessage: 2 });
     // 1 msg + 2 reactions + 1 trailer for 1 excess.
     expect(out.length).toBe(4);
+    // Singular "reaction" when excess is exactly 1.
     expect(extractTagLineTexts(out)[out.length - 1]).toMatch(
-      /…and 1 more reactions to M[0-9a-f]{6}\]/,
+      /…and 1 more reaction to M[0-9a-f]{6}\]/,
     );
+  });
+
+  test("overflow trailer uses plural 'reactions' when excess > 1", () => {
+    const messages: RenderableSlackMessage[] = [
+      userMsg(TS_14_25, "@alice", "hi"),
+      reactionMsg("1700000800.000001", "@u1", "👍", TS_14_25),
+      reactionMsg("1700000800.000002", "@u2", "🎉", TS_14_25),
+      reactionMsg("1700000800.000003", "@u3", "🔥", TS_14_25),
+      reactionMsg("1700000800.000004", "@u4", "💯", TS_14_25),
+    ];
+    const out = renderSlackTranscript(messages, { maxReactionsPerMessage: 2 });
+    // 1 msg + 2 reactions + 1 trailer for 2 excess.
+    expect(out.length).toBe(4);
+    expect(extractTagLineTexts(out)[out.length - 1]).toMatch(
+      /…and 2 more reactions to M[0-9a-f]{6}\]/,
+    );
+  });
+
+  test("overflow trailer lands in chronological position, before later non-reaction messages", () => {
+    // Reactions overflow the cap, then a later message arrives. The trailer
+    // must be emitted at the point the overflow window closes — immediately
+    // before the later message — so chronology is preserved.
+    const alias = parentAlias(TS_14_25);
+    const messages: RenderableSlackMessage[] = [
+      userMsg(TS_14_25, "@alice", "hi"),
+      // Cap is 2 — first two reactions render inline.
+      reactionMsg("1699971950.000001", "@u1", "👍", TS_14_25), // 14:25:50
+      reactionMsg("1699971955.000002", "@u2", "🎉", TS_14_25), // 14:25:55
+      // Next two reactions overflow.
+      reactionMsg("1699971960.000003", "@u3", "🔥", TS_14_25), // 14:26
+      reactionMsg("1699971965.000004", "@u4", "💯", TS_14_25), // 14:26:05
+      // A later top-level message — trailer must land BEFORE this line.
+      userMsg(TS_14_30, "@bob", "later"),
+    ];
+    const out = renderSlackTranscript(messages, { maxReactionsPerMessage: 2 });
+    expect(extractTagLineTexts(out)).toEqual([
+      "[11/14/23 14:25 @alice]: hi",
+      `[11/14/23 14:25 @u1 reacted 👍 to ${alias}]`,
+      `[11/14/23 14:25 @u2 reacted 🎉 to ${alias}]`,
+      `[…and 2 more reactions to ${alias}]`,
+      "[11/14/23 14:30 @bob]: later",
+    ]);
+  });
+
+  test("overflow trailer for one target flushes before reaction event on a different target", () => {
+    // Two independent reaction streams. The first target overflows, then a
+    // reaction arrives for a second target. The first target's trailer must
+    // close its window before the second target's reaction is emitted.
+    const parentA_ts = "1700000000.000001";
+    const parentB_ts = "1700000000.000002";
+    const aliasA = parentAlias(parentA_ts);
+    const aliasB = parentAlias(parentB_ts);
+    const messages: RenderableSlackMessage[] = [
+      userMsg(parentA_ts, "@alice", "A"),
+      userMsg(parentB_ts, "@bob", "B"),
+      // Overflow the cap on A.
+      reactionMsg("1700000100.000001", "@u1", "👍", parentA_ts),
+      reactionMsg("1700000100.000002", "@u2", "🎉", parentA_ts),
+      reactionMsg("1700000100.000003", "@u3", "🔥", parentA_ts), // excess 1
+      reactionMsg("1700000100.000004", "@u4", "💯", parentA_ts), // excess 2
+      // Reaction on B arrives chronologically after the overflow — A's
+      // trailer should flush here, before B's reaction renders.
+      reactionMsg("1700000100.000005", "@u5", "👏", parentB_ts),
+    ];
+    const out = renderSlackTranscript(messages, { maxReactionsPerMessage: 2 });
+    expect(extractTagLineTexts(out)).toEqual([
+      "[11/14/23 22:13 @alice]: A",
+      "[11/14/23 22:13 @bob]: B",
+      `[11/14/23 22:15 @u1 reacted 👍 to ${aliasA}]`,
+      `[11/14/23 22:15 @u2 reacted 🎉 to ${aliasA}]`,
+      `[…and 2 more reactions to ${aliasA}]`,
+      `[11/14/23 22:15 @u5 reacted 👏 to ${aliasB}]`,
+    ]);
   });
 
   test("caps are tracked per-target message independently", () => {
