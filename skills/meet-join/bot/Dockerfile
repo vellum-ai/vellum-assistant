@@ -91,6 +91,13 @@ WORKDIR /app/bot
 # so the `file:../contracts` dep in package.json resolves.
 COPY skills/meet-join/contracts /app/contracts
 
+# Copy the sibling `shared/` module. The bot's chrome-launcher and
+# video-device modules import `AVATAR_DEVICE_PATH_DEFAULT` via
+# `../../../shared/avatar-device-path.js`, which resolves to `/app/shared/`
+# from `/app/bot/src/{browser,media}/…`. Without this the bot crashes at
+# startup with "Cannot find module './shared/avatar-device-path.js'".
+COPY skills/meet-join/shared /app/shared
+
 # Install JS dependencies first so Docker can cache the layer when only
 # source files change.
 COPY skills/meet-join/bot/package.json skills/meet-join/bot/bun.lock skills/meet-join/bot/tsconfig.json ./

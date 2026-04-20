@@ -31,6 +31,7 @@ RUN cd /app/assistant && bun install --frozen-lockfile
 COPY skills/meet-join/contracts ./skills/meet-join/contracts
 COPY skills/meet-join/config-schema.ts skills/meet-join/meet-config.ts skills/meet-join/register.ts ./skills/meet-join/
 COPY skills/meet-join/daemon ./skills/meet-join/daemon
+COPY skills/meet-join/shared ./skills/meet-join/shared
 COPY skills/meet-join/tools ./skills/meet-join/tools
 COPY skills/meet-join/routes ./skills/meet-join/routes
 

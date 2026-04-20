@@ -39,6 +39,16 @@ skills/meet-join/contracts/node_modules
 skills/meet-join/contracts/dist
 skills/meet-join/contracts/__tests__
 
+# Un-ignore the sibling `shared/` directory. The bot's chrome-launcher and
+# video-device modules import `AVATAR_DEVICE_PATH_DEFAULT` from
+# `../../../shared/avatar-device-path.js`, which resolves to `/app/shared/`
+# inside the image (see the `COPY skills/meet-join/shared /app/shared` step
+# in the Dockerfile). Without this allow-list entry, the file is excluded
+# from the build context and the bot crashes at startup with
+# "Cannot find module './shared/avatar-device-path.js'".
+!skills/meet-join/shared
+!skills/meet-join/shared/**
+
 # Un-ignore the sibling extension package. The Dockerfile needs both the
 # manifest.json (copied to /tmp so the render script can extract the
 # public key and derive the extension ID that pins `allowed_origins` in
