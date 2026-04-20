@@ -1013,7 +1013,10 @@ export async function runAgentLoopImpl(
     const preflightTokens = estimatePromptTokens(
       runMessages,
       ctx.systemPrompt,
-      { providerName: ctx.provider.name, toolTokenBudget },
+      {
+        providerName: ctx.provider.tokenEstimationProvider ?? ctx.provider.name,
+        toolTokenBudget,
+      },
     );
 
     if (overflowRecovery.enabled && preflightTokens > preflightBudget) {
@@ -1043,7 +1046,8 @@ export async function runAgentLoopImpl(
         const step = await reduceContextOverflow(
           ctx.messages,
           {
-            providerName: ctx.provider.name,
+            providerName:
+              ctx.provider.tokenEstimationProvider ?? ctx.provider.name,
             systemPrompt: ctx.systemPrompt,
             contextWindow: config.llm.default.contextWindow,
             targetTokens: preflightBudget,
@@ -1141,7 +1145,11 @@ export async function runAgentLoopImpl(
         const postInjectionTokens = estimatePromptTokens(
           runMessages,
           ctx.systemPrompt,
-          { providerName: ctx.provider.name, toolTokenBudget },
+          {
+            providerName:
+              ctx.provider.tokenEstimationProvider ?? ctx.provider.name,
+            toolTokenBudget,
+          },
         );
 
         if (postInjectionTokens <= preflightBudget) break;
@@ -1215,7 +1223,11 @@ export async function runAgentLoopImpl(
         const estimated = estimatePromptTokens(
           checkpoint.history,
           ctx.systemPrompt,
-          { providerName: ctx.provider.name, toolTokenBudget },
+          {
+            providerName:
+              ctx.provider.tokenEstimationProvider ?? ctx.provider.name,
+            toolTokenBudget,
+          },
         );
         if (estimated > midLoopThreshold) {
           rlog.warn(
@@ -1481,7 +1493,11 @@ export async function runAgentLoopImpl(
       const estimatedTokensAtOverflow = estimatePromptTokens(
         ctx.messages,
         ctx.systemPrompt,
-        { providerName: ctx.provider.name, toolTokenBudget },
+        {
+          providerName:
+            ctx.provider.tokenEstimationProvider ?? ctx.provider.name,
+          toolTokenBudget,
+        },
       );
       let correctedTarget = preflightBudget;
       if (actualTokens && estimatedTokensAtOverflow > 0) {
@@ -1529,7 +1545,8 @@ export async function runAgentLoopImpl(
         const step = await reduceContextOverflow(
           ctx.messages,
           {
-            providerName: ctx.provider.name,
+            providerName:
+              ctx.provider.tokenEstimationProvider ?? ctx.provider.name,
             systemPrompt: ctx.systemPrompt,
             contextWindow: config.llm.default.contextWindow,
             targetTokens: correctedTarget,
