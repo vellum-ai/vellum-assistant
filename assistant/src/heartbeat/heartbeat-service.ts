@@ -269,7 +269,17 @@ export class HeartbeatService {
       const report = await checkAllCredentials();
       if (report.unhealthy.length > 0) {
         await this.notifyUnhealthyCredentials(report.unhealthy);
-        return report.unhealthy.map((r) => r.provider);
+        // Only block providers for hard-failure statuses — expiring and ping_failed
+        // are transient/still-usable and should not disable provider tools.
+        const hardFailureStatuses = new Set([
+          "revoked",
+          "missing_token",
+          "expired",
+        ]);
+        const hardFailures = report.unhealthy.filter((r) =>
+          hardFailureStatuses.has(r.status),
+        );
+        return [...new Set(hardFailures.map((r) => r.provider))];
       }
     } catch (err) {
       log.error({ err }, "Credential health check failed");
