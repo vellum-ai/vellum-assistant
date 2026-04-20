@@ -1328,8 +1328,12 @@ PLIST
 # and backward-compatible raster fallbacks for macOS 15 into Assets.car.
 XCASSETS="$SCRIPT_DIR/vellum-assistant/Resources/Assets.xcassets"
 APP_ICON="$SCRIPT_DIR/vellum-assistant/Resources/AppIcon.icon"
-if [ -d "$XCASSETS" ] && [ -d "$APP_ICON" ]; then
-    xcrun actool "$XCASSETS" "$APP_ICON" \
+if [ -d "$XCASSETS" ]; then
+    ACTOOL_INPUTS=("$XCASSETS")
+    if [ -d "$APP_ICON" ]; then
+        ACTOOL_INPUTS+=("$APP_ICON")
+    fi
+    xcrun actool "${ACTOOL_INPUTS[@]}" \
         --compile "$RESOURCES_DIR" \
         --platform macosx \
         --minimum-deployment-target 14.0 \
