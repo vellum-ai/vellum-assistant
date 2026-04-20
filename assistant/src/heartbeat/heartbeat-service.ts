@@ -298,7 +298,9 @@ export class HeartbeatService {
 
     for (const result of results) {
       const urgency =
-        result.status === "revoked" || result.status === "expired"
+        result.status === "revoked" ||
+        result.status === "expired" ||
+        result.status === "ping_failed"
           ? ("high" as const)
           : ("medium" as const);
 
