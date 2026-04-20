@@ -147,8 +147,12 @@ func parseMarkdownSegments(_ text: String) -> [MarkdownSegment] {
             continue
         }
         if trimmed == "$$" {
-            // Multi-line block — scan forward for the closing `$$`.
-            flushText()
+            // Multi-line block — scan forward for the closing `$$` BEFORE
+            // flushing `currentText`. If we flushed eagerly and the close
+            // never came, the preceding prose would ship as one `.text`
+            // segment and the verbatim fallback as another, which the
+            // renderer joins with a blank line — producing a visible
+            // streaming regression each tick before the close arrives.
             var mathLines: [String] = []
             var j = i + 1
             var closed = false
@@ -161,16 +165,16 @@ func parseMarkdownSegments(_ text: String) -> [MarkdownSegment] {
                 j += 1
             }
             if closed {
+                flushText()
                 let latex = mathLines.joined(separator: "\n")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 segments.append(.math(latex: latex, display: true))
                 i = j + 1
                 continue
             } else {
-                // Unclosed — fall back to plain text. Restore the opening `$$`
-                // and any collected lines to `currentText` so they render
-                // verbatim (mirrors the unclosed-fence behavior of emitting
-                // what we have instead of dropping content).
+                // Unclosed — fold the opening `$$` and any collected lines
+                // back into `currentText` so the whole run flushes as one
+                // contiguous `.text` segment with whatever came before.
                 currentText.append(lines[i])
                 for line in mathLines {
                     currentText.append(line)

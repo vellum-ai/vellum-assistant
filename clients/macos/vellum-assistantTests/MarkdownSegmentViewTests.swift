@@ -482,6 +482,29 @@ final class MarkdownSegmentViewTests: XCTestCase {
         }
     }
 
+    /// Regression: during streaming, we see `before\n$$\n<partial>` before the
+    /// closing `$$` arrives. The parser must not emit the prefix prose and
+    /// the verbatim fallback as two separate `.text` segments — the renderer
+    /// joins adjacent text with a blank line, producing a visible flicker
+    /// each streaming tick until the close arrives.
+    func testBlockMath_unclosedWithPrecedingProseStaysOneTextSegment() {
+        let segments = parseMarkdownSegments("before\n$$\nx^2")
+        var textSegments = 0
+        for segment in segments {
+            if case .text = segment { textSegments += 1 }
+            if case .math = segment {
+                XCTFail("Unclosed `$$` must not emit a .math segment")
+            }
+        }
+        XCTAssertEqual(textSegments, 1, "Verbatim fallback must flush as a single .text segment; got \(segments)")
+        guard case .text(let content) = segments.first else {
+            return XCTFail("Expected a .text segment, got \(segments)")
+        }
+        XCTAssertTrue(content.contains("before"))
+        XCTAssertTrue(content.contains("$$"))
+        XCTAssertTrue(content.contains("x^2"))
+    }
+
     func testBlockMath_emptyDelimitersAreText() {
         let segments = parseMarkdownSegments("$$$$")
         XCTAssertEqual(segments, [.text("$$$$")])
