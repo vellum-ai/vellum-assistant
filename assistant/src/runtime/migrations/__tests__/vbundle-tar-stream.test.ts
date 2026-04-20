@@ -120,11 +120,9 @@ describe("parseVBundleStream — manifest-first", () => {
 
     // Drain the manifest body so the iterator can advance, then finish.
     if (first.value) await collectBody(first.value);
-    // Exhaust the iterator to release resources.
-    // (We don't assert on the remaining entries here.)
-    // eslint-disable-next-line no-empty
+    // Exhaust the iterator to release resources. Drain each body so the
+    // extractor can advance. (We don't assert on the remaining entries here.)
     for await (const entry of iter) {
-      // drain each body so the extractor can advance
       await collectBody(entry);
     }
   });
