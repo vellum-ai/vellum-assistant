@@ -6,6 +6,7 @@ import {
   loadOrCreateSigningKey,
   initSigningKey,
 } from "./auth/token-service.js";
+import { loadOrCreateResetBootstrapSecret } from "./auth/reset-bootstrap-secret.js";
 import { validateEdgeToken, mintServiceToken } from "./auth/token-exchange.js";
 import { ConfigFileCache } from "./config-file-cache.js";
 import { ConfigFileWatcher } from "./config-file-watcher.js";
@@ -224,6 +225,13 @@ async function main() {
   const signingKey = loadOrCreateSigningKey();
   initSigningKey(signingKey);
   log.info("JWT signing key initialized");
+
+  // Reconcile the reset-bootstrap secret onto disk so
+  // `POST /v1/guardian/reset-bootstrap` and the macOS recovery UI can both
+  // read it. When the CLI sets RESET_BOOTSTRAP_SECRET at hatch time this
+  // writes the CLI-owned value; otherwise the gateway generates one on
+  // first run (dev / standalone invocations).
+  loadOrCreateResetBootstrapSecret();
 
   await initGatewayDb();
 

@@ -211,6 +211,7 @@ type DaemonStartOptions = {
   foreground?: boolean;
   defaultWorkspaceConfigPath?: string;
   signingKey?: string;
+  resetBootstrapSecret?: string;
 };
 
 async function startDaemonFromSource(
@@ -286,6 +287,9 @@ async function startDaemonFromSource(
     VELLUM_ENVIRONMENT: process.env.VELLUM_ENVIRONMENT || "local",
     ...(options?.signingKey
       ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
+      : {}),
+    ...(options?.resetBootstrapSecret
+      ? { RESET_BOOTSTRAP_SECRET: options.resetBootstrapSecret }
       : {}),
   };
   if (resources) {
@@ -413,6 +417,9 @@ async function startDaemonWatchFromSource(
     VELLUM_ENVIRONMENT: process.env.VELLUM_ENVIRONMENT || "local",
     ...(options?.signingKey
       ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
+      : {}),
+    ...(options?.resetBootstrapSecret
+      ? { RESET_BOOTSTRAP_SECRET: options.resetBootstrapSecret }
       : {}),
   };
   if (resources) {
@@ -917,6 +924,10 @@ export async function startLocalDaemon(
         daemonEnv.ACTOR_TOKEN_SIGNING_KEY = options.signingKey;
       }
 
+      if (options?.resetBootstrapSecret) {
+        daemonEnv.RESET_BOOTSTRAP_SECRET = options.resetBootstrapSecret;
+      }
+
       // Write a sentinel PID file before spawning so concurrent hatch() calls
       // see the file and fall through to the isDaemonResponsive() port check
       // instead of racing to spawn a duplicate daemon.
@@ -1028,7 +1039,7 @@ export async function startLocalDaemon(
 export async function startGateway(
   watch: boolean = false,
   resources?: LocalInstanceResources,
-  options?: { signingKey?: string },
+  options?: { signingKey?: string; resetBootstrapSecret?: string },
 ): Promise<string> {
   const effectiveGatewayPort = resources?.gatewayPort ?? GATEWAY_PORT;
 
@@ -1064,6 +1075,9 @@ export async function startGateway(
     DEFAULT_ASSISTANT_ID: "self",
     ...(options?.signingKey
       ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
+      : {}),
+    ...(options?.resetBootstrapSecret
+      ? { RESET_BOOTSTRAP_SECRET: options.resetBootstrapSecret }
       : {}),
     ...(watch
       ? {

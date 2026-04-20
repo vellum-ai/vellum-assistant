@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
@@ -10,10 +11,6 @@ import {
   leaseGuardianToken,
   seedGuardianTokenFromSiblingEnv,
 } from "../lib/guardian-token.js";
-import {
-  RESET_BOOTSTRAP_AUTH_HEADER,
-  ensureResetBootstrapSecret,
-} from "../lib/reset-bootstrap-secret.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
 import {
   generateLocalSigningKey,
@@ -23,6 +20,8 @@ import {
   startGateway,
 } from "../lib/local";
 import { maybeStartNgrokTunnel } from "../lib/ngrok";
+
+const RESET_BOOTSTRAP_AUTH_HEADER = "x-reset-bootstrap-secret";
 
 export async function wake(): Promise<void> {
   const args = process.argv.slice(3);
@@ -154,13 +153,31 @@ export async function wake(): Promise<void> {
   if (!signingKey) {
     signingKey = resources.signingKey ?? generateLocalSigningKey();
   }
-  if (signingKey !== resources.signingKey) {
-    entry.resources = { ...resources, signingKey };
+
+  // Mint the reset-bootstrap caller-bound proof if the lockfile is missing
+  // it. Older entries (hatched before this landed) won't have the field;
+  // generating it here on first wake after the upgrade keeps the recovery
+  // path functional. The gateway will persist whatever value we pass via
+  // RESET_BOOTSTRAP_SECRET to its own security dir.
+  let resetBootstrapSecret = resources.resetBootstrapSecret;
+  if (!resetBootstrapSecret) {
+    resetBootstrapSecret = randomBytes(32).toString("hex");
+  }
+
+  if (
+    signingKey !== resources.signingKey ||
+    resetBootstrapSecret !== resources.resetBootstrapSecret
+  ) {
+    entry.resources = { ...resources, signingKey, resetBootstrapSecret };
     saveAssistantEntry(entry);
   }
 
   if (!daemonRunning) {
-    await startLocalDaemon(watch, resources, { foreground, signingKey });
+    await startLocalDaemon(watch, resources, {
+      foreground,
+      signingKey,
+      resetBootstrapSecret,
+    });
   }
 
   // Start gateway
@@ -180,13 +197,19 @@ export async function wake(): Promise<void> {
             `Gateway running (pid ${pid}) — restarting in watch mode...`,
           );
           await stopProcessByPidFile(gatewayPidFile, "gateway");
-          await startGateway(watch, resources, { signingKey });
+          await startGateway(watch, resources, {
+            signingKey,
+            resetBootstrapSecret,
+          });
         }
       } else {
         console.log(`Gateway already running (pid ${pid}).`);
       }
     } else {
-      await startGateway(watch, resources, { signingKey });
+      await startGateway(watch, resources, {
+        signingKey,
+        resetBootstrapSecret,
+      });
     }
   }
 
@@ -209,18 +232,12 @@ export async function wake(): Promise<void> {
   // unprivileged local processes on shared hosts.
   if (entry.hatchedWithoutToken) {
     const loopbackUrl = `http://127.0.0.1:${resources.gatewayPort}`;
-    const gatewaySecurityDir = join(
-      resources.instanceDir,
-      ".vellum",
-      "protected",
-    );
     try {
-      const authProof = ensureResetBootstrapSecret(gatewaySecurityDir);
       const resetRes = await fetch(
         `${loopbackUrl}/v1/guardian/reset-bootstrap`,
         {
           method: "POST",
-          headers: { [RESET_BOOTSTRAP_AUTH_HEADER]: authProof },
+          headers: { [RESET_BOOTSTRAP_AUTH_HEADER]: resetBootstrapSecret },
         },
       );
       if (!resetRes.ok) {

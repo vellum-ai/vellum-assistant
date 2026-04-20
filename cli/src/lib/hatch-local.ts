@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import {
   existsSync,
   lstatSync,
@@ -42,7 +43,6 @@ import { detectOrphanedProcesses } from "./orphan-detection.js";
 import { isProcessAlive, stopProcess } from "./process.js";
 import { generateInstanceName } from "./random-name.js";
 import { leaseGuardianToken } from "./guardian-token.js";
-import { ensureResetBootstrapSecret } from "./reset-bootstrap-secret.js";
 import { archiveLogFile, resetLogFile } from "./xdg-log.js";
 import { emitProgress } from "./desktop-progress.js";
 
@@ -281,15 +281,28 @@ export async function hatchLocal(
 
   emitProgress(4, 7, "Starting assistant...");
   const signingKey = generateLocalSigningKey();
+  // Mint a caller-bound proof for POST /v1/guardian/reset-bootstrap. The
+  // CLI generates it, persists it in the lockfile (so `wake` can replay it
+  // across restarts), and forwards it to the gateway via
+  // RESET_BOOTSTRAP_SECRET. The gateway writes it to its own security dir
+  // (0600) so the macOS recovery UI running as the same Unix user can read
+  // it. Follows the same pattern as ACTOR_TOKEN_SIGNING_KEY.
+  const resetBootstrapSecret = randomBytes(32).toString("hex");
+  resources.resetBootstrapSecret = resetBootstrapSecret;
+
   await startLocalDaemon(watch, resources, {
     defaultWorkspaceConfigPath,
     signingKey,
+    resetBootstrapSecret,
   });
 
   emitProgress(5, 7, "Starting gateway...");
   let runtimeUrl = `http://127.0.0.1:${resources.gatewayPort}`;
   try {
-    runtimeUrl = await startGateway(watch, resources, { signingKey });
+    runtimeUrl = await startGateway(watch, resources, {
+      signingKey,
+      resetBootstrapSecret,
+    });
   } catch (error) {
     // Gateway failed — stop the daemon we just started so we don't leave
     // orphaned processes with no lock file entry.
@@ -298,28 +311,6 @@ export async function hatchLocal(
     );
     await stopLocalProcesses(resources);
     throw error;
-  }
-
-  // Seed the reset-bootstrap secret under the gateway security directory so
-  // that later recovery calls to POST /v1/guardian/reset-bootstrap can prove
-  // same-user local access via the X-Reset-Bootstrap-Secret header in
-  // addition to the gateway's raw-peer-IP loopback check. The file is
-  // mode 0600, so unprivileged processes running as a different Unix user
-  // on a shared host cannot read it — this is the caller-bound proof.
-  const gatewaySecurityDir = join(
-    resources.instanceDir,
-    ".vellum",
-    "protected",
-  );
-  try {
-    ensureResetBootstrapSecret(gatewaySecurityDir);
-  } catch (err) {
-    console.error(
-      `\n⚠️  Failed to persist reset-bootstrap secret: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    console.error(
-      `   Recovery via Settings → Reset connection may fail until 'vellum wake' regenerates it.`,
-    );
   }
 
   // Lease a guardian token so the desktop app can import it on first launch

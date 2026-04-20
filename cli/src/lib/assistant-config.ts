@@ -47,6 +47,13 @@ export interface LocalInstanceResources {
   /** Persisted HMAC signing key (hex). Survives daemon/gateway restarts so
    *  client actor tokens remain valid across `wake` cycles. */
   signingKey?: string;
+  /** Persisted caller-bound proof for `POST /v1/guardian/reset-bootstrap`.
+   *  32 random bytes hex-encoded. Generated during hatch, passed to the
+   *  gateway at spawn time via `RESET_BOOTSTRAP_SECRET`, and sent in the
+   *  `X-Reset-Bootstrap-Secret` header when the CLI calls the endpoint
+   *  during recovery. The gateway re-persists it to its own security dir
+   *  (owned by the gateway) so the macOS app can read it for recovery UI. */
+  resetBootstrapSecret?: string;
   [key: string]: unknown;
 }
 
