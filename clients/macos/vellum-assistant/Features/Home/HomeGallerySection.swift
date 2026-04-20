@@ -386,7 +386,8 @@ private struct HomeEmailEditorDemo: View {
             icon: nil,
             title: "Thread Name Here",
             primaryAction: .init(label: "Send", action: {}),
-            onDismiss: {}
+            onDismiss: {},
+            scrollable: false
         ) {
             HomeEmailEditor(
                 toAddress: $toAddress,
@@ -471,7 +472,8 @@ private struct HomeSplitLayoutDemo: View {
                 icon: nil,
                 title: "Thread Name Here",
                 primaryAction: .init(label: "Send", action: {}),
-                onDismiss: {}
+                onDismiss: {},
+                scrollable: false
             ) {
                 HomeEmailEditor(
                     toAddress: $toAddress,

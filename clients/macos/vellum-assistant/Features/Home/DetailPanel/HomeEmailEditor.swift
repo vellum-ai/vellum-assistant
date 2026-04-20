@@ -11,6 +11,15 @@ import VellumAssistantShared
 /// and dismiss affordance, so this component takes no header / title /
 /// action / dismiss props — it's slotted directly into the panel's
 /// `content:` closure.
+///
+/// The body text field expands to fill all vertical space between the
+/// subject divider and the attachments footer, so the attachments row
+/// always anchors to the bottom of the panel regardless of how much
+/// body text is present. This requires the enclosing `HomeDetailPanel`
+/// to be constructed with `scrollable: false` so that the editor's own
+/// vertical growth can be honored. With the default `scrollable: true`
+/// the body falls back to its intrinsic height (no fill), which reads
+/// fine but leaves whitespace between the body and the attachments.
 struct HomeEmailEditor: View {
 
     struct Attachment: Identifiable, Hashable {
@@ -37,14 +46,14 @@ struct HomeEmailEditor: View {
             VStack(alignment: .leading, spacing: 0) {
                 labeledField("to:", $toAddress)
 
-                Divider()
-                    .background(VColor.borderBase)
+                VColor.borderBase
+                    .frame(height: 1)
                     .accessibilityHidden(true)
 
                 labeledField("subject:", $subject)
 
-                Divider()
-                    .background(VColor.borderBase)
+                VColor.borderBase
+                    .frame(height: 1)
                     .accessibilityHidden(true)
             }
 
@@ -52,12 +61,12 @@ struct HomeEmailEditor: View {
                 .textFieldStyle(.plain)
                 .font(VFont.bodyMediumEmphasised)
                 .foregroundStyle(VColor.contentDefault)
-                .frame(minHeight: 240, alignment: .topLeading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .padding(VSpacing.md)
 
             if !attachments.isEmpty {
-                Divider()
-                    .background(VColor.borderBase)
+                VColor.borderBase
+                    .frame(height: 1)
                     .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
