@@ -223,10 +223,6 @@ struct ChatContentView: View {
                 isCancelling: viewModel.isCancelling,
                 onSend: { viewModel.sendMessage() },
                 onStop: { viewModel.stopGenerating() },
-                onVoiceResult: { _ in
-                    viewModel.pendingVoiceMessage = true
-                    viewModel.sendMessage()
-                },
                 viewModel: viewModel
             )
             .animation(nil, value: queuedMessages.isEmpty)

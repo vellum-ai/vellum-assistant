@@ -51,7 +51,7 @@ private struct DeveloperSettingsSectionContent: View {
             } header: {
                 Text("Reset")
             } footer: {
-                Text("Clears all connection state (tokens, assistant config, org ID) and returns to the onboarding flow. Preferences like appearance and voice settings are preserved.")
+                Text("Clears all connection state (tokens, assistant config, org ID) and returns to the onboarding flow. Preferences like appearance are preserved.")
             }
 
             Section("Connection Diagnostics") {
