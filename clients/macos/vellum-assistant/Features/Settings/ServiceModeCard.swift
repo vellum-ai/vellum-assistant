@@ -8,12 +8,13 @@ import VellumAssistantShared
 /// buttons — to callers via ViewBuilder closures. Each card is responsible
 /// for placing its own save/reset actions contextually within its content.
 @MainActor
-struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
+struct ServiceModeCard<ManagedContent: View, YourOwnContent: View, Footer: View>: View {
     let title: String
     let subtitle: String
     @Binding var draftMode: String
     @ViewBuilder let managedContent: () -> ManagedContent
     @ViewBuilder let yourOwnContent: () -> YourOwnContent
+    @ViewBuilder let footer: () -> Footer
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -30,6 +31,8 @@ struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
             } else {
                 yourOwnContent()
             }
+
+            footer()
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -60,6 +63,23 @@ struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
                 .frame(width: 220)
             }
         }
+    }
+}
+
+extension ServiceModeCard where Footer == EmptyView {
+    init(
+        title: String,
+        subtitle: String,
+        draftMode: Binding<String>,
+        @ViewBuilder managedContent: @escaping () -> ManagedContent,
+        @ViewBuilder yourOwnContent: @escaping () -> YourOwnContent
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self._draftMode = draftMode
+        self.managedContent = managedContent
+        self.yourOwnContent = yourOwnContent
+        self.footer = { EmptyView() }
     }
 }
 
