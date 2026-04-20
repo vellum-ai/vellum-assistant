@@ -630,6 +630,16 @@ const AUTOINJECT_FILENAME = "_autoinject.md";
 /** Max buffer.md lines injected into prompts — keeps context bounded even when filing is off. */
 const MAX_BUFFER_LINES = 50;
 
+/** Minimum hybrid-search score for a PKB path to surface as an injection hint. */
+const PKB_HINT_THRESHOLD = 0.5;
+
+/**
+ * Stricter hint threshold for PKB entries under `archive/`. Archive files are
+ * date-indexed dumps of older notes — they match loosely and are rarely the
+ * most relevant read, so require a higher bar before recommending them.
+ */
+const PKB_HINT_ARCHIVE_THRESHOLD = 0.7;
+
 /**
  * Read `_autoinject.md` from the PKB directory and return the list of
  * filenames to inject.
@@ -1795,7 +1805,11 @@ export async function applyRuntimeInjections(
           hints = results
             .filter((r) => {
               const abs = resolve(pkbRoot, r.path);
-              return !inContext.has(abs);
+              if (inContext.has(abs)) return false;
+              const threshold = r.path.startsWith("archive/")
+                ? PKB_HINT_ARCHIVE_THRESHOLD
+                : PKB_HINT_THRESHOLD;
+              return r.score >= threshold;
             })
             .slice(0, 3)
             .map((r) => r.path);
