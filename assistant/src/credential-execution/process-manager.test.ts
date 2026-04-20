@@ -73,4 +73,37 @@ describe("logCesLine", () => {
     expect(logger.warn).not.toHaveBeenCalled();
     expect(logger.debug).not.toHaveBeenCalled();
   });
+
+  test("pino-pretty timestamped ERROR line routes to log.error", () => {
+    const logger = makeLogger();
+
+    logCesLine("[12:07:37.467] ERROR oh no", 42, logger);
+
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(logger.info).not.toHaveBeenCalled();
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.debug).not.toHaveBeenCalled();
+  });
+
+  test("pino-pretty timestamped WARN line routes to log.warn", () => {
+    const logger = makeLogger();
+
+    logCesLine("[12:07:37.467] WARN wat", 42, logger);
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.error).not.toHaveBeenCalled();
+    expect(logger.info).not.toHaveBeenCalled();
+    expect(logger.debug).not.toHaveBeenCalled();
+  });
+
+  test("pino-pretty timestamped INFO line routes to log.info", () => {
+    const logger = makeLogger();
+
+    logCesLine("[12:07:37.467] INFO starting", 42, logger);
+
+    expect(logger.info).toHaveBeenCalledTimes(1);
+    expect(logger.error).not.toHaveBeenCalled();
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.debug).not.toHaveBeenCalled();
+  });
 });

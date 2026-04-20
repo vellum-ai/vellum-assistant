@@ -445,13 +445,13 @@ function createSocketTransport(socket: Socket): CesTransport {
 // ---------------------------------------------------------------------------
 
 /**
- * Route a single CES stderr line to the appropriate log level.
+ * Route a single CES stderr line to the appropriate log level so that
+ * only genuine errors reach the Sentry stream.
  *
- * CES is a pino-backed child process that writes INFO/DEBUG/WARN/ERROR all
- * to stderr (stdout is reserved for the stdio-RPC transport). Forwarding
- * every line at `log.error` sent benign INFO output to Sentry and created
- * false-positive Linear tickets, so we inspect the line and only escalate
- * genuine errors.
+ * CES is a pino-backed child process that writes INFO/DEBUG/WARN/ERROR
+ * all to stderr (stdout is reserved for the stdio-RPC transport). We
+ * parse the embedded pino level (JSON path) or match a severity prefix
+ * (pretty-printed path) and route each line to the matching log method.
  *
  * Exported for testing.
  */
@@ -493,9 +493,14 @@ export function logCesLine(
   }
 
   // Pretty-printed / fragment path: look for a level prefix on the line.
-  if (/^(FATAL|ERROR)\b/i.test(line)) {
+  // Strip an optional pino-pretty-style leading timestamp: "[HH:MM:SS.mmm] ".
+  const prefixStripped = line.replace(
+    /^\[\d{1,2}:\d{2}:\d{2}(?:\.\d{1,3})?\]\s+/,
+    "",
+  );
+  if (/^(FATAL|ERROR)\b/i.test(prefixStripped)) {
     logger.error(meta, msg);
-  } else if (/^(WARN|WARNING)\b/i.test(line)) {
+  } else if (/^(WARN|WARNING)\b/i.test(prefixStripped)) {
     logger.warn(meta, msg);
   } else {
     logger.info(meta, msg);
