@@ -31,9 +31,7 @@ private struct HomeSuggestionPill: View {
                     .font(VFont.bodyMediumEmphasised)
                     .foregroundStyle(VColor.contentDefault)
             }
-            .padding(.leading, 4)
-            .padding(.trailing, VSpacing.md)
-            .padding(.vertical, 4)
+            .padding(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: VSpacing.md))
             .background(Capsule().fill(VColor.surfaceActive))
         }
         .buttonStyle(.plain)
@@ -85,10 +83,6 @@ struct HomeSuggestionPillBar: View {
             }
         }
         .padding(VSpacing.lg)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
-                .fill(Color.clear)
-        )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
                 .stroke(VColor.borderBase, lineWidth: 1)
