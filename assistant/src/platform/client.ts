@@ -70,10 +70,11 @@ export class VellumPlatformClient {
     }
 
     if (!baseUrl || !apiKey) {
-      log.debug(
+      log.warn(
         {
           hasBaseUrl: !!baseUrl,
           hasApiKey: !!apiKey,
+          hasAssistantId: !!assistantId,
           managedProxyEnabled: ctx.enabled,
         },
         "Platform client prerequisites missing — returning null",
