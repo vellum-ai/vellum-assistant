@@ -862,7 +862,7 @@ extension AssistantBackupsSection {
                 path: "migrations/import",
                 body: fileData,
                 contentType: "application/octet-stream",
-                timeout: 120
+                timeout: 3600
             )
 
             if response.isSuccess {

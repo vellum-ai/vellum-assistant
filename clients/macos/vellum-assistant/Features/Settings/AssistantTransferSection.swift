@@ -285,7 +285,7 @@ struct AssistantTransferSection: View {
                     path: "migrations/import",
                     body: bundleData,
                     contentType: "application/octet-stream",
-                    timeout: 120
+                    timeout: 3600
                 )
             }
             guard importResponse.isSuccess else {
@@ -401,7 +401,7 @@ struct AssistantTransferSection: View {
             }
 
             let pollInterval: UInt64 = 5_000_000_000 // 5 seconds
-            let timeout: TimeInterval = 600 // 10 minutes
+            let timeout: TimeInterval = 3600 // 60 minutes
             let start = Date()
 
             while Date().timeIntervalSince(start) < timeout {
@@ -432,7 +432,7 @@ struct AssistantTransferSection: View {
                     throw TransferError.importFailed(message: status.error ?? "Import job failed")
                 }
             }
-            throw TransferError.importFailed(message: "Import timed out after 10 minutes")
+            throw TransferError.importFailed(message: "Import timed out after 60 minutes")
         }
 
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -469,7 +469,7 @@ private enum TransferError: LocalizedError {
         case .exportFailed(let statusCode):
             return "Export failed (HTTP \(statusCode))"
         case .exportTimedOut:
-            return "Export timed out after 5 minutes"
+            return "Export timed out after 60 minutes"
         case .importFailed(let message):
             return "Import failed: \(message)"
         case .managedEntryNotFound:
