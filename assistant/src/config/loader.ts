@@ -8,7 +8,6 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { ConfigError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { ensureDataDir, getWorkspaceConfigPath } from "../util/platform.js";
 import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
@@ -45,6 +44,45 @@ export function applyNestedDefaults(config: unknown): AssistantConfig {
 
 function cloneDefaultConfig(): AssistantConfig {
   return applyNestedDefaults({});
+}
+
+/**
+ * Build a filesystem-safe ISO-8601 timestamp for use in quarantine filenames.
+ * Replaces `:` (invalid on Windows, confusing on macOS Finder) with `-` so the
+ * resulting string is safe on every supported platform.
+ */
+function filesystemSafeTimestamp(date: Date = new Date()): string {
+  return date.toISOString().replace(/:/g, "-");
+}
+
+/**
+ * Rename a corrupt config file to a quarantine path so the bad content is
+ * preserved for debug while the daemon falls through to defaults. Logs at
+ * `error` level with a remediation hint. Best-effort: if the rename itself
+ * fails (missing permissions, readonly FS, etc.) we still fall through to
+ * defaults — startup must never block.
+ *
+ * The quarantine filename encodes a millisecond-precision timestamp and ends
+ * in `.json` so editors syntax-highlight the preserved content:
+ *   `<path>.corrupt-<ISO-timestamp>.json`
+ */
+function quarantineCorruptConfig(configPath: string, err: unknown): string {
+  const quarantinePath = `${configPath}.corrupt-${filesystemSafeTimestamp()}.json`;
+  try {
+    renameSync(configPath, quarantinePath);
+    log.error(
+      `config file at ${configPath} was corrupt (${String(err)}); ` +
+        `quarantined to ${quarantinePath} and loaded defaults. ` +
+        `Inspect the quarantined file to recover any hand-edited settings.`,
+    );
+  } catch (renameErr) {
+    log.error(
+      { renameErr },
+      `config file at ${configPath} was corrupt (${String(err)}) but could ` +
+        `not be renamed for quarantine; loaded defaults.`,
+    );
+  }
+  return quarantinePath;
 }
 
 /**
@@ -418,9 +456,14 @@ export function loadConfig(): AssistantConfig {
       try {
         fileConfig = JSON.parse(readFileSync(configPath, "utf-8"));
       } catch (err) {
-        throw new ConfigError(
-          `Failed to parse config at ${configPath}: ${err}`,
-        );
+        // The daemon must never block startup (assistant/CLAUDE.md). A config
+        // file that fails JSON.parse — truncated during a mid-write crash, or
+        // hand-edited to invalid JSON — is quarantined so the content is
+        // preserved for debug, and startup proceeds with the same default-
+        // config path used when config.json does not exist.
+        quarantineCorruptConfig(configPath, err);
+        fileConfig = {};
+        configFileExisted = false;
       }
     } else {
       configFileExisted = false;
@@ -576,7 +619,11 @@ export function loadRawConfig(): Record<string, unknown> {
     try {
       raw = JSON.parse(readFileSync(configPath, "utf-8"));
     } catch (err) {
-      throw new ConfigError(`Failed to parse config at ${configPath}: ${err}`);
+      // Mirror loadConfig(): quarantine the corrupt file and return an empty
+      // object rather than throwing. This prevents /v1/config from surfacing
+      // a 500 when the user's config.json is malformed.
+      quarantineCorruptConfig(configPath, err);
+      raw = {};
     }
   }
 
