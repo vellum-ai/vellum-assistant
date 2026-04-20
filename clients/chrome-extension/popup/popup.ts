@@ -53,11 +53,8 @@ import {
   type EnvironmentStateResponse,
 } from './popup-state.js';
 
-const DEFAULT_RELAY_PORT = 7830;
-
 // ── DOM references ──────────────────────────────────────────────────
 
-const portInput = document.getElementById('port-input') as HTMLInputElement;
 const connectionToggle = document.getElementById('connection-toggle') as HTMLInputElement;
 const connectionToggleHint = document.getElementById(
   'connection-toggle-hint',
@@ -203,8 +200,6 @@ function applyHealthState(
   statusBadge.textContent = badge.text;
   statusBadge.className = `status-badge ${badge.className}`;
 
-  portInput.disabled = phase === 'connecting' || phase === 'reconnecting';
-
   setSetupMessage(phase);
 
   if (health === 'connected') {
@@ -231,7 +226,6 @@ function setPhase(phase: ConnectionPhase): void {
     statusText.textContent = 'Desktop app required';
     statusBadge.textContent = 'Needs app';
     statusBadge.className = 'status-badge disconnected';
-    portInput.disabled = false;
     setSetupMessage('no-native-host');
     updateTroubleshootSection('error');
     return;
@@ -493,13 +487,6 @@ assistantSelect.addEventListener('change', () => {
   );
 });
 
-// Load saved relay port on open.
-chrome.storage.local.get(['relayPort']).then((result) => {
-  if (result.relayPort !== undefined) {
-    portInput.value = String(result.relayPort);
-  }
-});
-
 // Query current health state from service worker.
 chrome.runtime.sendMessage({ type: 'get_status' }, (response: GetStatusResponse) => {
   if (chrome.runtime.lastError) return;
@@ -513,15 +500,6 @@ chrome.runtime.sendMessage({ type: 'get_status' }, (response: GetStatusResponse)
   }
 });
 
-function getPort(): number {
-  const portStr = portInput.value.trim();
-  if (portStr) {
-    const portNum = parseInt(portStr, 10);
-    if (!isNaN(portNum) && portNum > 0 && portNum <= 65535) return portNum;
-  }
-  return DEFAULT_RELAY_PORT;
-}
-
 // ── Connection toggle ────────────────────────────────────────────────
 //
 // No local precheck -- the worker handles auth bootstrap (pairing/sign-in)
@@ -529,23 +507,9 @@ function getPort(): number {
 // even when not previously paired or signed in.
 
 async function requestConnect(): Promise<void> {
-  const port = getPort();
-
   errorText.style.display = 'none';
   hideDebugDetails();
   setPhase('connecting');
-
-  try {
-    if (portInput.value.trim()) {
-      await chrome.storage.local.set({ relayPort: port });
-    } else {
-      await chrome.storage.local.remove('relayPort');
-    }
-  } catch (err) {
-    showError(err instanceof Error ? err.message : String(err));
-    applyHealthState('error');
-    return;
-  }
 
   await new Promise<void>((resolve) => {
     chrome.runtime.sendMessage({ type: 'connect' }, (response: { ok: boolean; error?: string; debugDetails?: string }) => {
