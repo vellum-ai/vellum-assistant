@@ -299,6 +299,23 @@ describe("command-registry", () => {
       expect(missing).toEqual([]);
     });
 
+    test("every program in HIGH_RISK_PROGRAMS has baseRisk high in the registry", () => {
+      const errors: string[] = [];
+      for (const prog of HIGH_RISK_PROGRAMS) {
+        const spec = (
+          DEFAULT_COMMAND_REGISTRY as Record<string, CommandRiskSpec>
+        )[prog];
+        if (!spec) {
+          errors.push(`${prog}: missing from registry`);
+        } else if (spec.baseRisk !== "high") {
+          errors.push(
+            `${prog}: expected baseRisk "high", got "${spec.baseRisk}"`,
+          );
+        }
+      }
+      expect(errors).toEqual([]);
+    });
+
     test("every LOW_RISK_GIT_SUBCOMMAND has baseRisk low in the registry", () => {
       const gitSpec = DEFAULT_COMMAND_REGISTRY.git;
       const errors: string[] = [];
@@ -319,6 +336,28 @@ describe("command-registry", () => {
       }
 
       expect(errors).toEqual([]);
+    });
+  });
+
+  describe("command and exec special cases", () => {
+    test("command has isWrapper: true and argRule for -v/-V lookup", () => {
+      const spec = DEFAULT_COMMAND_REGISTRY.command;
+      expect(spec.isWrapper).toBe(true);
+      expect(spec.baseRisk).toBe("low");
+      expect(spec.argRules).toBeDefined();
+
+      const lookupRule = spec.argRules!.find((r) => r.id === "command:lookup");
+      expect(lookupRule).toBeDefined();
+      expect(lookupRule!.flags).toContain("-v");
+      expect(lookupRule!.flags).toContain("-V");
+      expect(lookupRule!.risk).toBe("low");
+    });
+
+    test("exec is high risk wrapper (replaces current shell process)", () => {
+      const spec = DEFAULT_COMMAND_REGISTRY.exec;
+      expect(spec.baseRisk).toBe("high");
+      expect(spec.isWrapper).toBe(true);
+      expect(spec.reason).toBe("Replaces current shell process");
     });
   });
 
