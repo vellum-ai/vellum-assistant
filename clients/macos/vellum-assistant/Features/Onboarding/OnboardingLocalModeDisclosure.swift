@@ -7,6 +7,7 @@ import SwiftUI
 ///
 /// The parent owns `isExpanded` so the card's transition can be coordinated
 /// with sibling animations.
+@MainActor
 internal struct OnboardingLocalModeDisclosure: View {
     @Binding var isExpanded: Bool
 
@@ -101,7 +102,7 @@ internal struct OnboardingLocalModeDisclosure: View {
             top: VSpacing.md,
             leading: VSpacing.lg,
             bottom: VSpacing.md,
-            trailing: VSpacing.lg
+            trailing: VSpacing.md
         ))
         .frame(maxWidth: .infinity)
         .background(

@@ -93,28 +93,34 @@ extension AppDelegate {
 
         let hostingController = NSHostingController(rootView: authView)
 
+        // ReauthView is a compact sign-in surface; OnboardingFlowView hosts
+        // the full onboarding including the WakeUp cards which require at
+        // least 440×720 per the view's `.frame(minWidth:minHeight:)`.
+        let windowWidth: CGFloat = 460
+        let windowHeight: CGFloat = hasManagedAssistants ? 620 : 720
+        let minWidth: CGFloat = hasManagedAssistants ? 420 : 440
+        let minHeight: CGFloat = hasManagedAssistants ? 580 : 720
+
         let window: NSWindow
         if let existingWindow {
             window = existingWindow
             window.contentViewController = hostingController
             window.isMovableByWindowBackground = true
             window.backgroundColor = NSColor(VColor.surfaceOverlay)
-            window.contentMinSize = NSSize(width: 420, height: 580)
+            window.contentMinSize = NSSize(width: minWidth, height: minHeight)
             window.setFrameAutosaveName("")
 
-            let targetWidth: CGFloat = 460
-            let targetHeight: CGFloat = 620
             let currentFrame = window.frame
             let newFrame = NSRect(
-                x: currentFrame.midX - targetWidth / 2,
-                y: currentFrame.midY - targetHeight / 2,
-                width: targetWidth,
-                height: targetHeight
+                x: currentFrame.midX - windowWidth / 2,
+                y: currentFrame.midY - windowHeight / 2,
+                width: windowWidth,
+                height: windowHeight
             )
             window.setFrame(newFrame, display: true, animate: true)
         } else {
             window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 460, height: 620),
+                contentRect: NSRect(x: 0, y: 0, width: windowWidth, height: windowHeight),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
@@ -125,16 +131,14 @@ extension AppDelegate {
             window.isMovableByWindowBackground = true
             window.backgroundColor = NSColor(VColor.surfaceOverlay)
             window.isReleasedWhenClosed = false
-            window.contentMinSize = NSSize(width: 420, height: 580)
+            window.contentMinSize = NSSize(width: minWidth, height: minHeight)
 
-            let startWidth: CGFloat = 460
-            let startHeight: CGFloat = 620
             if let visibleFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame {
-                let x = visibleFrame.midX - startWidth / 2
-                let y = visibleFrame.midY - startHeight / 2
-                window.setFrame(NSRect(x: x, y: y, width: startWidth, height: startHeight), display: true)
+                let x = visibleFrame.midX - windowWidth / 2
+                let y = visibleFrame.midY - windowHeight / 2
+                window.setFrame(NSRect(x: x, y: y, width: windowWidth, height: windowHeight), display: true)
             } else {
-                window.setContentSize(NSSize(width: startWidth, height: startHeight))
+                window.setContentSize(NSSize(width: windowWidth, height: windowHeight))
                 window.center()
             }
         }
