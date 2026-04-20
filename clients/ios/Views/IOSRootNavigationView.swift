@@ -137,7 +137,8 @@ struct IOSRootNavigationView: View {
                     store: store,
                     onSelectConversation: selectConversation,
                     onShowSettings: showSettingsAfterDrawerClose,
-                    onClose: closeDrawer
+                    onClose: closeDrawer,
+                    activeConversationId: $activeConversationId
                 )
                 .frame(width: drawerWidth)
                 .offset(x: -drawerWidth + offset)
@@ -267,7 +268,8 @@ struct IOSRootNavigationView: View {
     private var regularLayout: some View {
         ConversationListView(
             store: store,
-            onShowSettings: { isSettingsPresented = true }
+            onShowSettings: { isSettingsPresented = true },
+            selectedConversationId: $activeConversationId
         )
     }
 

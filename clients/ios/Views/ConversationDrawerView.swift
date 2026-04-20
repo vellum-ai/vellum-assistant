@@ -21,13 +21,15 @@ struct ConversationDrawerView: View {
     let onSelectConversation: (UUID) -> Void
     let onShowSettings: () -> Void
     let onClose: () -> Void
+    @Binding var activeConversationId: UUID?
 
     var body: some View {
         NavigationStack {
             ConversationListView(
                 store: store,
                 onSelectConversation: onSelectConversation,
-                onShowSettings: onShowSettings
+                onShowSettings: onShowSettings,
+                selectedConversationId: $activeConversationId
             )
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {

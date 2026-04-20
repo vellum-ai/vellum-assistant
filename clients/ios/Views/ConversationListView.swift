@@ -77,9 +77,16 @@ struct ConversationListView: View {
     /// consistent presentation path (a bottom sheet owned by `IOSRootNavigationView`).
     var onShowSettings: (() -> Void)?
 
+    /// Single source of truth for the active conversation, owned by
+    /// `IOSRootNavigationView.activeConversationId`. The binding keeps the
+    /// iPad `NavigationSplitView` detail pane and the iPhone `compactRoot`
+    /// chat in sync across size-class transitions (iPad Split View, rotation),
+    /// so rotating from regular to compact continues to show the conversation
+    /// the user was viewing rather than a stale seed.
+    @Binding var selectedConversationId: UUID?
+
     private var isDrawerMode: Bool { onSelectConversation != nil }
 
-    @State private var selectedConversationId: UUID?
     @State private var searchText: String = ""
     @State private var renamingConversationId: UUID?
     @State private var renameText: String = ""
