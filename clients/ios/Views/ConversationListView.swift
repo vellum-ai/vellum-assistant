@@ -92,7 +92,6 @@ struct ConversationListView: View {
 
     private var isDrawerMode: Bool { onSelectConversation != nil }
 
-    @State private var navigationPath: [UUID] = []
     @State private var selectedConversationId: UUID?
     @State private var searchText: String = ""
     @State private var renamingConversationId: UUID?
@@ -199,10 +198,16 @@ struct ConversationListView: View {
 
     private func applyPendingSelectionRequestIfNeeded() {
         guard let request = store.selectionRequest else { return }
+        // `ConversationListView` only runs its own selection handling outside
+        // drawer mode, which on modern iOS means the iPad (`.regular`)
+        // NavigationSplitView path. That path only ever writes to
+        // `selectedConversationId`; the `navigationPath` parameter is kept
+        // on the free function so the compact branch stays unit-testable.
+        var unusedNavigationPath: [UUID] = []
         applyConversationSelectionRequest(
             request,
             horizontalSizeClass: horizontalSizeClass,
-            navigationPath: &navigationPath,
+            navigationPath: &unusedNavigationPath,
             selectedConversationId: &selectedConversationId
         )
         store.consumeSelectionRequest(id: request.id)

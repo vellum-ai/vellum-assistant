@@ -34,6 +34,7 @@ struct IOSRootNavigationView: View {
     @State private var isSettingsPresented: Bool = false
     @State private var activeConversationId: UUID?
     @State private var dragTranslation: CGFloat = 0
+    @State private var settingsPresentDelayTask: Task<Void, Never>?
 
     /// Width of the drawer — capped so the underlying chat still peeks through.
     private let drawerMaxWidth: CGFloat = 360
@@ -56,12 +57,21 @@ struct IOSRootNavigationView: View {
         .task {
             seedActiveConversationIfNeeded()
             applyPendingSelectionRequestIfNeeded()
+            // Catch the case where `navigateToConnect` was already `true` before
+            // this view mounted (e.g. from `ContentView.connectionFailedView`).
+            // `.onChange` only fires on subsequent mutations, so a one-shot
+            // check here ensures the Settings sheet still opens in that flow.
+            if navigateToConnect && !isSettingsPresented {
+                isSettingsPresented = true
+            }
         }
         .onChange(of: store.selectionRequest?.id) { _, _ in
             applyPendingSelectionRequestIfNeeded()
         }
         .onChange(of: store.conversations.map(\.id)) { _, _ in
-            seedActiveConversationIfNeeded()
+            // Seeds when no conversation is active AND reselects when the
+            // currently active one has been deleted from the store.
+            reconcileActiveConversation()
         }
         // Triggered from `ContentView.connectionFailedView` ("Go to Settings")
         // and anywhere else that wants to push the Connect screen. Since the
@@ -97,14 +107,7 @@ struct IOSRootNavigationView: View {
                 ConversationDrawerView(
                     store: store,
                     onSelectConversation: selectConversation,
-                    onShowSettings: {
-                        closeDrawer()
-                        // Delay slightly so the drawer's dismissal animation
-                        // can start before the sheet animation begins.
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                            isSettingsPresented = true
-                        }
-                    },
+                    onShowSettings: showSettingsAfterDrawerClose,
                     onClose: closeDrawer
                 )
                 .frame(width: drawerWidth)
@@ -179,6 +182,15 @@ struct IOSRootNavigationView: View {
                 guard hasUnseen else { return }
                 store.markConversationSeenIfNeeded(conversationLocalId: id)
             }
+            // Hot-path deep links: URL events that arrive while the chat is
+            // already on-screen. Cold-start deep links are picked up via the
+            // `.task(id:)` above. Matches the iPad NavigationSplitView detail
+            // path in `ConversationListView.conversationDetailContent(for:)`.
+            .onOpenURL { _ in
+                Task { @MainActor in
+                    store.viewModel(for: id).consumeDeepLinkIfNeeded()
+                }
+            }
         } else {
             compactEmptyRoot
         }
@@ -241,6 +253,23 @@ struct IOSRootNavigationView: View {
         isDrawerOpen = false
     }
 
+    /// Closes the drawer, waits a beat so its dismissal animation can start,
+    /// then presents the Settings sheet. The short delay avoids the jank of
+    /// two overlapping animations kicking off on the same frame. The delay is
+    /// implemented with a cancellable `Task` (not `DispatchQueue.asyncAfter`)
+    /// so that if the view is torn down mid-delay the pending sheet
+    /// presentation is cancelled — `DispatchQueue.main.asyncAfter` blocks are
+    /// not cancellable (see `clients/AGENTS.md` — "Task Lifecycle Patterns").
+    private func showSettingsAfterDrawerClose() {
+        closeDrawer()
+        settingsPresentDelayTask?.cancel()
+        settingsPresentDelayTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled else { return }
+            isSettingsPresented = true
+        }
+    }
+
     private func selectConversation(_ id: UUID) {
         activeConversationId = id
         closeDrawer()
@@ -256,8 +285,31 @@ struct IOSRootNavigationView: View {
 
     private func seedActiveConversationIfNeeded() {
         guard activeConversationId == nil else { return }
-        activeConversationId = store.conversations
-            .first(where: { !$0.isArchived && !$0.isPrivate })?.id
+        activeConversationId = firstSelectableConversationId()
+    }
+
+    /// Ensures `activeConversationId` points at a conversation that still
+    /// exists in the store. Handles three cases on a store update:
+    /// 1. No active selection yet — seed the first eligible conversation.
+    /// 2. Active selection still resolves — leave it alone.
+    /// 3. Active selection no longer exists (e.g. the user deleted it or it
+    ///    was archived) — fall back to the first eligible conversation, or
+    ///    clear the selection so `compactRoot` shows the empty state.
+    private func reconcileActiveConversation() {
+        guard let id = activeConversationId else {
+            seedActiveConversationIfNeeded()
+            return
+        }
+        let stillExists = store.conversations.contains { conversation in
+            conversation.id == id && !conversation.isArchived && !conversation.isPrivate
+        }
+        if !stillExists {
+            activeConversationId = firstSelectableConversationId()
+        }
+    }
+
+    private func firstSelectableConversationId() -> UUID? {
+        store.conversations.first(where: { !$0.isArchived && !$0.isPrivate })?.id
     }
 
     private func applyPendingSelectionRequestIfNeeded() {
