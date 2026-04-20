@@ -266,15 +266,22 @@ export function classifySegment(
   }
 
   // 2. Look up command in default registry
+  //    Use Object.hasOwn to avoid prototype pollution — program names like
+  //    "toString" or "hasOwnProperty" exist on Object.prototype and would
+  //    return truthy for `registry[name]` even though they're not real entries.
   let programName = segment.program;
-  let spec = registry[programName];
+  let spec = Object.hasOwn(registry, programName)
+    ? registry[programName]
+    : undefined;
 
   if (!spec) {
     // Strip path prefix: /usr/bin/rm → rm
     const bare = programName.split("/").pop();
     if (bare) {
       programName = bare;
-      spec = registry[programName];
+      spec = Object.hasOwn(registry, programName)
+        ? registry[programName]
+        : undefined;
     }
   }
 

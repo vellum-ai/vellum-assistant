@@ -1,14 +1,13 @@
 /**
- * Risk classifier parity validation — Phase 1.
+ * Risk classifier parity validation — Phase 2 (registry-driven).
  *
- * Runs every bash/host_bash test case from checker.test.ts through BOTH the
- * existing classifyRiskUncached (via classifyRisk) and the new
- * BashRiskClassifier, comparing results. This test serves as the migration
- * safety net — when Phase 2 swaps the classifier, it becomes the regression
- * suite.
+ * After Phase 2, classifyRisk delegates to BashRiskClassifier for all
+ * bash/host_bash commands. This test verifies that both entry points
+ * (classifyRisk and bashRiskClassifier.classify) produce consistent results
+ * against a baseline of expected risk levels.
  *
- * Expected divergences are documented in EXPECTED_DIVERGENCES with explanations
- * for each intentional difference.
+ * Since both code paths now route through the same registry-driven classifier,
+ * EXPECTED_DIVERGENCES should remain empty. Any divergence indicates a bug.
  */
 import { describe, expect, test } from "bun:test";
 
@@ -52,7 +51,6 @@ const BASH_TEST_CASES: Array<[string, RiskLevel]> = [
   ["echo hello", RiskLevel.Low],
   ["pwd", RiskLevel.Low],
   ["node --version", RiskLevel.Low],
-  ["bun test", RiskLevel.Low],
   ["", RiskLevel.Low],
   ["   ", RiskLevel.Low],
   ["cat file | grep pattern | wc -l", RiskLevel.Low],
@@ -61,21 +59,22 @@ const BASH_TEST_CASES: Array<[string, RiskLevel]> = [
 
   // Medium risk
   ["some_custom_tool", RiskLevel.Medium],
-  ["chmod 644 file.txt", RiskLevel.Medium],
-  ["chown user file.txt", RiskLevel.Medium],
-  ["chgrp group file.txt", RiskLevel.Medium],
   ["git push origin main", RiskLevel.Medium],
   ['git commit -m "msg"', RiskLevel.Medium],
   ["git -C status commit", RiskLevel.Medium],
   ["git -C /path push", RiskLevel.Medium],
   ["git --git-dir /path/to/.git push", RiskLevel.Medium],
   ["git --no-pager push", RiskLevel.Medium],
-  ['eval "ls"', RiskLevel.Medium],
-  ['bash -c "echo hi"', RiskLevel.Medium],
   ["rm BOOTSTRAP.md", RiskLevel.Medium],
   ["rm UPDATES.md", RiskLevel.Medium],
 
-  // High risk
+  // High risk — registry classifies these commands as high
+  ["bun test", RiskLevel.High],
+  ["chmod 644 file.txt", RiskLevel.High],
+  ["chown user file.txt", RiskLevel.High],
+  ["chgrp group file.txt", RiskLevel.High],
+  ['eval "ls"', RiskLevel.High],
+  ['bash -c "echo hi"', RiskLevel.High],
   ["assistant trust clear", RiskLevel.High],
   ["sudo rm -rf /", RiskLevel.High],
   ["rm -rf /tmp/stuff", RiskLevel.High],
@@ -105,11 +104,10 @@ const BASH_TEST_CASES: Array<[string, RiskLevel]> = [
 
 // ── Expected divergences ─────────────────────────────────────────────────────
 //
-// Commands where the new classifier intentionally produces a different risk
-// level than the old system. Each entry explains the divergence.
-//
-// The old system uses flat lists (LOW_RISK_PROGRAMS, HIGH_RISK_PROGRAMS) that
-// don't capture arg-level nuance. The new registry is more precise.
+// After Phase 2, classifyRisk delegates to BashRiskClassifier for all
+// bash/host_bash commands. Both entry points now use the same registry-driven
+// classifier, so there should be NO divergences. Any entry here indicates
+// a bug that needs investigation.
 
 interface Divergence {
   oldRisk: Risk;
@@ -118,103 +116,17 @@ interface Divergence {
 }
 
 const EXPECTED_DIVERGENCES: Record<string, Divergence> = {
-  // ── Runtime interpreters ────────────────────────────────────────────────────
-  // node --version: RESOLVED — now both systems agree (low). The --version
-  // arg rule de-escalates node's baseRisk=high to low. No longer a divergence.
-  "bun test": {
-    oldRisk: "low",
-    newRisk: "high",
-    reason:
-      "Old: bun in LOW_RISK_PROGRAMS. New: bun is high (arbitrary code execution). Subcommand allowlist needed.",
-  },
-
-  // ── Unknown programs: old=medium, new=unknown ──────────────────────────────
-  "some_custom_tool": {
+  // ── "unknown" → Medium mapping divergence ──────────────────────────────────
+  // classifyRisk maps the raw "unknown" risk to RiskLevel.Medium via
+  // riskToRiskLevel. The parity comparison uses riskLevelToRisk to convert
+  // back to "medium", but bashRiskClassifier.classify returns raw "unknown".
+  // This is an expected mapping-layer difference, not a classifier bug.
+  some_custom_tool: {
     oldRisk: "medium",
     newRisk: "unknown",
     reason:
-      'Old system defaults unknown programs to Medium. New system returns "unknown" — the approval policy layer decides what to do.',
+      'Registry returns "unknown" for unrecognized commands. classifyRisk maps unknown→Medium via riskToRiskLevel.',
   },
-
-  // ── Opaque constructs: old=medium, new=high ────────────────────────────────
-  // The old system treats eval/bash-c as "opaque constructs" → Medium.
-  // The new system correctly classifies these as high risk (arbitrary code).
-  'eval "ls"': {
-    oldRisk: "medium",
-    newRisk: "high",
-    reason:
-      "Old: opaque constructs → Medium. New: eval is high (arbitrary code execution).",
-  },
-  'bash -c "echo hi"': {
-    oldRisk: "medium",
-    newRisk: "high",
-    reason:
-      "Old: opaque constructs → Medium. New: bash is high (arbitrary shell execution).",
-  },
-
-  // ── rm safe-file carve-out: old=medium, new=high ───────────────────────────
-  // Old system has a special exception: rm of a bare safe file (BOOTSTRAP.md,
-  // UPDATES.md) without flags or paths → Medium. New system classifies rm
-  // uniformly as high. The safe-file exception is context-specific logic that
-  // belongs in the approval policy layer, not the classifier.
-  "rm BOOTSTRAP.md": {
-    oldRisk: "medium",
-    newRisk: "high",
-    reason:
-      "Old: rm of known safe file without flags → Medium. New: rm is uniformly high. Safe-file logic belongs in approval policy.",
-  },
-  "rm UPDATES.md": {
-    oldRisk: "medium",
-    newRisk: "high",
-    reason: "Same as rm BOOTSTRAP.md — safe-file carve-out is policy, not classification.",
-  },
-
-  // ── Permission commands: old=medium, new=high ──────────────────────────────
-  // The old system classifies chmod/chown/chgrp as Medium. The new registry
-  // classifies them as High — changing file permissions/ownership can break
-  // system security. This is a deliberate upgrade.
-  "chmod 644 file.txt": {
-    oldRisk: "medium",
-    newRisk: "high",
-    reason:
-      "Old: chmod → Medium. New: chmod → High (permission changes are security-sensitive).",
-  },
-  "chown user file.txt": {
-    oldRisk: "medium",
-    newRisk: "high",
-    reason: "Old: chown → Medium. New: chown → High (ownership changes are security-sensitive).",
-  },
-  "chgrp group file.txt": {
-    oldRisk: "medium",
-    newRisk: "high",
-    reason: "Old: chgrp → Medium. New: chgrp → High (group changes are security-sensitive).",
-  },
-
-  // ── command -v/-V: old=low, new=high ───────────────────────────────────────
-  // The old system has explicit handling: `command -v` and `command -V` are
-  // read-only lookups that skip wrapper unwrapping entirely. The new system
-  // treats `command` as a wrapper and unwraps to the inner program (rm/sudo).
-  // Phase 2 will add flag-specific rules to command that recognize -v/-V as
-  // safe (low risk) regardless of the inner program.
-  "command -v rm": {
-    oldRisk: "low",
-    newRisk: "high",
-    reason:
-      "Old: command -v/-V explicitly handled as read-only lookup. New: command unwraps to rm (high). Phase 2: add -v/-V safe-flag rule.",
-  },
-  "command -V sudo": {
-    oldRisk: "low",
-    newRisk: "high",
-    reason:
-      "Old: command -V explicitly handled as read-only lookup. New: command unwraps to sudo (high). Phase 2: add -v/-V safe-flag rule.",
-  },
-
-  // ── env sudo apt-get: old=high, new=high ───────────────────────────────────
-  // Actually env → sudo → apt-get. The old system unwraps env, finds sudo
-  // (HIGH_RISK_PROGRAMS), returns High. The new system should also return High
-  // via wrapper unwrapping. Let's verify — if it does, this entry can be removed.
-  // UPDATE: env unwraps to sudo, sudo unwraps to apt-get, which is now in
-  // the registry as high. Both agree. This is NOT a divergence.
 };
 
 // ── Parity tests ─────────────────────────────────────────────────────────────
@@ -286,9 +198,7 @@ describe("risk-classifier-parity", () => {
       );
       if (unexpected.length > 0) {
         const details = unexpected
-          .map(
-            (r) => `  "${r.command}": old=${r.old}, new=${r.new}`,
-          )
+          .map((r) => `  "${r.command}": old=${r.old}, new=${r.new}`)
           .join("\n");
         throw new Error(
           `${unexpected.length} unexpected divergence(s):\n${details}`,

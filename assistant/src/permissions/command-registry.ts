@@ -79,7 +79,11 @@ export const DEFAULT_COMMAND_REGISTRY = {
       },
     ],
   },
-  awk: { baseRisk: "low", complexSyntax: true },
+  awk: {
+    baseRisk: "medium",
+    complexSyntax: true,
+    reason: "Can execute shell commands via system()",
+  },
 
   // ── System information (read-only) ─────────────────────────────────────────
   echo: { baseRisk: "low" },
