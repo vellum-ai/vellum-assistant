@@ -1,0 +1,126 @@
+import VellumAssistantShared
+import SwiftUI
+
+/// Recommended "Vellum Cloud" card shown in the onboarding first step.
+///
+/// Self-contained subview: no outside state. Composed into
+/// `WakeUpStepView` alongside the sibling "Your Machine" card.
+struct OnboardingVellumCloudCard: View {
+    // MARK: - Configuration
+
+    let title: String = "Vellum Cloud"
+    let subtitle: String = "The frictionless experience for serious creators."
+    let benefits: [String] = [
+        "Always on, even when your Mac sleeps",
+        "Instant sync across all your devices",
+        "No API key or technical setup required",
+        "Automatic two-way transfer & backup",
+    ]
+    let primaryCTA: String = "Continue with Vellum"
+    let isLoading: Bool = false
+    let isDisabled: Bool = false
+    let onContinue: () -> Void
+
+    // MARK: - Body
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header: serif title + RECOMMENDED chip
+            HStack(alignment: .top) {
+                Text(title)
+                    .font(VFont.brandSmall)
+                    .foregroundStyle(VColor.contentEmphasized)
+
+                Spacer(minLength: VSpacing.sm)
+
+                VBadge(
+                    label: "RECOMMENDED",
+                    tone: .neutral,
+                    emphasis: .subtle,
+                    shape: .pill
+                )
+            }
+
+            Spacer().frame(height: VSpacing.xs)
+
+            Text(subtitle)
+                .font(VFont.bodyMediumLighter)
+                .foregroundStyle(VColor.contentSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer().frame(height: VSpacing.lg)
+
+            // Benefits
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                ForEach(benefits, id: \.self) { benefit in
+                    benefitRow(benefit)
+                }
+            }
+
+            Spacer().frame(height: VSpacing.lg)
+
+            // CTA
+            if isLoading {
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .progressViewStyle(.circular)
+                    Text("Checking…")
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentSecondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 32)
+            } else {
+                VButton(
+                    label: primaryCTA,
+                    style: .primary,
+                    size: .pillRegular,
+                    isFullWidth: true,
+                    isDisabled: isDisabled || isLoading
+                ) {
+                    onContinue()
+                }
+            }
+        }
+        .padding(EdgeInsets(
+            top: VSpacing.xl,
+            leading: VSpacing.xl,
+            bottom: VSpacing.xl,
+            trailing: VSpacing.xl
+        ))
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg, style: .continuous)
+                .fill(VColor.surfaceLift)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg, style: .continuous)
+                .strokeBorder(VColor.borderBase, lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+    }
+
+    // MARK: - Subviews
+
+    @ViewBuilder
+    private func benefitRow(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: VSpacing.sm) {
+            VIconView(.circleCheck, size: 16)
+                .foregroundStyle(VColor.contentSecondary)
+                .accessibilityHidden(true)
+            Text(text)
+                .font(VFont.bodyMediumDefault)
+                .foregroundStyle(VColor.contentDefault)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+#if DEBUG
+#Preview("OnboardingVellumCloudCard") {
+    OnboardingVellumCloudCard(onContinue: {})
+        .frame(width: 440)
+        .padding(VSpacing.xl)
+        .background(VColor.contentBackground)
+}
+#endif
