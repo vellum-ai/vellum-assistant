@@ -16,20 +16,25 @@ import Foundation
 /// jitter. A 30s window (the original default) could hold at most 3 such
 /// entries and so could never trip the detector.
 ///
-/// The clock is injected so tests can drive time deterministically without
-/// relying on `sleep`. All mutation is serialized through a private
+/// The clock source is **monotonic** (backed by `DispatchTime.now()`), not
+/// wall-clock (`Date()`). Pruning compares elapsed seconds since an arbitrary
+/// fixed reference, so NTP adjustments, manual clock changes, and daylight-
+/// savings transitions cannot corrupt the window — a backward wall-clock jump
+/// would otherwise keep stale failures live, and a forward jump would prune
+/// real ones. The clock is injected so tests can drive time deterministically
+/// without relying on `sleep`. All mutation is serialized through a private
 /// `DispatchQueue` so the tracker is safe to call from a periodic health-check
 /// task and from request-completion callbacks concurrently.
 public final class AuthFailureTracker {
     private struct Entry {
-        let timestamp: Date
+        let timestamp: TimeInterval
         let statusCode: Int
         let path: String
     }
 
     public let windowSeconds: TimeInterval
     public let minFailures: Int
-    private let now: () -> Date
+    private let now: () -> TimeInterval
     private let queue = DispatchQueue(label: "ai.vellum.AuthFailureTracker")
 
     private var entries: [Entry] = []
@@ -39,11 +44,18 @@ public final class AuthFailureTracker {
     public init(
         windowSeconds: TimeInterval = 90,
         minFailures: Int = 4,
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> TimeInterval = AuthFailureTracker.monotonicNow
     ) {
         self.windowSeconds = windowSeconds
         self.minFailures = minFailures
         self.now = now
+    }
+
+    /// Default monotonic clock: seconds since an arbitrary fixed reference,
+    /// sourced from `DispatchTime.now()` (which wraps Apple's monotonic
+    /// mach clock). Immune to wall-clock jumps.
+    public static func monotonicNow() -> TimeInterval {
+        TimeInterval(DispatchTime.now().uptimeNanoseconds) / 1_000_000_000
     }
 
     /// Record a completed HTTP response. Only 401 and 429 contribute to the
@@ -89,8 +101,8 @@ public final class AuthFailureTracker {
 
     // MARK: - Private
 
-    private func pruneLocked(relativeTo current: Date) {
-        let cutoff = current.addingTimeInterval(-windowSeconds)
+    private func pruneLocked(relativeTo current: TimeInterval) {
+        let cutoff = current - windowSeconds
         entries.removeAll { $0.timestamp < cutoff }
     }
 }
