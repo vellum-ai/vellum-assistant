@@ -47,7 +47,18 @@ struct IOSRootNavigationView: View {
                 regularLayout
             }
         }
-        .sheet(isPresented: $isSettingsPresented) {
+        // `onDismiss` resets `navigateToConnect` so that:
+        // (1) re-opening Settings via the drawer/toolbar doesn't auto-push
+        //     the Connect destination again, and
+        // (2) if `IOSRootNavigationView` is recreated (e.g. `ContentView`'s
+        //     `.id(client)` changes), `@State isSettingsPresented` resets to
+        //     `false` but the parent-owned `navigateToConnect` stays `true` —
+        //     which would otherwise cause the `.task` one-shot check below to
+        //     reopen the sheet automatically. Clearing the binding on dismiss
+        //     breaks that loop.
+        .sheet(isPresented: $isSettingsPresented, onDismiss: {
+            navigateToConnect = false
+        }) {
             SettingsBottomSheet(
                 authManager: authManager,
                 navigateToConnect: $navigateToConnect,
@@ -288,21 +299,22 @@ struct IOSRootNavigationView: View {
         activeConversationId = firstSelectableConversationId()
     }
 
-    /// Ensures `activeConversationId` points at a conversation that still
-    /// exists in the store. Handles three cases on a store update:
+    /// Ensures `activeConversationId` points at a conversation that is still
+    /// in the store. Handles three cases on a store update:
     /// 1. No active selection yet — seed the first eligible conversation.
-    /// 2. Active selection still resolves — leave it alone.
-    /// 3. Active selection no longer exists (e.g. the user deleted it or it
-    ///    was archived) — fall back to the first eligible conversation, or
-    ///    clear the selection so `compactRoot` shows the empty state.
+    /// 2. Active selection still resolves — leave it alone, even if the
+    ///    conversation is archived or private. The drawer surfaces archived
+    ///    conversations in a DisclosureGroup, so a user can legitimately
+    ///    select one and we shouldn't kick them out on the next store change.
+    /// 3. Active selection was removed from the store entirely — fall back to
+    ///    the first eligible conversation, or clear the selection so
+    ///    `compactRoot` shows the empty state.
     private func reconcileActiveConversation() {
         guard let id = activeConversationId else {
             seedActiveConversationIfNeeded()
             return
         }
-        let stillExists = store.conversations.contains { conversation in
-            conversation.id == id && !conversation.isArchived && !conversation.isPrivate
-        }
+        let stillExists = store.conversations.contains { $0.id == id }
         if !stillExists {
             activeConversationId = firstSelectableConversationId()
         }
