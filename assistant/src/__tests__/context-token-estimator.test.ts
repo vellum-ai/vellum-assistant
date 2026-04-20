@@ -472,7 +472,9 @@ describe("token estimator", () => {
       },
     ];
 
-    const total = estimateMessagesTokens(messages, { providerName: "anthropic" });
+    const total = estimateMessagesTokens(messages, {
+      providerName: "anthropic",
+    });
 
     // Each image: ~73 tokens. 100 images + message overhead ≈ 7,304
     // Old behavior: 100 * ~1,043 = ~104,300 (14x overestimate)
@@ -603,6 +605,48 @@ describe("tool_result estimation mirrors Anthropic wire format", () => {
     expect(errorWithImage).toBe(errorNoImage);
   });
 
+  test("image sub-block IS counted on error for non-Anthropic providers", () => {
+    // OpenAI and Gemini serializers forward error-result images (as a
+    // follow-up user message / parts entry), so the estimator must count
+    // them regardless of is_error under those providers.
+    const pngBase64 = makePngBase64(512, 512);
+    const build = (providerName: string) =>
+      estimateContentBlockTokens(
+        {
+          type: "tool_result",
+          tool_use_id: "call_err_img",
+          content: "operation failed",
+          is_error: true,
+          contentBlocks: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: "image/png",
+                data: pngBase64,
+              },
+            },
+          ],
+        },
+        { providerName },
+      );
+    const buildPlain = (providerName: string) =>
+      estimateContentBlockTokens(
+        {
+          type: "tool_result",
+          tool_use_id: "call_err_img",
+          content: "operation failed",
+          is_error: true,
+        },
+        { providerName },
+      );
+    for (const providerName of ["openai", "gemini"]) {
+      const withImage = build(providerName);
+      const withoutImage = buildPlain(providerName);
+      expect(withImage - withoutImage).toBeGreaterThan(0);
+    }
+  });
+
   test("unknown sub-block types are NOT counted", () => {
     // The Anthropic serializer only forwards image/text sub-blocks. Anything
     // else (thinking, tool_use, etc.) is dropped — the estimator must not
@@ -630,9 +674,9 @@ describe("tool_result estimation mirrors Anthropic wire format", () => {
   test("text sub-block beyond block.content is counted once", () => {
     // Handlers (e.g. secret-detection) may populate contentBlocks with an
     // additional text entry distinct from block.content. The serializer
-    // forwards both, so the estimator counts both — but this is not the
-    // pre-fix 2x double-count where content was summed once for the string
-    // and again for an echoing text sub-block.
+    // forwards both, so the estimator counts block.content once and each
+    // text sub-block once — never doubling the content string against an
+    // echoing text sub-block.
     const extraText = "x".repeat(4000);
     const tokens = estimateContentBlockTokens({
       type: "tool_result",
@@ -648,11 +692,9 @@ describe("tool_result estimation mirrors Anthropic wire format", () => {
   });
 
   test("regression: tool_result with thinking sub-block does not inflate estimate by 3x+", () => {
-    // Simulates the pathological shape that was inflating the estimator on
-    // real conversations — a modest tool_result whose contentBlocks happen
-    // to carry a large sub-block the serializer discards. Prior to the fix
-    // the estimator would add the full thinking payload; after the fix it
-    // matches the plain shape.
+    // A modest tool_result whose contentBlocks carry a large sub-block the
+    // serializer discards must not inflate the estimate: the estimator
+    // skips the thinking payload, matching the plain wire shape.
     const content = "y".repeat(2000);
     const inflated = estimateContentBlockTokens({
       type: "tool_result",
