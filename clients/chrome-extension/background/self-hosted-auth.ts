@@ -104,6 +104,14 @@ export interface BootstrapLocalTokenOptions {
    * in the extension itself should rely on the default.
    */
   timeoutMs?: number;
+  /**
+   * Optional environment override. When provided, the native host uses
+   * this environment to resolve lockfile paths and daemon ports instead of
+   * the process-level `VELLUM_ENVIRONMENT`. This lets the extension switch
+   * environments (e.g. `dev`, `staging`, `production`) without restarting
+   * Chrome.
+   */
+  environment?: string;
 }
 
 /**
@@ -381,6 +389,9 @@ export async function bootstrapLocalToken(
     const pairMessage: Record<string, unknown> = { type: 'request_token' };
     if (assistantId) {
       pairMessage.assistantId = assistantId;
+    }
+    if (options.environment) {
+      pairMessage.environment = options.environment;
     }
     port.postMessage(pairMessage);
   });

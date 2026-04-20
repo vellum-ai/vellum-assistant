@@ -372,6 +372,27 @@ function fail(message: string, code = 1): never {
 }
 
 /**
+ * Normalize a frame-level environment override string.
+ *
+ * - Trims whitespace.
+ * - Normalizes the common `prod` shorthand to `production`.
+ * - Returns `undefined` for empty/whitespace-only strings so callers
+ *   can treat them as "no override".
+ *
+ * Invalid values (e.g. `foo`) are passed through rather than rejected
+ * here — the lockfile reader's `NON_PRODUCTION_ENVIRONMENTS` set
+ * handles the final gating and falls back to production for unknown
+ * values.
+ */
+export function normalizeFrameEnvironment(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return undefined;
+  if (trimmed === "prod") return "production";
+  return trimmed;
+}
+
+/**
  * POST the extension origin to the assistant's pair endpoint and return the
  * issued capability token. Surfaces a uniform error message on failure so
  * the caller can wrap it in a native-messaging error frame.
@@ -385,6 +406,7 @@ async function requestToken(
   extensionOrigin: string,
   argv: readonly string[],
   assistantId?: string,
+  environmentOverride?: string,
 ): Promise<TokenResponse> {
   // When an assistantId is provided, attempt to resolve the daemon port
   // from the lockfile first. This lets the extension target a specific
@@ -394,7 +416,7 @@ async function requestToken(
   // for that assistant.
   let port: number;
   if (assistantId) {
-    const lockfilePort = resolveDaemonPort(assistantId);
+    const lockfilePort = resolveDaemonPort(assistantId, environmentOverride);
     if (lockfilePort !== undefined) {
       port = lockfilePort;
     } else {
@@ -523,8 +545,11 @@ async function main(): Promise<void> {
         if (frameType === "list_assistants") {
           // Return the assistant inventory from the lockfile. This is a
           // synchronous read — no network call needed.
+          const listEnv = normalizeFrameEnvironment(
+            (frame as { environment?: unknown }).environment,
+          );
           try {
-            const inventory = readAssistantInventory();
+            const inventory = readAssistantInventory(listEnv);
             await writeFrameAndExitAsync(
               {
                 type: "assistants_response",
@@ -546,10 +571,13 @@ async function main(): Promise<void> {
             typeof (frame as { assistantId?: unknown }).assistantId === "string"
               ? ((frame as { assistantId: string }).assistantId)
               : undefined;
+          const tokenEnv = normalizeFrameEnvironment(
+            (frame as { environment?: unknown }).environment,
+          );
 
           try {
             const { token, expiresAt, guardianId, assistantPort } =
-              await requestToken(extensionOrigin!, process.argv, assistantId);
+              await requestToken(extensionOrigin!, process.argv, assistantId, tokenEnv);
             await writeFrameAndExitAsync(
               {
                 type: "token_response",
