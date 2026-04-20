@@ -23,17 +23,19 @@
  *      reaches into `skills/`. Every other import direction (skill ->
  *      assistant) remains legal and intentional.
  *   2. Limiting entries to **first-party bundled skills** whose source
- *      is copied into the Docker build and statically compiled into the
- *      Bun binary. The assistant Dockerfile already copies
- *      `skills/meet-join/` for exactly this reason.
+ *      is shipped in the Docker build context and statically compiled
+ *      into the Bun binary. The repo-root `.dockerignore` is the
+ *      allowlist that determines which skill files enter the build
+ *      context; the assistant `Dockerfile` copies `skills/` generically.
  *   3. Keeping the imports as **side-effect only** so the skill owns
  *      both the tool list and the feature-flag semantics — this file
  *      just wires module evaluation into the startup path.
  *
  * When a new bundled first-party skill wants to expose in-process tools
- * to the LLM, add another side-effect import here and update the
- * assistant `Dockerfile` to copy the skill's source. Non-bundled skills
- * (workspace-installed, third-party) never belong in this file.
+ * to the LLM, add another side-effect import here and extend the
+ * repo-root `.dockerignore` allowlist with the skill's runtime files.
+ * Non-bundled skills (workspace-installed, third-party) never belong in
+ * this file.
  */
 
 import "../../../skills/meet-join/register.js";
