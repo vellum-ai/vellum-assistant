@@ -13,6 +13,12 @@ public struct ToolCallProgressBar: View {
         self.toolCalls = toolCalls
     }
 
+    /// The most relevant tool call to label: the first incomplete one, or the
+    /// last one if all are complete (same heuristic as CurrentStepIndicator).
+    private var representativeToolCall: ToolCallData? {
+        toolCalls.first(where: { !$0.isComplete }) ?? toolCalls.last
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             // Progress bar with steps
@@ -30,13 +36,21 @@ public struct ToolCallProgressBar: View {
                     }
                 }
 
-                // Labels row (only show when 4 or fewer steps)
-                if toolCalls.count <= 4 {
-                    HStack(spacing: 0) {
-                        ForEach(Array(toolCalls.enumerated()), id: \.element.id) { index, toolCall in
-                            // Step label
-                            stepLabel(for: toolCall)
-                                .frame(width: labelWidth(index: index))
+                // Summary label — shows the active/last tool name + progress count.
+                // Replaces per-step fixed-width labels that truncated on narrow
+                // iOS screens (LUM-1026).
+                if let representative = representativeToolCall {
+                    HStack(spacing: VSpacing.xs) {
+                        Text(representative.friendlyName)
+                            .font(VFont.labelSmall)
+                            .foregroundStyle(stepTextColor(for: representative))
+                            .lineLimit(1)
+
+                        if toolCalls.count > 1 {
+                            let completedCount = toolCalls.filter(\.isComplete).count
+                            Text("(\(completedCount)/\(toolCalls.count))")
+                                .font(VFont.labelSmall)
+                                .foregroundStyle(VColor.contentTertiary)
                         }
                     }
                 }
@@ -106,31 +120,6 @@ public struct ToolCallProgressBar: View {
         .buttonStyle(.plain)
         .disabled(!toolCall.isComplete)
         .accessibilityLabel(toolCall.isError ? "\(toolCall.friendlyName), failed" : toolCall.isComplete ? "\(toolCall.friendlyName), completed" : "\(toolCall.friendlyName), in progress")
-    }
-
-    // MARK: - Step Label
-
-    @ViewBuilder
-    private func stepLabel(for toolCall: ToolCallData) -> some View {
-        Text(toolCall.friendlyName)
-            .font(VFont.labelSmall)
-            .foregroundStyle(stepTextColor(for: toolCall))
-            .lineLimit(1)
-            .multilineTextAlignment(.center)
-    }
-
-    // Calculate label width to align with circles and lines
-    private func labelWidth(index: Int) -> CGFloat {
-        let circleWidth: CGFloat = 28
-        let lineWidth: CGFloat = 32
-
-        if index == toolCalls.count - 1 {
-            // Last item: just the circle
-            return circleWidth
-        } else {
-            // Circle + line
-            return circleWidth + lineWidth
-        }
     }
 
     // MARK: - Connector Line
