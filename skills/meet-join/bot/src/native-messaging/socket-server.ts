@@ -207,6 +207,11 @@ export function createNmhSocketServer(
         // Best-effort; the previous socket might already be gone.
       }
     }
+    // Reset handshake state before exposing the new socket: the previous
+    // client's `ready=true` must not leak forward, or a `waitForReady()` call
+    // issued after the reconnect would resolve immediately against the stale
+    // flag and let the bot send commands before the new shim has handshaken.
+    ready = false;
     activeSocket = next;
     // Per-connection state resets on every new accept — a stale half-line
     // from the old socket must not bleed into the new one.
@@ -235,7 +240,6 @@ export function createNmhSocketServer(
   return {
     async start(): Promise<void> {
       if (started) return;
-      started = true;
 
       // Clear a stale socket file from a previous crashed run. Ignore
       // "file doesn't exist" (the common case on a fresh start).
@@ -252,20 +256,32 @@ export function createNmhSocketServer(
       });
       server = srv;
 
-      await new Promise<void>((resolve, reject) => {
-        const onError = (err: Error): void => {
-          srv.off("listening", onListening);
-          reject(err);
-        };
-        const onListening = (): void => {
-          srv.off("error", onError);
-          resolve();
-        };
-        srv.once("error", onError);
-        srv.once("listening", onListening);
-        srv.listen(socketPath);
-      });
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const onError = (err: Error): void => {
+            srv.off("listening", onListening);
+            reject(err);
+          };
+          const onListening = (): void => {
+            srv.off("error", onError);
+            resolve();
+          };
+          srv.once("error", onError);
+          srv.once("listening", onListening);
+          srv.listen(socketPath);
+        });
+      } catch (err) {
+        // Listen failed — drop the unbound server reference so a retry can
+        // construct a fresh one, and leave `started=false` so callers aren't
+        // locked out of retrying.
+        server = null;
+        throw err;
+      }
 
+      // Only now that the listener is bound do we flip `started`: otherwise a
+      // failed `listen()` would leave the server permanently marked started
+      // and subsequent `start()` calls would silently no-op.
+      started = true;
       logger.info(`nmh-socket-server: listening on ${socketPath}`);
     },
 
