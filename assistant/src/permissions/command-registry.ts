@@ -403,6 +403,22 @@ export const DEFAULT_COMMAND_REGISTRY = {
   ionice:   { baseRisk: "low", isWrapper: true },
   taskset:  { baseRisk: "low", isWrapper: true },
 
+  // ── Shell interpreters ──────────────────────────────────────────────────────
+  // These execute arbitrary code via -c, script files, or stdin.
+  bash:     { baseRisk: "high", reason: "Executes arbitrary shell commands", complexSyntax: true },
+  sh:       { baseRisk: "high", reason: "Executes arbitrary shell commands", complexSyntax: true },
+  zsh:      { baseRisk: "high", reason: "Executes arbitrary shell commands", complexSyntax: true },
+  dash:     { baseRisk: "high", reason: "Executes arbitrary shell commands", complexSyntax: true },
+  fish:     { baseRisk: "high", reason: "Executes arbitrary shell commands", complexSyntax: true },
+
+  // ── Package managers (additional) ──────────────────────────────────────────
+  "apt-get": { baseRisk: "high", reason: "Installs/removes system packages" },
+  apt:       { baseRisk: "high", reason: "Installs/removes system packages" },
+  dnf:       { baseRisk: "high", reason: "Installs/removes system packages" },
+  yum:       { baseRisk: "high", reason: "Installs/removes system packages" },
+  pacman:    { baseRisk: "high", reason: "Installs/removes system packages" },
+  apk:       { baseRisk: "high", reason: "Installs/removes system packages" },
+
   // ── Shell builtins ─────────────────────────────────────────────────────────
   cd:       { baseRisk: "low" },
   pushd:    { baseRisk: "low" },
