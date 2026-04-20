@@ -212,7 +212,7 @@ private let fallbackRegistry = TTSProviderRegistry(
             credentialMode: .credential,
             credentialNamespace: "xai",
             apiKeyProviderName: nil,
-            supportsVoiceSelection: true,
+            supportsVoiceSelection: false,
             credentialsGuide: TTSCredentialsGuide(
                 description: "Sign in to the xAI console, navigate to API Keys, and create a new key.",
                 url: "https://console.x.ai/",

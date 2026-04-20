@@ -54,7 +54,7 @@
       "setupHint": "Run the setup commands in your terminal to configure xAI credentials.",
       "credentialMode": "credential",
       "credentialNamespace": "xai",
-      "supportsVoiceSelection": true,
+      "supportsVoiceSelection": false,
       "credentialsGuide": {
         "description": "Sign in to the xAI console, navigate to API Keys, and create a new key.",
         "url": "https://console.x.ai/",
