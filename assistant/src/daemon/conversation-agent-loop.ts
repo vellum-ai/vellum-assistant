@@ -1081,14 +1081,8 @@ export async function runAgentLoopImpl(
         // When compaction ran it strips existing NOW.md / PKB blocks, so we
         // must re-inject the current content. Otherwise rely on the deduplicated
         // value from injectionOpts to avoid duplicate injection.
-        // Drop the Slack chronological override: the reducer has already
-        // shaped ctx.messages, and the transcript is rebuilt from ALL
-        // persisted rows (compaction doesn't delete rows), so re-applying
-        // it here would overwrite the reducer's output and the overflow
-        // loop would never converge.
         runMessages = await applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
-          slackChronologicalMessages: null,
           ...(step.compactionResult?.compacted && {
             pkbContext: currentPkbContent,
           }),
@@ -1320,11 +1314,8 @@ export async function runAgentLoopImpl(
       // stripInjectionsForCompaction() unconditionally removed the existing
       // NOW.md block from ctx.messages above, so we must always re-inject
       // the current content regardless of whether compaction actually ran.
-      // Drop the Slack chronological override here too — see the preflight
-      // reducer loop above for the rationale.
       runMessages = await applyRuntimeInjections(ctx.messages, {
         ...injectionOpts,
-        slackChronologicalMessages: null,
         pkbContext: currentPkbContent,
         nowScratchpad: currentNowContent,
         workspaceTopLevelContext: shouldInjectWorkspace
@@ -1556,11 +1547,9 @@ export async function runAgentLoopImpl(
 
         // Only re-inject NOW.md when ctx.messages was actually stripped;
         // otherwise the existing NOW.md block is still present and
-        // re-injecting would duplicate it. Drop the Slack chronological
-        // override — the reducer has already shaped ctx.messages.
+        // re-injecting would duplicate it.
         runMessages = await applyRuntimeInjections(ctx.messages, {
           ...injectionOpts,
-          slackChronologicalMessages: null,
           pkbContext: currentPkbContent,
           nowScratchpad: convergenceStripped ? currentNowContent : null,
           workspaceTopLevelContext: shouldInjectWorkspace
@@ -1698,12 +1687,9 @@ export async function runAgentLoopImpl(
             }
 
             // Only re-inject NOW.md when ctx.messages was actually stripped;
-            // otherwise the existing block is still present. Drop the Slack
-            // chronological override — emergency compaction has already
-            // shaped ctx.messages.
+            // otherwise the existing block is still present.
             runMessages = await applyRuntimeInjections(ctx.messages, {
               ...injectionOpts,
-              slackChronologicalMessages: null,
               pkbContext: currentPkbContent,
               nowScratchpad: convergenceStripped ? currentNowContent : null,
               workspaceTopLevelContext: shouldInjectWorkspace
@@ -1837,12 +1823,9 @@ export async function runAgentLoopImpl(
           }
 
           // Only re-inject NOW.md when ctx.messages was actually stripped;
-          // otherwise the existing block is still present. Drop the Slack
-          // chronological override — auto-compress has already shaped
-          // ctx.messages.
+          // otherwise the existing block is still present.
           runMessages = await applyRuntimeInjections(ctx.messages, {
             ...injectionOpts,
-            slackChronologicalMessages: null,
             pkbContext: currentPkbContent,
             nowScratchpad: convergenceStripped ? currentNowContent : null,
             workspaceTopLevelContext: shouldInjectWorkspace
