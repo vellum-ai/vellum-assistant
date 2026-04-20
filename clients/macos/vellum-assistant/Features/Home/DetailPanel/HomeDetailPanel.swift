@@ -87,6 +87,7 @@ struct HomeDetailPanel<Content: View>: View {
                             VIconView(icon, size: 20)
                                 .foregroundStyle(VColor.primaryBase)
                         }
+                        .accessibilityHidden(true)
                 }
 
                 Text(title)
