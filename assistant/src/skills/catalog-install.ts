@@ -51,13 +51,31 @@ export function getSkillsIndexPath(): string {
   return join(getWorkspaceSkillsDir(), "SKILLS.md");
 }
 
+/**
+ * Resolve the directory containing a `catalog.json` and first-party skill
+ * sources — either bundled next to a compiled binary or in the dev repo.
+ *
+ * Catalog asymmetry note: when this returns a path, `getCatalog()` in
+ * `catalog-cache.ts` reads that local catalog exclusively and does not merge
+ * with remote. This means a compiled-binary install sees a catalog frozen at
+ * build time for listing and file-preview flows. `resolveCatalog()` below is
+ * smarter — it falls back to remote when a specific skill id is missing —
+ * so `autoInstallFromCatalog()` can still discover platform-only skills.
+ * This asymmetry is intentional: listings should be fast and work offline,
+ * while install-on-demand paths are allowed to pay the network cost.
+ */
 export function getRepoSkillsDir(): string | undefined {
   const importDir = import.meta.dir;
 
   if (importDir.startsWith("/$bunfs/")) {
     const execDir = dirname(process.execPath);
     // macOS .app bundle: binary in Contents/MacOS/, resources in Contents/Resources/
-    const resourcesPath = join(execDir, "..", "Resources", "first-party-skills");
+    const resourcesPath = join(
+      execDir,
+      "..",
+      "Resources",
+      "first-party-skills",
+    );
     if (existsSync(join(resourcesPath, "catalog.json"))) {
       return resourcesPath;
     }
