@@ -25,10 +25,7 @@ import {
   type TrustClass,
 } from "../runtime/actor-trust-resolver.js";
 import { unregisterConversationSender } from "../tools/browser/browser-screencast.js";
-import {
-  type AbortReason,
-  createAbortReason,
-} from "../util/abort-reasons.js";
+import { type AbortReason, createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import {
   unregisterCallNotifiers,
@@ -65,7 +62,9 @@ function parseProvenanceTrustClass(
   return undefined;
 }
 
-function filterMessagesForUntrustedActor(messages: MessageRow[]): MessageRow[] {
+export function filterMessagesForUntrustedActor(
+  messages: MessageRow[],
+): MessageRow[] {
   return messages.filter((m) => {
     const provenanceTrustClass = parseProvenanceTrustClass(m.metadata);
     return (
