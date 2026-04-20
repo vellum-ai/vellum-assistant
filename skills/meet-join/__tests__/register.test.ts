@@ -24,7 +24,18 @@ let flagEnabled = true;
 let captured: Array<{ name: string }> | null = null;
 
 mock.module("../../../assistant/src/tools/registry.js", () => ({
-  registerExternalTools: (tools: Array<{ name: string }>) => {
+  registerExternalTools: (
+    toolsOrProvider:
+      | Array<{ name: string }>
+      | (() => Array<{ name: string }>),
+  ) => {
+    // register.ts registers a lazy provider so the flag read happens
+    // after daemon startup's default-config merge. Resolve the provider
+    // here to assert the tools it would produce at initializeTools() time.
+    const tools =
+      typeof toolsOrProvider === "function"
+        ? toolsOrProvider()
+        : toolsOrProvider;
     captured = tools.map((t) => ({ name: t.name }));
   },
 }));

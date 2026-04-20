@@ -19,24 +19,43 @@ const tools = new Map<string, Tool>();
 // ── External tool registry ───────────────────────────────────────────
 // Skills register their tools here at initialization time so the tool
 // manifest can include them without importing from `../skills/`.
-const externalTools: Tool[] = [];
+//
+// Each registration is stored as a provider closure. Closures are
+// resolved at `getExternalTools()` time (which `initializeTools()`
+// calls), not at registration time — this lets a skill defer its
+// feature-flag check until after the daemon has run
+// `mergeDefaultWorkspaceConfig()`, so skills see the merged config
+// instead of forcing an early `loadConfig()` against unmerged defaults.
+const externalToolProviders: Array<() => Tool[]> = [];
 
 /**
  * Register tools provided by an external skill. Called during skill
  * initialization (e.g. meet-join bootstrap).
+ *
+ * Accepts either a concrete `Tool[]` (resolved eagerly at the caller)
+ * or a `() => Tool[]` closure (resolved lazily inside
+ * `getExternalTools()`). Skills that perform feature-flag or config
+ * reads to decide which tools to surface must pass a closure so the
+ * read happens after daemon-startup config merging.
  *
  * Lives in registry.ts (not tool-manifest.ts) to avoid a circular
  * dependency: skills/load.ts → … → meet-join/register.ts → tool-manifest.ts
  * → skills/load.ts. Keeping it here lets external skill bootstraps import
  * from registry.ts, which is already a leaf in the dependency graph.
  */
-export function registerExternalTools(tools: Tool[]): void {
-  externalTools.push(...tools);
+export function registerExternalTools(
+  toolsOrProvider: Tool[] | (() => Tool[]),
+): void {
+  const provider =
+    typeof toolsOrProvider === "function"
+      ? toolsOrProvider
+      : () => toolsOrProvider;
+  externalToolProviders.push(provider);
 }
 
 /** Return all externally registered tools. */
 export function getExternalTools(): Tool[] {
-  return [...externalTools];
+  return externalToolProviders.flatMap((provider) => provider());
 }
 
 // Snapshot of core tools captured after initializeTools() completes.

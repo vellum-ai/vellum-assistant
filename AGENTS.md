@@ -168,6 +168,8 @@ Each LLM call site has a stable identifier (`LLMCallSite` from `assistant/src/co
 
 The `assistant/` module must not import from `skills/` via relative paths (e.g. `../skills/meet-join/...`). The Docker build copies `assistant/` and `packages/` but not `skills/`, so any such import breaks at runtime. Skills wire into the assistant through registries (`registerShutdownHook`, `registerSkillRoute`, `registerExternalTools`) — the assistant provides the hooks, the skill calls them. See `skills/meet-join/AGENTS.md` for the meet-join isolation rules.
 
+There is one narrow exception: `assistant/src/daemon/external-skills-bootstrap.ts` is the single file in `assistant/` permitted to import from `skills/`, and only as side-effect imports of a first-party skill's `register.ts`. The exception exists because `bun --compile` only traces statically analyzed imports into the final binary (dynamic relative imports fail inside `/$bunfs/`), so a skill whose tools must be visible to the LLM at daemon startup has to be reachable from a static import somewhere in `assistant/`. Any skill referenced from this file must (a) be first-party, (b) have its source copied into the assistant image by `assistant/Dockerfile`, and (c) expose only a side-effect `register.ts` — no named exports consumed from `assistant/`. All other `assistant/` → `skills/` imports remain forbidden.
+
 ## Tooling Direction
 
 New non-skill tool registrations are strongly discouraged — prefer skills instead. See `assistant/src/tools/AGENTS.md` for rationale, approved CES exceptions, and alternatives.
