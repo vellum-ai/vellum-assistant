@@ -413,6 +413,22 @@ export class TalkingHeadRenderer implements AvatarRenderer {
   }
 
   /**
+   * Reset the internal playback clock back to the "no audio queued yet"
+   * state and drop any visemes still buffered from the prior utterance.
+   * The HTTP server calls this at the start of every new `/play_audio`
+   * stream, in lockstep with `AudioPlaybackHandle.resetPlaybackClock()`.
+   * Without this reset the clock would sit at the end-of-prior-utterance
+   * timestamp and subsequent visemes (daemon-stamped as ms-from-THAT-
+   * utterance-start, restarting at 0) would all satisfy the `timestamp
+   * <= currentPlaybackTimestamp` check and flush immediately on arrival.
+   */
+  resetPlaybackTimestamp(): void {
+    if (this.stopped) return;
+    this.currentPlaybackTimestamp = Number.NEGATIVE_INFINITY;
+    this.visemeBuffer.length = 0;
+  }
+
+  /**
    * Drain every buffered viseme whose declared `timestamp` is
    * `<= currentPlaybackTimestamp`, forwarding each to the extension in
    * arrival order. Buffered visemes that remain in the future relative

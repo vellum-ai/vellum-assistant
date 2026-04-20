@@ -451,6 +451,27 @@ export function createHttpServer(
         return c.json({ error: `failed to start playback: ${message}` }, 500);
       }
 
+      // The playback handle is a module-level singleton (see
+      // `audio-playback.ts` — the same `handle` is returned across every
+      // POST). Its utterance-relative clock accumulates across POSTs
+      // unless we explicitly reset it, which would cause every viseme
+      // from the second-and-later utterance (daemon-stamped as ms from
+      // THAT utterance's start, so also restarting at 0) to satisfy
+      // `visemeTs < effectivePlaybackMs` and flush immediately on
+      // arrival — defeating the point of buffering. Reset here so each
+      // stream gets a fresh 0-based clock matching the daemon's
+      // per-utterance timestamp coordinate system. Reset the viseme-
+      // driven renderer's mirror clock in lockstep for the same reason.
+      handle.resetPlaybackClock();
+      const rendererAtStreamStart = avatarRenderer;
+      if (
+        rendererAtStreamStart !== null &&
+        rendererAtStreamStart.capabilities.needsVisemes &&
+        typeof rendererAtStreamStart.resetPlaybackTimestamp === "function"
+      ) {
+        rendererAtStreamStart.resetPlaybackTimestamp();
+      }
+
       const controller = new AbortController();
       activeStreams.set(streamId, { controller, handle });
 
