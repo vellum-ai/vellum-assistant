@@ -416,7 +416,7 @@ function buildIntegrationSection(): string {
 
   if (connections.length === 0) return "";
 
-  const lines = ["## Connected Services", ""];
+  const lines = ["# Connected Services", ""];
   for (const conn of connections) {
     const state = conn.accountInfo
       ? `Connected (${conn.accountInfo})`
