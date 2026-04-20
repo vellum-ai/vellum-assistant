@@ -42,6 +42,7 @@ import { backfillGoogleGmailSettingsScopeMigration } from "./041-backfill-google
 import { fixBackfillGoogleGmailSettingsScopeMigration } from "./042-fix-backfill-google-gmail-settings-scope.js";
 import { releaseNotesLatexRenderingMigration } from "./043-release-notes-latex-rendering.js";
 import { bumpStaleProviderStreamTimeoutMigration } from "./044-bump-stale-provider-stream-timeout.js";
+import { releaseNotesMeetAvatarMigration } from "./045-release-notes-meet-avatar.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -95,4 +96,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   fixBackfillGoogleGmailSettingsScopeMigration,
   releaseNotesLatexRenderingMigration,
   bumpStaleProviderStreamTimeoutMigration,
+  releaseNotesMeetAvatarMigration,
 ];
