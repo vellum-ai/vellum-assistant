@@ -435,14 +435,11 @@ export async function loadContextMemory(
     }
   }
 
-  // 1b. (PR 3) Dedicated user-query embedding. Always run the dedicated
-  //     user-query embed when a user query is present. Summaries and the
-  //     user query are now disjoint signals (the unshift was removed in
-  //     PR 6), so there is no redundancy between the two vectors — the
-  //     length-ratio short-circuit that previously lived here was written
-  //     against pre-PR-6 semantics and would drop the embed precisely in
-  //     the workloads that benefit most (short summaries + substantive
-  //     user question).
+  // 1b. Dedicated user-query embedding. Always embed the user query
+  //     independently when present. Summaries and the user query are
+  //     disjoint signals, so both vectors carry unique retrieval value —
+  //     especially in workloads with short summaries and a substantive
+  //     user question.
   let userQueryVector: number[] | null = null;
   const userQueryCandidateIds = new Map<string, number>(); // nodeId → score
   const trimmedUserQuery = opts.userQuery?.trim() ?? "";

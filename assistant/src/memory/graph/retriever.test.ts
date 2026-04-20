@@ -164,7 +164,6 @@ describe("loadContextMemory — query/sparse vector surfacing", () => {
     expect(result.queryVector).toBeUndefined();
     expect(result.sparseVector).toBeUndefined();
   });
-
 });
 
 describe("retrieveForTurn — query/sparse vector surfacing", () => {
@@ -244,8 +243,7 @@ describe("loadContextMemory — dual-query capability ranking (PR 3)", () => {
   // Build a config where capabilityReserve=1 so the ranking code actually
   // prunes (it only prunes when capabilityNodes.length > capabilityReserve).
   const DUAL_QUERY_CONFIG: AssistantConfig = structuredClone(DEFAULT_CONFIG);
-  DUAL_QUERY_CONFIG.memory.retrieval.injection.contextLoad.capabilityReserve =
-    1;
+  DUAL_QUERY_CONFIG.memory.retrieval.injection.contextLoad.capabilityReserve = 1;
 
   // Keyword-routed embed: any text that contains a topic keyword returns a
   // one-hot vector identifying that topic. Anything else falls back to a
@@ -372,11 +370,9 @@ describe("loadContextMemory — dual-query capability ranking (PR 3)", () => {
     embedRouter = keywordEmbedRouter;
     searchRouter = vectorSearchRouter;
 
-    // Summary is short and the user query is much longer — in the pre-PR-6
-    // world the length-ratio guard would have skipped the dedicated embed
-    // here. After PR 6 removed the firstUserText unshift, summaries and the
-    // user query are disjoint signals, so we always pay for both embeds
-    // when a userQuery is present.
+    // Summary is short and the user query is much longer. Summaries and
+    // the user query are disjoint signals, so we always pay for both
+    // embeds when a userQuery is present.
     const result = await loadContextMemory({
       scopeId: "default",
       recentSummaries: ["hi"],
