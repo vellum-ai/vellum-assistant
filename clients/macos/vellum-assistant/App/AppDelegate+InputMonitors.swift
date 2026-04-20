@@ -237,6 +237,10 @@ extension AppDelegate {
             NSEvent.removeMonitor(monitor)
             popOutLocalMonitor = nil
         }
+        if let monitor = conversationNavLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            conversationNavLocalMonitor = nil
+        }
     }
 
     /// Registers Cmd+Shift+V as a global shortcut to open the quick input text field.
@@ -468,6 +472,66 @@ extension AppDelegate {
             return nil
         }
         popOutLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+    }
+
+    /// Registers Cmd+Up / Cmd+Down as local shortcuts for navigating between
+    /// conversations in the sidebar. Uses arrow key codes (126 = up, 125 = down)
+    /// rather than `charactersIgnoringModifiers` which is unreliable for arrow keys
+    /// on some keyboard layouts.
+    func registerConversationNavMonitor() {
+        guard conversationNavLocalMonitor == nil else { return }
+        let handler: (NSEvent) -> NSEvent? = { [weak self] event in
+            guard self?.isBootstrapping != true,
+                  self?.mainWindow?.isVisible == true else { return event }
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.numericPad)
+            guard mods == [.command] else { return event }
+            switch event.keyCode {
+            case 126: // Up arrow
+                Task { @MainActor in self?.selectPreviousConversation() }
+                return nil
+            case 125: // Down arrow
+                Task { @MainActor in self?.selectNextConversation() }
+                return nil
+            default:
+                return event
+            }
+        }
+        conversationNavLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+    }
+
+    /// Select the previous conversation in the sidebar's visible list.
+    private func selectPreviousConversation() {
+        guard let mainWindow else { return }
+        let visible = mainWindow.conversationManager.visibleConversations
+        guard !visible.isEmpty else { return }
+        let activeId = mainWindow.conversationManager.activeConversationId
+        guard let currentIndex = visible.firstIndex(where: { $0.id == activeId }) else {
+            // No active conversation or not in visible list — select the first one
+            mainWindow.conversationManager.selectConversation(id: visible[0].id)
+            mainWindow.windowState.selection = .conversation(visible[0].id)
+            return
+        }
+        guard currentIndex > 0 else { return } // already at top
+        let targetId = visible[currentIndex - 1].id
+        mainWindow.conversationManager.selectConversation(id: targetId)
+        mainWindow.windowState.selection = .conversation(targetId)
+    }
+
+    /// Select the next conversation in the sidebar's visible list.
+    private func selectNextConversation() {
+        guard let mainWindow else { return }
+        let visible = mainWindow.conversationManager.visibleConversations
+        guard !visible.isEmpty else { return }
+        let activeId = mainWindow.conversationManager.activeConversationId
+        guard let currentIndex = visible.firstIndex(where: { $0.id == activeId }) else {
+            mainWindow.conversationManager.selectConversation(id: visible[0].id)
+            mainWindow.windowState.selection = .conversation(visible[0].id)
+            return
+        }
+        guard currentIndex < visible.count - 1 else { return } // already at bottom
+        let targetId = visible[currentIndex + 1].id
+        mainWindow.conversationManager.selectConversation(id: targetId)
+        mainWindow.windowState.selection = .conversation(targetId)
     }
 
     /// Registers Cmd+=/Cmd+-/Cmd+0 as local shortcuts for window zoom.

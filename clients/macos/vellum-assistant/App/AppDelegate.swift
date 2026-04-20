@@ -74,6 +74,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var zoomLocalMonitor: Any?
     var sidebarToggleLocalMonitor: Any?
     var popOutLocalMonitor: Any?
+    var conversationNavLocalMonitor: Any?
     public let services = AppServices()
     let vellumCli = VellumCli()
     let appleContainersLauncher: AssistantManagementClient? = {
@@ -669,6 +670,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupFileMenu()
         patchAppMenuTitles()
         registerNavigationMonitor()
+        registerConversationNavMonitor()
         registerZoomMonitor()
         registerSidebarToggleMonitor()
         setupHotKey()
