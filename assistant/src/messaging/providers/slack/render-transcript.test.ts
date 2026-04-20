@@ -1053,6 +1053,40 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
     ]);
   });
 
+  test("row with only non-replayable blocks emits fallback tag line annotated with what was stripped", () => {
+    // Regression: previously `buildMessageContentBlocks` returned an empty
+    // array when every block was filtered out (e.g. a row whose only
+    // blocks are `server_tool_use` and `ui_surface`), causing the caller
+    // to drop the turn entirely — silently altering chronology and
+    // potentially orphaning adjacent tool_result context. The renderer
+    // now preserves the turn by emitting a single fallback text block
+    // annotated with the stripped block types/names.
+    const base: RenderableSlackMessage = {
+      ...userMsg(TS_14_25, null, "ran a web search", { role: "assistant" }),
+      contentBlocks: [
+        {
+          type: "server_tool_use",
+          id: "st_1",
+          name: "web_search",
+          input: { q: "x" },
+        },
+        { type: "ui_surface", foo: "bar" } as unknown as never,
+      ] as never,
+    };
+    const out = renderSlackTranscript([base]);
+    expect(out).toEqual([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "[11/14/23 14:25]: ran a web search [stripped non-replayable: server_tool_use(web_search), ui_surface]",
+          },
+        ],
+      },
+    ]);
+  });
+
   test("legacy row (contentBlocks undefined) renders as single tag line — unchanged", () => {
     const base = userMsg(TS_14_25, "@alice", "legacy plain");
     // No `contentBlocks` field assigned — emulates a row whose JSON content
