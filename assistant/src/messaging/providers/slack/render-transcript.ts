@@ -10,8 +10,8 @@
  * `opts.now` only when needed for relative formatting. Sort and tag rendering
  * are deterministic.
  *
- * Wiring lands in PR 17 (inbound history rendering) and PR 21 (compaction
- * boundary).
+ * Consumers wire this into inbound history rendering and the compaction
+ * boundary.
  */
 
 import { createHash } from "node:crypto";

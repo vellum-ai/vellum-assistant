@@ -199,12 +199,12 @@ export async function handleEditIntercept(
  * Apply a Slack edit to the stored message: update content and stamp
  * `slackMeta.editedAt` in the same transaction.
  *
- * If the row already has a valid `slackMeta` sub-object (post-PR-11
- * messages), the merge preserves all existing fields and only sets/refreshes
- * `editedAt`. If the row pre-dates `slackMeta` enrichment, the helper
- * synthesizes the minimum-required fields (`source`, `channelId`,
- * `channelTs`, `eventKind`) from the values that brought us here so the
- * resulting metadata is still readable by `readSlackMetadata`.
+ * If the row already has a valid `slackMeta` sub-object, the merge preserves
+ * all existing fields and only sets/refreshes `editedAt`. If the row has no
+ * `slackMeta` envelope, the helper synthesizes the minimum-required fields
+ * (`source`, `channelId`, `channelTs`, `eventKind`) from the values that
+ * brought us here so the resulting metadata is still readable by
+ * `readSlackMetadata`.
  */
 function applySlackEditMetadata(params: {
   messageId: string;
