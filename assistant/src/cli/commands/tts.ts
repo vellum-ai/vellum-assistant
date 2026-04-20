@@ -173,7 +173,7 @@ Examples:
         let messageText =
           opts.text ??
           (positionalParts.length > 0 ? positionalParts.join(" ") : "");
-        if (!messageText) {
+        if (!messageText && !process.stdin.isTTY) {
           try {
             messageText = readFileSync("/dev/stdin", "utf-8").trim();
           } catch {
