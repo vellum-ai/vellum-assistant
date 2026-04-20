@@ -17,9 +17,9 @@ struct OnboardingVellumCloudCard: View {
         "Automatic two-way transfer & backup",
     ]
     let primaryCTA: String = "Continue with Vellum"
-    let isLoading: Bool = false
-    let isDisabled: Bool = false
-    let onContinue: () -> Void
+    var isLoading: Bool = false
+    var isDisabled: Bool = false
+    var onContinue: () -> Void
 
     // MARK: - Body
 
