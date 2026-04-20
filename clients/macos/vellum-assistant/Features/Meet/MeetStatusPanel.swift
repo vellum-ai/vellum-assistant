@@ -80,14 +80,21 @@ public final class MeetStatusViewModel {
             state = .joining(meetingId: m.meetingId, url: m.url)
 
         case .meetJoined(let m):
+            // If we're already `.joined` for this meeting, ignore the replay.
+            // The daemon republishes `meet.joined` (but not `meet.joining`) on
+            // SSE reconnect mid-meeting; rebuilding state here would clobber
+            // the URL-based title with the meetingId fallback and reset
+            // `joinedAt`, restarting the elapsed counter from 00:00.
+            if case let .joined(existingId, _, _) = state, existingId == m.meetingId {
+                return
+            }
             // Carry the joining URL forward as the title when we saw a
             // matching `meet.joining` for this meeting. Otherwise this is
-            // either a reconnect (the SSE stream dropped and resubscribed
-            // mid-meeting, so the daemon has already published `meet.joining`
-            // and will not republish it) or an event we observed before the
-            // view model was constructed. In both cases the bot is live, so
-            // we must transition into `.joined` anyway — using the meetingId
-            // as a title fallback until a later event populates real data.
+            // either a reconnect that happened before we ever saw `.joining`,
+            // or an event we observed before the view model was constructed.
+            // In both cases the bot is live, so we must transition into
+            // `.joined` anyway — using the meetingId as a title fallback until
+            // a later event populates real data.
             let title: String
             if case let .joining(existingId, url) = state, existingId == m.meetingId {
                 title = url

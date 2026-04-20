@@ -205,6 +205,50 @@ final class MeetStatusPanelTests: XCTestCase {
         XCTAssertEqual(joinedAt, fixedNow)
     }
 
+    /// SSE reconnect mid-meeting when the panel is already `.joined` — the
+    /// daemon replays `meet.joined` (but not `meet.joining`). The replay must
+    /// be a no-op: the URL-based title and original `joinedAt` must survive
+    /// so the elapsed counter doesn't reset to 00:00.
+    func testReplayedJoinedForSameMeetingPreservesTitleAndJoinedAt() async throws {
+        let initialNow = Date(timeIntervalSince1970: 1_700_800_000)
+        var clockValue = initialNow
+        let (stream, continuation) = AsyncStream<ServerMessage>.makeStream()
+        let vm = MeetStatusViewModel(
+            messageStream: stream,
+            clock: { clockValue }
+        )
+
+        continuation.yield(.meetJoining(
+            MeetJoiningMessage(
+                type: "meet.joining",
+                meetingId: "replay-meeting",
+                url: "https://meet.google.com/replay"
+            )
+        ))
+        continuation.yield(.meetJoined(
+            MeetJoinedMessage(type: "meet.joined", meetingId: "replay-meeting")
+        ))
+        try await waitUntil(timeout: 2.0) {
+            if case .joined = vm.state { return true }
+            return false
+        }
+
+        // Advance the clock, then replay meet.joined (no meet.joining) as
+        // would happen on an SSE reconnect.
+        clockValue = initialNow.addingTimeInterval(120)
+        continuation.yield(.meetJoined(
+            MeetJoinedMessage(type: "meet.joined", meetingId: "replay-meeting")
+        ))
+
+        try await Task.sleep(nanoseconds: 150_000_000)
+        guard case let .joined(meetingId, title, joinedAt) = vm.state else {
+            return XCTFail("expected .joined state after replay")
+        }
+        XCTAssertEqual(meetingId, "replay-meeting")
+        XCTAssertEqual(title, "https://meet.google.com/replay")
+        XCTAssertEqual(joinedAt, initialNow)
+    }
+
     // MARK: - meetingId scoping
 
     /// With multiple simultaneous meetings, a stale `meet.left` for meeting A
