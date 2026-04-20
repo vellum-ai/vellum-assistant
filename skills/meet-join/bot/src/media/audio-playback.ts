@@ -124,11 +124,31 @@ export interface AudioPlaybackHandle {
    * directly. Returns an unsubscribe function; calling it more than
    * once is a no-op.
    *
-   * Timestamps are strictly monotonic: each emission advances the clock
-   * by exactly `byteCount / bytesPerMs` past the previous emission, so
-   * subscribers don't have to worry about equal-timestamp reordering.
+   * Timestamps are strictly monotonic WITHIN a single utterance: each
+   * emission advances the clock by exactly `byteCount / bytesPerMs`
+   * past the previous emission. Callers that reuse the singleton handle
+   * across multiple utterances must call `resetPlaybackClock()` between
+   * them (see its docstring) — that resets the clock back to 0, which
+   * is a deliberate, caller-controlled monotonicity break.
    */
   onPlaybackTimestamp(cb: (ts: number) => void): () => void;
+  /**
+   * Reset the utterance-relative playback clock back to 0. Intended to
+   * be called by the HTTP server at the start of every new `/play_audio`
+   * stream: because `startAudioPlayback` is a module-level singleton,
+   * the same handle is handed back across utterances and without this
+   * reset the clock would accumulate across every POST — leaving
+   * subsequent utterances' visemes (which the daemon stamps as ms from
+   * the start of THEIR utterance, i.e. also restarting at 0) all
+   * satisfying `visemeTs < effectivePlaybackMs` and flushing immediately
+   * on arrival, which defeats the point of buffering.
+   *
+   * After the reset the next `write()` emits a timestamp measured from
+   * 0 again. Subscribers that maintain their own monotonic clock (e.g.
+   * the TalkingHead renderer) should reset in lockstep — see
+   * `AvatarRenderer.resetPlaybackTimestamp`.
+   */
+  resetPlaybackClock(): void;
 }
 
 /** Default spawn factory — wraps `Bun.spawn` with the pacat flags. */
@@ -284,6 +304,9 @@ export function startAudioPlayback(
         const idx = timestampSubscribers.indexOf(cb);
         if (idx !== -1) timestampSubscribers.splice(idx, 1);
       };
+    },
+    resetPlaybackClock(): void {
+      effectivePlaybackMs = 0;
     },
   };
 

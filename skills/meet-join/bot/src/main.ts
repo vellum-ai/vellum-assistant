@@ -58,6 +58,10 @@ import type {
   BotToExtensionMessage,
   ExtensionToBotMessage,
 } from "../../contracts/native-messaging.js";
+import {
+  trustedTypeKillTimeoutMs,
+  trustedTypeReplyTimeoutMs,
+} from "../../contracts/native-messaging.js";
 
 import {
   launchChrome,
@@ -245,6 +249,15 @@ export interface BotDeps {
     text: string;
     display: string;
     delayMs?: number;
+    /**
+     * Per-call kill timeout. When omitted, `xdotool-type.ts` falls back to
+     * its own default (which does NOT scale with text length). The
+     * `trusted_type` handler below computes a scaled value via
+     * {@link trustedTypeKillTimeoutMs} so long chats (≥ ~590 chars at the
+     * default 25ms/keystroke) are not truncated by the legacy fixed
+     * 15s ceiling.
+     */
+    timeoutMs?: number;
   }) => Promise<void>;
   startAudioCapture: (opts: AudioCaptureOptions) => Promise<AudioCaptureHandle>;
   createDaemonClient: (opts: {
@@ -1043,11 +1056,17 @@ export async function runBot(deps: BotDeps): Promise<void> {
         // failure, never cascade into a bot shutdown. The extension has
         // already focused the target element; the bot just types into
         // whatever is focused on the Xvfb display.
+        //
+        // We pass an explicit `timeoutMs` scaled to the message length so
+        // xdotool is not killed mid-type on long chats. `xdotool-type.ts`'s
+        // built-in default is a fixed 15s, which truncated any message
+        // above ~590 characters at the default 25ms/keystroke delay.
         deps
           .xdotoolType({
             text: msg.text,
             delayMs: msg.delayMs,
             display: env.xvfbDisplay,
+            timeoutMs: trustedTypeKillTimeoutMs(msg.text.length, msg.delayMs),
           })
           .then(() =>
             deps.logInfo(
@@ -1091,23 +1110,34 @@ export async function runBot(deps: BotDeps): Promise<void> {
   /**
    * Dispatch a `send_chat` command to the extension and wait for the
    * matching `send_chat_result`. Resolves on `ok: true`, rejects on
-   * `ok: false` or on a 10s timeout. Called from the HTTP `/send_chat`
-   * route.
+   * `ok: false` or on a length-scaled timeout. Called from the HTTP
+   * `/send_chat` route.
+   *
+   * The reply timeout scales with text length via
+   * {@link trustedTypeReplyTimeoutMs} because the extension types the
+   * text one keystroke at a time (25ms default) before clicking send —
+   * a fixed 10s ceiling would fail valid messages above ~390 chars.
+   * `deps.sendChatTimeoutMs` stays a floor so short messages retain
+   * their original budget.
    */
   async function sendChatViaExtension(text: string): Promise<void> {
     if (!subsystems.socketServer) {
       throw new Error("send_chat: socket server not started");
     }
     const requestId = deps.generateRequestId();
+    const timeoutMs = Math.max(
+      deps.sendChatTimeoutMs,
+      trustedTypeReplyTimeoutMs(text.length),
+    );
     const waitForResult = new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         pendingSendChat.delete(requestId);
         reject(
           new Error(
-            `send_chat: extension did not reply within ${deps.sendChatTimeoutMs}ms (requestId=${requestId})`,
+            `send_chat: extension did not reply within ${timeoutMs}ms (requestId=${requestId})`,
           ),
         );
-      }, deps.sendChatTimeoutMs);
+      }, timeoutMs);
       pendingSendChat.set(requestId, { resolve, reject, timer });
     });
 
