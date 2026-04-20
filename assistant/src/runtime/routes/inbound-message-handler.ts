@@ -1051,6 +1051,7 @@ export async function handleChannelInbound(
           conversationId: result.conversationId,
           channelId: conversationExternalId,
           threadTs: slackThreadTs,
+          excludeChannelTs: slackInbound?.channelTs,
         });
       }
 
@@ -1264,7 +1265,11 @@ function readStoredSlackChannelTs(conversationId: string): Set<string> {
     const raw = parent.slackMeta;
     if (typeof raw !== "string") continue;
     const meta = readSlackMetadata(raw);
-    if (meta) seen.add(meta.channelTs);
+    // Only message rows represent stored Slack messages. Reaction rows carry
+    // `channelTs` equal to the target message's ts, so including them would
+    // make a reaction on a thread parent wrongly short-circuit ancestor
+    // backfill (the parent itself may still be unseen).
+    if (meta && meta.eventKind === "message") seen.add(meta.channelTs);
   }
   return seen;
 }
@@ -1459,8 +1464,17 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
   conversationId: string;
   channelId: string;
   threadTs: string;
+  /**
+   * The inbound message's own `channelTs`. Pre-seeded into the dedup set so
+   * this helper does not re-persist the just-received message when Slack's
+   * `conversations.replies` returns it in the thread window. Necessary
+   * because thread backfill runs concurrently with
+   * `processChannelMessageInBackground`, so the inbound row may not yet be
+   * in the DB when `readStoredSlackChannelTs` snapshots the conversation.
+   */
+  excludeChannelTs?: string;
 }): Promise<void> {
-  const { conversationId, channelId, threadTs } = params;
+  const { conversationId, channelId, threadTs, excludeChannelTs } = params;
   const cacheKey = `${conversationId}:${threadTs}`;
 
   try {
@@ -1469,6 +1483,7 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
     }
 
     const storedChannelTs = readStoredSlackChannelTs(conversationId);
+    if (excludeChannelTs) storedChannelTs.add(excludeChannelTs);
     if (storedChannelTs.has(threadTs)) {
       // Parent is already in the conversation; mark the cache so a burst of
       // replies in this thread does not redo the DB scan for each one.
