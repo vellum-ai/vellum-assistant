@@ -134,9 +134,17 @@ struct AssistantProgressView: View {
         _processingStartDate = State(initialValue: initialProcessingStartDate)
         _thinkingAfterToolsStartDate = State(initialValue: initialThinkingStart)
         _thinkingAfterToolsEndDate = State(initialValue: initialThinkingEnd)
-        // On rehydration the card is already complete; fall back to latestCompletedAt
-        // so the header duration matches what it displayed before recycling.
-        let initialCardCompletedAt: Date? = model.phase == .complete ? model.latestCompletedAt : nil
+        // Seed the completion anchor from persisted state first so rehydration
+        // is lossless across view recycling. Falling back to `latestCompletedAt`
+        // (last tool end) drops any post-tool thinking/latency tail and
+        // re-introduces the duration regression the anchor exists to prevent.
+        let persistedCardCompletedAt = cardKeyForInit.flatMap {
+            progressUIState.wrappedValue.cardCompletedAt(for: $0)
+        }
+        let initialCardCompletedAt: Date? = {
+            if let persisted = persistedCardCompletedAt { return persisted }
+            return model.phase == .complete ? model.latestCompletedAt : nil
+        }()
         _cardCompletedAt = State(initialValue: initialCardCompletedAt)
     }
 
@@ -302,14 +310,22 @@ struct AssistantProgressView: View {
                     startDate = Date()
                 }
             }
-            // Reset thinking anchor when tools resume. Also reset on streamingCode
-            // when tools are still incomplete — phase resolution returns streamingCode
-            // before toolRunning whenever a code preview lingers, so in multi-wave runs
-            // the card can skip toolRunning and keep a stale anchor from the previous wave.
+            // Reset thinking + completion anchors when tools resume. Also reset on
+            // streamingCode when tools are still incomplete — phase resolution
+            // returns streamingCode before toolRunning whenever a code preview
+            // lingers, so in multi-wave runs the card can skip toolRunning and
+            // keep a stale anchor from the previous wave. Without clearing
+            // `cardCompletedAt` here the guard below (`cardCompletedAt == nil`)
+            // would block the second `.complete` from updating it, leaving the
+            // header stuck on wave 1's end time.
             if newPhase == .toolRunning
                 || (newPhase == .streamingCode && !model.allComplete && model.hasTools) {
                 thinkingAfterToolsStartDate = nil
                 thinkingAfterToolsEndDate = nil
+                cardCompletedAt = nil
+                if let key = cardKey {
+                    progressUIState.clearCardCompletedAt(for: key)
+                }
             }
             // Track thinking phase start only when the daemon explicitly
             // signaled thinking-after-tools. .processing fires only when
@@ -338,8 +354,13 @@ struct AssistantProgressView: View {
             // Unlike the thinking anchor above this fires regardless of whether
             // `.processing` was ever observed, keeping the header total monotonic
             // when the daemon skips straight from `.toolsCompleteThinking`.
+            // Persist on the shared state so the anchor survives view recycling.
             if newPhase == .complete, cardCompletedAt == nil {
-                cardCompletedAt = Date()
+                let now = Date()
+                cardCompletedAt = now
+                if let key = cardKey {
+                    progressUIState.setCardCompletedAt(for: key, date: now)
+                }
             }
             if shouldAutoExpandOnPhaseChange, !isExpanded {
                 ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
