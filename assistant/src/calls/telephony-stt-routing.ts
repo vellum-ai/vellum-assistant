@@ -15,7 +15,7 @@
  * - **`media-stream-custom`** — the STT provider is not natively
  *   supported by Twilio. A `<Stream>` media-stream is opened instead
  *   and the daemon transcribes audio server-side via the provider's
- *   batch API. Used for `openai-whisper`.
+ *   batch API. Used for `openai-whisper` and `xai`.
  *
  * Strategy selection and model normalization are driven entirely by
  * the provider catalog's `telephonyRouting` metadata — this module

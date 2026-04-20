@@ -310,6 +310,60 @@ describe("TalkingHead renderer lip-sync alignment", () => {
     expect(nativeMessaging.pushVisemes()).toHaveLength(0);
   });
 
+  test("resetPlaybackTimestamp rewinds the clock and drops stale buffered visemes so the next utterance's visemes are not flushed immediately", async () => {
+    // Regression guard for the multi-utterance accumulation bug: the
+    // `/play_audio` handle is a module-level singleton, and the daemon
+    // stamps VisemeEvent.timestamp as ms-from-start-of-THIS-utterance
+    // (so each utterance resets to 0). Without a per-utterance clock
+    // reset the renderer's `currentPlaybackTimestamp` would sit at the
+    // end-of-prior-utterance value (say 550 ms), and every viseme from
+    // utterance 2 would satisfy `timestamp <= 550` and flush
+    // immediately — defeating the buffering that makes this alignment
+    // work in the first place.
+    const nativeMessaging = new FakeNativeMessaging();
+    const renderer = await startRenderer(nativeMessaging);
+
+    // Utterance 1: advance the clock to 550 ms. This models having
+    // pushed ~550 ms of PCM for the first utterance.
+    renderer.notifyPlaybackTimestamp(550);
+
+    // Leave one viseme from utterance 1 still buffered in the future
+    // (e.g. a late-declared viseme whose audio had not yet played).
+    // It belongs to utterance 1 and must NOT leak into utterance 2.
+    renderer.pushViseme({ phoneme: "stale", weight: 0.1, timestamp: 900 });
+    expect(nativeMessaging.pushVisemes()).toHaveLength(0);
+
+    // Simulate the HTTP server starting a fresh /play_audio POST: it
+    // rewinds the renderer's clock in lockstep with the handle's
+    // `resetPlaybackClock()`.
+    expect(typeof renderer.resetPlaybackTimestamp).toBe("function");
+    renderer.resetPlaybackTimestamp!();
+
+    // Utterance 2's visemes arrive with ts values restarting at 0.
+    // They must be buffered — the clock was rewound past them — not
+    // flushed immediately.
+    renderer.pushViseme({ phoneme: "a", weight: 0.2, timestamp: 100 });
+    renderer.pushViseme({ phoneme: "b", weight: 0.3, timestamp: 200 });
+    expect(nativeMessaging.pushVisemes()).toHaveLength(0);
+
+    // Advance the clock into utterance 2's range. `a` (t=100) should
+    // flush; `b` (t=200) stays buffered. The stale viseme from
+    // utterance 1 must NOT surface.
+    renderer.notifyPlaybackTimestamp(100);
+    let pushed = nativeMessaging.pushVisemes();
+    expect(pushed.map((v) => v.phoneme)).toEqual(["a"]);
+
+    renderer.notifyPlaybackTimestamp(200);
+    pushed = nativeMessaging.pushVisemes();
+    expect(pushed.map((v) => v.phoneme)).toEqual(["a", "b"]);
+
+    // Push a very-large timestamp to confirm the stale utterance-1
+    // viseme (t=900) was dropped by the reset, not just hidden.
+    renderer.notifyPlaybackTimestamp(10_000);
+    pushed = nativeMessaging.pushVisemes();
+    expect(pushed.map((v) => v.phoneme)).toEqual(["a", "b"]);
+  });
+
   test("visemes with identical timestamps are forwarded in arrival order", async () => {
     // ElevenLabs' viseme stream can legitimately produce back-to-back
     // events with the same millisecond timestamp. The buffer drain
