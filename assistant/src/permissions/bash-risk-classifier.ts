@@ -2,9 +2,9 @@
  * Bash risk classifier — data-driven command risk classification.
  *
  * Implements RiskClassifier<BashClassifierInput> using the default command
- * registry and user rules. Runs alongside (not replacing) the existing
- * checker.ts logic in Phase 1 — it logs assessments but doesn't drive
- * permission decisions yet.
+ * registry and user rules. This is the primary classifier for bash/host_bash
+ * tools — checker.ts delegates to `bashRiskClassifier.classify()` and maps
+ * the result to the permission system's RiskLevel enum.
  *
  * @see /docs/bash-risk-classifier-design.md
  */
@@ -287,35 +287,46 @@ export function classifySegment(
   }
 
   // 3. Handle wrappers — unwrap and classify inner command (recursive)
+  //    Special case: `command -v` / `command -V` are read-only lookups, not
+  //    wrapper invocations. Don't unwrap — instead fall through to arg/base
+  //    risk evaluation (the argRule for -v/-V will keep it low).
   if (spec.isWrapper) {
-    const inner = getWrappedProgramWithArgs(segment);
-    if (inner) {
-      // Build a synthetic segment for the inner command
-      const innerSegment: CommandSegment = {
-        command: [inner.program, ...inner.args].join(" "),
-        program: inner.program,
-        args: inner.args,
-        operator: segment.operator,
-      };
-      const innerResult = classifySegment(
-        innerSegment,
-        userRules,
-        registry,
-        toolName,
-      );
+    const isCommandLookup =
+      programName === "command" &&
+      segment.args.length > 0 &&
+      (segment.args[0] === "-v" || segment.args[0] === "-V");
+
+    if (!isCommandLookup) {
+      const inner = getWrappedProgramWithArgs(segment);
+      if (inner) {
+        // Build a synthetic segment for the inner command
+        const innerSegment: CommandSegment = {
+          command: [inner.program, ...inner.args].join(" "),
+          program: inner.program,
+          args: inner.args,
+          operator: segment.operator,
+        };
+        const innerResult = classifySegment(
+          innerSegment,
+          userRules,
+          registry,
+          toolName,
+        );
+        return {
+          risk: maxRisk(spec.baseRisk as Risk, innerResult.risk),
+          reason:
+            innerResult.reason || `${programName} wrapping ${inner.program}`,
+          matchType: innerResult.matchType,
+        };
+      }
+      // Wrapper with no inner command (bare `sudo`, `env`)
       return {
-        risk: maxRisk(spec.baseRisk as Risk, innerResult.risk),
-        reason:
-          innerResult.reason || `${programName} wrapping ${inner.program}`,
-        matchType: innerResult.matchType,
+        risk: spec.baseRisk,
+        reason: spec.reason || programName,
+        matchType: "registry",
       };
     }
-    // Wrapper with no inner command (bare `sudo`, `env`)
-    return {
-      risk: spec.baseRisk,
-      reason: spec.reason || programName,
-      matchType: "registry",
-    };
+    // `command -v/-V`: fall through to subcommand/arg rule evaluation
   }
 
   // 4. Subcommand resolution
@@ -568,8 +579,9 @@ function escapeRegex(s: string): string {
 /**
  * Bash risk classifier implementation.
  *
- * Phase 1: runs alongside existing checker.ts logic, logs assessments.
- * Phase 2: replaces the imperative classification in classifyRiskUncached.
+ * Primary classifier for bash/host_bash tools. checker.ts delegates to
+ * the singleton `bashRiskClassifier` instance for all bash command
+ * risk classification.
  */
 export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
   private readonly registry: Record<string, CommandRiskSpec>;
@@ -675,35 +687,6 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
     );
 
     return assessment;
-  }
-
-  /**
-   * Convenience method for the Phase 1 parallel wiring in checker.ts.
-   * Classifies a command and logs the result alongside the existing
-   * classifier's risk level for comparison. Fire-and-forget — errors are
-   * swallowed by the caller.
-   */
-  static async classifyAndLog(
-    command: string,
-    toolName: "bash" | "host_bash",
-    existingRiskLevel: string,
-  ): Promise<void> {
-    const assessment = await bashRiskClassifier.classify({
-      command,
-      toolName,
-    });
-    log.info(
-      {
-        command,
-        program: command.trim().split(/\s+/)[0] ?? "(none)",
-        newRiskLevel: assessment.riskLevel,
-        existingRiskLevel,
-        reason: assessment.reason,
-        matchType: assessment.matchType,
-        match: assessment.riskLevel === existingRiskLevel,
-      },
-      "Risk classifier comparison",
-    );
   }
 }
 

@@ -989,13 +989,16 @@ describe("rm safe-file downgrade", () => {
 describe("opaque construct escalation", () => {
   const classifier = makeClassifier();
 
-  test("opaque constructs without dangerous patterns → medium (not high)", async () => {
-    // eval is an opaque construct — the parser marks hasOpaqueConstructs
+  test("opaque constructs without dangerous patterns — eval is high per registry", async () => {
+    // eval is an opaque construct — the parser marks hasOpaqueConstructs.
+    // Since eval is in the registry as high-risk (executes arbitrary shell code),
+    // the segment classification returns "high" which dominates the opaque
+    // construct escalation target of "medium".
     const result = await classifier.classify({
       command: "eval echo hello",
       toolName: "bash",
     });
-    expect(result.riskLevel).toBe("medium");
+    expect(result.riskLevel).toBe("high");
   });
 
   test("opaque constructs WITH dangerous patterns → high", async () => {
