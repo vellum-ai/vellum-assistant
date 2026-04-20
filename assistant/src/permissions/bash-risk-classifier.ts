@@ -430,7 +430,7 @@ export function classifySegment(
 
   // 6. Check for variable expansion in args (conservative escalation)
   if (segment.args.some((a) => a.includes("$"))) {
-    const escalated = escalateOne(resolvedSpec.baseRisk);
+    const escalated = escalateOne(risk);
     if (riskOrd(escalated) > riskOrd(risk)) {
       risk = escalated;
       reason = `${segment.program} with variable expansion`;
