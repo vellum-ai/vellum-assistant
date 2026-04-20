@@ -40,6 +40,11 @@ struct AssistantProgressView: View {
     /// When the thinking phase ended (card transitioned to `.complete`).
     /// Nil while thinking is still in progress.
     @State private var thinkingAfterToolsEndDate: Date?
+    /// When the card first transitioned to `.complete`. Independent of the
+    /// thinking anchors — captured for every completion so the header total
+    /// duration stays monotonic across the `.toolsCompleteThinking` → `.complete`
+    /// transition even when the daemon never emitted `.processing`.
+    @State private var cardCompletedAt: Date?
 
     // MARK: - Init
 
@@ -129,6 +134,10 @@ struct AssistantProgressView: View {
         _processingStartDate = State(initialValue: initialProcessingStartDate)
         _thinkingAfterToolsStartDate = State(initialValue: initialThinkingStart)
         _thinkingAfterToolsEndDate = State(initialValue: initialThinkingEnd)
+        // On rehydration the card is already complete; fall back to latestCompletedAt
+        // so the header duration matches what it displayed before recycling.
+        let initialCardCompletedAt: Date? = model.phase == .complete ? model.latestCompletedAt : nil
+        _cardCompletedAt = State(initialValue: initialCardCompletedAt)
     }
 
     /// Stable key for this progress card in `progressUIState.cardExpansionOverrides`.
@@ -324,6 +333,13 @@ struct AssistantProgressView: View {
                     let duration = now.timeIntervalSince(thinkingStart)
                     progressUIState.setThinkingDuration(for: key, duration: duration)
                 }
+            }
+            // Anchor the card's completion time on the first `.complete` transition.
+            // Unlike the thinking anchor above this fires regardless of whether
+            // `.processing` was ever observed, keeping the header total monotonic
+            // when the daemon skips straight from `.toolsCompleteThinking`.
+            if newPhase == .complete, cardCompletedAt == nil {
+                cardCompletedAt = Date()
             }
             if shouldAutoExpandOnPhaseChange, !isExpanded {
                 ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
@@ -531,10 +547,12 @@ struct AssistantProgressView: View {
     @ViewBuilder
     private func completedDurationLabel(model: ProgressCardPresentationModel) -> some View {
         if let start = model.earliestStartedAt {
-            // Use thinkingAfterToolsEndDate as the effective end time when present,
-            // so the parent total includes thinking time and matches the sum of
-            // sub-activity durations (tool steps + thinking row).
-            let effectiveEnd = thinkingAfterToolsEndDate ?? model.latestCompletedAt
+            // Prefer thinkingAfterToolsEndDate (when real thinking was tracked) so the
+            // parent total matches the sum of sub-activity durations. Otherwise fall
+            // back to cardCompletedAt, captured at the `.complete` transition, so the
+            // live elapsed timer doesn't drop back to tool-runtime-only when the card
+            // passes through `.toolsCompleteThinking` without ever hitting `.processing`.
+            let effectiveEnd = thinkingAfterToolsEndDate ?? cardCompletedAt ?? model.latestCompletedAt
             if let end = effectiveEnd {
                 let seconds = end.timeIntervalSince(start)
                 Text(formatStepDuration(seconds))
