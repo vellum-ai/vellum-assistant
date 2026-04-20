@@ -355,9 +355,9 @@ export interface ContextLoadOpts {
   maxNodes?: number;
   /**
    * Optional dedicated user-message query text. When present and non-empty,
-   * `loadContextMemory` (PR 3) embeds this text independently of
+   * `loadContextMemory` embeds this text independently of
    * `recentSummaries` and uses the resulting vector to rank capability
-   * reserve slots. Leave `undefined` to preserve pre-PR-3 behavior.
+   * reserve slots. Leave `undefined` to use summary-only retrieval.
    */
   userQuery?: string;
 }
@@ -382,7 +382,7 @@ export interface ContextLoadResult {
    */
   sparseVector?: QdrantSparseVector;
   /**
-   * Dense query vector computed from `opts.userQuery` (PR 3). Surfaced so
+   * Dense query vector computed from `opts.userQuery`. Surfaced so
    * downstream callers (PKB hint search) can prefer it over the
    * summary-based `queryVector` for user-intent-aligned retrieval.
    * `undefined` when `userQuery` was not provided, was effectively empty,
