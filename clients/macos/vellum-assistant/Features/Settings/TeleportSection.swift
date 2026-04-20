@@ -626,13 +626,13 @@ struct TeleportSection: View {
         if let onProgress {
             response = try await GatewayHTTPClient.post(
                 path: "migrations/export",
-                timeout: 60,
+                timeout: 300,
                 onProgress: onProgress
             )
         } else {
             response = try await GatewayHTTPClient.post(
                 path: "migrations/export",
-                timeout: 60
+                timeout: 300
             )
         }
         guard response.isSuccess else {
