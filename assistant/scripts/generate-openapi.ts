@@ -56,6 +56,17 @@ const RouteBodySchemaSchema = z.any().refine(
   { message: "Expected a Zod schema or a plain JSON Schema object" },
 );
 
+const RouteRequestBodyVariantSchema = z.object({
+  contentType: z.string(),
+  /** Zod schema OR plain JSON Schema fragment. */
+  schema: z.any(),
+});
+
+const RouteAdditionalResponseSchema = z.object({
+  description: z.string(),
+  schema: z.any().optional(),
+});
+
 const RouteEntrySchema = z.object({
   method: z.string(),
   /** Endpoint path relative to /v1/ (e.g. "conversations/:id"). */
@@ -70,8 +81,14 @@ const RouteEntrySchema = z.object({
   queryParams: z.array(RouteQueryParamSchema).optional(),
   /** JSON Schema for the request body. */
   requestBody: RouteBodySchemaSchema.optional(),
+  /** Multi-content-type request body variants (overrides `requestBody` when present). */
+  requestBodies: z.array(RouteRequestBodyVariantSchema).optional(),
   /** JSON Schema for the 200 response body. */
   responseBody: RouteBodySchemaSchema.optional(),
+  /** Extra non-200 responses documented in the spec. */
+  additionalResponses: z
+    .record(z.string(), RouteAdditionalResponseSchema)
+    .optional(),
   /** Source module filename, used for auto-deriving tags. */
   sourceModule: z.string().optional(),
 });
@@ -298,21 +315,13 @@ interface OpenApiOperation {
   parameters?: OpenApiParameter[];
   requestBody?: {
     required: boolean;
-    content: {
-      "application/json": {
-        schema: JSONSchemaObject;
-      };
-    };
+    content: Record<string, { schema: JSONSchemaObject }>;
   };
   responses: Record<
     string,
     {
       description: string;
-      content?: {
-        "application/json": {
-          schema: JSONSchemaObject;
-        };
-      };
+      content?: Record<string, { schema: JSONSchemaObject }>;
     }
   >;
 }
@@ -446,7 +455,19 @@ function buildSpec(
       operation.parameters = parameters;
     }
 
-    if (entry.requestBody) {
+    // Multi-content-type request bodies take precedence over the single
+    // application/json requestBody. This lets an endpoint advertise a
+    // `oneOf`-style choice between `application/octet-stream`,
+    // `multipart/form-data`, and `application/json` on the same URL.
+    if (entry.requestBodies && entry.requestBodies.length > 0) {
+      const content: Record<string, { schema: JSONSchemaObject }> = {};
+      for (const variant of entry.requestBodies) {
+        content[variant.contentType] = {
+          schema: toJSONSchemaObject(variant.schema),
+        };
+      }
+      operation.requestBody = { required: true, content };
+    } else if (entry.requestBody) {
       operation.requestBody = {
         required: true,
         content: {
@@ -455,6 +476,24 @@ function buildSpec(
           },
         },
       };
+    }
+
+    // Extra documented response variants (e.g. 502 fetch_failed).
+    if (entry.additionalResponses) {
+      for (const [status, resp] of Object.entries(entry.additionalResponses)) {
+        operation.responses[status] = {
+          description: resp.description,
+          ...(resp.schema
+            ? {
+                content: {
+                  "application/json": {
+                    schema: toJSONSchemaObject(resp.schema),
+                  },
+                },
+              }
+            : {}),
+        };
+      }
     }
 
     paths[route.path][methodLower] = operation;

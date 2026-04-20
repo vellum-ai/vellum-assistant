@@ -29,8 +29,22 @@ export type GcsUrlValidation =
   | { ok: false; reason: string };
 
 const EXPECTED_HOST = "storage.googleapis.com";
+const DEFAULT_ALLOWED_HOSTS: readonly string[] = [EXPECTED_HOST];
 
-export function validateGcsSignedUrl(raw: string): GcsUrlValidation {
+export interface ValidateGcsSignedUrlOptions {
+  /**
+   * Allowlisted hosts. Defaults to `["storage.googleapis.com"]` — the only
+   * production value. Test-only callers can widen this to point at a local
+   * HTTP fixture (the `scheme` check also relaxes to accept `http:` for
+   * non-default hosts). Production code MUST NOT pass a wider list.
+   */
+  allowedHosts?: readonly string[];
+}
+
+export function validateGcsSignedUrl(
+  raw: string,
+  options?: ValidateGcsSignedUrlOptions,
+): GcsUrlValidation {
   let parsed: URL;
   try {
     parsed = new URL(raw);
@@ -38,11 +52,25 @@ export function validateGcsSignedUrl(raw: string): GcsUrlValidation {
     return { ok: false, reason: "invalid_url" };
   }
 
-  if (parsed.protocol !== "https:") {
-    return { ok: false, reason: "scheme" };
+  const allowedHosts = options?.allowedHosts ?? DEFAULT_ALLOWED_HOSTS;
+  const isDefaultHostList =
+    allowedHosts.length === 1 && allowedHosts[0] === EXPECTED_HOST;
+
+  // When the allowlist is the production default (GCS only), require HTTPS.
+  // When a caller passes a non-default allowlist (tests pointing at a local
+  // HTTP server), allow http too — same-process tests cannot reasonably
+  // stand up HTTPS. We still refuse non-http(s) schemes (file:, data:, etc).
+  if (isDefaultHostList) {
+    if (parsed.protocol !== "https:") {
+      return { ok: false, reason: "scheme" };
+    }
+  } else {
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return { ok: false, reason: "scheme" };
+    }
   }
 
-  if (parsed.hostname !== EXPECTED_HOST) {
+  if (!allowedHosts.includes(parsed.hostname)) {
     return { ok: false, reason: "host" };
   }
 
@@ -51,7 +79,11 @@ export function validateGcsSignedUrl(raw: string): GcsUrlValidation {
   // string for HTTPS — so a correctly-issued signed URL always has
   // `parsed.port === ""`. A non-empty port indicates an attacker is
   // trying to redirect the fetch to a non-default port (SSRF vector).
-  if (parsed.port !== "") {
+  //
+  // For the non-default (test) allowlist, an explicit port is expected
+  // (local servers bind to arbitrary ephemeral ports), so the check is
+  // skipped in that case.
+  if (isDefaultHostList && parsed.port !== "") {
     return { ok: false, reason: "port" };
   }
 
