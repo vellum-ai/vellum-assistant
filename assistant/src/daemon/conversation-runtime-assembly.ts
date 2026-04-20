@@ -731,10 +731,13 @@ export function readPkbContext(): string | null {
  */
 export function injectPkbContext(message: Message, content: string): Message {
   // Escape closing tags that could break out of the XML wrapper
-  const escaped = content.replace(/<\/pkb\s*>/gi, "&lt;/pkb&gt;");
+  const escaped = content.replace(
+    /<\/knowledge_base\s*>/gi,
+    "&lt;/knowledge_base&gt;",
+  );
   const pkbBlock = {
     type: "text" as const,
-    text: `<pkb>\n${escaped}\n</pkb>`,
+    text: `<knowledge_base>\n${escaped}\n</knowledge_base>`,
   };
 
   // Find insertion point: skip any leading memory/image blocks
@@ -766,9 +769,12 @@ export function injectPkbContext(message: Message, content: string): Message {
   };
 }
 
-/** Strip `<pkb>` blocks injected by `injectPkbContext`. */
+/** Strip `<knowledge_base>` blocks injected by `injectPkbContext`. */
 export function stripPkbContext(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, ["<pkb>"]);
+  return stripUserTextBlocksByPrefix(messages, [
+    "<knowledge_base>",
+    "<pkb>", // backward-compat: strip legacy blocks from pre-rename history
+  ]);
 }
 
 /**
@@ -1645,7 +1651,8 @@ const RUNTIME_INJECTION_PREFIXES = [
   // variant that may linger in in-flight histories during a rolling deploy.
   "<NOW.md Always keep this up to date",
   "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
-  "<pkb>",
+  "<knowledge_base>",
+  "<pkb>", // backward-compat: strip legacy tag from pre-rename history
   "<system_reminder>",
   "<transport_hints>",
   // The Slack active-thread focus block is non-persisted and injected on

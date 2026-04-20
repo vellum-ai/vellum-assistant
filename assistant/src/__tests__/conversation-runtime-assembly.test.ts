@@ -702,7 +702,7 @@ describe("applyRuntimeInjections — injection mode", () => {
     expect(allText).toContain("<non_interactive_context>");
     expect(allText).toContain("<NOW.md");
     expect(allText).toContain("<system_reminder>");
-    expect(allText).toContain("<pkb>");
+    expect(allText).toContain("<knowledge_base>");
   });
 
   test("explicit mode: 'full' behaves the same as default", async () => {
@@ -737,7 +737,7 @@ describe("applyRuntimeInjections — injection mode", () => {
     expect(allText).not.toContain("<active_workspace>");
     expect(allText).not.toContain("<NOW.md");
     expect(allText).not.toContain("<system_reminder>");
-    expect(allText).not.toContain("<pkb>");
+    expect(allText).not.toContain("<knowledge_base>");
   });
 
   test("minimal mode preserves safety-critical blocks", async () => {
