@@ -33,6 +33,10 @@ All operations use CLI scripts that return JSON:
 | `gmail-scan.ts`    | `sender-digest`         | Scan inbox and group messages by sender for declutter workflows              |
 | `gmail-scan.ts`    | `outreach-scan`         | Identify cold outreach senders (no List-Unsubscribe header)                  |
 | `gmail-archive.ts` | `archive`               | Archive messages (single, batch message_ids, cache_key+sender-emails, query) |
+| `gmail-archive.ts` | `archive --resume`      | Resume an interrupted archive run from its last checkpoint                    |
+| `gmail-runs.ts`    | `list`                  | List recent operation runs with status summaries                             |
+| `gmail-runs.ts`    | `inspect`               | Show detailed log entries for a specific run                                 |
+| `gmail-runs.ts`    | `prune`                 | Delete operation logs older than 30 days                                     |
 | `gmail-prefs.ts`   | `list`                  | List blocklist and safelist preferences                                      |
 | `gmail-prefs.ts`   | `add-blocklist`         | Add sender emails to the blocklist                                           |
 | `gmail-prefs.ts`   | `add-safelist`          | Add sender emails to the safelist                                            |
@@ -117,6 +121,33 @@ bun run scripts/gmail-archive.ts archive --message-id "18f..."
 # Archive by query
 bun run scripts/gmail-archive.ts archive --query "from:newsletter@example.com in:inbox"
 ```
+
+### Operation Runs
+
+All destructive archive operations are logged to a JSONL operation log for resumability and auditing. Each batch of archives is tracked as a "run" with a unique ID.
+
+```bash
+# List recent runs with status summaries
+bun run scripts/gmail-runs.ts list [--limit 20]
+
+# Show detailed log entries for a specific run
+bun run scripts/gmail-runs.ts inspect --run-id "run_20260420_a1b2c3d4"
+
+# Delete logs older than 30 days
+bun run scripts/gmail-runs.ts prune
+```
+
+Archive operations now return a `run_id` in their output. Use this to resume interrupted runs:
+
+```bash
+# Resume an interrupted run (e.g. after daily quota hit)
+bun run scripts/gmail-archive.ts archive --resume "run_20260420_a1b2c3d4"
+
+# Pass --run-id to group multiple archive calls under one run
+bun run scripts/gmail-archive.ts archive --query "..." --run-id "run_20260420_a1b2c3d4" --phase "noise_archive"
+```
+
+When a run is interrupted (e.g. Gmail daily quota exceeded), the operation log records the interruption with a resume hint. The assistant should detect interrupted runs and offer to resume them rather than starting fresh.
 
 ### Preferences Operations
 

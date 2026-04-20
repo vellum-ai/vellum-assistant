@@ -139,6 +139,19 @@ For emails not caught by pattern queries, use LLM-based classification in Standa
 
 ---
 
+## Error Recovery & Resume
+
+Archive operations are logged to an operation log for resumability. If a pass fails mid-run (rate limit, daily quota, OAuth expiry, crash):
+
+1. **Check for interrupted runs** before starting a new cleanup: `bun run scripts/gmail-runs.ts list`. If a recent run shows `status: "interrupted"`, offer to resume it.
+2. **Resume**: `bun run scripts/gmail-archive.ts archive --resume "<run-id>"`. This skips already-committed chunks and retries pending ones.
+3. **Daily quota (403)**: The archive script detects daily quota exhaustion and writes an `interrupted` log entry with a resume hint. Do not retry until after midnight PT — offer to resume the run later.
+4. **Rate limit (429)**: Handled automatically with exponential backoff (up to 5 retries for batch operations). No user intervention needed.
+
+All archive outputs now include a `run_id`. Pass `--run-id` to group multiple passes under one run, and `--phase` to label the pipeline phase (e.g. `--phase "noise_archive"`).
+
+---
+
 ## Phase 5: Post-Cleanup
 
 1. **Report totals** — how many archived per pass, which categories

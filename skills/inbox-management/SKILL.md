@@ -112,7 +112,9 @@ Confirm the user wants drafts generated. Some prefer flag-only forever.
 
 Each step is silent unless something qualifies for interrupt. Run these in order.
 
-### Step 0: Missed-run check
+### Step 0: Missed-run check & resume
+
+**Resume interrupted runs first.** Before starting a new pipeline pass, check `bun run scripts/gmail-runs.ts list`. If the most recent run has `status: "interrupted"`, resume it via `bun run scripts/gmail-archive.ts archive --resume "<run-id>"` before proceeding. Also run `bun run scripts/gmail-runs.ts prune` to clean up logs older than 30 days.
 
 Read the last-run timestamp via `gmail-prefs.ts --action get-management-config`. If `last-run` is more than 2x the scheduled interval ago (e.g. >6 hours for a 3-hour schedule), notify the user:
 - **Slack:** "📬 Inbox management hasn't run since [time]. I'm catching up now."
