@@ -414,7 +414,7 @@ export function updateRule(
   // Only apply scope updates for scoped tools — non-scoped tools ignore scope.
   const effectiveTool = updates.tool ?? merged.tool;
   if (updates.scope != null && SCOPED_TOOLS_SET.has(effectiveTool)) {
-    merged.scope = updates.scope;
+    (merged as unknown as Record<string, unknown>).scope = updates.scope;
   }
   if (updates.decision != null) merged.decision = updates.decision;
   if (updates.priority != null) merged.priority = updates.priority;

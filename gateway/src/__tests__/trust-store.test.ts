@@ -13,7 +13,7 @@ import {
 import { join } from "node:path";
 import { describe, test, expect, beforeEach } from "bun:test";
 
-import { ruleScope } from "@vellumai/ces-contracts/trust-rules";
+import { isScopedRule, ruleScope } from "@vellumai/ces-contracts/trust-rules";
 
 import {
   loadRules,
@@ -753,7 +753,8 @@ describe("ruleScope() integration", () => {
   test("addRule preserves scope for scoped tools", () => {
     const rule = addRule("bash", "echo **", "/home/user/project", "allow", 80);
     expect(rule.tool).toBe("bash");
-    expect(rule.scope).toBe("/home/user/project");
+    expect(isScopedRule(rule)).toBe(true);
+    if (isScopedRule(rule)) expect(rule.scope).toBe("/home/user/project");
     expect(ruleScope(rule)).toBe("/home/user/project");
   });
 
@@ -774,7 +775,8 @@ describe("ruleScope() integration", () => {
   test("updateRule applies scope updates for scoped tools", () => {
     const rule = addRule("bash", "echo **", "/home/user/project", "allow", 80);
     const updated = updateRule(rule.id, { scope: "/home/user/other" });
-    expect(updated.scope).toBe("/home/user/other");
+    expect(isScopedRule(updated)).toBe(true);
+    if (isScopedRule(updated)) expect(updated.scope).toBe("/home/user/other");
     expect(ruleScope(updated)).toBe("/home/user/other");
   });
 });

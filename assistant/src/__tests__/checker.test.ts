@@ -2388,7 +2388,6 @@ describe("Permission Checker", () => {
         "id",
         "pattern",
         "priority",
-        "scope",
         "tool",
       ]);
     });
