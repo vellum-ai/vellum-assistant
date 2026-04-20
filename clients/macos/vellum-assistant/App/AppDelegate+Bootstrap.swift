@@ -318,6 +318,16 @@ extension AppDelegate {
         let deviceId = PairingQRCodeSheet.computeHostId()
         let retryDelay: UInt64 = 500_000_000
 
+        // Bounded retry paths are user-initiated recovery flows (e.g. the
+        // Settings "Reset connection" card). They must not block on a
+        // missing daemon — if the daemon is down the whole flow will fail
+        // anyway, and the UI needs to surface that instead of hanging. In
+        // that mode, cap each per-attempt connection wait so the retry
+        // loop's own cap is the dominant bound on total time. First-launch
+        // paths (unbounded) keep the original indefinite wait because the
+        // daemon may still be spawning.
+        let perAttemptConnectTimeout: TimeInterval? = maxHttpRetries != nil ? 1.0 : nil
+
         // Self-heal path: if a refresh token survives in the keychain (e.g.
         // from a slightly-stale CLI file import or a prior run), try to
         // rotate it into a fresh access/refresh pair before hitting the
@@ -328,22 +338,26 @@ extension AppDelegate {
         // "access-expired-but-refresh-still-valid" case.
         if ActorTokenManager.getRefreshToken() != nil {
             if !connectionManager.isConnected {
-                await awaitConnectionEstablished()
+                await awaitConnectionEstablished(timeout: perAttemptConnectTimeout)
                 guard !Task.isCancelled else { return }
             }
-            let refreshResult = await ActorCredentialRefresher.refresh(
-                platform: "macos",
-                deviceId: deviceId
-            )
-            switch refreshResult {
-            case .success:
-                log.info("Initial actor token bootstrap recovered via refresh")
-                return
-            case .terminalError(let reason):
-                log.warning("Refresh terminal error (\(reason, privacy: .public)) — clearing credentials and falling back to /v1/guardian/init")
-                ActorTokenManager.deleteAllCredentials()
-            case .transientError:
-                log.info("Refresh transient error — falling back to /v1/guardian/init")
+            if connectionManager.isConnected {
+                let refreshResult = await ActorCredentialRefresher.refresh(
+                    platform: "macos",
+                    deviceId: deviceId
+                )
+                switch refreshResult {
+                case .success:
+                    log.info("Initial actor token bootstrap recovered via refresh")
+                    return
+                case .terminalError(let reason):
+                    log.warning("Refresh terminal error (\(reason, privacy: .public)) — clearing credentials and falling back to /v1/guardian/init")
+                    ActorTokenManager.deleteAllCredentials()
+                case .transientError:
+                    log.info("Refresh transient error — falling back to /v1/guardian/init")
+                }
+            } else {
+                log.info("Daemon not connected within per-attempt timeout — skipping refresh attempt")
             }
         }
 
@@ -356,8 +370,18 @@ extension AppDelegate {
             attempt += 1
 
             if !connectionManager.isConnected {
-                await awaitConnectionEstablished()
+                await awaitConnectionEstablished(timeout: perAttemptConnectTimeout)
                 guard !Task.isCancelled else { return }
+            }
+
+            // If the wait timed out and we're in bounded mode, don't burn a
+            // network attempt against a daemon we know isn't reachable —
+            // backoff and count this as an attempt so the cap bounds total
+            // time even when the daemon stays offline.
+            if !connectionManager.isConnected {
+                let jitter = UInt64.random(in: 0...(retryDelay / 4))
+                try? await Task.sleep(nanoseconds: retryDelay + jitter)
+                continue
             }
 
             let success = await GuardianClient().bootstrapActorToken(
@@ -375,13 +399,34 @@ extension AppDelegate {
         }
     }
 
-    /// Suspends until `connectionManager.isConnected` becomes `true`,
-    /// or the task is cancelled.
+    /// Suspends until `connectionManager.isConnected` becomes `true`, the
+    /// optional timeout elapses, or the task is cancelled.
+    ///
+    /// - Parameter timeout: When `nil`, waits indefinitely (first-launch
+    ///   behaviour). When non-nil, returns after at most `timeout` seconds
+    ///   regardless of connection state — required by user-initiated
+    ///   recovery paths so the UI can fail loudly instead of hanging
+    ///   forever when the daemon is offline.
     @MainActor
-    private func awaitConnectionEstablished() async {
+    private func awaitConnectionEstablished(timeout: TimeInterval? = nil) async {
         guard !connectionManager.isConnected else { return }
-        for await isConnected in connectionManager.isConnectedStream where isConnected {
+        guard let timeout else {
+            for await isConnected in connectionManager.isConnectedStream where isConnected {
+                return
+            }
             return
+        }
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor [connectionManager = self.connectionManager] in
+                for await isConnected in connectionManager.isConnectedStream where isConnected {
+                    return
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+            }
+            await group.next()
+            group.cancelAll()
         }
     }
 }

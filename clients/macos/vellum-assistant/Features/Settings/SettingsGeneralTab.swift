@@ -50,8 +50,21 @@ struct SettingsGeneralTab: View {
     /// auth-failed tracker and we have no stored actor token — the state
     /// described in ATL-188. In that state every authenticated gateway call
     /// 401s and the user has no automatic path out.
+    ///
+    /// Gated to bare-metal (`.local`) topology: the recovery card calls
+    /// `POST /v1/guardian/reset-bootstrap`, which the gateway only honours
+    /// on bare-metal installs (Docker and managed/cloud modes 403 by
+    /// design, since their recovery path is a re-hatch or a platform-side
+    /// re-enrolment, not a local lockfile deletion). Showing the card in
+    /// those topologies would offer a recovery action that cannot succeed.
+    ///
+    /// Also requires at least one loaded lockfile assistant so we don't
+    /// flash the card during the cold-start window where `topology`
+    /// defaults to `.local` because `lockfileAssistants` hasn't loaded.
     private var isWedged: Bool {
-        (connectionManager?.isAuthFailed ?? false) && !ActorTokenManager.hasToken
+        guard !lockfileAssistants.isEmpty else { return false }
+        guard topology == .local else { return false }
+        return (connectionManager?.isAuthFailed ?? false) && !ActorTokenManager.hasToken
     }
 
     var body: some View {
