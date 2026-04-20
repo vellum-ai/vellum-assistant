@@ -331,10 +331,21 @@ export async function readGatewayCredential(
     });
 
     if (!response.ok) {
-      return { value: null, unreachable: false };
+      // 5xx means the gateway/daemon backend is down — treat as unreachable
+      // so callers don't revoke a potentially valid key.
+      return { value: null, unreachable: response.status >= 500 };
     }
 
-    const json = (await response.json()) as { found: boolean; value?: string };
+    const json = (await response.json()) as {
+      found: boolean;
+      value?: string;
+      unreachable?: boolean;
+    };
+    // The daemon's /v1/secrets/read returns `unreachable: true` when the
+    // credential backend (CES) can't be reached. Respect that signal.
+    if (json.unreachable) {
+      return { value: null, unreachable: true };
+    }
     return {
       value: json.found && json.value ? json.value : null,
       unreachable: false,
