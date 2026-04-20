@@ -112,6 +112,17 @@ Never commit worktree directories or worktree artifacts to the repository. Git w
 
 Proactively remove unused code during every change. Remove code your change makes unused, clean up adjacent dead code, delete rather than comment out, check for orphaned files. Ask: "After my change, is there any code that nothing calls, imports, or references?" If yes, delete it.
 
+## Generic Examples
+
+Never include personal user data — real names, emails, phone numbers, account IDs, or other identifying details of specific people — anywhere in the codebase. This covers code, tests, fixtures, documentation, comments, commit messages, and AGENTS.md files. Always use generic placeholders:
+
+- **Names**: `Alice`, `Bob`, `user1`, `Example User`
+- **Emails**: `user@example.com` (reserved `example.com`/`example.org` domains)
+- **Phone numbers**: fictional numbers from the reserved `555-0100`–`555-0199` range
+- **IDs**: `user-123`, `org-abc`, `conv-xyz`
+
+This applies even when the data is the author's own — examples get copied by future contributors, and real data propagates through forks, screenshots, and logs.
+
 ## Backwards Compatibility
 
 We have real users — maintain backwards compatibility for all interfaces, persisted state, and data. Never ship a change that silently breaks existing behavior. When a change alters workspace file paths, directory structure, data shapes, namespaces, column schemas, or storage formats, include a migration in the same PR.
