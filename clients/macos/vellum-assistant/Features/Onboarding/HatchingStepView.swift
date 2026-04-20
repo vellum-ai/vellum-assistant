@@ -126,13 +126,23 @@ struct HatchingStepView: View {
                 startProgressAnimation()
             }
         }
-        .onChange(of: state.hatchProgressTarget) { _, _ in
+        .onChange(of: state.hatchProgressTarget) { oldTarget, _ in
             // Managed hatch progress snaps forward through discrete targets;
-            // record the current displayed value as the segment base so the
-            // bar animates smoothly toward the new target.
+            // record the currently displayed value as the segment base so the
+            // bar animates smoothly toward the new target. `onChange` fires
+            // after the target has been updated, so we compute the displayed
+            // value using `oldTarget` — otherwise `progressValue(at:)` would
+            // already be interpolating toward the new target and the bar
+            // would jump to the next checkpoint instead of easing into it.
             guard state.isManagedHatch, progressStartDate != nil else { return }
             let now = Date()
-            segmentStartValue = progressValue(at: now)
+            let segStart = segmentStartDate ?? progressStartDate ?? now
+            let segDuration: TimeInterval = 1.5
+            let elapsed = max(0, now.timeIntervalSince(segStart))
+            let t = min(1.0, elapsed / segDuration)
+            let eased = 1.0 - pow(1.0 - t, 3.0)
+            let currentDisplayed = segmentStartValue + (oldTarget - segmentStartValue) * eased
+            segmentStartValue = currentDisplayed
             segmentStartDate = now
         }
         .onChange(of: state.hatchCompleted) { _, completed in
