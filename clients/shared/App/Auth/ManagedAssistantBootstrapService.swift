@@ -198,6 +198,10 @@ public final class ManagedAssistantBootstrapService {
     ///
     /// If the platform response omits the `status` field (older API versions), the
     /// assistant is assumed ready immediately for backward compatibility.
+    ///
+    /// The default timeout is scoped to platform-side provisioning, which typically
+    /// completes in a few seconds. Runtime boot time is covered by the caller's
+    /// subsequent gateway health poll, so this phase does not need to absorb it.
     public func awaitAssistantProvisioned(assistantId: String, timeout: TimeInterval = 60) async throws {
         guard let organizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId") else {
             log.warning("No persisted organization ID — skipping provisioning poll")

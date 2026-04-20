@@ -403,6 +403,7 @@ struct OnboardingFlowView: View {
             try await ManagedAssistantBootstrapService.shared.awaitAssistantProvisioned(assistantId: assistantId)
         } catch {
             log.error("Provisioning poll failed for \(assistantId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            state.hatchFailureReason = humanReadableError(from: error.localizedDescription)
             state.hatchFailed = true
             return
         }

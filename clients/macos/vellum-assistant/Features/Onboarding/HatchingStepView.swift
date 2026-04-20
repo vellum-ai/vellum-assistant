@@ -215,9 +215,10 @@ struct HatchingStepView: View {
                     Text("You already have an assistant")
                         .font(VFont.titleLarge)
                         .foregroundStyle(VColor.contentDefault)
-                    Text("You have an assistant on the hosted platform")
+                    Text(state.hatchFailureReason ?? "You have an assistant on the hosted platform")
                         .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentSecondary)
+                        .textSelection(.enabled)
                 } else {
                     Text("Something went wrong")
                         .font(VFont.titleLarge)
