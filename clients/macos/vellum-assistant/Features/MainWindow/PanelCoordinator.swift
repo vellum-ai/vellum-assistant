@@ -183,9 +183,13 @@ extension MainWindowView {
             onStartNewChat: {
                 // Route the greeting-header "New Chat" pill through the
                 // same code path the sidebar's New-chat button uses so
-                // draft/app-editing state stays consistent.
-                startNewConversation()
+                // draft/app-editing state stays consistent. Dismiss the
+                // Home panel FIRST — ``startNewConversation()`` sets
+                // ``windowState.selection`` internally, and ``onDismiss``
+                // clears it, so running them in this order keeps the
+                // freshly-created conversation as the final selection.
                 onDismiss()
+                startNewConversation()
             },
             onDismissSuggestions: {
                 // Server-side persistence of the dismissal is a follow-up
