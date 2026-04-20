@@ -466,6 +466,46 @@ describe('bootstrapLocalToken', () => {
     expect(fakeStorage.data[localTokenStorageKey(ASSISTANT_A)]).toEqual(result);
   });
 
+  test('includes environment in the frame when provided', async () => {
+    const expiresAtIso = new Date(Date.now() + 60_000).toISOString();
+
+    fakeRuntime.onConnect = (port) => {
+      queueMicrotask(() => {
+        port.emitMessage({
+          type: 'token_response',
+          token: 'env-token',
+          expiresAt: expiresAtIso,
+          guardianId: 'g-env',
+        });
+      });
+    };
+
+    await bootstrapLocalToken(ASSISTANT_A, { environment: 'dev' });
+    expect(fakeRuntime.currentPort?.sent).toEqual([
+      { type: 'request_token', assistantId: ASSISTANT_A, environment: 'dev' },
+    ]);
+  });
+
+  test('omits environment from the frame when not provided', async () => {
+    const expiresAtIso = new Date(Date.now() + 60_000).toISOString();
+
+    fakeRuntime.onConnect = (port) => {
+      queueMicrotask(() => {
+        port.emitMessage({
+          type: 'token_response',
+          token: 'no-env-token',
+          expiresAt: expiresAtIso,
+          guardianId: 'g-no-env',
+        });
+      });
+    };
+
+    await bootstrapLocalToken(ASSISTANT_A);
+    expect(fakeRuntime.currentPort?.sent).toEqual([
+      { type: 'request_token', assistantId: ASSISTANT_A },
+    ]);
+  });
+
   test('ignores unknown frame types until a recognised frame arrives', async () => {
     const expiresAtIso = new Date(Date.now() + 60_000).toISOString();
 
