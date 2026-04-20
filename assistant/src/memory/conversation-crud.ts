@@ -103,6 +103,9 @@ export const messageMetadataSchema = z
     forkSourceMessageId: z.string().optional(),
     /** Image source paths from desktop attachments, keyed by filename. */
     imageSourcePaths: z.record(z.string(), z.string()).optional(),
+    memoryInjectedBlock: z.string().optional(),
+    turnContextBlock: z.string().optional(),
+    pkbSystemReminderBlock: z.string().optional(),
   })
   .passthrough();
 
