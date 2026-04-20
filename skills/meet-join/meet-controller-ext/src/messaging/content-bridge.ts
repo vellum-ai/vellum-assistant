@@ -57,7 +57,14 @@ export function startContentBridge(port: NativePort): void {
   // content script mounts on `document_idle`, so during very early startup no
   // tab will match — we log and drop rather than throw because the bot
   // treats commands as fire-and-forget.
+  //
+  // `avatar.*` frames are intentionally skipped: those are delivered to the
+  // separate avatar tab by the background's avatar feature (see
+  // `features/avatar.ts`) and the Meet content script has no switch case for
+  // them, so fanning them out here is ~20 pointless `chrome.tabs.sendMessage`
+  // calls/sec per Meet tab at TTS viseme cadence.
   port.onMessage((msg: BotToExtensionMessage) => {
+    if (msg.type.startsWith("avatar.")) return;
     void fanOutToMeetTabs(msg);
   });
 }
