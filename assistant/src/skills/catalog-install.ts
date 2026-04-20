@@ -52,14 +52,43 @@ export function getSkillsIndexPath(): string {
 }
 
 /**
- * Resolve the repo-level skills/ directory when running in dev mode.
- * Returns the path if VELLUM_DEV is set and the directory exists, or undefined.
+ * Resolve a local first-party skill catalog directory, if one is available.
+ *
+ * Two resolution paths:
+ *
+ * 1. **Compiled-binary layout (e.g. Velissa.app)**: when `import.meta.dir` is
+ *    inside bun's virtual `/$bunfs/` fs, look for a sibling `first-party-skills`
+ *    next to the executable (`Contents/Resources/first-party-skills` for
+ *    `.app` bundles, or alongside the binary otherwise). `clients/macos/build.sh`
+ *    copies the repo's `skills/` tree into this location so the catalog and
+ *    skill sources ship with the app.
+ * 2. **Dev-mode from-source**: when `VELLUM_DEV=1` is set (CLI-spawned daemon),
+ *    resolve the repo's `skills/` directory relative to this file.
+ *
+ * Either way, the returned directory must contain `catalog.json`.
  */
 export function getRepoSkillsDir(): string | undefined {
+  const importDir = import.meta.dir;
+
+  if (importDir.startsWith("/$bunfs/")) {
+    const execDir = dirname(process.execPath);
+    // macOS .app bundle: binary in Contents/MacOS/, resources in Contents/Resources/
+    const resourcesPath = join(execDir, "..", "Resources", "first-party-skills");
+    if (existsSync(join(resourcesPath, "catalog.json"))) {
+      return resourcesPath;
+    }
+    // Next to the binary (non-app-bundle compiled deployments)
+    const execDirPath = join(execDir, "first-party-skills");
+    if (existsSync(join(execDirPath, "catalog.json"))) {
+      return execDirPath;
+    }
+    return undefined;
+  }
+
   if (!process.env.VELLUM_DEV) return undefined;
 
   // assistant/src/skills/catalog-install.ts -> ../../../skills/
-  const candidate = join(import.meta.dir, "..", "..", "..", "skills");
+  const candidate = join(importDir, "..", "..", "..", "skills");
   if (existsSync(join(candidate, "catalog.json"))) {
     return candidate;
   }
