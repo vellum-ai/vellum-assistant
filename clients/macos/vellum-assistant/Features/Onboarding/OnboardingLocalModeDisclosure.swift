@@ -101,7 +101,7 @@ internal struct OnboardingLocalModeDisclosure: View {
             top: VSpacing.md,
             leading: VSpacing.lg,
             bottom: VSpacing.md,
-            trailing: VSpacing.md
+            trailing: VSpacing.lg
         ))
         .frame(maxWidth: .infinity)
         .background(
@@ -129,31 +129,3 @@ internal struct OnboardingLocalModeDisclosure: View {
         }
     }
 }
-
-#if DEBUG
-#Preview("Local Mode Disclosure") {
-    struct PreviewHost: View {
-        @State private var collapsed = false
-        @State private var expanded = true
-
-        var body: some View {
-            VStack(spacing: VSpacing.lg) {
-                OnboardingLocalModeDisclosure(
-                    isExpanded: $collapsed,
-                    onUseLocalMode: {}
-                )
-
-                OnboardingLocalModeDisclosure(
-                    isExpanded: $expanded,
-                    onUseLocalMode: {}
-                )
-            }
-            .padding(VSpacing.lg)
-            .frame(width: 420)
-            .background(VColor.contentBackground)
-        }
-    }
-
-    return PreviewHost()
-}
-#endif
