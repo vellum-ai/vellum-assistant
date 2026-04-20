@@ -52,6 +52,10 @@ import {
 import { messages } from "../memory/schema/conversations.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
+import {
+  _clearApprovalPromptTsTrackerForTesting,
+  trackApprovalPromptTs,
+} from "../runtime/routes/approval-prompt-ts-tracker.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 import {
   isSlackReactionEvent,
@@ -459,6 +463,7 @@ describe("guardian approval-by-reaction integration via handleChannelInbound", (
     db.run("DELETE FROM contacts");
     db.run("DELETE FROM channel_guardian_approval_requests");
     pendingInteractions.clear();
+    _clearApprovalPromptTsTrackerForTesting();
     msgCounter = 0;
   });
 
@@ -484,6 +489,9 @@ describe("guardian approval-by-reaction integration via handleChannelInbound", (
     seedPendingGuardianApprovalForReaction(requestId, conversationId);
 
     const reactedTs = "1700000099.000001";
+    // Simulate the approval prompt having been delivered on this ts so the
+    // guardian reaction is scoped to a tracked prompt message.
+    trackApprovalPromptTs("slack", SLACK_CHANNEL_ID, reactedTs);
     const body = {
       sourceChannel: "slack",
       interface: "slack",
