@@ -88,14 +88,30 @@ function getCompiledPattern(pattern: string): RegExp {
  */
 export function matchesArgRule(rule: ArgRule, arg: string): boolean {
   if (rule.flags && rule.flags.length > 0) {
-    // Flag-based rule: arg must be one of the listed flags
+    // Check for inline --flag=value form
+    const eqIdx = arg.indexOf("=");
+    if (eqIdx > 0) {
+      const flagPart = arg.slice(0, eqIdx);
+      const valuePart = arg.slice(eqIdx + 1);
+      if (rule.flags.includes(flagPart)) {
+        // Flag matched via --flag=value. Check valuePattern against the value portion.
+        if (rule.valuePattern) {
+          return getCompiledPattern(rule.valuePattern).test(valuePart);
+        }
+        return true;
+      }
+    }
+
+    // Standard flag match: arg must be one of the listed flags exactly
     if (!rule.flags.includes(arg)) return false;
-    // If there's also a valuePattern, the arg itself must match it.
-    // (In practice, flag+value rules are evaluated with the next arg as value,
-    // but v1 treats combined flags as opaque — the pattern matches against
-    // the flag token itself when consumed inline like `--set=value`.)
+    // If there's also a valuePattern but no inline value, the next-arg
+    // lookahead in classifySegment handles matching. For the flag-only
+    // check here, a flag match without inline value and with a valuePattern
+    // is a partial match — the caller handles the lookahead.
     if (rule.valuePattern) {
-      return getCompiledPattern(rule.valuePattern).test(arg);
+      // Don't match here — let the lookahead in classifySegment handle it.
+      // Return false so the caller knows to try next-arg matching.
+      return false;
     }
     return true;
   }
@@ -422,8 +438,8 @@ export function generateScopeOptions(
   if (positionals.length > 1) {
     for (let drop = 1; drop < positionals.length; drop++) {
       const kept = positionals.slice(0, positionals.length - drop);
-      const parts = [programName, ...flags, ...kept, ".*"].filter(Boolean);
-      const pattern = `^${parts.map(escapeRegex).join("\\s+")}$`;
+      const parts = [programName, ...flags, ...kept].filter(Boolean);
+      const pattern = `^${parts.map(escapeRegex).join("\\s+")}\\s+.*$`;
       const label = [programName, ...flags, ...kept, "*"].join(" ");
       addOption(pattern, label);
     }
@@ -514,15 +530,20 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
       matchType = "unknown";
     }
 
-    // Dangerous patterns always escalate to high
+    // Dangerous patterns → high. Overrides "unknown" because the dangerous
+    // pattern gives us a definitive signal — we DO know the risk.
     if (parsed.dangerousPatterns.length > 0) {
       maxRiskLevel = "high";
       maxReason = parsed.dangerousPatterns[0].description;
+      matchType = "registry";
     }
 
-    // Opaque constructs escalate to high
+    // Opaque constructs → at least high. Overrides "unknown" because
+    // opaque constructs are a definitive high-risk signal.
     if (parsed.hasOpaqueConstructs) {
-      maxRiskLevel = maxRisk(maxRiskLevel, "high") as Risk;
+      if (maxRiskLevel === "unknown" || riskOrd("high") > riskOrd(maxRiskLevel)) {
+        maxRiskLevel = "high";
+      }
       if (!maxReason) {
         maxReason = "Command contains opaque constructs";
       }
