@@ -1956,7 +1956,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Slack OAuth install",
           description:
-            "Authenticated gateway endpoint that initiates the Slack OAuth loopback flow to capture bot and user tokens. This endpoint blocks while the user completes the Slack consent screen (up to 6 minutes).",
+            "Scope-protected gateway endpoint that initiates the Slack OAuth loopback flow to capture bot and user tokens. This endpoint blocks while the user completes the Slack consent screen (up to 6 minutes). Requires a bearer token with `settings.write` scope.",
           operationId: "slackChannelOAuthInstallPost",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -1973,6 +1973,7 @@ export function buildSchema(): Record<string, unknown> {
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
             },
+            "403": { description: "Insufficient scope" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
           },
