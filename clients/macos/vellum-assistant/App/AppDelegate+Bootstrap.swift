@@ -236,13 +236,39 @@ extension AppDelegate {
     /// credential and the re-pair would "succeed" only to fall right back
     /// into 401s. Delete the file here so the bootstrap is forced down a
     /// genuine reprovision path.
-    func forceReBootstrap() async {
-        log.info("forceReBootstrap: clearing stored credentials and re-running bootstrap")
+    ///
+    /// - Parameter resetBootstrapLock: When `true`, asks the loopback gateway
+    ///   to clear `guardian-init.lock` before bootstrapping. Required when
+    ///   `POST /v1/guardian/init` would otherwise be 403'd by the bare-metal
+    ///   bootstrap lockfile — the wedged state described in ATL-188.
+    /// - Parameter maxHttpRetries: Bounds the HTTP fallback retry loop. When
+    ///   `nil` (the default) the retry loop is unbounded, matching first-launch
+    ///   behaviour where we genuinely want to wait for the daemon to come up.
+    ///   User-initiated recovery paths must pass a finite value so the UI can
+    ///   surface failure instead of hanging forever when the daemon is down.
+    func forceReBootstrap(
+        resetBootstrapLock: Bool = false,
+        maxHttpRetries: Int? = nil
+    ) async {
+        log.info("forceReBootstrap: clearing stored credentials and re-running bootstrap (resetLock=\(resetBootstrapLock), maxHttpRetries=\(maxHttpRetries.map(String.init) ?? "unbounded"))")
         ActorTokenManager.deleteAllCredentials()
         if let assistantId = LockfileAssistant.loadActiveAssistantId() {
             GuardianTokenFileReader.deleteTokenFile(assistantId: assistantId)
         }
-        await performInitialBootstrap()
+        if resetBootstrapLock {
+            let ok = await GuardianClient().resetBootstrapLock()
+            if !ok {
+                log.warning("Bootstrap-lock reset failed — proceeding with bootstrap anyway")
+            }
+        }
+        // Recovery bootstraps skip the guardian-token file poll: we just wiped
+        // credentials, so the file won't materialize mid-flight (unlike the
+        // first-launch case where `AppleContainersLauncher` may still be
+        // writing it).
+        await performInitialBootstrap(
+            pollForTokenFile: false,
+            maxHttpRetries: maxHttpRetries
+        )
     }
 
     /// Performs the initial actor token bootstrap, reactively waiting for a
@@ -252,7 +278,10 @@ extension AppDelegate {
     /// Before hitting the network, checks whether the CLI already persisted a
     /// guardian token to disk (e.g. during a Docker or cloud hatch). If found,
     /// imports it directly and skips the HTTP bootstrap entirely.
-    func performInitialBootstrap() async {
+    func performInitialBootstrap(
+        pollForTokenFile: Bool = true,
+        maxHttpRetries: Int? = nil
+    ) async {
         guard let assistantId = LockfileAssistant.loadActiveAssistantId() else { return }
 
         // Try importing a guardian token that was already written to disk
@@ -262,25 +291,29 @@ extension AppDelegate {
             return
         }
 
-        // The token file doesn't exist yet — the launcher/CLI may still be
-        // writing it. Poll for up to ~60s before falling back to HTTP bootstrap.
-        let maxAttempts = 30
-        let delay: UInt64 = 2_000_000_000 // 2 seconds per poll
-        for attempt in 1...maxAttempts {
-            guard !Task.isCancelled else { return }
-            try? await Task.sleep(nanoseconds: delay)
-            guard !Task.isCancelled else { return }
+        if pollForTokenFile {
+            // The token file doesn't exist yet — the launcher/CLI may still be
+            // writing it. Poll for up to ~60s before falling back to HTTP bootstrap.
+            let maxAttempts = 30
+            let delay: UInt64 = 2_000_000_000 // 2 seconds per poll
+            for attempt in 1...maxAttempts {
+                guard !Task.isCancelled else { return }
+                try? await Task.sleep(nanoseconds: delay)
+                guard !Task.isCancelled else { return }
 
-            if GuardianTokenFileReader.importIfAvailable(assistantId: assistantId) {
-                log.info("Imported guardian token from file after \(attempt) poll(s)")
-                return
+                if GuardianTokenFileReader.importIfAvailable(assistantId: assistantId) {
+                    log.info("Imported guardian token from file after \(attempt) poll(s)")
+                    return
+                }
             }
+            log.warning("Guardian token file not found after \(maxAttempts) polls — falling back to /v1/guardian/init")
+        } else {
+            log.info("Skipping guardian-token file poll — falling straight through to /v1/guardian/init")
         }
 
         // Token file never appeared — fall back to HTTP bootstrap via
         // /v1/guardian/init. This path generates its own random bootstrap
         // secret which may fail if the runtime already consumed the real one.
-        log.warning("Guardian token file not found after \(maxAttempts) polls — falling back to /v1/guardian/init")
 
         let deviceId = PairingQRCodeSheet.computeHostId()
         let retryDelay: UInt64 = 500_000_000
@@ -314,7 +347,14 @@ extension AppDelegate {
             }
         }
 
+        var attempt = 0
         while !Task.isCancelled {
+            if let cap = maxHttpRetries, attempt >= cap {
+                log.warning("Initial actor token bootstrap gave up after \(attempt) attempt(s) (maxHttpRetries=\(cap))")
+                return
+            }
+            attempt += 1
+
             if !connectionManager.isConnected {
                 await awaitConnectionEstablished()
                 guard !Task.isCancelled else { return }

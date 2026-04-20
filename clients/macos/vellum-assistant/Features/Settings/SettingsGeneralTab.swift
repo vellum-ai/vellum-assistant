@@ -27,6 +27,8 @@ struct SettingsGeneralTab: View {
     @State private var dockerOperationTimeoutTask: Task<Void, Never>?
     @State private var healthzLoaded = false
     @State private var isRefreshingHealthz = false
+    @State private var isResettingConnection = false
+    @State private var resetConnectionTask: Task<Void, Never>?
 
 
     private var currentAssistant: LockfileAssistant? {
@@ -44,9 +46,20 @@ struct SettingsGeneralTab: View {
             : .remote
     }
 
+    /// The app is "wedged" when the connection manager has tripped its
+    /// auth-failed tracker and we have no stored actor token — the state
+    /// described in ATL-188. In that state every authenticated gateway call
+    /// 401s and the user has no automatic path out.
+    private var isWedged: Bool {
+        (connectionManager?.isAuthFailed ?? false) && !ActorTokenManager.hasToken
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             accountSection
+            if isWedged {
+                recoverySection
+            }
             if !lockfileAssistants.isEmpty, let updateManager = AppDelegate.shared?.updateManager {
                 AssistantUpgradeSection(
                     currentVersion: connectionManager?.assistantVersion ?? healthz?.version,
@@ -323,6 +336,62 @@ struct SettingsGeneralTab: View {
                 VButton(label: "Pair Device", leftIcon: VIcon.qrCode.rawValue, style: .primary) {
                     showingPairingQR = true
                 }
+            }
+        }
+    }
+
+    // MARK: - Recovery
+
+    /// Recovery card shown when the app is wedged (auth-failed with no stored
+    /// actor token — ATL-188). Clicking "Reset connection" clears local
+    /// credentials, asks the loopback gateway to drop `guardian-init.lock`,
+    /// and re-runs `performInitialBootstrap` to mint a fresh actor token.
+    private var recoverySection: some View {
+        SettingsCard(
+            title: "Connection Problem",
+            subtitle: "Vellum can't authenticate with your local assistant. Reset the connection to re-provision credentials."
+        ) {
+            VButton(
+                label: isResettingConnection ? "Resetting…" : "Reset connection",
+                style: .primary,
+                isDisabled: isResettingConnection
+            ) {
+                startResetConnection()
+            }
+        }
+        .onDisappear {
+            // Abort any in-flight recovery if the user navigates away. The
+            // bootstrap's HTTP retry loop is cooperative-cancellation aware,
+            // so cancelling here unblocks it immediately. Clear the button
+            // state too — the task's completion block bails on cancellation
+            // without flipping the flag, which would otherwise leave the
+            // button stuck in "Resetting…" when the wedge reappears later.
+            resetConnectionTask?.cancel()
+            resetConnectionTask = nil
+            isResettingConnection = false
+        }
+    }
+
+    private func startResetConnection() {
+        // Cancel any prior in-flight recovery so repeated clicks don't stack
+        // orphaned tasks — each click starts fresh.
+        resetConnectionTask?.cancel()
+        isResettingConnection = true
+        resetConnectionTask = Task {
+            // Bound the HTTP retry loop so the button can't hang forever if
+            // the daemon is down. ~10 attempts * 500ms ≈ 5s upper bound.
+            await AppDelegate.shared?.forceReBootstrap(
+                resetBootstrapLock: true,
+                maxHttpRetries: 10
+            )
+            guard !Task.isCancelled else { return }
+            isResettingConnection = false
+            resetConnectionTask = nil
+            if !ActorTokenManager.hasToken {
+                showToast(
+                    "Couldn't reset connection. Make sure your assistant is running and try again.",
+                    .error
+                )
             }
         }
     }
