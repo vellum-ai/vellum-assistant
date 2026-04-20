@@ -25,10 +25,6 @@ It learns how you work, remembers what matters, and acts before you ask. Yours t
 **3. Hatch your assistant**
   - Give it a name, a personality, and the keys to your work
 
-<p align="center">
-  <img src="assets/screenshot-hatch.png" alt="First-run: name your assistant" width="80%">
-</p>
-
 <sub>Prefer the terminal? See <a href="#cli">CLI install</a> below.</sub>
 
 ---
