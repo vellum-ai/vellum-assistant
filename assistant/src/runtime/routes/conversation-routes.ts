@@ -65,6 +65,7 @@ import {
   getLastAssistantTimestampBefore,
   getMessages,
   getMessagesPaginated,
+  hasMessages,
   type MessageRow,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
@@ -1459,8 +1460,7 @@ export async function handleSendMessage(
   // though, from the user's perspective, this is a brand-new conversation
   // that other clients don't yet know about.
   if (mapping.conversationType === "standard") {
-    const existingMessageCount = getMessages(mapping.conversationId).length;
-    if (existingMessageCount === 0) {
+    if (!hasMessages(mapping.conversationId)) {
       smDeps.assistantEventHub
         .publish(
           buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {

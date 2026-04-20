@@ -1043,6 +1043,22 @@ export function getMessages(conversationId: string): MessageRow[] {
     .map(parseMessage);
 }
 
+/**
+ * Efficient existence check — returns true if the conversation has at least
+ * one message row. Uses `LIMIT 1` + `select({ 1 })` to avoid loading and
+ * parsing any message content.
+ */
+export function hasMessages(conversationId: string): boolean {
+  const db = getDb();
+  const row = db
+    .select({ one: sql`1` })
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .limit(1)
+    .get();
+  return row !== undefined;
+}
+
 export interface PaginatedMessagesResult {
   messages: MessageRow[];
   hasMore: boolean;
