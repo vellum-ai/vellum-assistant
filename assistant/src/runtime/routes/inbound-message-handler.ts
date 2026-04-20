@@ -904,7 +904,13 @@ export async function handleChannelInbound(
     // of whether content/attachments are present — callback payloads always
     // have non-empty content (normalize.ts sets message.content to cbq.data),
     // so checking for empty content alone would miss stale callbacks.
-    if (hasCallbackData) {
+    //
+    // Reaction events (`reaction:` / `reaction_removed:`) are persisted by
+    // the earlier `isSlackReactionEvent` branch and never reach here; guard
+    // explicitly so a future refactor can't let a reaction ts drive a
+    // "This approval request has been resolved." edit that would clobber
+    // the user's reacted-to message.
+    if (hasCallbackData && !isSlackReactionEvent(body)) {
       // Record seen signal even for stale callbacks — the user still interacted
       if (sourceChannel === "telegram" || sourceChannel === "slack") {
         try {
