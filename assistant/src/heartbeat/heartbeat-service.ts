@@ -39,7 +39,8 @@ export function isShallowProfile(): boolean {
   try {
     const identityPath = getWorkspacePromptPath("IDENTITY.md");
     const rawIdentity = readTextFileSync(identityPath);
-    const identity = rawIdentity != null ? stripCommentLines(rawIdentity) : null;
+    const identity =
+      rawIdentity != null ? stripCommentLines(rawIdentity) : null;
     // `resolveGuardianPersona` returns already-stripped, trimmed content
     // (or null for missing/empty files).
     const user = resolveGuardianPersona();
@@ -222,11 +223,13 @@ export class HeartbeatService {
     // permanently blocked. The .finally() handler still serves as the
     // normal-completion cleanup path and uses an identity guard to avoid
     // clearing a different run's activeRun.
-    run.finally(() => {
-      if (this.activeRun === run) {
-        this.activeRun = null;
-      }
-    }).catch(() => {}); // Suppress unhandled rejection if executeRun rejects
+    run
+      .finally(() => {
+        if (this.activeRun === run) {
+          this.activeRun = null;
+        }
+      })
+      .catch(() => {}); // Suppress unhandled rejection if executeRun rejects
 
     let timerId: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -255,18 +258,23 @@ export class HeartbeatService {
     this._nextRunAt = Date.now() + intervalMs;
   }
 
-  private async runCredentialHealthCheck(): Promise<void> {
+  /**
+   * Run credential health checks and notify about unhealthy credentials.
+   * Returns a list of unhealthy provider names so callers can gate tool usage.
+   */
+  private async runCredentialHealthCheck(): Promise<string[]> {
     try {
-      const { checkAllCredentials } = await import(
-        "../credential-health/credential-health-service.js"
-      );
+      const { checkAllCredentials } =
+        await import("../credential-health/credential-health-service.js");
       const report = await checkAllCredentials();
       if (report.unhealthy.length > 0) {
         await this.notifyUnhealthyCredentials(report.unhealthy);
+        return report.unhealthy.map((r) => r.provider);
       }
     } catch (err) {
       log.warn({ err }, "Credential health check failed (non-fatal)");
     }
+    return [];
   }
 
   private async notifyUnhealthyCredentials(
@@ -281,9 +289,8 @@ export class HeartbeatService {
   ): Promise<void> {
     let emitNotificationSignal: typeof import("../notifications/emit-signal.js").emitNotificationSignal;
     try {
-      ({ emitNotificationSignal } = await import(
-        "../notifications/emit-signal.js"
-      ));
+      ({ emitNotificationSignal } =
+        await import("../notifications/emit-signal.js"));
     } catch {
       log.warn("Failed to import notification signal emitter");
       return;
@@ -329,12 +336,16 @@ export class HeartbeatService {
     log.info("Running heartbeat");
 
     // Credential health check — surface broken credentials proactively
-    // before the LLM heartbeat prompt runs.
-    await this.runCredentialHealthCheck();
+    // before the LLM heartbeat prompt runs. Returns unhealthy provider
+    // names so the prompt can instruct the LLM to skip those providers.
+    const unhealthyProviders = await this.runCredentialHealthCheck();
 
     try {
       const checklist = this.readChecklist();
-      const { prompt, includedReengagement } = this.buildPrompt(checklist);
+      const { prompt, includedReengagement } = this.buildPrompt(
+        checklist,
+        unhealthyProviders,
+      );
 
       const conversation = bootstrapConversation({
         conversationType: "background",
@@ -380,14 +391,25 @@ export class HeartbeatService {
   }
 
   /** @internal Exposed for testing. */
-  buildPrompt(checklist: string): { prompt: string; includedReengagement: boolean } {
+  buildPrompt(
+    checklist: string,
+    unhealthyProviders: string[] = [],
+  ): { prompt: string; includedReengagement: boolean } {
     let prompt = `You are running a periodic heartbeat check. Review the following checklist and take any necessary actions.
 
 <heartbeat-checklist>
 ${checklist}
-</heartbeat-checklist>
+</heartbeat-checklist>`;
 
-<heartbeat-disposition>
+    if (unhealthyProviders.length > 0) {
+      const providers = unhealthyProviders.join(", ");
+      prompt += `\n\n<credential-status>
+The following providers have broken or expired OAuth credentials: ${providers}.
+Do NOT attempt to use tools for these providers — they will fail. Skip any checklist items that depend on them and note the outage in your summary.
+</credential-status>`;
+    }
+
+    prompt += `\n\n<heartbeat-disposition>
 After completing your review, end your response with one of:
 - HEARTBEAT_OK — if everything looks good, no action needed
 - HEARTBEAT_ALERT — if you found issues that need attention (describe them before this marker)
