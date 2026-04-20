@@ -4243,6 +4243,7 @@ paths:
                             - new
                             - seen
                             - acted_on
+                            - dismissed
                         expiresAt:
                           type: string
                         minTimeAway:
@@ -4265,6 +4266,13 @@ paths:
                               - label
                               - prompt
                             additionalProperties: false
+                        urgency:
+                          type: string
+                          enum:
+                            - low
+                            - medium
+                            - high
+                            - critical
                         author:
                           type: string
                           enum:
@@ -4365,6 +4373,7 @@ paths:
                       - new
                       - seen
                       - acted_on
+                      - dismissed
                   expiresAt:
                     type: string
                   minTimeAway:
@@ -4387,6 +4396,13 @@ paths:
                         - label
                         - prompt
                       additionalProperties: false
+                  urgency:
+                    type: string
+                    enum:
+                      - low
+                      - medium
+                      - high
+                      - critical
                   author:
                     type: string
                     enum:
@@ -4424,6 +4440,7 @@ paths:
                     - new
                     - seen
                     - acted_on
+                    - dismissed
               required:
                 - status
               additionalProperties: false
