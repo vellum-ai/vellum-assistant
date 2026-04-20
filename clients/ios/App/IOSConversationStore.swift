@@ -1329,9 +1329,9 @@ class IOSConversationStore: ObservableObject {
         saveConnectedCache()
     }
 
-    /// Pin is only valid on non-archived conversations: `sendReorderConversations()`
-    /// filters archived entries, so pinning an archived conversation would never reach
-    /// the server and would create permanent local/remote divergence.
+    /// Pin is only valid on non-archived conversations. Archived entries are
+    /// filtered out of reorder payloads, so pinning one would never reach the
+    /// server and would create permanent local/remote divergence.
     func pinConversation(_ conversation: IOSConversation) {
         guard isConnectedMode,
               let idx = conversations.firstIndex(where: { $0.id == conversation.id }),
@@ -1582,45 +1582,14 @@ class IOSConversationStore: ObservableObject {
         }
     }
 
-    private func sendReorderConversations() {
-        let updates = conversations.compactMap { conversation -> ReorderConversationsRequestUpdate? in
-            guard let conversationId = conversation.conversationId, !conversation.isArchived, !conversation.isPrivate else {
-                return nil
-            }
-
-            return ReorderConversationsRequestUpdate(
-                conversationId: conversationId,
-                displayOrder: conversation.displayOrder.map(Double.init),
-                isPinned: conversation.isPinned
-            )
-        }
-        guard !updates.isEmpty else { return }
-        // Clear the pin-edit mask for these conversations once the POST
-        // completes. `mergeConversationMetadata` only clears the mask when
-        // server state exactly matches local state — which never holds if
-        // another device toggles the same pin between our POST and our next
-        // refetch, causing the mask to stick permanently and suppress all
-        // future server pin updates for that conversation.
-        let affectedIds = updates.map { $0.conversationId }
-        Task { [weak self] in
-            _ = await self?.conversationListClient.reorderConversations(updates: updates)
-            guard let self else { return }
-            for id in affectedIds {
-                self.locallyEditedPinConversationIds.remove(id)
-            }
-        }
-    }
-
-    /// Send a single-conversation pin change delta. Used by `pinConversation`
-    /// and `unpinConversation` instead of the full-list `sendReorderConversations()`.
+    /// Send a single-conversation pin change delta.
     ///
-    /// The full-list endpoint submits every conversation's `isPinned` from the
-    /// local cache, so if this client's view is stale (e.g. another device
-    /// changed pin state and we haven't synced yet), the POST clobbers the
-    /// other device's changes. Sending only the single conversation whose pin
-    /// state actually changed makes concurrent pin edits on different devices
-    /// naturally safe — each client's POST touches only what it actually
-    /// toggled, so the other client's unrelated changes survive.
+    /// Submitting every conversation's `isPinned` from the local cache on each
+    /// toggle would clobber concurrent pin edits made on another device between
+    /// this client's last refetch and its POST. Sending only the conversation
+    /// whose pin state actually changed makes concurrent edits on different
+    /// devices naturally safe — each client's POST touches only what it
+    /// toggled, so the other device's unrelated changes survive.
     private func sendPinChange(conversationId: String, isPinned: Bool, displayOrder: Int?) {
         let update = ReorderConversationsRequestUpdate(
             conversationId: conversationId,

@@ -334,7 +334,7 @@ struct ConversationListView: View {
         renameText = conversation.title
     }
 
-    /// Pin/Unpin is hidden on archived conversations: `sendReorderConversations()` filters
+    /// Pin/Unpin is hidden on archived conversations. Reorder payloads filter
     /// archived entries, so a local pin would never reach the server, and
     /// `locallyEditedPinConversationIds` would then suppress inbound server pin state —
     /// leaving the conversation permanently divergent across devices.
