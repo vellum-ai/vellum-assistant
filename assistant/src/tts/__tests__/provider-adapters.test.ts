@@ -995,27 +995,23 @@ describe("xAI TTS provider adapter", () => {
 // ===========================================================================
 
 describe("registerBuiltinTtsProviders", () => {
-  test("registers elevenlabs, fish-audio, and deepgram providers", () => {
+  test("registers every catalog provider ID", () => {
     registerBuiltinTtsProviders();
 
     const providers = listTtsProviders();
     const ids = providers.map((p) => p.id);
-    expect(ids).toContain("elevenlabs");
-    expect(ids).toContain("fish-audio");
-    expect(ids).toContain("deepgram");
+    for (const id of listCatalogProviderIds()) {
+      expect(ids).toContain(id);
+    }
   });
 
   test("providers are discoverable via getTtsProvider after registration", () => {
     registerBuiltinTtsProviders();
 
-    const el = getTtsProvider("elevenlabs");
-    expect(el.id).toBe("elevenlabs");
-
-    const fa = getTtsProvider("fish-audio");
-    expect(fa.id).toBe("fish-audio");
-
-    const dg = getTtsProvider("deepgram");
-    expect(dg.id).toBe("deepgram");
+    for (const id of listCatalogProviderIds()) {
+      const provider = getTtsProvider(id);
+      expect(provider.id).toBe(id);
+    }
   });
 
   test("idempotent — calling twice does not throw", () => {

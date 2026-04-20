@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 
 import { Command } from "commander";
 
+import { listCatalogProviderIds } from "../../tts/provider-catalog.js";
 import { registerBuiltinTtsProviders } from "../../tts/providers/register-builtins.js";
 import {
   synthesizeText,
@@ -69,6 +70,8 @@ export function registerTtsCommand(program: Command): void {
     .command("tts")
     .description("Text-to-speech operations");
 
+  const builtinProviders = listCatalogProviderIds().join(", ");
+
   ttsCmd.addHelpText(
     "after",
     `
@@ -77,7 +80,7 @@ The provider is set via:
 
   $ assistant config set services.tts.provider <provider>
 
-Built-in providers: elevenlabs, fish-audio, deepgram.
+Built-in providers: ${builtinProviders}.
 
 Examples:
   $ assistant tts synthesize --text "hello world"
@@ -214,7 +217,7 @@ Examples:
             err.code === "TTS_PROVIDER_NOT_CONFIGURED"
           ) {
             emitError(
-              "No TTS provider configured or registered. Run 'assistant config set services.tts.provider <provider>' to select one (e.g. elevenlabs, fish-audio, deepgram), then 'assistant keys set <provider>' to add the API key.",
+              `No TTS provider configured or registered. Run 'assistant config set services.tts.provider <provider>' to select one (e.g. ${listCatalogProviderIds().join(", ")}), then 'assistant keys set <provider>' to add the API key.`,
             );
             process.exitCode = 1;
             return;
