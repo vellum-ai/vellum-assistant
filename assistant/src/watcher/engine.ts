@@ -90,6 +90,7 @@ export async function runWatchersOnce(
         health &&
         (health.status === "revoked" ||
           health.status === "missing_token" ||
+          health.status === "ping_failed" ||
           (health.status === "expired" && !health.canAutoRecover))
       ) {
         skipWatcherPoll(watcher.id, `Credential unhealthy: ${health.details}`);
