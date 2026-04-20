@@ -8,9 +8,9 @@
 // runs unmocked so the mocks do not leak across test files in a shared
 // process.
 //
-// Focus: the plumbing added in PR 3 — surfacing the dense query vector
-// (and the optional sparse vector) on ContextLoadResult so downstream callers
-// can reuse them without re-embedding.
+// Focus: the plumbing that surfaces the dense query vector (and the optional
+// sparse vector) on ContextLoadResult so downstream callers can reuse them
+// without re-embedding.
 // ---------------------------------------------------------------------------
 
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -233,7 +233,7 @@ describe("retrieveForTurn — query/sparse vector surfacing", () => {
   });
 });
 
-describe("loadContextMemory — dual-query capability ranking (PR 3)", () => {
+describe("loadContextMemory — dual-query capability ranking", () => {
   // Capture seeded capability node IDs so the searchGraphNodes mock can
   // reference them by ID (the mock runs at call time, not seed time).
   let inboxNodeId = "";
