@@ -386,7 +386,7 @@ function fail(message: string, code = 1): never {
  */
 export function normalizeFrameEnvironment(raw: unknown): string | undefined {
   if (typeof raw !== "string") return undefined;
-  const trimmed = raw.trim();
+  const trimmed = raw.trim().toLowerCase();
   if (trimmed.length === 0) return undefined;
   if (trimmed === "prod") return "production";
   return trimmed;
