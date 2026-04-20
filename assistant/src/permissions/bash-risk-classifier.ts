@@ -256,7 +256,7 @@ export function classifySegment(
   toolName: "bash" | "host_bash" = "bash",
 ): { risk: Risk; reason: string; matchType: RiskAssessment["matchType"] } {
   // 1. Check user rules first (highest priority)
-  // TODO: Phase 2 — implement user rule matching with specificity ordering.
+  // TODO: implement user rule matching with specificity ordering.
   // For now, userRules is always empty so this is a no-op.
   for (const rule of userRules) {
     const re = getCompiledPattern(rule.pattern);
@@ -673,7 +673,7 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
       matchType,
     };
 
-    // Log for Phase 1 analytics
+    // Risk assessment analytics
     const primaryProgram = parsed.segments[0]?.program ?? "(none)";
     log.info(
       {
