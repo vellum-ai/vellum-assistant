@@ -6,8 +6,12 @@
  *  - Default limit of 50 when none is supplied; explicit limits override.
  *  - resolveConnection() is invoked once per call so any cached read/write
  *    auth mutation lands before the adapter method runs.
- *  - All failure modes (timeout, 401, Slack API error, missing connection)
- *    return [] instead of propagating the error.
+ *  - Transient failure modes (timeout, 401, generic Slack API error, missing
+ *    connection) return [] instead of propagating the error.
+ *  - `channel_not_found` errors are rethrown so wrong-workspace configuration
+ *    bugs in multi-account setups surface loudly rather than silently
+ *    dropping context.
+ *  - `account` is threaded through to resolveConnection() when provided.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -118,12 +122,29 @@ describe("backfillThread", () => {
     expect(opts).toEqual({ limit: 10 });
   });
 
-  test("returns [] when getThreadReplies throws (Slack API error)", async () => {
+  test("returns [] when getThreadReplies throws (generic Slack API error)", async () => {
     getThreadRepliesMock.mockImplementation(async () => {
-      throw new Error("Slack API error: channel_not_found");
+      throw new Error("Slack API error: ratelimited");
     });
     const out = await backfillThread("C123", "1700000000.000100");
     expect(out).toEqual([]);
+  });
+
+  test("rethrows channel_not_found so wrong-workspace config surfaces", async () => {
+    getThreadRepliesMock.mockImplementation(async () => {
+      throw new Error("Slack API error: channel_not_found");
+    });
+    await expect(backfillThread("C123", "1700000000.000100")).rejects.toThrow(
+      /channel_not_found/,
+    );
+  });
+
+  test("threads `account` through to resolveConnection", async () => {
+    await backfillThread("C123", "1700000000.000100", {
+      account: "team-acme",
+    });
+    expect(resolveConnectionMock).toHaveBeenCalledTimes(1);
+    expect(resolveConnectionMock.mock.calls[0][0]).toBe("team-acme");
   });
 
   test("returns [] when getThreadReplies throws (auth error)", async () => {
@@ -186,12 +207,25 @@ describe("backfillDm", () => {
     expect(opts).toEqual({ limit: 25, before: "1700000000.000099" });
   });
 
-  test("returns [] when getHistory throws (Slack API error)", async () => {
+  test("returns [] when getHistory throws (generic Slack API error)", async () => {
     getHistoryMock.mockImplementation(async () => {
       throw new Error("Slack API error: not_in_channel");
     });
     const out = await backfillDm("D123");
     expect(out).toEqual([]);
+  });
+
+  test("rethrows channel_not_found so wrong-workspace config surfaces", async () => {
+    getHistoryMock.mockImplementation(async () => {
+      throw new Error("Slack API error: channel_not_found");
+    });
+    await expect(backfillDm("D123")).rejects.toThrow(/channel_not_found/);
+  });
+
+  test("threads `account` through to resolveConnection", async () => {
+    await backfillDm("D123", { account: "team-acme" });
+    expect(resolveConnectionMock).toHaveBeenCalledTimes(1);
+    expect(resolveConnectionMock.mock.calls[0][0]).toBe("team-acme");
   });
 
   test("returns [] when getHistory throws (auth error)", async () => {
