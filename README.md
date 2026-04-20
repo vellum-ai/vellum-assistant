@@ -82,7 +82,7 @@ https://github.com/user-attachments/assets/009bd0ae-95ac-4cf3-81bc-d54cd8631583
 
 ## CLI
 
-<details>
+<details open>
 <summary>Install and common commands</summary>
 
 <br>
