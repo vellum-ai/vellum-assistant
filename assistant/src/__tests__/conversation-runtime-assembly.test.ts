@@ -505,7 +505,7 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
       supportsVoiceInput: false,
     };
 
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       channelCapabilities: caps,
     });
 
@@ -518,7 +518,7 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
   });
 
   test("does not inject when channelCapabilities is null", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       channelCapabilities: null,
     });
 
@@ -527,7 +527,7 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
   });
 
   test("does not inject when channelCapabilities is omitted", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {});
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
 
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(1);
@@ -541,7 +541,7 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
       supportsVoiceInput: false,
     };
 
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       channelCapabilities: caps,
     });
 
@@ -688,7 +688,10 @@ describe("applyRuntimeInjections — injection mode", () => {
   };
 
   test("full mode (default) includes all injections", async () => {
-    const result = await applyRuntimeInjections(baseMessages, fullOptions);
+    const { messages: result } = await applyRuntimeInjections(
+      baseMessages,
+      fullOptions,
+    );
     const allText = result[0].content
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
       .map((b) => b.text)
@@ -706,7 +709,7 @@ describe("applyRuntimeInjections — injection mode", () => {
   });
 
   test("explicit mode: 'full' behaves the same as default", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       ...fullOptions,
       mode: "full",
     });
@@ -722,7 +725,7 @@ describe("applyRuntimeInjections — injection mode", () => {
   });
 
   test("minimal mode skips high-token optional blocks", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       ...fullOptions,
       mode: "minimal",
     });
@@ -741,7 +744,7 @@ describe("applyRuntimeInjections — injection mode", () => {
   });
 
   test("minimal mode preserves safety-critical blocks", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       ...fullOptions,
       mode: "minimal",
     });
@@ -757,14 +760,20 @@ describe("applyRuntimeInjections — injection mode", () => {
   });
 
   test("minimal mode produces strictly fewer content blocks than full mode", async () => {
-    const fullResult = await applyRuntimeInjections(baseMessages, {
-      ...fullOptions,
-      mode: "full",
-    });
-    const minimalResult = await applyRuntimeInjections(baseMessages, {
-      ...fullOptions,
-      mode: "minimal",
-    });
+    const { messages: fullResult } = await applyRuntimeInjections(
+      baseMessages,
+      {
+        ...fullOptions,
+        mode: "full",
+      },
+    );
+    const { messages: minimalResult } = await applyRuntimeInjections(
+      baseMessages,
+      {
+        ...fullOptions,
+        mode: "minimal",
+      },
+    );
 
     expect(minimalResult[0].content.length).toBeLessThan(
       fullResult[0].content.length,
@@ -772,7 +781,7 @@ describe("applyRuntimeInjections — injection mode", () => {
   });
 
   test("minimal mode still preserves the original user message text", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       ...fullOptions,
       mode: "minimal",
     });
@@ -1091,7 +1100,7 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
   ];
 
   test("injects NOW.md block when provided", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       nowScratchpad: "Current focus: fix the bug",
     });
 
@@ -1104,7 +1113,7 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
   });
 
   test("scratchpad appears before user's original text content", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       nowScratchpad: "scratchpad notes",
     });
 
@@ -1119,7 +1128,7 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
   });
 
   test("does not inject when nowScratchpad is null", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       nowScratchpad: null,
     });
 
@@ -1128,14 +1137,14 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
   });
 
   test("does not inject when nowScratchpad is omitted", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {});
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
 
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(1);
   });
 
   test("skipped in minimal mode", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       nowScratchpad: "Current focus: fix the bug",
       mode: "minimal",
     });
@@ -1539,7 +1548,7 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
     "<turn_context>\ncurrent_time: 2026-04-02T12:00:00Z\ninterface: macos\n</turn_context>";
 
   test("injects unifiedTurnContext when provided", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       unifiedTurnContext: sampleBlock,
     });
 
@@ -1555,7 +1564,7 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
   });
 
   test("does not inject when unifiedTurnContext is null", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       unifiedTurnContext: null,
     });
 
@@ -1564,14 +1573,14 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
   });
 
   test("does not inject when unifiedTurnContext is omitted", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {});
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
 
     expect(result).toHaveLength(1);
     expect(result[0].content).toHaveLength(1);
   });
 
   test("injected in full mode", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       unifiedTurnContext: sampleBlock,
       mode: "full",
     });
@@ -1585,7 +1594,7 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
   });
 
   test("injected in minimal mode (no mode guard)", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       unifiedTurnContext: sampleBlock,
       mode: "minimal",
     });
@@ -1799,7 +1808,7 @@ describe("applyRuntimeInjections — subagent status", () => {
   };
 
   test("includes subagent status in full mode", async () => {
-    const result = await applyRuntimeInjections([userMsg], {
+    const { messages: result } = await applyRuntimeInjections([userMsg], {
       subagentStatusBlock:
         "<active_subagents>\n- [running] test\n</active_subagents>",
       mode: "full",
@@ -1812,7 +1821,7 @@ describe("applyRuntimeInjections — subagent status", () => {
   });
 
   test("skips subagent status in minimal mode", async () => {
-    const result = await applyRuntimeInjections([userMsg], {
+    const { messages: result } = await applyRuntimeInjections([userMsg], {
       subagentStatusBlock:
         "<active_subagents>\n- [running] test\n</active_subagents>",
       mode: "minimal",
@@ -1896,7 +1905,10 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     ];
     pkbSearchThrows = null;
 
-    const result = await applyRuntimeInjections(baseMessages, makePkbOptions());
+    const { messages: result } = await applyRuntimeInjections(
+      baseMessages,
+      makePkbOptions(),
+    );
     const texts = extractTexts(result);
     const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
     expect(reminder).toBeDefined();
@@ -1919,7 +1931,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     ];
     pkbSearchThrows = null;
 
-    const result = await applyRuntimeInjections(
+    const { messages: result } = await applyRuntimeInjections(
       baseMessages,
       makePkbOptions({
         // Simulate the fallback the agent-loop now threads through:
@@ -1968,7 +1980,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
       ],
     };
 
-    const result = await applyRuntimeInjections(
+    const { messages: result } = await applyRuntimeInjections(
       baseMessages,
       makePkbOptions({ pkbConversation: conversationWithRead }),
     );
@@ -1984,7 +1996,10 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     pkbSearchResults = [];
     pkbSearchThrows = null;
 
-    const result = await applyRuntimeInjections(baseMessages, makePkbOptions());
+    const { messages: result } = await applyRuntimeInjections(
+      baseMessages,
+      makePkbOptions(),
+    );
     const texts = extractTexts(result);
     const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
     expect(reminder).toBe(FLAT_REMINDER);
@@ -1994,7 +2009,10 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     pkbSearchResults = [];
     pkbSearchThrows = new Error("qdrant exploded");
 
-    const result = await applyRuntimeInjections(baseMessages, makePkbOptions());
+    const { messages: result } = await applyRuntimeInjections(
+      baseMessages,
+      makePkbOptions(),
+    );
     const texts = extractTexts(result);
     const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
     expect(reminder).toBe(FLAT_REMINDER);
@@ -2003,7 +2021,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
   test("missing query vector → flat fallback, search is not attempted", async () => {
     pkbSearchThrows = new Error("should not be called");
 
-    const result = await applyRuntimeInjections(
+    const { messages: result } = await applyRuntimeInjections(
       baseMessages,
       makePkbOptions({ pkbQueryVector: undefined }),
     );
@@ -2072,15 +2090,18 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 
     // 1. Initial injection sees the pre-compaction state — beta should be
     // filtered out.
-    const initialResult = await applyRuntimeInjections(baseMessages, {
-      pkbActive: true,
-      pkbQueryVector: [0.1, 0.2],
-      pkbScopeId: "scope-1",
-      pkbConversation: preCompactionConversation,
-      pkbRoot,
-      pkbWorkingDir,
-      pkbAutoInjectList: [],
-    });
+    const { messages: initialResult } = await applyRuntimeInjections(
+      baseMessages,
+      {
+        pkbActive: true,
+        pkbQueryVector: [0.1, 0.2],
+        pkbScopeId: "scope-1",
+        pkbConversation: preCompactionConversation,
+        pkbRoot,
+        pkbWorkingDir,
+        pkbAutoInjectList: [],
+      },
+    );
     // Unwrap the injected reminder from the last user message.
     const initialTexts = extractTexts(initialResult);
     const initialReminder = initialTexts.find(
@@ -2115,15 +2136,18 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 
     // 3. Re-inject with the new conversation — gamma (now in context)
     // should be filtered, and beta (no longer "in context") should appear.
-    const rebuiltResult = await applyRuntimeInjections(postCompactionMessages, {
-      pkbActive: true,
-      pkbQueryVector: [0.1, 0.2],
-      pkbScopeId: "scope-1",
-      pkbConversation: postCompactionConversation,
-      pkbRoot,
-      pkbWorkingDir,
-      pkbAutoInjectList: [],
-    });
+    const { messages: rebuiltResult } = await applyRuntimeInjections(
+      postCompactionMessages,
+      {
+        pkbActive: true,
+        pkbQueryVector: [0.1, 0.2],
+        pkbScopeId: "scope-1",
+        pkbConversation: postCompactionConversation,
+        pkbRoot,
+        pkbWorkingDir,
+        pkbAutoInjectList: [],
+      },
+    );
     const rebuiltTexts = extractTexts(rebuiltResult);
     const rebuiltReminder = rebuiltTexts.find(
       (t) =>
@@ -2228,10 +2252,11 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       role: "user",
       content: [{ type: "text", text: "current turn" }],
     };
-    return applyRuntimeInjections([lastUserMessage], {
+    const { messages } = await applyRuntimeInjections([lastUserMessage], {
       channelCapabilities: slackChannelCaps,
       slackChronologicalMessages,
     });
+    return messages;
   }
 
   // Extract the rendered text content from a chronological transcript
@@ -2477,22 +2502,25 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       role: "user",
       content: [{ type: "text", text: "vellum question" }],
     };
-    const result = await applyRuntimeInjections([lastUserMessage], {
-      channelCapabilities: {
-        channel: "vellum",
-        dashboardCapable: true,
-        supportsDynamicUi: true,
-        supportsVoiceInput: true,
-      },
-      // Even if we accidentally pass a chronological transcript, the
-      // branch must be a no-op for non-slack channels.
-      slackChronologicalMessages: [
-        {
-          role: "user",
-          content: [{ type: "text", text: "should not appear" }],
+    const { messages: result } = await applyRuntimeInjections(
+      [lastUserMessage],
+      {
+        channelCapabilities: {
+          channel: "vellum",
+          dashboardCapable: true,
+          supportsDynamicUi: true,
+          supportsVoiceInput: true,
         },
-      ],
-    });
+        // Even if we accidentally pass a chronological transcript, the
+        // branch must be a no-op for non-slack channels.
+        slackChronologicalMessages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "should not appear" }],
+          },
+        ],
+      },
+    );
     expect(result.length).toBe(1);
     const allText = result[0].content
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
@@ -2512,27 +2540,33 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       role: "user",
       content: [{ type: "text", text: "DM question" }],
     };
-    const result = await applyRuntimeInjections([lastUserMessage], {
-      channelCapabilities: {
-        channel: "slack",
-        dashboardCapable: false,
-        supportsDynamicUi: false,
-        supportsVoiceInput: false,
-        chatType: "im",
+    const { messages: result } = await applyRuntimeInjections(
+      [lastUserMessage],
+      {
+        channelCapabilities: {
+          channel: "slack",
+          dashboardCapable: false,
+          supportsDynamicUi: false,
+          supportsVoiceInput: false,
+          chatType: "im",
+        },
+        slackChronologicalMessages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "[11/14/23 14:25 @alice]: earlier DM line",
+              },
+            ],
+          },
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "[11/14/23 14:26]: prior reply" }],
+          },
+        ],
       },
-      slackChronologicalMessages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "[11/14/23 14:25 @alice]: earlier DM line" },
-          ],
-        },
-        {
-          role: "assistant",
-          content: [{ type: "text", text: "[11/14/23 14:26]: prior reply" }],
-        },
-      ],
-    });
+    );
     // The chronological transcript REPLACES the default runMessages, so
     // the inbound `DM question` text does not appear — only the rendered
     // transcript lines do (plus any non-Slack injections).
@@ -2574,15 +2608,18 @@ describe("Slack channel chronological rendering — multi-thread", () => {
         ],
       },
     ];
-    const result = await applyRuntimeInjections(runMessagesWithMemory, {
-      channelCapabilities: slackCaps,
-      slackChronologicalMessages: [
-        {
-          role: "user",
-          content: [{ type: "text", text: "[19:55 alice]: hello there" }],
-        },
-      ],
-    });
+    const { messages: result } = await applyRuntimeInjections(
+      runMessagesWithMemory,
+      {
+        channelCapabilities: slackCaps,
+        slackChronologicalMessages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "[19:55 alice]: hello there" }],
+          },
+        ],
+      },
+    );
     const tail = result[result.length - 1];
     expect(tail.role).toBe("user");
     const allText = tail.content
@@ -2635,15 +2672,18 @@ describe("Slack channel chronological rendering — multi-thread", () => {
         ],
       },
     ];
-    const result = await applyRuntimeInjections(runMessagesWithMemory, {
-      channelCapabilities: slackCaps,
-      slackChronologicalMessages: [
-        {
-          role: "user",
-          content: [{ type: "text", text: "[19:55 alice]: transcript line" }],
-        },
-      ],
-    });
+    const { messages: result } = await applyRuntimeInjections(
+      runMessagesWithMemory,
+      {
+        channelCapabilities: slackCaps,
+        slackChronologicalMessages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "[19:55 alice]: transcript line" }],
+          },
+        ],
+      },
+    );
     const tail = result[result.length - 1];
     expect(tail.role).toBe("user");
     // The memory-image block is carried through as an `image` content
@@ -2671,7 +2711,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       supportsVoiceInput: false,
       chatType: "im",
     };
-    const result = await applyRuntimeInjections(
+    const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "inbound" }] }],
       {
         channelCapabilities: slackCaps,
@@ -2715,7 +2755,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       { loader: () => rows, trustClass: "guardian" },
     );
 
-    const result = await applyRuntimeInjections(
+    const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "current turn" }] }],
       {
         channelCapabilities: slackChannelCaps,
@@ -2745,7 +2785,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       chatType: "im",
     };
 
-    const result = await applyRuntimeInjections(
+    const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "hi DM" }] }],
       {
         channelCapabilities: slackDmCaps,
@@ -2764,7 +2804,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
 
   // ── transport_hints kept for non-slack channels ───────────────────────
   test("non-slack conversations still receive <transport_hints>", async () => {
-    const result = await applyRuntimeInjections(
+    const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "hi" }] }],
       {
         channelCapabilities: {
@@ -2887,7 +2927,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       role: "user",
       content: [{ type: "text", text: "current turn" }],
     };
-    const messages = await applyRuntimeInjections([lastUserMessage], {
+    const { messages } = await applyRuntimeInjections([lastUserMessage], {
       channelCapabilities: slackChannelCaps,
       slackChronologicalMessages,
       slackActiveThreadFocusBlock: focusBlock,
@@ -3158,7 +3198,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       chatType: "channel",
     };
     const newFocus = "<active_thread>\nnewly built\n</active_thread>";
-    const reInjected = await applyRuntimeInjections(stripped, {
+    const { messages: reInjected } = await applyRuntimeInjections(stripped, {
       channelCapabilities: slackChannelCaps,
       slackActiveThreadFocusBlock: newFocus,
     });
@@ -3179,7 +3219,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     // Defensive: the focus injection is gated on `slackChannel` (i.e.
     // `isSlackChannelConversation`). Even if a caller mistakenly forwards
     // a focus block on a non-Slack channel, it must NOT be appended.
-    const result = await applyRuntimeInjections(
+    const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "vellum question" }] }],
       {
         channelCapabilities: {
@@ -3204,7 +3244,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     // Same as above but for Slack DMs (chatType === "im"). The focus
     // injection is keyed on `isSlackChannelConversation` which excludes
     // DMs, so the block must not appear.
-    const result = await applyRuntimeInjections(
+    const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "DM question" }] }],
       {
         channelCapabilities: {

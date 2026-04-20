@@ -60,7 +60,7 @@ describe("Workspace top-level context — injection", () => {
 describe("applyRuntimeInjections — workspace top-level context", () => {
   test("injects workspace context when provided", async () => {
     const messages: Message[] = [userMsg("Hello")];
-    const result = await applyRuntimeInjections(messages, {
+    const { messages: result } = await applyRuntimeInjections(messages, {
       workspaceTopLevelContext: sampleContext,
     });
 
@@ -72,7 +72,7 @@ describe("applyRuntimeInjections — workspace top-level context", () => {
 
   test("does not inject when workspace context is null", async () => {
     const messages: Message[] = [userMsg("Hello")];
-    const result = await applyRuntimeInjections(messages, {
+    const { messages: result } = await applyRuntimeInjections(messages, {
       workspaceTopLevelContext: null,
     });
 
@@ -82,7 +82,7 @@ describe("applyRuntimeInjections — workspace top-level context", () => {
 
   test("workspace context appears before active surface context in content", async () => {
     const messages: Message[] = [userMsg("Hello")];
-    const result = await applyRuntimeInjections(messages, {
+    const { messages: result } = await applyRuntimeInjections(messages, {
       activeSurface: { surfaceId: "sf_1", html: "<div>test</div>" },
       workspaceTopLevelContext: sampleContext,
     });
@@ -102,7 +102,7 @@ describe("applyRuntimeInjections — workspace top-level context", () => {
 describe("applyRuntimeInjections — minimal mode skips workspace blocks", () => {
   test("minimal mode skips workspace top-level context", async () => {
     const messages: Message[] = [userMsg("Hello")];
-    const result = await applyRuntimeInjections(messages, {
+    const { messages: result } = await applyRuntimeInjections(messages, {
       workspaceTopLevelContext: sampleContext,
       mode: "minimal",
     });
@@ -114,7 +114,7 @@ describe("applyRuntimeInjections — minimal mode skips workspace blocks", () =>
 
   test("minimal mode skips active surface context", async () => {
     const messages: Message[] = [userMsg("Hello")];
-    const result = await applyRuntimeInjections(messages, {
+    const { messages: result } = await applyRuntimeInjections(messages, {
       activeSurface: { surfaceId: "sf_1", html: "<div>test</div>" },
       mode: "minimal",
     });
@@ -126,7 +126,7 @@ describe("applyRuntimeInjections — minimal mode skips workspace blocks", () =>
 
   test("full mode (default) still includes workspace blocks", async () => {
     const messages: Message[] = [userMsg("Hello")];
-    const result = await applyRuntimeInjections(messages, {
+    const { messages: result } = await applyRuntimeInjections(messages, {
       workspaceTopLevelContext: sampleContext,
       activeSurface: { surfaceId: "sf_1", html: "<div>test</div>" },
     });
