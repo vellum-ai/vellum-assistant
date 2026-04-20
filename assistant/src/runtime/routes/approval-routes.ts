@@ -50,9 +50,7 @@ function canonicalizeV2ConfirmDecision(params: {
   }
 
   if (
-    (decision === "always_allow" ||
-      decision === "always_allow_high_risk" ||
-      decision === "always_deny") &&
+    (decision === "always_allow" || decision === "always_deny") &&
     details.persistentDecisionsAllowed
   ) {
     return decision === "always_deny" ? "deny" : "allow";
@@ -79,7 +77,11 @@ export async function handleConfirm(
     selectedScope?: string;
   };
 
-  const { requestId, decision, selectedPattern, selectedScope } = body;
+  const { requestId, selectedPattern, selectedScope } = body;
+  // Normalize legacy decision: older clients may still send
+  // "always_allow_high_risk" for high-risk prompts.
+  const decision =
+    body.decision === "always_allow_high_risk" ? "always_allow" : body.decision;
 
   if (!requestId || typeof requestId !== "string") {
     return httpError("BAD_REQUEST", "requestId is required", 400);
@@ -111,7 +113,6 @@ export async function handleConfirm(
     "deny",
     "always_allow",
     "always_deny",
-    "always_allow_high_risk",
   ];
   if (
     (v2Enabled && effectiveDecision == null) ||
@@ -152,9 +153,7 @@ export async function handleConfirm(
   // and selectedScope are among the options the server actually offered.
   // This prevents a crafted request from injecting overly-broad rules.
   const persistsRule =
-    decision === "always_allow" ||
-    decision === "always_deny" ||
-    decision === "always_allow_high_risk";
+    decision === "always_allow" || decision === "always_deny";
   if (persistsRule && (selectedPattern || selectedScope)) {
     const confirmation = peeked.confirmationDetails;
     if (!confirmation) {
@@ -312,10 +311,9 @@ export async function handleTrustRule(
     pattern?: string;
     scope?: string;
     decision?: string;
-    allowHighRisk?: boolean;
   };
 
-  const { requestId, pattern, scope, decision, allowHighRisk } = body;
+  const { requestId, pattern, scope, decision } = body;
 
   if (!requestId || typeof requestId !== "string") {
     return httpError("BAD_REQUEST", "requestId is required", 400);
@@ -399,7 +397,6 @@ export async function handleTrustRule(
 
     // Canonicalization is handled inside addRule — no need to pre-parse here.
     addRule(confirmation.toolName, pattern, scope, decision, undefined, {
-      ...(allowHighRisk ? { allowHighRisk: true } : {}),
       ...(executionTarget != null ? { executionTarget } : {}),
     });
     log.info(
@@ -506,7 +503,7 @@ export function approvalRouteDefinitions(): RouteDefinition[] {
         decision: z
           .string()
           .describe(
-            "One of: allow, allow_10m, allow_conversation, deny, always_allow, always_deny, always_allow_high_risk",
+            "One of: allow, allow_10m, allow_conversation, deny, always_allow, always_deny",
           ),
         selectedPattern: z
           .string()
@@ -553,10 +550,6 @@ export function approvalRouteDefinitions(): RouteDefinition[] {
         pattern: z.string().describe("Allowlist pattern"),
         scope: z.string().describe("Scope for the rule"),
         decision: z.string().describe("allow or deny"),
-        allowHighRisk: z
-          .boolean()
-          .describe("Allow high-risk invocations")
-          .optional(),
       }),
       responseBody: z.object({
         accepted: z.boolean(),

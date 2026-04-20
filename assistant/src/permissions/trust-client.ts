@@ -211,7 +211,6 @@ export async function addRule(params: {
   scope?: string;
   decision?: TrustRule["decision"];
   priority?: number;
-  allowHighRisk?: boolean;
   executionTarget?: string;
 }): Promise<TrustRule> {
   // Only include scope in the request body if provided.
@@ -234,7 +233,6 @@ export async function updateRule(
     scope?: string;
     decision?: TrustRule["decision"];
     priority?: number;
-    allowHighRisk?: boolean;
     executionTarget?: string;
   },
 ): Promise<TrustRule> {
@@ -309,7 +307,6 @@ export function addRuleSync(params: {
   scope?: string;
   decision?: TrustRule["decision"];
   priority?: number;
-  allowHighRisk?: boolean;
   executionTarget?: string;
 }): TrustRule {
   // Only include scope in the request body if provided.
@@ -328,7 +325,6 @@ export function updateRuleSync(
     scope?: string;
     decision?: TrustRule["decision"];
     priority?: number;
-    allowHighRisk?: boolean;
     executionTarget?: string;
   },
 ): TrustRule {

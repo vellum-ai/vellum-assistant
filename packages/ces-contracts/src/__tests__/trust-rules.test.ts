@@ -2,10 +2,9 @@
  * Tests for trust-rule family types and canonical parsing/normalization.
  *
  * Verifies:
- * 1. Scoped-rule parsing preserves executionTarget and allowHighRisk.
- * 2. Non-scoped known-tool rules strip executionTarget but preserve boolean
- *    allowHighRisk for backward compatibility.
- * 3. Unknown-tool rules preserve all fields for forward compatibility.
+ * 1. Scoped-rule parsing preserves executionTarget, strips allowHighRisk.
+ * 2. Non-scoped known-tool rules strip executionTarget and allowHighRisk.
+ * 3. Unknown-tool rules preserve executionTarget, strip allowHighRisk.
  * 4. Normalization flag behavior signals when a re-save is warranted.
  * 5. parseTrustFileData handles full trust file objects.
  */
@@ -55,17 +54,19 @@ function makeRaw(overrides: Record<string, unknown> = {}): Record<string, unknow
 // ---------------------------------------------------------------------------
 
 describe("parseTrustRule — scoped tools", () => {
-  test.each([...SCOPED_TOOLS])("preserves executionTarget and allowHighRisk for %s", (tool) => {
+  test.each([...SCOPED_TOOLS])("preserves executionTarget and strips allowHighRisk for %s", (tool) => {
     const raw = makeRaw({
       tool,
       executionTarget: "container-a",
       allowHighRisk: true,
     });
     const { rule, normalized } = parseTrustRule(raw);
-    expect(normalized).toBe(false);
+    // allowHighRisk triggers normalization
+    expect(normalized).toBe(true);
     expect(rule.tool).toBe(tool);
     expect((rule as ScopedTrustRule).executionTarget).toBe("container-a");
-    expect((rule as ScopedTrustRule).allowHighRisk).toBe(true);
+    // allowHighRisk is stripped
+    expect("allowHighRisk" in rule).toBe(false);
   });
 
   test("scoped rule without optional fields is not normalized", () => {
@@ -92,7 +93,7 @@ describe("parseTrustRule — scoped tools", () => {
 
 describe("parseTrustRule — URL tools strip invalid fields", () => {
   test.each([...URL_TOOLS])(
-    "strips executionTarget but preserves allowHighRisk on %s",
+    "strips executionTarget and allowHighRisk on %s",
     (tool) => {
       const raw = makeRaw({
         tool,
@@ -103,7 +104,7 @@ describe("parseTrustRule — URL tools strip invalid fields", () => {
       expect(normalized).toBe(true);
       expect(rule.tool).toBe(tool);
       expect("executionTarget" in rule).toBe(false);
-      expect((rule as UrlTrustRule).allowHighRisk).toBe(true);
+      expect("allowHighRisk" in rule).toBe(false);
     },
   );
 
@@ -139,7 +140,7 @@ describe("parseTrustRule — URL tools strip invalid fields", () => {
 
 describe("parseTrustRule — managed skill tools strip invalid fields", () => {
   test.each([...MANAGED_SKILL_TOOLS])(
-    "strips executionTarget but preserves allowHighRisk on %s",
+    "strips executionTarget and allowHighRisk on %s",
     (tool) => {
       const raw = makeRaw({
         tool,
@@ -149,7 +150,7 @@ describe("parseTrustRule — managed skill tools strip invalid fields", () => {
       const { rule, normalized } = parseTrustRule(raw);
       expect(normalized).toBe(true);
       expect("executionTarget" in rule).toBe(false);
-      expect((rule as ManagedSkillTrustRule).allowHighRisk).toBe(false);
+      expect("allowHighRisk" in rule).toBe(false);
     },
   );
 
@@ -175,7 +176,7 @@ describe("parseTrustRule — managed skill tools strip invalid fields", () => {
 });
 
 describe("parseTrustRule — skill_load strips invalid fields", () => {
-  test("strips executionTarget but preserves allowHighRisk on skill_load", () => {
+  test("strips executionTarget and allowHighRisk on skill_load", () => {
     const raw = makeRaw({
       tool: SKILL_LOAD_TOOL,
       executionTarget: "container-b",
@@ -185,7 +186,7 @@ describe("parseTrustRule — skill_load strips invalid fields", () => {
     expect(normalized).toBe(true);
     expect(rule.tool).toBe(SKILL_LOAD_TOOL);
     expect("executionTarget" in rule).toBe(false);
-    expect((rule as SkillLoadTrustRule).allowHighRisk).toBe(true);
+    expect("allowHighRisk" in rule).toBe(false);
   });
 
   test("skill_load without invalid fields is not normalized", () => {
@@ -222,17 +223,18 @@ describe("parseTrustRule — skill_load strips invalid fields", () => {
 // ---------------------------------------------------------------------------
 
 describe("parseTrustRule — unknown tools", () => {
-  test("preserves executionTarget and allowHighRisk for unknown tools", () => {
+  test("preserves executionTarget but strips allowHighRisk for unknown tools", () => {
     const raw = makeRaw({
       tool: "future_tool_v99",
       executionTarget: "edge-worker",
       allowHighRisk: true,
     });
     const { rule, normalized } = parseTrustRule(raw);
-    expect(normalized).toBe(false);
+    // allowHighRisk triggers normalization
+    expect(normalized).toBe(true);
     expect(rule.tool).toBe("future_tool_v99");
     expect((rule as GenericTrustRule).executionTarget).toBe("edge-worker");
-    expect((rule as GenericTrustRule).allowHighRisk).toBe(true);
+    expect("allowHighRisk" in rule).toBe(false);
   });
 
   test("unknown tool without optional fields is not normalized", () => {
@@ -266,16 +268,22 @@ describe("parseTrustRule — unknown tools", () => {
 // ---------------------------------------------------------------------------
 
 describe("parseTrustRule — normalization flag", () => {
-  test("normalized is false when no changes needed", () => {
-    const raw = makeRaw({ tool: "host_bash", allowHighRisk: true });
+  test("normalized is false when no changes needed (no allowHighRisk)", () => {
+    const raw = makeRaw({ tool: "host_bash" });
     const { normalized } = parseTrustRule(raw);
     expect(normalized).toBe(false);
   });
 
-  test("normalized is false when URL tool has only valid fields (allowHighRisk preserved)", () => {
+  test("normalized is true when allowHighRisk is present (stripped)", () => {
+    const raw = makeRaw({ tool: "host_bash", allowHighRisk: true });
+    const { normalized } = parseTrustRule(raw);
+    expect(normalized).toBe(true);
+  });
+
+  test("normalized is true when URL tool has allowHighRisk (stripped)", () => {
     const raw = makeRaw({ tool: "web_fetch", allowHighRisk: true });
     const { normalized } = parseTrustRule(raw);
-    expect(normalized).toBe(false);
+    expect(normalized).toBe(true);
   });
 
   test("normalized is true when decision is coerced", () => {
@@ -361,6 +369,19 @@ describe("parseTrustFileData", () => {
     expect("executionTarget" in data.rules[1]).toBe(false);
   });
 
+  test("reports normalized when allowHighRisk is present (stripped)", () => {
+    const raw = {
+      version: 3,
+      rules: [
+        makeRaw({ id: "r1", tool: "bash", allowHighRisk: true }),
+      ],
+    };
+    const { data, normalized } = parseTrustFileData(raw);
+    expect(normalized).toBe(true);
+    expect(data.rules).toHaveLength(1);
+    expect("allowHighRisk" in data.rules[0]).toBe(false);
+  });
+
   test("skips null/non-object entries and flags as normalized", () => {
     const raw = {
       version: 3,
@@ -409,7 +430,6 @@ describe("type-level compatibility", () => {
       priority: 50,
       createdAt: 0,
       executionTarget: "host",
-      allowHighRisk: true,
     };
     const url: UrlTrustRule = {
       id: "u1",

@@ -143,9 +143,14 @@ async function setOverrideEnvironment(env: ExtensionEnvironment | null): Promise
 }
 
 /**
- * Remove all stored auth tokens (cloud and local) for every assistant.
- * Called when the effective environment changes so stale tokens minted
- * against the previous environment are not reused on the next connect.
+ * Remove all stored auth tokens (cloud and local) for every assistant
+ * and clear the selected assistant ID. Called when the effective
+ * environment changes so stale tokens minted against the previous
+ * environment are not reused on the next connect. The selected assistant
+ * ID is cleared because it references an assistant from the old
+ * environment's catalog — the next `resolveSelectedAssistant` call will
+ * auto-select from the new environment's catalog.
+ *
  * Token storage keys use a well-known prefix (`vellum.cloudAuthToken` /
  * `vellum.localCapabilityToken`) — we enumerate all storage keys and
  * remove those matching either prefix.
@@ -155,9 +160,11 @@ async function invalidateAuthTokens(): Promise<void> {
   const keysToRemove = Object.keys(all).filter(
     (k) => k.startsWith('vellum.cloudAuthToken') || k.startsWith('vellum.localCapabilityToken'),
   );
-  if (keysToRemove.length > 0) {
-    await chrome.storage.local.remove(keysToRemove);
-  }
+  // Also clear the selected assistant — it belongs to the old
+  // environment's catalog and would cause the connect flow to either
+  // pick the wrong assistant or fall through to the legacy path.
+  keysToRemove.push(SELECTED_ASSISTANT_ID_KEY);
+  await chrome.storage.local.remove(keysToRemove);
 }
 
 /**

@@ -2088,7 +2088,7 @@ paths:
                   description: Pending interaction request ID
                 decision:
                   type: string
-                  description: "One of: allow, allow_10m, allow_conversation, deny, always_allow, always_deny, always_allow_high_risk"
+                  description: "One of: allow, allow_10m, allow_conversation, deny, always_allow, always_deny"
                 selectedPattern:
                   type: string
                   description: Allowlist pattern for persistent decisions
@@ -8513,9 +8513,6 @@ paths:
                 decision:
                   type: string
                   description: allow or deny
-                allowHighRisk:
-                  type: boolean
-                  description: Allow high-risk invocations
               required:
                 - requestId
                 - pattern
@@ -8585,9 +8582,6 @@ paths:
                 decision:
                   type: string
                   description: allow, deny, or ask
-                allowHighRisk:
-                  type: boolean
-                  description: Allow high-risk invocations
                 executionTarget:
                   type: string
                   description: Execution target

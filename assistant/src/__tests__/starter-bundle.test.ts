@@ -156,10 +156,9 @@ describe("Starter approval bundle", () => {
       expect(ruleScope(rule)).toBe("everywhere");
 
       // Starter rules are all allow decisions — they should not carry
-      // family-specific metadata signals (allowHighRisk, executionTarget).
+      // family-specific metadata signals (executionTarget).
       // These rules cover read-only/information-gathering tools that are
       // either generic or scoped family, but none require high-risk access.
-      expect(rule.allowHighRisk).toBeUndefined();
       expect(rule.executionTarget).toBeUndefined();
 
       // Base fields must be present

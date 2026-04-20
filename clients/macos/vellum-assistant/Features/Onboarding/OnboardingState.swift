@@ -100,6 +100,9 @@ final class OnboardingState {
     var hatchLogLines: [String] = []
     var hatchCompleted: Bool = false
     var hatchFailed: Bool = false
+    /// User-visible error message to display when `hatchFailed` is true.
+    /// Typically humanized from a platform API error or CLI stderr.
+    var hatchFailureReason: String?
 
     /// Progress bar state for the hatching flow.
     var hatchProgressTarget: Double = 0.0    // 0..1, set by progress events
@@ -197,6 +200,7 @@ final class OnboardingState {
         isManagedHatch = false
         hasExistingManagedAssistant = false
         hatchFailed = false
+        hatchFailureReason = nil
         hatchCompleted = false
         hatchLogLines = []
         hatchAvatarBodyShape = nil

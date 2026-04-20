@@ -12,7 +12,6 @@ import type { TrustRuleBase } from "@vellumai/ces-contracts";
 export type TrustRule = TrustRuleBase & {
   scope?: string;
   executionTarget?: string;
-  allowHighRisk?: boolean;
 };
 
 export enum RiskLevel {
@@ -26,7 +25,6 @@ export type UserDecision =
   | "allow_10m"
   | "allow_conversation"
   | "always_allow"
-  | "always_allow_high_risk"
   | "deny"
   | "always_deny"
   | "temporary_override";
@@ -38,7 +36,6 @@ export function isAllowDecision(decision: UserDecision): boolean {
     decision === "allow_10m" ||
     decision === "allow_conversation" ||
     decision === "always_allow" ||
-    decision === "always_allow_high_risk" ||
     decision === "temporary_override"
   );
 }

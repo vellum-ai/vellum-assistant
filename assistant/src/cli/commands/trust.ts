@@ -43,7 +43,7 @@ Displays a table of all trust rules with the following columns:
             non-global scopes, i.e. not "everywhere")
   Dcn       Decision: allow, deny, or ask
   Pri       Priority (higher values take precedence)
-  Flags     Metadata: H = allowHighRisk, T:<target> = executionTarget
+  Flags     Metadata: T:<target> = executionTarget
   Created   Date the rule was created (YYYY-MM-DD)
 
 IDs are shown truncated to 8 characters. Use the full ID or any unique
@@ -66,10 +66,8 @@ Examples:
       );
 
       // Only show the Flags column when at least one rule carries
-      // metadata signals (allowHighRisk or executionTarget).
-      const hasFlags = rules.some(
-        (r) => r.allowHighRisk != null || r.executionTarget != null,
-      );
+      // metadata signals (executionTarget).
+      const hasFlags = rules.some((r) => r.executionTarget != null);
 
       const idW = 8;
       const toolW = 12;
@@ -110,7 +108,6 @@ Examples:
 
         if (hasFlags) {
           const flags: string[] = [];
-          if (r.allowHighRisk === true) flags.push("H");
           if (r.executionTarget) flags.push(`T:${r.executionTarget}`);
           line += (flags.join(" ") || "").slice(0, flagsW - 2).padEnd(flagsW);
         }

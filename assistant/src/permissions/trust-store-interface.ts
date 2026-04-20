@@ -45,11 +45,7 @@ export interface TrustStoreBackend {
   ): TrustRule | null;
 
   /** Find the first matching deny rule for a tool/command/scope. */
-  findDenyRule(
-    tool: string,
-    command: string,
-    scope: string,
-  ): TrustRule | null;
+  findDenyRule(tool: string, command: string, scope: string): TrustRule | null;
 
   /** Add a new trust rule and persist it. */
   addRule(
@@ -59,7 +55,6 @@ export interface TrustStoreBackend {
     decision?: "allow" | "deny" | "ask",
     priority?: number,
     options?: {
-      allowHighRisk?: boolean;
       executionTarget?: string;
     },
   ): TrustRule;

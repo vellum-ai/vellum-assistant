@@ -64,7 +64,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("normalization on load", () => {
-  test("strips executionTarget but preserves allowHighRisk on URL tool rules", () => {
+  test("strips executionTarget and allowHighRisk on URL tool rules", () => {
     writeTrustFile({
       version: 3,
       rules: [
@@ -85,9 +85,9 @@ describe("normalization on load", () => {
     const rules = loadRules();
     expect(rules).toHaveLength(1);
     expect(rules[0].id).toBe("r1");
-    // URL rules should not have executionTarget.
+    // URL rules should not have executionTarget or allowHighRisk.
     expect("executionTarget" in rules[0]).toBe(false);
-    expect((rules[0] as { allowHighRisk?: boolean }).allowHighRisk).toBe(true);
+    expect("allowHighRisk" in rules[0]).toBe(false);
 
     // Verify file was re-saved with normalized rules
     const saved = readTrustFile();
@@ -95,10 +95,10 @@ describe("normalization on load", () => {
     const savedRules = saved.rules as Array<Record<string, unknown>>;
     expect(savedRules).toHaveLength(1);
     expect("executionTarget" in savedRules[0]).toBe(false);
-    expect(savedRules[0].allowHighRisk).toBe(true);
+    expect("allowHighRisk" in savedRules[0]).toBe(false);
   });
 
-  test("strips executionTarget but preserves allowHighRisk on managed skill rules", () => {
+  test("strips executionTarget and allowHighRisk on managed skill rules", () => {
     writeTrustFile({
       version: 3,
       rules: [
@@ -119,10 +119,10 @@ describe("normalization on load", () => {
     const rules = loadRules();
     expect(rules).toHaveLength(1);
     expect("executionTarget" in rules[0]).toBe(false);
-    expect((rules[0] as { allowHighRisk?: boolean }).allowHighRisk).toBe(true);
+    expect("allowHighRisk" in rules[0]).toBe(false);
   });
 
-  test("strips executionTarget but preserves allowHighRisk on skill_load rules", () => {
+  test("strips executionTarget and allowHighRisk on skill_load rules", () => {
     writeTrustFile({
       version: 3,
       rules: [
@@ -143,10 +143,10 @@ describe("normalization on load", () => {
     const rules = loadRules();
     expect(rules).toHaveLength(1);
     expect("executionTarget" in rules[0]).toBe(false);
-    expect((rules[0] as { allowHighRisk?: boolean }).allowHighRisk).toBe(true);
+    expect("allowHighRisk" in rules[0]).toBe(false);
   });
 
-  test("preserves executionTarget and allowHighRisk on scoped tool rules", () => {
+  test("preserves executionTarget but strips allowHighRisk on scoped tool rules", () => {
     writeTrustFile({
       version: 3,
       rules: [
@@ -167,10 +167,10 @@ describe("normalization on load", () => {
     const rules = loadRules();
     expect(rules).toHaveLength(1);
     expect((rules[0] as any).executionTarget).toBe("host");
-    expect((rules[0] as any).allowHighRisk).toBe(true);
+    expect("allowHighRisk" in rules[0]).toBe(false);
   });
 
-  test("preserves executionTarget and allowHighRisk on generic (unknown) tool rules", () => {
+  test("preserves executionTarget but strips allowHighRisk on generic (unknown) tool rules", () => {
     writeTrustFile({
       version: 3,
       rules: [
@@ -191,7 +191,7 @@ describe("normalization on load", () => {
     const rules = loadRules();
     expect(rules).toHaveLength(1);
     expect((rules[0] as any).executionTarget).toBe("container");
-    expect((rules[0] as any).allowHighRisk).toBe(false);
+    expect("allowHighRisk" in rules[0]).toBe(false);
   });
 
   test("strips legacy principal-scoped fields and re-saves", () => {

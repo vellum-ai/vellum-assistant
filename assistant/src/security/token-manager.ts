@@ -232,7 +232,8 @@ async function doRefresh(service: string, connId: string): Promise<string> {
       tokenExchangeBodyFormat,
     );
   } catch (err) {
-    circuitBreaker.recordFailure(connId);
+    const credential = isCredentialError(err);
+    circuitBreaker.recordFailure(connId, credential);
     if (circuitBreaker.isOpen(connId)) {
       const state = circuitBreaker.getState(connId)!;
       log.warn(
@@ -244,7 +245,7 @@ async function doRefresh(service: string, connId: string): Promise<string> {
         "Token refresh circuit breaker opened — skipping refresh attempts until cooldown expires",
       );
     }
-    if (isCredentialError(err)) {
+    if (credential) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new TokenExpiredError(
         service,

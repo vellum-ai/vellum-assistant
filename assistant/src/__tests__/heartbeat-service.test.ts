@@ -723,4 +723,34 @@ describe("HeartbeatService", () => {
       expect(existsSync(tsPath)).toBe(true);
     });
   });
+
+  describe("credential health gating", () => {
+    test("prompt includes credential-status when providers are unhealthy", () => {
+      const service = createService();
+      const { prompt } = service.buildPrompt("- Check email", ["google"]);
+
+      expect(prompt).toContain("<credential-status>");
+      expect(prompt).toContain("google");
+      expect(prompt).toContain(
+        "Do NOT attempt to use tools for these providers",
+      );
+    });
+
+    test("prompt omits credential-status when all providers are healthy", () => {
+      const service = createService();
+      const { prompt } = service.buildPrompt("- Check email", []);
+
+      expect(prompt).not.toContain("<credential-status>");
+    });
+
+    test("prompt lists multiple unhealthy providers", () => {
+      const service = createService();
+      const { prompt } = service.buildPrompt("- Check things", [
+        "google",
+        "slack",
+      ]);
+
+      expect(prompt).toContain("google, slack");
+    });
+  });
 });

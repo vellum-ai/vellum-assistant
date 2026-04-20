@@ -977,7 +977,7 @@ export class Conversation {
    * confirmations in the same conversation that match the decision.
    *
    * - allow_10m / allow_conversation → approve ALL pending in conversation
-   * - always_allow / always_allow_high_risk → approve pattern-matching pending
+   * - always_allow → approve pattern-matching pending
    * - always_deny → deny pattern-matching pending
    * - allow / deny (one-time) → no cascading
    */
@@ -1071,14 +1071,9 @@ export class Conversation {
     }
 
     // Persistent allow: cascade if the pattern matches any allowlist candidate.
-    // "always_allow" must NOT cascade to high-risk pending confirmations —
-    // only "always_allow_high_risk" has consent for those.
-    if (
-      (decision === "always_allow" || decision === "always_allow_high_risk") &&
-      selectedPattern &&
-      details
-    ) {
-      if (decision === "always_allow" && details.riskLevel === "high") {
+    // "always_allow" must NOT cascade to high-risk pending confirmations.
+    if (decision === "always_allow" && selectedPattern && details) {
+      if (details.riskLevel === "high") {
         return null;
       }
       for (const option of details.allowlistOptions) {

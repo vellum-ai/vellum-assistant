@@ -83,7 +83,7 @@ describe("ephemeral-permissions", () => {
       expect(fileReadRule.createdAt).toBeGreaterThan(0);
 
       // Ephemeral task rules should not auto-allow high-risk tools
-      expect(fileReadRule.allowHighRisk).toBeUndefined();
+      // allowHighRisk is no longer a field on rules
 
       // Check other rules have correct tool names
       expect(rules[1].tool).toBe("bash");
@@ -276,7 +276,7 @@ describe("ephemeral-permissions", () => {
       expect(result.decision).toBe("allow");
     });
 
-    test("high-risk tool still prompts even with ephemeral allow rule (no allowHighRisk)", async () => {
+    test("high-risk tool still prompts even with ephemeral allow rule", async () => {
       const ephemeralRules: TrustRule[] = [
         {
           id: "ephemeral:run-1:bash",
@@ -286,7 +286,7 @@ describe("ephemeral-permissions", () => {
           decision: "allow",
           priority: 50,
           createdAt: Date.now(),
-          // Note: allowHighRisk is NOT set
+          // allowHighRisk is no longer a field
         },
       ];
 
@@ -357,12 +357,11 @@ describe("ephemeral-permissions", () => {
     test("ephemeral rule does not carry stray metadata fields for non-scoped tools", () => {
       // buildTaskRules generates canonical ephemeral rules.
       // For a tool like file_read (scoped family), the generated rule
-      // should have no executionTarget or allowHighRisk.
+      // should have no executionTarget.
       const rules = buildTaskRules("run-canon", ["file_read", "bash"], "/tmp");
 
       for (const rule of rules) {
         expect(rule.scope).toBe("everywhere");
-        expect(rule.allowHighRisk).toBeUndefined();
         expect(rule.executionTarget).toBeUndefined();
       }
     });
