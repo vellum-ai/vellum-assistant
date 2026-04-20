@@ -33,6 +33,13 @@ struct HomeDetailPanel<Content: View>: View {
     var primaryAction: Action?   = nil
     var secondaryAction: Action? = nil
     var onDismiss: (() -> Void)? = nil
+    /// When `true` (default), the content area is wrapped in a vertical
+    /// `ScrollView` so tall content like invoice images scrolls naturally.
+    /// Pass `false` for bodies that want to fill the panel height and
+    /// manage their own overflow — e.g. the email editor, which pins an
+    /// attachments footer to the bottom and wants the body text field to
+    /// expand into the empty space above it.
+    var scrollable: Bool = true
     @ViewBuilder let content: () -> Content
 
     var body: some View {
@@ -43,11 +50,17 @@ struct HomeDetailPanel<Content: View>: View {
                 .frame(height: 1)
                 .accessibilityHidden(true)
 
-            ScrollView {
+            if scrollable {
+                ScrollView {
+                    content()
+                        .frame(maxWidth: .infinity, alignment: .top)
+                }
+                .layoutPriority(1)
+            } else {
                 content()
-                    .frame(maxWidth: .infinity, alignment: .top)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .layoutPriority(1)
             }
-            .layoutPriority(1)
         }
         .frame(width: Self.defaultWidth)
         .frame(maxHeight: .infinity)
