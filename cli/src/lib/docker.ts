@@ -6,6 +6,13 @@ import { dirname, join } from "path";
 // Direct import — bun embeds this at compile time so it works in compiled binaries.
 import cliPkg from "../../package.json";
 
+// Pulled from skills/ — the Meet avatar device-path default is owned by the
+// meet-join skill; importing here keeps the CLI's Docker wiring locked to the
+// same value the bot and config schema use. The shared module is deliberately
+// zero-dep so this import cannot drag unrelated surface into the compiled CLI
+// binary.
+import { AVATAR_DEVICE_PATH_DEFAULT } from "../../../skills/meet-join/shared/avatar-device-path.js";
+
 import {
   findAssistantByName,
   saveAssistantEntry,
@@ -48,12 +55,16 @@ export const DOCKER_READY_TIMEOUT_MS = 3 * 60 * 1000;
 
 /**
  * Default virtual-camera device path when the Meet avatar feature is
- * enabled. Matches the `video_nr=10` value in the README's host-setup
- * section (`skills/meet-join/bot/README.md`). Operators can override the
- * path by setting `VELLUM_MEET_AVATAR_DEVICE` to something other than the
- * default (e.g. `/dev/video11` if a different `video_nr` was used).
+ * enabled. Re-exports the shared
+ * {@link ../../../skills/meet-join/shared/avatar-device-path.js AVATAR_DEVICE_PATH_DEFAULT}
+ * so the CLI's device-passthrough wiring cannot drift from the bot's
+ * Chrome-flag wiring or the workspace config default. Matches the
+ * `video_nr=10` value in the README's host-setup section
+ * (`skills/meet-join/bot/README.md`). Operators can override the path by
+ * setting `VELLUM_MEET_AVATAR_DEVICE` to something other than the default
+ * (e.g. `/dev/video11` if a different `video_nr` was used).
  */
-export const DEFAULT_MEET_AVATAR_DEVICE_PATH = "/dev/video10";
+export const DEFAULT_MEET_AVATAR_DEVICE_PATH = AVATAR_DEVICE_PATH_DEFAULT;
 
 /**
  * Env-var opt-in for bind-mounting the v4l2loopback virtual-camera device

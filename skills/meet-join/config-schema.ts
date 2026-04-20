@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { AVATAR_DEVICE_PATH_DEFAULT } from "./shared/avatar-device-path.js";
+
 /**
  * Default keywords that signal an objection to the assistant's presence in a
  * meeting. When any of these (case-insensitive substring match) appear in
@@ -82,14 +84,13 @@ export const AVATAR_RENDERER_IDS = [
 ] as const;
 
 /**
- * Default v4l2loopback device node the renderer pushes frames into. Matches
- * {@link DEFAULT_AVATAR_DEVICE_PATH} in `bot/src/browser/chrome-launcher.ts`
- * and {@link DEFAULT_MEET_AVATAR_DEVICE_PATH} in `cli/src/lib/docker.ts` —
- * all three must agree so the Chrome camera-flag wiring, the
- * device-passthrough wiring, and the renderer's writer all target the same
- * node.
+ * Default v4l2loopback device node the renderer pushes frames into. Re-exports
+ * the single source of truth from
+ * {@link ./shared/avatar-device-path.js AVATAR_DEVICE_PATH_DEFAULT} so this
+ * value cannot drift from its peers in `bot/src/browser/chrome-launcher.ts`,
+ * `bot/src/media/video-device.ts`, and `cli/src/lib/docker.ts`.
  */
-export const DEFAULT_AVATAR_DEVICE_PATH = "/dev/video10";
+export const DEFAULT_AVATAR_DEVICE_PATH = AVATAR_DEVICE_PATH_DEFAULT;
 
 /**
  * Per-renderer option block for TalkingHead.js (WebGL) renderer. All fields
