@@ -38,6 +38,7 @@ import {
   refreshCloudToken,
   getStoredToken as getStoredCloudToken,
   getStoredTokenRaw as getStoredCloudTokenRaw,
+  clearStoredToken as clearCloudToken,
   validateCloudToken,
   isCloudTokenStale,
   CLOUD_AUTH_FAILURE_CLOSE_CODES,
@@ -67,6 +68,7 @@ import {
 import {
   bootstrapLocalToken,
   getStoredLocalToken,
+  clearLocalToken,
   validateLocalToken,
   isLocalTokenStale,
   LEGACY_LOCAL_STORAGE_KEY,
@@ -137,6 +139,24 @@ async function setOverrideEnvironment(env: ExtensionEnvironment | null): Promise
     await chrome.storage.local.remove(ENVIRONMENT_OVERRIDE_KEY);
   } else {
     await chrome.storage.local.set({ [ENVIRONMENT_OVERRIDE_KEY]: env });
+  }
+}
+
+/**
+ * Remove all stored auth tokens (cloud and local) for every assistant.
+ * Called when the effective environment changes so stale tokens minted
+ * against the previous environment are not reused on the next connect.
+ * Token storage keys use a well-known prefix (`vellum.cloudAuthToken` /
+ * `vellum.localCapabilityToken`) — we enumerate all storage keys and
+ * remove those matching either prefix.
+ */
+async function invalidateAuthTokens(): Promise<void> {
+  const all = await chrome.storage.local.get(null);
+  const keysToRemove = Object.keys(all).filter(
+    (k) => k.startsWith('vellum.cloudAuthToken') || k.startsWith('vellum.localCapabilityToken'),
+  );
+  if (keysToRemove.length > 0) {
+    await chrome.storage.local.remove(keysToRemove);
   }
 }
 
@@ -1515,32 +1535,39 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
     // `environment: null` to clear the override and revert to the
     // build default.
     //
-    // NOTE: This handler intentionally only persists the override — it
-    // does NOT disconnect or reconnect the active relay connection. The
-    // caller (popup) is responsible for orchestrating disconnect/reconnect
-    // after receiving the response if it wants the new environment to take
-    // effect immediately. `getCloudUrls()` is called fresh on each
-    // connect/reconnect cycle, so the persisted override is picked up
-    // automatically on the next connection without any additional plumbing.
+    // NOTE: This handler only persists the override and invalidates
+    // stale auth tokens — it does NOT disconnect or reconnect the
+    // active relay connection. The caller (popup) is responsible for
+    // orchestrating disconnect/reconnect after receiving the response
+    // if it wants the new environment to take effect immediately.
+    // `getCloudUrls()` is called fresh on each connect/reconnect cycle,
+    // so the persisted override is picked up automatically on the next
+    // connection without any additional plumbing.
     const rawEnv = message.environment;
     if (rawEnv === null || rawEnv === undefined) {
       // Clear override
-      setOverrideEnvironment(null)
-        .then(async () => {
-          const effectiveEnvironment = await getEffectiveEnvironment();
-          sendResponseFn({
-            ok: true,
-            effectiveEnvironment,
-            overrideEnvironment: null,
-            buildDefaultEnvironment: resolveBuildDefaultEnvironment(),
-          });
-        })
-        .catch((err) =>
-          sendResponseFn({
-            ok: false,
-            error: err instanceof Error ? err.message : String(err),
-          }),
-        );
+      (async () => {
+        const previousEnv = await getEffectiveEnvironment();
+        await setOverrideEnvironment(null);
+        const effectiveEnvironment = await getEffectiveEnvironment();
+        // Invalidate cached auth tokens when the effective environment
+        // actually changes so stale credentials from the previous
+        // environment are not reused on the next connect cycle.
+        if (effectiveEnvironment !== previousEnv) {
+          await invalidateAuthTokens();
+        }
+        sendResponseFn({
+          ok: true,
+          effectiveEnvironment,
+          overrideEnvironment: null,
+          buildDefaultEnvironment: resolveBuildDefaultEnvironment(),
+        });
+      })().catch((err) =>
+        sendResponseFn({
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
       return true; // async
     }
     if (typeof rawEnv !== 'string') {
@@ -1555,22 +1582,25 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
       });
       return false;
     }
-    setOverrideEnvironment(parsed)
-      .then(async () => {
-        const effectiveEnvironment = await getEffectiveEnvironment();
-        sendResponseFn({
-          ok: true,
-          effectiveEnvironment,
-          overrideEnvironment: parsed,
-          buildDefaultEnvironment: resolveBuildDefaultEnvironment(),
-        });
-      })
-      .catch((err) =>
-        sendResponseFn({
-          ok: false,
-          error: err instanceof Error ? err.message : String(err),
-        }),
-      );
+    (async () => {
+      const previousEnv = await getEffectiveEnvironment();
+      await setOverrideEnvironment(parsed);
+      const effectiveEnvironment = await getEffectiveEnvironment();
+      if (effectiveEnvironment !== previousEnv) {
+        await invalidateAuthTokens();
+      }
+      sendResponseFn({
+        ok: true,
+        effectiveEnvironment,
+        overrideEnvironment: parsed,
+        buildDefaultEnvironment: resolveBuildDefaultEnvironment(),
+      });
+    })().catch((err) =>
+      sendResponseFn({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
     return true; // async
   }
 });
