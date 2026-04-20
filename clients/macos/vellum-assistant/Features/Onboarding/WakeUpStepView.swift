@@ -41,7 +41,9 @@ struct WakeUpStepView: View {
 
                 OnboardingLocalModeDisclosure(
                     isExpanded: $isAdvancedExpanded,
-                    isDisabled: isAdvancing,
+                    isDisabled: isAdvancing
+                        || authManager?.isLoading == true
+                        || authManager?.isSubmitting == true,
                     onUseLocalMode: {
                         state?.skippedAuth = true
                         onStartWithAPIKey()
@@ -65,7 +67,11 @@ struct WakeUpStepView: View {
         .padding(.horizontal, VSpacing.xxl)
         .opacity(showCards ? 1 : 0)
         .offset(y: showCards ? 0 : 12)
-        .disabled(isAdvancing || authManager?.isSubmitting == true)
+        .disabled(
+            isAdvancing
+                || authManager?.isLoading == true
+                || authManager?.isSubmitting == true
+        )
         .onAppear {
             withAnimation(.easeOut(duration: 0.5).delay(0.1)) {
                 showCards = true
