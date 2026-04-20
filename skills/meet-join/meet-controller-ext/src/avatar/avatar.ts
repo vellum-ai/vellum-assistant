@@ -165,8 +165,10 @@ function resolveTargetFps(): number {
 interface AvatarContext {
   /**
    * Container element handed to TalkingHead.js. TalkingHead.js mounts
-   * its own three.js renderer canvas as a child; the capture loop
-   * composites that child canvas into {@link canvas} each tick.
+   * its own three.js renderer canvas as the sole child; the capture
+   * loop composites that child canvas into {@link canvas} each tick.
+   * Note that {@link canvas} is deliberately a *sibling* of this
+   * container — see `bootAvatar` for why.
    */
   container: HTMLDivElement;
   /**
@@ -245,6 +247,12 @@ async function bootAvatar(): Promise<AvatarContext> {
   // <div> and keep a separate `captureCanvas` we paint into for the
   // placeholder background and capture loop; when TalkingHead.js is
   // live we draw its internal canvas into `captureCanvas` each tick.
+  //
+  // `captureCanvas` is attached as a sibling of the container (not a
+  // child) so `container.querySelector("canvas")` in the capture loop
+  // unambiguously returns TalkingHead.js's own canvas. If we made it
+  // a child, the querySelector would return `captureCanvas` first in
+  // document order and the compositing draw would never fire.
   const container = document.createElement("div");
   container.style.position = "relative";
   container.style.width = `${CANVAS_WIDTH}px`;
@@ -254,11 +262,7 @@ async function bootAvatar(): Promise<AvatarContext> {
   const captureCanvas = document.createElement("canvas");
   captureCanvas.width = CANVAS_WIDTH;
   captureCanvas.height = CANVAS_HEIGHT;
-  captureCanvas.style.position = "absolute";
-  captureCanvas.style.inset = "0";
-  captureCanvas.style.width = "100%";
-  captureCanvas.style.height = "100%";
-  container.appendChild(captureCanvas);
+  root.appendChild(captureCanvas);
 
   // Fill the capture canvas with a neutral background up-front so
   // early frames (before TalkingHead.js finishes loading) don't
@@ -355,9 +359,11 @@ function startCaptureLoop(ctx: AvatarContext): () => void {
     // TalkingHead.js renders into its own child <canvas> inside the
     // container. Composite that canvas into our capture surface so
     // toBlob reflects the live avatar rather than the static fill.
+    // `captureCanvas` is a sibling of the container (see bootAvatar),
+    // so the querySelector here only matches TalkingHead.js's canvas.
     if (captureCtx && ctx.head) {
       const live = ctx.container.querySelector("canvas");
-      if (live && live !== ctx.canvas) {
+      if (live) {
         try {
           captureCtx.drawImage(
             live,
