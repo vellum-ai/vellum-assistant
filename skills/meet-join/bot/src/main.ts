@@ -435,6 +435,32 @@ export async function runBot(deps: BotDeps): Promise<void> {
 
   BotState.setMeeting(meetingId);
 
+  // Derive the Meet URL code (e.g. `abc-defg-hij`) from `MEET_URL`. The
+  // Chrome extension stamps every outbound event with `meetingId =
+  // location.pathname` from the page it's injected into, so this code
+  // is the authoritative filter on whether an event belongs to our
+  // session.
+  //
+  // The background service worker fans every bot command out to every
+  // open `meet.google.com/*` tab in the Chrome profile, and content-
+  // script-side gating (see `meet-controller-ext/src/content.ts`) only
+  // stops the `join` flow from spinning up on stray tabs. If a user had
+  // a prior Meet tab open in the same profile — or a second bot session
+  // leaked a tab — its content script would still emit lifecycle /
+  // telemetry events into the shared `chrome.runtime.sendMessage` pipe,
+  // which the background forwards to the NMH socket. Without this
+  // filter we would happily stamp the env UUID onto those frames and
+  // treat them as authoritative for the current session — clearing the
+  // join-deadline timer, firing spurious `lifecycle:joined` / `error`
+  // at the daemon, and mixing participant / speaker / chat telemetry
+  // across meetings.
+  //
+  // A non-matching `meetingId` gets logged at diagnostic level and
+  // dropped; a genuinely missing / unparseable code falls back to
+  // "accept" so we don't silently blackhole the intended session when
+  // the URL has an unusual shape.
+  const expectedMeetingCode = extractMeetingCodeFromUrl(meetUrl);
+
   // Shared shutdown state — read by signal handlers, `/leave`, and boot
   // error paths. We construct it up-front so the error-reporting path can
   // still produce a usable shutdown even if the daemon client never gets
@@ -492,6 +518,19 @@ export async function runBot(deps: BotDeps): Promise<void> {
       clearTimeout(extensionJoinedTimer);
       extensionJoinedTimer = null;
     }
+  };
+
+  /**
+   * Return true when an inbound extension event belongs to the tab
+   * driving this bot's Meet session. Compares the event's
+   * extension-supplied `meetingId` (= `location.pathname` code, e.g.
+   * `abc-defg-hij`) against the code derived from `MEET_URL`. Falls
+   * back to `true` when we couldn't derive an expected code, so an
+   * unusually-shaped URL doesn't blackhole the intended session.
+   */
+  const isFromOurTab = (extMeetingId: string): boolean => {
+    if (expectedMeetingCode === null) return true;
+    return extMeetingId === expectedMeetingCode;
   };
 
   /**
@@ -889,6 +928,16 @@ export async function runBot(deps: BotDeps): Promise<void> {
         );
         return;
       case "lifecycle": {
+        // Source-tab gate. See `expectedMeetingCode` at boot time for
+        // the full rationale: a stray Meet tab's lifecycle events would
+        // otherwise clear our join-deadline timer and fire spurious
+        // `joined` / `error` at the daemon.
+        if (!isFromOurTab(msg.meetingId)) {
+          deps.logInfo(
+            `meet-bot: dropping lifecycle event from foreign tab (meetingId=${msg.meetingId}, state=${msg.state}, expected=${expectedMeetingCode ?? "<none>"})`,
+          );
+          return;
+        }
         const state: LifecycleState = msg.state;
         // If shutdown is already in progress (SIGTERM, /leave, chrome-exit
         // watcher, daemon-error), this lifecycle is either the extension
@@ -939,6 +988,13 @@ export async function runBot(deps: BotDeps): Promise<void> {
       case "participant.change":
       case "speaker.change":
       case "chat.inbound":
+        // Source-tab gate — see lifecycle case above.
+        if (!isFromOurTab(msg.meetingId)) {
+          deps.logInfo(
+            `meet-bot: dropping ${msg.type} from foreign tab (meetingId=${msg.meetingId}, expected=${expectedMeetingCode ?? "<none>"})`,
+          );
+          return;
+        }
         // Belt-and-suspenders: overwrite meetingId with the authoritative
         // UUID before forwarding. See lifecycle case above for rationale.
         if (subsystems.daemonClient) {
@@ -1065,6 +1121,28 @@ export async function runBot(deps: BotDeps): Promise<void> {
 
 function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Extract the Meet code (e.g. `abc-defg-hij`) from a Meet URL like
+ * `https://meet.google.com/abc-defg-hij`. Mirrors the content script's
+ * own `deriveMeetingId` / `extractMeetingIdFromUrl` helpers so the bot
+ * can compare whichever code the extension stamped on an inbound event
+ * against the code derived from our own `MEET_URL`.
+ *
+ * Returns `null` when the URL cannot be parsed or has no leading path
+ * segment; callers treat `null` as "cannot filter" and fall through to
+ * accepting the event rather than blackholing the session.
+ */
+function extractMeetingCodeFromUrl(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  const segment = parsed.pathname.replace(/^\/+/, "").split("/")[0] ?? "";
+  return segment || null;
 }
 
 /**

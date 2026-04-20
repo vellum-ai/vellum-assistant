@@ -1,13 +1,7 @@
 import { join } from "node:path";
 
-import type {
-  ScopedTrustRule,
-  TrustRuleBase,
-} from "@vellumai/ces-contracts";
-import {
-  MANAGED_SKILL_TOOLS,
-  SKILL_LOAD_TOOL,
-} from "@vellumai/ces-contracts";
+import type { ScopedTrustRule, TrustRuleBase } from "@vellumai/ces-contracts";
+import { MANAGED_SKILL_TOOLS, SKILL_LOAD_TOOL } from "@vellumai/ces-contracts";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
@@ -115,7 +109,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     id: `default:ask-${tool}-global`,
     tool,
     pattern: "**",
-    scope: "everywhere",
     decision: "ask" as const,
     priority: 1000,
   }));
@@ -126,7 +119,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     id: `default:ask-${tool}-global`,
     tool,
     pattern: `${tool}:*`,
-    scope: "everywhere",
     decision: "ask" as const,
     priority: 1000,
   }));
@@ -260,7 +252,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     id: "default:ask-skill_load_dynamic-global",
     tool: SKILL_LOAD_TOOL,
     pattern: "skill_load_dynamic:*",
-    scope: "everywhere",
     decision: "ask",
     priority: 200,
   };
@@ -269,7 +260,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     id: "default:allow-skill_load-global",
     tool: SKILL_LOAD_TOOL,
     pattern: "skill_load:*",
-    scope: "everywhere",
     decision: "allow",
     priority: 100,
   };
@@ -278,7 +268,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     id: "default:allow-skill_execute-global",
     tool: "skill_execute",
     pattern: "skill_execute:*",
-    scope: "everywhere",
     decision: "allow",
     priority: 100,
   };
@@ -292,7 +281,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
       id: `default:allow-${tool}-global`,
       tool,
       pattern: `${tool}:*`,
-      scope: "everywhere",
       decision: "allow" as const,
       priority: 100,
     }),
@@ -303,7 +291,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     id: "default:allow-recall-global",
     tool: "recall",
     pattern: "recall:*",
-    scope: "everywhere",
     decision: "allow",
     priority: 100,
   };
