@@ -691,6 +691,13 @@ class CredentialStoreTool implements Tool {
               : undefined,
         });
         if (!result.value) {
+          if (result.error === "unsupported_channel") {
+            return {
+              content:
+                "Secure credential entry cannot be opened over this channel. The user needs to complete this step from the desktop app, or run this flow from there directly.",
+              isError: true,
+            };
+          }
           return {
             content: "User cancelled the credential prompt.",
             isError: false,
