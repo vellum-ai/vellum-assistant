@@ -208,21 +208,34 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
 
       content = reinjectImageSourcePaths(content, role, m.metadata);
 
-      // Re-inject persisted memory block from metadata so it survives
+      // Re-inject persisted injection blocks from metadata so it survives
       // conversation reloads (eviction, restart, fork).
       if (role === "user" && m.metadata) {
         try {
           const meta = JSON.parse(m.metadata);
           const isTail = index === arr.length - 1;
 
-          // turn_context and system_reminder rehydrate for historical rows
-          // only; the tail gets fresh blocks via applyRuntimeInjections on
-          // the next turn. All three rehydration steps are prepends — the
-          // ordering below (system_reminder first, memory second,
-          // turn_context last) builds the documented shape right-to-left,
-          // since each prepend shifts previously-prepended blocks one slot
-          // right:
-          //   [<turn_context>, <memory __injected>, <system_reminder>, ...original]
+          // All rehydration steps are prepends — the ordering below
+          // (innermost block first, outermost last) builds the documented
+          // shape right-to-left, since each prepend shifts previously-
+          // prepended blocks one slot right:
+          //   [<workspace>, <turn_context>, <NOW.md>, <memory __injected>,
+          //    <system_reminder>, <knowledge_base>, ...original]
+          //
+          // Persisted non-tail rows rehydrate the full set so Anthropic's
+          // prefix cache keeps matching msg[0] across daemon restarts and
+          // conversation eviction. The tail row gets fresh blocks via
+          // applyRuntimeInjections on the next turn, so rehydration for the
+          // tail is limited to blocks that the next turn's injection pipeline
+          // cannot reconstruct (currently just `memoryInjectedBlock`, which
+          // is not always re-injected on the next turn).
+          if (!isTail && typeof meta.pkbContextBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.pkbContextBlock },
+              ...content,
+            ];
+          }
+
           if (!isTail && typeof meta.pkbSystemReminderBlock === "string") {
             content = [
               { type: "text" as const, text: meta.pkbSystemReminderBlock },
@@ -241,9 +254,23 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
             ];
           }
 
+          if (!isTail && typeof meta.nowScratchpadBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.nowScratchpadBlock },
+              ...content,
+            ];
+          }
+
           if (!isTail && typeof meta.turnContextBlock === "string") {
             content = [
               { type: "text" as const, text: meta.turnContextBlock },
+              ...content,
+            ];
+          }
+
+          if (!isTail && typeof meta.workspaceBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.workspaceBlock },
               ...content,
             ];
           }

@@ -1716,12 +1716,17 @@ export type InjectionMode = "full" | "minimal";
 
 /**
  * Per-turn injection bytes captured for later persistence to message
- * metadata. Empty in this PR — later PRs capture `<turn_context>` and
- * `<system_reminder>` bodies so they survive daemon restarts.
+ * metadata. Persisting these lets `loadFromDb` rehydrate historical user
+ * messages byte-for-byte after a daemon restart or conversation eviction,
+ * which keeps Anthropic's prefix cache anchored to msg[0] instead of
+ * invalidating every turn on reload.
  */
 export interface RuntimeInjectionBlocks {
   unifiedTurnContext?: string;
   pkbSystemReminder?: string;
+  workspaceBlock?: string;
+  nowScratchpadBlock?: string;
+  pkbContextBlock?: string;
 }
 
 export interface RuntimeInjectionResult {
@@ -1823,6 +1828,9 @@ export async function applyRuntimeInjections(
   // channels (telegram, email, etc.) keep the generic hint pipeline.
   const slackConversation = options.channelCapabilities?.channel === "slack";
   let turnContextCaptured: string | undefined;
+  let workspaceCaptured: string | undefined;
+  let nowScratchpadCaptured: string | undefined;
+  let pkbContextCaptured: string | undefined;
   let result = runMessages;
   // Slack channels AND DMs both override `runMessages` with a pre-rendered
   // chronological transcript built from persisted message rows. The shared
@@ -1890,10 +1898,17 @@ export async function applyRuntimeInjections(
   if (mode === "full" && options.pkbContext) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
-      result = [
-        ...result.slice(0, -1),
-        injectPkbContext(userTail, options.pkbContext),
-      ];
+      const injected = injectPkbContext(userTail, options.pkbContext);
+      // Capture the exact block text for metadata persistence. The injector
+      // escapes closing tags inside `pkbContext` and wraps it in
+      // `<knowledge_base>...</knowledge_base>`, so read back the inserted
+      // block rather than regenerating from the raw input.
+      const insertedBlock = injected.content.find(
+        (b): b is { type: "text"; text: string } =>
+          b.type === "text" && b.text.startsWith("<knowledge_base>"),
+      );
+      if (insertedBlock) pkbContextCaptured = insertedBlock.text;
+      result = [...result.slice(0, -1), injected];
     }
   }
 
@@ -1991,10 +2006,14 @@ export async function applyRuntimeInjections(
   if (mode === "full" && options.nowScratchpad) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
-      result = [
-        ...result.slice(0, -1),
-        injectNowScratchpad(userTail, options.nowScratchpad),
-      ];
+      const injected = injectNowScratchpad(userTail, options.nowScratchpad);
+      const insertedBlock = injected.content.find(
+        (b): b is { type: "text"; text: string } =>
+          b.type === "text" &&
+          b.text.startsWith("<NOW.md Always keep this up to date"),
+      );
+      if (insertedBlock) nowScratchpadCaptured = insertedBlock.text;
+      result = [...result.slice(0, -1), injected];
     }
   }
 
@@ -2112,6 +2131,7 @@ export async function applyRuntimeInjections(
   if (mode === "full" && options.workspaceTopLevelContext) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
+      workspaceCaptured = options.workspaceTopLevelContext;
       result = [
         ...result.slice(0, -1),
         injectWorkspaceTopLevelContext(
@@ -2127,6 +2147,9 @@ export async function applyRuntimeInjections(
     blocks: {
       unifiedTurnContext: turnContextCaptured,
       pkbSystemReminder: pkbSystemReminderCaptured,
+      workspaceBlock: workspaceCaptured,
+      nowScratchpadBlock: nowScratchpadCaptured,
+      pkbContextBlock: pkbContextCaptured,
     },
   };
 }

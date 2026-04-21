@@ -107,6 +107,9 @@ export const messageMetadataSchema = z
     memoryInjectedBlock: z.string().optional(),
     turnContextBlock: z.string().optional(),
     pkbSystemReminderBlock: z.string().optional(),
+    workspaceBlock: z.string().optional(),
+    nowScratchpadBlock: z.string().optional(),
+    pkbContextBlock: z.string().optional(),
   })
   .passthrough();
 

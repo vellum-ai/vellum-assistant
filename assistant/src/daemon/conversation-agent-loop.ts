@@ -1011,11 +1011,14 @@ export async function runAgentLoopImpl(
     // reloads (eviction, restart, fork). loadFromDb re-injects from metadata.
     // Only the first call site persists — the overflow-recovery re-entry sites
     // send identical bytes and the tail row may not correspond to
-    // `userMessageId`. Both blocks are written in a single call to avoid
+    // `userMessageId`. All blocks are written in a single call to avoid
     // doubling SQLite SELECT+UPDATE work on every turn.
     if (
       injection.blocks.unifiedTurnContext ||
-      injection.blocks.pkbSystemReminder
+      injection.blocks.pkbSystemReminder ||
+      injection.blocks.workspaceBlock ||
+      injection.blocks.nowScratchpadBlock ||
+      injection.blocks.pkbContextBlock
     ) {
       try {
         const metadataUpdates: Record<string, unknown> = {};
@@ -1026,6 +1029,16 @@ export async function runAgentLoopImpl(
         if (injection.blocks.pkbSystemReminder) {
           metadataUpdates.pkbSystemReminderBlock =
             injection.blocks.pkbSystemReminder;
+        }
+        if (injection.blocks.workspaceBlock) {
+          metadataUpdates.workspaceBlock = injection.blocks.workspaceBlock;
+        }
+        if (injection.blocks.nowScratchpadBlock) {
+          metadataUpdates.nowScratchpadBlock =
+            injection.blocks.nowScratchpadBlock;
+        }
+        if (injection.blocks.pkbContextBlock) {
+          metadataUpdates.pkbContextBlock = injection.blocks.pkbContextBlock;
         }
         updateMessageMetadata(userMessageId, metadataUpdates);
       } catch (err) {
