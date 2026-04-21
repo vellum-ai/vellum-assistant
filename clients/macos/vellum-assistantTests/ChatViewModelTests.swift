@@ -116,6 +116,21 @@ final class ChatViewModelTests: XCTestCase {
                        "Sending a user message must clear a stranded compaction indicator (LUM-1062)")
     }
 
+    func testSendUserMessageClearsStuckCompactingFlagWhenOffline() {
+        // Regression: the LUM-1062 self-heal must fire even when the daemon is
+        // disconnected. The offline-queue branch returns before the final send,
+        // but isCompacting is a stale-UI self-heal — clearing it does not depend
+        // on the send actually reaching the daemon. A user typing a new message
+        // is ground truth that compaction is over, connectivity notwithstanding.
+        viewModel.conversationId = "conv-1"
+        viewModel.isCompacting = true
+        connectionManager.isConnected = false
+        viewModel.inputText = "hello"
+        viewModel.sendMessage()
+        XCTAssertFalse(viewModel.isCompacting,
+                       "Sending a user message while offline must still clear a stranded compaction indicator (LUM-1062)")
+    }
+
     func testClearingInputRestoresExistingSuggestion() {
         viewModel.suggestion = "Summarize the last response"
 
