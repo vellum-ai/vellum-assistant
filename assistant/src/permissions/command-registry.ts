@@ -49,11 +49,7 @@ export const DEFAULT_COMMAND_REGISTRY = {
   tail: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
   less: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
   more: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
-  wc: {
-    baseRisk: "low",
-    sandboxAutoApprove: true,
-    argSchema: { positionals: "none" },
-  },
+  wc: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
   file: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
   stat: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
   du: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
@@ -105,19 +101,10 @@ export const DEFAULT_COMMAND_REGISTRY = {
     argSchema: {
       valueFlags: ["-o", "--output"],
       pathFlags: { "-o": true, "--output": true },
-      positionals: "none",
     },
   },
-  uniq: {
-    baseRisk: "low",
-    sandboxAutoApprove: true,
-    argSchema: { positionals: "none" },
-  },
-  cut: {
-    baseRisk: "low",
-    sandboxAutoApprove: true,
-    argSchema: { positionals: "none" },
-  },
+  uniq: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
+  cut: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
   tr: {
     baseRisk: "low",
     sandboxAutoApprove: true,

@@ -642,15 +642,20 @@ export async function check(
 
         // All path args must resolve within workspace
         return parsed.pathArgs.every((p) => {
-          // Handle ~ expansion
-          const expanded = p.startsWith("~/")
-            ? join(homedir(), p.slice(2))
-            : p === "~"
-              ? homedir()
-              : p;
-          const resolved = expanded.startsWith("/")
-            ? expanded
-            : resolve(workingDir, expanded);
+          // Handle ~ expansion: ~/ is current user's home, ~user/ is another
+          // user's home. Both resolve outside the workspace in practice.
+          // Treat any tilde-prefixed path as outside workspace unless it
+          // happens to resolve within it after expansion.
+          if (p === "~" || p.startsWith("~/")) {
+            const expanded =
+              p === "~" ? homedir() : join(homedir(), p.slice(2));
+            return isPathWithinWorkspaceRoot(expanded, workspaceRoot);
+          }
+          if (p.startsWith("~")) {
+            // ~root/, ~user/, etc. — resolve outside workspace
+            return false;
+          }
+          const resolved = p.startsWith("/") ? p : resolve(workingDir, p);
           return isPathWithinWorkspaceRoot(resolved, workspaceRoot);
         });
       });
