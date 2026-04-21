@@ -3202,10 +3202,10 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Import workspace backup",
           description:
-            "Proxies a migration import request to the assistant daemon. Two request shapes are accepted:\n" +
+            "Proxies a migration import request to the assistant. Two request shapes are accepted:\n" +
             "\n" +
             "  - `application/octet-stream`: raw .vbundle body. The request is proxied synchronously and the caller's connection stays open for the full import duration (returns 200 on success).\n" +
-            '  - `application/json` with `{ "url": "<signed GCS URL>" }`: the gateway generates a jobId, kicks off the upstream daemon call in the background, and returns `202 Accepted` with `{ job_id, status: "pending" }` immediately. Callers poll `GET /v1/migrations/import/{jobId}/status` for progress.\n' +
+            '  - `application/json` with `{ "url": "<signed GCS URL>" }`: the gateway generates a jobId, kicks off the upstream assistant call in the background, and returns `202 Accepted` with `{ job_id, status: "pending" }` immediately. Callers poll `GET /v1/migrations/import/{jobId}/status` for progress.\n' +
             "\n" +
             "Authenticated with an edge JWT. Synchronous-path timeout is 60 minutes to accommodate large 8 GB backups; the async path returns immediately.",
           operationId: "migrationImport",

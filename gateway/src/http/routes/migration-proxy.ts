@@ -307,13 +307,19 @@ async function runUpstreamImport(args: {
   }, MIGRATION_TIMEOUT_MS);
 
   try {
+    // NOTE: `fetch` resolves on headers, not on full body delivery. Keep
+    // the abort timer alive across `response.json()` so a partial-body
+    // stall on the upstream side still aborts and we transition the job
+    // to `failed` — otherwise a mid-body drop would leave the job pinned
+    // at `processing` indefinitely and pollers would spin forever.
+    // The timer is cleared in the `finally` below, which fires after the
+    // body has been fully consumed (or the abort has fired).
     const response = await fetchImpl(upstream, {
       method: "POST",
       headers: reqHeaders,
       body: bodyText,
       signal: controller.signal,
     });
-    clearTimeout(timeoutId);
 
     const duration = Math.round(performance.now() - start);
 
@@ -327,7 +333,7 @@ async function runUpstreamImport(args: {
       markJobFailed(
         jobId,
         response.status,
-        `Invalid JSON from daemon: ${errMessage(err)}`,
+        `Invalid JSON from assistant: ${errMessage(err)}`,
       );
       log.error(
         { jobId, status: response.status, duration, err },
@@ -372,18 +378,19 @@ async function runUpstreamImport(args: {
       "Migration import async: daemon returned non-2xx",
     );
   } catch (err) {
-    clearTimeout(timeoutId);
     const duration = Math.round(performance.now() - start);
     const isTimeout =
       err instanceof DOMException && err.name === "TimeoutError";
     const message = isTimeout
-      ? `Gateway → daemon request timed out after ${MIGRATION_TIMEOUT_MS}ms`
-      : `Gateway → daemon request failed: ${errMessage(err)}`;
+      ? `Gateway → assistant request timed out after ${MIGRATION_TIMEOUT_MS}ms`
+      : `Gateway → assistant request failed: ${errMessage(err)}`;
     markJobFailed(jobId, undefined, message);
     log.error(
       { jobId, duration, err },
       "Migration import async: upstream connection failed",
     );
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
