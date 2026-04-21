@@ -40,12 +40,49 @@ export const MODEL_TO_PROVIDER: Record<string, string> = Object.fromEntries(
 // Shared business logic (transport-agnostic)
 // ---------------------------------------------------------------------------
 
+/**
+ * Wire-contract shape for a provider entry in `ModelInfo.allProviders`.
+ * Mirrors the legacy fields declared in `message-types/conversations.ts` —
+ * rich provider metadata (capability flags, pricing, subtitle, setupMode,
+ * setupHint, envVar, credentialsGuide) is sourced by clients from the
+ * bundled `LLMProviderRegistry` JSON, so there is no reason to double-send
+ * it over the wire.
+ */
+export interface WireProviderEntry {
+  id: string;
+  displayName: string;
+  models: Array<{ id: string; displayName: string }>;
+  defaultModel: string;
+  apiKeyUrl?: string;
+  apiKeyPlaceholder?: string;
+}
+
 export interface ModelInfo {
   model: string;
   provider: string;
   configuredProviders?: string[];
   availableModels?: Array<{ id: string; displayName: string }>;
-  allProviders?: ProviderCatalogEntry[];
+  allProviders?: WireProviderEntry[];
+}
+
+/**
+ * Project a rich `ProviderCatalogEntry` to the legacy wire-contract fields.
+ * Keeping the wire payload honest avoids contract drift with
+ * `message-types/conversations.ts` and the generated Swift DTO.
+ */
+export function projectProviderForWire(
+  entry: ProviderCatalogEntry,
+): WireProviderEntry {
+  return {
+    id: entry.id,
+    displayName: entry.displayName,
+    models: entry.models.map((m) => ({ id: m.id, displayName: m.displayName })),
+    defaultModel: entry.defaultModel,
+    ...(entry.apiKeyUrl !== undefined && { apiKeyUrl: entry.apiKeyUrl }),
+    ...(entry.apiKeyPlaceholder !== undefined && {
+      apiKeyPlaceholder: entry.apiKeyPlaceholder,
+    }),
+  };
 }
 
 /** Return current model configuration. */
@@ -57,8 +94,10 @@ export async function getModelInfo(): Promise<ModelInfo> {
     model: config.llm.default.model,
     provider,
     configuredProviders: await getConfiguredProviders(),
-    availableModels: PROVIDER_CATALOG.find((p) => p.id === provider)?.models,
-    allProviders: PROVIDER_CATALOG,
+    availableModels: PROVIDER_CATALOG.find(
+      (p) => p.id === provider,
+    )?.models?.map((m) => ({ id: m.id, displayName: m.displayName })),
+    allProviders: PROVIDER_CATALOG.map(projectProviderForWire),
   };
 }
 

@@ -1068,6 +1068,10 @@ STT_PROVIDER_CATALOG="$SCRIPT_DIR/../../meta/stt-provider-catalog.json"
 if [ -f "$STT_PROVIDER_CATALOG" ]; then
     cp "$STT_PROVIDER_CATALOG" "$RESOURCES_DIR/stt-provider-catalog.json"
 fi
+LLM_PROVIDER_CATALOG="$SCRIPT_DIR/../../meta/llm-provider-catalog.json"
+if [ -f "$LLM_PROVIDER_CATALOG" ]; then
+    cp "$LLM_PROVIDER_CATALOG" "$RESOURCES_DIR/llm-provider-catalog.json"
+fi
 # Bundle Dockerfiles into Contents/Resources/dockerfiles/ for debug builds
 # so that the CLI's findRepoRoot() can locate them when running from a
 # packaged DMG.  This enables `vellum hatch --remote docker` to work
