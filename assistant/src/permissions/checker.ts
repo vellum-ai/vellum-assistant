@@ -451,10 +451,10 @@ export async function classifyRisk(
       reason: assessment.reason,
     };
   }
-  // ── Remaining tools: fall through to classifyRiskUncached ───────────────
+  // ── Remaining tools: fall through to registry-based classification ──────
   else {
     result = {
-      level: await classifyRiskUncached(
+      level: await classifyRiskFromRegistry(
         toolName,
         input,
         workingDir,
@@ -485,7 +485,7 @@ export async function classifyRisk(
   return result;
 }
 
-async function classifyRiskUncached(
+async function classifyRiskFromRegistry(
   toolName: string,
   _input: Record<string, unknown>,
   _workingDir?: string,
