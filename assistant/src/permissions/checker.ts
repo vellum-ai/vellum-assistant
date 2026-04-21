@@ -467,7 +467,7 @@ export async function classifyRisk(
         | "skill_load"
         | "scaffold_managed_skill"
         | "delete_managed_skill",
-      skillSelector: getStringField(input, "skill"),
+      skillSelector: getStringField(input, "skill", "skill_id"),
     });
     classifierAssessment = assessment;
     result = {
