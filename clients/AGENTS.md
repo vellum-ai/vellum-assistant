@@ -584,6 +584,7 @@ If the team adopts Xcode as the primary development environment and begins using
 - Put cross-platform logic in `clients/shared`.
 - Do not introduce platform-specific dependencies into shared targets.
 - Prefer dependency injection for platform services to keep logic testable.
+- **Clearing persisted state is a two-sided contract.** When shared code (e.g. `AuthManager`) clears persisted identity or connection state on one transition, each platform shell must have a reconciler that restores the equivalent state on the inverse transition. Wire platform-specific restoration through injected hooks on the shared component (e.g. `AuthManager.postAuthenticationHook`) rather than reaching into shared code with platform-specific persistence (`#if os(iOS)` blocks, direct `UserDefaults` writes, lockfile mutations). This keeps shared code platform-agnostic and makes the restore path explicit and unit-testable.
 
 ---
 

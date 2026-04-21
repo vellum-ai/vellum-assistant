@@ -17,7 +17,9 @@ private let llmRequestLogRetentionMsDefaultsKey = "llmRequestLogRetentionMs"
 @MainActor
 struct SettingsPrivacyTab: View {
     @ObservedObject var store: SettingsStore
+    var assistantFeatureFlagStore: AssistantFeatureFlagStore
     var featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
+    var thresholdClient: ThresholdClientProtocol = ThresholdClient()
 
     /// Tracks the in-flight privacy sync task so rapid toggles cancel the
     /// previous write and only the latest values reach the daemon.
@@ -49,6 +51,12 @@ struct SettingsPrivacyTab: View {
     @State private var hasUserInteracted: Bool = false
 
     var body: some View {
+        if assistantFeatureFlagStore.isEnabled("auto-approve-threshold-ui") {
+            RiskToleranceSection(
+                thresholdClient: thresholdClient,
+                assistantFeatureFlagStore: assistantFeatureFlagStore
+            )
+        }
         privacySection
     }
 

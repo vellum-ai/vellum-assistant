@@ -50,6 +50,7 @@ struct ComposerView: View, Equatable {
             && lhs.conversationHostAccessControl?.isUpdating == rhs.conversationHostAccessControl?.isUpdating
             && lhs.conversationHostAccessControl?.subtitle == rhs.conversationHostAccessControl?.subtitle
             && lhs.conversationHostAccessControl?.errorMessage == rhs.conversationHostAccessControl?.errorMessage
+            && lhs.showThresholdPicker == rhs.showThresholdPicker
     }
     private let composerMaxHeight: CGFloat = 300
     private let composerActionButtonSize: CGFloat = 32
@@ -104,6 +105,7 @@ struct ComposerView: View, Equatable {
     var contextWindowTokens: Int? = nil
     var contextWindowMaxTokens: Int? = nil
     var conversationHostAccessControl: ConversationHostAccessControlConfiguration? = nil
+    var showThresholdPicker: Bool = false
 
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
     #if os(macOS)
@@ -463,6 +465,10 @@ struct ComposerView: View, Equatable {
                 .accessibilityLabel("Computer access")
                 .accessibilityValue(hostAccess.isEnabled ? "Enabled" : "Disabled")
                 .animation(.easeInOut(duration: 0.15), value: hostAccess.isEnabled)
+            }
+
+            if showThresholdPicker {
+                ComposerThresholdPicker(conversationId: conversationId)
             }
 
             VContextWindowIndicator(
