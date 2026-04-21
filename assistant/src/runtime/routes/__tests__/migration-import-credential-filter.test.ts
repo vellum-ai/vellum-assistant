@@ -1,22 +1,32 @@
 /**
  * Tests for platform credential filtering during bundle import.
  *
- * The filtering logic in migration-routes.ts uses the PLATFORM_CREDENTIAL_PREFIX
- * constant ("vellum:") to exclude platform-identity credentials from being
- * written to the credential store during import. Since the filtering is a simple
- * array filter, we test the logic directly using the same prefix constant and
- * extractCredentialsFromBundle function — without needing to drive the full
- * HTTP handler (which has heavy transitive dependencies).
+ * `migration-routes.ts` pushes every bundle credential through a filter that
+ * must exclude platform-identity (`vellum:*`) entries so they can't overwrite
+ * the target's own Django-provisioned identity. The filter runs against the
+ * raw CES account format — `credential/{service}/{field}` — produced by
+ * `credentialKey()`, which is what `listSecureKeysAsync()` returns and what
+ * `extractCredentialsFromBundle` surfaces back as `account`.
  *
- * Covers:
- * - vellum:* credentials are excluded when filtering with the prefix
- * - User credentials (without vellum: prefix) pass through unchanged
- * - Mixed bundles correctly split platform vs user credentials
- * - skippedPlatform count is accurate
+ * The constant is duplicated here (rather than imported) because
+ * `migration-routes.ts` has heavy transitive imports that are expensive to
+ * resolve in a test and would require wide mocking. Instead we bind the two
+ * copies with a regression assertion: if `credentialKey()`'s output format
+ * changes, the `startsWith(...)` prefix must change in lockstep. That
+ * regression is explicit at the bottom of this file.
+ *
+ * Covered:
+ * - Platform (vellum:*) credentials stored under the real `credential/vellum/...`
+ *   key format are excluded.
+ * - User credentials (any other prefix) pass through unchanged.
+ * - Mixed bundles correctly split platform vs user credentials.
+ * - skippedPlatform count matches the number of excluded entries.
+ * - Regression: the prefix constant matches `credentialKey("vellum", "")`.
  */
 
 import { describe, expect, test } from "bun:test";
 
+import { credentialKey } from "../../../security/credential-key.js";
 import { extractCredentialsFromBundle } from "../../migrations/vbundle-importer.js";
 import type {
   ManifestType,
@@ -24,10 +34,11 @@ import type {
 } from "../../migrations/vbundle-validator.js";
 
 // ---------------------------------------------------------------------------
-// The same constant used by migration-routes.ts
+// The same constant used by migration-routes.ts — kept in sync via the
+// regression assertion at the bottom of this file.
 // ---------------------------------------------------------------------------
 
-const PLATFORM_CREDENTIAL_PREFIX = "vellum:";
+const PLATFORM_CREDENTIAL_PREFIX = credentialKey("vellum", "");
 
 // ---------------------------------------------------------------------------
 // Helpers (same pattern as vbundle-import-credentials.test.ts)
@@ -53,6 +64,15 @@ function makeManifest(paths: string[]): ManifestType {
 }
 
 /**
+ * Build a bundle archive entry path for a credential whose CES account is
+ * `account`. `vbundle-builder.ts` stores credentials under
+ * `credentials/<account>`; the importer reverses that split.
+ */
+function bundlePathFor(account: string): string {
+  return `credentials/${account}`;
+}
+
+/**
  * Simulate the filtering logic from migration-routes.ts:
  *
  *   const userCredentials = bundleCredentials.filter(
@@ -74,49 +94,45 @@ function filterCredentials(
 // ---------------------------------------------------------------------------
 
 describe("migration import credential filtering", () => {
-  test("vellum:-prefixed credentials are excluded", () => {
-    const entries = new Map<string, VBundleTarEntry>();
-    entries.set("credentials/vellum:assistant_api_key", makeTarEntry("key-1"));
-    entries.set(
-      "credentials/vellum:platform_assistant_id",
-      makeTarEntry("asst-2"),
+  test("platform (vellum:*) credentials are excluded", () => {
+    const vellumFields = [
+      "assistant_api_key",
+      "platform_assistant_id",
+      "platform_base_url",
+      "platform_organization_id",
+      "platform_user_id",
+      "webhook_secret",
+    ] as const;
+    const vellumPaths = vellumFields.map((f) =>
+      bundlePathFor(credentialKey("vellum", f)),
     );
-    entries.set(
-      "credentials/vellum:platform_base_url",
-      makeTarEntry("https://example.com"),
-    );
-    entries.set(
-      "credentials/vellum:platform_organization_id",
-      makeTarEntry("org-3"),
-    );
-    entries.set("credentials/vellum:platform_user_id", makeTarEntry("user-4"));
-    entries.set("credentials/vellum:webhook_secret", makeTarEntry("whsec-5"));
 
-    const manifest = makeManifest([
-      "credentials/vellum:assistant_api_key",
-      "credentials/vellum:platform_assistant_id",
-      "credentials/vellum:platform_base_url",
-      "credentials/vellum:platform_organization_id",
-      "credentials/vellum:platform_user_id",
-      "credentials/vellum:webhook_secret",
-    ]);
+    const entries = new Map<string, VBundleTarEntry>();
+    for (const path of vellumPaths) {
+      entries.set(path, makeTarEntry(`value-for-${path}`));
+    }
+
+    const manifest = makeManifest(vellumPaths);
 
     const bundleCredentials = extractCredentialsFromBundle(entries, manifest);
     const { userCredentials, skippedPlatform } =
       filterCredentials(bundleCredentials);
 
     expect(userCredentials).toHaveLength(0);
-    expect(skippedPlatform).toBe(6);
+    expect(skippedPlatform).toBe(vellumFields.length);
   });
 
-  test("user credentials without vellum: prefix pass through unchanged", () => {
+  test("user credentials pass through unchanged", () => {
+    const openaiAccount = credentialKey("openai", "api_key");
+    const anthropicAccount = credentialKey("anthropic", "api_key");
+
     const entries = new Map<string, VBundleTarEntry>();
-    entries.set("credentials/openai-key", makeTarEntry("sk-user-123"));
-    entries.set("credentials/anthropic-key", makeTarEntry("sk-ant-456"));
+    entries.set(bundlePathFor(openaiAccount), makeTarEntry("sk-user-123"));
+    entries.set(bundlePathFor(anthropicAccount), makeTarEntry("sk-ant-456"));
 
     const manifest = makeManifest([
-      "credentials/openai-key",
-      "credentials/anthropic-key",
+      bundlePathFor(openaiAccount),
+      bundlePathFor(anthropicAccount),
     ]);
 
     const bundleCredentials = extractCredentialsFromBundle(entries, manifest);
@@ -125,50 +141,50 @@ describe("migration import credential filtering", () => {
 
     expect(userCredentials).toHaveLength(2);
     expect(userCredentials).toContainEqual({
-      account: "openai-key",
+      account: openaiAccount,
       value: "sk-user-123",
     });
     expect(userCredentials).toContainEqual({
-      account: "anthropic-key",
+      account: anthropicAccount,
       value: "sk-ant-456",
     });
     expect(skippedPlatform).toBe(0);
   });
 
-  test("mixed bundle with both vellum:* and user credentials correctly splits", () => {
+  test("mixed bundle with both platform and user credentials correctly splits", () => {
+    const vellumApiKey = credentialKey("vellum", "assistant_api_key");
+    const vellumUserId = credentialKey("vellum", "platform_user_id");
+    const openaiKey = credentialKey("openai", "api_key");
+    const anthropicKey = credentialKey("anthropic", "api_key");
+    const githubToken = credentialKey("github", "api_token");
+
     const entries = new Map<string, VBundleTarEntry>();
-    entries.set(
-      "credentials/vellum:assistant_api_key",
-      makeTarEntry("platform-key"),
-    );
-    entries.set(
-      "credentials/vellum:platform_user_id",
-      makeTarEntry("platform-user"),
-    );
-    entries.set("credentials/openai-key", makeTarEntry("sk-user-123"));
-    entries.set("credentials/anthropic-key", makeTarEntry("sk-ant-456"));
-    entries.set("credentials/github-token", makeTarEntry("ghp-789"));
+    entries.set(bundlePathFor(vellumApiKey), makeTarEntry("platform-key"));
+    entries.set(bundlePathFor(vellumUserId), makeTarEntry("platform-user"));
+    entries.set(bundlePathFor(openaiKey), makeTarEntry("sk-user-123"));
+    entries.set(bundlePathFor(anthropicKey), makeTarEntry("sk-ant-456"));
+    entries.set(bundlePathFor(githubToken), makeTarEntry("ghp-789"));
 
     const manifest = makeManifest([
-      "credentials/vellum:assistant_api_key",
-      "credentials/vellum:platform_user_id",
-      "credentials/openai-key",
-      "credentials/anthropic-key",
-      "credentials/github-token",
+      bundlePathFor(vellumApiKey),
+      bundlePathFor(vellumUserId),
+      bundlePathFor(openaiKey),
+      bundlePathFor(anthropicKey),
+      bundlePathFor(githubToken),
     ]);
 
     const bundleCredentials = extractCredentialsFromBundle(entries, manifest);
     const { userCredentials, skippedPlatform } =
       filterCredentials(bundleCredentials);
 
-    // Only user credentials should pass through
+    // Only user credentials should pass through.
     expect(userCredentials).toHaveLength(3);
     const accounts = userCredentials.map((c) => c.account).sort();
-    expect(accounts).toEqual(["anthropic-key", "github-token", "openai-key"]);
+    expect(accounts).toEqual([anthropicKey, githubToken, openaiKey].sort());
 
-    // No vellum: credentials in the filtered output
+    // No platform credentials in the filtered output.
     const vellumCreds = userCredentials.filter((c) =>
-      c.account.startsWith("vellum:"),
+      c.account.startsWith(PLATFORM_CREDENTIAL_PREFIX),
     );
     expect(vellumCreds).toHaveLength(0);
 
@@ -176,17 +192,22 @@ describe("migration import credential filtering", () => {
   });
 
   test("skippedPlatform count is accurate with mixed credentials", () => {
+    const vellumApiKey = credentialKey("vellum", "assistant_api_key");
+    const vellumBaseUrl = credentialKey("vellum", "platform_base_url");
+    const vellumWebhook = credentialKey("vellum", "webhook_secret");
+    const userKey = credentialKey("github", "api_token");
+
     const entries = new Map<string, VBundleTarEntry>();
-    entries.set("credentials/vellum:assistant_api_key", makeTarEntry("v1"));
-    entries.set("credentials/vellum:platform_base_url", makeTarEntry("v2"));
-    entries.set("credentials/vellum:webhook_secret", makeTarEntry("v3"));
-    entries.set("credentials/user-key", makeTarEntry("user-val"));
+    entries.set(bundlePathFor(vellumApiKey), makeTarEntry("v1"));
+    entries.set(bundlePathFor(vellumBaseUrl), makeTarEntry("v2"));
+    entries.set(bundlePathFor(vellumWebhook), makeTarEntry("v3"));
+    entries.set(bundlePathFor(userKey), makeTarEntry("user-val"));
 
     const manifest = makeManifest([
-      "credentials/vellum:assistant_api_key",
-      "credentials/vellum:platform_base_url",
-      "credentials/vellum:webhook_secret",
-      "credentials/user-key",
+      bundlePathFor(vellumApiKey),
+      bundlePathFor(vellumBaseUrl),
+      bundlePathFor(vellumWebhook),
+      bundlePathFor(userKey),
     ]);
 
     const bundleCredentials = extractCredentialsFromBundle(entries, manifest);
@@ -196,7 +217,7 @@ describe("migration import credential filtering", () => {
     expect(skippedPlatform).toBe(3);
     expect(userCredentials).toHaveLength(1);
     expect(userCredentials[0]).toEqual({
-      account: "user-key",
+      account: userKey,
       value: "user-val",
     });
 
@@ -204,5 +225,23 @@ describe("migration import credential filtering", () => {
     expect(bundleCredentials.length).toBe(
       userCredentials.length + skippedPlatform,
     );
+  });
+
+  test("regression: the prefix matches credentialKey('vellum', '') so format changes propagate", () => {
+    // If credentialKey()'s format ever changes (e.g. slash → something else),
+    // this assertion will fail and the duplicated constant in
+    // migration-routes.ts must be updated to stay in sync.
+    expect(PLATFORM_CREDENTIAL_PREFIX).toBe("credential/vellum/");
+    expect(
+      credentialKey("vellum", "assistant_api_key").startsWith(
+        PLATFORM_CREDENTIAL_PREFIX,
+      ),
+    ).toBe(true);
+
+    // Guard against the historic bug: the legacy "vellum:" prefix must NOT
+    // match the real CES account format.
+    expect(
+      credentialKey("vellum", "assistant_api_key").startsWith("vellum:"),
+    ).toBe(false);
   });
 });

@@ -61,8 +61,16 @@ import {
 import { streamCommitImport } from "../migrations/vbundle-streaming-importer.js";
 import { validateVBundle } from "../migrations/vbundle-validator.js";
 
-/** Credentials with this prefix are platform-identity keys and must not be imported. */
-const PLATFORM_CREDENTIAL_PREFIX = "vellum:";
+/**
+ * CES account prefix for platform-identity (`vellum:*`) credentials. Entries
+ * with an account that starts with this string are filtered out of any
+ * imported bundle so they don't overwrite the target's own Django-provisioned
+ * platform identity (most notably `assistant_api_key`).
+ *
+ * Derived from `credentialKey("vellum", "")` so the prefix automatically
+ * tracks the real CES account format — the literal string `"credential/vellum/"`.
+ */
+const PLATFORM_CREDENTIAL_PREFIX = credentialKey("vellum", "");
 
 /**
  * Platform-identity fields that the managed runtime expects to see in CES
