@@ -47,6 +47,7 @@ import {
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
 import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js";
 import { createEmailWebhookHandler } from "./http/routes/email-webhook.js";
+import { createMailgunWebhookHandler } from "./http/routes/mailgun-webhook.js";
 import { createResendWebhookHandler } from "./http/routes/resend-webhook.js";
 import { createSlackDeliverHandler } from "./http/routes/slack-deliver.js";
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
@@ -313,6 +314,13 @@ async function main() {
     credentials: credentialCache,
     configFile: configFileCache,
   });
+  const { handler: handleMailgunWebhook } = createMailgunWebhookHandler(
+    config,
+    {
+      credentials: credentialCache,
+      configFile: configFileCache,
+    },
+  );
   // Map: "channel:threadTs" -> { messageTs, expiresAt } for replacing approval
   // messages with the bot's follow-up content after an approval button click.
   const pendingApprovalReplacements = new Map<
@@ -446,6 +454,10 @@ async function main() {
     {
       path: "/webhooks/resend",
       handler: (req) => handleResendWebhook(req),
+    },
+    {
+      path: "/webhooks/mailgun",
+      handler: (req) => handleMailgunWebhook(req),
     },
 
     // ── Audio serving (unauthenticated — Twilio fetches these URLs directly) ──
