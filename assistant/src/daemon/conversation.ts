@@ -62,7 +62,10 @@ import {
 } from "../permissions/v2-consent-policy.js";
 import { resolvePersonaContext } from "../prompts/persona-resolver.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
-import { resolveModelIntent } from "../providers/model-intents.js";
+import {
+  getProviderDefaultModel,
+  resolveModelIntent,
+} from "../providers/model-intents.js";
 import type { Message, ModelIntent } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
@@ -191,6 +194,15 @@ export class Conversation {
   };
   /** @internal */ readonly systemPrompt: string;
   /** @internal */ contextWindowManager: ContextWindowManager;
+  /**
+   * Effective per-model max input tokens for this conversation's active
+   * model. Delegates to the underlying `ContextWindowManager` so callers
+   * reading the token budget (slash commands, usage emission) see the
+   * same catalog-resolved value the compaction logic measures against.
+   */
+  get effectiveMaxInputTokens(): number {
+    return this.contextWindowManager.effectiveMaxInputTokens;
+  }
   /** @internal */ contextCompactedMessageCount = 0;
   /** @internal */ contextCompactedAt: number | null = null;
   /**
@@ -520,6 +532,12 @@ export class Conversation {
       systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
       config: config.contextWindow,
       toolTokenBudget: this.agentLoop.getToolTokenBudget(),
+      // Pass the active model so the manager can resolve `contextWindow`
+      // from the per-model catalog. Fall back to the provider's default
+      // model when no override/intent is set so we still get a catalog
+      // hit for the common case.
+      activeModel: () =>
+        resolvedModel ?? getProviderDefaultModel(provider.name),
     });
 
     void getHookManager().trigger("conversation-start", {

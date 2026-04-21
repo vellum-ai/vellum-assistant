@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { ContextWindowConfig } from "../config/types.js";
+import { getModelCapabilities } from "../providers/model-catalog.js";
 import type {
   ContentBlock,
   ImageContent,
@@ -155,6 +156,19 @@ export interface ContextWindowManagerOptions {
   config: ContextWindowConfig;
   /** Pre-computed tool token budget to include in all estimations. */
   toolTokenBudget?: number;
+  /**
+   * Resolves the active model ID (e.g. `"claude-opus-4-7"`) used by the
+   * current conversation. Passed as a function so callers that compute the
+   * model dynamically (e.g. resolving `modelIntent` per turn) don't have to
+   * rebuild the manager. When the catalog entry for this model is present,
+   * `catalog.contextWindow` acts as the authoritative maximum and the
+   * config's `maxInputTokens` is treated as a conservative ceiling on top
+   * (`effectiveMaxInputTokens = min(catalog.contextWindow, config.maxInputTokens)`).
+   *
+   * When unset, missing, or returning `undefined`, the manager falls back
+   * to `config.maxInputTokens` alone for backwards compatibility.
+   */
+  activeModel?: string | (() => string | undefined);
 }
 
 export class ContextWindowManager {
@@ -162,6 +176,10 @@ export class ContextWindowManager {
   private readonly _systemPrompt: string | (() => string);
   private readonly config: ContextWindowConfig;
   private readonly toolTokenBudget: number;
+  private readonly _activeModel:
+    | string
+    | (() => string | undefined)
+    | undefined;
   /**
    * Number of leading messages that are non-persisted (injected inherited
    * context from a parent conversation).  `countPersistedMessages` subtracts
@@ -192,6 +210,31 @@ export class ContextWindowManager {
     this._systemPrompt = options.systemPrompt;
     this.config = options.config;
     this.toolTokenBudget = options.toolTokenBudget ?? 0;
+    this._activeModel = options.activeModel;
+  }
+
+  /**
+   * Effective input token budget for this turn.
+   *
+   * Resolution order:
+   *   1. Look up `getModelCapabilities(provider.name, activeModel)`; when
+   *      present, `catalog.contextWindow` is the authoritative native ceiling.
+   *   2. Treat `config.maxInputTokens` as an optional conservative cap on top
+   *      (e.g. to keep request latency predictable or leave headroom).
+   *   3. If the catalog miss for this model, fall back to `config.maxInputTokens`
+   *      alone for backwards compatibility — behavior matches the pre-catalog
+   *      world.
+   */
+  get effectiveMaxInputTokens(): number {
+    const configCap = this.config.maxInputTokens;
+    const modelId =
+      typeof this._activeModel === "function"
+        ? this._activeModel()
+        : this._activeModel;
+    if (!modelId) return configCap;
+    const capabilities = getModelCapabilities(this.provider.name, modelId);
+    if (!capabilities) return configCap;
+    return Math.min(capabilities.contextWindow, configCap);
   }
 
   /**
@@ -235,7 +278,7 @@ export class ContextWindowManager {
         toolTokenBudget: this.toolTokenBudget,
       });
       const threshold = Math.floor(
-        this.config.maxInputTokens * this.config.compactThreshold,
+        this.effectiveMaxInputTokens * this.config.compactThreshold,
       );
       return { needed: estimated >= threshold, estimatedTokens: estimated };
     } finally {
@@ -260,6 +303,10 @@ export class ContextWindowManager {
     signal?: AbortSignal,
     options?: ContextWindowCompactOptions,
   ): Promise<ContextWindowResult> {
+    // Snapshot the effective maxInputTokens once per pass so every branch of
+    // this method sees the same value (the activeModel callback, if supplied,
+    // could in principle return different strings across calls during a turn).
+    const maxInputTokens = this.effectiveMaxInputTokens;
     const previousEstimatedInputTokens =
       options?.precomputedEstimate ??
       estimatePromptTokens(messages, this.systemPrompt, {
@@ -267,7 +314,7 @@ export class ContextWindowManager {
         toolTokenBudget: this.toolTokenBudget,
       });
     const thresholdTokens = Math.floor(
-      this.config.maxInputTokens * this.config.compactThreshold,
+      maxInputTokens * this.config.compactThreshold,
     );
     const existingSummary = getSummaryFromContextMessage(messages[0]);
 
@@ -277,7 +324,7 @@ export class ContextWindowManager {
         compacted: false,
         previousEstimatedInputTokens,
         estimatedInputTokens: previousEstimatedInputTokens,
-        maxInputTokens: this.config.maxInputTokens,
+        maxInputTokens,
         thresholdTokens,
         compactedMessages: 0,
         compactedPersistedMessages: 0,
@@ -296,7 +343,7 @@ export class ContextWindowManager {
         compacted: false,
         previousEstimatedInputTokens,
         estimatedInputTokens: previousEstimatedInputTokens,
-        maxInputTokens: this.config.maxInputTokens,
+        maxInputTokens,
         thresholdTokens,
         compactedMessages: 0,
         compactedPersistedMessages: 0,
@@ -317,7 +364,7 @@ export class ContextWindowManager {
         compacted: false,
         previousEstimatedInputTokens,
         estimatedInputTokens: previousEstimatedInputTokens,
-        maxInputTokens: this.config.maxInputTokens,
+        maxInputTokens,
         thresholdTokens,
         compactedMessages: 0,
         compactedPersistedMessages: 0,
@@ -355,7 +402,7 @@ export class ContextWindowManager {
         compacted: didTruncate,
         previousEstimatedInputTokens,
         estimatedInputTokens: estimatedAfterTruncation,
-        maxInputTokens: this.config.maxInputTokens,
+        maxInputTokens,
         thresholdTokens,
         compactedMessages: 0,
         compactedPersistedMessages: 0,
@@ -380,7 +427,7 @@ export class ContextWindowManager {
         compacted: false,
         previousEstimatedInputTokens,
         estimatedInputTokens: previousEstimatedInputTokens,
-        maxInputTokens: this.config.maxInputTokens,
+        maxInputTokens,
         thresholdTokens,
         compactedMessages: 0,
         compactedPersistedMessages: 0,
@@ -428,7 +475,7 @@ export class ContextWindowManager {
     );
     const severePressure =
       previousEstimatedInputTokens >=
-      Math.floor(this.config.maxInputTokens * SEVERE_PRESSURE_RATIO);
+      Math.floor(maxInputTokens * SEVERE_PRESSURE_RATIO);
     const lastCompactedAt = options?.lastCompactedAt;
 
     // Adaptive cooldown: conversations growing quickly (high projected gain) compact
@@ -471,7 +518,7 @@ export class ContextWindowManager {
         compacted: false,
         previousEstimatedInputTokens,
         estimatedInputTokens: previousEstimatedInputTokens,
-        maxInputTokens: this.config.maxInputTokens,
+        maxInputTokens,
         thresholdTokens,
         compactedMessages: 0,
         compactedPersistedMessages: 0,
@@ -493,7 +540,7 @@ export class ContextWindowManager {
         compacted: false,
         previousEstimatedInputTokens,
         estimatedInputTokens: previousEstimatedInputTokens,
-        maxInputTokens: this.config.maxInputTokens,
+        maxInputTokens,
         thresholdTokens,
         compactedMessages: 0,
         compactedPersistedMessages: 0,
@@ -582,7 +629,7 @@ export class ContextWindowManager {
       compacted: true,
       previousEstimatedInputTokens,
       estimatedInputTokens,
-      maxInputTokens: this.config.maxInputTokens,
+      maxInputTokens,
       thresholdTokens,
       compactedMessages: compactableMessages.length,
       compactedPersistedMessages,
@@ -600,7 +647,7 @@ export class ContextWindowManager {
 
   private get targetInputTokens(): number {
     return Math.floor(
-      this.config.maxInputTokens *
+      this.effectiveMaxInputTokens *
         (this.config.targetBudgetRatio - this.config.summaryBudgetRatio),
     );
   }
@@ -673,7 +720,7 @@ export class ContextWindowManager {
   private get summaryMaxTokens(): number {
     return Math.max(
       1,
-      Math.floor(this.config.maxInputTokens * this.config.summaryBudgetRatio),
+      Math.floor(this.effectiveMaxInputTokens * this.config.summaryBudgetRatio),
     );
   }
 
@@ -702,7 +749,7 @@ export class ContextWindowManager {
 
     const maxTranscriptTokens = Math.max(
       0,
-      this.config.maxInputTokens - overheadTokens,
+      this.effectiveMaxInputTokens - overheadTokens,
     );
 
     const estimateBlockTokens = (b: ContentBlock): number =>

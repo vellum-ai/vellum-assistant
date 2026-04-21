@@ -111,6 +111,14 @@ export interface ProcessConversationContext {
   currentPage?: string;
   /** Cumulative token usage stats for the conversation. */
   readonly usageStats: UsageStats;
+  /**
+   * Effective per-model max input tokens for the active model, derived from
+   * the per-model catalog capped by the optional `contextWindow.maxInputTokens`
+   * config override. Optional so older callers/tests that satisfy this
+   * interface without wiring up a ContextWindowManager continue to compile;
+   * `buildSlashContext` falls back to the config value when absent.
+   */
+  readonly effectiveMaxInputTokens?: number;
   /** Request-scoped skill IDs preactivated via config or programmatic injection. */
   preactivatedSkillIds?: string[];
   /** Add a skill ID to the preactivated set without replacing existing entries. */
@@ -259,7 +267,13 @@ function buildSlashContext(
     messageCount: conversation.messages.length,
     inputTokens: conversation.usageStats.inputTokens,
     outputTokens: conversation.usageStats.outputTokens,
-    maxInputTokens: config.contextWindow.maxInputTokens,
+    // Prefer the per-model effective cap (catalog-resolved) when the
+    // context provides it so slash commands see the same budget the
+    // compaction logic measures against; fall back to the config value
+    // for contexts that pre-date this field.
+    maxInputTokens:
+      conversation.effectiveMaxInputTokens ??
+      config.contextWindow.maxInputTokens,
     model: config.services.inference.model,
     provider: config.services.inference.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
