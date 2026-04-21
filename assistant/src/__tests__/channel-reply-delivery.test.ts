@@ -446,6 +446,28 @@ describe("channel-reply-delivery", () => {
     expect(deliveryCalls).toHaveLength(0);
   });
 
+  it("suppresses delivery when <no_response/> is wrapped with model artifacts", async () => {
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: "http://gateway/deliver/slack",
+      chatId: "chat-silent-artifact",
+      textSegments: ["[04/21/26 21:53]: <no_response/>"],
+      interSegmentDelayMs: 0,
+    });
+
+    expect(deliveryCalls).toHaveLength(0);
+  });
+
+  it("suppresses delivery for <no_response /> with space before slash and surrounding artifacts", async () => {
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: "http://gateway/deliver/slack",
+      chatId: "chat-silent-artifact-space",
+      textSegments: ["[timestamp]: <no_response />"],
+      interSegmentDelayMs: 0,
+    });
+
+    expect(deliveryCalls).toHaveLength(0);
+  });
+
   it("delivers other segments when <no_response/> is mixed with real text", async () => {
     await deliverRenderedReplyViaCallback({
       callbackUrl: "http://gateway/deliver/slack",

@@ -55,22 +55,48 @@ function sleep(ms: number): Promise<void> {
 
 const NO_RESPONSE_RE = /^\s*<no_response\s*\/?>\s*$/;
 
-/** Returns true when any segment is a `<no_response/>` sentinel. */
+/**
+ * Inline regex that matches `<no_response/>` anywhere in a string.
+ * Used to strip the sentinel when the model wraps it with other artifacts
+ * (e.g. timestamp prefixes) so suppression still works.
+ */
+const NO_RESPONSE_INLINE_RE = /<no_response\s*\/?>/;
+
+/** Returns true when any segment contains a `<no_response/>` sentinel. */
 function hasNoResponseMarker(textSegments: string[]): boolean {
-  return textSegments.some((s) => NO_RESPONSE_RE.test(s));
+  return textSegments.some(
+    (s) => NO_RESPONSE_RE.test(s) || NO_RESPONSE_INLINE_RE.test(s),
+  );
+}
+
+/**
+ * Strip `<no_response/>` tags from a segment and return the remaining text.
+ * Handles cases where the model wraps the sentinel with artifacts (e.g.
+ * timestamp prefixes like `[04/21/26 21:53]: <no_response/>`).
+ */
+function stripNoResponseTag(segment: string): string {
+  return segment.replace(NO_RESPONSE_INLINE_RE, "").trim();
 }
 
 function toDeliverableTextSegments(
   textSegments: string[],
   fallbackText?: string,
 ): string[] {
-  const nonEmptySegments = textSegments.filter(
-    (segment) => segment.trim().length > 0 && !NO_RESPONSE_RE.test(segment),
-  );
+  const hadNoResponse = hasNoResponseMarker(textSegments);
+  const nonEmptySegments = textSegments
+    .map((segment) => {
+      // Strip <no_response/> tags inline so surrounding artifacts
+      // (e.g. timestamp prefixes) don't defeat suppression.
+      if (NO_RESPONSE_INLINE_RE.test(segment)) {
+        return stripNoResponseTag(segment);
+      }
+      return segment.trim();
+    })
+    .filter((segment) => segment.length > 0);
   if (nonEmptySegments.length > 0) return nonEmptySegments;
-  // If the only text was <no_response/>, treat as intentional silence —
-  // do not fall back to fallbackText.
-  if (hasNoResponseMarker(textSegments)) return [];
+  // If the original segments contained <no_response/>, treat as intentional
+  // silence — do not fall back to fallbackText.
+  if (hadNoResponse) return [];
   if (typeof fallbackText === "string" && fallbackText.trim().length > 0) {
     return [fallbackText];
   }
