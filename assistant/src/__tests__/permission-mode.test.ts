@@ -40,7 +40,11 @@ describe("PermissionsConfigSchema", () => {
     expect(PermissionsConfigSchema.parse({})).toEqual({
       mode: "workspace",
       hostAccess: false,
-      autoApproveUpTo: "low",
+      autoApproveUpTo: {
+        conversation: "low",
+        background: "medium",
+        headless: "none",
+      },
     });
   });
 
@@ -48,7 +52,11 @@ describe("PermissionsConfigSchema", () => {
     expect(PermissionsConfigSchema.parse({ mode: "strict" })).toEqual({
       mode: "strict",
       hostAccess: false,
-      autoApproveUpTo: "low",
+      autoApproveUpTo: {
+        conversation: "low",
+        background: "medium",
+        headless: "none",
+      },
     });
   });
 
@@ -61,7 +69,11 @@ describe("PermissionsConfigSchema", () => {
     ).toEqual({
       mode: "workspace",
       hostAccess: true,
-      autoApproveUpTo: "low",
+      autoApproveUpTo: {
+        conversation: "low",
+        background: "medium",
+        headless: "none",
+      },
     });
   });
 
