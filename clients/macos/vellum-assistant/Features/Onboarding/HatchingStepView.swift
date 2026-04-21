@@ -17,7 +17,8 @@ struct HatchingStepView: View {
     @State private var characterAwake = false
     @State private var pulseScale: CGFloat = 0.9
     @State private var showCharacter = true
-    @State private var hatchStarted = false
+    // hatch guard lives on OnboardingState (state.hatchProcessStarted)
+    // so it survives SwiftUI view recreation
     @State private var isCheckingHealth = false
     private var hatchBody: AvatarBodyShape {
         state.hatchAvatarBodyShape ?? .allCases[0]
@@ -104,8 +105,8 @@ struct HatchingStepView: View {
                 showContent = true
             }
             startPulse()
-            if !hatchStarted {
-                hatchStarted = true
+            if !state.hatchProcessStarted {
+                state.hatchProcessStarted = true
                 startHatching()
             }
 
@@ -343,7 +344,7 @@ struct HatchingStepView: View {
         state.hatchStepLabel = nil
         state.hatchTotalSteps = 1
         state.hatchCurrentStep = 0
-        hatchStarted = false
+        state.hatchProcessStarted = false
         progressStartDate = nil
         segmentStartDate = nil
         segmentStartValue = 0
@@ -399,7 +400,7 @@ struct HatchingStepView: View {
     }
 
     private func retryHatch() {
-        hatchStarted = false
+        state.hatchProcessStarted = false
         if state.isManagedHatch, let onRetryManaged {
             // Non-destructive retry: re-run managed bootstrap from the top.
             // `resetForRetry` would wipe ToS acceptance and API keys, which is
