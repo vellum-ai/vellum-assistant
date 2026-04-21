@@ -76,6 +76,7 @@ import type { AbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import {
+  collapseRawResponses,
   runAgentLoopImpl,
   trackCompactionOutcome,
 } from "./conversation-agent-loop.js";
@@ -1294,7 +1295,7 @@ export class Conversation {
         null,
         result.summaryCacheCreationInputTokens ?? 0,
         result.summaryCacheReadInputTokens ?? 0,
-        undefined,
+        collapseRawResponses(result.summaryRawResponses),
         result.summaryCalls,
         {
           tokens: result.estimatedInputTokens,

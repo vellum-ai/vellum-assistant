@@ -1200,6 +1200,12 @@ export async function runAgentLoopImpl(
             step.compactionResult.summaryCacheCreationInputTokens ?? 0,
             step.compactionResult.summaryCacheReadInputTokens ?? 0,
             collapseRawResponses(step.compactionResult.summaryRawResponses),
+            undefined /* providerName */,
+            1 /* llmCallCount */,
+            {
+              tokens: step.compactionResult.estimatedInputTokens,
+              maxTokens: step.compactionResult.maxInputTokens,
+            },
           );
           ctx.graphMemory.onCompacted(
             step.compactionResult.compactedPersistedMessages,
@@ -1457,6 +1463,12 @@ export async function runAgentLoopImpl(
           midLoopCompact.summaryCacheCreationInputTokens ?? 0,
           midLoopCompact.summaryCacheReadInputTokens ?? 0,
           collapseRawResponses(midLoopCompact.summaryRawResponses),
+          undefined /* providerName */,
+          1 /* llmCallCount */,
+          {
+            tokens: midLoopCompact.estimatedInputTokens,
+            maxTokens: midLoopCompact.maxInputTokens,
+          },
         );
         ctx.graphMemory.onCompacted(midLoopCompact.compactedPersistedMessages);
         shouldInjectWorkspace = true;
@@ -1726,6 +1738,12 @@ export async function runAgentLoopImpl(
             step.compactionResult.summaryCacheCreationInputTokens ?? 0,
             step.compactionResult.summaryCacheReadInputTokens ?? 0,
             collapseRawResponses(step.compactionResult.summaryRawResponses),
+            undefined /* providerName */,
+            1 /* llmCallCount */,
+            {
+              tokens: step.compactionResult.estimatedInputTokens,
+              maxTokens: step.compactionResult.maxInputTokens,
+            },
           );
           ctx.graphMemory.onCompacted(
             step.compactionResult.compactedPersistedMessages,
@@ -2560,7 +2578,9 @@ function emitUsage(
   );
 }
 
-function collapseRawResponses(rawResponses?: unknown[]): unknown | undefined {
+export function collapseRawResponses(
+  rawResponses?: unknown[],
+): unknown | undefined {
   if (!rawResponses || rawResponses.length === 0) return undefined;
   return rawResponses.length === 1 ? rawResponses[0] : rawResponses;
 }
