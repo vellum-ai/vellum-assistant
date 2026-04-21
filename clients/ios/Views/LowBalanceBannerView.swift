@@ -160,6 +160,31 @@ struct LowBalanceBannerRow: View {
     }
 }
 
+// MARK: - Session state
+
+/// Holds the low-balance banner's dismissal state at process scope, so it
+/// survives view recreation.
+///
+/// `LowBalanceBannerHost` is mounted inside `ConversationChatView`, which is
+/// recreated per conversation selection on iPad's `NavigationSplitView`. If
+/// `dismissedForState` lived in `@State` on the host, an iPad user who
+/// dismissed the banner would see it re-appear the next time they tapped a
+/// conversation in the sidebar. Lifting the state to an `@Observable`
+/// singleton — observed by every host instance — makes dismissal truly
+/// session-scoped on both iPhone and iPad.
+@MainActor
+@Observable
+final class LowBalanceBannerSession {
+    static let shared = LowBalanceBannerSession()
+
+    /// The state at which the user dismissed the banner, if any. Set when
+    /// the x button fires, cleared on recovery to `.ok` so a subsequent
+    /// drop re-surfaces the banner.
+    var dismissedForState: LowBalanceState?
+
+    private init() {}
+}
+
 // MARK: - Banner host
 
 /// Self-contained host for the low-balance redirect banner.
@@ -176,19 +201,27 @@ struct LowBalanceBannerRow: View {
 /// - Safari sheet dismissal — the user may have just topped up
 ///
 /// ## Dismissal
-/// Session-scoped. If the user dismisses the banner at a given state, it
-/// stays hidden for that exact state. Transitioning into a different state
-/// (e.g. `.low` → `.depleted`) re-shows the banner, and recovering to `.ok`
-/// clears the dismissal so a future drop re-surfaces it.
+/// Session-scoped via `LowBalanceBannerSession.shared`, so the dismissal
+/// survives view recreation (notably iPad's `NavigationSplitView` rebuilding
+/// the detail pane on conversation switch). If the user dismisses the banner
+/// at a given state it stays hidden for that state; transitioning into a
+/// different state (e.g. `.low` → `.depleted`) re-shows the banner, and
+/// recovering to `.ok` clears the dismissal so a future drop re-surfaces it.
 ///
 /// ## Failure behavior
 /// `BillingService.getBillingSummary` throws when the user is unauthenticated
-/// or no organization is connected. We swallow those errors silently — the
-/// banner is a best-effort signal, not a blocking surface.
+/// or no organization is connected. We swallow those errors silently — but
+/// we also clear any previously-fetched `summary`, so a stale `.low` or
+/// `.depleted` banner doesn't persist (and falsely re-prompt for top-up)
+/// after a transient refresh failure following an actual balance change.
 struct LowBalanceBannerHost: View {
     @State private var summary: BillingSummaryResponse?
     @State private var showSafari: Bool = false
-    @State private var dismissedForState: LowBalanceState?
+    /// Process-scoped dismissal lives on the singleton so it survives
+    /// `ConversationChatView` recreation. Observed directly — the
+    /// `@Observable` conformance on `LowBalanceBannerSession` triggers
+    /// re-evaluation when `dismissedForState` changes.
+    private let session = LowBalanceBannerSession.shared
 
     private var state: LowBalanceState {
         guard let summary else { return .ok }
@@ -196,7 +229,7 @@ struct LowBalanceBannerHost: View {
     }
 
     private var shouldShowBanner: Bool {
-        state != .ok && dismissedForState != state
+        state != .ok && session.dismissedForState != state
     }
 
     var body: some View {
@@ -205,7 +238,7 @@ struct LowBalanceBannerHost: View {
                 LowBalanceBannerRow(
                     state: state,
                     onTap: { showSafari = true },
-                    onDismiss: { dismissedForState = state }
+                    onDismiss: { session.dismissedForState = state }
                 )
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -227,17 +260,29 @@ struct LowBalanceBannerHost: View {
 
     private func refreshSummary() async {
         do {
-            let fresh = try await BillingService.shared.getBillingSummary()
+            // Mirror the macOS `DrawerMenuView.loadBalance` sequence: fetch
+            // the current summary, then run the one-shot bootstrap if the
+            // org's balances are all-zero. Without this step a brand-new
+            // organization would be classified as `.depleted` before its
+            // bootstrap credit is granted, prompting an unnecessary top-up.
+            var fresh = try await BillingService.shared.getBillingSummary()
+            if let bootstrapped = await BillingService.shared.bootstrapBillingSummaryIfNeeded(summary: fresh) {
+                fresh = bootstrapped
+            }
             summary = fresh
             // Clear the session dismissal once the balance recovers so a
             // subsequent drop re-shows the banner.
             if LowBalanceBanner.state(for: fresh) == .ok {
-                dismissedForState = nil
+                session.dismissedForState = nil
             }
         } catch {
-            // Silent by design — see doc comment. A noisy banner on a
-            // transient network blip or an unauthenticated session would be
-            // worse than a missed warning.
+            // Drop any prior summary on failure. Keeping the previous value
+            // would risk a stale `.low`/`.depleted` banner continuing to
+            // prompt for top-up after a successful top-up if the refresh
+            // call later failed (e.g. transient network blip on foreground
+            // return). Hiding the banner until we have fresh data is
+            // strictly safer than showing a false warning.
+            summary = nil
         }
     }
 }
