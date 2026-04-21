@@ -170,10 +170,12 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         self.clientProvider = ClientProvider(connectionManager: cm, client: cm)
         super.init()
 
-        // Restore the managed-connection identifiers after re-login — `AuthManager.logout()`
-        // clears `managed_assistant_id` / `managed_platform_base_url` from UserDefaults, and
-        // without this hook the shared `AuthManager` has no way to know it needs to re-run
-        // the bootstrap that `OnboardingView` runs on first launch. See LUM-1069.
+        // Keep the iOS managed-connection identifiers in sync with the shared
+        // `AuthManager` auth state. `AuthManager.logout()` clears
+        // `managed_assistant_id` / `managed_platform_base_url` from UserDefaults;
+        // this hook re-discovers and re-persists them whenever auth re-establishes,
+        // so `GatewayHTTPClient.resolveConnection()` can build a `ConnectionInfo`
+        // without requiring the user to re-onboard.
         let reconciler = ManagedAssistantIOSReconciler(
             rebuildClient: { [weak clientProvider] in
                 clientProvider?.rebuildClient()
@@ -182,14 +184,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         authManager.postAuthenticationHook = { [weak clientProvider] in
             do {
                 let reconciled = try await reconciler.reconcile()
-                // When `reconcile()` returns a non-nil assistant it has just
-                // rebuilt the `GatewayConnectionManager`, which leaves the new
-                // client in a disconnected state (`rebuildClient()` tears the
-                // old client down and never dials the new one). Kick off the
-                // connection here so the Connect screen and SSE stream come
-                // back online immediately after logout → re-login instead of
-                // having to wait for a background → foreground transition to
-                // retrigger `SceneDelegate.sceneWillEnterForeground`.
+                // `rebuildClient()` creates a fresh `GatewayConnectionManager`
+                // in a disconnected state, so whenever the reconciler actually
+                // replaced the client we need to dial it here. Otherwise the
+                // Connect screen and SSE stream would stay offline until the
+                // next `SceneDelegate.sceneWillEnterForeground` transition.
                 if reconciled != nil, let client = clientProvider?.client {
                     try? await client.connect()
                 }

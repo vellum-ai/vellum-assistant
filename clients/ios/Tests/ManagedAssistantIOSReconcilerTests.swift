@@ -3,8 +3,8 @@ import XCTest
 @testable import VellumAssistantShared
 @testable import vellum_assistant_ios
 
-/// Exercises the post-authentication reconciliation path that restores
-/// the iOS managed-connection identifiers after logout → re-login (LUM-1069).
+/// Exercises the post-authentication reconciliation path that keeps the iOS
+/// managed-connection identifiers in sync with `AuthManager`'s auth state.
 @MainActor
 final class ManagedAssistantIOSReconcilerTests: XCTestCase {
 

@@ -105,13 +105,12 @@ struct OnboardingView: View {
         )
 
         do {
-            // `AuthManager.postAuthenticationHook` has already invoked the
-            // reconciler by the time we land here (LoginView → startWorkOSLogin
-            // → hook), so on the happy path this call short-circuits against
-            // the keys just written and advances to `.ready` immediately.
-            // On a hook failure (e.g. transient platform error) `managed_assistant_id`
-            // is still absent and this call retries the bootstrap with the
-            // visible "Setting up your assistant..." spinner.
+            // The post-authentication hook in `AppDelegate` already drives the
+            // reconciler on every successful login, so on the happy path this
+            // call short-circuits against the keys the hook just wrote. When
+            // the hook fails (e.g. transient platform error) the keys are
+            // still absent and this retry runs the bootstrap with the visible
+            // "Setting up your assistant..." spinner.
             _ = try await reconciler.reconcile()
             isBootstrappingManaged = false
             currentStep = .ready

@@ -114,9 +114,8 @@ struct ContentView: View {
     }
 
     private func navigateToConnectSettings() {
-        // Connection status lives inline in the Settings tab — see
-        // `ConnectionInfoSection`. Switching to the tab is sufficient; there
-        // is no longer a subscreen to push into.
+        // Connection status lives inline in the Settings tab via
+        // `ConnectionInfoSection`, so switching tabs is sufficient.
         selectedTab = .settings
     }
 

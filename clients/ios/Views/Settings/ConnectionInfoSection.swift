@@ -4,22 +4,20 @@ import VellumAssistantShared
 
 /// Inline connection-status section for the Settings screen.
 ///
-/// Rendered directly inside `SettingsView`'s `Form` — composed rather than
-/// pushed — so users can see their connection status alongside their account
-/// information without drilling into a subscreen. The `@AppStorage`-backed
-/// keys mirror the priority order in `GatewayHTTPClient.resolveConnection()`
-/// so the label displayed here always matches the URL the network layer will
-/// actually use, and SwiftUI re-renders the section immediately when those
-/// keys are cleared (e.g. on logout) instead of waiting for the underlying
-/// connection client to notice.
+/// Composed into `SettingsView`'s `Form` so users can see their connection
+/// status alongside their account information. The `@AppStorage`-backed keys
+/// mirror the priority order in `GatewayHTTPClient.resolveConnection()`, so
+/// the label displayed here always matches the URL the network layer will
+/// actually use, and SwiftUI re-renders the section as soon as those keys
+/// change (e.g. on logout) without depending on the gateway client to notice
+/// its session is gone.
 struct ConnectionInfoSection: View {
     @EnvironmentObject var clientProvider: ClientProvider
 
-    // `@AppStorage` participates in SwiftUI's dependency tracking, so writes
-    // from `AuthManager.logout()` invalidate this view on the same run-loop
-    // pass that clears the keys. Reading UserDefaults directly would require
-    // waiting for some other piece of observed state (e.g. the gateway client
-    // finally noticing its session is dead) to re-render the row.
+    // `@AppStorage` participates in SwiftUI's dependency tracking, so any
+    // write to these UserDefaults keys invalidates this view on the same
+    // run-loop pass. A plain `UserDefaults.standard.string(forKey:)` read
+    // would require some other observed state to flip before re-rendering.
     @AppStorage(UserDefaultsKeys.managedAssistantId) private var managedAssistantId: String = ""
     @AppStorage(UserDefaultsKeys.managedPlatformBaseURL) private var managedPlatformBaseURL: String = ""
     @AppStorage(UserDefaultsKeys.gatewayBaseURL) private var gatewayBaseURL: String = ""
