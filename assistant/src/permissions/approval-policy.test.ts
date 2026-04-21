@@ -797,3 +797,152 @@ describe("resolveThreshold", () => {
     });
   });
 });
+
+// ── Guardian threshold-based auto-approve ────────────────────────────────────
+// These tests verify the ordinal comparison used in permission-checker.ts
+// to decide whether a guardian non-interactive session should auto-approve.
+// The comparison logic: riskOrdinal <= thresholdOrdinal.
+
+describe("guardian threshold-based auto-approve (ordinal comparison)", () => {
+  // Helper that mirrors the ordinal comparison from permission-checker.ts.
+  // This is the logic that replaces the old `riskLevel !== RiskLevel.High` check.
+  function isWithinThreshold(
+    riskLevel: RiskLevel,
+    bgThreshold: "none" | "low" | "medium",
+  ): boolean {
+    const thresholdOrdinal: Record<string, number> = {
+      none: -1,
+      low: 0,
+      medium: 1,
+    };
+    const riskOrdinal: Record<string, number> = {
+      [RiskLevel.Low]: 0,
+      [RiskLevel.Medium]: 1,
+      [RiskLevel.High]: 2,
+    };
+    return (
+      (riskOrdinal[riskLevel] ?? 2) <= (thresholdOrdinal[bgThreshold] ?? 0)
+    );
+  }
+
+  describe('default config (background: "medium") — behavioral parity with old riskLevel !== High', () => {
+    test("Low risk → within threshold (auto-approve)", () => {
+      const bgThreshold = resolveThreshold(
+        { conversation: "low", background: "medium", headless: "none" },
+        "background",
+      );
+      expect(bgThreshold).toBe("medium");
+      expect(isWithinThreshold(RiskLevel.Low, bgThreshold)).toBe(true);
+    });
+
+    test("Medium risk → within threshold (auto-approve)", () => {
+      const bgThreshold = resolveThreshold(
+        { conversation: "low", background: "medium", headless: "none" },
+        "background",
+      );
+      expect(isWithinThreshold(RiskLevel.Medium, bgThreshold)).toBe(true);
+    });
+
+    test("High risk → above threshold (prompt)", () => {
+      const bgThreshold = resolveThreshold(
+        { conversation: "low", background: "medium", headless: "none" },
+        "background",
+      );
+      expect(isWithinThreshold(RiskLevel.High, bgThreshold)).toBe(false);
+    });
+  });
+
+  describe('tighter config (background: "low") — only Low auto-approves', () => {
+    test("Low risk → within threshold", () => {
+      const bgThreshold = resolveThreshold(
+        { conversation: "low", background: "low", headless: "none" },
+        "background",
+      );
+      expect(bgThreshold).toBe("low");
+      expect(isWithinThreshold(RiskLevel.Low, bgThreshold)).toBe(true);
+    });
+
+    test("Medium risk → above threshold (prompt)", () => {
+      const bgThreshold = resolveThreshold(
+        { conversation: "low", background: "low", headless: "none" },
+        "background",
+      );
+      expect(isWithinThreshold(RiskLevel.Medium, bgThreshold)).toBe(false);
+    });
+
+    test("High risk → above threshold (prompt)", () => {
+      const bgThreshold = resolveThreshold(
+        { conversation: "low", background: "low", headless: "none" },
+        "background",
+      );
+      expect(isWithinThreshold(RiskLevel.High, bgThreshold)).toBe(false);
+    });
+  });
+
+  describe('strictest config (background: "none") — nothing auto-approves', () => {
+    test("Low risk → above threshold (prompt)", () => {
+      const bgThreshold = resolveThreshold(
+        { conversation: "low", background: "none", headless: "none" },
+        "background",
+      );
+      expect(bgThreshold).toBe("none");
+      expect(isWithinThreshold(RiskLevel.Low, bgThreshold)).toBe(false);
+    });
+
+    test("Medium risk → above threshold (prompt)", () => {
+      const bgThreshold = resolveThreshold(
+        { conversation: "low", background: "none", headless: "none" },
+        "background",
+      );
+      expect(isWithinThreshold(RiskLevel.Medium, bgThreshold)).toBe(false);
+    });
+
+    test("High risk → above threshold (prompt)", () => {
+      const bgThreshold = resolveThreshold(
+        { conversation: "low", background: "none", headless: "none" },
+        "background",
+      );
+      expect(isWithinThreshold(RiskLevel.High, bgThreshold)).toBe(false);
+    });
+  });
+
+  describe("scalar config form resolves correctly for background context", () => {
+    test('scalar "medium" → background resolves to medium', () => {
+      expect(resolveThreshold("medium", "background")).toBe("medium");
+    });
+
+    test('scalar "low" → background resolves to low', () => {
+      expect(resolveThreshold("low", "background")).toBe("low");
+    });
+
+    test('scalar "none" → background resolves to none', () => {
+      expect(resolveThreshold("none", "background")).toBe("none");
+    });
+  });
+
+  describe("default (undefined) resolves per-context defaults", () => {
+    test("undefined config → medium threshold for background", () => {
+      const bgThreshold = resolveThreshold(undefined, "background");
+      expect(bgThreshold).toBe("medium");
+      // Low and Medium risk are within threshold, High is not
+      expect(isWithinThreshold(RiskLevel.Low, bgThreshold)).toBe(true);
+      expect(isWithinThreshold(RiskLevel.Medium, bgThreshold)).toBe(true);
+      expect(isWithinThreshold(RiskLevel.High, bgThreshold)).toBe(false);
+    });
+
+    test("undefined config → low threshold for conversation", () => {
+      const convThreshold = resolveThreshold(undefined, "conversation");
+      expect(convThreshold).toBe("low");
+    });
+
+    test("undefined config → none threshold for headless", () => {
+      const hlThreshold = resolveThreshold(undefined, "headless");
+      expect(hlThreshold).toBe("none");
+    });
+
+    test("undefined config + no context → low (conversation default)", () => {
+      const threshold = resolveThreshold(undefined);
+      expect(threshold).toBe("low");
+    });
+  });
+});

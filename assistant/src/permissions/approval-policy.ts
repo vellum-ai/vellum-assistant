@@ -41,12 +41,22 @@ export interface ApprovalContext {
  *
  * When `executionContext` is omitted, defaults to `"conversation"`.
  */
+/** Per-context defaults when `autoApproveUpTo` is omitted from config. */
+const CONTEXT_DEFAULTS: Record<ExecutionContext, "none" | "low" | "medium"> = {
+  conversation: "low",
+  background: "medium",
+  headless: "none",
+};
+
 export function resolveThreshold(
   configValue: PermissionsConfig["autoApproveUpTo"] | undefined,
   executionContext?: ExecutionContext,
 ): "none" | "low" | "medium" {
-  if (configValue == null || typeof configValue === "string") {
-    return configValue ?? "low";
+  if (configValue == null) {
+    return CONTEXT_DEFAULTS[executionContext ?? "conversation"];
+  }
+  if (typeof configValue === "string") {
+    return configValue;
   }
   const ctx = executionContext ?? "conversation";
   return configValue[ctx];
