@@ -342,6 +342,17 @@ final class ChatActionHandler {
             vm.contextWindowTokens = event.estimatedInputTokens
             vm.contextWindowMaxTokens = event.maxInputTokens
 
+        case .compactionCircuitOpen(let event):
+            // `EventStreamClient` broadcasts every parsed server message to all
+            // subscribers, so we must gate on `conversationId` to avoid setting
+            // the "auto-compaction paused" banner on unrelated `ChatViewModel`s
+            // when a breaker trips in another conversation. `openUntil` is
+            // milliseconds-since-epoch; convert to Date.
+            guard belongsToConversation(event.conversationId) else { return }
+            let until = Date(timeIntervalSince1970: event.openUntil / 1000.0)
+            vm.compactionCircuitOpenUntil = until
+            log.warning("Auto-compaction paused until \(until, privacy: .public) — reason: \(event.reason, privacy: .public)")
+
         default:
             break
         }

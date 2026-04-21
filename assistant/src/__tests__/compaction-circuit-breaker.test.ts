@@ -27,12 +27,14 @@ import {
 import type { ServerMessage } from "../daemon/message-protocol.js";
 
 interface BreakerState {
+  readonly conversationId: string;
   consecutiveCompactionFailures: number;
   compactionCircuitOpenUntil: number | null;
 }
 
-function makeState(): BreakerState {
+function makeState(conversationId = "conv-breaker-test"): BreakerState {
   return {
+    conversationId,
     consecutiveCompactionFailures: 0,
     compactionCircuitOpenUntil: null,
   };
@@ -92,6 +94,7 @@ describe("compaction circuit breaker", () => {
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({
       type: "compaction_circuit_open",
+      conversationId: state.conversationId,
       reason: "3_consecutive_failures",
       openUntil: fixedNow + 60 * 60 * 1000,
     });
@@ -243,6 +246,7 @@ describe("compaction circuit breaker", () => {
     expect(events).toHaveLength(2);
     expect(events[1]).toEqual({
       type: "compaction_circuit_open",
+      conversationId: state.conversationId,
       reason: "3_consecutive_failures",
       openUntil: t1 + 60 * 60 * 1000,
     });

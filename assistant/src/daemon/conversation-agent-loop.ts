@@ -208,6 +208,7 @@ export function isCompactionCircuitOpen(ctx: {
  */
 export function trackCompactionOutcome(
   ctx: {
+    readonly conversationId: string;
     consecutiveCompactionFailures: number;
     compactionCircuitOpenUntil: number | null;
   },
@@ -231,8 +232,14 @@ export function trackCompactionOutcome(
     ) {
       const openUntil = Date.now() + COMPACTION_CIRCUIT_COOLDOWN_MS;
       ctx.compactionCircuitOpenUntil = openUntil;
+      // Scope the event to this conversation so clients can gate it via
+      // `belongsToConversation()` — `EventStreamClient` broadcasts every
+      // parsed server message to all subscribers, so without the ID a
+      // breaker trip here would set the "paused" banner on every open
+      // `ChatViewModel`.
       onEvent({
         type: "compaction_circuit_open",
+        conversationId: ctx.conversationId,
         reason: "3_consecutive_failures",
         openUntil,
       });
