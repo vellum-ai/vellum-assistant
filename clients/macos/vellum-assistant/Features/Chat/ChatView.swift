@@ -91,6 +91,7 @@ struct ChatView: View {
     var watchSession: WatchSession?
     var conversationManager: ConversationManager? = nil
     var showsConversationHostAccessControl: Bool = false
+    var showThresholdPicker: Bool = false
 
     @State private var isDropTargeted = false
     @State private var isDraggingInternalImage = false
@@ -500,7 +501,8 @@ struct ChatView: View {
                         contextWindowFillRatio: viewModel.contextWindowFillRatio,
                         contextWindowTokens: viewModel.contextWindowTokens,
                         contextWindowMaxTokens: viewModel.contextWindowMaxTokens,
-                        conversationHostAccessControl: conversationHostAccessControl
+                        conversationHostAccessControl: conversationHostAccessControl,
+                        showThresholdPicker: showThresholdPicker
                     )
                     .equatable()
                 }
