@@ -40,12 +40,6 @@ public final class EventStreamClient {
     private var hasShownCreditsExhausted = false
     private var hasConnectedAtLeastOnce = false
 
-    /// Dedicated URLSession for the current SSE connection. Each new stream
-    /// gets its own session so that `invalidateAndCancel()` can tear down the
-    /// underlying data task without racing against the `AsyncBytes` iterator
-    /// on the cooperative thread pool (which causes EXC_BAD_ACCESS).
-    private var sseSession: URLSession?
-
     // MARK: - SSE Parse Time Tracking
 
     private var sseParseTimeAccumulator: TimeInterval = 0
@@ -103,12 +97,15 @@ public final class EventStreamClient {
     }
 
     /// Stop the SSE event stream.
+    ///
+    /// Cancelling `sseTask` propagates through `URLSession.bytes(for:delegate:)`'s
+    /// `withTaskCancellationHandler` to the underlying data task, so the Task-local
+    /// `URLSession` is torn down by the `defer` block inside `startSSEStream`.
     public func stopSSE() {
         tokenRotationTask?.cancel()
         tokenRotationTask = nil
         sseReconnectTask?.cancel()
         sseReconnectTask = nil
-        invalidateSSESession()
         sseTask?.cancel()
         sseTask = nil
     }
@@ -289,28 +286,23 @@ public final class EventStreamClient {
     // MARK: - SSE Stream Implementation
 
     private func startSSEStream() {
-        // Invalidate the previous session *before* cancelling the task.
-        // `invalidateAndCancel()` tells URLSession to tear down the data task
-        // on its own terms, which avoids the race where `Task.cancel()`
-        // frees the internal `AsyncBytes` buffer while the cooperative-pool
-        // iterator is still reading from it (EXC_BAD_ACCESS / PAC failure).
-        invalidateSSESession()
         sseTask?.cancel()
 
-        let session = URLSession(configuration: .default)
-        sseSession = session
-
         sseTask = Task { @MainActor [weak self] in
-            guard let self else { return }
+            // Own the session inside the Task so its lifetime is tied to this
+            // one stream. Nothing outside this Task can reach `session`, which
+            // eliminates the race where a back-to-back `startSSEStream()` on
+            // the MainActor invalidated a session that another `@MainActor`
+            // task had already captured but not yet passed to
+            // `URLSession.bytes(for:)`. That race crashed the process with
+            // `NSGenericException: Task created in a session that has been
+            // invalidated` (LUM-1001), thrown uncatchably from
+            // `-[__NSURLSessionLocal taskForClassInfo:]` when `bytes(for:)`
+            // synchronously creates its data task on the cooperative pool.
+            let session = URLSession(configuration: .default)
+            defer { session.invalidateAndCancel() }
 
-            // A back-to-back call to `startSSEStream()` on the MainActor can
-            // cancel this task and invalidate `session` before it runs its
-            // first instruction. Calling `session.bytes(for:)` on an already
-            // invalidated session throws an ObjC NSGenericException from
-            // `-[__NSURLSessionLocal taskForClassInfo:]`, which is
-            // uncatchable in Swift and crashes the process with SIGABRT.
-            // Bail out before touching the session if we've been superseded.
-            guard !Task.isCancelled, self.sseSession === session else { return }
+            guard let self, !Task.isCancelled else { return }
 
             do {
                 let (bytes, response) = try await GatewayHTTPClient.stream(
@@ -578,17 +570,10 @@ public final class EventStreamClient {
         sseReconnectDelay = 1.0
     }
 
-    // MARK: - URLSession Lifecycle
-
-    /// Invalidate the current SSE URLSession, cancelling its data task.
-    /// Safe to call when `sseSession` is already nil.
-    private func invalidateSSESession() {
-        sseSession?.invalidateAndCancel()
-        sseSession = nil
-    }
-
     deinit {
-        sseSession?.invalidateAndCancel()
+        tokenRotationTask?.cancel()
+        sseReconnectTask?.cancel()
+        sseTask?.cancel()
         let continuations = subscribers.values
         for continuation in continuations {
             continuation.finish()
