@@ -26,10 +26,12 @@ import {
   type FeedItem,
   feedItemSchema,
   type FeedItemStatus,
+  suggestedPromptSchema,
   lowPriorityCollapsedSchema,
 } from "../../home/feed-types.js";
 import { patchFeedItemStatus, readHomeFeed } from "../../home/feed-writer.js";
 import { runRollupProducer } from "../../home/rollup-producer.js";
+import { getSuggestedPrompts } from "../../home/suggested-prompts.js";
 import {
   addMessage,
   createConversation,
@@ -74,6 +76,7 @@ const getHomeFeedResponseSchema = z.object({
   items: z.array(feedItemSchema),
   updatedAt: z.string(),
   contextBanner: contextBannerSchema,
+  suggestedPrompts: z.array(suggestedPromptSchema),
   lowPriorityCollapsed: lowPriorityCollapsedSchema,
 });
 
@@ -191,6 +194,8 @@ export async function handleGetHomeFeed(req: Request): Promise<Response> {
     itemIds: lowPriorityItems.map((item) => item.id),
   };
 
+  const suggestedPrompts = await getSuggestedPrompts();
+
   log.debug(
     {
       timeAwayBucket: timeAwayBucket(timeAwaySeconds),
@@ -198,6 +203,7 @@ export async function handleGetHomeFeed(req: Request): Promise<Response> {
       filteredItems: filtered.length,
       lowPriorityCount: lowPriorityItems.length,
       newCount: contextBanner.newCount,
+      suggestedPromptsCount: suggestedPrompts.length,
     },
     "GET /v1/home/feed",
   );
@@ -212,6 +218,7 @@ export async function handleGetHomeFeed(req: Request): Promise<Response> {
     items: filtered,
     updatedAt: feed.updatedAt,
     contextBanner,
+    suggestedPrompts,
     lowPriorityCollapsed,
   });
 }
