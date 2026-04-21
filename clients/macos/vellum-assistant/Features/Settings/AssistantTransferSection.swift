@@ -154,6 +154,17 @@ struct AssistantTransferSection: View {
                 throw TransferError.importFailed(message: "Failed to save managed assistant configuration to lockfile.")
             }
 
+            // Wait for post-hatch runtime provisioning (assistant_api_key,
+            // platform_assistant_id, webhook_secret, actor token) to complete
+            // before the import starts rearranging the workspace — otherwise
+            // Django's POST /v1/secrets can race with the atomic workspace
+            // swap, return 500, and fail-closed-revoke the just-issued
+            // assistant API key.
+            currentStep = "Finalizing cloud assistant..."
+            try await ManagedAssistantBootstrapService.shared.awaitAssistantProvisioned(
+                assistantId: platformAssistant.id
+            )
+
             // Step 3 — Import bundle to managed assistant
             currentStep = "Uploading data to cloud..."
             try await importBundleToManaged(bundleData: bundleData)
