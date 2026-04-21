@@ -13,6 +13,7 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import { recordEstimate } from "../context/estimator-calibration.js";
 import {
   addMessage,
   getConversation,
@@ -852,6 +853,22 @@ export function handleUsage(
   state.exchangeCacheReadInputTokens += event.cacheReadInputTokens ?? 0;
   state.exchangeOutputTokens += event.outputTokens;
   state.model = event.model;
+
+  // Feed the self-calibration loop: compare the pre-send estimate to the
+  // provider's ground-truth inputTokens. `recordEstimate` silently ignores
+  // samples below its magnitude threshold or outside its outlier bounds,
+  // so it's safe to call unconditionally.
+  if (
+    event.estimatedInputTokens !== undefined &&
+    event.estimatedInputTokens > 0
+  ) {
+    recordEstimate(
+      providerName,
+      event.model,
+      event.estimatedInputTokens,
+      event.inputTokens,
+    );
+  }
   if (event.rawResponse !== undefined) {
     state.exchangeRawResponses.push(event.rawResponse);
   }
