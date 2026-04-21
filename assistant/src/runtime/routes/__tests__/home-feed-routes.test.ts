@@ -56,7 +56,7 @@ mock.module("../../../memory/conversation-crud.js", () => ({
   // paths don't consult it directly, but Bun's ESM mock needs the named
   // export to exist so transitive `import { getMessages }` resolves.
   getMessages: () => [],
-  getMessagesPaginated: () => ({ messages: [], nextCursor: null }),
+  getMessagesPaginated: () => ({ messages: [], hasMore: false }),
   getMessageById: () => null,
 }));
 
