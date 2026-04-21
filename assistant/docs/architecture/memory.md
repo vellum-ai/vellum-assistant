@@ -177,9 +177,7 @@ graph TB
         OVF_T2["Tier 2: Tool-result truncation<br/>4,000 chars per result"]
         OVF_T3["Tier 3: Media/file stubbing"]
         OVF_T4["Tier 4: Injection downgrade<br/>→ minimal mode"]
-        OVF_POLICY["Overflow policy resolver<br/>auto_compress / request_approval / fail_gracefully"]
-        OVF_APPROVE["Approval gate<br/>PermissionPrompter"]
-        OVF_DENY["Graceful deny message<br/>(not conversation_error)"]
+        OVF_LATEST["Auto-compress latest turn<br/>(force=true, minKeepRecentUserTurns=0)"]
     end
 
     MSG_IN --> STORE
@@ -237,11 +235,8 @@ graph TB
     OVF_T1 --> OVF_T2
     OVF_T2 --> OVF_T3
     OVF_T3 --> OVF_T4
-    OVF_T4 --> OVF_POLICY
-    OVF_POLICY -->|"interactive"| OVF_APPROVE
-    OVF_POLICY -->|"non-interactive"| OVF_T1
-    OVF_APPROVE -->|"denied"| OVF_DENY
-    OVF_APPROVE -->|"approved"| OVF_T1
+    OVF_T4 --> OVF_LATEST
+    OVF_LATEST -.->|"uses"| SUMMARIZE
     OVF_T1 -.->|"uses"| SUMMARIZE
 ```
 
@@ -251,7 +246,7 @@ Normal context compaction (the "Context Window Management" subgraph above) runs 
 
 When compaction alone is insufficient — either because the conversation grew too fast between turns or because a single turn contains extremely large payloads — the overflow recovery pipeline takes over. The pipeline's first tier (forced compaction) reuses the same `maybeCompact()` summarization machinery but with emergency parameters: `force: true` bypasses cooldown guards, `minKeepRecentUserTurns: 0` allows summarizing even the most recent history, and `targetInputTokensOverride` sets a tighter budget. Subsequent tiers (tool-result truncation, media stubbing, injection downgrade) apply progressively more aggressive payload reduction without involving the summarizer.
 
-If all four reducer tiers are exhausted, the overflow policy resolver determines whether to compress the latest user turn. In interactive sessions, the user is prompted for approval before this lossy step. If the user declines, the session emits a graceful assistant explanation message rather than a `conversation_error`, ending the turn cleanly. Non-interactive sessions auto-compress without prompting.
+If all four reducer tiers are exhausted, the overflow policy resolver determines whether to compress the latest user turn. All sessions — interactive and non-interactive alike — auto-compress the latest turn without prompting. The only explicit opt-out is setting `contextWindow.overflowRecovery.interactiveLatestTurnCompression` (or `nonInteractiveLatestTurnCompression`) to `"drop"`, which short-circuits to a graceful failure instead. Disabling overflow recovery entirely (`contextWindow.overflowRecovery.enabled: false`) also yields a graceful failure.
 
 The key distinction: normal compaction is a cost-optimized background process that preserves conversational quality; overflow recovery is a convergence mechanism that prioritizes session survival over context richness. Both share the same summarization infrastructure but operate under different pressure thresholds and constraints.
 
@@ -303,16 +298,16 @@ stateDiagram-v2
 
 **Item extraction** uses LLM-powered extraction (with pattern-based fallback) to identify memorable information from conversation messages. Each extracted item belongs to one of eight kinds:
 
-| Kind         | Description                                                        | Base Lifetime |
-| ------------ | ------------------------------------------------------------------ | ------------- |
-| `identity`   | Personal info, facts, relationships                                | 6 months      |
-| `preference` | Likes, dislikes, preferred approaches/tools                        | 3 months      |
+| Kind         | Description                                                          | Base Lifetime |
+| ------------ | -------------------------------------------------------------------- | ------------- |
+| `identity`   | Personal info, facts, relationships                                  | 6 months      |
+| `preference` | Likes, dislikes, preferred approaches/tools                          | 3 months      |
 | `journal`    | Experiential reflections, journal-style notes, forward-looking items | 3 months      |
-| `constraint` | Rules, requirements, directives                                    | 1 month       |
-| `project`    | Project details, repos, tech stacks, action items                  | 2 weeks       |
-| `decision`   | Choices made, approaches selected                                  | 2 weeks       |
-| `event`      | Deadlines, milestones, meetings, dates                             | 3 days        |
-| `capability` | Skill catalog entries (system-generated, not LLM-extracted)        | never expires |
+| `constraint` | Rules, requirements, directives                                      | 1 month       |
+| `project`    | Project details, repos, tech stacks, action items                    | 2 weeks       |
+| `decision`   | Choices made, approaches selected                                    | 2 weeks       |
+| `event`      | Deadlines, milestones, meetings, dates                               | 3 days        |
+| `capability` | Skill catalog entries (system-generated, not LLM-extracted)          | never expires |
 
 **Supersession chains** replace the old conflict resolution system. When the LLM extracts a new item that updates an existing one, it sets `supersedes` to the old item's ID and `overrideConfidence` to one of three levels:
 
@@ -552,13 +547,13 @@ The Anthropic provider places `cache_control: { type: 'ephemeral' }` on the **la
 
 ### Key files
 
-| File                                                    | Role                                                                                                                                       |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `assistant/src/workspace/top-level-scanner.ts`          | Synchronous directory scanner with `MAX_TOP_LEVEL_ENTRIES` cap                                                                             |
-| `assistant/src/workspace/top-level-renderer.ts`         | Renders `TopLevelSnapshot` to `<workspace>` XML block                                                                                      |
-| `assistant/src/daemon/conversation-runtime-assembly.ts` | Runtime injections and legacy-block strip helpers (`<workspace>`, `<turn_context>`, `<channel_onboarding_playbook>`, `<onboarding_mode>`)  |
-| `assistant/src/onboarding/onboarding-orchestrator.ts`   | Builds assistant-owned onboarding runtime guidance from channel playbook + transport metadata                                              |
-| `assistant/src/daemon/conversation-agent-loop.ts`       | Agent loop orchestration, runtime injection wiring, legacy-block strip chain                                                               |
+| File                                                    | Role                                                                                                                                      |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `assistant/src/workspace/top-level-scanner.ts`          | Synchronous directory scanner with `MAX_TOP_LEVEL_ENTRIES` cap                                                                            |
+| `assistant/src/workspace/top-level-renderer.ts`         | Renders `TopLevelSnapshot` to `<workspace>` XML block                                                                                     |
+| `assistant/src/daemon/conversation-runtime-assembly.ts` | Runtime injections and legacy-block strip helpers (`<workspace>`, `<turn_context>`, `<channel_onboarding_playbook>`, `<onboarding_mode>`) |
+| `assistant/src/onboarding/onboarding-orchestrator.ts`   | Builds assistant-owned onboarding runtime guidance from channel playbook + transport metadata                                             |
+| `assistant/src/daemon/conversation-agent-loop.ts`       | Agent loop orchestration, runtime injection wiring, legacy-block strip chain                                                              |
 
 ---
 
@@ -593,11 +588,11 @@ graph TB
 
 ### Key files
 
-| File                                                    | Role                                                                                                          |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `assistant/src/daemon/date-context.ts`                  | `formatTurnTimestamp()` — generates the timestamp string used in `<turn_context>`                             |
-| `assistant/src/daemon/conversation-runtime-assembly.ts` | `buildUnifiedTurnContextBlock()` — constructs the unified `<turn_context>` block; legacy block strip helpers  |
-| `assistant/src/daemon/conversation-agent-loop.ts`       | Wiring: builds turn context, passes to `applyRuntimeInjections`                                               |
+| File                                                    | Role                                                                                                         |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `assistant/src/daemon/date-context.ts`                  | `formatTurnTimestamp()` — generates the timestamp string used in `<turn_context>`                            |
+| `assistant/src/daemon/conversation-runtime-assembly.ts` | `buildUnifiedTurnContextBlock()` — constructs the unified `<turn_context>` block; legacy block strip helpers |
+| `assistant/src/daemon/conversation-agent-loop.ts`       | Wiring: builds turn context, passes to `applyRuntimeInjections`                                              |
 
 ---
 
