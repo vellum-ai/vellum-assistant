@@ -1,4 +1,6 @@
+import { buildSanitizedEnv } from "../tools/terminal/safe-env.js";
 import { getLogger } from "../util/logger.js";
+import { getWorkspaceDir } from "../util/platform.js";
 
 const log = getLogger("run-script");
 
@@ -25,7 +27,7 @@ export async function runScript(
   options?: { timeoutMs?: number; cwd?: string },
 ): Promise<ScriptResult> {
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const cwd = options?.cwd ?? process.env.VELLUM_WORKSPACE_DIR ?? process.cwd();
+  const cwd = options?.cwd ?? getWorkspaceDir();
 
   log.info({ command, cwd, timeoutMs }, "Running script");
 
@@ -33,7 +35,7 @@ export async function runScript(
     cwd,
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env },
+    env: buildSanitizedEnv(),
   });
 
   // Race process completion against a timeout

@@ -197,14 +197,10 @@ async function handleRunScheduleNow(
         "Executing script schedule manually via HTTP (run now)",
       );
       const result = await runScript(schedule.message);
-      const combined = [result.stdout, result.stderr]
-        .filter(Boolean)
-        .join("\n");
       completeScheduleRun(runId, {
         status: result.exitCode === 0 ? "ok" : "error",
-        output: combined || undefined,
-        error:
-          result.exitCode !== 0 ? `Exit code ${result.exitCode}` : undefined,
+        output: result.stdout || undefined,
+        error: result.stderr || undefined,
       });
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
