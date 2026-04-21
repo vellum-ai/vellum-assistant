@@ -17,10 +17,6 @@ describe("sanitizeConfigForTransfer", () => {
           builtIn: true,
         },
       },
-      logFile: {
-        dir: "/Users/alice/.local/share/vellum-dev/assistants/foo/logs",
-        retentionDays: 14,
-      },
       hostBrowser: {
         cdpInspect: {
           enabled: false,
@@ -37,47 +33,17 @@ describe("sanitizeConfigForTransfer", () => {
     expect(result.ingress.enabled).toBeUndefined();
     expect(result.daemon).toBeUndefined();
     expect(result.skills.load.extraDirs).toEqual([]);
-    expect(result.logFile).toEqual({ retentionDays: 14 });
     expect(result.hostBrowser).toEqual({
       cdpInspect: { enabled: false, host: "127.0.0.1" },
     });
   });
 
-  test("deletes logFile.dir but preserves host-agnostic logFile fields", () => {
-    /**
-     * logFile.dir is a source-host filesystem path — on a managed pod
-     * the schema's platform-specific default is the correct value, so
-     * we strip the stale one at bundle ingest rather than propagate it.
-     * Other logFile fields (retentionDays, etc.) are host-agnostic and
-     * must survive the transfer.
-     */
-    const input = {
-      logFile: {
-        dir: "/Users/alice/logs",
-        retentionDays: 30,
-      },
-    };
-
-    const result = JSON.parse(sanitizeConfigForTransfer(JSON.stringify(input)));
-
-    expect(result.logFile).toEqual({ retentionDays: 30 });
-  });
-
-  test("leaves logFile untouched when dir is absent", () => {
-    const result = JSON.parse(
-      sanitizeConfigForTransfer(
-        JSON.stringify({ logFile: { retentionDays: 7 } }),
-      ),
-    );
-    expect(result.logFile).toEqual({ retentionDays: 7 });
-  });
-
-  test("deletes hostBrowser.cdpInspect.desktopAuto but preserves siblings", () => {
+  test("deletes desktopAuto when the source relies on the schema default (enabled: true)", () => {
     /**
      * hostBrowser.cdpInspect.desktopAuto is macOS-host-only behavior.
      * Preserving a source-host-derived `enabled: true` inside a Linux
      * managed pod's config is misleading; the schema default restores
-     * the correct per-platform value.
+     * the correct per-platform value when the subobject is absent.
      */
     const input = {
       hostBrowser: {
@@ -94,6 +60,42 @@ describe("sanitizeConfigForTransfer", () => {
     expect(result.hostBrowser).toEqual({
       cdpInspect: { enabled: false, host: "127.0.0.1" },
     });
+  });
+
+  test("preserves desktopAuto when the source explicitly opted out (enabled: false)", () => {
+    /**
+     * The schema default for `desktopAuto.enabled` is `true`, so
+     * unconditionally stripping the subobject would silently re-enable
+     * auto-attach after a platform→local teleport for users who
+     * deliberately turned it off. Preserve explicit opt-outs.
+     */
+    const input = {
+      hostBrowser: {
+        cdpInspect: {
+          desktopAuto: { enabled: false, cooldownMs: 60000 },
+        },
+      },
+    };
+
+    const result = JSON.parse(sanitizeConfigForTransfer(JSON.stringify(input)));
+
+    expect(result.hostBrowser).toEqual({
+      cdpInspect: { desktopAuto: { enabled: false, cooldownMs: 60000 } },
+    });
+  });
+
+  test("deletes desktopAuto when enabled is unspecified (also relies on default)", () => {
+    const input = {
+      hostBrowser: {
+        cdpInspect: {
+          desktopAuto: { cooldownMs: 45000 },
+        },
+      },
+    };
+
+    const result = JSON.parse(sanitizeConfigForTransfer(JSON.stringify(input)));
+
+    expect(result.hostBrowser).toEqual({ cdpInspect: {} });
   });
 
   test("is a no-op when hostBrowser has no cdpInspect subtree", () => {

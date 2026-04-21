@@ -7,10 +7,18 @@
  * - `ingress.enabled` → deleted
  * - `daemon` → deleted entirely
  * - `skills.load.extraDirs` → set to `[]`
- * - `logFile.dir` → deleted (points to source host paths; schema defaults
- *   to a platform-appropriate data dir when absent)
- * - `hostBrowser.cdpInspect.desktopAuto` → deleted (macOS-host-only
- *   behavior; meaningless — and misleading — on a Linux managed pod)
+ * - `hostBrowser.cdpInspect.desktopAuto` → deleted **only when the source
+ *   either relies on the schema default or explicitly sets
+ *   `enabled: true`**. An explicit `enabled: false` is preserved so a
+ *   platform→local teleport doesn't silently re-enable auto-attach
+ *   against the user's opt-out.
+ *
+ * `logFile.dir` is intentionally *not* stripped: the logger's container
+ * fallback (`util/logger.ts#resolveLogDir`) already redirects to the
+ * default log dir with a warning when the configured path can't be
+ * created, and stripping `dir` would disable rotating file logging
+ * entirely because `lifecycle.ts` gates `initLogger` on a truthy
+ * `config.logFile.dir`.
  */
 export function sanitizeConfigForTransfer(configJson: string): string {
   let config: Record<string, unknown>;
@@ -47,25 +55,26 @@ export function sanitizeConfigForTransfer(configJson: string): string {
     }
   }
 
-  // Strip logFile.dir — a source-host filesystem path that would
-  // otherwise persist inside a managed/docker runtime whose filesystem
-  // layout has nothing to do with the source host. Leave retentionDays
-  // intact since it is host-agnostic.
-  if (config.logFile && typeof config.logFile === "object") {
-    const logFile = config.logFile as Record<string, unknown>;
-    delete logFile.dir;
-  }
-
   // Strip hostBrowser.cdpInspect.desktopAuto — the auto-attach-to-Chrome
   // behavior is gated on a macOS-originated turn; preserving a
   // source-host-derived `enabled: true` inside a Linux managed pod's
-  // config is misleading and brittle. Schema defaults reinstate the
-  // correct values per platform.
+  // config is misleading and brittle. Preserve an explicit
+  // `enabled: false` opt-out, though — the schema default is `true`,
+  // so unconditionally stripping this subobject would re-enable
+  // auto-attach after a platform→local teleport.
   if (config.hostBrowser && typeof config.hostBrowser === "object") {
     const hostBrowser = config.hostBrowser as Record<string, unknown>;
     if (hostBrowser.cdpInspect && typeof hostBrowser.cdpInspect === "object") {
       const cdpInspect = hostBrowser.cdpInspect as Record<string, unknown>;
-      delete cdpInspect.desktopAuto;
+      const desktopAuto = cdpInspect.desktopAuto;
+      const isExplicitOptOut =
+        desktopAuto !== null &&
+        typeof desktopAuto === "object" &&
+        !Array.isArray(desktopAuto) &&
+        (desktopAuto as Record<string, unknown>).enabled === false;
+      if (!isExplicitOptOut) {
+        delete cdpInspect.desktopAuto;
+      }
     }
   }
 
