@@ -334,6 +334,14 @@ final class ChatActionHandler {
                 vm.contextWindowMaxTokens = max
             }
 
+        case .compactionCircuitOpen(let event):
+            // The daemon emits this on the per-conversation event stream, so
+            // no conversationId guard is required (the payload doesn't carry
+            // one). `openUntil` is milliseconds-since-epoch; convert to Date.
+            let until = Date(timeIntervalSince1970: event.openUntil / 1000.0)
+            vm.compactionCircuitOpenUntil = until
+            log.warning("Auto-compaction paused until \(until, privacy: .public) — reason: \(event.reason, privacy: .public)")
+
         default:
             break
         }
