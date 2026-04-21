@@ -1086,6 +1086,7 @@ public struct ContactsResponse: Codable, Sendable {
 
 public struct ContextCompacted: Codable, Sendable {
     public let type: String
+    public let conversationId: String
     public let previousEstimatedInputTokens: Int
     public let estimatedInputTokens: Int
     public let maxInputTokens: Int
@@ -1096,8 +1097,9 @@ public struct ContextCompacted: Codable, Sendable {
     public let summaryOutputTokens: Int
     public let summaryModel: String
 
-    public init(type: String, previousEstimatedInputTokens: Int, estimatedInputTokens: Int, maxInputTokens: Int, thresholdTokens: Int, compactedMessages: Int, summaryCalls: Int, summaryInputTokens: Int, summaryOutputTokens: Int, summaryModel: String) {
+    public init(type: String, conversationId: String, previousEstimatedInputTokens: Int, estimatedInputTokens: Int, maxInputTokens: Int, thresholdTokens: Int, compactedMessages: Int, summaryCalls: Int, summaryInputTokens: Int, summaryOutputTokens: Int, summaryModel: String) {
         self.type = type
+        self.conversationId = conversationId
         self.previousEstimatedInputTokens = previousEstimatedInputTokens
         self.estimatedInputTokens = estimatedInputTokens
         self.maxInputTokens = maxInputTokens
@@ -1107,6 +1109,30 @@ public struct ContextCompacted: Codable, Sendable {
         self.summaryInputTokens = summaryInputTokens
         self.summaryOutputTokens = summaryOutputTokens
         self.summaryModel = summaryModel
+    }
+}
+
+public struct CompactionCircuitOpen: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let reason: String
+    public let openUntil: Double
+
+    public init(type: String, conversationId: String, reason: String, openUntil: Double) {
+        self.type = type
+        self.conversationId = conversationId
+        self.reason = reason
+        self.openUntil = openUntil
+    }
+}
+
+public struct CompactionCircuitClosed: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+
+    public init(type: String, conversationId: String) {
+        self.type = type
+        self.conversationId = conversationId
     }
 }
 

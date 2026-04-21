@@ -88,7 +88,6 @@ import {
   type AssistantAttachmentDraft,
   cleanAssistantContent,
 } from "./assistant-attachments.js";
-import { requestCompressionApproval } from "./context-overflow-approval.js";
 import { resolveOverflowAction } from "./context-overflow-policy.js";
 import {
   createInitialReducerState,
@@ -209,6 +208,7 @@ export function isCompactionCircuitOpen(ctx: {
  */
 export function trackCompactionOutcome(
   ctx: {
+    readonly conversationId: string;
     consecutiveCompactionFailures: number;
     compactionCircuitOpenUntil: number | null;
   },
@@ -232,15 +232,39 @@ export function trackCompactionOutcome(
     ) {
       const openUntil = Date.now() + COMPACTION_CIRCUIT_COOLDOWN_MS;
       ctx.compactionCircuitOpenUntil = openUntil;
+      // Scope the event to this conversation so clients can gate it via
+      // `belongsToConversation()` — `EventStreamClient` broadcasts every
+      // parsed server message to all subscribers, so without the ID a
+      // breaker trip here would set the "paused" banner on every open
+      // `ChatViewModel`.
       onEvent({
         type: "compaction_circuit_open",
+        conversationId: ctx.conversationId,
         reason: "3_consecutive_failures",
         openUntil,
       });
     }
   } else {
+    // Capture the open state before we clear it — we only emit the
+    // `compaction_circuit_closed` event on the open→closed transition so
+    // the Swift banner can dismiss immediately once auto-compaction
+    // resumes. Firing on every successful compaction would be noise
+    // (the breaker is closed in the common case), so the transition
+    // gate keeps the event meaningful.
+    const wasOpen = ctx.compactionCircuitOpenUntil !== null;
     ctx.consecutiveCompactionFailures = 0;
     ctx.compactionCircuitOpenUntil = null;
+    if (wasOpen) {
+      // Scope the event to this conversation so clients can gate it via
+      // `belongsToConversation()` — `EventStreamClient` broadcasts every
+      // parsed server message to all subscribers, so without the ID a
+      // breaker recovery here would clear the banner on every open
+      // `ChatViewModel`.
+      onEvent({
+        type: "compaction_circuit_closed",
+        conversationId: ctx.conversationId,
+      });
+    }
   }
 }
 
@@ -642,6 +666,7 @@ export async function runAgentLoopImpl(
       );
       onEvent({
         type: "context_compacted",
+        conversationId: ctx.conversationId,
         previousEstimatedInputTokens: compacted.previousEstimatedInputTokens,
         estimatedInputTokens: compacted.estimatedInputTokens,
         maxInputTokens: compacted.maxInputTokens,
@@ -663,6 +688,12 @@ export async function runAgentLoopImpl(
         compacted.summaryCacheCreationInputTokens ?? 0,
         compacted.summaryCacheReadInputTokens ?? 0,
         collapseRawResponses(compacted.summaryRawResponses),
+        undefined /* providerName */,
+        1 /* llmCallCount */,
+        {
+          tokens: compacted.estimatedInputTokens,
+          maxTokens: compacted.maxInputTokens,
+        },
       );
       shouldInjectWorkspace = true;
       if (compacted.compactedPersistedMessages > 0) {
@@ -1172,6 +1203,7 @@ export async function runAgentLoopImpl(
           );
           onEvent({
             type: "context_compacted",
+            conversationId: ctx.conversationId,
             previousEstimatedInputTokens:
               step.compactionResult.previousEstimatedInputTokens,
             estimatedInputTokens: step.compactionResult.estimatedInputTokens,
@@ -1194,6 +1226,12 @@ export async function runAgentLoopImpl(
             step.compactionResult.summaryCacheCreationInputTokens ?? 0,
             step.compactionResult.summaryCacheReadInputTokens ?? 0,
             collapseRawResponses(step.compactionResult.summaryRawResponses),
+            undefined /* providerName */,
+            1 /* llmCallCount */,
+            {
+              tokens: step.compactionResult.estimatedInputTokens,
+              maxTokens: step.compactionResult.maxInputTokens,
+            },
           );
           ctx.graphMemory.onCompacted(
             step.compactionResult.compactedPersistedMessages,
@@ -1335,8 +1373,6 @@ export async function runAgentLoopImpl(
 
     turnStarted = true;
 
-    let denyCompressionMessage: Message | null = null;
-
     rlog.info({ callSite: turnCallSite }, "Starting agent loop run");
 
     let updatedHistory = await ctx.agentLoop.run(
@@ -1429,6 +1465,7 @@ export async function runAgentLoopImpl(
         );
         onEvent({
           type: "context_compacted",
+          conversationId: ctx.conversationId,
           previousEstimatedInputTokens:
             midLoopCompact.previousEstimatedInputTokens,
           estimatedInputTokens: midLoopCompact.estimatedInputTokens,
@@ -1451,6 +1488,12 @@ export async function runAgentLoopImpl(
           midLoopCompact.summaryCacheCreationInputTokens ?? 0,
           midLoopCompact.summaryCacheReadInputTokens ?? 0,
           collapseRawResponses(midLoopCompact.summaryRawResponses),
+          undefined /* providerName */,
+          1 /* llmCallCount */,
+          {
+            tokens: midLoopCompact.estimatedInputTokens,
+            maxTokens: midLoopCompact.maxInputTokens,
+          },
         );
         ctx.graphMemory.onCompacted(midLoopCompact.compactedPersistedMessages);
         shouldInjectWorkspace = true;
@@ -1555,8 +1598,7 @@ export async function runAgentLoopImpl(
     // ── Bounded context overflow convergence loop ──────────────────
     // When the provider rejects with context-too-large, iterate through
     // reducer tiers (forced compaction, tool-result truncation, media
-    // stubbing, injection downgrade) with optional approval gating for
-    // interactive latest-turn compression.
+    // stubbing, injection downgrade).
     //
     // When progress was made (agent added messages before hitting the
     // limit), incorporate those new messages into ctx.messages so the
@@ -1698,6 +1740,7 @@ export async function runAgentLoopImpl(
           );
           onEvent({
             type: "context_compacted",
+            conversationId: ctx.conversationId,
             previousEstimatedInputTokens:
               step.compactionResult.previousEstimatedInputTokens,
             estimatedInputTokens: step.compactionResult.estimatedInputTokens,
@@ -1720,6 +1763,12 @@ export async function runAgentLoopImpl(
             step.compactionResult.summaryCacheCreationInputTokens ?? 0,
             step.compactionResult.summaryCacheReadInputTokens ?? 0,
             collapseRawResponses(step.compactionResult.summaryRawResponses),
+            undefined /* providerName */,
+            1 /* llmCallCount */,
+            {
+              tokens: step.compactionResult.estimatedInputTokens,
+              maxTokens: step.compactionResult.maxInputTokens,
+            },
           );
           ctx.graphMemory.onCompacted(
             step.compactionResult.compactedPersistedMessages,
@@ -1805,162 +1854,16 @@ export async function runAgentLoopImpl(
 
       // All reducer tiers exhausted but provider still rejects —
       // consult the overflow policy for latest-turn compression.
-      // Emergency compaction is deferred to the policy-gated paths below
-      // so that `request_user_approval` sessions collect consent first.
+      // The policy either auto-compresses the latest turn or falls
+      // through to the final graceful-error fallback below.
       if (state.contextTooLargeDetected) {
         const action = resolveOverflowAction({
           overflowRecovery,
           isInteractive: isInteractiveResolved,
         });
 
-        if (action === "request_user_approval") {
-          const approval = await requestCompressionApproval(ctx.prompter, {
-            signal: abortController.signal,
-          });
-
-          if (approval.approved) {
-            // User approved — force emergency compaction with aggressive settings
-            const emergencyCompact =
-              await ctx.contextWindowManager.maybeCompact(
-                ctx.messages,
-                abortController.signal,
-                {
-                  lastCompactedAt: ctx.contextCompactedAt ?? undefined,
-                  force: true,
-                  minKeepRecentUserTurns: 0,
-                  targetInputTokensOverride: correctedTarget,
-                },
-              );
-            // Only track when the summary LLM actually ran; `force: true`
-            // bypasses the cooldown but not the early-return paths.
-            if (emergencyCompact.summaryFailed !== undefined) {
-              trackCompactionOutcome(
-                ctx,
-                emergencyCompact.summaryFailed,
-                onEvent,
-              );
-            }
-            if (emergencyCompact.compacted) {
-              ctx.messages = emergencyCompact.messages;
-              reducerCompacted = true;
-              ctx.contextCompactedMessageCount +=
-                emergencyCompact.compactedPersistedMessages;
-              ctx.contextCompactedAt = Date.now();
-              updateConversationContextWindow(
-                ctx.conversationId,
-                emergencyCompact.summaryText,
-                ctx.contextCompactedMessageCount,
-              );
-              // Fire auto-analysis on compaction — see forceCompact() for rationale.
-              enqueueAutoAnalysisOnCompaction(
-                ctx.conversationId,
-                ctx.trustContext?.trustClass,
-              );
-              onEvent({
-                type: "context_compacted",
-                previousEstimatedInputTokens:
-                  emergencyCompact.previousEstimatedInputTokens,
-                estimatedInputTokens: emergencyCompact.estimatedInputTokens,
-                maxInputTokens: emergencyCompact.maxInputTokens,
-                thresholdTokens: emergencyCompact.thresholdTokens,
-                compactedMessages: emergencyCompact.compactedMessages,
-                summaryCalls: emergencyCompact.summaryCalls,
-                summaryInputTokens: emergencyCompact.summaryInputTokens,
-                summaryOutputTokens: emergencyCompact.summaryOutputTokens,
-                summaryModel: emergencyCompact.summaryModel,
-              });
-              emitUsage(
-                ctx,
-                emergencyCompact.summaryInputTokens,
-                emergencyCompact.summaryOutputTokens,
-                emergencyCompact.summaryModel,
-                onEvent,
-                "context_compactor",
-                reqId,
-                emergencyCompact.summaryCacheCreationInputTokens ?? 0,
-                emergencyCompact.summaryCacheReadInputTokens ?? 0,
-                collapseRawResponses(emergencyCompact.summaryRawResponses),
-              );
-              ctx.graphMemory.onCompacted(
-                emergencyCompact.compactedPersistedMessages,
-              );
-              shouldInjectWorkspace = true;
-            }
-
-            // Only re-inject NOW.md when ctx.messages was actually stripped;
-            // otherwise the existing block is still present.
-            const injection = await applyRuntimeInjections(ctx.messages, {
-              ...injectionOpts,
-              pkbContext: currentPkbContent,
-              nowScratchpad: convergenceStripped ? currentNowContent : null,
-              workspaceTopLevelContext: shouldInjectWorkspace
-                ? ctx.workspaceTopLevelContext
-                : null,
-              slackChronologicalMessages: reducerCompacted
-                ? null
-                : injectionOpts.slackChronologicalMessages,
-              mode: currentInjectionMode,
-            });
-            runMessages = injection.messages;
-            if (isTrustedActor && currentInjectionMode !== "minimal") {
-              ctx.graphMemory.retrackCachedNodes();
-            }
-            const emergencyStrip = stripHistoricalWebSearchResults(runMessages);
-            if (emergencyStrip.stats.blocksStripped > 0) {
-              rlog.info(
-                { phase: "emergency_compact", ...emergencyStrip.stats },
-                "Converted historical web_search_tool_result blocks to text summaries",
-              );
-              runMessages = emergencyStrip.messages;
-            }
-            preRepairMessages = runMessages;
-            preRunHistoryLength = runMessages.length;
-            state.contextTooLargeDetected = false;
-
-            updatedHistory = await ctx.agentLoop.run(
-              runMessages,
-              eventHandler,
-              abortController.signal,
-              reqId,
-              onCheckpoint,
-              turnCallSite,
-            );
-          } else {
-            // User denied compression — emit a graceful assistant explanation
-            // instead of a conversation_error, and end the turn cleanly.
-            state.contextTooLargeDetected = false;
-            const denyText =
-              "The conversation has grown too long for the model to process, " +
-              "and compression was declined. Please start a new conversation " +
-              "or manually shorten the conversation to continue.";
-            const loopChannelMeta = {
-              ...provenanceFromTrustContext(ctx.trustContext),
-              userMessageChannel: capturedTurnChannelContext.userMessageChannel,
-              assistantMessageChannel:
-                capturedTurnChannelContext.assistantMessageChannel,
-              userMessageInterface:
-                capturedTurnInterfaceContext.userMessageInterface,
-              assistantMessageInterface:
-                capturedTurnInterfaceContext.assistantMessageInterface,
-            };
-            const denyMessage = createAssistantMessage(denyText);
-            await addMessage(
-              ctx.conversationId,
-              "assistant",
-              JSON.stringify(denyMessage.content),
-              loopChannelMeta,
-            );
-            denyCompressionMessage = denyMessage;
-            onEvent({
-              type: "assistant_text_delta",
-              text: denyText,
-              conversationId: ctx.conversationId,
-            });
-            // Prevent the final error fallback from firing
-            state.providerErrorUserMessage = null;
-          }
-        } else if (action === "auto_compress_latest_turn") {
-          // Non-interactive — auto-compress without asking
+        if (action === "auto_compress_latest_turn") {
+          // Auto-compress without asking — users opt out via the "drop" policy.
           ctx.emitActivityState(
             "thinking",
             "context_compacting",
@@ -2004,6 +1907,7 @@ export async function runAgentLoopImpl(
             );
             onEvent({
               type: "context_compacted",
+              conversationId: ctx.conversationId,
               previousEstimatedInputTokens:
                 emergencyCompact.previousEstimatedInputTokens,
               estimatedInputTokens: emergencyCompact.estimatedInputTokens,
@@ -2026,6 +1930,12 @@ export async function runAgentLoopImpl(
               emergencyCompact.summaryCacheCreationInputTokens ?? 0,
               emergencyCompact.summaryCacheReadInputTokens ?? 0,
               collapseRawResponses(emergencyCompact.summaryRawResponses),
+              undefined /* providerName */,
+              1 /* llmCallCount */,
+              {
+                tokens: emergencyCompact.estimatedInputTokens,
+                maxTokens: emergencyCompact.maxInputTokens,
+              },
             );
             ctx.graphMemory.onCompacted(
               emergencyCompact.compactedPersistedMessages,
@@ -2150,10 +2060,6 @@ export async function runAgentLoopImpl(
       const cleanedBlocks = cleanedContent as ContentBlock[];
       return { ...msg, content: cleanedBlocks };
     });
-
-    if (denyCompressionMessage) {
-      newMessages.push(denyCompressionMessage);
-    }
 
     const hasAssistantResponse = newMessages.some(
       (msg) => msg.role === "assistant",
@@ -2542,7 +2448,9 @@ function emitUsage(
   );
 }
 
-function collapseRawResponses(rawResponses?: unknown[]): unknown | undefined {
+export function collapseRawResponses(
+  rawResponses?: unknown[],
+): unknown | undefined {
   if (!rawResponses || rawResponses.length === 0) return undefined;
   return rawResponses.length === 1 ? rawResponses[0] : rawResponses;
 }

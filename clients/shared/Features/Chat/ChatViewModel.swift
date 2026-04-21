@@ -339,6 +339,15 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         get { messageManager.contextWindowMaxTokens }
         set { messageManager.contextWindowMaxTokens = newValue }
     }
+    /// When non-nil, the assistant has paused automatic context compaction until
+    /// this timestamp (1-hour cooldown after 3 consecutive summary-LLM
+    /// failures). The chat UI surfaces a banner while this is set and the
+    /// timestamp is still in the future; the banner auto-dismisses once the
+    /// cooldown elapses.
+    public var compactionCircuitOpenUntil: Date? {
+        get { messageManager.compactionCircuitOpenUntil }
+        set { messageManager.compactionCircuitOpenUntil = newValue }
+    }
     public var contextWindowFillRatio: Double? {
         guard let tokens = contextWindowTokens,
               let max = contextWindowMaxTokens,

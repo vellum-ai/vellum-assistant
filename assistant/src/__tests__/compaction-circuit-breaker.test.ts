@@ -27,12 +27,14 @@ import {
 import type { ServerMessage } from "../daemon/message-protocol.js";
 
 interface BreakerState {
+  readonly conversationId: string;
   consecutiveCompactionFailures: number;
   compactionCircuitOpenUntil: number | null;
 }
 
-function makeState(): BreakerState {
+function makeState(conversationId = "conv-breaker-test"): BreakerState {
   return {
+    conversationId,
     consecutiveCompactionFailures: 0,
     compactionCircuitOpenUntil: null,
   };
@@ -92,6 +94,7 @@ describe("compaction circuit breaker", () => {
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({
       type: "compaction_circuit_open",
+      conversationId: state.conversationId,
       reason: "3_consecutive_failures",
       openUntil: fixedNow + 60 * 60 * 1000,
     });
@@ -243,6 +246,7 @@ describe("compaction circuit breaker", () => {
     expect(events).toHaveLength(2);
     expect(events[1]).toEqual({
       type: "compaction_circuit_open",
+      conversationId: state.conversationId,
       reason: "3_consecutive_failures",
       openUntil: t1 + 60 * 60 * 1000,
     });
@@ -332,5 +336,54 @@ describe("compaction circuit breaker", () => {
     trackForceCompact({ summaryFailed: undefined, compacted: false });
     expect(state.consecutiveCompactionFailures).toBe(3);
     expect(state.compactionCircuitOpenUntil).toBe(wasOpenUntil);
+  });
+
+  test("(h) emits compaction_circuit_closed when a successful compaction clears an open circuit", () => {
+    // Regression: before this fix, the else branch of `trackCompactionOutcome`
+    // silently reset `compactionCircuitOpenUntil` to null but did not notify
+    // the client. The Swift banner set from `compaction_circuit_open` would
+    // stay visible until the original `openUntil` deadline (up to 1h),
+    // misrepresenting the live state. The fix emits
+    // `compaction_circuit_closed` on the open→closed transition so the
+    // banner dismisses immediately.
+    const fixedNow = 1_700_000_000_000;
+    Date.now = () => fixedNow;
+
+    const state = makeState();
+    const { onEvent, events } = collectEvents();
+
+    // Force the circuit into the open state directly — the emitted-event
+    // transition logic is what we're testing, not the tripping path.
+    state.compactionCircuitOpenUntil = fixedNow + 60 * 60 * 1000;
+    state.consecutiveCompactionFailures = 3;
+
+    trackCompactionOutcome(state, false, onEvent);
+
+    expect(state.consecutiveCompactionFailures).toBe(0);
+    expect(state.compactionCircuitOpenUntil).toBeNull();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      type: "compaction_circuit_closed",
+      conversationId: state.conversationId,
+    });
+  });
+
+  test("(h) successful compaction against an already-closed circuit emits no event", () => {
+    // Rationale: emitting `compaction_circuit_closed` on every successful
+    // compaction would spam the client (the breaker is closed in the common
+    // case). Only the open→closed transition is meaningful, because that's
+    // when the client's banner state is stale.
+    const state = makeState();
+    const { onEvent, events } = collectEvents();
+
+    // Circuit is already closed (fresh state) — success must not emit.
+    expect(state.compactionCircuitOpenUntil).toBeNull();
+    trackCompactionOutcome(state, false, onEvent);
+    expect(state.compactionCircuitOpenUntil).toBeNull();
+    expect(events).toHaveLength(0);
+
+    // A second successful outcome while still closed — still no event.
+    trackCompactionOutcome(state, false, onEvent);
+    expect(events).toHaveLength(0);
   });
 });

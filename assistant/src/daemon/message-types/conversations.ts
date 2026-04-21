@@ -421,8 +421,19 @@ export interface UsageResponse {
   model: string;
 }
 
+/**
+ * Emitted after a compaction turn completes (both auto-compaction and
+ * `/compact`). Carries the fresh `estimatedInputTokens` so clients can refresh
+ * the context-window indicator without waiting for the next `usage_update`.
+ *
+ * `conversationId` scopes the event so clients can ignore compactions from
+ * other conversations — `EventStreamClient` broadcasts every parsed server
+ * message to all subscribers, so without this field a compaction in one
+ * conversation would overwrite the indicator on every open `ChatViewModel`.
+ */
 export interface ContextCompacted {
   type: "context_compacted";
+  conversationId: string;
   previousEstimatedInputTokens: number;
   estimatedInputTokens: number;
   maxInputTokens: number;
@@ -439,12 +450,38 @@ export interface ContextCompacted {
  * summary-LLM failures (with local fallback covering each), auto-compaction is
  * suspended until `openUntil` to avoid repeatedly hammering a broken provider.
  * User-initiated compaction (`/compact`, `force: true`) bypasses the breaker.
+ *
+ * `conversationId` scopes the event so clients can ignore breaker trips from
+ * other conversations — `EventStreamClient` broadcasts every parsed server
+ * message to all subscribers, so without this field a breaker trip in one
+ * conversation would set the "auto-compaction paused" banner on every open
+ * `ChatViewModel`.
  */
 export interface CompactionCircuitOpen {
   type: "compaction_circuit_open";
+  conversationId: string;
   reason: "3_consecutive_failures";
   /** Timestamp (ms since epoch) when the breaker will allow auto-compaction again. */
   openUntil: number;
+}
+
+/**
+ * Emitted when the compaction circuit breaker transitions from open → closed
+ * because a successful compaction reset
+ * `ctx.compactionCircuitOpenUntil`. The Swift client clears its banner state
+ * on receipt so the "auto-compaction paused" indicator dismisses immediately
+ * instead of lingering until the original `openUntil` deadline (up to 1h).
+ *
+ * Only fires on the open→closed transition — successful compactions while
+ * the breaker was already closed would be noise.
+ *
+ * `conversationId` scopes the event so clients can ignore transitions from
+ * other conversations via `belongsToConversation()`, mirroring the rest of
+ * the broadcast-aware events.
+ */
+export interface CompactionCircuitClosed {
+  type: "compaction_circuit_closed";
+  conversationId: string;
 }
 
 export type ConversationErrorCode =
@@ -545,6 +582,7 @@ export type _ConversationsServerMessages =
   | UsageResponse
   | ContextCompacted
   | CompactionCircuitOpen
+  | CompactionCircuitClosed
   | ConversationErrorMessage
   | ConversationInfo
   | ConversationTitleUpdated

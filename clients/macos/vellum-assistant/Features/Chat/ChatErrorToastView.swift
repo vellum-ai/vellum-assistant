@@ -239,6 +239,48 @@ struct CreditsExhaustedBanner: View {
     }
 }
 
+// MARK: - Compaction Circuit Open Banner
+
+/// Inline banner shown when the assistant has paused automatic context
+/// compaction after three consecutive summary-LLM failures. Stays visible
+/// while `openUntil` is in the future; auto-dismisses once the cooldown
+/// elapses. A minute-granularity ticker is sufficient — the cooldown is
+/// one hour and exact-second dismissal isn't user-visible.
+struct CompactionCircuitOpenBanner: View {
+    let openUntil: Date
+    let onExpired: () -> Void
+
+    /// One-minute ticker — the cooldown is an hour so minute granularity is
+    /// adequate. On each tick we re-check `openUntil` and call `onExpired`
+    /// once the deadline has passed so the parent can clear the VM property
+    /// that gates this banner's visibility.
+    private let timer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        HStack(spacing: VSpacing.sm) {
+            VIconView(.clockAlert, size: 14)
+
+            Text("Auto-compaction paused — long conversation may overflow. Use /compact to compact manually.")
+                .font(VFont.bodyMediumLighter)
+                .lineLimit(nil)
+                .textSelection(.enabled)
+        }
+        .foregroundStyle(VColor.auxWhite) // Intentional: white on solid accent background.
+        .frame(minHeight: 32)
+        // Single EdgeInsets padding per clients/macos/AGENTS.md — stacked
+        // `.padding(...)` modifiers each add layout-engine depth.
+        .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.md, bottom: VSpacing.xs, trailing: VSpacing.lg))
+        .background(VColor.systemMidStrong)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .transition(.move(edge: .top).combined(with: .opacity))
+        .onReceive(timer) { tick in
+            if tick >= openUntil {
+                onExpired()
+            }
+        }
+    }
+}
+
 // MARK: - Missing API Key Banner
 
 /// Inline banner shown when the user attempts to chat without a configured API key.

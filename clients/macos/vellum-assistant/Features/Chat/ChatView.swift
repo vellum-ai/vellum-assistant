@@ -429,6 +429,17 @@ struct ChatView: View {
                 .animation(nil, value: queuedMessages.isEmpty)
             }
 
+            if let until = viewModel.compactionCircuitOpenUntil, until > Date() {
+                centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
+                    CompactionCircuitOpenBanner(
+                        openUntil: until,
+                        onExpired: { viewModel.compactionCircuitOpenUntil = nil }
+                    )
+                }
+                .padding(.bottom, -VSpacing.sm)
+                .animation(nil, value: queuedMessages.isEmpty)
+            }
+
             if let mode = recoveryMode, mode.enabled {
                 centeredChatColumn(width: max(layoutMetrics.chatColumnWidth - 2 * VSpacing.xl, 0)) {
                     RecoveryModeBanner(

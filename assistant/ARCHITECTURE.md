@@ -1045,13 +1045,11 @@ When all four reducer tiers are exhausted and the provider still rejects, the ov
 
 | Session Type    | Config Policy           | Action                                                                                                      |
 | --------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Interactive     | `"summarize"` (default) | `request_user_approval` — prompt the user via `PermissionPrompter` before compressing the latest turn       |
+| Interactive     | `"summarize"` (default) | `auto_compress_latest_turn` — compress without asking                                                       |
 | Non-interactive | `"truncate"` (default)  | `auto_compress_latest_turn` — compress without asking                                                       |
 | Any             | `"drop"`                | `fail_gracefully` — fall through to the final context-overflow fallback, which emits a `conversation_error` |
 
-**Approval gate:** For interactive sessions, the pipeline uses `requestCompressionApproval()` in `context-overflow-approval.ts`, which presents a confirmation prompt through the existing `PermissionPrompter` flow (`POST /v1/confirm`). The prompt uses a reserved pseudo tool name (`context_overflow_compression`) so the UI can display a meaningful label. The decision is one-shot per overflow (no "always allow" option).
-
-**Deny handling:** If the user declines compression, the session emits a graceful assistant explanation message ("The conversation has grown too long...") instead of a `conversation_error`. The deny message is persisted to conversation history and delivered via `assistant_text_delta` events, so the user sees a normal chat bubble rather than an error toast. The turn ends cleanly without triggering the error classification pipeline.
+When standard compaction has been exhausted and the provider still reports a context overflow, the recovery pipeline forces an emergency compaction of the latest turn with aggressive settings (`force: true`, `minKeepRecentUserTurns: 0`). The user is not prompted — compaction is always automatic. Users who want to opt out entirely can set `contextWindow.overflowRecovery.interactiveLatestTurnCompression` to `"drop"`, which short-circuits to a graceful failure instead.
 
 ### Config
 
@@ -1067,13 +1065,12 @@ All overflow recovery settings live under `contextWindow.overflowRecovery` in th
 
 ### Key Source Files
 
-| File                                      | Purpose                                                                          |
-| ----------------------------------------- | -------------------------------------------------------------------------------- |
-| `src/daemon/context-overflow-reducer.ts`  | Tiered reducer: four-tier pipeline with idempotent steps and cumulative state    |
-| `src/daemon/context-overflow-policy.ts`   | Overflow policy resolver: maps config + interactivity to concrete action         |
-| `src/daemon/context-overflow-approval.ts` | Approval gate: prompts user for latest-turn compression via `PermissionPrompter` |
-| `src/daemon/conversation-agent-loop.ts`   | Integration: preflight budget check, convergence loop, approval/deny flow        |
-| `src/config/core-schema.ts`               | `ContextOverflowRecoveryConfigSchema` with defaults and validation               |
+| File                                     | Purpose                                                                       |
+| ---------------------------------------- | ----------------------------------------------------------------------------- |
+| `src/daemon/context-overflow-reducer.ts` | Tiered reducer: four-tier pipeline with idempotent steps and cumulative state |
+| `src/daemon/context-overflow-policy.ts`  | Overflow policy resolver: maps config + interactivity to concrete action      |
+| `src/daemon/conversation-agent-loop.ts`  | Integration: preflight budget check, convergence loop, emergency compaction   |
+| `src/config/core-schema.ts`              | `ContextOverflowRecoveryConfigSchema` with defaults and validation            |
 
 ---
 

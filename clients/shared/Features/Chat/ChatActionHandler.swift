@@ -334,6 +334,35 @@ final class ChatActionHandler {
                 vm.contextWindowMaxTokens = max
             }
 
+        case .contextCompacted(let event):
+            // `EventStreamClient` broadcasts every parsed server message to all
+            // subscribers, so we must gate on `conversationId` to avoid
+            // overwriting the context-window indicator on unrelated
+            // `ChatViewModel`s when a compaction happens in another
+            // conversation.
+            guard belongsToConversation(event.conversationId) else { return }
+            vm.contextWindowTokens = event.estimatedInputTokens
+            vm.contextWindowMaxTokens = event.maxInputTokens
+
+        case .compactionCircuitOpen(let event):
+            // `EventStreamClient` broadcasts every parsed server message to all
+            // subscribers, so we must gate on `conversationId` to avoid setting
+            // the "auto-compaction paused" banner on unrelated `ChatViewModel`s
+            // when a breaker trips in another conversation. `openUntil` is
+            // milliseconds-since-epoch; convert to Date.
+            guard belongsToConversation(event.conversationId) else { return }
+            let until = Date(timeIntervalSince1970: event.openUntil / 1000.0)
+            vm.compactionCircuitOpenUntil = until
+            log.warning("Auto-compaction paused until \(until, privacy: .public) — reason: \(event.reason, privacy: .public)")
+
+        case .compactionCircuitClosed(let event):
+            // Auto-compaction is live again — clear the banner state so the UI
+            // dismisses the "paused" banner immediately without waiting for the
+            // original `openUntil` deadline.
+            guard belongsToConversation(event.conversationId) else { return }
+            vm.compactionCircuitOpenUntil = nil
+            log.info("Auto-compaction resumed (circuit breaker closed)")
+
         default:
             break
         }
