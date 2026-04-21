@@ -135,43 +135,10 @@ import type {
   UsageStats,
 } from "./message-protocol.js";
 import type { MemoryRecalled } from "./message-types/memory.js";
+import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("conversation-agent-loop");
-
-/**
- * Parse the actual token count reported by the provider in a context-too-large
- * error message. Providers typically include the prompt size, e.g.:
- *   "prompt is too long: 242201 tokens > 200000 maximum"
- *   "too many input tokens: 242201 > 200000"
- *
- * Returns the actual token count or null if it cannot be parsed.
- */
-export function parseActualTokensFromError(
-  errorMessage: string | null,
-): number | null {
-  if (!errorMessage) return null;
-
-  // Match patterns like "242201 tokens > 200000" or "242201 > 200000 maximum"
-  const match = errorMessage.match(
-    /(\d[\d,]*)\s*tokens?\s*[>≥]|:\s*(\d[\d,]*)\s*[>≥]/i,
-  );
-  if (match) {
-    const raw = (match[1] || match[2]).replace(/,/g, "");
-    const parsed = parseInt(raw, 10);
-    if (!isNaN(parsed) && parsed > 0) return parsed;
-  }
-
-  // Fallback: match "too many input tokens: N > M"
-  const fallback = errorMessage.match(/(\d[\d,]*)\s*[>≥]\s*\d/);
-  if (fallback) {
-    const raw = fallback[1].replace(/,/g, "");
-    const parsed = parseInt(raw, 10);
-    if (!isNaN(parsed) && parsed > 0) return parsed;
-  }
-
-  return null;
-}
 
 /** Title-cased friendly labels for tool names, used in confirmation chips. */
 const TOOL_FRIENDLY_LABEL: Record<string, string> = {
@@ -1412,9 +1379,11 @@ export async function runAgentLoopImpl(
       // message (e.g. "242201 tokens > 200000"), use it to correct the
       // compaction target. The estimator may significantly underestimate
       // (e.g. estimated 185k but actual was 242k), so using the
-      // uncorrected preflightBudget would still be too high.
+      // uncorrected preflightBudget would still be too high. Passes the raw
+      // error so ContextOverflowError.actualTokens can short-circuit the
+      // string-regex path for proxy-rewrapped untyped errors.
       const actualTokens = parseActualTokensFromError(
-        state.contextTooLargeErrorMessage,
+        state.contextTooLargeError,
       );
       const estimatedTokensAtOverflow = estimatePromptTokens(
         ctx.messages,

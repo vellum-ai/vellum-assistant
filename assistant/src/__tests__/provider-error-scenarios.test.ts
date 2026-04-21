@@ -109,11 +109,12 @@ mock.module("../util/retry.js", () => {
 
 import { RetryProvider } from "../providers/retry.js";
 import { createStreamTimeout } from "../providers/stream-timeout.js";
-import type {
-  Message,
-  Provider,
-  ProviderEvent,
-  ProviderResponse,
+import {
+  ContextOverflowError,
+  type Message,
+  type Provider,
+  type ProviderEvent,
+  type ProviderResponse,
 } from "../providers/types.js";
 import { ProviderError } from "../util/errors.js";
 import { DEFAULT_MAX_RETRIES } from "../util/retry.js";
@@ -274,6 +275,58 @@ describe("RetryProvider — rate limit backoff", () => {
     const sleepCalls = sleepSpy.mock.calls;
     const lastDelay = sleepCalls[sleepCalls.length - 1][0];
     expect(lastDelay).toBe(60_000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RetryProvider — ContextOverflowError short-circuit
+// ---------------------------------------------------------------------------
+
+describe("RetryProvider — ContextOverflowError short-circuit", () => {
+  test("does NOT retry ContextOverflowError even when statusCode is 429", async () => {
+    // Gemini/Vertex can surface context overflow as a 429 RESOURCE_EXHAUSTED.
+    // Retrying is deterministic waste — the oversized prompt won't shrink.
+    const error = new ContextOverflowError("prompt too long", "gemini", {
+      statusCode: 429,
+      actualTokens: 250_000,
+      maxTokens: 200_000,
+    });
+    const inner = makeFailing(error);
+    const provider = new RetryProvider(inner);
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toBeInstanceOf(
+      ContextOverflowError,
+    );
+    // 1 call, no retries — must short-circuit before the 429 retry branch.
+    expect(inner.calls).toBe(1);
+  });
+
+  test("does NOT retry ContextOverflowError with default statusCode 400", async () => {
+    // Anthropic / OpenAI-compatible providers surface overflow as 400. Same
+    // deterministic-failure rule: never retry.
+    const error = new ContextOverflowError("prompt is too long", "anthropic");
+    const inner = makeFailing(error);
+    const provider = new RetryProvider(inner);
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toBeInstanceOf(
+      ContextOverflowError,
+    );
+    expect(inner.calls).toBe(1);
+  });
+
+  test("still retries a plain ProviderError with statusCode 429 (non-overflow)", async () => {
+    // Rate-limit 429s that are NOT overflow must continue to retry — this is
+    // the regression guard for the short-circuit's scope.
+    const inner = makeFailing(
+      new ProviderError("rate limited", "anthropic", 429),
+    );
+    const provider = new RetryProvider(inner);
+
+    await expect(provider.sendMessage(MESSAGES)).rejects.toThrow(
+      "rate limited",
+    );
+    // 1 initial + DEFAULT_MAX_RETRIES retries
+    expect(inner.calls).toBe(DEFAULT_MAX_RETRIES + 1);
   });
 });
 

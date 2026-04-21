@@ -8,12 +8,13 @@ import {
   sleep,
 } from "../util/retry.js";
 import { isModelIntent, resolveModelIntent } from "./model-intents.js";
-import type {
-  Message,
-  Provider,
-  ProviderResponse,
-  SendMessageOptions,
-  ToolDefinition,
+import {
+  isContextOverflowError,
+  type Message,
+  type Provider,
+  type ProviderResponse,
+  type SendMessageOptions,
+  type ToolDefinition,
 } from "./types.js";
 
 const log = getLogger("retry");
@@ -61,6 +62,11 @@ function isRetryableProviderMessage(error: unknown): boolean {
 }
 
 function isRetryableError(error: unknown): boolean {
+  // Context overflow is deterministic — retrying the same oversized prompt
+  // will never succeed. Short-circuit before the generic 429/5xx check so
+  // ContextOverflowError (which extends ProviderError and may carry a 429
+  // statusCode on Gemini/Vertex) never triggers exponential backoff.
+  if (isContextOverflowError(error)) return false;
   if (error instanceof ProviderError && error.statusCode !== undefined) {
     if (error.statusCode === 429 || error.statusCode >= 500) return true;
   }
@@ -86,9 +92,11 @@ function normalizeSendMessageOptions(
   const hasIntent = config.modelIntent !== undefined;
 
   const needsThinkingStrip =
-    !THINKING_AWARE_PROVIDERS.has(providerName) && config.thinking !== undefined;
+    !THINKING_AWARE_PROVIDERS.has(providerName) &&
+    config.thinking !== undefined;
   const needsEffortStrip =
-    !EFFORT_SUPPORTED_PROVIDERS.has(providerName) && config.effort !== undefined;
+    !EFFORT_SUPPORTED_PROVIDERS.has(providerName) &&
+    config.effort !== undefined;
   const needsSpeedStrip =
     providerName !== "anthropic" && config.speed !== undefined;
 

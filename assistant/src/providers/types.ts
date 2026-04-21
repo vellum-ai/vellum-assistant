@@ -1,3 +1,5 @@
+import { ProviderError } from "../util/errors.js";
+
 export interface TextContent {
   type: "text";
   text: string;
@@ -126,7 +128,12 @@ export type ProviderEvent =
       toolUseId: string;
       input: Record<string, unknown>;
     }
-  | { type: "server_tool_complete"; toolUseId: string; isError: boolean; content?: unknown[] };
+  | {
+      type: "server_tool_complete";
+      toolUseId: string;
+      isError: boolean;
+      content?: unknown[];
+    };
 
 export interface SendMessageConfig {
   model?: string;
@@ -159,4 +166,80 @@ export interface Provider {
     systemPrompt?: string,
     options?: SendMessageOptions,
   ): Promise<ProviderResponse>;
+}
+
+// ── Context-overflow error ────────────────────────────────────────────
+
+export interface ContextOverflowErrorOptions {
+  /** Actual tokens the request was estimated/measured to consume, when the provider reports it. */
+  actualTokens?: number;
+  /** Context-window cap the provider enforced, when reported in the error body. */
+  maxTokens?: number;
+  /** HTTP status reported by the provider. Defaults to 400. */
+  statusCode?: number;
+  /** Underlying error to preserve the cause chain (standard Error.cause). */
+  cause?: unknown;
+}
+
+/**
+ * Thrown by provider clients when the request exceeded the model's context
+ * window (HTTP 400 `context_length_exceeded`, Anthropic's `prompt_too_long`,
+ * Gemini's resource-exhausted category, etc.).
+ *
+ * Extends `ProviderError` so existing `instanceof ProviderError` classifiers
+ * (`util/retry.ts`, `daemon/conversation-error.ts`) continue to see it as a
+ * typed 4xx provider error and apply the right policy. The
+ * `actualTokens`/`maxTokens` fields carry structured counts when the
+ * provider reports them, avoiding brittle regex parsing at the caller.
+ *
+ * A regex-on-message fallback still exists in
+ * `daemon/parse-actual-tokens-from-error.ts` as a safety net for adapters
+ * that rewrap the error (e.g. managed-proxy) before it reaches the agent
+ * loop.
+ */
+export class ContextOverflowError extends ProviderError {
+  public readonly actualTokens?: number;
+  public readonly maxTokens?: number;
+
+  constructor(
+    message: string,
+    provider: string,
+    options: ContextOverflowErrorOptions = {},
+  ) {
+    super(
+      message,
+      provider,
+      options.statusCode ?? 400,
+      options.cause !== undefined ? { cause: options.cause } : undefined,
+    );
+    this.name = "ContextOverflowError";
+    this.actualTokens = options.actualTokens;
+    this.maxTokens = options.maxTokens;
+  }
+}
+
+export function isContextOverflowError(
+  err: unknown,
+): err is ContextOverflowError {
+  return err instanceof ContextOverflowError;
+}
+
+/**
+ * Extract `actualTokens` / `maxTokens` from provider overflow messages of the
+ * form "N tokens > M maximum" or bare "N > M". Returns an empty object when
+ * neither count is parseable — callers should treat this as "matched the
+ * overflow signal but counts unknown".
+ */
+export function extractOverflowTokensFromMessage(message: string): {
+  actualTokens?: number;
+  maxTokens?: number;
+} {
+  const match = message.match(/(\d[\d,]*)\s*(?:tokens?\s*)?[>≥]\s*(\d[\d,]*)/i);
+  if (!match) return {};
+  const actual = parseInt(match[1].replace(/,/g, ""), 10);
+  const max = parseInt(match[2].replace(/,/g, ""), 10);
+  const out: { actualTokens?: number; maxTokens?: number } = {};
+  if (!isNaN(actual) && actual > 0) out.actualTokens = actual;
+  if (!isNaN(max) && max > 0) out.maxTokens = max;
+  return out;
 }

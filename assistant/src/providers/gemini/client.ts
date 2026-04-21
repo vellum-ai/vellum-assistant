@@ -14,6 +14,58 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../types.js";
+import {
+  ContextOverflowError,
+  extractOverflowTokensFromMessage,
+} from "../types.js";
+
+/**
+ * Token/context-specific phrases that reliably indicate context-overflow
+ * regardless of status code. These never appear in quota/rate-limit error
+ * messages, so matching one of these is safe on any accepted status.
+ */
+const GEMINI_CONTEXT_OVERFLOW_TOKEN_PATTERNS =
+  /token.?count.*exceeds|exceeds.*maximum.*tokens|prompt.?is.?too.?long|too.?many.?(?:input.?)?tokens|input.?too.?long|context.?length.?exceeded/i;
+
+/**
+ * Detect Gemini's context-overflow signals on an `ApiError`. Gemini surfaces
+ * this condition via its "RESOURCE_EXHAUSTED" category. The Gemini SDK's
+ * `ApiError` only exposes `status` and `message`, so we match on both.
+ *
+ * On 400 (INVALID_ARGUMENT, the Generative Language API path), the
+ * `resource.?exhausted` phrase alone is sufficient — only context-overflow
+ * is surfaced with that status.
+ *
+ * On 429 (RESOURCE_EXHAUSTED, the Vertex path), the same status is used for
+ * BOTH rate-limit quota exhaustion AND context-overflow. To discriminate,
+ * we require a token/context-specific phrase; the bare `resource.?exhausted`
+ * signal is too broad and would misclassify quota errors as overflow and
+ * bypass the retry path in `providers/retry.ts`.
+ */
+export function detectGeminiContextOverflow(
+  error: ApiError,
+): { actualTokens?: number; maxTokens?: number } | null {
+  const status = error.status;
+  // 400 = INVALID_ARGUMENT (prompt too long), 413 occasional,
+  // 429 with RESOURCE_EXHAUSTED is the Vertex path.
+  if (status !== 400 && status !== 413 && status !== 429) return null;
+  const message = error.message ?? "";
+
+  // 429 has two meanings (quota vs context-overflow) — require a
+  // token/context-specific phrase to classify as overflow.
+  if (status === 429) {
+    if (!GEMINI_CONTEXT_OVERFLOW_TOKEN_PATTERNS.test(message)) return null;
+    return extractOverflowTokensFromMessage(message);
+  }
+
+  // 400/413: either a token/context-specific phrase or the broader
+  // `resource.?exhausted` signal is a reliable overflow indicator.
+  const matches =
+    /resource.?exhausted/i.test(message) ||
+    GEMINI_CONTEXT_OVERFLOW_TOKEN_PATTERNS.test(message);
+  if (!matches) return null;
+  return extractOverflowTokensFromMessage(message);
+}
 
 const log = getLogger("gemini-client");
 
@@ -238,6 +290,19 @@ export class GeminiProvider implements Provider {
           ? signal.reason
           : undefined;
       if (error instanceof ApiError) {
+        const overflow = detectGeminiContextOverflow(error);
+        if (overflow) {
+          throw new ContextOverflowError(
+            `Gemini API error (${error.status}): ${error.message}`,
+            "gemini",
+            {
+              actualTokens: overflow.actualTokens,
+              maxTokens: overflow.maxTokens,
+              statusCode: error.status,
+              cause: error,
+            },
+          );
+        }
         throw new ProviderError(
           `Gemini API error (${error.status}): ${error.message}`,
           "gemini",
