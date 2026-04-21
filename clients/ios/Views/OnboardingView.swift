@@ -3,9 +3,8 @@ import SwiftUI
 import VellumAssistantShared
 
 // Onboarding step identifiers for the cloud-login flow:
-//   Welcome → Login → Ready
+//   Login → (managed bootstrap) → Ready
 private enum OnboardingStep: Hashable {
-    case welcome
     case login
     case ready
 }
@@ -14,7 +13,7 @@ struct OnboardingView: View {
     @Binding var isCompleted: Bool
     @Bindable var authManager: AuthManager
     @EnvironmentObject var clientProvider: ClientProvider
-    @State private var currentStep: OnboardingStep = .welcome
+    @State private var currentStep: OnboardingStep = .login
     @State private var isBootstrappingManaged = false
     @State private var managedBootstrapError: String?
 
@@ -25,16 +24,12 @@ struct OnboardingView: View {
                     .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
             } else {
                 switch currentStep {
-                case .welcome:
-                    WelcomeStep(onContinue: { currentStep = .login })
-                        .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
                 case .login:
                     LoginView(
                         authManager: authManager,
                         onContinue: {
                             Task { await performManagedBootstrap() }
-                        },
-                        onCancel: { currentStep = .welcome }
+                        }
                     )
                     .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
                 case .ready:
@@ -84,7 +79,7 @@ struct OnboardingView: View {
                 Button("Cancel") {
                     isBootstrappingManaged = false
                     managedBootstrapError = nil
-                    currentStep = .welcome
+                    currentStep = .login
                 }
                 .foregroundStyle(VColor.contentSecondary)
             }
@@ -117,38 +112,6 @@ struct OnboardingView: View {
         } catch {
             managedBootstrapError = error.localizedDescription
         }
-    }
-}
-
-// MARK: - WelcomeStep
-
-struct WelcomeStep: View {
-    var onContinue: () -> Void
-
-    var body: some View {
-        VStack(spacing: VSpacing.xl) {
-            Spacer()
-
-            Text("✨")
-                .font(VFont.onboardingEmoji)
-
-            Text("Welcome to Vellum Assistant")
-                .font(VFont.titleMedium)
-                .foregroundStyle(VColor.contentDefault)
-                .multilineTextAlignment(.center)
-
-            Text("AI-powered assistant for your iPhone")
-                .font(VFont.bodyMediumLighter)
-                .foregroundStyle(VColor.contentSecondary)
-                .multilineTextAlignment(.center)
-
-            Spacer()
-
-            Button("Get Started", action: onContinue)
-                .buttonStyle(.borderedProminent)
-                .padding(.bottom, VSpacing.xxl)
-        }
-        .padding(VSpacing.xl)
     }
 }
 

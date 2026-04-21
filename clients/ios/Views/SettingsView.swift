@@ -12,12 +12,14 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 AccountSection(authManager: authManager)
-                ConnectionInfoSection()
 
                 Section("About") {
                     LabeledContent("Version", value: Bundle.main.appVersion)
                 }
 
+                // Developer tooling: hidden in production, visible in debug builds
+                // or via the secret 5-tap gesture on the version row (TODO: LUM-980).
+                #if DEBUG
                 Section("Developer") {
                     NavigationLink {
                         DeveloperSettingsSection(authManager: authManager, conversationStore: conversationStore)
@@ -25,6 +27,7 @@ struct SettingsView: View {
                         Label { Text("Developer") } icon: { VIconView(.bug, size: 14) }
                     }
                 }
+                #endif
             }
             .navigationTitle("Settings")
         }
