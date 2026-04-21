@@ -458,6 +458,9 @@ struct MainWindowView: View {
                     VButton(label: "Home", iconOnly: VIcon.house.rawValue, style: .ghost) {
                         windowState.showPanel(.home)
                     }
+                    // ⇧⌘H avoids the system-reserved ⌘H ("Hide application")
+                    // while keeping the mnemonic on the H key.
+                    .keyboardShortcut("h", modifiers: [.command, .shift])
                     .overlay(alignment: .topTrailing) {
                         // Red dot whenever HomeStore has observed a background
                         // `relationshipStateUpdated` SSE event while the user
@@ -473,7 +476,7 @@ struct MainWindowView: View {
                                 .accessibilityLabel(Text("Unseen changes"))
                         }
                     }
-                    .vTooltip("Home")
+                    .vTooltip("Home (\u{21E7}\u{2318}H)")
                 }
 
                 VButton(label: "Search", iconOnly: VIcon.search.rawValue, style: .ghost) {
