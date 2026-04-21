@@ -14,7 +14,6 @@ struct OnboardingVellumCloudCard: View {
         "Always on, even when your Mac sleeps",
         "Instant sync across all your devices",
         "No API key or technical setup required",
-        "Automatic two-way transfer & backup",
     ]
     let primaryCTA: String = "Continue with Vellum"
     var isLoading: Bool = false
