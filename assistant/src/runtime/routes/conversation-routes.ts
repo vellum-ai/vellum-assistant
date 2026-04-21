@@ -1707,48 +1707,46 @@ export async function handleSendMessage(
   // 10-30s of inference latency on first boot.
   // When onboarding context is present, skip the canned greeting so the
   // model can generate a proactive response using the prechat selections.
-  if (
-    !body.onboarding &&
-    isWakeUpGreeting(trimmedContent, conversation.getMessages().length)
-  ) {
-    const cannedGreeting = getCannedFirstGreeting();
-    if (cannedGreeting) {
-      conversation.processing = true;
-      let cleanupDeferred = false;
-      try {
-        const provenance = provenanceFromTrustContext(
-          conversation.trustContext,
-        );
-        const channelMeta = {
-          ...provenance,
-          userMessageChannel: sourceChannel,
-          assistantMessageChannel: sourceChannel,
-          userMessageInterface: sourceInterface,
-          assistantMessageInterface: sourceInterface,
-        };
+  if (isWakeUpGreeting(trimmedContent, conversation.getMessages().length)) {
+    const cannedGreeting = body.onboarding ? null : getCannedFirstGreeting();
 
-        const rawContent = content ?? "";
-        const attachments = hasAttachments
-          ? smDeps.resolveAttachments(attachmentIds)
-          : [];
-        const userMsg = createUserMessage(rawContent, attachments);
-        const persisted = await addMessage(
-          mapping.conversationId,
-          "user",
-          JSON.stringify(userMsg.content),
-          channelMeta,
-        );
-        conversation.getMessages().push(userMsg);
+    conversation.processing = true;
+    let cleanupDeferred = false;
+    try {
+      const provenance = provenanceFromTrustContext(conversation.trustContext);
+      const channelMeta = {
+        ...provenance,
+        userMessageChannel: sourceChannel,
+        assistantMessageChannel: sourceChannel,
+        userMessageInterface: sourceInterface,
+        assistantMessageInterface: sourceInterface,
+      };
 
-        setConversationOriginChannelIfUnset(
-          mapping.conversationId,
-          sourceChannel,
-        );
-        setConversationOriginInterfaceIfUnset(
-          mapping.conversationId,
-          sourceInterface,
-        );
+      const rawContent = content ?? "";
+      const attachments = hasAttachments
+        ? smDeps.resolveAttachments(attachmentIds)
+        : [];
+      const userMsg = createUserMessage(rawContent, attachments);
+      const persisted = await addMessage(
+        mapping.conversationId,
+        "user",
+        JSON.stringify(userMsg.content),
+        channelMeta,
+      );
+      conversation.getMessages().push(userMsg);
 
+      setConversationOriginChannelIfUnset(
+        mapping.conversationId,
+        sourceChannel,
+      );
+      setConversationOriginInterfaceIfUnset(
+        mapping.conversationId,
+        sourceInterface,
+      );
+
+      const conversationId = mapping.conversationId;
+
+      if (cannedGreeting) {
         const assistantMsg = createAssistantMessage(cannedGreeting);
         await addMessage(
           mapping.conversationId,
@@ -1758,7 +1756,6 @@ export async function handleSendMessage(
         );
         conversation.getMessages().push(assistantMsg);
 
-        const conversationId = mapping.conversationId;
         const response = Response.json(
           { accepted: true, messageId: persisted.id, conversationId },
           { status: 202 },
@@ -1790,11 +1787,77 @@ export async function handleSendMessage(
         );
         cleanupDeferred = true;
         return response;
-      } finally {
-        if (!cleanupDeferred && conversation.processing) {
-          conversation.processing = false;
-          silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
-        }
+      }
+
+      // Onboarding context present — user message is persisted above,
+      // now hand off to the agent loop for a personalized greeting.
+      conversation.abortController = new AbortController();
+      conversation.currentRequestId = crypto.randomUUID();
+
+      conversation.setTurnChannelContext({
+        userMessageChannel: sourceChannel,
+        assistantMessageChannel: sourceChannel,
+      });
+      conversation.setTurnInterfaceContext({
+        userMessageInterface: sourceInterface,
+        assistantMessageInterface: sourceInterface,
+      });
+
+      onEvent({
+        type: "user_message_echo",
+        text: rawContent,
+        conversationId,
+        messageId: persisted.id,
+        clientMessageId,
+      });
+
+      const fallbackGreeting = getCannedFirstGreeting();
+      conversation
+        .runAgentLoop(rawContent, persisted.id, onEvent, {
+          isInteractive,
+          isUserMessage: true,
+        })
+        .catch((err) => {
+          log.error(
+            { err, conversationId },
+            "Agent loop failed (onboarding first greeting) — serving canned fallback",
+          );
+          if (fallbackGreeting) {
+            const assistantMsg = createAssistantMessage(fallbackGreeting);
+            addMessage(
+              conversationId,
+              "assistant",
+              JSON.stringify(assistantMsg.content),
+              channelMeta,
+            ).then(() => {
+              conversation.getMessages().push(assistantMsg);
+              onEvent({
+                type: "assistant_text_delta",
+                text: fallbackGreeting,
+              });
+              onEvent({ type: "message_complete", conversationId });
+              conversation.processing = false;
+              silentlyWithLog(
+                conversation.drainQueue(),
+                "onboarding-fallback queue drain",
+              );
+            });
+          }
+        });
+
+      log.info(
+        { conversationId },
+        "Skipped canned greeting — running agent loop with onboarding context",
+      );
+      cleanupDeferred = true;
+      return Response.json(
+        { accepted: true, messageId: persisted.id, conversationId },
+        { status: 202 },
+      );
+    } finally {
+      if (!cleanupDeferred && conversation.processing) {
+        conversation.processing = false;
+        silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
       }
     }
   }
