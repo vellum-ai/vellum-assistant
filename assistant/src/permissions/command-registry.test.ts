@@ -601,6 +601,7 @@ describe("command-registry", () => {
       "rm",
       "rmdir",
       // Permissions / ownership
+      "chgrp",
       "chmod",
       "chown",
       // Misc tools
