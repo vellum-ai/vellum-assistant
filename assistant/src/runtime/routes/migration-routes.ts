@@ -24,11 +24,17 @@ import { invalidateConfigCache } from "../../config/loader.js";
 import { getDb, resetDb } from "../../memory/db-connection.js";
 import { validateMigrationState } from "../../memory/migrations/validate-migration-state.js";
 import { clearCache as clearTrustCache } from "../../permissions/trust-store.js";
+import { credentialKey } from "../../security/credential-key.js";
 import {
   bulkSetSecureKeysAsync,
+  getSecureKeyAsync,
   getSecureKeyResultAsync,
   listSecureKeysAsync,
 } from "../../security/secure-keys.js";
+import {
+  getCredentialMetadata,
+  upsertCredentialMetadata,
+} from "../../tools/credentials/metadata-store.js";
 import { getLogger } from "../../util/logger.js";
 import {
   getDbPath,
@@ -57,6 +63,53 @@ import { validateVBundle } from "../migrations/vbundle-validator.js";
 
 /** Credentials with this prefix are platform-identity keys and must not be imported. */
 const PLATFORM_CREDENTIAL_PREFIX = "vellum:";
+
+/**
+ * Platform-identity fields that the managed runtime expects to see in CES
+ * (populated by Django's post-hatch provisioning via `POST /v1/secrets`).
+ * After an import we reconcile metadata.json against CES: for every field
+ * where CES already holds a value, make sure metadata has a matching
+ * entry. This closes a race where Django's provisioning POST arrives
+ * during the import — its CES write survives (separate volume), but its
+ * metadata upsert may be clobbered by the in-place clear / atomic swap.
+ */
+const VELLUM_PLATFORM_IDENTITY_FIELDS = [
+  "platform_base_url",
+  "assistant_api_key",
+  "platform_assistant_id",
+  "webhook_secret",
+] as const;
+
+/**
+ * Idempotent post-import reconciliation: for each vellum:* field, if CES
+ * has a value but metadata.json doesn't list it, upsert the entry. Pure
+ * add-only — never deletes anything. Safe to run whether or not Django's
+ * post-hatch provisioning has completed (missing CES values are skipped).
+ *
+ * Exported for direct unit-testing.
+ */
+export async function reconcileVellumMetadataFromCes(warningSink: {
+  warnings: string[];
+}): Promise<void> {
+  for (const field of VELLUM_PLATFORM_IDENTITY_FIELDS) {
+    try {
+      const value = await getSecureKeyAsync(credentialKey("vellum", field));
+      if (!value) continue;
+      if (getCredentialMetadata("vellum", field)) continue;
+      upsertCredentialMetadata("vellum", field, {});
+      log.info(
+        { field },
+        "Reconciled vellum:* metadata entry from CES after import",
+      );
+    } catch (err) {
+      warningSink.warnings.push(
+        `Failed to reconcile vellum:${field} metadata: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+}
 
 const log = getLogger("migration-routes");
 
@@ -490,6 +543,11 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
       );
     }
 
+    // Reconcile vellum:* metadata against CES so the gateway's
+    // readServiceCredentials can still find platform identity values even
+    // if Django's post-hatch provisioning raced with the import.
+    await reconcileVellumMetadataFromCes(result.report);
+
     // Invalidate in-process caches so imported settings.json and trust.json take effect
     invalidateConfigCache();
     clearTrustCache();
@@ -855,6 +913,14 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
   if (credentialImportWarningSink.warnings.length > 0) {
     result.report.warnings.push(...credentialImportWarningSink.warnings);
   }
+
+  // Reconcile vellum:* metadata against CES so the gateway's
+  // readServiceCredentials can still find platform identity values even
+  // if Django's post-hatch provisioning raced with the streaming import
+  // (its metadata upsert may have landed in the backup-dir copy that the
+  // swap pushed aside, while its CES write survived on the separate
+  // volume).
+  await reconcileVellumMetadataFromCes(result.report);
 
   // streamCommitImport already invalidated config + trust caches inside its
   // post-swap cleanup. We only need to check whether the newly-imported DB
