@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import type { ContextWindowConfig } from "../config/types.js";
 import type {
@@ -34,14 +33,13 @@ const INTERNAL_CONTEXT_SUMMARY_MESSAGES = new WeakSet<Message>();
 /**
  * Load the compaction summary system prompt from the bundled markdown asset.
  *
- * Resolved via `import.meta.url` + `fileURLToPath` so this works in both
- * source mode (`prompts/compact.md` sits next to this TS file) and bundled
- * forms. `resolveBundledDir` handles the compiled-binary case where the
- * caller path points to `/$bunfs/` and the asset lives next to the
- * executable (macOS app bundle `Contents/Resources/` or sibling dir).
+ * `resolveBundledDir` handles the compiled-binary case where the caller path
+ * points to `/$bunfs/` and the asset lives next to the executable (macOS app
+ * bundle `Contents/Resources/` or sibling dir). In source mode it falls back
+ * to the sibling `prompts/` directory.
  */
 export function loadCompactPrompt(): string {
-  const callerDir = dirname(fileURLToPath(import.meta.url));
+  const callerDir = import.meta.dirname ?? __dirname;
   const promptsDir = resolveBundledDir(callerDir, "prompts", "compact-prompts");
   const promptPath = join(promptsDir, "compact.md");
   const contents = readFileSync(promptPath, "utf-8");
@@ -53,7 +51,46 @@ export function loadCompactPrompt(): string {
   return contents;
 }
 
-const SUMMARY_SYSTEM_PROMPT = loadCompactPrompt();
+/**
+ * Hardcoded fallback matching the original inline prompt. Used if the bundled
+ * `compact.md` asset is missing or unreadable so the daemon can still compact
+ * conversations rather than failing module import at startup.
+ */
+const SUMMARY_PROMPT_FALLBACK = [
+  "You compress long assistant conversations into durable working memory.",
+  "Focus on actionable state, not prose.",
+  "Preserve concrete facts: goals, constraints, decisions, pending questions, file paths, commands, errors, and TODOs.",
+  "Remove repetition and stale details that were superseded.",
+  "Return concise markdown using these section headers exactly:",
+  "## Goals",
+  "## Constraints",
+  "## Decisions",
+  "## Open Conversations",
+  "## Key Artifacts",
+  "## Recent Progress",
+].join("\n");
+
+/**
+ * Load the compact prompt with graceful fallback. If `loader` throws (missing
+ * or unreadable bundled asset, partial deployment, filesystem corruption),
+ * logs a warning and returns the hardcoded fallback string so module import
+ * never fails. The loader is injectable for testability.
+ */
+export function loadCompactPromptOrFallback(
+  loader: () => string = loadCompactPrompt,
+): string {
+  try {
+    return loader();
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to load compact.md from bundle; using inline fallback prompt. The bundled asset may be missing or unreadable.",
+    );
+    return SUMMARY_PROMPT_FALLBACK;
+  }
+}
+
+const SUMMARY_SYSTEM_PROMPT = loadCompactPromptOrFallback();
 
 export interface ContextWindowResult {
   messages: Message[];
