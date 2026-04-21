@@ -277,6 +277,19 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "mailgun-setup",
+      "name": "mailgun-setup",
+      "description": "Set up and send emails via a user-provided Mailgun account (BYO email provider)",
+      "metadata": {
+        "emoji": "📬",
+        "vellum": {
+          "display-name": "Mailgun Email Setup",
+          "user-invocable": "true"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "mcp-setup",
       "name": "mcp-setup",
       "description": "Add, authenticate, list, and remove MCP (Model Context Protocol) servers",
@@ -380,6 +393,19 @@
           "avoid-when": [
             "Running in a platform-managed assistant with platform callback routing available"
           ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "resend-setup",
+      "name": "resend-setup",
+      "description": "Set up and send emails via a user-provided Resend account (BYO email provider)",
+      "metadata": {
+        "emoji": "📤",
+        "vellum": {
+          "display-name": "Resend Email Setup",
+          "user-invocable": "true"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
