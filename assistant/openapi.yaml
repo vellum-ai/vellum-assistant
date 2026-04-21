@@ -4309,10 +4309,51 @@ paths:
                       - timeAwayLabel
                       - newCount
                     additionalProperties: false
+                  suggestedPrompts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        label:
+                          type: string
+                        icon:
+                          type: string
+                        prompt:
+                          type: string
+                        source:
+                          type: string
+                          enum:
+                            - deterministic
+                            - assistant
+                      required:
+                        - id
+                        - label
+                        - prompt
+                        - source
+                      additionalProperties: false
+                  lowPriorityCollapsed:
+                    type: object
+                    properties:
+                      count:
+                        type: integer
+                        minimum: 0
+                        maximum: 9007199254740991
+                      itemIds:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - count
+                      - itemIds
+                    additionalProperties: false
                 required:
                   - items
                   - updatedAt
                   - contextBanner
+                  - suggestedPrompts
+                  - lowPriorityCollapsed
                 additionalProperties: false
       parameters:
         - name: timeAwaySeconds

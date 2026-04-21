@@ -26,8 +26,8 @@ import {
   type FeedItem,
   feedItemSchema,
   type FeedItemStatus,
-  suggestedPromptSchema,
   lowPriorityCollapsedSchema,
+  suggestedPromptSchema,
 } from "../../home/feed-types.js";
 import { patchFeedItemStatus, readHomeFeed } from "../../home/feed-writer.js";
 import { runRollupProducer } from "../../home/rollup-producer.js";
