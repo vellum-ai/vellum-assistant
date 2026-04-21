@@ -409,14 +409,13 @@ struct HomeGallerySection: View {
 
                 GallerySectionHeader(
                     title: "HomeDetailPanel",
-                    description: "Reusable white right-side panel container with standardized header (icon + title + primary/secondary actions + dismiss)."
+                    description: "Reusable white right-side panel container with a standardized header (icon + title + \"Go to Thread\" action + dismiss)."
                 )
 
                 HomeDetailPanel(
                     icon: .file,
                     title: "Panel title",
-                    primaryAction: .init(label: "Primary", action: {}),
-                    secondaryAction: .init(label: "Secondary", style: .danger, action: {}),
+                    onGoToThread: {},
                     onDismiss: {}
                 ) {
                     Text("Detail content goes here.")
@@ -455,8 +454,7 @@ struct HomeGallerySection: View {
                 HomeDetailPanel(
                     icon: .file,
                     title: "Authorise Payment to Slack",
-                    primaryAction: .init(label: "Authorise", action: {}),
-                    secondaryAction: .init(label: "Deny", style: .danger, action: {}),
+                    onGoToThread: {},
                     onDismiss: {}
                 ) {
                     HomeInvoicePreview(image: nil, placeholderCaption: "Sample invoice")
@@ -635,6 +633,7 @@ private struct HomeEmailEditorDemo: View {
         HomeDetailPanel(
             icon: nil,
             title: "Thread Name Here",
+            onGoToThread: {},
             onDismiss: {},
             scrollable: false
         ) {
@@ -721,6 +720,7 @@ private struct HomeSplitLayoutDemo: View {
             HomeDetailPanel(
                 icon: nil,
                 title: "Thread Name Here",
+                onGoToThread: {},
                 onDismiss: {},
                 scrollable: false
             ) {
@@ -737,8 +737,7 @@ private struct HomeSplitLayoutDemo: View {
             HomeDetailPanel(
                 icon: .file,
                 title: "Authorise Payment to Slack",
-                primaryAction: .init(label: "Authorise", action: {}),
-                secondaryAction: .init(label: "Deny", style: .danger, action: {}),
+                onGoToThread: {},
                 onDismiss: {}
             ) {
                 HomeInvoicePreview(image: nil, placeholderCaption: "Sample invoice")

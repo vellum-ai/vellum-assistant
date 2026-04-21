@@ -5,33 +5,28 @@ import VellumAssistantShared
 ///
 /// Matches Figma nodes 3216:63021 (email editor) and 3216:63117 (invoice
 /// preview) — a 601pt solid-white chrome with its own 16pt-rounded card
-/// border, a header that hosts an optional icon chip + title + up to two
-/// trailing actions + optional dismiss, and a scrolling content area
-/// below a hairline divider.
+/// border, a header that hosts an optional icon chip + title + a single
+/// trailing "Go to Thread" action + optional dismiss, and a scrolling
+/// content area below a hairline divider.
 ///
 /// The chrome is intentionally solid (not glass) so the panel reads as a
 /// distinct work surface next to the floating glass recap cards on the
-/// Home page. Header action buttons use `VButton.Size.regular` (32pt
-/// tall, 8pt corners, 10pt horizontal padding) which matches the mock's
-/// `rounded-[8px] h-[32px] px-[10px]` spec exactly — a deliberate break
-/// from the fully-pill buttons used inside the recap cards.
+/// Home page. The header "Go to Thread" button uses `VButton.Size.regular`
+/// (32pt tall, 8pt corners, 10pt horizontal padding) with the `.outlined`
+/// style — a deliberate break from the fully-pill buttons used inside the
+/// recap cards.
 struct HomeDetailPanel<Content: View>: View {
     /// Default panel width from the Figma source (601pt). Callers almost
     /// always want this; exposed as a static so split-view hosts can size
     /// the trailing column without hard-coding a magic number.
     static var defaultWidth: CGFloat { 601 }
 
-    /// Describes one of the trailing header buttons (primary / secondary).
-    struct Action {
-        let label: String
-        var style: VButton.Style = .primary
-        let action: () -> Void
-    }
-
     let icon: VIcon?
     let title: String
-    var primaryAction: Action?   = nil
-    var secondaryAction: Action? = nil
+    /// Tap handler for the trailing "Go to Thread" button in the header.
+    /// Pass `nil` to hide the button (e.g. previews that don't surface a
+    /// thread affordance).
+    var onGoToThread: (() -> Void)? = nil
     var onDismiss: (() -> Void)? = nil
     /// When `true` (default), the content area is wrapped in a vertical
     /// `ScrollView` so tall content like invoice images scrolls naturally.
@@ -74,8 +69,8 @@ struct HomeDetailPanel<Content: View>: View {
 
     // MARK: - Header
 
-    /// Header row: optional icon chip + title on the leading edge, and up
-    /// to two action buttons + optional dismiss on the trailing edge.
+    /// Header row: optional icon chip + title on the leading edge, and a
+    /// single "Go to Thread" action + optional dismiss on the trailing edge.
     private var header: some View {
         HStack(spacing: VSpacing.sm) {
             HStack(spacing: VSpacing.sm) {
@@ -99,21 +94,12 @@ struct HomeDetailPanel<Content: View>: View {
             Spacer(minLength: 0)
 
             HStack(spacing: VSpacing.sm) {
-                if let primaryAction {
+                if let onGoToThread {
                     VButton(
-                        label: primaryAction.label,
-                        style: primaryAction.style,
+                        label: "Go to Thread",
+                        style: .outlined,
                         size: .regular,
-                        action: primaryAction.action
-                    )
-                }
-
-                if let secondaryAction {
-                    VButton(
-                        label: secondaryAction.label,
-                        style: secondaryAction.style,
-                        size: .regular,
-                        action: secondaryAction.action
+                        action: onGoToThread
                     )
                 }
 
