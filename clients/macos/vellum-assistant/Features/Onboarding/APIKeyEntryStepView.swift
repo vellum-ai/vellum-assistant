@@ -20,62 +20,13 @@ struct APIKeyEntryStepView: View {
 
     // MARK: - Provider Catalog
 
-    private var providerCatalog: [ProviderCatalogEntry] {
-        return [
-            ProviderCatalogEntry(id: "anthropic", displayName: "Anthropic", models: [
-                CatalogModel(id: "claude-opus-4-7", displayName: "Claude Opus 4.7"),
-                CatalogModel(id: "claude-opus-4-6", displayName: "Claude Opus 4.6"),
-                CatalogModel(id: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6"),
-                CatalogModel(id: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5"),
-            ], defaultModel: "claude-opus-4-7", apiKeyUrl: "https://console.anthropic.com/settings/keys", apiKeyPlaceholder: "sk-ant-api03-..."),
-            ProviderCatalogEntry(id: "openai", displayName: "OpenAI", models: [
-                CatalogModel(id: "gpt-5.4", displayName: "GPT-5.4"),
-                CatalogModel(id: "gpt-5.2", displayName: "GPT-5.2"),
-                CatalogModel(id: "gpt-5.4-mini", displayName: "GPT-5.4 Mini"),
-                CatalogModel(id: "gpt-5.4-nano", displayName: "GPT-5.4 Nano"),
-            ], defaultModel: "gpt-5.4", apiKeyUrl: "https://platform.openai.com/api-keys", apiKeyPlaceholder: "sk-proj-..."),
-            ProviderCatalogEntry(id: "gemini", displayName: "Google Gemini", models: [
-                CatalogModel(id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash"),
-                CatalogModel(id: "gemini-2.5-flash-lite", displayName: "Gemini 2.5 Flash Lite"),
-                CatalogModel(id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro"),
-            ], defaultModel: "gemini-2.5-flash", apiKeyUrl: "https://aistudio.google.com/apikey", apiKeyPlaceholder: "AIza..."),
-            ProviderCatalogEntry(id: "ollama", displayName: "Ollama", models: [
-                CatalogModel(id: "llama3.2", displayName: "Llama 3.2"),
-                CatalogModel(id: "mistral", displayName: "Mistral"),
-            ], defaultModel: "llama3.2"),
-            ProviderCatalogEntry(id: "fireworks", displayName: "Fireworks", models: [
-                CatalogModel(id: "accounts/fireworks/models/kimi-k2p5", displayName: "Kimi K2.5"),
-            ], defaultModel: "accounts/fireworks/models/kimi-k2p5", apiKeyUrl: "https://fireworks.ai/account/api-keys", apiKeyPlaceholder: "fw_..."),
-            ProviderCatalogEntry(id: "openrouter", displayName: "OpenRouter", models: [
-                // xAI
-                CatalogModel(id: "x-ai/grok-4.20-beta", displayName: "Grok 4.20 Beta"),
-                CatalogModel(id: "x-ai/grok-4", displayName: "Grok 4"),
-                // DeepSeek
-                CatalogModel(id: "deepseek/deepseek-r1-0528", displayName: "DeepSeek R1"),
-                CatalogModel(id: "deepseek/deepseek-chat-v3-0324", displayName: "DeepSeek V3"),
-                // Qwen
-                CatalogModel(id: "qwen/qwen3.5-plus-02-15", displayName: "Qwen 3.5 Plus"),
-                CatalogModel(id: "qwen/qwen3.5-397b-a17b", displayName: "Qwen 3.5 397B"),
-                CatalogModel(id: "qwen/qwen3.5-flash-02-23", displayName: "Qwen 3.5 Flash"),
-                CatalogModel(id: "qwen/qwen3-coder-next", displayName: "Qwen 3 Coder"),
-                // Moonshot
-                CatalogModel(id: "moonshotai/kimi-k2.5", displayName: "Kimi K2.5"),
-                // Mistral
-                CatalogModel(id: "mistralai/mistral-medium-3", displayName: "Mistral Medium 3"),
-                CatalogModel(id: "mistralai/mistral-small-2603", displayName: "Mistral Small 4"),
-                CatalogModel(id: "mistralai/devstral-2512", displayName: "Devstral 2"),
-                // Meta
-                CatalogModel(id: "meta-llama/llama-4-maverick", displayName: "Llama 4 Maverick"),
-                CatalogModel(id: "meta-llama/llama-4-scout", displayName: "Llama 4 Scout"),
-                // Amazon
-                CatalogModel(id: "amazon/nova-pro-v1", displayName: "Amazon Nova Pro"),
-            ], defaultModel: "x-ai/grok-4.20-beta", apiKeyUrl: "https://openrouter.ai/keys", apiKeyPlaceholder: "sk-or-v1-..."),
-        ]
+    private var providerCatalog: [LLMProviderEntry] {
+        LLMProviderRegistry.providers
     }
 
     // MARK: - Provider Helpers
 
-    private var currentProviderEntry: ProviderCatalogEntry? {
+    private var currentProviderEntry: LLMProviderEntry? {
         providerCatalog.first { $0.id == state.selectedProvider }
     }
 
@@ -84,7 +35,7 @@ struct APIKeyEntryStepView: View {
     }
 
     private var providerRequiresKey: Bool {
-        state.selectedProvider != "ollama"
+        currentProviderEntry?.setupMode != .keyless
     }
 
     // MARK: - Body
@@ -113,7 +64,7 @@ struct APIKeyEntryStepView: View {
                     apiKeyField
                 }
 
-                if let apiKeyUrl = currentProviderEntry?.apiKeyUrl,
+                if let apiKeyUrl = currentProviderEntry?.credentialsGuide?.url,
                    let url = URL(string: apiKeyUrl) {
                     HStack(spacing: VSpacing.sm) {
                         Text("Don't have it?")
