@@ -21,7 +21,7 @@ if (!name) {
 const manifest = {
   display_information: {
     name,
-    description: desc,
+    ...(desc ? { description: desc } : {}),
     background_color: "#1a1a2e",
   },
   features: {
