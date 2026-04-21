@@ -532,4 +532,186 @@ describe("command-registry", () => {
       expect(trustSubs).toContain("clear");
     });
   });
+
+  // ── sandboxAutoApprove allowlist guard ───────────────────────────────────
+  describe("sandboxAutoApprove allowlist", () => {
+    /** Collect all top-level commands tagged with sandboxAutoApprove: true. */
+    function getSandboxAutoApproveCommands(): string[] {
+      return Object.entries(DEFAULT_COMMAND_REGISTRY)
+        .filter(
+          ([, spec]) => (spec as CommandRiskSpec).sandboxAutoApprove === true,
+        )
+        .map(([name]) => name)
+        .sort();
+    }
+
+    /**
+     * The exact set of commands that should be tagged with sandboxAutoApprove.
+     * This acts as a guard — any addition or removal must be intentional and
+     * update this list.
+     */
+    const EXPECTED_SANDBOX_AUTO_APPROVE = [
+      // Core filesystem (read-only)
+      "ls",
+      "cat",
+      "head",
+      "tail",
+      "less",
+      "more",
+      "wc",
+      "file",
+      "stat",
+      "du",
+      "df",
+      "diff",
+      "tree",
+      "pwd",
+      "realpath",
+      "basename",
+      "dirname",
+      "readlink",
+      // Search / filter / text processing
+      "grep",
+      "rg",
+      "ag",
+      "ack",
+      "sort",
+      "uniq",
+      "cut",
+      "tr",
+      "sed",
+      "awk",
+      // System info / text output
+      "echo",
+      "printf",
+      // Data processing
+      "jq",
+      "yq",
+      // Find
+      "find",
+      "fd",
+      // Write commands
+      "cp",
+      "mv",
+      "mkdir",
+      "touch",
+      "ln",
+      "tee",
+      // Delete commands
+      "rm",
+      "rmdir",
+      // Permissions / ownership
+      "chmod",
+      "chown",
+      // Misc tools
+      "xargs",
+      // Archives
+      "tar",
+      "zip",
+      "unzip",
+      "gzip",
+      "gunzip",
+    ].sort();
+
+    test("sandboxAutoApprove commands match the expected allowlist exactly", () => {
+      const actual = getSandboxAutoApproveCommands();
+      expect(actual).toEqual(EXPECTED_SANDBOX_AUTO_APPROVE);
+    });
+
+    test("network commands are NOT tagged with sandboxAutoApprove", () => {
+      const networkCommands = [
+        "curl",
+        "wget",
+        "http",
+        "ssh",
+        "scp",
+        "rsync",
+        "ping",
+        "dig",
+        "nslookup",
+      ];
+      for (const cmd of networkCommands) {
+        const spec = (
+          DEFAULT_COMMAND_REGISTRY as Record<string, CommandRiskSpec>
+        )[cmd];
+        expect(spec).toBeDefined();
+        expect(spec.sandboxAutoApprove).not.toBe(true);
+      }
+    });
+
+    test("runtime/language commands are NOT tagged with sandboxAutoApprove", () => {
+      const runtimeCommands = [
+        "node",
+        "deno",
+        "python",
+        "python3",
+        "ruby",
+        "bash",
+        "sh",
+        "zsh",
+      ];
+      for (const cmd of runtimeCommands) {
+        const spec = (
+          DEFAULT_COMMAND_REGISTRY as Record<string, CommandRiskSpec>
+        )[cmd];
+        expect(spec).toBeDefined();
+        expect(spec.sandboxAutoApprove).not.toBe(true);
+      }
+    });
+
+    test("package manager commands are NOT tagged with sandboxAutoApprove", () => {
+      const packageCommands = [
+        "npm",
+        "npx",
+        "yarn",
+        "pnpm",
+        "bun",
+        "pip",
+        "pip3",
+        "brew",
+        "cargo",
+        "apt-get",
+        "apt",
+        "dnf",
+        "yum",
+        "pacman",
+        "apk",
+      ];
+      for (const cmd of packageCommands) {
+        const spec = (
+          DEFAULT_COMMAND_REGISTRY as Record<string, CommandRiskSpec>
+        )[cmd];
+        expect(spec).toBeDefined();
+        expect(spec.sandboxAutoApprove).not.toBe(true);
+      }
+    });
+
+    test("system/privilege commands are NOT tagged with sandboxAutoApprove", () => {
+      const systemCommands = [
+        "sudo",
+        "su",
+        "doas",
+        "mount",
+        "umount",
+        "systemctl",
+        "service",
+        "launchctl",
+        "reboot",
+        "shutdown",
+        "kill",
+        "killall",
+        "pkill",
+        "dd",
+        "mkfs",
+        "fdisk",
+      ];
+      for (const cmd of systemCommands) {
+        const spec = (
+          DEFAULT_COMMAND_REGISTRY as Record<string, CommandRiskSpec>
+        )[cmd];
+        expect(spec).toBeDefined();
+        expect(spec.sandboxAutoApprove).not.toBe(true);
+      }
+    });
+  });
 });
