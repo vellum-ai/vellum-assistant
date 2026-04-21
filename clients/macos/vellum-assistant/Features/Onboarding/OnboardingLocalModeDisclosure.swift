@@ -14,7 +14,6 @@ internal struct OnboardingLocalModeDisclosure: View {
     var kicker: String = "LOCAL MODE"
     var title: String = "Continue without an account"
     var tradeoffs: [String] = [
-        "No account — install and start chatting",
         "Your data stays on your Mac",
         "Bring your own API key",
     ]

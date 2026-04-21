@@ -11,7 +11,8 @@ struct OnboardingVellumCloudCard: View {
 
     let title: String = "Vellum Cloud"
     let benefits: [String] = [
-        "No API key or technical setup required",
+        "Secure and private by design",
+        "No setup required, no extra cost",
         "Always on, even when your Mac sleeps",
         "Instant sync across all your devices",
     ]
