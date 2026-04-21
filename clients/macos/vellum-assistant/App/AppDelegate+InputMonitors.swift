@@ -123,7 +123,11 @@ extension AppDelegate {
         registerCurrentConversationMonitor()
         registerMarkConversationUnreadMonitor()
         registerPopOutMonitor()
-        registerHomeShortcutMonitor()
+        // `registerHomeShortcutMonitor()` is NOT called here — it's
+        // registered in `proceedToApp()` alongside the other
+        // post-bootstrap monitors (sidebar / nav / zoom) and
+        // re-registered by the debounced sink below when the shortcut
+        // changes. This matches the sidebar pattern.
         registerConversationNavMonitor()
 
         globalHotkeyObserver = Publishers.Merge4(
