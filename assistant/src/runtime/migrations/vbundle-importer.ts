@@ -28,6 +28,7 @@ import { sanitizeConfigForTransfer } from "../../config/sanitize-for-transfer.js
 import { isGuardianPersonaCustomized } from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
 import type { PathResolver } from "./vbundle-import-analyzer.js";
+import { mergeMetadataPreservingVellum } from "./vbundle-metadata-merge.js";
 import type { ManifestType, VBundleTarEntry } from "./vbundle-validator.js";
 import { validateVBundle } from "./vbundle-validator.js";
 
@@ -45,6 +46,15 @@ export const CONFIG_ARCHIVE_PATHS: ReadonlySet<string> = new Set([
   "workspace/config.json",
   "config/settings.json",
 ]);
+
+/**
+ * Archive path for the credential metadata file. On import, bundle contents
+ * must be merged with the target's live `vellum:*` entries so the gateway's
+ * `readServiceCredentials` can still locate the platform API key after a
+ * local→platform teleport. Both importers consult this constant.
+ */
+export const CREDENTIAL_METADATA_ARCHIVE_PATH =
+  "workspace/data/credentials/metadata.json";
 
 /**
  * Paths inside the workspace directory that must be preserved across an
@@ -240,6 +250,29 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     (f) => f.path.startsWith("workspace/") && !!pathResolver.resolve(f.path),
   );
 
+  // Capture the target's credential metadata BEFORE the workspace clear
+  // runs. Step 1b wipes `data/credentials/`, so reading live metadata
+  // later (during the per-file write loop) would always miss. The merge
+  // helper needs this content to preserve the target's platform-identity
+  // (`vellum:*`) entries across the overwrite.
+  let liveCredentialMetadataJson: string | null = null;
+  const credentialMetadataDiskPath = pathResolver.resolve(
+    CREDENTIAL_METADATA_ARCHIVE_PATH,
+  );
+  if (credentialMetadataDiskPath && existsSync(credentialMetadataDiskPath)) {
+    try {
+      liveCredentialMetadataJson = readFileSync(
+        credentialMetadataDiskPath,
+        "utf-8",
+      );
+    } catch (err) {
+      log.warn(
+        { err, path: credentialMetadataDiskPath },
+        "Failed to read live credential metadata before import; vellum:* entries may not be preserved",
+      );
+    }
+  }
+
   if (hasWorkspaceEntries && workspaceDir && existsSync(workspaceDir)) {
     try {
       // Clear workspace contents selectively, preserving skip dirs
@@ -409,6 +442,21 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
       dataToWrite = new TextEncoder().encode(sanitized);
     }
 
+    // Preserve target's `vellum:*` metadata entries across the overwrite.
+    // Django's post-hatch provisioning writes these on the target via
+    // POST /v1/secrets; a naive overwrite of the bundle's metadata.json
+    // would wipe them and break the gateway's vellum credential read.
+    // We use the snapshot captured BEFORE the workspace clear because
+    // Step 1b may have already removed the live file.
+    if (fileEntry.path === CREDENTIAL_METADATA_ARCHIVE_PATH) {
+      const bundleJson = new TextDecoder().decode(archiveEntry.data);
+      const merged = mergeMetadataPreservingVellum(
+        bundleJson,
+        liveCredentialMetadataJson,
+      );
+      dataToWrite = new TextEncoder().encode(merged);
+    }
+
     // Write the file
     try {
       writeFileSync(diskPath, dataToWrite);
@@ -456,6 +504,35 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
       sha256: expectedSha256,
       backup_path: backupPath,
     });
+  }
+
+  // If the bundle did not carry a metadata.json entry but the target had
+  // `vellum:*` entries before Step 1b cleared them, write a minimal
+  // metadata file with just those preserved entries so the gateway can
+  // still locate the platform API key.
+  const bundleHadMetadata = manifest.files.some(
+    (f) => f.path === CREDENTIAL_METADATA_ARCHIVE_PATH,
+  );
+  if (
+    hasWorkspaceEntries &&
+    !bundleHadMetadata &&
+    liveCredentialMetadataJson &&
+    credentialMetadataDiskPath
+  ) {
+    const merged = mergeMetadataPreservingVellum(
+      JSON.stringify({ version: 5, credentials: [] }),
+      liveCredentialMetadataJson,
+    );
+    try {
+      mkdirSync(dirname(credentialMetadataDiskPath), { recursive: true });
+      writeFileSync(credentialMetadataDiskPath, merged);
+    } catch (err) {
+      warnings.push(
+        `Failed to restore preserved vellum:* credential metadata: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   // Build final report
