@@ -182,8 +182,8 @@ extension AppDelegate {
     /// from both the lockfile and the platform list (via the landscape) so
     /// platform-only assistants (hatched on another device) are included.
     private func showAssistantPicker(landscape: ReturningUserRouter.AssistantLandscape) {
-        // Local lockfile entries (current-env only)
-        let localItems = landscape.currentEnvironmentLocalLockfileAssistants
+        // Lockfile entries (current-env, both local and managed)
+        let localItems = landscape.currentEnvironmentLockfileAssistants
             .map(AssistantPickerItem.from(lockfile:))
 
         // Platform entries — exclude any already represented in the lockfile
