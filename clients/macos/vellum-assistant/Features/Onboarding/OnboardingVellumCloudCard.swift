@@ -29,13 +29,13 @@ struct OnboardingVellumCloudCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header: title + RECOMMENDED chip. Uses `titleMedium` so it
-            // sits a notch below the page title (`VFont.titleLarge` on
+            // Header: title + RECOMMENDED chip. Uses `titleSmall` so it
+            // sits a notch below the page title (`VFont.titleMedium` on
             // `WakeUpStepView`) without clashing with the page's sans
             // family.
             HStack(alignment: .top) {
                 Text(title)
-                    .font(VFont.titleMedium)
+                    .font(VFont.titleSmall)
                     .foregroundStyle(VColor.contentEmphasized)
 
                 Spacer(minLength: VSpacing.sm)
@@ -48,17 +48,17 @@ struct OnboardingVellumCloudCard: View {
                 )
             }
 
-            Spacer().frame(height: VSpacing.xs)
+            Spacer().frame(height: VSpacing.xxs)
 
             Text(subtitle)
-                .font(VFont.bodyMediumLighter)
+                .font(VFont.bodySmallDefault)
                 .foregroundStyle(VColor.contentSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Spacer().frame(height: VSpacing.lg)
+            Spacer().frame(height: VSpacing.md)
 
             // Benefits
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
                 ForEach(benefits, id: \.self) { benefit in
                     benefitRow(benefit)
                 }
@@ -66,7 +66,7 @@ struct OnboardingVellumCloudCard: View {
             .accessibilityElement(children: .contain)
             .accessibilityLabel(Text("Vellum Cloud benefits"))
 
-            Spacer().frame(height: VSpacing.lg)
+            Spacer().frame(height: VSpacing.md)
 
             // CTA — "Logging in…" wins over "Checking…" when both bits are set,
             // since the user has just submitted credentials and a generic
@@ -88,10 +88,10 @@ struct OnboardingVellumCloudCard: View {
             }
         }
         .padding(EdgeInsets(
-            top: VSpacing.lg,
-            leading: VSpacing.lg,
-            bottom: VSpacing.lg,
-            trailing: VSpacing.lg
+            top: VSpacing.md,
+            leading: VSpacing.md,
+            bottom: VSpacing.md,
+            trailing: VSpacing.md
         ))
         .frame(maxWidth: .infinity)
         .background(
@@ -110,11 +110,11 @@ struct OnboardingVellumCloudCard: View {
     @ViewBuilder
     private func benefitRow(_ text: String) -> some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
-            VIconView(.circleCheck, size: 16)
+            VIconView(.circleCheck, size: 14)
                 .foregroundStyle(VColor.contentSecondary)
                 .accessibilityHidden(true)
             Text(text)
-                .font(VFont.bodyMediumDefault)
+                .font(VFont.bodySmallDefault)
                 .foregroundStyle(VColor.contentDefault)
                 .fixedSize(horizontal: false, vertical: true)
         }

@@ -38,7 +38,7 @@ internal struct OnboardingLocalModeDisclosure: View {
                             .textCase(.uppercase)
                             .tracking(0.6)
                         Text(title)
-                            .font(VFont.bodyMediumEmphasised)
+                            .font(VFont.bodySmallEmphasised)
                             .foregroundStyle(VColor.contentDefault)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -61,13 +61,13 @@ internal struct OnboardingLocalModeDisclosure: View {
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: 0) {
-                    Spacer().frame(height: VSpacing.md)
+                    Spacer().frame(height: VSpacing.sm)
 
                     VColor.borderBase
                         .frame(height: 1)
                         .accessibilityHidden(true)
 
-                    Spacer().frame(height: VSpacing.md)
+                    Spacer().frame(height: VSpacing.sm)
 
                     Text(tradeoffsKicker)
                         .font(VFont.labelSmall)
@@ -75,15 +75,15 @@ internal struct OnboardingLocalModeDisclosure: View {
                         .textCase(.uppercase)
                         .tracking(0.6)
 
-                    Spacer().frame(height: VSpacing.sm)
+                    Spacer().frame(height: VSpacing.xs)
 
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         ForEach(tradeoffs, id: \.self) { item in
                             tradeoffRow(item)
                         }
                     }
 
-                    Spacer().frame(height: VSpacing.md)
+                    Spacer().frame(height: VSpacing.sm)
 
                     VButton(
                         label: secondaryCTA,
@@ -99,10 +99,10 @@ internal struct OnboardingLocalModeDisclosure: View {
             }
         }
         .padding(EdgeInsets(
-            top: VSpacing.md,
-            leading: VSpacing.lg,
-            bottom: VSpacing.md,
-            trailing: VSpacing.md
+            top: VSpacing.sm,
+            leading: VSpacing.md,
+            bottom: VSpacing.sm,
+            trailing: VSpacing.sm
         ))
         .frame(maxWidth: .infinity)
         .background(
@@ -121,10 +121,10 @@ internal struct OnboardingLocalModeDisclosure: View {
             Circle()
                 .fill(VColor.contentTertiary)
                 .frame(width: 3, height: 3)
-                .padding(.top, 7)
+                .padding(.top, 6)
                 .accessibilityHidden(true)
             Text(text)
-                .font(VFont.bodyMediumDefault)
+                .font(VFont.bodySmallDefault)
                 .foregroundStyle(VColor.contentDefault)
                 .fixedSize(horizontal: false, vertical: true)
         }
