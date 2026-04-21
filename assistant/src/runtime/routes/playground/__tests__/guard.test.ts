@@ -32,8 +32,14 @@ describe("assertPlaygroundEnabled", () => {
 });
 
 describe("playgroundRouteDefinitions", () => {
-  test("returns an empty array in the scaffold baseline", () => {
-    expect(playgroundRouteDefinitions(makeDeps(true))).toEqual([]);
-    expect(playgroundRouteDefinitions(makeDeps(false))).toEqual([]);
+  test("returns the registered playground routes regardless of flag state", () => {
+    // Route list composition does not depend on the feature flag — per-route
+    // `assertPlaygroundEnabled()` gating runs inside each handler at request
+    // time. Compose-time independence keeps the router identical across
+    // process lifetimes even if the flag is toggled at runtime.
+    const enabled = playgroundRouteDefinitions(makeDeps(true));
+    const disabled = playgroundRouteDefinitions(makeDeps(false));
+    expect(enabled.length).toBeGreaterThan(0);
+    expect(disabled.length).toBe(enabled.length);
   });
 });
