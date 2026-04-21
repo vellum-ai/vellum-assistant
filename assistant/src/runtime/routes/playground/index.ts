@@ -1,6 +1,7 @@
 import type { RouteDefinition } from "../../http-router.js";
 import type { PlaygroundRouteDeps } from "./deps.js";
 import { forceCompactRouteDefinitions } from "./force-compact.js";
+import { resetCircuitRouteDefinitions } from "./reset-circuit.js";
 import { seededConversationsRouteDefinitions } from "./seeded-conversations.js";
 
 export type { PlaygroundRouteDeps };
@@ -14,6 +15,7 @@ export function playgroundRouteDefinitions(
   // purely additive with minimal conflict risk across concurrent PRs.
   return [
     ...forceCompactRouteDefinitions(deps),
+    ...resetCircuitRouteDefinitions(deps),
     ...seededConversationsRouteDefinitions(deps),
   ];
 }
