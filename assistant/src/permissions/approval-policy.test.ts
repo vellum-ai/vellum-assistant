@@ -49,6 +49,7 @@ describe("deny rule", () => {
     });
     expect(result.decision).toBe("deny");
     expect(result.reason).toContain("deny rule");
+    expect(result.matchedRule).toBe(denyRule);
   });
 
   test("deny at Medium risk", () => {
@@ -77,6 +78,7 @@ describe("ask rule", () => {
     const result = evaluate({ riskLevel: RiskLevel.Low, matchedRule: askRule });
     expect(result.decision).toBe("prompt");
     expect(result.reason).toContain("ask rule");
+    expect(result.matchedRule).toBe(askRule);
   });
 
   test("ask at Medium risk", () => {
@@ -108,6 +110,7 @@ describe("allow rule", () => {
     });
     expect(result.decision).toBe("allow");
     expect(result.reason).toContain("Matched trust rule");
+    expect(result.matchedRule).toBe(allowRule);
   });
 
   test("allow at Medium risk", () => {
@@ -117,9 +120,10 @@ describe("allow rule", () => {
     });
     expect(result.decision).toBe("allow");
     expect(result.reason).toContain("Matched trust rule");
+    expect(result.matchedRule).toBe(allowRule);
   });
 
-  test("allow at High risk — non-containerized bash → prompt", () => {
+  test("allow at High risk — non-containerized bash → prompt, no matchedRule in decision", () => {
     const result = evaluate({
       riskLevel: RiskLevel.High,
       toolName: "bash",
@@ -128,9 +132,11 @@ describe("allow rule", () => {
     });
     expect(result.decision).toBe("prompt");
     expect(result.reason).toContain("High risk");
+    // Decision is driven by risk-based fallback, not the rule
+    expect(result.matchedRule).toBeUndefined();
   });
 
-  test("allow at High risk — containerized bash → allow (auto-allow)", () => {
+  test("allow at High risk — containerized bash → allow (auto-allow), matchedRule present", () => {
     const result = evaluate({
       riskLevel: RiskLevel.High,
       toolName: "bash",
@@ -139,9 +145,10 @@ describe("allow rule", () => {
     });
     expect(result.decision).toBe("allow");
     expect(result.reason).toContain("auto-allow-high-risk");
+    expect(result.matchedRule).toBe(allowRule);
   });
 
-  test("allow at High risk — non-bash tool, containerized → prompt", () => {
+  test("allow at High risk — non-bash tool, containerized → prompt, no matchedRule in decision", () => {
     const result = evaluate({
       riskLevel: RiskLevel.High,
       toolName: "file_write",
@@ -150,9 +157,11 @@ describe("allow rule", () => {
     });
     expect(result.decision).toBe("prompt");
     expect(result.reason).toContain("High risk");
+    // Decision is driven by risk-based fallback, not the rule
+    expect(result.matchedRule).toBeUndefined();
   });
 
-  test("allow at High risk — non-bash tool, non-containerized → prompt", () => {
+  test("allow at High risk — non-bash tool, non-containerized → prompt, no matchedRule in decision", () => {
     const result = evaluate({
       riskLevel: RiskLevel.High,
       toolName: "file_write",
@@ -161,6 +170,8 @@ describe("allow rule", () => {
     });
     expect(result.decision).toBe("prompt");
     expect(result.reason).toContain("High risk");
+    // Decision is driven by risk-based fallback, not the rule
+    expect(result.matchedRule).toBeUndefined();
   });
 });
 
