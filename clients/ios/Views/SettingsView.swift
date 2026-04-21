@@ -17,17 +17,19 @@ struct SettingsView: View {
                     LabeledContent("Version", value: Bundle.main.appVersion)
                 }
 
-                // Developer tooling: hidden in production, visible in debug builds
-                // or via the secret 5-tap gesture on the version row (TODO: LUM-980).
-                #if DEBUG
-                Section("Developer") {
-                    NavigationLink {
-                        DeveloperSettingsSection(authManager: authManager, conversationStore: conversationStore)
-                    } label: {
-                        Label { Text("Developer") } icon: { VIconView(.bug, size: 14) }
+                // Developer tooling: hidden in production, visible in non-production
+                // deployments, or via the secret 5-tap gesture on the version row
+                // (TODO: LUM-980). Gated by runtime environment rather than `#if DEBUG`
+                // per AGENTS.md — a debug build pointed at staging is still staging.
+                if VellumEnvironment.current != .production {
+                    Section("Developer") {
+                        NavigationLink {
+                            DeveloperSettingsSection(authManager: authManager, conversationStore: conversationStore)
+                        } label: {
+                            Label { Text("Developer") } icon: { VIconView(.bug, size: 14) }
+                        }
                     }
                 }
-                #endif
             }
             .navigationTitle("Settings")
         }
