@@ -34,6 +34,8 @@ function makeDeps(
     isPlaygroundEnabled: () => true,
     listConversationsByTitlePrefix: () => [],
     deleteConversationById: () => false,
+    createConversation: async () => ({ id: "conv-test" }),
+    addMessage: async () => ({ id: "msg-test" }),
     ...overrides,
   };
 }

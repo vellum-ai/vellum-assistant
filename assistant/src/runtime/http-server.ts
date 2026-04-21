@@ -54,7 +54,9 @@ import {
   type SignalType,
 } from "../memory/conversation-attention-store.js";
 import {
+  addMessage,
   type ConversationRow,
+  createConversation,
   deleteConversation,
   forkConversation as forkConversationInStore,
   getConversation,
@@ -2016,6 +2018,14 @@ export class RuntimeHttpServer {
           if (!getConversation(id)) return false;
           deleteConversation(id);
           return true;
+        },
+        createConversation: async (title) => {
+          const row = createConversation({ title });
+          return { id: row.id };
+        },
+        addMessage: async (conversationId, role, contentJson) => {
+          const persisted = await addMessage(conversationId, role, contentJson);
+          return { id: persisted.id };
         },
       }),
       ...globalSearchRouteDefinitions(),

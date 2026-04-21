@@ -6132,6 +6132,38 @@ paths:
           schema:
             type: string
           description: Conversation ID
+  /v1/playground/seed-conversation:
+    post:
+      operationId: playground_seedconversation_post
+      summary: Create a synthetic seeded conversation for compaction testing
+      tags:
+        - playground
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                turns:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 500
+                avgTokensPerTurn:
+                  default: 500
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 5000
+                title:
+                  type: string
+                  maxLength: 120
+              required:
+                - turns
+                - avgTokensPerTurn
+              additionalProperties: false
   /v1/playground/seeded-conversations:
     delete:
       operationId: playground_seededconversations_delete

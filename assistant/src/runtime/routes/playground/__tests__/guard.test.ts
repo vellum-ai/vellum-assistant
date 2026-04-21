@@ -11,6 +11,12 @@ function makeDeps(enabled: boolean): PlaygroundRouteDeps {
     isPlaygroundEnabled: () => enabled,
     listConversationsByTitlePrefix: () => [],
     deleteConversationById: () => false,
+    createConversation: async (_title: string) => ({ id: "conv-test" }),
+    addMessage: async (
+      _conversationId: string,
+      _role: "user" | "assistant",
+      _contentJson: string,
+    ) => ({ id: "msg-test" }),
   };
 }
 
@@ -57,5 +63,11 @@ describe("playgroundRouteDefinitions", () => {
           r.method === "POST",
       ),
     ).toBe(true);
+  });
+
+  test("registers the seed-conversation endpoint", () => {
+    const routes = playgroundRouteDefinitions(makeDeps(true));
+    const endpoints = routes.map((r) => `${r.method} ${r.endpoint}`);
+    expect(endpoints).toContain("POST playground/seed-conversation");
   });
 });

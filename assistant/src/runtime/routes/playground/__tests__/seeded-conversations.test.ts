@@ -43,6 +43,8 @@ function makeStub(opts: StubOpts = {}): Stub {
         ? deleteReturn(id)
         : deleteReturn;
     },
+    createConversation: async () => ({ id: "conv-test" }),
+    addMessage: async () => ({ id: "msg-test" }),
   };
   return { deps, listCalls, deleteCalls };
 }
