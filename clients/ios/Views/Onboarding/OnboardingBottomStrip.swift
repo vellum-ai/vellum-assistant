@@ -123,12 +123,4 @@ private struct Flower: View {
         .frame(width: 28, height: 28)
     }
 }
-
-#Preview {
-    ZStack(alignment: .bottom) {
-        Color.white.ignoresSafeArea()
-        OnboardingBottomStrip()
-            .ignoresSafeArea(.container, edges: .bottom)
-    }
-}
 #endif
