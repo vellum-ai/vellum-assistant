@@ -150,8 +150,8 @@ function buildFileAllowlistOptions(
 /**
  * File risk classifier implementation.
  *
- * Replicates the exact risk classification logic from classifyRiskFromRegistry()
- * in checker.ts for all six file tool types.
+ * Classifies all six file tool types by risk level, with escalation paths
+ * for skill source code, workspace hooks, and the actor token signing key.
  */
 export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
   async classify(input: FileClassifierInput): Promise<RiskAssessment> {
