@@ -595,11 +595,10 @@ export class ContextWindowManager {
       Math.max(0, Math.floor(opts?.minKeepRecentUserTurns ?? defaultTurns)),
       userTurnStarts.length,
     );
-    const overrideTarget = opts?.targetInputTokensOverride;
-    const targetTokens =
-      overrideTarget !== undefined
-        ? Math.min(overrideTarget, this.targetInputTokens)
-        : this.targetInputTokens;
+    const targetTokens = Math.min(
+      opts?.targetInputTokensOverride ?? this.targetInputTokens,
+      this.targetInputTokens,
+    );
 
     // Binary search for the maximum keepTurns whose projected tokens fit
     // within the budget. Token count is monotonically non-decreasing with
