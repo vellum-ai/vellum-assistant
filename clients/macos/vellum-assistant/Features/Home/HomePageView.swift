@@ -254,45 +254,27 @@ struct HomePageView<DetailPanel: View>: View {
         }
     }
 
-    /// Foreground (glyph) color for the recap icon. The plan referenced
-    /// raw Danger/Forest 500-scale colors, which do not exist in this
-    /// codebase — the closest semantic tokens live in `VColor` (see
-    /// `ColorTokens.swift`). No raw hex values are used.
+    /// Foreground (glyph) color for the recap icon. Each feed type maps
+    /// to its dedicated Figma identifier pair (pink / blue / teal /
+    /// amber) — see the `feed*` and `systemInfo*` tokens in
+    /// `ColorTokens.swift`. Rows and filter chips share one source of
+    /// truth so the visual language stays consistent.
     private func iconForeground(for item: FeedItem) -> Color {
         switch item.type {
-        case .nudge:
-            // Plan: Danger._500. Closest existing token.
-            return VColor.systemNegativeStrong
-        case .action:
-            // Aligned with the Input filter chip — info/blue pair
-            // (#467CC8 glyph over #CEDAEC tint in light; #2A3A50 tint
-            // in dark) so Input rows and chip share one tint.
-            return VColor.systemInfoStrong
-        case .digest:
-            // Plan: Forest._500. Closest existing token.
-            return VColor.systemPositiveStrong
-        case .thread:
-            // Aligned with the Schedule filter chip — amber/mid pair
-            // so thread rows and the Schedule chip share one tint.
-            return VColor.systemMidStrong
+        case .nudge:   return VColor.feedNudgeStrong
+        case .action:  return VColor.systemInfoStrong
+        case .digest:  return VColor.feedDigestStrong
+        case .thread:  return VColor.feedThreadStrong
         }
     }
 
     /// Background (circle fill) color for the recap icon.
     private func iconBackground(for item: FeedItem) -> Color {
         switch item.type {
-        case .nudge:
-            // Plan: Danger._900. Closest existing weak-negative tint.
-            return VColor.systemNegativeWeak
-        case .action:
-            // Aligned with the Input filter chip — info/blue pair.
-            return VColor.systemInfoWeak
-        case .digest:
-            // Plan: Forest._900. Closest existing weak-positive tint.
-            return VColor.systemPositiveWeak
-        case .thread:
-            // Aligned with the Schedule filter chip — amber/mid pair.
-            return VColor.systemMidWeak
+        case .nudge:   return VColor.feedNudgeWeak
+        case .action:  return VColor.systemInfoWeak
+        case .digest:  return VColor.feedDigestWeak
+        case .thread:  return VColor.feedThreadWeak
         }
     }
 

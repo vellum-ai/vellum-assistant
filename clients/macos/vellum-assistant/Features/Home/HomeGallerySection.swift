@@ -357,17 +357,17 @@ struct HomeGallerySection: View {
 
                 VCard(background: VColor.surfaceBase) {
                     VStack(spacing: VSpacing.xs) {
-                        // Heartbeat (nudge): danger/red tint.
+                        // Heartbeat (nudge): pink.
                         HomeRecapRow(
                             icon: .heart,
-                            iconForeground: VColor.systemNegativeStrong,
-                            iconBackground: VColor.systemNegativeWeak,
+                            iconForeground: VColor.feedNudgeStrong,
+                            iconBackground: VColor.feedNudgeWeak,
                             title: "Heartbeat – all systems healthy",
                             onDismiss: {},
                             onTap: {}
                         )
 
-                        // Permission (action): info/blue tint.
+                        // Input (action): info/blue.
                         HomeRecapRow(
                             icon: .arrowLeft,
                             iconForeground: VColor.systemInfoStrong,
@@ -377,21 +377,21 @@ struct HomeGallerySection: View {
                             onTap: {}
                         )
 
-                        // Digest: emerald/positive tint.
+                        // Notification (digest): teal.
                         HomeRecapRow(
                             icon: .bell,
-                            iconForeground: VColor.systemPositiveStrong,
-                            iconBackground: VColor.systemPositiveWeak,
+                            iconForeground: VColor.feedDigestStrong,
+                            iconBackground: VColor.feedDigestWeak,
                             title: "Last, while you were away, I ran the email clean job and deleted 26 emails…",
                             onDismiss: {},
                             onTap: {}
                         )
 
-                        // Thread (schedule): amber/mid tint.
+                        // Schedule (thread): amber.
                         HomeRecapRow(
                             icon: .calendar,
-                            iconForeground: VColor.systemMidStrong,
-                            iconBackground: VColor.systemMidWeak,
+                            iconForeground: VColor.feedThreadStrong,
+                            iconBackground: VColor.feedThreadWeak,
                             title: "There's also 4 low priority updates if you want to have a look.",
                             onDismiss: {},
                             onTap: {}
