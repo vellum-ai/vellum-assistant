@@ -156,6 +156,8 @@ export interface CommandRiskSpec {
    * Global flags that consume the next token as a value (e.g. git -C <path>).
    * Used by resolveSubcommand to skip past flag-value pairs when locating the
    * first positional arg (the subcommand name).
+   *
+   * @deprecated Use argSchema.valueFlags instead. Kept for backward compatibility during migration.
    */
   globalValueFlags?: string[];
   /**
