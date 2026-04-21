@@ -167,18 +167,32 @@ extension AppDelegate {
         // Same ordering as `performRetireAsync()`.
         connectionManager.disconnect()
 
-        let bundlePath = Bundle.main.bundlePath
         let pid = ProcessInfo.processInfo.processIdentifier
+        // Escape for safe interpolation into a bash single-quoted string —
+        // single quotes prevent `$`, `` ` ``, and `\` expansion that double
+        // quotes would allow.  Same pattern as `AppBundleRenamer.shellEscape`.
+        let escapedBundlePath = Bundle.main.bundlePath
+            .replacingOccurrences(of: "'", with: "'\\''")
 
         let watcher = Process()
         watcher.executableURL = URL(fileURLWithPath: "/bin/sh")
         watcher.arguments = [
             "-c",
             """
-            while kill -0 \(pid) 2>/dev/null; do
+            # Wait up to 10 seconds for our PID to exit.  If terminate is
+            # cancelled (e.g. an unsaved-changes sheet returns
+            # `.terminateCancel`) we must not loop forever.
+            for _ in $(seq 1 100); do
+                kill -0 \(pid) 2>/dev/null || break
                 sleep 0.1
             done
-            open "\(bundlePath)"
+            # If still alive, abort rather than launching a second instance
+            # that would race the existing one and be killed by the
+            # single-instance guard.
+            if kill -0 \(pid) 2>/dev/null; then
+                exit 0
+            fi
+            open '\(escapedBundlePath)'
             """
         ]
         watcher.standardOutput = FileHandle.nullDevice

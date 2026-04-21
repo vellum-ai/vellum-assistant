@@ -69,6 +69,16 @@ enum AppBundleRenamer {
             sleep 0.1
         done
 
+        # Abort if the old process is still alive: proceeding would race
+        # the live instance on filesystem mutations, and the `open` below
+        # would either re-activate the existing instance or hit the
+        # single-instance guard in the new one.  The rename is retried on
+        # next launch via `AppBundleRenamer.needsRename`.
+        if kill -0 \(pid) 2>/dev/null; then
+            rm -f "$0"
+            exit 0
+        fi
+
         APP_DIR='\(shellEscape(bundleURL.path))'
         CONTENTS="$APP_DIR/Contents"
         MACOS="$CONTENTS/MacOS"
