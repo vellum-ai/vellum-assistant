@@ -334,6 +334,14 @@ final class ChatActionHandler {
                 vm.contextWindowMaxTokens = max
             }
 
+        case .contextCompacted(let event):
+            // `ContextCompacted` has no conversationId field; SSE streams are
+            // per-conversation and the daemon only emits this for the active
+            // conversation, so we apply unconditionally (unlike `usageUpdate`,
+            // which carries a conversationId and must be gated).
+            vm.contextWindowTokens = event.estimatedInputTokens
+            vm.contextWindowMaxTokens = event.maxInputTokens
+
         default:
             break
         }
