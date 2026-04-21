@@ -1339,6 +1339,7 @@ export async function handleSendMessage(
     bypassSecretCheck?: boolean;
     hostHomeDir?: string;
     hostUsername?: string;
+    clientMessageId?: string;
     onboarding?: {
       tools: string[];
       tasks: string[];
@@ -1349,6 +1350,8 @@ export async function handleSendMessage(
   };
 
   const { conversationKey, content, attachmentIds } = body;
+  const clientMessageId =
+    typeof body.clientMessageId === "string" ? body.clientMessageId : undefined;
   if (!body.sourceChannel || typeof body.sourceChannel !== "string") {
     return httpError("BAD_REQUEST", "sourceChannel is required", 400);
   }
@@ -1765,6 +1768,7 @@ export async function handleSendMessage(
             text: rawContent,
             conversationId,
             messageId: persisted.id,
+            clientMessageId,
           });
           onEvent({ type: "assistant_text_delta", text: cannedGreeting });
           onEvent({ type: "message_complete", conversationId });
@@ -1862,6 +1866,7 @@ export async function handleSendMessage(
       { isInteractive },
       undefined, // displayContent
       transport,
+      clientMessageId,
     );
     if (enqueueResult.rejected) {
       return Response.json(
@@ -2064,6 +2069,7 @@ export async function handleSendMessage(
           text: rawContent,
           conversationId,
           messageId: persisted.id,
+          clientMessageId,
         });
         if (modelInfoEvent) {
           onEvent(modelInfoEvent);
@@ -2120,6 +2126,7 @@ export async function handleSendMessage(
           text: rawContent,
           conversationId,
           messageId: persisted.id,
+          clientMessageId,
         });
         conversation.emitActivityState(
           "thinking",
@@ -2189,6 +2196,7 @@ export async function handleSendMessage(
     conversationId: mapping.conversationId,
     messageId,
     requestId,
+    clientMessageId,
   });
 
   // Fire-and-forget the agent loop; events flow to the hub via onEvent.

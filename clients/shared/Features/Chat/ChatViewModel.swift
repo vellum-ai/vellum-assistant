@@ -614,6 +614,11 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     @ObservationIgnored var pendingUserMessageDisplayText: String?
     /// Whether the pending message is automated (e.g. wake-up greeting).
     @ObservationIgnored var pendingUserMessageAutomated: Bool = false
+    /// Client-generated correlation nonce for the pending bootstrap message.
+    /// Preserved across the async gap between optimistic-row creation and the
+    /// actual POST, so the echo dedup in ChatActionHandler can match even when
+    /// the conversation was not yet created at send-intent time.
+    @ObservationIgnored var pendingUserMessageClientMessageId: String?
     /// Optional callback for sending notifications when tool-use messages complete
     @ObservationIgnored public var onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)?
     /// Whether the current assistant response was triggered by a voice message.

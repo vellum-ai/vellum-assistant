@@ -23,6 +23,10 @@ export interface UserMessage {
   microphonePermissionGranted?: boolean;
   /** Structured command intent — bypasses text parsing when present. */
   commandIntent?: CommandIntent;
+  /** Client-generated correlation nonce for echo dedup. See
+   *  `UserMessageEcho.clientMessageId` — the server echoes this value
+   *  back on the matching `user_message_echo` event. */
+  clientMessageId?: string;
 }
 
 export interface ConfirmationResponse {
@@ -66,6 +70,11 @@ export interface UserMessageEcho {
   /** Server-generated request ID for the send. Allows correlation with
    *  `message_queued` / `message_dequeued` events for the same turn. */
   requestId?: string;
+  /** Client-generated correlation nonce from the HTTP POST body. Echoed
+   *  back so the originating client can dedupe its optimistic row even
+   *  if the SSE echo beats the 202 response. Absent for synthetic echoes
+   *  (e.g. surface-action prompts) that did not originate from a client POST. */
+  clientMessageId?: string;
 }
 
 export interface AssistantTextDelta {
