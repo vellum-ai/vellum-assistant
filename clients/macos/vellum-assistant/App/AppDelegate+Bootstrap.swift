@@ -264,6 +264,13 @@ extension AppDelegate {
                 }
             } else {
                 log.info("forceReBootstrap: local/bare-metal hatch — preserving guardian token file as the only recovery artifact")
+                // Clear the guardian-init lock so /v1/guardian/init can succeed
+                // again. Without this, the HTTP fallback in performInitialBootstrap
+                // is permanently 403'd on bare-metal after the first hatch.
+                let cleared = await GuardianClient().resetBootstrap()
+                if !cleared {
+                    log.warning("forceReBootstrap: reset-bootstrap failed — HTTP fallback may still be locked out")
+                }
             }
         }
         await performInitialBootstrap(skipFileImport: skipFileImport)
