@@ -49,7 +49,7 @@ internal struct OnboardingLocalModeDisclosure: View {
                 VButton(
                     label: isExpanded ? "Collapse" : "Expand",
                     iconOnly: isExpanded ? VIcon.chevronUp.rawValue : VIcon.chevronDown.rawValue,
-                    style: .outlined,
+                    style: .ghost,
                     size: .pill,
                     iconColor: VColor.contentSecondary
                 ) {
@@ -58,30 +58,30 @@ internal struct OnboardingLocalModeDisclosure: View {
             }
 
             if isExpanded {
-                VStack(alignment: .leading, spacing: 0) {
-                    Spacer().frame(height: VSpacing.sm)
-
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        ForEach(tradeoffs, id: \.self) { item in
-                            tradeoffRow(item)
-                        }
-                    }
-                    .accessibilityElement(children: .contain)
-                    .accessibilityLabel(Text("Local Mode details"))
-
-                    Spacer().frame(height: VSpacing.sm)
-
-                    VButton(
-                        label: secondaryCTA,
-                        style: .outlined,
-                        size: .pillRegular,
-                        isFullWidth: true,
-                        isDisabled: isDisabled
-                    ) {
-                        onUseLocalMode()
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    ForEach(tradeoffs, id: \.self) { item in
+                        tradeoffRow(item)
                     }
                 }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(Text("Local Mode details"))
+                .padding(.top, VSpacing.md)
                 .transition(.opacity.combined(with: .offset(y: -4)))
+            }
+
+            // Secondary CTA stays rendered in both states — users who
+            // already know they want local mode can pick it without
+            // expanding the details first.
+            Spacer().frame(height: VSpacing.md)
+
+            VButton(
+                label: secondaryCTA,
+                style: .outlined,
+                size: .pillRegular,
+                isFullWidth: true,
+                isDisabled: isDisabled
+            ) {
+                onUseLocalMode()
             }
         }
         .padding(EdgeInsets(
