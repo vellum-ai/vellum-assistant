@@ -435,7 +435,9 @@ struct MainWindowView: View {
                 onRetry: { rewakeAssistant() },
                 onOpenSettings: {
                     settingsStore.pendingSettingsTab = .general
-                    windowState.selection = .panel(.settings)
+                    withAnimation(VAnimation.panel) {
+                        windowState.selection = .panel(.settings)
+                    }
                 },
                 onSendLogs: { AppDelegate.shared?.showLogReportWindow(reason: .bugReport) }
             )
@@ -493,7 +495,9 @@ struct MainWindowView: View {
                         // — navigate to Settings where the upgrade flow also triggers
                         // the app update dialog when the client is behind.
                         settingsStore.pendingSettingsTab = .general
-                        windowState.selection = .panel(.settings)
+                        withAnimation(VAnimation.panel) {
+                            windowState.selection = .panel(.settings)
+                        }
                     } else if updateManager.isUpdateAvailable {
                         // App update only — show the native update dialog directly.
                         updateManager.checkForUpdates()
@@ -654,20 +658,29 @@ struct MainWindowView: View {
 
             // Main container: sidebar + content with uniform padding
             HStack(spacing: 0) {
+                // Frame/opacity/padding animations are driven explicitly via
+                // `withAnimation(VAnimation.panel)` at the state-mutation sites
+                // (sidebar toggle, panel selection). We intentionally do NOT apply
+                // an ambient `.animation(_:value:)` modifier here: that would create
+                // an animation scope over the entire chat subtree and interpolate
+                // every animatable modifier inside it — including conditional
+                // `.flipped()` (rotation + scale) transforms on typing-indicator
+                // rows — when a panel opens or closes. Per Apple, `.animation(_:value:)`
+                // applies to all animatable changes in the wrapped subtree when the
+                // watched value changes:
+                // https://developer.apple.com/documentation/swiftui/view/animation(_:value:)
+                // See also WWDC23 — Wind your way through advanced animations in
+                // SwiftUI: https://developer.apple.com/videos/play/wwdc2023/10156/
                 sidebarView
                     .frame(width: isSettingsOpen ? 0 : (sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth))
                     .clipped()
                     .opacity(isSettingsOpen ? 0 : 1)
                     .allowsHitTesting(!isSettingsOpen)
                     .padding(.trailing, isSettingsOpen ? 0 : 16)
-                    .animation(VAnimation.panel, value: sidebarExpanded)
-                    .animation(VAnimation.panel, value: isSettingsOpen)
 
                 chatContentView(windowSize: windowSize)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
                     .clipped()
-                    .animation(VAnimation.panel, value: sidebarExpanded)
-                    .animation(VAnimation.panel, value: isSettingsOpen)
                     .overlay {
                         assistantLoadingOverlayIfNeeded
                     }

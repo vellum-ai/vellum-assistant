@@ -30,11 +30,15 @@ extension MainWindowView {
                 authManager: authManager,
                 onSettings: {
                     sidebar.showPreferencesDrawer = false
-                    windowState.selection = .panel(.settings)
+                    withAnimation(VAnimation.panel) {
+                        windowState.selection = .panel(.settings)
+                    }
                 },
                 onLogsAndUsage: {
                     sidebar.showPreferencesDrawer = false
-                    windowState.selection = .panel(.logsAndUsage)
+                    withAnimation(VAnimation.panel) {
+                        windowState.selection = .panel(.logsAndUsage)
+                    }
                 },
                 onShareFeedback: {
                     sidebar.showPreferencesDrawer = false
@@ -70,7 +74,9 @@ extension MainWindowView {
                 onOpenBilling: {
                     sidebar.showPreferencesDrawer = false
                     settingsStore.pendingSettingsTab = .billing
-                    windowState.selection = .panel(.settings)
+                    withAnimation(VAnimation.panel) {
+                        windowState.selection = .panel(.settings)
+                    }
                 },
                 onEarnCredits: {
                     sidebar.showPreferencesDrawer = false

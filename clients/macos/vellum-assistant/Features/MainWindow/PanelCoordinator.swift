@@ -36,10 +36,12 @@ extension MainWindowView {
                         message: "I'd like to enable an oauth integration. What integrations are available for me to connect to?",
                         forceNew: true
                     )
-                    if let id = conversationManager.activeConversationId {
-                        windowState.selection = .conversation(id)
-                    } else {
-                        windowState.selection = nil
+                    withAnimation(VAnimation.panel) {
+                        if let id = conversationManager.activeConversationId {
+                            windowState.selection = .conversation(id)
+                        } else {
+                            windowState.selection = nil
+                        }
                     }
                 })
         case .logsAndUsage:
@@ -53,7 +55,9 @@ extension MainWindowView {
                     Task { @MainActor in
                         let found = await conversationManager.selectConversationByConversationIdAsync(conversationId)
                         guard found, let id = conversationManager.activeConversationId else { return }
-                        windowState.selection = .conversation(id)
+                        withAnimation(VAnimation.panel) {
+                            windowState.selection = .conversation(id)
+                        }
                     }
                 }
             )
@@ -581,10 +585,12 @@ extension MainWindowView {
                         message: "I'd like to enable an oauth integration. What integrations are available for me to connect to?",
                         forceNew: true
                     )
-                    if let id = conversationManager.activeConversationId {
-                        windowState.selection = .conversation(id)
-                    } else {
-                        windowState.selection = nil
+                    withAnimation(VAnimation.panel) {
+                        if let id = conversationManager.activeConversationId {
+                            windowState.selection = .conversation(id)
+                        } else {
+                            windowState.selection = nil
+                        }
                     }
                 })
         case .logsAndUsage:
@@ -598,7 +604,9 @@ extension MainWindowView {
                     Task { @MainActor in
                         let found = await conversationManager.selectConversationByConversationIdAsync(conversationId)
                         guard found, let id = conversationManager.activeConversationId else { return }
-                        windowState.selection = .conversation(id)
+                        withAnimation(VAnimation.panel) {
+                            windowState.selection = .conversation(id)
+                        }
                     }
                 }
             )
@@ -777,11 +785,15 @@ struct ActiveChatViewWrapper: View {
                 onSubagentTap: { windowState.selectedSubagentId = $0 },
                 onAddFunds: {
                     settingsStore.pendingSettingsTab = .billing
-                    windowState.selection = .panel(.settings)
+                    withAnimation(VAnimation.panel) {
+                        windowState.selection = .panel(.settings)
+                    }
                 },
                 onOpenModelsAndServices: {
                     settingsStore.pendingSettingsTab = .modelsAndServices
-                    windowState.selection = .panel(.settings)
+                    withAnimation(VAnimation.panel) {
+                        windowState.selection = .panel(.settings)
+                    }
                 },
                 onBootstrapSendLogs: {
                     AppDelegate.shared?.showLogReportWindow(reason: .bugReport)
@@ -793,7 +805,9 @@ struct ActiveChatViewWrapper: View {
                 },
                 onOpenSSHSettings: {
                     settingsStore.pendingSettingsTab = .developer
-                    windowState.selection = .panel(.settings)
+                    withAnimation(VAnimation.panel) {
+                        windowState.selection = .panel(.settings)
+                    }
                 },
                 anchorMessageId: $anchorMessageId,
                 highlightedMessageId: $highlightedMessageId,

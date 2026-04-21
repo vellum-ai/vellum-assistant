@@ -215,7 +215,9 @@ extension MainWindowView {
                 style: .warning,
                 primaryAction: VToastAction(label: "Open Settings") {
                     settingsStore.pendingSettingsTab = .general
-                    windowState.selection = .panel(.settings)
+                    withAnimation(VAnimation.panel) {
+                        windowState.selection = .panel(.settings)
+                    }
                 },
                 autoDismissDelay: 15
             )
@@ -225,7 +227,9 @@ extension MainWindowView {
                 style: .error,
                 primaryAction: VToastAction(label: "Open Settings") {
                     settingsStore.pendingSettingsTab = .general
-                    windowState.selection = .panel(.settings)
+                    withAnimation(VAnimation.panel) {
+                        windowState.selection = .panel(.settings)
+                    }
                 },
                 autoDismissDelay: 15
             )

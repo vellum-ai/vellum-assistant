@@ -160,11 +160,20 @@ public final class MainWindowState {
     // MARK: - Selection Helpers
 
     /// Dismiss the current overlay (app, panel, etc.) and return to the persistent conversation.
+    ///
+    /// The mutation is wrapped in `withAnimation(VAnimation.panel)` so the chat/sidebar
+    /// frame transition animates explicitly as a transaction, rather than relying on
+    /// an ambient `.animation(_:value:)` modifier on the main window subtree. Scoping
+    /// the animation to the state mutation prevents unrelated animatable modifiers
+    /// inside the chat (e.g. a conditional `.flipped()` on a typing-indicator row)
+    /// from being interpolated by the spring when a panel opens or closes.
     func dismissOverlay() {
-        if let conversationId = persistentConversationId {
-            selection = .conversation(conversationId)
-        } else {
-            selection = nil
+        withAnimation(VAnimation.panel) {
+            if let conversationId = persistentConversationId {
+                selection = .conversation(conversationId)
+            } else {
+                selection = nil
+            }
         }
     }
 
@@ -208,16 +217,18 @@ public final class MainWindowState {
             currentSelection: selection,
             persistentConversationId: persistentConversationId
         ) else { return }
-        navigationHistory.withRecordingSuppressed {
-            switch destination {
-            case .selection(let viewSelection):
-                self.selection = viewSelection
-            case .chatDefault(let conversationSnapshot):
-                self.persistentConversationId = conversationSnapshot
-                if let conversationId = conversationSnapshot {
-                    self.selection = .conversation(conversationId)
-                } else {
-                    self.selection = nil
+        withAnimation(VAnimation.panel) {
+            navigationHistory.withRecordingSuppressed {
+                switch destination {
+                case .selection(let viewSelection):
+                    self.selection = viewSelection
+                case .chatDefault(let conversationSnapshot):
+                    self.persistentConversationId = conversationSnapshot
+                    if let conversationId = conversationSnapshot {
+                        self.selection = .conversation(conversationId)
+                    } else {
+                        self.selection = nil
+                    }
                 }
             }
         }
@@ -228,16 +239,18 @@ public final class MainWindowState {
             currentSelection: selection,
             persistentConversationId: persistentConversationId
         ) else { return }
-        navigationHistory.withRecordingSuppressed {
-            switch destination {
-            case .selection(let viewSelection):
-                self.selection = viewSelection
-            case .chatDefault(let conversationSnapshot):
-                self.persistentConversationId = conversationSnapshot
-                if let conversationId = conversationSnapshot {
-                    self.selection = .conversation(conversationId)
-                } else {
-                    self.selection = nil
+        withAnimation(VAnimation.panel) {
+            navigationHistory.withRecordingSuppressed {
+                switch destination {
+                case .selection(let viewSelection):
+                    self.selection = viewSelection
+                case .chatDefault(let conversationSnapshot):
+                    self.persistentConversationId = conversationSnapshot
+                    if let conversationId = conversationSnapshot {
+                        self.selection = .conversation(conversationId)
+                    } else {
+                        self.selection = nil
+                    }
                 }
             }
         }

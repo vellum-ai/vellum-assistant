@@ -701,7 +701,9 @@ extension AppDelegate {
     /// All entry points (Cmd+,, menu bar, onboarding skip, task input) use this.
     @objc public func showSettingsWindow(_ sender: Any?) {
         showMainWindow()
-        mainWindow?.windowState.selection = .panel(.settings)
+        withAnimation(VAnimation.panel) {
+            mainWindow?.windowState.selection = .panel(.settings)
+        }
     }
 
     /// Opens the settings panel and navigates to a specific tab.

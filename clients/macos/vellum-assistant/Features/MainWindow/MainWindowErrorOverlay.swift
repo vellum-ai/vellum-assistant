@@ -19,7 +19,9 @@ struct MainWindowErrorOverlay: View {
                     errorManager: viewModel.errorManager,
                     onOpenModelsAndServices: {
                         settingsStore.pendingSettingsTab = .modelsAndServices
-                        windowState.selection = .panel(.settings)
+                        withAnimation(VAnimation.panel) {
+                            windowState.selection = .panel(.settings)
+                        }
                     },
                     onRetryConversationError: { viewModel.retryAfterConversationError() },
                     onCopyDebugInfo: { viewModel.copyConversationErrorDebugDetails() },

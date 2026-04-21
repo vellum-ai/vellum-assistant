@@ -22,7 +22,9 @@ struct MainWindowVersionMismatchBanner: View {
                         actionLabel: "Update in Settings",
                         onAction: {
                             settingsStore.pendingSettingsTab = .general
-                            windowState.selection = .panel(.settings)
+                            withAnimation(VAnimation.panel) {
+                                windowState.selection = .panel(.settings)
+                            }
                         }
                     )
                     .containerRelativeFrame(.horizontal) { width, _ in width * 0.7 }
