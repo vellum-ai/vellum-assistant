@@ -73,18 +73,23 @@ import { validateVBundle } from "../migrations/vbundle-validator.js";
 const PLATFORM_CREDENTIAL_PREFIX = credentialKey("vellum", "");
 
 /**
- * Platform-identity fields that the managed runtime expects to see in CES
- * (populated by Django's post-hatch provisioning via `POST /v1/secrets`).
- * After an import we reconcile metadata.json against CES: for every field
- * where CES already holds a value, make sure metadata has a matching
- * entry. This closes a race where Django's provisioning POST arrives
- * during the import — its CES write survives (separate volume), but its
- * metadata upsert may be clobbered by the in-place clear / atomic swap.
+ * Platform-identity fields that the managed runtime expects to see in CES.
+ * Django's post-hatch provisioning populates the first four via
+ * `POST /v1/secrets`; `platform_organization_id` and `platform_user_id` are
+ * populated by the signed-in client after hatch (onboarding, teleport,
+ * local→managed transfer) because Django has no signed-in user session to
+ * resolve them. Either set of writes can race with the import — the CES
+ * write survives (separate volume), but the metadata upsert may be
+ * clobbered by the in-place clear / atomic swap. After every import we
+ * reconcile metadata.json against CES so any field CES already holds a
+ * value for gets a matching metadata entry.
  */
 const VELLUM_PLATFORM_IDENTITY_FIELDS = [
   "platform_base_url",
   "assistant_api_key",
   "platform_assistant_id",
+  "platform_organization_id",
+  "platform_user_id",
   "webhook_secret",
 ] as const;
 

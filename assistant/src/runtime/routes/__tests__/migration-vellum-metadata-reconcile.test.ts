@@ -2,19 +2,23 @@
  * Tests for the post-import vellum metadata reconciliation helper.
  *
  * After every bundle import, `reconcileVellumMetadataFromCes` walks the
- * four platform-identity fields the gateway requires and, for each one
- * that CES already holds a value for, ensures `metadata.json` lists a
- * matching entry. This closes the race where Django's post-hatch
- * provisioning writes its CES value successfully but its metadata upsert
- * gets clobbered by the import's in-place clear or atomic swap.
+ * platform-identity fields the gateway requires and, for each one that
+ * CES already holds a value for, ensures `metadata.json` lists a
+ * matching entry. This closes the race where a provisioning write to
+ * CES completes successfully but its metadata upsert gets clobbered by
+ * the import's in-place clear or atomic swap. The reconciled set covers
+ * both the Django-provisioned fields (assistant_api_key,
+ * platform_assistant_id, platform_base_url, webhook_secret) and the
+ * client-injected identity fields (platform_organization_id,
+ * platform_user_id).
  *
  * We test the reconcile logic in isolation by mocking the secure-keys
  * and metadata-store modules — the real migration handler wires the
  * same imports, so the behavior under test matches production.
  *
  * Covered:
- * - CES has all 4 fields + metadata empty → all 4 upserted.
- * - CES has all 4 + metadata has 2 → only the missing 2 upserted.
+ * - CES has all 6 fields + metadata empty → all 6 upserted.
+ * - CES has all 6 + metadata has 2 → only the missing 4 upserted.
  * - CES has no values → nothing upserted.
  * - CES has values + metadata already has them → no-op (no duplicate
  *   upserts).
@@ -39,6 +43,8 @@ const VELLUM_FIELDS = [
   "platform_base_url",
   "assistant_api_key",
   "platform_assistant_id",
+  "platform_organization_id",
+  "platform_user_id",
   "webhook_secret",
 ] as const;
 
@@ -118,30 +124,31 @@ afterEach(() => {
   upsertCalls.length = 0;
 });
 
-function seedAllFourInCes(): void {
+function seedAllInCes(): void {
   for (const field of VELLUM_FIELDS) {
     cesValues.set(credentialKey("vellum", field), `value-for-${field}`);
   }
 }
 
 describe("reconcileVellumMetadataFromCes", () => {
-  test("CES holds all 4 fields, metadata empty → all 4 upserted", async () => {
-    seedAllFourInCes();
+  test("CES holds all fields, metadata empty → all upserted", async () => {
+    seedAllInCes();
     const sink = { warnings: [] as string[] };
 
     await reconcileVellumMetadataFromCes(sink);
 
-    expect(upsertCalls).toHaveLength(4);
+    expect(upsertCalls).toHaveLength(VELLUM_FIELDS.length);
     expect(new Set(upsertCalls.map((c) => c.field))).toEqual(
       new Set(VELLUM_FIELDS),
     );
     expect(sink.warnings).toHaveLength(0);
   });
 
-  test("CES holds all 4, metadata has 2 → only the missing 2 upserted", async () => {
-    seedAllFourInCes();
-    // Pre-populate metadata for 2 of the 4 fields.
-    for (const field of ["platform_base_url", "assistant_api_key"] as const) {
+  test("CES holds all, metadata has 2 → only the missing ones upserted", async () => {
+    seedAllInCes();
+    // Pre-populate metadata for 2 of the fields.
+    const prepopulated = ["platform_base_url", "assistant_api_key"] as const;
+    for (const field of prepopulated) {
       metadataStore.set(`vellum:${field}`, {
         credentialId: `id-vellum:${field}`,
         service: "vellum",
@@ -156,10 +163,29 @@ describe("reconcileVellumMetadataFromCes", () => {
     const sink = { warnings: [] as string[] };
     await reconcileVellumMetadataFromCes(sink);
 
-    expect(upsertCalls).toHaveLength(2);
-    expect(new Set(upsertCalls.map((c) => c.field))).toEqual(
-      new Set(["platform_assistant_id", "webhook_secret"]),
+    const expectedMissing = VELLUM_FIELDS.filter(
+      (f) => !(prepopulated as readonly string[]).includes(f),
     );
+    expect(upsertCalls).toHaveLength(expectedMissing.length);
+    expect(new Set(upsertCalls.map((c) => c.field))).toEqual(
+      new Set(expectedMissing),
+    );
+  });
+
+  test("covers both Django-provisioned and client-injected identity fields", async () => {
+    seedAllInCes();
+    const sink = { warnings: [] as string[] };
+    await reconcileVellumMetadataFromCes(sink);
+
+    const reconciled = new Set(upsertCalls.map((c) => c.field));
+    // Django-provisioned quartet.
+    expect(reconciled).toContain("platform_base_url");
+    expect(reconciled).toContain("assistant_api_key");
+    expect(reconciled).toContain("platform_assistant_id");
+    expect(reconciled).toContain("webhook_secret");
+    // Client-injected identity fields (onboarding / teleport / transfer).
+    expect(reconciled).toContain("platform_organization_id");
+    expect(reconciled).toContain("platform_user_id");
   });
 
   test("CES empty → nothing upserted", async () => {
@@ -170,8 +196,7 @@ describe("reconcileVellumMetadataFromCes", () => {
   });
 
   test("CES has values, metadata already has entries → no duplicate upserts", async () => {
-    seedAllFourInCes();
-    // Seed metadata for all 4.
+    seedAllInCes();
     for (const field of VELLUM_FIELDS) {
       metadataStore.set(`vellum:${field}`, {
         credentialId: `id-vellum:${field}`,
@@ -191,7 +216,7 @@ describe("reconcileVellumMetadataFromCes", () => {
   });
 
   test("upsert throws for one field → warning recorded, loop continues", async () => {
-    seedAllFourInCes();
+    seedAllInCes();
     let calls = 0;
     upsertImpl = (service, field) => {
       calls += 1;
@@ -214,7 +239,7 @@ describe("reconcileVellumMetadataFromCes", () => {
     await reconcileVellumMetadataFromCes(sink);
 
     // Every field was attempted (loop did not abort).
-    expect(calls).toBe(4);
+    expect(calls).toBe(VELLUM_FIELDS.length);
     expect(sink.warnings).toHaveLength(1);
     expect(sink.warnings[0]).toContain("vellum:assistant_api_key");
   });
