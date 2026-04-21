@@ -33,12 +33,14 @@ import {
   cp,
   mkdir,
   readdir,
+  readFile,
   rename,
   rm,
   stat,
+  unlink,
   writeFile,
 } from "node:fs/promises";
-import { dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { type Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
@@ -162,6 +164,23 @@ export async function streamCommitImport(
   const bundleEntryCap = maxBundleEntries ?? DEFAULT_MAX_BUNDLE_ENTRIES;
 
   const realWorkspaceDir = resolve(workspaceDir);
+
+  // Replay recovery from any prior interrupted import BEFORE we stage new
+  // data. If a previous streamCommitImport was killed between carry-over
+  // and the atomic swap, the live workspace is missing preserved paths
+  // (they were moved to an `.import-<uuid>` temp tree). The marker
+  // persisted below is what recoverInterruptedImport reads to move them
+  // back. Failure to recover is logged but non-fatal — we want the new
+  // import to proceed so operators aren't stuck.
+  try {
+    await recoverInterruptedImport(realWorkspaceDir);
+  } catch (err) {
+    log.warn(
+      { err, realWorkspaceDir },
+      "recoverInterruptedImport threw before streaming import; continuing",
+    );
+  }
+
   const tempWorkspaceDir = `${realWorkspaceDir}.import-${randomUUID()}`;
 
   let manifest: ManifestType | null = null;
@@ -784,6 +803,12 @@ export async function streamCommitImport(
   // or SQLite DBs and limited free space. We track every moved entry in
   // `carried` so we can restore it to the live workspace if the atomic
   // swap below fails.
+  // Crash-safety marker. Written to disk BEFORE any live-workspace data is
+  // moved, so if the process is killed mid-import the next call to
+  // `recoverInterruptedImport(workspaceDir)` — which streamCommitImport
+  // invokes at the start of every run, and which daemon boot code can call
+  // separately — can replay the carry-over undo and clean up the temp tree.
+  // The marker is deleted after the atomic swap pair succeeds.
   let carried: CarriedPath[];
   try {
     carried = await carryOverPreservedPaths(realWorkspaceDir, tempWorkspaceDir);
@@ -794,6 +819,26 @@ export async function streamCommitImport(
       reason: "write_failed",
       message: `Failed to carry over preserved workspace paths: ${errMessage(err)}`,
     };
+  }
+
+  const markerPath = importMarkerPathFor(realWorkspaceDir);
+  try {
+    await writeImportMarker(markerPath, {
+      tempWorkspaceDir,
+      carried: carried.map((c) => ({
+        liveChild: c.liveChild,
+        tempChild: c.tempChild,
+      })),
+    });
+  } catch (err) {
+    // We can still proceed — the rename pair is about to happen and will
+    // usually succeed. But if the process dies mid-swap we won't have the
+    // marker to guide recovery; log a warning so operators know manual
+    // intervention may be needed in that rare case.
+    log.warn(
+      { err, markerPath },
+      "Failed to write import-recovery marker before carry-over; crash mid-swap may require manual recovery",
+    );
   }
 
   const backupDir = `${realWorkspaceDir}.pre-import-${Date.now()}`;
@@ -810,6 +855,7 @@ export async function streamCommitImport(
         // about to be deleted. Restore them to live before bailing out.
         await restoreCarriedPaths(carried);
         await cleanupTempDir();
+        await safelyDeleteMarker(markerPath);
         return {
           ok: false,
           reason: "write_failed",
@@ -839,14 +885,21 @@ export async function streamCommitImport(
       // deleted.
       await restoreCarriedPaths(carried);
       await cleanupTempDir();
+      await safelyDeleteMarker(markerPath);
       return {
         ok: false,
         reason: "write_failed",
         message: `Failed to swap temp workspace into place: ${errMessage(err)}`,
       };
     }
+
+    // Rename pair completed successfully. Clear the recovery marker so a
+    // subsequent `recoverInterruptedImport` call on a future start-up
+    // doesn't see a stale entry.
+    await safelyDeleteMarker(markerPath);
   } catch (err) {
     await cleanupTempDir();
+    await safelyDeleteMarker(markerPath);
     return {
       ok: false,
       reason: "write_failed",
@@ -1368,4 +1421,135 @@ function isEXDEV(err: unknown): boolean {
     err !== null &&
     (err as { code?: string }).code === "EXDEV"
   );
+}
+
+// ---------------------------------------------------------------------------
+// Crash-recovery marker
+//
+// `streamCommitImport` moves preserved paths (SQLite DB, Qdrant, etc.) from
+// the live workspace into a temp tree before the atomic rename pair. If the
+// process is killed between those two phases the live workspace comes up
+// missing the preserved paths. The marker written here persists the state
+// needed to replay the recovery on the next start-up.
+//
+// Schema stays deliberately small so a partially-written marker is easy to
+// detect (JSON parse failure → skip recovery rather than act on garbage).
+// ---------------------------------------------------------------------------
+
+interface ImportMarker {
+  /** Absolute path of the `.import-<uuid>` temp tree. */
+  tempWorkspaceDir: string;
+  /** Preserved paths moved out of the live workspace pre-swap. */
+  carried: Array<{ liveChild: string; tempChild: string }>;
+}
+
+/**
+ * Deterministic marker location next to (but not inside) the workspace dir.
+ * Putting it outside the workspace means the marker is not swept away by
+ * the atomic rename of the workspace itself.
+ */
+function importMarkerPathFor(realWorkspaceDir: string): string {
+  return join(
+    dirname(realWorkspaceDir),
+    `${basename(realWorkspaceDir)}.import-marker.json`,
+  );
+}
+
+async function writeImportMarker(
+  markerPath: string,
+  marker: ImportMarker,
+): Promise<void> {
+  const serialized = JSON.stringify(marker);
+  const tmp = `${markerPath}.tmp-${randomUUID()}`;
+  // Write+rename so a crash mid-write leaves either the old marker (or
+  // nothing) rather than a truncated JSON blob.
+  await writeFile(tmp, serialized, { mode: 0o600 });
+  await rename(tmp, markerPath);
+}
+
+async function safelyDeleteMarker(markerPath: string): Promise<void> {
+  try {
+    await unlink(markerPath);
+  } catch (err) {
+    if (isENOENT(err)) return;
+    log.warn({ err, markerPath }, "Failed to delete import-recovery marker");
+  }
+}
+
+/**
+ * Replay any crash-interrupted import against `realWorkspaceDir`.
+ *
+ * Call at daemon start-up (and implicitly at the start of every
+ * `streamCommitImport` as a self-healing belt) so a prior killed import
+ * doesn't leave the live workspace missing `data/db` / `data/qdrant` /
+ * `embedding-models` / `deprecated`.
+ *
+ * Best-effort: logs per-entry failures and keeps going rather than
+ * throwing. If no marker exists this is a cheap no-op.
+ */
+export async function recoverInterruptedImport(
+  realWorkspaceDir: string,
+): Promise<void> {
+  const markerPath = importMarkerPathFor(resolve(realWorkspaceDir));
+  let raw: string;
+  try {
+    raw = await readFile(markerPath, "utf8");
+  } catch (err) {
+    if (isENOENT(err)) return;
+    log.warn({ err, markerPath }, "Unable to read import-recovery marker");
+    return;
+  }
+
+  let marker: ImportMarker;
+  try {
+    marker = JSON.parse(raw) as ImportMarker;
+  } catch (err) {
+    log.warn(
+      { err, markerPath },
+      "Import-recovery marker is malformed; deleting without acting on it",
+    );
+    await safelyDeleteMarker(markerPath);
+    return;
+  }
+
+  if (
+    !Array.isArray(marker.carried) ||
+    typeof marker.tempWorkspaceDir !== "string"
+  ) {
+    log.warn(
+      { markerPath, marker },
+      "Import-recovery marker has unexpected shape; deleting",
+    );
+    await safelyDeleteMarker(markerPath);
+    return;
+  }
+
+  log.info(
+    {
+      markerPath,
+      tempWorkspaceDir: marker.tempWorkspaceDir,
+      carriedCount: marker.carried.length,
+    },
+    "Recovering from interrupted import: restoring preserved paths",
+  );
+
+  await restoreCarriedPaths(
+    marker.carried.map((c) => ({
+      liveChild: c.liveChild,
+      tempChild: c.tempChild,
+    })),
+  );
+
+  // Clean up the temp tree (best-effort — partial writes there are fine to
+  // drop now that preserved paths are back in the live workspace).
+  try {
+    await rm(marker.tempWorkspaceDir, { recursive: true, force: true });
+  } catch (err) {
+    log.warn(
+      { err, tempWorkspaceDir: marker.tempWorkspaceDir },
+      "Failed to clean up temp workspace during import recovery",
+    );
+  }
+
+  await safelyDeleteMarker(markerPath);
 }
