@@ -73,7 +73,7 @@ struct HomeRecapRow: View {
         .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.md, bottom: VSpacing.sm, trailing: VSpacing.md))
         .background(
             RoundedRectangle(cornerRadius: VRadius.md, style: .continuous)
-                .fill(VColor.surfaceOverlay)
+                .fill(isHovering ? VColor.surfaceLift : VColor.surfaceOverlay)
         )
         .onHover { isHovering = $0 }
         .accessibilityElement(children: .combine)
