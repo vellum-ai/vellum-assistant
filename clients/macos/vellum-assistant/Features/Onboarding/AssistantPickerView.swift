@@ -108,9 +108,13 @@ struct AssistantPickerItem: Identifiable {
     let subtitle: String?
     let isManaged: Bool
 
+    /// Build a picker item from a lockfile entry. When the platform was
+    /// consulted, pass the matching `PlatformAssistant.name` so we have
+    /// a real display name instead of a raw UUID.
     @MainActor
-    static func from(lockfile: LockfileAssistant) -> AssistantPickerItem {
+    static func from(lockfile: LockfileAssistant, platformName: String? = nil) -> AssistantPickerItem {
         let name = AssistantDisplayName.resolve(
+            platformName,
             IdentityInfo.cached(for: lockfile.assistantId)?.name,
             lockfile.assistantId
         )
