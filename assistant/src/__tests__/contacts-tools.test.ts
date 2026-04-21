@@ -46,6 +46,10 @@ mock.module("../ipc/cli-client.js", () => ({
       const { searchContacts } = await import("../contacts/contact-store.js");
       return { ok: true, result: searchContacts(params ?? {}) };
     }
+    if (method === "upsert_contact") {
+      const { upsertContact } = await import("../contacts/contact-store.js");
+      return { ok: true, result: upsertContact(params as never) };
+    }
     return { ok: false, error: `Unknown IPC method: ${method}` };
   },
 }));
