@@ -130,23 +130,23 @@ final class ReturningUserRouterTests: XCTestCase {
 
     // MARK: - Platform fallback
 
-    func testPlatformUnreachableWithLockfileEntryAutoConnects() async {
+    func testPlatformUnreachableWithLockfileEntryAutoConnects() async throws {
         let router = makeRouter(
             lockfile: [makeLocalAssistant()],
             orgId: "org-1",
             platformResult: .failure(URLError(.timedOut))
         )
-        let decision = await router.route()
+        let decision = try await router.route()
         XCTAssertEqual(decision, .autoConnect)
     }
 
-    func testPlatformUnreachableEmptyLockfileShowsHostingPicker() async {
+    func testPlatformUnreachableEmptyLockfileShowsHostingPicker() async throws {
         let router = makeRouter(
             lockfile: [],
             orgId: "org-1",
             platformResult: .failure(URLError(.timedOut))
         )
-        let decision = await router.route()
+        let decision = try await router.route()
         XCTAssertEqual(decision, .showHostingPicker)
     }
 

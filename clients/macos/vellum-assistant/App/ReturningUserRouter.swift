@@ -123,6 +123,8 @@ final class ReturningUserRouter {
                 platformAssistants: platform,
                 platformWasConsulted: true
             )
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             log.warning("fetchLandscape: platform fetch failed — \(error.localizedDescription, privacy: .public)")
             return AssistantLandscape(
@@ -144,8 +146,8 @@ final class ReturningUserRouter {
     }
 
     /// Convenience: fetch the landscape and return the decision.
-    func route() async -> RoutingDecision {
-        decide(for: await fetchLandscape())
+    func route() async throws -> RoutingDecision {
+        decide(for: try await fetchLandscape())
     }
 
     // MARK: - Helpers
