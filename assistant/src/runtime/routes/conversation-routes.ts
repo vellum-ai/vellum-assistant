@@ -1705,7 +1705,12 @@ export async function handleSendMessage(
   // On a completely fresh workspace, skip LLM inference for the macOS
   // wake-up greeting and return a pre-written response. This eliminates
   // 10-30s of inference latency on first boot.
-  if (isWakeUpGreeting(trimmedContent, conversation.getMessages().length)) {
+  // When onboarding context is present, skip the canned greeting so the
+  // model can generate a proactive response using the prechat selections.
+  if (
+    !body.onboarding &&
+    isWakeUpGreeting(trimmedContent, conversation.getMessages().length)
+  ) {
     const cannedGreeting = getCannedFirstGreeting();
     if (cannedGreeting) {
       conversation.processing = true;
