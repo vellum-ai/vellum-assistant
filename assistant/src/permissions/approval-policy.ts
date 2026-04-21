@@ -108,7 +108,10 @@ export interface ApprovalPolicy {
  *
  * 1. Deny rule → deny
  * 2. Ask rule → prompt
- * 3. Sandbox auto-approve: workspace mode + bash + sandboxAutoApprove + containerized → allow
+ * 3. Sandbox auto-approve: workspace mode + bash + sandboxAutoApprove → allow
+ *    (Path resolution is baked into `hasSandboxAutoApprove` upstream: containerized
+ *    environments skip path checks; non-containerized environments validate all
+ *    path arguments against the workspace root.)
  * 4. Allow rule + non-High → allow
  * 5. Allow rule + High → fall through to risk-based
  * 6. No rule + third-party skill tool → prompt
@@ -125,7 +128,6 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       toolName,
       matchedRule,
       permissionsMode,
-      isContainerized,
       isWorkspaceScoped,
       toolOrigin,
       isSkillBundled,
@@ -151,13 +153,15 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       };
     }
 
-    // ── 3. Sandbox auto-approve: bash + allowlisted + containerized → allow ──
+    // ── 3. Sandbox auto-approve: bash + allowlisted → allow ──
     // Only fires in workspace mode — strict mode always requires explicit rules.
+    // Path resolution is baked into `hasSandboxAutoApprove` upstream:
+    // containerized environments skip path checks (entire fs is workspace),
+    // non-containerized environments validate all path args against workspace root.
     if (
       permissionsMode === "workspace" &&
       toolName === "bash" &&
-      hasSandboxAutoApprove === true &&
-      isContainerized
+      hasSandboxAutoApprove === true
     ) {
       return {
         decision: "allow",

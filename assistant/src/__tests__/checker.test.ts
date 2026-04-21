@@ -108,6 +108,7 @@ import type { TrustRule } from "../permissions/types.js";
 import { RiskLevel } from "../permissions/types.js";
 import { registerTool } from "../tools/registry.js";
 import type { Tool } from "../tools/types.js";
+import * as platformModule from "../util/platform.js";
 
 // Register a mock skill-origin tool for testing default-ask policy.
 const mockSkillTool: Tool = {
@@ -745,10 +746,10 @@ describe("Permission Checker", () => {
       );
       expect(med.decision).toBe("prompt");
 
-      // Low risk → auto-allowed via risk-based fallback
+      // Low risk + allowlisted → sandbox auto-approve (no path args → auto-approved)
       const low = await check("bash", { command: "ls" }, "/tmp");
       expect(low.decision).toBe("allow");
-      expect(low.reason).toContain("Low risk");
+      expect(low.reason).toContain("sandbox auto-approve");
     });
 
     test("host_bash high risk → always prompt", async () => {
@@ -2592,7 +2593,9 @@ describe("Permission Checker", () => {
         "/tmp",
       );
       expect(result.decision).toBe("allow");
-      expect(result.matchedRule).toBeDefined();
+      // echo has sandboxAutoApprove: true with positionals: "none", so sandbox
+      // auto-approve fires (step 3) before the trust rule is evaluated (step 4).
+      // The decision is allow, but matchedRule is not set by sandbox auto-approve.
     });
   });
 
@@ -2888,6 +2891,152 @@ describe("Permission Checker", () => {
       const result = await check("bash", { command: "kill -9 1234" }, "/tmp");
       expect(result.decision).toBe("deny");
       expect(result.reason).toContain("deny rule");
+    });
+
+    // ── Non-containerized path resolution ──────────────────────────
+
+    describe("non-containerized path resolution", () => {
+      const MOCK_WORKSPACE = "/workspace";
+
+      // Each test spies on getIsContainerized → false and getWorkspaceDir → MOCK_WORKSPACE.
+      // workingDir passed to check() is inside the mocked workspace root.
+      function withNonContainerized(
+        fn: () => Promise<void>,
+      ): () => Promise<void> {
+        return async () => {
+          const containerSpy = spyOn(
+            envRegistry,
+            "getIsContainerized",
+          ).mockReturnValue(false);
+          const workspaceSpy = spyOn(
+            platformModule,
+            "getWorkspaceDir",
+          ).mockReturnValue(MOCK_WORKSPACE);
+          try {
+            await fn();
+          } finally {
+            containerSpy.mockRestore();
+            workspaceSpy.mockRestore();
+          }
+        };
+      }
+
+      test(
+        "ls (no path args) → auto-approve",
+        withNonContainerized(async () => {
+          const result = await check(
+            "bash",
+            { command: "ls" },
+            join(MOCK_WORKSPACE, "project"),
+          );
+          expect(result.decision).toBe("allow");
+          expect(result.reason).toContain("sandbox auto-approve");
+        }),
+      );
+
+      test(
+        "cat README.md with workingDir inside workspace → auto-approve",
+        withNonContainerized(async () => {
+          const result = await check(
+            "bash",
+            { command: "cat README.md" },
+            join(MOCK_WORKSPACE, "project"),
+          );
+          expect(result.decision).toBe("allow");
+          expect(result.reason).toContain("sandbox auto-approve");
+        }),
+      );
+
+      test(
+        "mkdir -p src/utils with workingDir inside workspace → auto-approve",
+        withNonContainerized(async () => {
+          const result = await check(
+            "bash",
+            { command: "mkdir -p src/utils" },
+            join(MOCK_WORKSPACE, "project"),
+          );
+          expect(result.decision).toBe("allow");
+          expect(result.reason).toContain("sandbox auto-approve");
+        }),
+      );
+
+      test(
+        "grep 'pattern' src/foo.ts → auto-approve (pattern skipped, paths in workspace)",
+        withNonContainerized(async () => {
+          const result = await check(
+            "bash",
+            { command: "grep 'pattern' src/foo.ts" },
+            join(MOCK_WORKSPACE, "project"),
+          );
+          expect(result.decision).toBe("allow");
+          expect(result.reason).toContain("sandbox auto-approve");
+        }),
+      );
+
+      test(
+        "sed 's/old/new/' config.json → auto-approve (script skipped, path in workspace)",
+        withNonContainerized(async () => {
+          const result = await check(
+            "bash",
+            { command: "sed 's/old/new/' config.json" },
+            join(MOCK_WORKSPACE, "project"),
+          );
+          expect(result.decision).toBe("allow");
+          expect(result.reason).toContain("sandbox auto-approve");
+        }),
+      );
+
+      test(
+        "cat ~/secrets.txt → falls through to threshold (~ resolves outside workspace)",
+        withNonContainerized(async () => {
+          const result = await check(
+            "bash",
+            { command: "cat ~/secrets.txt" },
+            join(MOCK_WORKSPACE, "project"),
+          );
+          // ~ expands to homedir which is outside /workspace
+          expect(result.decision).not.toBe("deny");
+          expect(result.reason).not.toContain("sandbox auto-approve");
+        }),
+      );
+
+      test(
+        "cat /etc/passwd → falls through (absolute path outside workspace)",
+        withNonContainerized(async () => {
+          const result = await check(
+            "bash",
+            { command: "cat /etc/passwd" },
+            join(MOCK_WORKSPACE, "project"),
+          );
+          expect(result.reason).not.toContain("sandbox auto-approve");
+        }),
+      );
+
+      test(
+        "cp file.txt -t /tmp/ → falls through (path flag outside workspace)",
+        withNonContainerized(async () => {
+          const result = await check(
+            "bash",
+            { command: "cp file.txt -t /tmp/" },
+            join(MOCK_WORKSPACE, "project"),
+          );
+          // -t /tmp/ is a path flag that resolves outside workspace
+          expect(result.reason).not.toContain("sandbox auto-approve");
+        }),
+      );
+
+      test(
+        "pipeline: cat file.txt | grep pattern → auto-approve (all segments workspace-scoped)",
+        withNonContainerized(async () => {
+          const result = await check(
+            "bash",
+            { command: "cat file.txt | grep pattern" },
+            join(MOCK_WORKSPACE, "project"),
+          );
+          expect(result.decision).toBe("allow");
+          expect(result.reason).toContain("sandbox auto-approve");
+        }),
+      );
     });
   });
 
@@ -4920,12 +5069,11 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
 
   // ── bash (non-containerized) — workspace auto-allow blocked, risk-based fallback ──
 
-  test("bash in workspace (low risk) → allow via risk-based fallback, not workspace mode", async () => {
+  test("bash in workspace (low risk, allowlisted) → allow via sandbox auto-approve", async () => {
     const result = await check("bash", { command: "ls -la" }, workspaceDir);
     expect(result.decision).toBe("allow");
-    // Not auto-allowed via workspace mode — bash falls through to risk-based policy
-    expect(result.reason).not.toContain("Workspace mode");
-    expect(result.reason).toContain("Low risk");
+    // ls has sandboxAutoApprove: true and no path args → sandbox auto-approve fires
+    expect(result.reason).toContain("sandbox auto-approve");
   });
 
   test("bash in workspace (medium risk) → prompt (not auto-allowed)", async () => {

