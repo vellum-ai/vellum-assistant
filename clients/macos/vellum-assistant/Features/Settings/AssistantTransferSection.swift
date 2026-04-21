@@ -169,6 +169,27 @@ struct AssistantTransferSection: View {
             currentStep = "Uploading data to cloud..."
             try await importBundleToManaged(bundleData: bundleData)
 
+            // Step 3b — Inject client-resolvable vellum identity fields that
+            // Django's post-hatch provisioning doesn't cover (org id, user id).
+            // Normal local bootstrap sets these via `LocalAssistantBootstrapService`;
+            // the transfer flow has to do it here because it skips that bootstrap.
+            //
+            // Best-effort: if the org id isn't already cached from
+            // `ensureManagedAssistant()` above, skip injection rather than
+            // blocking the transfer on a fresh network lookup — the export
+            // and import have already succeeded, and a failed injection is
+            // recoverable (managed assistant still boots; org/user tagging
+            // just stays blank until the next explicit set).
+            if let organizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId"),
+               !organizationId.isEmpty {
+                await ManagedAssistantIdentityInjection.inject(
+                    into: platformAssistant.id,
+                    organizationId: organizationId
+                )
+            } else {
+                log.warning("[transfer] Skipping vellum identity injection — no cached organization id for \(platformAssistant.id, privacy: .public)")
+            }
+
             // Step 4 — Switch to managed assistant
             currentStep = "Switching to cloud assistant..."
             guard let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.assistantId == platformAssistant.id && $0.isManaged }) else {
