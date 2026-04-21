@@ -938,7 +938,14 @@ export async function runAgentLoopImpl(
     // a wasted provider round-trip that would just fail with context_too_large.
     const config = getConfig();
     const overflowRecovery = config.contextWindow.overflowRecovery;
-    const providerMaxTokens = config.contextWindow.maxInputTokens;
+    // Preflight ceiling is the per-model catalog `contextWindow` (capped by
+    // any conservative `maxInputTokens` config override), matching what the
+    // compaction threshold and severe-pressure ratio are measured against.
+    // Fall back to the config value for test harnesses that stub a partial
+    // ContextWindowManager without wiring up effectiveMaxInputTokens.
+    const providerMaxTokens =
+      ctx.contextWindowManager.effectiveMaxInputTokens ??
+      config.contextWindow.maxInputTokens;
     // Widen safety margin for large conversations where estimation error
     // compounds across many messages with tool results.
     const baseSafetyMargin = overflowRecovery.safetyMarginRatio;
@@ -2005,7 +2012,11 @@ export async function runAgentLoopImpl(
       state.exchangeLlmCallCount,
       {
         tokens: state.lastCallInputTokens,
-        maxTokens: config.contextWindow.maxInputTokens,
+        // Fall back to the config value for test harnesses that stub a
+        // partial ContextWindowManager.
+        maxTokens:
+          ctx.contextWindowManager.effectiveMaxInputTokens ??
+          config.contextWindow.maxInputTokens,
       },
     );
 

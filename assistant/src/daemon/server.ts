@@ -1437,7 +1437,13 @@ export class DaemonServer {
       messageCount: conversation.getMessages().length,
       inputTokens: conversation.usageStats.inputTokens,
       outputTokens: conversation.usageStats.outputTokens,
-      maxInputTokens: config.contextWindow.maxInputTokens,
+      // Prefer the per-model effective cap (catalog-resolved) so slash
+      // commands (e.g. /tokens) report the same budget the compaction
+      // and preflight logic is measuring against. Fall back to the config
+      // value for test harnesses that stub a partial Conversation.
+      maxInputTokens:
+        conversation.effectiveMaxInputTokens ??
+        config.contextWindow.maxInputTokens,
       model: config.services.inference.model,
       provider: config.services.inference.provider,
       estimatedCost: conversation.usageStats.estimatedCost,
