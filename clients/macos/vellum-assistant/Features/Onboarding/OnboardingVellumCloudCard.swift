@@ -10,7 +10,6 @@ struct OnboardingVellumCloudCard: View {
     // MARK: - Configuration
 
     let title: String = "Vellum Cloud"
-    let subtitle: String = "The frictionless experience for serious creators."
     let benefits: [String] = [
         "Always on, even when your Mac sleeps",
         "Instant sync across all your devices",
@@ -47,13 +46,6 @@ struct OnboardingVellumCloudCard: View {
                     shape: .pill
                 )
             }
-
-            Spacer().frame(height: VSpacing.xxs)
-
-            Text(subtitle)
-                .font(VFont.bodySmallDefault)
-                .foregroundStyle(VColor.contentSecondary)
-                .fixedSize(horizontal: false, vertical: true)
 
             Spacer().frame(height: VSpacing.md)
 
@@ -112,7 +104,7 @@ struct OnboardingVellumCloudCard: View {
     private func benefitRow(_ text: String) -> some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
             VIconView(.circleCheck, size: 14)
-                .foregroundStyle(VColor.contentSecondary)
+                .foregroundStyle(VColor.systemPositiveStrong)
                 .accessibilityHidden(true)
             Text(text)
                 .font(VFont.bodySmallDefault)

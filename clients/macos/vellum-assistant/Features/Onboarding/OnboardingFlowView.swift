@@ -19,11 +19,6 @@ struct OnboardingFlowView: View {
     @State private var completionDelayTask: Task<Void, Never>?
     @State private var isShowingPreChat = false
 
-    private static let appIcon: NSImage? = {
-        guard let path = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png") else { return nil }
-        return NSImage(contentsOfFile: path)
-    }()
-
     private var managedSignInEnabled: Bool {
         MacOSClientFeatureFlagManager.shared.isEnabled("managed-sign-in")
     }
@@ -84,105 +79,101 @@ struct OnboardingFlowView: View {
                     )
             } else if (0...maxOnboardingStep).contains(state.currentStep) {
                 // Onboarding flow: WakeUp → HostingSelector → APIKeyEntry → ImproveExperience (steps 0–3)
-                ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 0) {
-                    if state.currentStep == 0 {
-                        // Step 0 only: compact top inset + app icon. Pre-cards
-                        // this was 80pt + 78pt below the icon; tightened here
-                        // so the WakeUp hero + setup-option cards + footer +
-                        // characters all fit in the 630pt window envelope
-                        // even when the Advanced disclosure is expanded.
-                        Color.clear.frame(height: VSpacing.md)
-
-                        if let nsImage = Self.appIcon {
-                            Image(nsImage: nsImage)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 80, height: 80)
-                                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                                .shadow(color: VColor.auxBlack.opacity(0.15), radius: 1, x: 0, y: 1)
-                                .padding(.bottom, VSpacing.sm)
-                        }
-                    } else {
-                        // Steps 1–3: top inset only (no icon)
-                        Color.clear.frame(height: VSpacing.xxxl)
-                    }
-
-                    // Step content — Group flattens into parent VStack so
-                    // the inner Spacer flexes with the top Spacer above.
-                    Group {
-                        switch state.currentStep {
-                            case 0:
-                                if managedSignInEnabled && authManager.isAuthenticated {
-                                    // Already authenticated — show a brief loading
-                                    // state while the .task advances to Setup.
-                                    HStack(spacing: VSpacing.sm) {
-                                        ProgressView()
-                                            .controlSize(.small)
-                                            .progressViewStyle(.circular)
-                                    }
-
-                                    Spacer()
-                                } else {
-                                    WakeUpStepView(
-                                        state: state,
-                                        authManager: managedSignInEnabled ? authManager : nil,
-                                        isAdvancing: isAdvancingFromWakeUp,
-                                        managedSignInEnabled: managedSignInEnabled,
-                                        onStartWithAPIKey: {
-                                            guard !isAdvancingFromWakeUp else { return }
-                                            isAdvancingFromWakeUp = true
-                                            state.hasHatched = true
-                                            Task { @MainActor in
-                                                try? await Task.sleep(nanoseconds: 300_000_000)
-                                                guard !Task.isCancelled else { return }
-                                                state.advance()
-                                            }
-                                        },
-                                        onContinueWithVellum: {
-                                            Task {
-                                                await continueWithManagedAssistant()
-                                            }
-                                        }
-                                    )
+                //
+                // Step 0 owns its own full-frame layout (header / flexible
+                // card region / pinned character footer) via WakeUpStepView,
+                // so it renders outside the ScrollView and without the
+                // shared app-icon preamble — this keeps the welcome
+                // illustration from ever being pushed offscreen or clipped.
+                // Steps 1–3 keep the existing scrollable preamble+content
+                // composition.
+                Group {
+                    if state.currentStep == 0, !(managedSignInEnabled && authManager.isAuthenticated) {
+                        WakeUpStepView(
+                            state: state,
+                            authManager: managedSignInEnabled ? authManager : nil,
+                            isAdvancing: isAdvancingFromWakeUp,
+                            managedSignInEnabled: managedSignInEnabled,
+                            onStartWithAPIKey: {
+                                guard !isAdvancingFromWakeUp else { return }
+                                isAdvancingFromWakeUp = true
+                                state.hasHatched = true
+                                Task { @MainActor in
+                                    try? await Task.sleep(nanoseconds: 300_000_000)
+                                    guard !Task.isCancelled else { return }
+                                    state.advance()
                                 }
-                            case 1:
-                                APIKeyStepView(
-                                    state: state,
-                                    isAuthenticated: authManager.isAuthenticated,
-                                    onHatchManaged: {
-                                        Task {
-                                            await performManagedBootstrap()
-                                        }
-                                    }
-                                )
-                            case 2:
-                                APIKeyEntryStepView(state: state)
-                            case 3:
-                                ImproveExperienceStepView(
-                                    state: state,
-                                    skippedAPIKeyEntry: state.skippedAPIKeyEntry,
-                                    onAccepted: state.selectedHostingMode == .vellumCloud ? {
-                                        Task {
-                                            await performManagedBootstrap()
-                                        }
-                                    } : nil
-                                )
-                            default:
-                                EmptyView()
-                        }
-                    }
-                    .transition(
-                        .asymmetric(
-                            insertion: .opacity.combined(with: .offset(y: 12)),
-                            removal: .opacity.combined(with: .offset(y: -8))
+                            },
+                            onContinueWithVellum: {
+                                Task {
+                                    await continueWithManagedAssistant()
+                                }
+                            }
                         )
-                    )
-                    .id(state.currentStep)
+                        .transition(
+                            .asymmetric(
+                                insertion: .opacity.combined(with: .offset(y: 12)),
+                                removal: .opacity.combined(with: .offset(y: -8))
+                            )
+                        )
+                        .id(state.currentStep)
+                    } else {
+                        ScrollView(.vertical, showsIndicators: false) {
+                            VStack(spacing: 0) {
+                                Color.clear.frame(height: VSpacing.xxxl)
+
+                                Group {
+                                    switch state.currentStep {
+                                        case 0:
+                                            // Already-authenticated brief
+                                            // loading state while the .task
+                                            // advances to Setup.
+                                            HStack(spacing: VSpacing.sm) {
+                                                ProgressView()
+                                                    .controlSize(.small)
+                                                    .progressViewStyle(.circular)
+                                            }
+
+                                            Spacer()
+                                        case 1:
+                                            APIKeyStepView(
+                                                state: state,
+                                                isAuthenticated: authManager.isAuthenticated,
+                                                onHatchManaged: {
+                                                    Task {
+                                                        await performManagedBootstrap()
+                                                    }
+                                                }
+                                            )
+                                        case 2:
+                                            APIKeyEntryStepView(state: state)
+                                        case 3:
+                                            ImproveExperienceStepView(
+                                                state: state,
+                                                skippedAPIKeyEntry: state.skippedAPIKeyEntry,
+                                                onAccepted: state.selectedHostingMode == .vellumCloud ? {
+                                                    Task {
+                                                        await performManagedBootstrap()
+                                                    }
+                                                } : nil
+                                            )
+                                        default:
+                                            EmptyView()
+                                    }
+                                }
+                                .transition(
+                                    .asymmetric(
+                                        insertion: .opacity.combined(with: .offset(y: 12)),
+                                        removal: .opacity.combined(with: .offset(y: -8))
+                                    )
+                                )
+                                .id(state.currentStep)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
+                        }
+                        .scrollBounceBehavior(.basedOnSize)
+                    }
                 }
-                .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
-                }
-                .scrollBounceBehavior(.basedOnSize)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(
                     RadialGradient(
