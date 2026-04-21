@@ -1007,6 +1007,13 @@ final class ConversationManager: ConversationRestorerDelegate {
         selectionStore.chatViewModels[conversationLocalId]?.latestPersistedTipDaemonMessageId
     }
 
+    // MARK: - Refresh
+
+    func refreshActiveConversation() {
+        guard let conversationId = activeConversation?.conversationId else { return }
+        conversationRestorer.requestReconnectHistory(conversationId: conversationId)
+    }
+
     // MARK: - Analyze
 
     func analyzeActiveConversation() async {
