@@ -42,13 +42,22 @@ mock.module("../runtime/auth/token-service.js", () => ({
 // (backed by the test DB) without needing a running IPC server.
 mock.module("../ipc/cli-client.js", () => ({
   cliIpcCall: async (method: string, params?: Record<string, unknown>) => {
+    const store = await import("../contacts/contact-store.js");
     if (method === "search_contacts") {
-      const { searchContacts } = await import("../contacts/contact-store.js");
-      return { ok: true, result: searchContacts(params ?? {}) };
+      return { ok: true, result: store.searchContacts(params ?? {}) };
     }
     if (method === "upsert_contact") {
-      const { upsertContact } = await import("../contacts/contact-store.js");
-      return { ok: true, result: upsertContact(params as never) };
+      return { ok: true, result: store.upsertContact(params as never) };
+    }
+    if (method === "get_contact") {
+      return {
+        ok: true,
+        result: store.getContact((params as { id: string }).id) ?? null,
+      };
+    }
+    if (method === "merge_contacts") {
+      const { keepId, mergeId } = params as { keepId: string; mergeId: string };
+      return { ok: true, result: store.mergeContacts(keepId, mergeId) };
     }
     return { ok: false, error: `Unknown IPC method: ${method}` };
   },
