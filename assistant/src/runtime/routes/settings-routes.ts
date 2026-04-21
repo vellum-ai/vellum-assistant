@@ -478,7 +478,7 @@ async function handleToolPermissionSimulate(body: {
       manifestOverride,
     );
     const executionContext =
-      body.isInteractive === false ? "background" : "conversation";
+      body.isInteractive === false ? "headless" : "conversation";
     const policyContext = { executionTarget, executionContext } as const;
 
     const { level: riskLevel } = await classifyRisk(
