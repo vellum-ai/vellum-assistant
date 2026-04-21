@@ -303,6 +303,9 @@ export function classifySegment(
   //    in a non-exec mode (e.g. `command -v`, `env -0`). Skip unwrapping and
   //    fall through to arg/base risk evaluation.
   if (spec.isWrapper) {
+    // nonExecFlags only checks args[0] — a flag in a later position won't
+    // suppress unwrapping.  This is intentional: wrappers place their mode
+    // flag first (e.g. `command -v`, `timeout --help`).
     const isNonExecMode =
       spec.nonExecFlags &&
       segment.args.length > 0 &&

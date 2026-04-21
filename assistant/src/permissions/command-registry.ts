@@ -519,7 +519,7 @@ export const DEFAULT_COMMAND_REGISTRY = {
       get: {
         baseRisk: "medium",
         reason:
-          "Downloads and installs packages; can execute arbitrary code via install hooks",
+          "Downloads and installs packages; may execute arbitrary code via tool directives",
       },
       generate: {
         baseRisk: "high",
@@ -531,15 +531,7 @@ export const DEFAULT_COMMAND_REGISTRY = {
   // ── Docker ─────────────────────────────────────────────────────────────────
   docker: {
     baseRisk: "medium",
-    globalValueFlags: [
-      "--host",
-      "-H",
-      "--config",
-      "--context",
-      "-c",
-      "--log-level",
-      "-l",
-    ],
+    globalValueFlags: ["--host", "-H", "--config", "--context", "--log-level"],
     subcommands: {
       ps: { baseRisk: "low" },
       images: { baseRisk: "low" },
