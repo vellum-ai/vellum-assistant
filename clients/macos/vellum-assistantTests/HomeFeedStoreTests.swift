@@ -48,7 +48,8 @@ final class HomeFeedStoreTests: XCTestCase {
 
     private func makeResponse(
         items: [FeedItem],
-        banner: ContextBanner? = nil
+        banner: ContextBanner? = nil,
+        suggestedPrompts: [SuggestedPrompt] = []
     ) -> HomeFeedResponse {
         HomeFeedResponse(
             items: items,
@@ -58,8 +59,19 @@ final class HomeFeedStoreTests: XCTestCase {
                 timeAwayLabel: "Away for 2 hours",
                 newCount: items.filter { $0.status == .new }.count
             ),
+            suggestedPrompts: suggestedPrompts,
             lowPriorityCollapsed: LowPriorityCollapsed(count: 0, itemIds: [])
         )
+    }
+
+    private func makeSuggestedPrompt(
+        id: String = "sp-1",
+        label: String = "Try this",
+        icon: String? = "lucide-sparkles",
+        prompt: String = "Help me with this",
+        source: SuggestedPromptSource = .assistant
+    ) -> SuggestedPrompt {
+        SuggestedPrompt(id: id, label: label, icon: icon, prompt: prompt, source: source)
     }
 
     private func makeStore(
@@ -107,6 +119,45 @@ final class HomeFeedStoreTests: XCTestCase {
         XCTAssertEqual(store.items.map { $0.id }, ["seed"],
                        "items must not be blanked on transport failure")
         XCTAssertFalse(store.isLoading)
+    }
+
+    func testLoadPopulatesSuggestedPromptsOnSuccess() async {
+        let prompts = [
+            makeSuggestedPrompt(id: "sp-1", label: "Baby names", prompt: "Suggest baby names for a boy"),
+            makeSuggestedPrompt(id: "sp-2", label: "Spring cleaning", prompt: "Help me plan spring cleaning", source: .deterministic),
+        ]
+        let response = makeResponse(
+            items: [makeFeedItem(id: "a")],
+            suggestedPrompts: prompts
+        )
+        let client = MockHomeFeedClient(response: response)
+        let (store, _) = makeStore(client: client)
+
+        XCTAssertTrue(store.suggestedPrompts.isEmpty, "suggestedPrompts should start empty")
+
+        await store.load()
+
+        XCTAssertEqual(store.suggestedPrompts.map { $0.id }, ["sp-1", "sp-2"])
+        XCTAssertEqual(store.suggestedPrompts.first?.prompt, "Suggest baby names for a boy")
+        XCTAssertEqual(store.suggestedPrompts.last?.source, .deterministic)
+    }
+
+    func testLoadLeavesSuggestedPromptsUnchangedOnFailure() async {
+        let seeded = makeResponse(
+            items: [makeFeedItem(id: "seed")],
+            suggestedPrompts: [makeSuggestedPrompt(id: "kept")]
+        )
+        let client = MockHomeFeedClient(response: seeded)
+        let (store, _) = makeStore(client: client)
+
+        await store.load()
+        XCTAssertEqual(store.suggestedPrompts.map { $0.id }, ["kept"])
+
+        client.setFetchError(HomeFeedClientError.httpError(statusCode: 500))
+        await store.load()
+
+        XCTAssertEqual(store.suggestedPrompts.map { $0.id }, ["kept"],
+                       "suggestedPrompts must not be blanked on transport failure")
     }
 
     func testOutOfOrderResponsesPreserveLatest() async {

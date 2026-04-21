@@ -320,6 +320,86 @@ struct HomeGallerySection: View {
                 }
             }
 
+            // MARK: - HomeFeedGroupHeader
+
+            if filter == nil || filter == "homeFeedGroupHeader" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "HomeFeedGroupHeader",
+                    description: "Section header for time-bucketed feed groups (Today / Yesterday / Older)."
+                )
+
+                VCard(background: VColor.surfaceBase) {
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        HomeFeedGroupHeader(label: "Today")
+                        Divider().background(VColor.borderBase)
+                        HomeFeedGroupHeader(label: "Yesterday")
+                        Divider().background(VColor.borderBase)
+                        HomeFeedGroupHeader(label: "Older")
+                    }
+                }
+            }
+
+            // MARK: - HomeRecapRow
+
+            if filter == nil || filter == "homeRecapRow" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "HomeRecapRow",
+                    description: "Compact row used in the time-bucketed Home feed. Icon tint communicates severity; optional trailing Action button is isolated from the row tap."
+                )
+
+                VCard(background: VColor.surfaceBase) {
+                    VStack(spacing: VSpacing.xs) {
+                        // Heartbeat (nudge): pink.
+                        HomeRecapRow(
+                            icon: .heart,
+                            iconForeground: VColor.feedNudgeStrong,
+                            iconBackground: VColor.feedNudgeWeak,
+                            title: "Heartbeat – all systems healthy",
+                            onDismiss: {},
+                            onTap: {}
+                        )
+
+                        // Input (action): info/blue.
+                        HomeRecapRow(
+                            icon: .arrowLeft,
+                            iconForeground: VColor.systemInfoStrong,
+                            iconBackground: VColor.systemInfoWeak,
+                            title: "I need your permission on authorising a transaction to NBA",
+                            onDismiss: {},
+                            onTap: {}
+                        )
+
+                        // Notification (digest): teal.
+                        HomeRecapRow(
+                            icon: .bell,
+                            iconForeground: VColor.feedDigestStrong,
+                            iconBackground: VColor.feedDigestWeak,
+                            title: "Last, while you were away, I ran the email clean job and deleted 26 emails…",
+                            onDismiss: {},
+                            onTap: {}
+                        )
+
+                        // Schedule (thread): amber.
+                        HomeRecapRow(
+                            icon: .calendar,
+                            iconForeground: VColor.feedThreadStrong,
+                            iconBackground: VColor.feedThreadWeak,
+                            title: "There's also 4 low priority updates if you want to have a look.",
+                            onDismiss: {},
+                            onTap: {}
+                        )
+                    }
+                }
+            }
+
             // MARK: - HomeDetailPanel
 
             if filter == nil || filter == "homeDetailPanel" {
@@ -329,14 +409,13 @@ struct HomeGallerySection: View {
 
                 GallerySectionHeader(
                     title: "HomeDetailPanel",
-                    description: "Reusable white right-side panel container with standardized header (icon + title + primary/secondary actions + dismiss)."
+                    description: "Reusable white right-side panel container with a standardized header (icon + title + \"Go to Thread\" action + dismiss)."
                 )
 
                 HomeDetailPanel(
                     icon: .file,
                     title: "Panel title",
-                    primaryAction: .init(label: "Primary", action: {}),
-                    secondaryAction: .init(label: "Secondary", style: .danger, action: {}),
+                    onGoToThread: {},
                     onDismiss: {}
                 ) {
                     Text("Detail content goes here.")
@@ -360,26 +439,71 @@ struct HomeGallerySection: View {
                 HomeEmailEditorDemo()
             }
 
-            // MARK: - HomeInvoicePreview
+            // MARK: - HomeDocumentPreview
 
-            if filter == nil || filter == "homeInvoicePreview" {
+            if filter == nil || filter == "homeDocumentPreview" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
 
                 GallerySectionHeader(
-                    title: "HomeInvoicePreview",
-                    description: "Pure body content showing a document / invoice image in the Home detail panel."
+                    title: "HomeDocumentPreview",
+                    description: "Pure body content showing a document, image, or any file attachment preview in the Home detail panel. Optional right-aligned footer actions."
                 )
 
                 HomeDetailPanel(
                     icon: .file,
-                    title: "Authorise Payment to Slack",
-                    primaryAction: .init(label: "Authorise", action: {}),
-                    secondaryAction: .init(label: "Deny", style: .danger, action: {}),
+                    title: "Porsche-preview-2.4S.png",
+                    onGoToThread: {},
+                    onDismiss: {},
+                    scrollable: false
+                ) {
+                    HomeDocumentPreview(
+                        image: nil,
+                        placeholderCaption: "Preview unavailable",
+                        actions: [
+                            .init(label: "Action", style: .outlined, action: {}),
+                            .init(label: "Action", style: .primary, action: {})
+                        ]
+                    )
+                }
+                .frame(height: 520)
+            }
+
+            // MARK: - HomePermissionChatPreview
+
+            if filter == nil || filter == "homePermissionChatPreview" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "HomePermissionChatPreview",
+                    description: "Pure body content for the Home detail panel's permission-request variant — last user message, assistant preamble, and an inline tool confirmation bubble."
+                )
+
+                HomeDetailPanel(
+                    icon: nil,
+                    title: "Permission to access something",
+                    onGoToThread: {},
                     onDismiss: {}
                 ) {
-                    HomeInvoicePreview(image: nil, placeholderCaption: "Sample invoice")
+                    HomePermissionChatPreview(
+                        userMessage: "Can you send $5,000 to NBA Merchandising for the annual subscription?",
+                        assistantResponse: "Sure — I've drafted the transfer on Stripe. Before I release it, I need your permission to authorize the payment.",
+                        confirmation: ToolConfirmationData(
+                            requestId: "preview-nba-txn",
+                            toolName: "stripe_transfer",
+                            input: [
+                                "amount_usd": .init(5000),
+                                "recipient": .init("NBA Merchandising")
+                            ],
+                            riskLevel: "medium"
+                        ),
+                        onAllow: {},
+                        onDeny: {},
+                        onAlwaysAllow: { _, _, _, _ in }
+                    )
                 }
                 .frame(height: 520)
             }
@@ -397,6 +521,131 @@ struct HomeGallerySection: View {
                 )
 
                 HomeSplitLayoutDemo()
+            }
+
+            // MARK: - HomeSuggestionPillBar
+
+            if filter == nil || filter == "homeSuggestionPillBar" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "HomeSuggestionPillBar",
+                    description: "Dismissible \"by the way, have you tried…\" container with a headline and horizontal row of icon+label suggestion pills. Renders no pills when the suggestions array is empty."
+                )
+
+                VCard(background: VColor.surfaceBase) {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("With suggestions")
+                            .font(VFont.bodySmallEmphasised)
+                            .foregroundStyle(VColor.contentSecondary)
+
+                        HomeSuggestionPillBar(
+                            headline: "By the way, have you tried one of these:",
+                            suggestions: [
+                                HomeSuggestion(
+                                    id: "baby",
+                                    icon: .gamepad,
+                                    label: "App for baby names",
+                                    prompt: "What apps for baby names should I try?"
+                                ),
+                                HomeSuggestion(
+                                    id: "car",
+                                    icon: .car,
+                                    label: "Get your cars spring-ready",
+                                    prompt: "Help me get my car spring-ready"
+                                ),
+                                HomeSuggestion(
+                                    id: "vacation",
+                                    icon: .plane,
+                                    label: "Plan your next vacation",
+                                    prompt: "Help me plan my next vacation"
+                                ),
+                            ],
+                            onSelect: { _ in },
+                            onDismiss: {}
+                        )
+
+                        Divider().background(VColor.borderBase)
+
+                        Text("Empty suggestions (edge case — renders no pills)")
+                            .font(VFont.bodySmallEmphasised)
+                            .foregroundStyle(VColor.contentSecondary)
+
+                        HomeSuggestionPillBar(
+                            headline: "By the way, have you tried one of these:",
+                            suggestions: [],
+                            onSelect: { _ in },
+                            onDismiss: {}
+                        )
+                    }
+                }
+            }
+
+            // MARK: - HomeFeedFilterBar
+
+            if filter == nil || filter == "homeFeedFilterBar" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "HomeFeedFilterBar",
+                    description: "Row of 4 toggleable 26pt icon chips (Heartbeat / Input / Notification / Schedule) used to filter the Home feed. Empty selection means show everything; non-empty is an inclusion filter."
+                )
+
+                VCard(background: VColor.surfaceBase) {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("No selection (all chips inactive)")
+                            .font(VFont.bodySmallEmphasised)
+                            .foregroundStyle(VColor.contentSecondary)
+
+                        HomeFeedFilterBar(
+                            selected: nil,
+                            onToggle: { _ in }
+                        )
+
+                        Divider().background(VColor.borderBase)
+
+                        Text("Heartbeat selected (single-select)")
+                            .font(VFont.bodySmallEmphasised)
+                            .foregroundStyle(VColor.contentSecondary)
+
+                        HomeFeedFilterBar(
+                            selected: .nudge,
+                            onToggle: { _ in }
+                        )
+                    }
+                }
+            }
+
+            // MARK: - HomeGreetingHeader
+
+            if filter == nil || filter == "homeGreetingHeader" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "HomeGreetingHeader",
+                    description: "Home feed header with a leading avatar, a greeting title, and a trailing New Chat pill CTA."
+                )
+
+                VCard(background: VColor.surfaceBase) {
+                    HomeGreetingHeader(
+                        greeting: "Here's what's been going on",
+                        onStartNewChat: {}
+                    ) {
+                        if let image = NSImage(systemSymbolName: "person.circle.fill", accessibilityDescription: nil) {
+                            VAvatarImage(image: image, size: 40)
+                        } else {
+                            Circle()
+                                .fill(VColor.surfaceActive)
+                                .frame(width: 40, height: 40)
+                        }
+                    }
+                }
             }
         }
     }
@@ -430,6 +679,7 @@ private struct HomeEmailEditorDemo: View {
         HomeDetailPanel(
             icon: nil,
             title: "Thread Name Here",
+            onGoToThread: {},
             onDismiss: {},
             scrollable: false
         ) {
@@ -456,12 +706,13 @@ private struct HomeEmailEditorDemo: View {
 /// the two columns, not to exercise the real home page.
 private struct HomeSplitLayoutDemo: View {
     private enum Variant: String, CaseIterable, Identifiable {
-        case email, invoice
+        case email, document, permissionChat
         var id: String { rawValue }
         var label: String {
             switch self {
             case .email: return "Email editor"
-            case .invoice: return "Invoice preview"
+            case .document: return "Document preview"
+            case .permissionChat: return "Permission chat"
             }
         }
     }
@@ -516,6 +767,7 @@ private struct HomeSplitLayoutDemo: View {
             HomeDetailPanel(
                 icon: nil,
                 title: "Thread Name Here",
+                onGoToThread: {},
                 onDismiss: {},
                 scrollable: false
             ) {
@@ -528,15 +780,46 @@ private struct HomeSplitLayoutDemo: View {
                     onSend: {}
                 )
             }
-        case .invoice:
+        case .document:
             HomeDetailPanel(
                 icon: .file,
-                title: "Authorise Payment to Slack",
-                primaryAction: .init(label: "Authorise", action: {}),
-                secondaryAction: .init(label: "Deny", style: .danger, action: {}),
+                title: "Porsche-preview-2.4S.png",
+                onGoToThread: {},
+                onDismiss: {},
+                scrollable: false
+            ) {
+                HomeDocumentPreview(
+                    image: nil,
+                    placeholderCaption: "Preview unavailable",
+                    actions: [
+                        .init(label: "Action", style: .outlined, action: {}),
+                        .init(label: "Action", style: .primary, action: {})
+                    ]
+                )
+            }
+        case .permissionChat:
+            HomeDetailPanel(
+                icon: nil,
+                title: "Permission to access something",
+                onGoToThread: {},
                 onDismiss: {}
             ) {
-                HomeInvoicePreview(image: nil, placeholderCaption: "Sample invoice")
+                HomePermissionChatPreview(
+                    userMessage: "Can you send $5,000 to NBA Merchandising for the annual subscription?",
+                    assistantResponse: "Sure — I've drafted the transfer on Stripe. Before I release it, I need your permission to authorize the payment.",
+                    confirmation: ToolConfirmationData(
+                        requestId: "preview-nba-txn",
+                        toolName: "stripe_transfer",
+                        input: [
+                            "amount_usd": .init(5000),
+                            "recipient": .init("NBA Merchandising")
+                        ],
+                        riskLevel: "medium"
+                    ),
+                    onAllow: {},
+                    onDeny: {},
+                    onAlwaysAllow: { _, _, _, _ in }
+                )
             }
         }
     }
@@ -558,10 +841,16 @@ extension HomeGallerySection {
         case "homeImageCard": HomeGallerySection(filter: "homeImageCard")
         case "homeFileCard": HomeGallerySection(filter: "homeFileCard")
         case "homeUpdatesListCard": HomeGallerySection(filter: "homeUpdatesListCard")
+        case "homeFeedGroupHeader": HomeGallerySection(filter: "homeFeedGroupHeader")
+        case "homeRecapRow": HomeGallerySection(filter: "homeRecapRow")
         case "homeDetailPanel": HomeGallerySection(filter: "homeDetailPanel")
         case "homeEmailEditor": HomeGallerySection(filter: "homeEmailEditor")
-        case "homeInvoicePreview": HomeGallerySection(filter: "homeInvoicePreview")
+        case "homeDocumentPreview": HomeGallerySection(filter: "homeDocumentPreview")
+        case "homePermissionChatPreview": HomeGallerySection(filter: "homePermissionChatPreview")
         case "homeSplitLayout": HomeGallerySection(filter: "homeSplitLayout")
+        case "homeSuggestionPillBar": HomeGallerySection(filter: "homeSuggestionPillBar")
+        case "homeFeedFilterBar": HomeGallerySection(filter: "homeFeedFilterBar")
+        case "homeGreetingHeader": HomeGallerySection(filter: "homeGreetingHeader")
         default: EmptyView()
         }
     }

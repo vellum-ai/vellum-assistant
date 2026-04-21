@@ -9,6 +9,14 @@ function makeDeps(enabled: boolean): PlaygroundRouteDeps {
   return {
     getConversationById: (_id: string): Conversation | undefined => undefined,
     isPlaygroundEnabled: () => enabled,
+    listConversationsByTitlePrefix: () => [],
+    deleteConversationById: () => false,
+    createConversation: async (_title: string) => ({ id: "conv-test" }),
+    addMessage: async (
+      _conversationId: string,
+      _role: "user" | "assistant",
+      _contentJson: string,
+    ) => ({ id: "msg-test" }),
   };
 }
 
@@ -43,5 +51,23 @@ describe("playgroundRouteDefinitions", () => {
     expect(playgroundRouteDefinitions(makeDeps(false)).length).toBeGreaterThan(
       0,
     );
+  });
+
+  test("registers the inject-failures playground route", () => {
+    const routes = playgroundRouteDefinitions(makeDeps(true));
+    expect(
+      routes.some(
+        (r) =>
+          r.endpoint ===
+            "conversations/:id/playground/inject-compaction-failures" &&
+          r.method === "POST",
+      ),
+    ).toBe(true);
+  });
+
+  test("registers the seed-conversation endpoint", () => {
+    const routes = playgroundRouteDefinitions(makeDeps(true));
+    const endpoints = routes.map((r) => `${r.method} ${r.endpoint}`);
+    expect(endpoints).toContain("POST playground/seed-conversation");
   });
 });

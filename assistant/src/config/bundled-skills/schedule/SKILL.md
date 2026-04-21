@@ -70,11 +70,13 @@ Exclusions (EXDATE, EXRULE) always take precedence over inclusions (RRULE, RDATE
 To create a one-time schedule that fires once and is done, pass `fire_at` (an ISO 8601 timestamp) instead of an `expression`. This replaces the old reminder concept - "remind me at 3pm" becomes a one-shot schedule with `fire_at`.
 
 One-shot schedules:
+
 - Fire once at the specified time, then are marked as `fired` and disabled.
 - Support both `execute` and `notify` modes (see below).
 - Can be cancelled before they fire.
 
 Examples:
+
 - "remind me at 3pm" → `schedule_create` with `fire_at: "2025-03-15T15:00:00-05:00"`, `mode: "notify"`
 - "at 5pm, check my email and summarize it" → `schedule_create` with `fire_at`, `mode: "execute"`
 
@@ -84,8 +86,9 @@ The `mode` parameter controls what happens when a schedule fires:
 
 - **execute** (default) - sends the schedule's message to a background assistant conversation for autonomous handling. The assistant processes the message as if the user sent it.
 - **notify** - sends a notification to the user via the notification pipeline. No assistant processing occurs.
+- **script** - runs the `message` field as a shell command directly. No LLM invoked, no conversation created. stdout/stderr are captured in the schedule run record. Exit code 0 = success, non-zero = error. Commands run in the workspace directory with a 60-second timeout.
 
-Use `notify` for simple reminders ("remind me to take medicine at 9am") and `execute` for tasks that need assistant action ("check my calendar at 8am and send me a digest").
+Use `notify` for simple reminders ("remind me to take medicine at 9am"), `execute` for tasks that need assistant action ("check my calendar at 8am and send me a digest"), and `script` for lightweight shell automations that don't need LLM involvement ("refresh a cache", "poll an API", "rotate logs").
 
 ## Conversation Reuse
 
@@ -121,6 +124,7 @@ Optionally pass `routing_hints` (a JSON object) to influence routing decisions (
   3. If neither field is present or the interface is `cli`, omit `preferred_channels`.
 
   When a channel is determined, include it as a routing hint:
+
   ```
   routing_hints: { preferred_channels: ["<resolved channel>"] }
   routing_intent: "all_channels"
@@ -157,6 +161,7 @@ Phrases like "at the 45 minute mark", "at the top of the hour", "at noon", or "2
    - "noon" / "midnight" → 12:00 PM or 12:00 AM today; if past, tomorrow
 
 3. **Ask only if truly ambiguous** - if neither rule resolves, ask for clarification. Never silently default to "from now."
+
 - Timezones default to the system timezone if omitted. Use IANA timezone identifiers (e.g. "America/Los_Angeles").
 - Prefer RRULE for complex patterns that cron cannot express (e.g. "every other Tuesday", "last weekday of the month").
 

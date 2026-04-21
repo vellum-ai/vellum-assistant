@@ -58,6 +58,7 @@ struct MainWindowView: View {
 
     @AppStorage("sidebarExpanded") var sidebarExpanded: Bool = true
     @AppStorage("sidebarToggleShortcut") private var sidebarToggleShortcut: String = "cmd+\\"
+    @AppStorage("homeShortcut") private var homeShortcut: String = "cmd+shift+h"
     @AppStorage("themePreference") private var themePreference: String = "system"
     @State private var systemIsDark: Bool = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
     let sidebarExpandedWidth: CGFloat = 240
@@ -422,6 +423,11 @@ struct MainWindowView: View {
         return "\(label) (\(display))"
     }
 
+    private var homeTooltip: String {
+        guard !homeShortcut.isEmpty else { return "Home" }
+        return "Home (\(ShortcutHelper.displayString(for: homeShortcut)))"
+    }
+
     /// Assistant loading overlay extracted to reduce type-checker pressure on `coreLayoutView`.
     @ViewBuilder
     private var assistantLoadingOverlayIfNeeded: some View {
@@ -443,28 +449,59 @@ struct MainWindowView: View {
     private var topBarView: some View {
         HStack(spacing: VSpacing.sm) {
             if !isSettingsOpen {
-                VButton(label: "Sidebar", iconOnly: VIcon.panelLeft.rawValue, style: .ghost, tooltip: sidebarTooltip) {
+                VButton(label: "Sidebar", iconOnly: VIcon.panelLeft.rawValue, style: .ghost) {
                     withAnimation(VAnimation.panel) {
                         sidebarExpanded.toggle()
                     }
                 }
+                .vTooltip(sidebarTooltip)
 
-                VButton(label: "Search", iconOnly: VIcon.search.rawValue, style: .ghost, tooltip: "Search (\u{2318}K)") {
-                    AppDelegate.shared?.toggleCommandPalette()
+                if MacOSClientFeatureFlagManager.shared.isEnabled("home-tab") {
+                    VButton(label: "Home", iconOnly: VIcon.house.rawValue, style: .ghost) {
+                        windowState.showPanel(.home)
+                    }
+                    // Keyboard shortcut (default ⇧⌘H) is handled by the
+                    // configurable NSEvent monitor in
+                    // `AppDelegate+InputMonitors.registerHomeShortcutMonitor()`.
+                    // Users can remap or clear it from Settings → Keyboard
+                    // Shortcuts → Home.
+                    .overlay(alignment: .topTrailing) {
+                        // Red dot whenever HomeStore has observed a background
+                        // `relationshipStateUpdated` SSE event while the user
+                        // was off the Home panel. Cleared by PanelCoordinator
+                        // via `homeStore.markSeen()` when Home becomes active.
+                        if homeStore.hasUnseenChanges && windowState.selection != .panel(.home) {
+                            Circle()
+                                .fill(VColor.systemNegativeStrong)
+                                .frame(width: 8, height: 8)
+                                .offset(x: 2, y: -2)
+                                .transition(.scale.combined(with: .opacity))
+                                .allowsHitTesting(false)
+                                .accessibilityLabel(Text("Unseen changes"))
+                        }
+                    }
+                    .vTooltip(homeTooltip)
                 }
 
+                VButton(label: "Search", iconOnly: VIcon.search.rawValue, style: .ghost) {
+                    AppDelegate.shared?.toggleCommandPalette()
+                }
+                .vTooltip("Search (\u{2318}K)")
+
                 HStack(spacing: 0) {
-                    VButton(label: "Back", iconOnly: VIcon.chevronLeft.rawValue, style: .ghost, tooltip: "Back (\u{2318}[)") {
+                    VButton(label: "Back", iconOnly: VIcon.chevronLeft.rawValue, style: .ghost) {
                         windowState.navigateBack()
                     }
                     .disabled(!windowState.canGoBack)
                     .opacity(windowState.canGoBack ? 1 : 0.35)
+                    .vTooltip("Back (\u{2318}[)")
 
-                    VButton(label: "Forward", iconOnly: VIcon.chevronRight.rawValue, style: .ghost, tooltip: "Forward (\u{2318}])") {
+                    VButton(label: "Forward", iconOnly: VIcon.chevronRight.rawValue, style: .ghost) {
                         windowState.navigateForward()
                     }
                     .disabled(!windowState.navigationHistory.canGoForward)
                     .opacity(windowState.navigationHistory.canGoForward ? 1 : 0.35)
+                    .vTooltip("Forward (\u{2318}])")
                 }
             }
             WindowDragArea()

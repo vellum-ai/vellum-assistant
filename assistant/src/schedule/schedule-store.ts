@@ -14,7 +14,7 @@ import type { ScheduleSyntax } from "./recurrence-types.js";
 
 const logger = getLogger("schedule-store");
 
-export type ScheduleMode = "notify" | "execute";
+export type ScheduleMode = "notify" | "execute" | "script";
 export type RoutingIntent = "single_channel" | "multi_channel" | "all_channels";
 export type ScheduleStatus = "active" | "firing" | "fired" | "cancelled";
 

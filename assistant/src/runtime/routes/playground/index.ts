@@ -1,7 +1,10 @@
 import type { RouteDefinition } from "../../http-router.js";
 import type { PlaygroundRouteDeps } from "./deps.js";
 import { forceCompactRouteDefinitions } from "./force-compact.js";
+import { injectFailuresRouteDefinitions } from "./inject-failures.js";
 import { resetCircuitRouteDefinitions } from "./reset-circuit.js";
+import { seedConversationRouteDefinitions } from "./seed-conversation.js";
+import { seededConversationsRouteDefinitions } from "./seeded-conversations.js";
 import { stateRouteDefinitions } from "./state.js";
 
 export type { PlaygroundRouteDeps };
@@ -10,12 +13,16 @@ export { assertPlaygroundEnabled } from "./guard.js";
 export function playgroundRouteDefinitions(
   deps: PlaygroundRouteDeps,
 ): RouteDefinition[] {
-  // Subsequent PRs append concrete route builders here (each returns
-  // RouteDefinition[]). Keeping this as a spread list makes later PRs
-  // purely additive with minimal conflict risk across concurrent PRs.
+  // Each playground route file exports its own `*RouteDefinitions(deps)`
+  // factory; this aggregator spreads the arrays together. Later PRs in the
+  // plan append more imports here — keeping it purely additive minimizes
+  // conflicts across concurrent playground PRs.
   return [
     ...forceCompactRouteDefinitions(deps),
+    ...injectFailuresRouteDefinitions(deps),
     ...resetCircuitRouteDefinitions(deps),
+    ...seedConversationRouteDefinitions(deps),
+    ...seededConversationsRouteDefinitions(deps),
     ...stateRouteDefinitions(deps),
   ];
 }

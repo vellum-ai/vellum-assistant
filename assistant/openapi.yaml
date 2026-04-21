@@ -2910,6 +2910,37 @@ paths:
           required: true
           schema:
             type: string
+  /v1/conversations/{id}/playground/inject-compaction-failures:
+    post:
+      operationId: conversations_by_id_playground_injectcompactionfailures_post
+      summary: Directly mutate compaction circuit-breaker state (dev-only playground)
+      tags:
+        - playground
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                consecutiveFailures:
+                  type: integer
+                  minimum: 0
+                  maximum: 10
+                circuitOpenForMs:
+                  type: integer
+                  minimum: 0
+                  maximum: 86400000
+              additionalProperties: false
   /v1/conversations/{id}/playground/reset-compaction-circuit:
     post:
       operationId: conversations_by_id_playground_resetcompactioncircuit_post
@@ -6101,6 +6132,70 @@ paths:
           schema:
             type: string
           description: Conversation ID
+  /v1/playground/seed-conversation:
+    post:
+      operationId: playground_seedconversation_post
+      summary: Create a synthetic seeded conversation for compaction testing
+      tags:
+        - playground
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                turns:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 500
+                avgTokensPerTurn:
+                  default: 500
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 5000
+                title:
+                  type: string
+                  maxLength: 120
+              required:
+                - turns
+                - avgTokensPerTurn
+              additionalProperties: false
+  /v1/playground/seeded-conversations:
+    delete:
+      operationId: playground_seededconversations_delete
+      summary: Delete every seeded playground conversation (prefix-gated)
+      tags:
+        - playground
+      responses:
+        "200":
+          description: Successful response
+    get:
+      operationId: playground_seededconversations_get
+      summary: List conversations created by the seed-conversation endpoint
+      tags:
+        - playground
+      responses:
+        "200":
+          description: Successful response
+  /v1/playground/seeded-conversations/{id}:
+    delete:
+      operationId: playground_seededconversations_by_id_delete
+      summary: Delete a single seeded conversation (prefix-gated)
+      tags:
+        - playground
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/profiler/runs:
     get:
       operationId: profiler_runs_get
@@ -6579,7 +6674,7 @@ paths:
                   type: string
                 mode:
                   type: string
-                  description: notify or execute
+                  description: notify, execute, or script
                 routingIntent:
                   type: string
                   description: single_channel, multi_channel, or all_channels

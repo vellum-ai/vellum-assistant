@@ -93,7 +93,6 @@ extension MainWindowView {
             listStore: listStore,
             appListManager: appListManager,
             windowState: windowState,
-            homeStore: homeStore,
             assistantFeatureFlagStore: assistantFeatureFlagStore,
             sidebar: sidebar,
             cachedAssistantName: cachedAssistantName,

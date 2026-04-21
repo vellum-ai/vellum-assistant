@@ -111,6 +111,8 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("homeImageCard", "HomeImageCard", keywords: ["image", "photo", "preview"], description: "Image preview card"),
                 GalleryComponent("homeFileCard", "HomeFileCard", keywords: ["file", "document", "attachment"], description: "File reference card"),
                 GalleryComponent("homeUpdatesListCard", "HomeUpdatesListCard", keywords: ["updates", "list", "grouped"], description: "Grouped update notifications card"),
+                GalleryComponent("homeFeedGroupHeader", "HomeFeedGroupHeader", keywords: ["feed", "group", "header", "section", "today", "yesterday"], description: "Section header for time-bucketed feed groups (Today / Yesterday / Older)."),
+                GalleryComponent("homeRecapRow", "HomeRecapRow", keywords: ["recap", "row", "feed", "bucket"], description: "Compact row used in the time-bucketed Home feed with tinted icon and optional trailing action."),
                 GalleryComponent(
                     "homeDetailPanel",
                     "HomeDetailPanel",
@@ -124,16 +126,40 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                     description: "Pure body content for the email editor variant of the Home detail panel."
                 ),
                 GalleryComponent(
-                    "homeInvoicePreview",
-                    "HomeInvoicePreview",
-                    keywords: ["invoice", "document", "preview", "detail"],
-                    description: "Pure body content showing a document / invoice image in the Home detail panel."
+                    "homeDocumentPreview",
+                    "HomeDocumentPreview",
+                    keywords: ["document", "preview", "image", "attachment", "file", "invoice", "detail"],
+                    description: "Pure body content showing a document, image, or any file attachment preview in the Home detail panel. Optional right-aligned footer actions."
+                ),
+                GalleryComponent(
+                    "homePermissionChatPreview",
+                    "HomePermissionChatPreview",
+                    keywords: ["permission", "chat", "confirmation", "tool", "preview", "detail"],
+                    description: "Pure body content for the Home detail panel's permission-request variant — last user message, assistant preamble, and an inline tool confirmation bubble."
                 ),
                 GalleryComponent(
                     "homeSplitLayout",
                     "HomeSplitLayout",
                     keywords: ["home", "split", "side by side", "layout"],
                     description: "Composite demo: home + right-side HomeDetailPanel showing the side-by-side layout."
+                ),
+                GalleryComponent(
+                    "homeSuggestionPillBar",
+                    "HomeSuggestionPillBar",
+                    keywords: ["suggestion", "pill", "bar", "have you tried", "home"],
+                    description: "Dismissible \"by the way, have you tried…\" container with a headline and horizontal row of icon+label suggestion pills."
+                ),
+                GalleryComponent(
+                    "homeGreetingHeader",
+                    "HomeGreetingHeader",
+                    keywords: ["greeting", "header", "home", "avatar", "new chat"],
+                    description: "Home feed header with a leading avatar, a greeting title, and a trailing New Chat pill CTA."
+                ),
+                GalleryComponent(
+                    "homeFeedFilterBar",
+                    "HomeFeedFilterBar",
+                    keywords: ["filter", "chip", "home", "feed", "type", "toggle"],
+                    description: "Row of 4 toggleable 26pt icon chips (Heartbeat / Input / Notification / Schedule) used to filter the Home feed by type."
                 ),
             ]
         case .icons:

@@ -82,6 +82,19 @@ public enum VSemanticColorToken: String, CaseIterable {
     case systemNegativeWeak
     case systemMidStrong
     case systemMidWeak
+    case systemInfoStrong
+    case systemInfoWeak
+
+    // Home-feed type-identifier colors. Separate from `system*` on purpose —
+    // the feed uses these to label item kinds (Heartbeat / Notification /
+    // Schedule) and the hues must stay decoupled from the alert / success
+    // semantics used elsewhere in the app.
+    case feedNudgeStrong
+    case feedNudgeWeak
+    case feedDigestStrong
+    case feedDigestWeak
+    case feedThreadStrong
+    case feedThreadWeak
 
     case auxWhite
 }
@@ -169,6 +182,24 @@ private enum FigmaRawColor {
     static let systemDarkMidStrong = Color(hex: 0xF1B21E)
     static let systemLightMidWeak = Color(hex: 0xFCF3DD)
     static let systemDarkMidWeak = Color(hex: 0x4B3D1E)
+    static let systemLightInfoStrong = Color(hex: 0x467CC8)
+    static let systemDarkInfoStrong = Color(hex: 0x467CC8)
+    static let systemLightInfoWeak = Color(hex: 0xCEDAEC)
+    static let systemDarkInfoWeak = Color(hex: 0x2A3A50)
+
+    // Feed type-identifier pairs — strong = glyph, weak = tinted circle.
+    static let feedLightNudgeStrong = Color(hex: 0xDB4B77)
+    static let feedDarkNudgeStrong = Color(hex: 0xDB4B77)
+    static let feedLightNudgeWeak = Color(hex: 0xF0D9E0)
+    static let feedDarkNudgeWeak = Color(hex: 0x432B33)
+    static let feedLightDigestStrong = Color(hex: 0x0E9B8B)
+    static let feedDarkDigestStrong = Color(hex: 0x0E9B8B)
+    static let feedLightDigestWeak = Color(hex: 0xC8E5E2)
+    static let feedDarkDigestWeak = Color(hex: 0x293D3B)
+    static let feedLightThreadStrong = Color(hex: 0xE9C91A)
+    static let feedDarkThreadStrong = Color(hex: 0xE9C91A)
+    static let feedLightThreadWeak = Color(hex: 0xEFE8C4)
+    static let feedDarkThreadWeak = Color(hex: 0x464125)
 }
 
 public enum VColor {
@@ -207,6 +238,15 @@ public enum VColor {
         .systemNegativeWeak: .init(lightHex: "#F7DAC9", darkHex: "#4E281D"),
         .systemMidStrong: .init(lightHex: "#F1B21E", darkHex: "#F1B21E"),
         .systemMidWeak: .init(lightHex: "#FCF3DD", darkHex: "#4B3D1E"),
+        .systemInfoStrong: .init(lightHex: "#467CC8", darkHex: "#467CC8"),
+        .systemInfoWeak: .init(lightHex: "#CEDAEC", darkHex: "#2A3A50"),
+
+        .feedNudgeStrong: .init(lightHex: "#DB4B77", darkHex: "#DB4B77"),
+        .feedNudgeWeak: .init(lightHex: "#F0D9E0", darkHex: "#432B33"),
+        .feedDigestStrong: .init(lightHex: "#0E9B8B", darkHex: "#0E9B8B"),
+        .feedDigestWeak: .init(lightHex: "#C8E5E2", darkHex: "#293D3B"),
+        .feedThreadStrong: .init(lightHex: "#E9C91A", darkHex: "#E9C91A"),
+        .feedThreadWeak: .init(lightHex: "#EFE8C4", darkHex: "#464125"),
 
         .auxWhite: .init(lightHex: "#FFFFFF", darkHex: "#FFFFFF"),
     ]
@@ -250,6 +290,16 @@ public enum VColor {
     public static let systemNegativeWeak = adaptiveColor(light: FigmaRawColor.systemLightNegativeWeak, dark: FigmaRawColor.systemDarkNegativeWeak)
     public static let systemMidStrong = adaptiveColor(light: FigmaRawColor.systemLightMidStrong, dark: FigmaRawColor.systemDarkMidStrong)
     public static let systemMidWeak = adaptiveColor(light: FigmaRawColor.systemLightMidWeak, dark: FigmaRawColor.systemDarkMidWeak)
+    public static let systemInfoStrong = adaptiveColor(light: FigmaRawColor.systemLightInfoStrong, dark: FigmaRawColor.systemDarkInfoStrong)
+    public static let systemInfoWeak = adaptiveColor(light: FigmaRawColor.systemLightInfoWeak, dark: FigmaRawColor.systemDarkInfoWeak)
+
+    // Home-feed type identifiers — glyph (strong) + tinted circle (weak) pairs for Nudge/Digest/Thread.
+    public static let feedNudgeStrong = adaptiveColor(light: FigmaRawColor.feedLightNudgeStrong, dark: FigmaRawColor.feedDarkNudgeStrong)
+    public static let feedNudgeWeak = adaptiveColor(light: FigmaRawColor.feedLightNudgeWeak, dark: FigmaRawColor.feedDarkNudgeWeak)
+    public static let feedDigestStrong = adaptiveColor(light: FigmaRawColor.feedLightDigestStrong, dark: FigmaRawColor.feedDarkDigestStrong)
+    public static let feedDigestWeak = adaptiveColor(light: FigmaRawColor.feedLightDigestWeak, dark: FigmaRawColor.feedDarkDigestWeak)
+    public static let feedThreadStrong = adaptiveColor(light: FigmaRawColor.feedLightThreadStrong, dark: FigmaRawColor.feedDarkThreadStrong)
+    public static let feedThreadWeak = adaptiveColor(light: FigmaRawColor.feedLightThreadWeak, dark: FigmaRawColor.feedDarkThreadWeak)
 
     // Pending / queued — warm amber for "held, waiting" affordances (queue drawer accent bar,
     // pending badge backgrounds). Opacity is baked in so the token sits softly over surface

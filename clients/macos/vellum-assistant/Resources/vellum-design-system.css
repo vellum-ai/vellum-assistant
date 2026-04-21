@@ -187,7 +187,6 @@ body {
 }
 body > *:not(#vellum-bottom-fade):not(#v-toast-container) {
   width: 100%;
-  max-width: 900px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -1539,7 +1538,6 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 
 /* Page — centered content container for landing pages */
 .v-page {
-  max-width: 900px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;

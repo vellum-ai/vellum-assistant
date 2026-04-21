@@ -38,6 +38,11 @@ extension AppDelegate {
                     case .showHostingPicker:
                         log.info("[authFlow] router → showHostingPicker")
                         showAuthWindow()
+                    case .showAssistantPicker:
+                        // decideFast() never returns this (no flag/platform
+                        // check), but handle it for exhaustiveness.
+                        log.info("[authFlow] router → showAssistantPicker")
+                        showAuthWindow()
                     }
                 } else {
                     log.info("[authFlow] router → nil (no current-env entry) — showing auth window")
@@ -89,6 +94,9 @@ extension AppDelegate {
                 },
                 onNeedsHostingPicker: { [weak self] in
                     self?.showAuthWindow(forceOnboarding: true)
+                },
+                onNeedsAssistantPicker: { [weak self] landscape in
+                    self?.showAssistantPicker(landscape: landscape)
                 }
             ))
         } else {
@@ -168,6 +176,64 @@ extension AppDelegate {
         NSApp.activate(ignoringOtherApps: true)
 
         authWindow = window
+    }
+
+    /// Show the assistant picker in the auth window. Builds picker items
+    /// from both the lockfile and the platform list (via the landscape) so
+    /// platform-only assistants (hatched on another device) are included.
+    private func showAssistantPicker(landscape: ReturningUserRouter.AssistantLandscape) {
+        // Index platform names by ID so lockfile items can show real names
+        let platformById = Dictionary(
+            landscape.platformAssistants.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        // Lockfile entries (current-env, both local and managed)
+        let localItems = landscape.currentEnvironmentLockfileAssistants
+            .map { entry in
+                AssistantPickerItem.from(
+                    lockfile: entry,
+                    platformName: platformById[entry.assistantId]?.name
+                )
+            }
+
+        // Platform entries — exclude any already represented in the lockfile
+        let lockfileIds = Set(landscape.currentEnvironmentLockfileAssistants.map(\.assistantId))
+        let platformItems = landscape.platformAssistants
+            .filter { !lockfileIds.contains($0.id) }
+            .map(AssistantPickerItem.from(platform:))
+
+        let items = localItems + platformItems
+
+        let pickerView = AssistantPickerView(
+            assistants: items,
+            onConnect: { [weak self] assistantId in
+                LockfileAssistant.setActiveAssistantId(assistantId)
+                self?.proceedToApp()
+            },
+            onSignOut: { [weak self] in
+                Task {
+                    await self?.authManager.logout()
+                    self?.showAuthWindow()
+                }
+            }
+        )
+
+        if let window = authWindow {
+            window.contentViewController = NSHostingController(rootView: pickerView)
+            // Ensure the window matches the standard auth size — it may
+            // have been resized or the content swap can leave it undersized.
+            window.contentMinSize = NSSize(width: 420, height: 580)
+            if let visibleFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame {
+                let targetWidth: CGFloat = 460
+                let targetHeight: CGFloat = 620
+                let x = visibleFrame.midX - targetWidth / 2
+                let y = visibleFrame.midY - targetHeight / 2
+                window.setFrame(NSRect(x: x, y: y, width: targetWidth, height: targetHeight), display: true, animate: true)
+            }
+        } else {
+            showAuthWindow()
+        }
     }
 
     @objc func performRestart() {

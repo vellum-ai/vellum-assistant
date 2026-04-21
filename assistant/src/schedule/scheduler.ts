@@ -11,6 +11,7 @@ import {
   type WatcherNotifier,
 } from "../watcher/engine.js";
 import { hasSetConstructs } from "./recurrence-engine.js";
+import { runScript, type ScriptResult } from "./run-script.js";
 import {
   claimDueSchedules,
   completeOneShot,
@@ -174,6 +175,45 @@ async function runScheduleOnce(
           const runId = createScheduleRun(job.id, `notify-error:${job.id}`);
           completeScheduleRun(runId, { status: "error", error: errorMsg });
         }
+      }
+      processed += 1;
+      continue;
+    }
+
+    // ── Script mode (shell command, no LLM) ────────────────────────
+    if (job.mode === "script") {
+      const runId = createScheduleRun(job.id, `script:${job.id}`);
+      try {
+        log.info(
+          { jobId: job.id, name: job.name, isOneShot },
+          "Executing script schedule",
+        );
+        const result: ScriptResult = await runScript(job.message);
+        completeScheduleRun(runId, {
+          status: result.exitCode === 0 ? "ok" : "error",
+          output: result.stdout || undefined,
+          error: result.stderr || undefined,
+        });
+        if (result.exitCode === 0) {
+          if (!job.quiet) {
+            emitScheduleFeedEvent({
+              title: job.name,
+              summary: "Script ran.",
+              dedupKey: `schedule-run:${runId}`,
+            });
+          }
+          if (isOneShot) completeOneShot(job.id);
+        } else {
+          if (isOneShot) failOneShot(job.id);
+        }
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        log.warn(
+          { err, jobId: job.id, name: job.name, isOneShot },
+          "Script schedule execution failed",
+        );
+        completeScheduleRun(runId, { status: "error", error: errorMsg });
+        if (isOneShot) failOneShot(job.id);
       }
       processed += 1;
       continue;

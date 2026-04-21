@@ -13,7 +13,7 @@ import {
 } from "../../schedule/schedule-store.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
-const VALID_MODES: ScheduleMode[] = ["notify", "execute"];
+const VALID_MODES: ScheduleMode[] = ["notify", "execute", "script"];
 const VALID_ROUTING_INTENTS: RoutingIntent[] = [
   "single_channel",
   "multi_channel",

@@ -73,6 +73,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var zoomLocalMonitor: Any?
     var sidebarToggleLocalMonitor: Any?
     var popOutLocalMonitor: Any?
+    var homeShortcutLocalMonitor: Any?
     var conversationNavLocalMonitor: Any?
     public let services = AppServices()
     let vellumCli = VellumCli()
@@ -650,6 +651,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         registerNavigationMonitor()
         registerZoomMonitor()
         registerSidebarToggleMonitor()
+        registerHomeShortcutMonitor()
         setupHotKey()
         setupEscapeMonitor()
         setupVoiceInput()
@@ -871,6 +873,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             conversationLocalId: id,
             conversationManager: mainWindow.conversationManager
         )
+    }
+
+    /// Routes the configurable Home shortcut into the main-window panel
+    /// selection state. Called from the local NSEvent monitor registered
+    /// in ``registerHomeShortcutMonitor()``.
+    ///
+    /// Guarded by the `home-tab` feature flag for parity with the top-bar
+    /// Home button (see `MainWindowView.topBarView`). The monitor itself
+    /// is always installed, but the handler no-ops when the flag is off
+    /// so a keyboard shortcut never fires navigation to a hidden panel.
+    public func openHomePanel() {
+        guard MacOSClientFeatureFlagManager.shared.isEnabled("home-tab") else { return }
+        mainWindow?.windowState.showPanel(.home)
     }
 
     public func createNewConversation() {

@@ -84,6 +84,12 @@ extension UserDefaults {
         }
         return string(forKey: "popOutShortcut") ?? ""
     }
+    @objc dynamic var homeShortcut: String {
+        if UserDefaults.standard.object(forKey: "homeShortcut") == nil {
+            return "cmd+shift+h"
+        }
+        return string(forKey: "homeShortcut") ?? ""
+    }
     @objc dynamic var previousConversationShortcut: String {
         if UserDefaults.standard.object(forKey: "previousConversationShortcut") == nil {
             return "cmd+up"
@@ -117,34 +123,43 @@ extension AppDelegate {
         registerCurrentConversationMonitor()
         registerMarkConversationUnreadMonitor()
         registerPopOutMonitor()
+        // `registerHomeShortcutMonitor()` is NOT called here — it's
+        // registered in `proceedToApp()` alongside the other
+        // post-bootstrap monitors (sidebar / nav / zoom) and
+        // re-registered by the debounced sink below when the shortcut
+        // changes. This matches the sidebar pattern.
         registerConversationNavMonitor()
 
-        globalHotkeyObserver = Publishers.Merge4(
-            UserDefaults.standard.publisher(for: \.globalHotkeyShortcut).map { _ in () },
-            UserDefaults.standard.publisher(for: \.quickInputHotkeyShortcut).map { _ in () },
-            UserDefaults.standard.publisher(for: \.quickInputHotkeyKeyCode).map { _ in () },
-            UserDefaults.standard.publisher(for: \.sidebarToggleShortcut).map { _ in () }
-        )
-        .merge(with: UserDefaults.standard.publisher(for: \.newChatShortcut).map { _ in () })
-        .merge(with: UserDefaults.standard.publisher(for: \.currentConversationShortcut).map { _ in () })
-        .merge(with: UserDefaults.standard.publisher(for: \.markConversationUnreadShortcut).map { _ in () })
-        .merge(with: UserDefaults.standard.publisher(for: \.popOutShortcut).map { _ in () })
-        .merge(with: UserDefaults.standard.publisher(for: \.previousConversationShortcut).map { _ in () })
-        .merge(with: UserDefaults.standard.publisher(for: \.nextConversationShortcut).map { _ in () })
-        .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
-        .sink { [weak self] _ in
-            self?.registerGlobalHotkeyMonitor()
-            self?.registerQuickInputMonitor()
-            self?.registerSidebarToggleMonitor()
-            self?.registerNewChatMonitor()
-            self?.registerCurrentConversationMonitor()
-            self?.registerMarkConversationUnreadMonitor()
-            self?.registerPopOutMonitor()
-            self?.registerConversationNavMonitor()
-            self?.updateNewChatMenuItemShortcut()
-            self?.updateCurrentConversationMenuItemShortcut()
-            self?.updateMarkConversationUnreadMenuItemShortcut()
-        }
+        let shortcutPublishers: [AnyPublisher<Void, Never>] = [
+            UserDefaults.standard.publisher(for: \.globalHotkeyShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.quickInputHotkeyShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.quickInputHotkeyKeyCode).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.sidebarToggleShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.newChatShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.currentConversationShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.markConversationUnreadShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.popOutShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.homeShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.previousConversationShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.nextConversationShortcut).map { _ in () }.eraseToAnyPublisher(),
+        ]
+
+        globalHotkeyObserver = Publishers.MergeMany(shortcutPublishers)
+            .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.registerGlobalHotkeyMonitor()
+                self?.registerQuickInputMonitor()
+                self?.registerSidebarToggleMonitor()
+                self?.registerNewChatMonitor()
+                self?.registerCurrentConversationMonitor()
+                self?.registerMarkConversationUnreadMonitor()
+                self?.registerPopOutMonitor()
+                self?.registerHomeShortcutMonitor()
+                self?.registerConversationNavMonitor()
+                self?.updateNewChatMenuItemShortcut()
+                self?.updateCurrentConversationMenuItemShortcut()
+                self?.updateMarkConversationUnreadMenuItemShortcut()
+            }
     }
 
     /// Registers a Carbon hotkey for Quick Input that intercepts system-wide,
@@ -252,6 +267,10 @@ extension AppDelegate {
         if let monitor = popOutLocalMonitor {
             NSEvent.removeMonitor(monitor)
             popOutLocalMonitor = nil
+        }
+        if let monitor = homeShortcutLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            homeShortcutLocalMonitor = nil
         }
         if let monitor = conversationNavLocalMonitor {
             NSEvent.removeMonitor(monitor)
@@ -488,6 +507,42 @@ extension AppDelegate {
             return nil
         }
         popOutLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+    }
+
+    /// Registers a local event monitor to jump to the Home panel when the
+    /// configured shortcut (default: Cmd+Shift+H) is pressed. The shortcut
+    /// is read dynamically from UserDefaults so it can be reconfigured
+    /// from Settings without restarting.
+    func registerHomeShortcutMonitor() {
+        if let existing = homeShortcutLocalMonitor {
+            NSEvent.removeMonitor(existing)
+            homeShortcutLocalMonitor = nil
+        }
+
+        let shortcut = UserDefaults.standard.string(forKey: "homeShortcut") ?? "cmd+shift+h"
+        guard !shortcut.isEmpty else { return }
+
+        let (targetModifiers, targetKey) = ShortcutHelper.parseShortcut(shortcut)
+
+        let handler: (NSEvent) -> NSEvent? = { [weak self] event in
+            guard self?.isBootstrapping != true,
+                  self?.mainWindow?.isVisible == true,
+                  // Feature-flag check lives in the monitor (not just in
+                  // `openHomePanel()`) so the key chord falls through to
+                  // the responder chain / menu items when Home is disabled
+                  // — otherwise we'd silently swallow ⌘⇧H for no effect.
+                  MacOSClientFeatureFlagManager.shared.isEnabled("home-tab") else { return event }
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.numericPad)
+            guard mods == targetModifiers,
+                  event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else {
+                return event
+            }
+            Task { @MainActor in
+                self?.openHomePanel()
+            }
+            return nil
+        }
+        homeShortcutLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
     }
 
     /// Registers configurable shortcuts for navigating between conversations

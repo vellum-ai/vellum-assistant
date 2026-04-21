@@ -40,8 +40,8 @@
           },
           "mode": {
             "type": "string",
-            "enum": ["notify", "execute"],
-            "description": "Whether to notify the user or execute autonomously when triggered. Defaults to \"execute\"."
+            "enum": ["notify", "execute", "script"],
+            "description": "Whether to notify the user, execute autonomously via LLM, or run a shell command directly. Defaults to \"execute\"."
           },
           "routing_intent": {
             "type": "string",
@@ -135,8 +135,8 @@
           },
           "mode": {
             "type": "string",
-            "enum": ["notify", "execute"],
-            "description": "Whether to notify the user or execute autonomously when triggered"
+            "enum": ["notify", "execute", "script"],
+            "description": "Whether to notify the user, execute autonomously via LLM, or run a shell command directly"
           },
           "routing_intent": {
             "type": "string",

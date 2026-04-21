@@ -54,7 +54,10 @@ import {
   type SignalType,
 } from "../memory/conversation-attention-store.js";
 import {
+  addMessage,
   type ConversationRow,
+  createConversation,
+  deleteConversation,
   forkConversation as forkConversationInStore,
   getConversation,
   getDisplayMetaForConversations,
@@ -63,6 +66,7 @@ import { resolveConversationId } from "../memory/conversation-key-store.js";
 import {
   countConversations,
   listConversations,
+  listConversationsByTitlePrefix,
   listPinnedConversations,
 } from "../memory/conversation-queries.js";
 import type { ExternalConversationBinding } from "../memory/external-conversation-store.js";
@@ -2005,6 +2009,24 @@ export class RuntimeHttpServer {
         },
         isPlaygroundEnabled: () =>
           isAssistantFeatureFlagEnabled("compaction-playground", getConfig()),
+        listConversationsByTitlePrefix: (prefix) =>
+          listConversationsByTitlePrefix(prefix),
+        deleteConversationById: (id) => {
+          // Existence check first so we can report `false` for missing rows
+          // — `deleteConversation` always returns a result object even when
+          // no row matched.
+          if (!getConversation(id)) return false;
+          deleteConversation(id);
+          return true;
+        },
+        createConversation: async (title) => {
+          const row = createConversation({ title });
+          return { id: row.id };
+        },
+        addMessage: async (conversationId, role, contentJson) => {
+          const persisted = await addMessage(conversationId, role, contentJson);
+          return { id: persisted.id };
+        },
       }),
       ...globalSearchRouteDefinitions(),
       ...approvalRouteDefinitions(),

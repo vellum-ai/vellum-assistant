@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
 import { getConversation } from "../../memory/conversation-crud.js";
+import { runScript } from "../../schedule/run-script.js";
 import {
   cancelSchedule,
   completeScheduleRun,
@@ -108,7 +109,7 @@ function handleCancelSchedule(id: string): Response {
   return handleListSchedules();
 }
 
-const VALID_MODES = ["notify", "execute"] as const;
+const VALID_MODES = ["notify", "execute", "script"] as const;
 const VALID_ROUTING_INTENTS = [
   "single_channel",
   "multi_channel",
@@ -187,6 +188,31 @@ async function handleRunScheduleNow(
     return httpError("NOT_FOUND", "Schedule not found", 404);
   }
 
+  // ── Script mode (shell command, no LLM) ──────────────────────────
+  if (schedule.mode === "script") {
+    const runId = createScheduleRun(schedule.id, `script:${schedule.id}`);
+    try {
+      log.info(
+        { jobId: schedule.id, name: schedule.name },
+        "Executing script schedule manually via HTTP (run now)",
+      );
+      const result = await runScript(schedule.message);
+      completeScheduleRun(runId, {
+        status: result.exitCode === 0 ? "ok" : "error",
+        output: result.stdout || undefined,
+        error: result.stderr || undefined,
+      });
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      log.warn(
+        { err, jobId: schedule.id, name: schedule.name },
+        "Manual script schedule execution failed",
+      );
+      completeScheduleRun(runId, { status: "error", error: errorMsg });
+    }
+    return handleListSchedules();
+  }
+
   // Check if message is a task invocation (run_task:<task_id>)
   const taskMatch = schedule.message.match(/^run_task:(\S+)$/);
   if (taskMatch) {
@@ -205,10 +231,12 @@ async function handleRunScheduleNow(
               "sendMessageDeps not available for schedule execution",
             );
           }
-          const conversation =
-            await sendMessageDeps.getOrCreateConversation(conversationId, {
+          const conversation = await sendMessageDeps.getOrCreateConversation(
+            conversationId,
+            {
               trustContext: SCHEDULE_GUARDIAN_TRUST_CONTEXT,
-            });
+            },
+          );
           conversation.taskRunId = taskRunId;
           try {
             await conversation.processMessage(
@@ -285,10 +313,12 @@ async function handleRunScheduleNow(
     if (!sendMessageDeps) {
       throw new Error("sendMessageDeps not available for schedule execution");
     }
-    const activeConversation =
-      await sendMessageDeps.getOrCreateConversation(conversationId, {
+    const activeConversation = await sendMessageDeps.getOrCreateConversation(
+      conversationId,
+      {
         trustContext: SCHEDULE_GUARDIAN_TRUST_CONTEXT,
-      });
+      },
+    );
     activeConversation.taskRunId = undefined;
     await activeConversation.processMessage(
       schedule.message,
@@ -376,7 +406,7 @@ export function scheduleRouteDefinitions(deps: {
         expression: z.string(),
         timezone: z.string(),
         message: z.string(),
-        mode: z.string().describe("notify or execute"),
+        mode: z.string().describe("notify, execute, or script"),
         routingIntent: z
           .string()
           .describe("single_channel, multi_channel, or all_channels"),

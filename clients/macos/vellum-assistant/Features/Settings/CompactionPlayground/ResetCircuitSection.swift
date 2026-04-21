@@ -1,25 +1,48 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Stub for the Reset Circuit subsection of the Compaction Playground tab.
+/// Reset Circuit subsection of the Compaction Playground tab.
 ///
-/// A Wave-3 follow-up PR replaces this file wholesale with UI that drives
-/// `CompactionPlaygroundClient.resetCircuit(conversationId:)`. The parameter
-/// list is fixed so the replacement PR does not need to touch the tab
-/// composition file.
+/// Drives `CompactionPlaygroundClient.resetCircuit(conversationId:)` to clear
+/// the consecutive-failure count and any open circuit on the active
+/// conversation. The daemon emits a `compaction_circuit_closed` event on
+/// success, which dismisses any active circuit-breaker toast in the UI.
+/// No local state display — the StateDisplaySection polls separately; this
+/// section only triggers the action.
 struct ResetCircuitSection: View {
     let conversationId: String?
     let client: CompactionPlaygroundClient
     let showToast: (String, ToastInfo.Style) -> Void
 
+    @State private var isRunning = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Reset Circuit")
+            Text("Reset Circuit Breaker")
                 .font(VFont.titleSmall)
                 .foregroundStyle(VColor.contentDefault)
-            Text("Coming soon in a follow-up PR.")
+            Text("Clear consecutive-failure count and any open circuit on the active conversation.")
                 .font(VFont.bodySmallDefault)
                 .foregroundStyle(VColor.contentSecondary)
+            VButton(
+                label: "Reset Circuit Breaker",
+                style: .outlined,
+                isDisabled: conversationId == nil || isRunning
+            ) {
+                Task {
+                    guard let id = conversationId else { return }
+                    isRunning = true
+                    defer { isRunning = false }
+                    do {
+                        try await client.resetCircuit(conversationId: id)
+                        showToast("Circuit breaker cleared.", .success)
+                    } catch CompactionPlaygroundError.notAvailable {
+                        showToast("Playground endpoints disabled — enable the compaction-playground flag.", .error)
+                    } catch {
+                        showToast("Reset failed: \(error.localizedDescription)", .error)
+                    }
+                }
+            }
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)

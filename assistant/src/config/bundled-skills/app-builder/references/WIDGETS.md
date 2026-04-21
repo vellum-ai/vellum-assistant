@@ -37,16 +37,16 @@ A CSS/JS widget library is auto-injected alongside the design system. Use these 
 
 ## Content & landing page components
 
-| Widget                                           | Purpose                                             |
-| ------------------------------------------------ | --------------------------------------------------- |
-| `.v-hero` / `.v-hero-badge` / `.v-hero-subtitle` | Hero banner with gradient, trust badge, accent word |
-| `.v-section-header` / `.v-section-label`         | Section intro with label                            |
-| `.v-feature-grid` / `.v-feature-card`            | Feature showcase with hover lift                    |
-| `.v-pullquote`                                   | Blockquote with gradient accent border              |
-| `.v-comparison`                                  | Before/after cards (`.before`/`.after`)             |
-| `.v-page`                                        | Centered container (max-width 600px)                |
-| `.v-gradient-text`                               | Accent-colored gradient text                        |
-| `.v-animate-in`                                  | Staggered fade-in for children                      |
+| Widget                                           | Purpose                                                |
+| ------------------------------------------------ | ------------------------------------------------------ |
+| `.v-hero` / `.v-hero-badge` / `.v-hero-subtitle` | Hero banner with gradient, trust badge, accent word    |
+| `.v-section-header` / `.v-section-label`         | Section intro with label                               |
+| `.v-feature-grid` / `.v-feature-card`            | Feature showcase with hover lift                       |
+| `.v-pullquote`                                   | Blockquote with gradient accent border                 |
+| `.v-comparison`                                  | Before/after cards (`.before`/`.after`)                |
+| `.v-page`                                        | Centered flex-column container (fills available width) |
+| `.v-gradient-text`                               | Accent-colored gradient text                           |
+| `.v-animate-in`                                  | Staggered fade-in for children                         |
 
 ## Widget JavaScript utilities
 
