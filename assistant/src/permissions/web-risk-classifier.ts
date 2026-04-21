@@ -3,7 +3,7 @@
  *
  * Implements RiskClassifier<WebClassifierInput> for web-related tools:
  * web_search, web_fetch, and network_request. Replicates the exact logic
- * from checker.ts classifyRiskUncached() lines 472-482.
+ * from checker.ts classifyRiskFromRegistry().
  *
  * - web_search: always Low (read-only)
  * - web_fetch: High if allowPrivateNetwork, Low otherwise

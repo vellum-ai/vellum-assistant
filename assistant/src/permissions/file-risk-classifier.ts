@@ -85,7 +85,7 @@ function isHooksPath(resolvedPath: string): boolean {
 /**
  * File risk classifier implementation.
  *
- * Replicates the exact risk classification logic from classifyRiskUncached()
+ * Replicates the exact risk classification logic from classifyRiskFromRegistry()
  * in checker.ts for all six file tool types.
  */
 export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
@@ -146,7 +146,7 @@ export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
 
       case "host_file_read": {
         // host_file_read has no special escalation paths — the tool registry
-        // declares it as Medium risk, and classifyRiskUncached falls through
+        // declares it as Medium risk, and classifyRiskFromRegistry falls through
         // to getTool() which returns that default.
         return {
           riskLevel: "medium",
