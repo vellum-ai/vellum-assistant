@@ -33,7 +33,10 @@ const addedMessages: Array<{
 }> = [];
 let createConversationShouldThrow = false;
 
+const realConversationCrud =
+  await import("../../../memory/conversation-crud.js");
 mock.module("../../../memory/conversation-crud.js", () => ({
+  ...realConversationCrud,
   createConversation: (opts: unknown) => {
     if (createConversationShouldThrow) {
       throw new Error("synthetic createConversation failure");
