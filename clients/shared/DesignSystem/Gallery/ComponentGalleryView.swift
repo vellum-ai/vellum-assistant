@@ -149,6 +149,12 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                     keywords: ["greeting", "header", "home", "avatar", "new chat"],
                     description: "Home feed header with a leading avatar, a greeting title, and a trailing New Chat pill CTA."
                 ),
+                GalleryComponent(
+                    "homeFeedFilterBar",
+                    "HomeFeedFilterBar",
+                    keywords: ["filter", "chip", "home", "feed", "type", "toggle"],
+                    description: "Row of 4 toggleable 26pt icon chips (Heartbeat / Input / Notification / Schedule) used to filter the Home feed by type."
+                ),
             ]
         case .icons:
             return [

@@ -534,6 +534,43 @@ struct HomeGallerySection: View {
                 }
             }
 
+            // MARK: - HomeFeedFilterBar
+
+            if filter == nil || filter == "homeFeedFilterBar" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "HomeFeedFilterBar",
+                    description: "Row of 4 toggleable 26pt icon chips (Heartbeat / Input / Notification / Schedule) used to filter the Home feed. Empty selection means show everything; non-empty is an inclusion filter."
+                )
+
+                VCard(background: VColor.surfaceBase) {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("No selection (all chips inactive)")
+                            .font(VFont.bodySmallEmphasised)
+                            .foregroundStyle(VColor.contentSecondary)
+
+                        HomeFeedFilterBar(
+                            selected: Set<FeedItemType>(),
+                            onToggle: { _ in }
+                        )
+
+                        Divider().background(VColor.borderBase)
+
+                        Text("Partial selection (Heartbeat + Notification active)")
+                            .font(VFont.bodySmallEmphasised)
+                            .foregroundStyle(VColor.contentSecondary)
+
+                        HomeFeedFilterBar(
+                            selected: [.nudge, .digest],
+                            onToggle: { _ in }
+                        )
+                    }
+                }
+            }
+
             // MARK: - HomeGreetingHeader
 
             if filter == nil || filter == "homeGreetingHeader" {
@@ -728,6 +765,7 @@ extension HomeGallerySection {
         case "homeInvoicePreview": HomeGallerySection(filter: "homeInvoicePreview")
         case "homeSplitLayout": HomeGallerySection(filter: "homeSplitLayout")
         case "homeSuggestionPillBar": HomeGallerySection(filter: "homeSuggestionPillBar")
+        case "homeFeedFilterBar": HomeGallerySection(filter: "homeFeedFilterBar")
         case "homeGreetingHeader": HomeGallerySection(filter: "homeGreetingHeader")
         default: EmptyView()
         }
