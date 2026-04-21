@@ -137,7 +137,11 @@ describe("AssistantConfigSchema", () => {
   test("accepts valid complete config", () => {
     const input = {
       llm: {
-        default: { provider: "openai" as const, model: "gpt-4", maxTokens: 4096 },
+        default: {
+          provider: "openai" as const,
+          model: "gpt-4",
+          maxTokens: 4096,
+        },
       },
       timeouts: {
         shellDefaultTimeoutSec: 30,
@@ -671,6 +675,11 @@ describe("AssistantConfigSchema", () => {
     expect(result.permissions).toEqual({
       mode: "workspace",
       hostAccess: false,
+      autoApproveUpTo: {
+        conversation: "low",
+        background: "medium",
+        headless: "none",
+      },
     });
   });
 
@@ -705,6 +714,119 @@ describe("AssistantConfigSchema", () => {
       const msgs = result.error.issues.map((i) => i.message);
       expect(msgs.some((m) => m.includes("permissions.mode"))).toBe(true);
     }
+  });
+
+  test("defaults autoApproveUpTo to per-context object when not specified", () => {
+    const result = AssistantConfigSchema.parse({
+      permissions: { mode: "workspace" },
+    });
+    expect(result.permissions.autoApproveUpTo).toEqual({
+      conversation: "low",
+      background: "medium",
+      headless: "none",
+    });
+  });
+
+  test("accepts autoApproveUpTo none", () => {
+    const result = AssistantConfigSchema.parse({
+      permissions: { autoApproveUpTo: "none" },
+    });
+    expect(result.permissions.autoApproveUpTo).toBe("none");
+  });
+
+  test("accepts autoApproveUpTo low", () => {
+    const result = AssistantConfigSchema.parse({
+      permissions: { autoApproveUpTo: "low" },
+    });
+    expect(result.permissions.autoApproveUpTo).toBe("low");
+  });
+
+  test("accepts autoApproveUpTo medium", () => {
+    const result = AssistantConfigSchema.parse({
+      permissions: { autoApproveUpTo: "medium" },
+    });
+    expect(result.permissions.autoApproveUpTo).toBe("medium");
+  });
+
+  test("rejects autoApproveUpTo high", () => {
+    const result = AssistantConfigSchema.safeParse({
+      permissions: { autoApproveUpTo: "high" },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects invalid autoApproveUpTo string", () => {
+    const result = AssistantConfigSchema.safeParse({
+      permissions: { autoApproveUpTo: "everything" },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("autoApproveUpTo round-trips through JSON serialization", () => {
+    const original = AssistantConfigSchema.parse({
+      permissions: { autoApproveUpTo: "medium" },
+    });
+    const json = JSON.stringify(original);
+    const parsed = AssistantConfigSchema.parse(JSON.parse(json));
+    expect(parsed.permissions.autoApproveUpTo).toBe("medium");
+  });
+
+  test("accepts autoApproveUpTo as per-context object", () => {
+    const result = AssistantConfigSchema.parse({
+      permissions: {
+        autoApproveUpTo: {
+          conversation: "low",
+          background: "medium",
+          headless: "none",
+        },
+      },
+    });
+    expect(result.permissions.autoApproveUpTo).toEqual({
+      conversation: "low",
+      background: "medium",
+      headless: "none",
+    });
+  });
+
+  test("per-context object applies defaults for omitted keys", () => {
+    const result = AssistantConfigSchema.parse({
+      permissions: {
+        autoApproveUpTo: {},
+      },
+    });
+    expect(result.permissions.autoApproveUpTo).toEqual({
+      conversation: "low",
+      background: "medium",
+      headless: "none",
+    });
+  });
+
+  test("per-context object rejects invalid enum values", () => {
+    const result = AssistantConfigSchema.safeParse({
+      permissions: {
+        autoApproveUpTo: { conversation: "high" },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("per-context object round-trips through JSON serialization", () => {
+    const original = AssistantConfigSchema.parse({
+      permissions: {
+        autoApproveUpTo: {
+          conversation: "none",
+          background: "low",
+          headless: "medium",
+        },
+      },
+    });
+    const json = JSON.stringify(original);
+    const parsed = AssistantConfigSchema.parse(JSON.parse(json));
+    expect(parsed.permissions.autoApproveUpTo).toEqual({
+      conversation: "none",
+      background: "low",
+      headless: "medium",
+    });
   });
 
   test("applies workspaceGit defaults including interactiveGitTimeoutMs", () => {
@@ -2251,6 +2373,11 @@ describe("loadConfig with schema validation", () => {
     expect(config.permissions).toEqual({
       mode: "workspace",
       hostAccess: false,
+      autoApproveUpTo: {
+        conversation: "low",
+        background: "medium",
+        headless: "none",
+      },
     });
   });
 

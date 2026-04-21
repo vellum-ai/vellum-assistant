@@ -25,6 +25,11 @@ import {
   getProtectedDir,
   getWorkspaceHooksDir,
 } from "../util/platform.js";
+import {
+  type ApprovalContext,
+  DefaultApprovalPolicy,
+  resolveThreshold,
+} from "./approval-policy.js";
 import { bashRiskClassifier } from "./bash-risk-classifier.js";
 import { riskToRiskLevel } from "./risk-types.js";
 import {
@@ -50,8 +55,15 @@ import { isWorkspaceScopedInvocation } from "./workspace-policy.js";
 // Invalidated when trust rules change since risk classification for file tools
 // depends on skill source path checks which reference config, but the core
 // risk logic is input-deterministic.
+/** The result of classifyRisk(): a risk level with an optional human-readable reason. */
+export interface RiskClassification {
+  level: RiskLevel;
+  /** Human-readable explanation of why this risk level was assigned (bash/host_bash only). */
+  reason?: string;
+}
+
 const RISK_CACHE_MAX = 256;
-const riskCache = new Map<string, RiskLevel>();
+const riskCache = new Map<string, RiskClassification>();
 let riskCacheInvalidationHookRegistered = false;
 
 function riskCacheKey(
@@ -88,24 +100,8 @@ function ensureRiskCacheInvalidationHook(): void {
   onRulesChanged(clearRiskCache);
 }
 
-/**
- * Determines at runtime whether a high-risk operation should be auto-allowed
- * without requiring a persisted allowHighRisk flag. This replaces the
- * stateful allowHighRisk field on trust rules with a context-aware check.
- *
- * Auto-allow cases:
- * - Containerized bash: all commands are sandboxed, so high-risk is safe.
- *
- * Note: `rm BOOTSTRAP.md` and `rm UPDATES.md` are already classified as
- * Medium risk (not High) by the BashRiskClassifier's rm safe-file
- * downgrade, so they don't need special handling here.
- */
-function shouldAutoAllowHighRisk(toolName: string): boolean {
-  if (toolName === "bash" && getIsContainerized()) {
-    return true;
-  }
-  return false;
-}
+// ── Approval policy singleton ────────────────────────────────────────────────
+const defaultApprovalPolicy = new DefaultApprovalPolicy();
 
 function getStringField(
   input: Record<string, unknown>,
@@ -366,7 +362,7 @@ export async function classifyRisk(
   preParsed?: ParsedCommand,
   manifestOverride?: ManifestOverride,
   signal?: AbortSignal,
-): Promise<RiskLevel> {
+): Promise<RiskClassification> {
   signal?.throwIfAborted();
   ensureRiskCacheInvalidationHook();
 
@@ -386,25 +382,30 @@ export async function classifyRisk(
   }
 
   // ── Bash/host_bash: delegate to the registry-driven BashRiskClassifier ────
-  let result: RiskLevel;
+  let result: RiskClassification;
   if (toolName === "bash" || toolName === "host_bash") {
     const command = ((input.command as string) ?? "").trim();
     if (!command) {
-      result = RiskLevel.Low;
+      result = { level: RiskLevel.Low };
     } else {
       const assessment = await bashRiskClassifier.classify({
         command,
         toolName: toolName as "bash" | "host_bash",
       });
-      result = riskToRiskLevel(assessment.riskLevel);
+      result = {
+        level: riskToRiskLevel(assessment.riskLevel),
+        reason: assessment.reason,
+      };
     }
   } else {
-    result = await classifyRiskUncached(
-      toolName,
-      input,
-      workingDir,
-      manifestOverride,
-    );
+    result = {
+      level: await classifyRiskUncached(
+        toolName,
+        input,
+        workingDir,
+        manifestOverride,
+      ),
+    };
   }
 
   // Proxied bash commands route through the credential proxy which handles
@@ -413,9 +414,9 @@ export async function classifyRisk(
   if (
     toolName === "bash" &&
     input.network_mode === "proxied" &&
-    result === RiskLevel.High
+    result.level === RiskLevel.High
   ) {
-    result = RiskLevel.Medium;
+    result = { level: RiskLevel.Medium, reason: result.reason };
   }
 
   if (cacheKey) {
@@ -576,7 +577,7 @@ export async function check(
     }
   }
 
-  const risk = await classifyRisk(
+  const { level: risk, reason: riskReason } = await classifyRisk(
     toolName,
     input,
     workingDir,
@@ -601,127 +602,55 @@ export async function check(
     policyContext,
   );
 
-  // Deny rules apply at ALL risk levels — including proxied network mode.
-  // Evaluate them first so hard blocks are never downgraded to a prompt.
-  if (matchedRule && matchedRule.decision === "deny") {
-    return {
-      decision: "deny",
-      reason: `Blocked by deny rule: ${matchedRule.pattern}`,
-      matchedRule,
-    };
-  }
+  // Build approval context from local variables
+  const tool = getTool(toolName);
+  const config = getConfig();
+  const resolvedThreshold = resolveThreshold(
+    config.permissions.autoApproveUpTo,
+    policyContext?.executionContext,
+  );
+  const approvalContext: ApprovalContext = {
+    riskLevel: risk,
+    toolName,
+    matchedRule: matchedRule ?? undefined,
+    permissionsMode: config.permissions.mode,
+    isContainerized: getIsContainerized(),
+    isWorkspaceScoped:
+      risk === RiskLevel.Low
+        ? isWorkspaceScopedInvocation(toolName, input, workingDir)
+        : false,
+    toolOrigin:
+      tool?.origin === "skill" ? "skill" : tool ? "builtin" : undefined,
+    isSkillBundled: tool?.ownerSkillBundled ?? false,
+    hasManifestOverride: !!manifestOverride,
+    autoApproveUpTo: resolvedThreshold,
+  };
 
-  if (matchedRule) {
-    if (matchedRule.decision === "ask") {
-      // Ask rules always prompt — never auto-allow or auto-deny
-      return {
-        decision: "prompt",
-        reason: `Matched ask rule: ${matchedRule.pattern}`,
-        matchedRule,
-      };
-    }
+  // Delegate the allow/prompt/deny decision to the approval policy
+  const approvalDecision = defaultApprovalPolicy.evaluate(approvalContext);
 
-    // Allow rule: auto-allow for non-High risk
-    if (risk !== RiskLevel.High) {
-      return {
-        decision: "allow",
-        reason: `Matched trust rule: ${matchedRule.pattern}`,
-        matchedRule,
-      };
-    }
-    // High risk with allow rule — check runtime context for auto-allow
-    if (shouldAutoAllowHighRisk(toolName)) {
-      return {
-        decision: "allow",
-        reason: `Matched trust rule in auto-allow-high-risk context: ${matchedRule.pattern}`,
-        matchedRule,
-      };
-    }
-    // High risk with allow rule (no runtime auto-allow) → fall through to prompt
-  }
-
-  // No matching rule (or High risk with allow rule) → risk-based fallback
-
-  // Third-party skill-origin tools default to prompting when no trust rule
-  // matches, regardless of risk level. Bundled skill tools are first-party
-  // and trusted, so they fall through to the normal risk-based policy.
-  // When manifestOverride is present, the tool comes from a skill manifest
-  // but isn't registered — treat it as a third-party skill tool.
-  if (!matchedRule) {
-    const tool = getTool(toolName);
-    if (tool?.origin === "skill" && !tool.ownerSkillBundled) {
-      return {
-        decision: "prompt",
-        reason: "Skill tool: requires approval by default",
-      };
-    }
-    if (!tool && manifestOverride) {
-      return {
-        decision: "prompt",
-        reason: "Skill tool: requires approval by default",
-      };
+  // Enrich the reason with the classifier's explanation when available.
+  // For risk-based fallback decisions (prompt/deny from High/Medium risk),
+  // incorporate the classifier reason so the user sees *why* the command
+  // was classified at that level (e.g. "High risk (Recursive force delete): requires approval").
+  let enrichedReason = approvalDecision.reason;
+  if (riskReason && !approvalDecision.matchedRule) {
+    const riskLabelMatch = enrichedReason.match(
+      /^(High|Medium|Low|high|medium|low) risk(.*)/i,
+    );
+    if (riskLabelMatch) {
+      const capitalizedLabel =
+        riskLabelMatch[1].charAt(0).toUpperCase() +
+        riskLabelMatch[1].slice(1).toLowerCase();
+      enrichedReason = `${capitalizedLabel} risk (${riskReason})${riskLabelMatch[2]}`;
     }
   }
 
-  // In strict mode, every tool without an explicit matching rule must be
-  // prompted — there is no implicit auto-allow for any risk level.
-  // This explicitly covers skill_load: activating a skill can grant the
-  // agent new capabilities, so in strict mode users must approve each
-  // skill load via an exact-version or wildcard trust rule.
-  const permissionsMode = getConfig().permissions.mode;
-
-  if (permissionsMode === "strict" && !matchedRule) {
-    return {
-      decision: "prompt",
-      reason: `Strict mode: no matching rule, requires approval`,
-    };
-  }
-
-  // Workspace mode: auto-allow workspace-scoped operations that don't have
-  // an explicit rule, but only when risk is Low. Medium and High risk operations
-  // fall through to risk-based policy and always require approval.
-  if (
-    permissionsMode === "workspace" &&
-    !matchedRule &&
-    risk === RiskLevel.Low
-  ) {
-    // Outside a container, bash runs on the host — don't auto-allow
-    if (toolName === "bash" && !getIsContainerized()) {
-      // Fall through to risk-based policy below
-    } else if (isWorkspaceScopedInvocation(toolName, input, workingDir)) {
-      return {
-        decision: "allow",
-        reason: "Workspace mode: workspace-scoped operation auto-allowed",
-      };
-    }
-  }
-
-  // Auto-allow low-risk bundled skill tools even without explicit trust rules.
-  // These are first-party tools with a vetted risk declaration.
-  // This block must come AFTER the strict mode check so that strict mode
-  // still prompts for bundled skill tools without explicit rules.
-  if (!matchedRule && risk === RiskLevel.Low) {
-    const tool = getTool(toolName);
-    if (tool?.origin === "skill" && tool.ownerSkillBundled) {
-      return {
-        decision: "allow",
-        reason: "Bundled skill tool: low risk, auto-allowed",
-      };
-    }
-  }
-
-  if (risk === RiskLevel.High) {
-    return {
-      decision: "prompt",
-      reason: `High risk: always requires approval`,
-    };
-  }
-
-  if (risk === RiskLevel.Low) {
-    return { decision: "allow", reason: "Low risk: auto-allowed" };
-  }
-
-  return { decision: "prompt", reason: `${risk} risk: requires approval` };
+  return {
+    decision: approvalDecision.decision,
+    reason: enrichedReason,
+    matchedRule: approvalDecision.matchedRule,
+  };
 }
 
 const TOOL_DISPLAY_NAMES: Record<string, string> = {

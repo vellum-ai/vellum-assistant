@@ -356,7 +356,7 @@ export async function preflightWorkItem(
   const workingDir = process.cwd();
   const permissions = await Promise.all(
     requiredTools.map(async (tool) => {
-      const risk = await classifyRisk(tool, {}, workingDir);
+      const { level: risk } = await classifyRisk(tool, {}, workingDir);
       const result = await check(tool, {}, workingDir);
       return {
         tool,

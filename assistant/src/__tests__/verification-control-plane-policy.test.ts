@@ -67,7 +67,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../permissions/checker.js", () => ({
-  classifyRisk: async () => "low",
+  classifyRisk: async () => ({ level: "low" }),
   check: async () => ({ decision: "allow", reason: "allowed" }),
   generateAllowlistOptions: () => [],
   generateScopeOptions: () => [],
