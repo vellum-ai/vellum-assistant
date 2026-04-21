@@ -13,6 +13,7 @@ enum SettingsTab: String {
     case schedules = "Schedules"
     case debug = "Debug"
     case developer = "Developer"
+    case compactionPlayground = "Compaction Playground"
 
     var icon: VIcon {
         switch self {
@@ -27,6 +28,7 @@ enum SettingsTab: String {
         case .schedules: return .calendar
         case .debug: return .bug
         case .developer: return .terminal
+        case .compactionPlayground: return .flask
         }
     }
 
@@ -139,6 +141,7 @@ struct SettingsPanel: View {
     @State private var isBillingEnabled: Bool = false
     @State private var isSchedulesEnabled: Bool = false
     @State private var isDeveloperEnabled: Bool = false
+    @State private var isCompactionPlaygroundEnabled: Bool = false
     @State private var isSoundsEnabled: Bool = true
     @State private var isEmbeddingProviderEnabled: Bool = false
     @State private var isEmailChannelEnabled: Bool = false
@@ -150,6 +153,7 @@ struct SettingsPanel: View {
     private static let schedulesFeatureFlagKey = "settings-schedules"
     private static let billingFeatureFlagKey = "settings-billing"
     private static let developerFeatureFlagKey = "settings-developer-nav"
+    private static let compactionPlaygroundFeatureFlagKey = "compaction-playground"
     private static let embeddingProviderFeatureFlagKey = "settings-embedding-provider"
     private static let emailChannelFeatureFlagKey = "email-channel"
     private static let soundsFeatureFlagKey = "sounds"
@@ -391,6 +395,17 @@ struct SettingsPanel: View {
                     selectedTab = .developer
                 }
             }
+            if isDeveloperEnabled && isCompactionPlaygroundEnabled && DevModeManager.shared.isDevMode {
+                VColor.surfaceBase
+                    .frame(height: 1)
+                    .padding(.vertical, SidebarLayoutMetrics.dividerVerticalPadding)
+                    .padding(.trailing, VSpacing.md)
+                VNavItem(icon: SettingsTab.compactionPlayground.icon.rawValue,
+                         label: "Compaction Playground",
+                         isActive: selectedTab == .compactionPlayground) {
+                    selectedTab = .compactionPlayground
+                }
+            }
         }
         .padding(.top, VSpacing.lg)
         .padding(.bottom, VSpacing.xl)
@@ -449,6 +464,13 @@ struct SettingsPanel: View {
             SettingsDebugTab(store: store)
         case .developer:
             SettingsDeveloperTab(store: store, connectionManager: connectionManager, authManager: authManager, onClose: onClose)
+        case .compactionPlayground:
+            SettingsCompactionPlaygroundTab(
+                store: store,
+                conversationManager: conversationManager,
+                showToast: showToast,
+                onClose: onClose
+            )
         }
     }
 
@@ -676,6 +698,9 @@ struct SettingsPanel: View {
                 if let developerFlag = flags.first(where: { $0.key == Self.developerFeatureFlagKey }) {
                     isDeveloperEnabled = developerFlag.enabled
                 }
+                if let playgroundFlag = flags.first(where: { $0.key == Self.compactionPlaygroundFeatureFlagKey }) {
+                    isCompactionPlaygroundEnabled = playgroundFlag.enabled
+                }
                 if let embeddingProviderFlag = flags.first(where: { $0.key == Self.embeddingProviderFeatureFlagKey }) {
                     isEmbeddingProviderEnabled = embeddingProviderFlag.enabled
                 }
@@ -701,6 +726,9 @@ struct SettingsPanel: View {
 
         if let developerEnabled = resolved[Self.developerFeatureFlagKey] {
             isDeveloperEnabled = developerEnabled
+        }
+        if let playgroundEnabled = resolved[Self.compactionPlaygroundFeatureFlagKey] {
+            isCompactionPlaygroundEnabled = playgroundEnabled
         }
         if let embeddingProviderEnabled = resolved[Self.embeddingProviderFeatureFlagKey] {
             isEmbeddingProviderEnabled = embeddingProviderEnabled
