@@ -199,17 +199,20 @@ struct HomePageView<DetailPanel: View>: View {
 
     // MARK: - Feed grouping
 
-    /// Sorts the feed by `priority desc, createdAt desc`, applies the
-    /// active type filter (empty set = show all), then delegates to
-    /// `HomeFeedTimeGroup.bucket(_:)` for day-bucketing. Replaces the
-    /// prior `attentionItems` / `activityItems` partitioning.
+    /// Sorts the feed by `priority desc, createdAt desc`, hides
+    /// dismissed items (so `dismissItem(_:)` gives immediate feedback
+    /// without waiting for a server refresh to rewrite the array),
+    /// applies the active type filter (nil = show all), then delegates
+    /// to `HomeFeedTimeGroup.bucket(_:)` for day-bucketing. Replaces
+    /// the prior `attentionItems` / `activityItems` partitioning.
     private var groupedFeed: [(group: HomeFeedTimeGroup, items: [FeedItem])] {
         let sorted = feedStore.items.sorted { a, b in
             if a.priority != b.priority { return a.priority > b.priority }
             return a.createdAt > b.createdAt
         }
         let filtered = sorted.filter { item in
-            activeFilter == nil || activeFilter == item.type
+            item.status != .dismissed
+                && (activeFilter == nil || activeFilter == item.type)
         }
         return HomeFeedTimeGroup.bucket(filtered)
     }

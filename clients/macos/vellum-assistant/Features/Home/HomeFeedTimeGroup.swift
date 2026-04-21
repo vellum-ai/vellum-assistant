@@ -51,8 +51,17 @@ enum HomeFeedTimeGroup: String, CaseIterable, Sendable {
         // they compare against the calendar's current date. To get
         // deterministic bucketing with an injected `now`, fall back to
         // comparing calendar days directly.
+        //
+        // Derive yesterday from `now - 1 day` and normalize via
+        // `startOfDay`, NOT by subtracting a day from the already-
+        // normalized `todayDay`. In DST transitions that occur at
+        // midnight (e.g. Africa/Cairo, Apr 25 2025), subtracting 1 day
+        // from a midnight instant produces a non-midnight instant, so
+        // `itemDay == yesterdayDay` fails and legitimate yesterday
+        // items fall through to `.older`.
         let todayDay = calendar.startOfDay(for: now)
-        let yesterdayDay = calendar.date(byAdding: .day, value: -1, to: todayDay) ?? todayDay
+        let yesterdayInstant = calendar.date(byAdding: .day, value: -1, to: now) ?? now
+        let yesterdayDay = calendar.startOfDay(for: yesterdayInstant)
 
         for item in items {
             let itemDay = calendar.startOfDay(for: item.createdAt)
