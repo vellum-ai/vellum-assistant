@@ -58,6 +58,7 @@ struct MainWindowView: View {
 
     @AppStorage("sidebarExpanded") var sidebarExpanded: Bool = true
     @AppStorage("sidebarToggleShortcut") private var sidebarToggleShortcut: String = "cmd+\\"
+    @AppStorage("homeShortcut") private var homeShortcut: String = "cmd+shift+h"
     @State var sidebarContentHeight: CGFloat = 0
     @State var sidebarFrameHeight: CGFloat = 0
     @AppStorage("themePreference") private var themePreference: String = "system"
@@ -426,6 +427,11 @@ struct MainWindowView: View {
         return "\(label) (\(display))"
     }
 
+    private var homeTooltip: String {
+        guard !homeShortcut.isEmpty else { return "Home" }
+        return "Home (\(ShortcutHelper.displayString(for: homeShortcut)))"
+    }
+
     /// Assistant loading overlay extracted to reduce type-checker pressure on `coreLayoutView`.
     @ViewBuilder
     private var assistantLoadingOverlayIfNeeded: some View {
@@ -458,9 +464,11 @@ struct MainWindowView: View {
                     VButton(label: "Home", iconOnly: VIcon.house.rawValue, style: .ghost) {
                         windowState.showPanel(.home)
                     }
-                    // ⇧⌘H avoids the system-reserved ⌘H ("Hide application")
-                    // while keeping the mnemonic on the H key.
-                    .keyboardShortcut("h", modifiers: [.command, .shift])
+                    // Keyboard shortcut (default ⇧⌘H) is handled by the
+                    // configurable NSEvent monitor in
+                    // `AppDelegate+InputMonitors.registerHomeShortcutMonitor()`.
+                    // Users can remap or clear it from Settings → Keyboard
+                    // Shortcuts → Home.
                     .overlay(alignment: .topTrailing) {
                         // Red dot whenever HomeStore has observed a background
                         // `relationshipStateUpdated` SSE event while the user
@@ -476,7 +484,7 @@ struct MainWindowView: View {
                                 .accessibilityLabel(Text("Unseen changes"))
                         }
                     }
-                    .vTooltip("Home (\u{21E7}\u{2318}H)")
+                    .vTooltip(homeTooltip)
                 }
 
                 VButton(label: "Search", iconOnly: VIcon.search.rawValue, style: .ghost) {

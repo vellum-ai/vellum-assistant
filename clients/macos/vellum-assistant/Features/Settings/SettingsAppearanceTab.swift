@@ -11,6 +11,7 @@ struct SettingsAppearanceTab: View {
     @State private var isRecordingGlobalHotkey = false
     @State private var isRecordingQuickInputHotkey = false
     @State private var isRecordingSidebarToggle = false
+    @State private var isRecordingHome = false
     @State private var isRecordingNewChat = false
     @State private var isRecordingCurrentConversation = false
     @State private var isRecordingMarkConversationUnread = false
@@ -430,6 +431,39 @@ struct SettingsAppearanceTab: View {
 
                 SettingsDivider()
 
+                // Home panel (configurable)
+                HStack {
+                    Text("Home")
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentSecondary)
+                    Spacer()
+                    if isRecordingHome, let display = recordingDisplayString, !display.isEmpty {
+                        VShortcutTag(display)
+                    } else {
+                        VShortcutTag(ShortcutHelper.displayString(for: store.homeShortcut))
+                    }
+
+                    if isRecordingHome {
+                        VButton(label: "Press shortcut...", style: .outlined) {
+                            stopRecording()
+                        }
+                    } else {
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Change", style: .outlined) {
+                                startRecordingHome()
+                            }
+                            if !store.homeShortcut.isEmpty {
+                                VButton(label: "Remove", style: .outlined) {
+                                    store.homeShortcut = ""
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, VSpacing.md)
+
+                SettingsDivider()
+
                 // Previous conversation (configurable)
                 HStack {
                     Text("Previous conversation")
@@ -726,6 +760,13 @@ struct SettingsAppearanceTab: View {
         isRecordingPopOut = true
     }
 
+    private func startRecordingHome() {
+        startRecordingShortcut { shortcut, _ in
+            store.homeShortcut = shortcut
+        }
+        isRecordingHome = true
+    }
+
     private func startRecordingPreviousConversation() {
         startRecordingShortcut { shortcut, _ in
             store.previousConversationShortcut = shortcut
@@ -788,6 +829,7 @@ struct SettingsAppearanceTab: View {
         isRecordingCurrentConversation = false
         isRecordingMarkConversationUnread = false
         isRecordingPopOut = false
+        isRecordingHome = false
         isRecordingPreviousConversation = false
         isRecordingNextConversation = false
         recordingDisplayString = nil

@@ -74,6 +74,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var zoomLocalMonitor: Any?
     var sidebarToggleLocalMonitor: Any?
     var popOutLocalMonitor: Any?
+    var homeShortcutLocalMonitor: Any?
     var conversationNavLocalMonitor: Any?
     public let services = AppServices()
     let vellumCli = VellumCli()
@@ -672,6 +673,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         registerNavigationMonitor()
         registerZoomMonitor()
         registerSidebarToggleMonitor()
+        registerHomeShortcutMonitor()
         setupHotKey()
         setupEscapeMonitor()
         setupVoiceInput()
@@ -901,6 +903,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             conversationLocalId: id,
             conversationManager: mainWindow.conversationManager
         )
+    }
+
+    /// Routes the configurable Home shortcut into the main-window panel
+    /// selection state. Called from the local NSEvent monitor registered
+    /// in ``registerHomeShortcutMonitor()``.
+    public func openHomePanel() {
+        mainWindow?.windowState.showPanel(.home)
     }
 
     public func createNewConversation() {

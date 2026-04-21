@@ -84,6 +84,12 @@ extension UserDefaults {
         }
         return string(forKey: "popOutShortcut") ?? ""
     }
+    @objc dynamic var homeShortcut: String {
+        if UserDefaults.standard.object(forKey: "homeShortcut") == nil {
+            return "cmd+shift+h"
+        }
+        return string(forKey: "homeShortcut") ?? ""
+    }
     @objc dynamic var previousConversationShortcut: String {
         if UserDefaults.standard.object(forKey: "previousConversationShortcut") == nil {
             return "cmd+up"
@@ -117,6 +123,7 @@ extension AppDelegate {
         registerCurrentConversationMonitor()
         registerMarkConversationUnreadMonitor()
         registerPopOutMonitor()
+        registerHomeShortcutMonitor()
         registerConversationNavMonitor()
 
         globalHotkeyObserver = Publishers.Merge4(
@@ -129,6 +136,7 @@ extension AppDelegate {
         .merge(with: UserDefaults.standard.publisher(for: \.currentConversationShortcut).map { _ in () })
         .merge(with: UserDefaults.standard.publisher(for: \.markConversationUnreadShortcut).map { _ in () })
         .merge(with: UserDefaults.standard.publisher(for: \.popOutShortcut).map { _ in () })
+        .merge(with: UserDefaults.standard.publisher(for: \.homeShortcut).map { _ in () })
         .merge(with: UserDefaults.standard.publisher(for: \.previousConversationShortcut).map { _ in () })
         .merge(with: UserDefaults.standard.publisher(for: \.nextConversationShortcut).map { _ in () })
         .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
@@ -140,6 +148,7 @@ extension AppDelegate {
             self?.registerCurrentConversationMonitor()
             self?.registerMarkConversationUnreadMonitor()
             self?.registerPopOutMonitor()
+            self?.registerHomeShortcutMonitor()
             self?.registerConversationNavMonitor()
             self?.updateNewChatMenuItemShortcut()
             self?.updateCurrentConversationMenuItemShortcut()
@@ -488,6 +497,37 @@ extension AppDelegate {
             return nil
         }
         popOutLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+    }
+
+    /// Registers a local event monitor to jump to the Home panel when the
+    /// configured shortcut (default: Cmd+Shift+H) is pressed. The shortcut
+    /// is read dynamically from UserDefaults so it can be reconfigured
+    /// from Settings without restarting.
+    func registerHomeShortcutMonitor() {
+        if let existing = homeShortcutLocalMonitor {
+            NSEvent.removeMonitor(existing)
+            homeShortcutLocalMonitor = nil
+        }
+
+        let shortcut = UserDefaults.standard.string(forKey: "homeShortcut") ?? "cmd+shift+h"
+        guard !shortcut.isEmpty else { return }
+
+        let (targetModifiers, targetKey) = ShortcutHelper.parseShortcut(shortcut)
+
+        let handler: (NSEvent) -> NSEvent? = { [weak self] event in
+            guard self?.isBootstrapping != true,
+                  self?.mainWindow?.isVisible == true else { return event }
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.numericPad)
+            guard mods == targetModifiers,
+                  event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else {
+                return event
+            }
+            Task { @MainActor in
+                self?.openHomePanel()
+            }
+            return nil
+        }
+        homeShortcutLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
     }
 
     /// Registers configurable shortcuts for navigating between conversations

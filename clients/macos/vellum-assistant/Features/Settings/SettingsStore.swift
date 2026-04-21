@@ -91,6 +91,7 @@ public final class SettingsStore: ObservableObject {
     @Published var currentConversationShortcut: String
     @Published var markConversationUnreadShortcut: String
     @Published var popOutShortcut: String
+    @Published var homeShortcut: String
     @Published var previousConversationShortcut: String
     @Published var nextConversationShortcut: String
     @Published var cmdEnterToSend: Bool
@@ -507,6 +508,11 @@ public final class SettingsStore: ObservableObject {
         } else {
             self.popOutShortcut = UserDefaults.standard.string(forKey: "popOutShortcut") ?? ""
         }
+        if UserDefaults.standard.object(forKey: "homeShortcut") == nil {
+            self.homeShortcut = "cmd+shift+h"
+        } else {
+            self.homeShortcut = UserDefaults.standard.string(forKey: "homeShortcut") ?? ""
+        }
         if UserDefaults.standard.object(forKey: "previousConversationShortcut") == nil {
             self.previousConversationShortcut = "cmd+up"
         } else {
@@ -613,6 +619,11 @@ public final class SettingsStore: ObservableObject {
         $popOutShortcut
             .dropFirst()
             .sink { value in UserDefaults.standard.set(value, forKey: "popOutShortcut") }
+            .store(in: &cancellables)
+
+        $homeShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "homeShortcut") }
             .store(in: &cancellables)
 
         $previousConversationShortcut
