@@ -44,9 +44,8 @@ public struct VTextEditor: View {
                     .accessibilityHidden(true)
             }
         }
-        .padding(.horizontal, VSpacing.md)
-        .padding(.vertical, VSpacing.sm)
         .frame(minHeight: minHeight, maxHeight: maxHeight, alignment: .topLeading)
+        .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.md, bottom: VSpacing.sm, trailing: VSpacing.md))
         .contentShape(Rectangle())
         .simultaneousGesture(TapGesture().onEnded { isFocused = true })
         .vInputChrome(isFocused: isFocused)
