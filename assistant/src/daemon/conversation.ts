@@ -76,6 +76,7 @@ import type { AbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import {
+  collapseRawResponses,
   runAgentLoopImpl,
   trackCompactionOutcome,
 } from "./conversation-agent-loop.js";
@@ -121,6 +122,7 @@ import {
   createResolveToolsCallback,
   createToolExecutor,
 } from "./conversation-tool-setup.js";
+import { recordUsage } from "./conversation-usage.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
 import { HostBrowserProxy } from "./host-browser-proxy.js";
@@ -1267,6 +1269,62 @@ export class Conversation {
         this.conversationId,
         this.trustContext?.trustClass,
       );
+      // Notify memory graph that compaction happened — triggers full context
+      // reload on the next turn to replenish lost memory context. Matches
+      // every auto-compaction path in conversation-agent-loop.ts.
+      this.graphMemory.onCompacted(result.compactedPersistedMessages);
+      this.sendToClient({
+        type: "context_compacted",
+        previousEstimatedInputTokens: result.previousEstimatedInputTokens,
+        estimatedInputTokens: result.estimatedInputTokens,
+        maxInputTokens: result.maxInputTokens,
+        thresholdTokens: result.thresholdTokens,
+        compactedMessages: result.compactedMessages,
+        summaryCalls: result.summaryCalls,
+        summaryInputTokens: result.summaryInputTokens,
+        summaryOutputTokens: result.summaryOutputTokens,
+        summaryModel: result.summaryModel,
+      });
+      if (result.summaryInputTokens > 0 || result.summaryOutputTokens > 0) {
+        recordUsage(
+          {
+            conversationId: this.conversationId,
+            providerName: this.provider.name,
+            usageStats: this.usageStats,
+          },
+          result.summaryInputTokens,
+          result.summaryOutputTokens,
+          result.summaryModel,
+          this.sendToClient,
+          "context_compactor",
+          null,
+          result.summaryCacheCreationInputTokens ?? 0,
+          result.summaryCacheReadInputTokens ?? 0,
+          collapseRawResponses(result.summaryRawResponses),
+          result.summaryCalls,
+          {
+            tokens: result.estimatedInputTokens,
+            maxTokens: result.maxInputTokens,
+          },
+        );
+      } else {
+        // Truncation-only path — compaction succeeded without a summary LLM
+        // call, so recordUsage's zero-token guard would early-return and the
+        // UI indicator would stay stale. Emit the contextWindow refresh
+        // directly so the client gets the fresh token counts.
+        this.sendToClient({
+          type: "usage_update",
+          conversationId: this.conversationId,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalInputTokens: this.usageStats.inputTokens,
+          totalOutputTokens: this.usageStats.outputTokens,
+          estimatedCost: 0,
+          model: result.summaryModel,
+          contextWindowTokens: result.estimatedInputTokens,
+          contextWindowMaxTokens: result.maxInputTokens,
+        });
+      }
     }
     return result;
   }
