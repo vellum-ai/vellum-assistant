@@ -213,6 +213,39 @@ struct ButtonsGallerySection: View {
 
                 Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
+                // MARK: - VButton (Icon Only — Sizes)
+                GallerySectionHeader(
+                    title: "VButton (Icon Only — Sizes)",
+                    description: "Icon-only button size scale. Use `.pillLarge` (40×40) for primary toolbar chrome, `.pillRegular` / `.regular` (32×32) for standard icon buttons, `.pill` / `.compact` (24×24) for dense rows, and `.inline` (18×18) for use within text lines."
+                )
+
+                VCard {
+                    HStack(spacing: VSpacing.xl) {
+                        VStack(alignment: .leading, spacing: VSpacing.md) {
+                            Text("pillLarge (40)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                            VButton(label: "Settings", iconOnly: VIcon.settings.rawValue, style: .ghost, size: .pillLarge, isActive: true) {}
+                        }
+                        VStack(alignment: .leading, spacing: VSpacing.md) {
+                            Text("pillRegular (32)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                            VButton(label: "Settings", iconOnly: VIcon.settings.rawValue, style: .ghost, size: .pillRegular, isActive: true) {}
+                        }
+                        VStack(alignment: .leading, spacing: VSpacing.md) {
+                            Text("regular (32)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                            VButton(label: "Settings", iconOnly: VIcon.settings.rawValue, style: .ghost, size: .regular, isActive: true) {}
+                        }
+                        VStack(alignment: .leading, spacing: VSpacing.md) {
+                            Text("pill (24)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                            VButton(label: "Settings", iconOnly: VIcon.settings.rawValue, style: .ghost, size: .pill, isActive: true) {}
+                        }
+                        VStack(alignment: .leading, spacing: VSpacing.md) {
+                            Text("inline (18)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                            VButton(label: "Settings", iconOnly: VIcon.settings.rawValue, style: .ghost, size: .inline, isActive: true) {}
+                        }
+                    }
+                }
+
+                Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
                 // MARK: - VButton (Icon Only — Inline)
                 GallerySectionHeader(
                     title: "VButton (Icon Only — Inline)",

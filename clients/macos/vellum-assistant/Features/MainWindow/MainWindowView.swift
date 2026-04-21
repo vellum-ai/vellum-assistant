@@ -544,6 +544,9 @@ struct MainWindowView: View {
                     onAnalyzeConversation: {
                         Task { await conversationManager.analyzeActiveConversation() }
                     },
+                    onRefresh: {
+                        conversationManager.refreshActiveConversation()
+                    },
                     onOpenInNewWindow: conversationManager.activeConversation?.conversationId != nil ? {
                         guard let id = conversationManager.activeConversationId else { return }
                         AppDelegate.shared?.threadWindowManager?.openThread(
@@ -863,6 +866,7 @@ private struct ConversationTitleOverlay: View {
     let onRename: () -> Void
     let onOpenForkParent: () -> Void
     let onAnalyzeConversation: () -> Void
+    let onRefresh: () -> Void
     var onOpenInNewWindow: (() -> Void)? = nil
 
     private var presentation: ConversationHeaderPresentation {
@@ -884,6 +888,7 @@ private struct ConversationTitleOverlay: View {
             onRename: onRename,
             onOpenForkParent: onOpenForkParent,
             onAnalyzeConversation: onAnalyzeConversation,
+            onRefresh: onRefresh,
             onOpenInNewWindow: onOpenInNewWindow
         )
         .padding(.horizontal, 120)

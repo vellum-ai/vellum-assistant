@@ -636,7 +636,7 @@ Both macOS and iOS clients use a single JWT access token for all HTTP authentica
 
 | File | Purpose |
 |------|---------|
-| `clients/ios/Views/Settings/ConnectionSettingsSection.swift` | iOS connection status (cloud-login, read-only gateway URL) |
+| `clients/ios/Views/Settings/ConnectionInfoSection.swift` | iOS connection status section (rendered inline in Settings) |
 | `clients/macos/vellum-assistant/Features/Settings/PairingQRCodeSheet.swift` | macOS v4 QR generation, pre-registration with daemon |
 | `clients/macos/vellum-assistant/Features/Settings/PairingApprovalWindow.swift` | Floating approval prompt window |
 | `assistant/src/daemon/pairing-store.ts` | In-memory pairing request store with TTL |

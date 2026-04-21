@@ -5,7 +5,7 @@
  * disabled, so skills and clients can use gateway URLs exclusively.
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { mintServiceToken } from "../../auth/token-exchange.js";
@@ -45,6 +45,7 @@ export function createChannelVerificationSessionProxyHandler(
   config: GatewayConfig,
 ) {
   let guardianInitInFlight = false;
+  let guardianInitPending = false;
   const secretsInFlight = new Set<number>();
 
   async function proxyToRuntime(
@@ -255,6 +256,7 @@ export function createChannelVerificationSessionProxyHandler(
       }
 
       guardianInitInFlight = true;
+      guardianInitPending = true;
       if (providedIndex >= 0) {
         secretsInFlight.add(providedIndex);
       }
@@ -330,6 +332,7 @@ export function createChannelVerificationSessionProxyHandler(
         guardianInitInFlight = false;
         throw err;
       } finally {
+        guardianInitPending = false;
         if (providedIndex >= 0) {
           secretsInFlight.delete(providedIndex);
         }
@@ -338,6 +341,58 @@ export function createChannelVerificationSessionProxyHandler(
 
     async handleGuardianRefresh(req: Request): Promise<Response> {
       return proxyToRuntime(req, "/v1/guardian/refresh", "");
+    },
+
+    async handleResetBootstrap(clientIp?: string): Promise<Response> {
+      if (clientIp && !isLoopbackAddress(clientIp)) {
+        return Response.json(
+          { error: "Loopback-only endpoint" },
+          { status: 403 },
+        );
+      }
+
+      // Docker mode uses secret-based consumption tracking — resetting the
+      // lockfile alone wouldn't help because consumed secrets are tracked
+      // separately. Only bare-metal (no bootstrap secret) uses the simple
+      // lockfile as the sole guard.
+      if (parseBootstrapSecrets().length > 0) {
+        return Response.json(
+          { error: "Reset not available in containerized mode" },
+          { status: 403 },
+        );
+      }
+
+      // Refuse while an init request is awaiting an upstream response —
+      // mintCredentialPair revokes existing device-bound tokens before
+      // minting, so allowing a concurrent init would invalidate whatever
+      // the in-flight one returns.
+      if (guardianInitPending) {
+        return Response.json(
+          { error: "Guardian init is in progress — try again shortly" },
+          { status: 409 },
+        );
+      }
+
+      const lockDir = getGatewaySecurityDir();
+      const lockPath = join(lockDir, "guardian-init.lock");
+
+      try {
+        if (existsSync(lockPath)) {
+          unlinkSync(lockPath);
+          log.info(
+            "Guardian bootstrap lock file removed — re-init is now allowed",
+          );
+        }
+      } catch (err) {
+        log.error({ err }, "Failed to remove guardian-init.lock");
+        return Response.json(
+          { error: "Failed to remove lock file" },
+          { status: 500 },
+        );
+      }
+
+      guardianInitInFlight = false;
+      return Response.json({ ok: true });
     },
   };
 }

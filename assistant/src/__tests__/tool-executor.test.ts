@@ -309,6 +309,7 @@ describe("ToolExecutor policy context plumbing", () => {
     expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
+      conversationId: "conversation-1",
       executionContext: "conversation",
       ephemeralRules: undefined,
       executionTarget: "sandbox",
@@ -329,6 +330,7 @@ describe("ToolExecutor policy context plumbing", () => {
     expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
+      conversationId: "conversation-1",
       executionContext: "conversation",
       ephemeralRules: undefined,
     });
@@ -362,6 +364,7 @@ describe("ToolExecutor policy context plumbing", () => {
     expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
+      conversationId: "conversation-1",
       executionContext: "conversation",
       ephemeralRules: undefined,
     });
@@ -398,6 +401,7 @@ describe("ToolExecutor policy context plumbing", () => {
     expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
+      conversationId: "conversation-1",
       executionContext: "conversation",
       ephemeralRules: undefined,
       executionTarget: "host",
@@ -430,6 +434,7 @@ describe("ToolExecutor policy context plumbing", () => {
     expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
+      conversationId: "conversation-1",
       executionContext: "conversation",
       ephemeralRules: undefined,
       executionTarget: undefined,
@@ -901,6 +906,7 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
 
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
+      conversationId: "conversation-1",
       executionContext: "conversation",
       ephemeralRules: undefined,
       executionTarget: "sandbox",
@@ -1085,6 +1091,7 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
 
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
+      conversationId: "conversation-1",
       executionContext: "conversation",
       ephemeralRules: undefined,
       executionTarget: "sandbox",

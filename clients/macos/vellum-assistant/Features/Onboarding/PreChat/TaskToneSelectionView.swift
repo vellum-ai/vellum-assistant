@@ -55,7 +55,7 @@ struct TaskToneSelectionView: View {
         VStack(spacing: 0) {
         // Header
         ZStack(alignment: .leading) {
-            Text("What do you want help with?")
+            Text("What are you working on?")
                 .font(VFont.titleLarge)
                 .foregroundStyle(VColor.contentDefault)
                 .frame(maxWidth: .infinity)
@@ -123,7 +123,7 @@ struct TaskToneSelectionView: View {
 
             // Footer buttons
             VStack(spacing: VSpacing.sm) {
-                VButton(label: "Continue", style: .primary, isFullWidth: true) {
+                VButton(label: "Continue", style: .primary, isFullWidth: true, isDisabled: selectedTasks.isEmpty) {
                     onContinue()
                 }
 

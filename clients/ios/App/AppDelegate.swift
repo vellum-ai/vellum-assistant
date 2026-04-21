@@ -169,6 +169,33 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         cm.reconfigure(conversationKey: conversationKey)
         self.clientProvider = ClientProvider(connectionManager: cm, client: cm)
         super.init()
+
+        // Keep the iOS managed-connection identifiers in sync with the shared
+        // `AuthManager` auth state. `AuthManager.logout()` clears
+        // `managed_assistant_id` / `managed_platform_base_url` from UserDefaults;
+        // this hook re-discovers and re-persists them whenever auth re-establishes,
+        // so `GatewayHTTPClient.resolveConnection()` can build a `ConnectionInfo`
+        // without requiring the user to re-onboard.
+        let reconciler = ManagedAssistantIOSReconciler(
+            rebuildClient: { [weak clientProvider] in
+                clientProvider?.rebuildClient()
+            }
+        )
+        authManager.postAuthenticationHook = { [weak clientProvider] in
+            do {
+                let reconciled = try await reconciler.reconcile()
+                // `rebuildClient()` creates a fresh `GatewayConnectionManager`
+                // in a disconnected state, so whenever the reconciler actually
+                // replaced the client we need to dial it here. Otherwise the
+                // Connect screen and SSE stream would stay offline until the
+                // next `SceneDelegate.sceneWillEnterForeground` transition.
+                if reconciled != nil, let client = clientProvider?.client {
+                    try? await client.connect()
+                }
+            } catch {
+                log.error("Managed assistant reconcile failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 
     func application(

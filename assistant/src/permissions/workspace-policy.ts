@@ -1,6 +1,8 @@
 import { realpathSync } from "node:fs";
 import { basename, dirname, normalize, resolve } from "node:path";
 
+import { getIsContainerized } from "../config/env-registry.js";
+
 /**
  * Resolve a path to its canonical form. When the target itself doesn't
  * exist (e.g. a new file being written), walk up to the nearest existing
@@ -112,9 +114,11 @@ export function isWorkspaceScopedInvocation(
     );
   }
 
-  // Bash is generally workspace-scoped when sandbox isolation is active —
-  // the caller handles network mode checks separately.
-  if (toolName === "bash") return true;
+  // Bash workspace scope depends on the environment: containerized bash has the
+  // entire filesystem as workspace, so it's always workspace-scoped. Non-containerized
+  // bash is NOT workspace-scoped here — real path resolution (Phase 2) will handle it.
+  // The approval policy's sandbox auto-approve check handles allowlisted commands separately.
+  if (toolName === "bash") return getIsContainerized();
 
   // Unknown tool — conservative default.
   return false;

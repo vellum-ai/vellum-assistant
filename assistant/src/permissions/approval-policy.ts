@@ -21,6 +21,8 @@ export interface ApprovalContext {
   isSkillBundled?: boolean;
   /** Whether the tool has a manifest override (unregistered skill tool). */
   hasManifestOverride?: boolean;
+  /** Whether the command's registry entry has sandboxAutoApprove: true. */
+  hasSandboxAutoApprove?: boolean;
   /**
    * Resolved auto-approve threshold for this execution context.
    * - "none": prompt for everything (strictest)
@@ -106,13 +108,12 @@ export interface ApprovalPolicy {
  *
  * 1. Deny rule → deny
  * 2. Ask rule → prompt
- * 3. Allow rule + non-High → allow
- * 4. Allow rule + High + containerized bash → allow (shouldAutoAllowHighRisk)
- * 5. Allow rule + High + no auto-allow → prompt (fall through)
+ * 3. Sandbox auto-approve: workspace mode + bash + sandboxAutoApprove + containerized → allow
+ * 4. Allow rule + non-High → allow
+ * 5. Allow rule + High → fall through to risk-based
  * 6. No rule + third-party skill tool → prompt
  * 7. No rule + strict mode → prompt
  * 8. No rule + workspace mode + Low + workspace-scoped → allow
- *    (except non-containerized bash — never auto-allow)
  * 9. No rule + Low + bundled skill → allow
  * 10. Risk ≤ autoApproveUpTo threshold → allow
  * 11. Risk > autoApproveUpTo threshold → prompt
@@ -129,6 +130,7 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       toolOrigin,
       isSkillBundled,
       hasManifestOverride,
+      hasSandboxAutoApprove,
     } = context;
 
     // ── 1. Deny rules apply at ALL risk levels ────────────────────────
@@ -149,9 +151,22 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       };
     }
 
-    // ── 3–5. Allow rule handling ──────────────────────────────────────
+    // ── 3. Sandbox auto-approve: bash + allowlisted + containerized → allow ──
+    // Only fires in workspace mode — strict mode always requires explicit rules.
+    if (
+      permissionsMode === "workspace" &&
+      toolName === "bash" &&
+      hasSandboxAutoApprove === true &&
+      isContainerized
+    ) {
+      return {
+        decision: "allow",
+        reason: "Workspace filesystem operation (sandbox auto-approve)",
+      };
+    }
+
+    // ── 4–5. Allow rule handling ──────────────────────────────────────
     if (matchedRule) {
-      // 3. Allow rule + non-High → allow
       if (riskLevel !== RiskLevel.High) {
         return {
           decision: "allow",
@@ -159,19 +174,7 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
           matchedRule,
         };
       }
-
-      // 4. Allow rule + High + containerized bash → allow
-      if (this.shouldAutoAllowHighRisk(toolName, isContainerized)) {
-        return {
-          decision: "allow",
-          reason: `Matched trust rule in auto-allow-high-risk context: ${matchedRule.pattern}`,
-          matchedRule,
-        };
-      }
-
-      // 5. Allow rule + High (no auto-allow) → fall through to risk-based
-      // Note: matchedRule is intentionally omitted from the risk-based
-      // fallback return — the decision is driven by risk, not the rule.
+      // High risk: fall through to risk-based regardless of rule
     }
 
     // ── 6. No rule + third-party skill tool → prompt ──────────────────
@@ -199,15 +202,12 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
     }
 
     // ── 8. No rule + workspace mode + Low + workspace-scoped → allow ──
-    // Exception: non-containerized bash never auto-allows.
     if (
       permissionsMode === "workspace" &&
       !matchedRule &&
       riskLevel === RiskLevel.Low
     ) {
-      if (toolName === "bash" && !isContainerized) {
-        // Fall through to risk-based policy below
-      } else if (isWorkspaceScoped) {
+      if (isWorkspaceScoped) {
         return {
           decision: "allow",
           reason: "Workspace mode: workspace-scoped operation auto-allowed",
@@ -239,19 +239,5 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       decision: "prompt",
       reason: `${riskLevel} risk: above auto-approve threshold`,
     };
-  }
-
-  /**
-   * Determines at runtime whether a high-risk operation should be auto-allowed.
-   * Auto-allows high-risk operations when running in a containerized sandbox.
-   *
-   * Auto-allow cases:
-   * - Containerized bash: all commands are sandboxed, so high-risk is safe.
-   */
-  private shouldAutoAllowHighRisk(
-    toolName: string,
-    isContainerized: boolean,
-  ): boolean {
-    return toolName === "bash" && isContainerized;
   }
 }

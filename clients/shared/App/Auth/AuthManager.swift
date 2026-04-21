@@ -35,6 +35,24 @@ public final class AuthManager {
     private static let callbackScheme = "vellum-assistant"
     private var webAuthSession: ASWebAuthenticationSession?
 
+    /// Optional hook invoked after a successful authentication (both the fresh
+    /// login flow and background session re-validation) once `state` has
+    /// transitioned to `.authenticated` and `resolveOrganizationIdAfterAuth()`
+    /// has completed.
+    ///
+    /// Platform shells set this to reconcile any platform-specific connection
+    /// state that `logout()` may have cleared. On iOS this is used to restore
+    /// the managed assistant identifiers in `UserDefaults` (`managed_assistant_id`,
+    /// `managed_platform_base_url`) so `GatewayHTTPClient.resolveConnection()`
+    /// can build a `ConnectionInfo` after logout → re-login. macOS does not set
+    /// the hook because its reconciliation lives in
+    /// `ManagedAssistantConnectionCoordinator` / `LockfileAssistant`.
+    ///
+    /// Hook failures are owned by the hook — the auth state transition is
+    /// already committed by the time the hook runs.
+    @ObservationIgnored
+    public var postAuthenticationHook: (@MainActor @Sendable () async -> Void)?
+
     public init() {}
 
     public var isAuthenticated: Bool {
@@ -88,6 +106,7 @@ public final class AuthManager {
                 if response.status == 200, response.meta?.is_authenticated != false, let user = response.data?.user {
                     state = .authenticated(user)
                     await resolveOrganizationIdAfterAuth()
+                    await postAuthenticationHook?()
                     return
                 } else {
                     // Server authoritatively rejected the session —
@@ -154,6 +173,7 @@ public final class AuthManager {
                 state = .authenticated(user)
                 log.info("Login completed via Django auth flow for user \(user.id ?? user.email ?? "unknown", privacy: .public)")
                 await resolveOrganizationIdAfterAuth()
+                await postAuthenticationHook?()
             } else {
                 log.error("Session validation after Django auth flow did not return authenticated user. status=\(session.status, privacy: .public)")
                 errorMessage = "Authentication was not completed. Please try again."

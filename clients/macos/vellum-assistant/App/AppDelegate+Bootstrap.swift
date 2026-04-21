@@ -264,6 +264,13 @@ extension AppDelegate {
                 }
             } else {
                 log.info("forceReBootstrap: local/bare-metal hatch — preserving guardian token file as the only recovery artifact")
+                // Clear the guardian-init lock so /v1/guardian/init can succeed
+                // again. Without this, the HTTP fallback in performInitialBootstrap
+                // is permanently 403'd on bare-metal after the first hatch.
+                let cleared = await GuardianClient().resetBootstrap()
+                if !cleared {
+                    log.warning("forceReBootstrap: reset-bootstrap failed — HTTP fallback may still be locked out")
+                }
             }
         }
         await performInitialBootstrap(skipFileImport: skipFileImport)
@@ -293,25 +300,30 @@ extension AppDelegate {
                 return
             }
 
-            // The token file doesn't exist yet — the launcher/CLI may still be
-            // writing it. Poll for up to ~60s before falling back to HTTP bootstrap.
-            let maxAttempts = 30
-            let delay: UInt64 = 2_000_000_000 // 2 seconds per poll
-            for attempt in 1...maxAttempts {
-                guard !Task.isCancelled else { return }
-                try? await Task.sleep(nanoseconds: delay)
-                guard !Task.isCancelled else { return }
+            // On remote hatches (Docker, cloud, managed) the CLI/launcher
+            // writes guardian-token.json asynchronously — poll for it. On
+            // bare-metal the file is written synchronously at hatch time, so
+            // if the first check missed it the file isn't coming.
+            let assistant = LockfileAssistant.loadByName(assistantId)
+            let shouldPoll = assistant?.isRemote ?? false
 
-                if GuardianTokenFileReader.importIfAvailable(assistantId: assistantId) {
-                    log.info("Imported guardian token from file after \(attempt) poll(s)")
-                    return
+            if shouldPoll {
+                let maxAttempts = 30
+                let delay: UInt64 = 2_000_000_000 // 2 seconds per poll
+                for attempt in 1...maxAttempts {
+                    guard !Task.isCancelled else { return }
+                    try? await Task.sleep(nanoseconds: delay)
+                    guard !Task.isCancelled else { return }
+
+                    if GuardianTokenFileReader.importIfAvailable(assistantId: assistantId) {
+                        log.info("Imported guardian token from file after \(attempt) poll(s)")
+                        return
+                    }
                 }
+                log.warning("Guardian token file not found after \(maxAttempts) polls — falling back to /v1/guardian/init")
+            } else {
+                log.info("Local hatch — skipping token file poll, falling back to /v1/guardian/init")
             }
-
-            // Token file never appeared — fall back to HTTP bootstrap via
-            // /v1/guardian/init. This path generates its own random bootstrap
-            // secret which may fail if the runtime already consumed the real one.
-            log.warning("Guardian token file not found after \(maxAttempts) polls — falling back to /v1/guardian/init")
         } else {
             log.info("performInitialBootstrap: skipFileImport=true — driving HTTP reprovision path directly")
         }

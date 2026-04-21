@@ -147,17 +147,6 @@ describe("notification decision strategy", () => {
       expect(copy.telegram!.deliveryText).toBe("Take out the trash");
     });
 
-    test("schedule.complete template uses name from payload", () => {
-      const signal = makeSignal({
-        sourceEventName: "schedule.complete",
-        contextPayload: { name: "Daily backup" },
-      });
-
-      const copy = composeFallbackCopy(signal, channels);
-      expect(copy.vellum).toBeDefined();
-      expect(copy.vellum!.body).toContain("Daily backup");
-    });
-
     test("unknown event name produces generic copy with urgency prefix", () => {
       const signal = makeSignal({
         sourceEventName: "some_novel.event",

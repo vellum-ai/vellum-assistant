@@ -4,7 +4,6 @@ import VellumAssistantShared
 
 struct SettingsView: View {
     @Bindable var authManager: AuthManager
-    @Binding var navigateToConnect: Bool
     /// Shared conversation store — forwarded to DeveloperSettingsSection so its diagnostics
     /// (last fetch error, etc.) reflect the same store the Chats view reads from.
     var conversationStore: IOSConversationStore
@@ -13,14 +12,7 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 AccountSection(authManager: authManager)
-
-                Section {
-                    NavigationLink {
-                        DaemonConnectionSection()
-                    } label: {
-                        Label { Text("Connect") } icon: { VIconView(.monitor, size: 14) }
-                    }
-                }
+                ConnectionInfoSection()
 
                 Section("About") {
                     LabeledContent("Version", value: Bundle.main.appVersion)
@@ -35,9 +27,6 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
-            .navigationDestination(isPresented: $navigateToConnect) {
-                DaemonConnectionSection()
-            }
         }
     }
 }

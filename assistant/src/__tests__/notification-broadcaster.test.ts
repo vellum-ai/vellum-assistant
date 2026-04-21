@@ -593,7 +593,7 @@ describe("notification broadcaster", () => {
     broadcaster.setOnConversationCreated((info) => createdCalls.push(info));
 
     const signal = makeSignal({
-      sourceEventName: "schedule.complete",
+      sourceEventName: "schedule.notify",
       conversationMetadata: {
         groupId: "system:scheduled",
         source: "schedule",
@@ -607,7 +607,7 @@ describe("notification broadcaster", () => {
     expect(createdCalls).toHaveLength(1);
     expect(createdCalls[0].groupId).toBe("system:scheduled");
     expect(createdCalls[0].source).toBe("schedule");
-    expect(createdCalls[0].sourceEventName).toBe("schedule.complete");
+    expect(createdCalls[0].sourceEventName).toBe("schedule.notify");
   });
 
   test("onConversationCreated omits groupId and source when conversationMetadata is absent", async () => {
@@ -632,7 +632,7 @@ describe("notification broadcaster", () => {
     const dispatchCalls: ConversationCreatedInfo[] = [];
 
     const signal = makeSignal({
-      sourceEventName: "schedule.complete",
+      sourceEventName: "schedule.notify",
       conversationMetadata: {
         groupId: "system:scheduled",
         source: "schedule",

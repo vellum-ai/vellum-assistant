@@ -38,6 +38,17 @@ extension MainWindowView {
                     }
                 }
             }
+            .onChange(of: conversationManager.selectionStore.isRestoringConversations) { _, isRestoring in
+                // Dismiss the skeleton when restoration completes, covering the
+                // zero-conversations case (list stays empty but restoration is done)
+                // and the managed-assistant case where the HTTP fetch exceeds the
+                // timer-based fallback.
+                if !isRestoring && showDaemonLoading {
+                    withAnimation(VAnimation.standard) {
+                        showDaemonLoading = false
+                    }
+                }
+            }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 conversationManager.markActiveConversationSeenIfNeeded()
             }
@@ -157,10 +168,15 @@ extension MainWindowView {
     }
 
     func handleDaemonConnectionChange(_ connected: Bool) {
-        // Fallback for fresh users with 0 conversations: dismiss skeleton after a
-        // short delay once the daemon is connected. Only applies during initial load.
+        // Absolute safety-net fallback: dismiss the skeleton after 30s if no
+        // data-driven path has dismissed it. The primary dismissal paths are
+        // the .onChange observers on listStore.conversations.isEmpty (populated
+        // list) and selectionStore.isRestoringConversations (restoration
+        // complete, including the zero-conversations case). This timer only
+        // fires if restoration never completes — e.g. daemon hangs or fetch
+        // fails past its own retries.
         guard connected, showDaemonLoading else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
             guard showDaemonLoading else { return }
             withAnimation(VAnimation.standard) {
                 showDaemonLoading = false

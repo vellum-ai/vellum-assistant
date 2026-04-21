@@ -136,16 +136,16 @@ describe("allow rule", () => {
     expect(result.matchedRule).toBeUndefined();
   });
 
-  test("allow at High risk — containerized bash → allow (auto-allow), matchedRule present", () => {
+  test("allow at High risk — containerized bash without sandboxAutoApprove flag → prompt", () => {
     const result = evaluate({
       riskLevel: RiskLevel.High,
       toolName: "bash",
       matchedRule: allowRule,
       isContainerized: true,
     });
-    expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("auto-allow-high-risk");
-    expect(result.matchedRule).toBe(allowRule);
+    expect(result.decision).toBe("prompt");
+    expect(result.reason).toContain("high risk");
+    expect(result.matchedRule).toBeUndefined();
   });
 
   test("allow at High risk — non-bash tool, containerized → prompt, no matchedRule in decision", () => {
@@ -172,6 +172,100 @@ describe("allow rule", () => {
     expect(result.reason).toContain("high risk");
     // Decision is driven by risk-based fallback, not the rule
     expect(result.matchedRule).toBeUndefined();
+  });
+});
+
+// ── Sandbox auto-approve ─────────────────────────────────────────────────────
+
+describe("sandbox auto-approve", () => {
+  test("bash + hasSandboxAutoApprove + containerized → allow", () => {
+    const result = evaluate({
+      riskLevel: RiskLevel.High,
+      toolName: "bash",
+      hasSandboxAutoApprove: true,
+      isContainerized: true,
+    });
+    expect(result.decision).toBe("allow");
+    expect(result.reason).toContain("sandbox auto-approve");
+  });
+
+  test("bash + hasSandboxAutoApprove + not containerized → falls through", () => {
+    const result = evaluate({
+      riskLevel: RiskLevel.Low,
+      toolName: "bash",
+      hasSandboxAutoApprove: true,
+      isContainerized: false,
+    });
+    // Not containerized, so sandbox auto-approve doesn't fire.
+    // Falls through to risk-based: Low → allow (within default "low" threshold)
+    expect(result.decision).toBe("allow");
+    expect(result.reason).toContain("within auto-approve threshold");
+  });
+
+  test("host_bash + hasSandboxAutoApprove + containerized → falls through", () => {
+    const result = evaluate({
+      riskLevel: RiskLevel.Low,
+      toolName: "host_bash",
+      hasSandboxAutoApprove: true,
+      isContainerized: true,
+    });
+    // host_bash is not "bash", so sandbox auto-approve doesn't fire.
+    // Falls through to risk-based: Low → allow (within default "low" threshold)
+    expect(result.decision).toBe("allow");
+    expect(result.reason).toContain("within auto-approve threshold");
+  });
+
+  test("bash + no hasSandboxAutoApprove + containerized → falls through", () => {
+    const result = evaluate({
+      riskLevel: RiskLevel.High,
+      toolName: "bash",
+      hasSandboxAutoApprove: false,
+      isContainerized: true,
+    });
+    // hasSandboxAutoApprove is false, so sandbox auto-approve doesn't fire.
+    // Falls through to risk-based: High → prompt
+    expect(result.decision).toBe("prompt");
+    expect(result.reason).toContain("high risk");
+  });
+
+  test("sandbox auto-approve fires even for High risk commands", () => {
+    // e.g. rm -rf in a container — should be auto-approved
+    const result = evaluate({
+      riskLevel: RiskLevel.High,
+      toolName: "bash",
+      hasSandboxAutoApprove: true,
+      isContainerized: true,
+    });
+    expect(result.decision).toBe("allow");
+    expect(result.reason).toContain("sandbox auto-approve");
+  });
+
+  test("deny rule still blocks sandbox auto-approve commands", () => {
+    const denyRule = makeRule({ decision: "deny" });
+    const result = evaluate({
+      riskLevel: RiskLevel.High,
+      toolName: "bash",
+      hasSandboxAutoApprove: true,
+      isContainerized: true,
+      matchedRule: denyRule,
+    });
+    // Deny at step 1 prevents step 3 (sandbox auto-approve)
+    expect(result.decision).toBe("deny");
+    expect(result.reason).toContain("deny rule");
+  });
+
+  test("strict mode blocks sandbox auto-approve", () => {
+    const result = evaluate({
+      riskLevel: RiskLevel.Low,
+      toolName: "bash",
+      hasSandboxAutoApprove: true,
+      isContainerized: true,
+      permissionsMode: "strict",
+    });
+    // Strict mode requires explicit rules — sandbox auto-approve only
+    // fires in workspace mode.
+    expect(result.decision).toBe("prompt");
+    expect(result.reason).toContain("Strict mode");
   });
 });
 
@@ -305,7 +399,7 @@ describe("no rule — workspace mode", () => {
     expect(result.reason).toContain("medium risk");
   });
 
-  test("workspace mode, bash, NOT containerized, Low risk, workspace-scoped → falls through (no auto-allow for host bash)", () => {
+  test("workspace mode, bash, NOT containerized, Low risk, workspace-scoped → allow via workspace mode", () => {
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "bash",
@@ -313,10 +407,8 @@ describe("no rule — workspace mode", () => {
       isContainerized: false,
       isWorkspaceScoped: true,
     });
-    // Non-containerized bash falls through the workspace check.
-    // Then hits risk-based: Low → allow (within default "low" threshold)
     expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("low risk");
+    expect(result.reason).toContain("Workspace mode");
   });
 
   test("workspace mode, bash, containerized, Low risk, workspace-scoped → allow via workspace mode", () => {
@@ -474,10 +566,9 @@ describe("edge cases", () => {
     expect(result.decision).toBe("allow");
   });
 
-  test("workspace mode non-containerized bash, Low risk, workspace-scoped → low risk allow (not workspace allow)", () => {
-    // This is the subtle bash host exception. The workspace mode check
-    // specifically skips bash when not containerized, so it falls through
-    // to the risk-based path where Low risk still auto-allows.
+  test("workspace mode non-containerized bash, Low risk, workspace-scoped → workspace allow", () => {
+    // Non-containerized bash auto-allows via workspace mode like any other
+    // workspace-scoped tool when risk is Low.
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "bash",
@@ -486,10 +577,7 @@ describe("edge cases", () => {
       isWorkspaceScoped: true,
     });
     expect(result.decision).toBe("allow");
-    // The reason should be "low risk" not "Workspace mode" — the workspace
-    // auto-allow was bypassed because bash is on the host.
-    expect(result.reason).not.toContain("Workspace mode");
-    expect(result.reason).toContain("low risk");
+    expect(result.reason).toContain("Workspace mode");
   });
 
   test("hasManifestOverride with toolOrigin set to skill — third-party check triggers on origin", () => {

