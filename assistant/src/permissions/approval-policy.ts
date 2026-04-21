@@ -17,6 +17,13 @@ export interface ApprovalContext {
   isSkillBundled?: boolean;
   /** Whether the tool has a manifest override (unregistered skill tool). */
   hasManifestOverride?: boolean;
+  /**
+   * Auto-approve tools at or below this risk level when no rule matches.
+   * - "none": prompt for everything (strictest)
+   * - "low": auto-approve Low risk (default, matches existing behavior)
+   * - "medium": auto-approve Low and Medium risk
+   */
+  autoApproveUpTo?: "none" | "low" | "medium";
 }
 
 /** The outcome of an approval policy evaluation. */
@@ -51,9 +58,8 @@ export interface ApprovalPolicy {
  * 8. No rule + workspace mode + Low + workspace-scoped → allow
  *    (except non-containerized bash — never auto-allow)
  * 9. No rule + Low + bundled skill → allow
- * 10. High → prompt
- * 11. Low → allow
- * 12. Medium → prompt
+ * 10. Risk ≤ autoApproveUpTo threshold → allow
+ * 11. Risk > autoApproveUpTo threshold → prompt
  */
 export class DefaultApprovalPolicy implements ApprovalPolicy {
   evaluate(context: ApprovalContext): ApprovalDecision {
@@ -163,22 +169,25 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       }
     }
 
-    // ── 10–12. Risk-based fallback ────────────────────────────────────
-    if (riskLevel === RiskLevel.High) {
+    // ── 10–11. Risk-based fallback: compare risk against configured threshold ─
+    const autoApproveUpTo = context.autoApproveUpTo ?? "low";
+    const riskOrdinal: Record<string, number> = { low: 0, medium: 1, high: 2 };
+    const thresholdOrdinal: Record<string, number> = {
+      none: -1,
+      low: 0,
+      medium: 1,
+    };
+    const risk = riskOrdinal[riskLevel] ?? 2;
+    const threshold = thresholdOrdinal[autoApproveUpTo] ?? 0;
+    if (risk <= threshold) {
       return {
-        decision: "prompt",
-        reason: "High risk: always requires approval",
+        decision: "allow",
+        reason: `${riskLevel} risk: within auto-approve threshold`,
       };
     }
-
-    if (riskLevel === RiskLevel.Low) {
-      return { decision: "allow", reason: "Low risk: auto-allowed" };
-    }
-
-    // Medium (or any unrecognized risk level)
     return {
       decision: "prompt",
-      reason: `${riskLevel} risk: requires approval`,
+      reason: `${riskLevel} risk: above auto-approve threshold`,
     };
   }
 

@@ -591,11 +591,12 @@ export async function check(
 
   // Build approval context from local variables
   const tool = getTool(toolName);
+  const config = getConfig();
   const approvalContext: ApprovalContext = {
     riskLevel: risk,
     toolName,
     matchedRule: matchedRule ?? undefined,
-    permissionsMode: getConfig().permissions.mode,
+    permissionsMode: config.permissions.mode,
     isContainerized: getIsContainerized(),
     isWorkspaceScoped:
       risk === RiskLevel.Low
@@ -605,6 +606,7 @@ export async function check(
       tool?.origin === "skill" ? "skill" : tool ? "builtin" : undefined,
     isSkillBundled: tool?.ownerSkillBundled ?? false,
     hasManifestOverride: !!manifestOverride,
+    autoApproveUpTo: config.permissions.autoApproveUpTo,
   };
 
   // Delegate the allow/prompt/deny decision to the approval policy
