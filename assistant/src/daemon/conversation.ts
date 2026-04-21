@@ -44,11 +44,9 @@ import {
 } from "../events/tool-profiling-listener.js";
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { getHookManager } from "../hooks/manager.js";
-import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import {
   getConversationOriginChannel,
-  updateConversationContextWindow,
   updateConversationHostAccess,
 } from "../memory/conversation-crud.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
@@ -76,7 +74,7 @@ import type { AbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import {
-  collapseRawResponses,
+  applyCompactionResult,
   runAgentLoopImpl,
   trackCompactionOutcome,
 } from "./conversation-agent-loop.js";
@@ -122,7 +120,6 @@ import {
   createResolveToolsCallback,
   createToolExecutor,
 } from "./conversation-tool-setup.js";
-import { recordUsage } from "./conversation-usage.js";
 import { refreshWorkspaceTopLevelContextIfNeeded as refreshWorkspaceImpl } from "./conversation-workspace.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
 import { HostBrowserProxy } from "./host-browser-proxy.js";
@@ -1254,63 +1251,7 @@ export class Conversation {
       trackCompactionOutcome(this, result.summaryFailed, this.sendToClient);
     }
     if (result.compacted) {
-      this.messages = result.messages;
-      this.contextCompactedMessageCount += result.compactedPersistedMessages;
-      this.contextCompactedAt = Date.now();
-      updateConversationContextWindow(
-        this.conversationId,
-        result.summaryText,
-        this.contextCompactedMessageCount,
-      );
-      // Fire auto-analysis on compaction so the reflective agent can
-      // crystallize anything worth remembering before the context window
-      // narrows further.
-      enqueueAutoAnalysisOnCompaction(
-        this.conversationId,
-        this.trustContext?.trustClass,
-      );
-      // Notify memory graph that compaction happened — triggers full context
-      // reload on the next turn to replenish lost memory context. Matches
-      // every auto-compaction path in conversation-agent-loop.ts.
-      this.graphMemory.onCompacted(result.compactedPersistedMessages);
-      this.sendToClient({
-        type: "context_compacted",
-        conversationId: this.conversationId,
-        previousEstimatedInputTokens: result.previousEstimatedInputTokens,
-        estimatedInputTokens: result.estimatedInputTokens,
-        maxInputTokens: result.maxInputTokens,
-        thresholdTokens: result.thresholdTokens,
-        compactedMessages: result.compactedMessages,
-        summaryCalls: result.summaryCalls,
-        summaryInputTokens: result.summaryInputTokens,
-        summaryOutputTokens: result.summaryOutputTokens,
-        summaryModel: result.summaryModel,
-      });
-      // Call recordUsage unconditionally — it early-returns on 0/0 tokens
-      // (the truncation-only path), and the client already picks up the
-      // fresh context-window tokens from the `context_compacted` event
-      // emitted above. Matches the agent-loop auto-compaction sites.
-      recordUsage(
-        {
-          conversationId: this.conversationId,
-          providerName: this.provider.name,
-          usageStats: this.usageStats,
-        },
-        result.summaryInputTokens,
-        result.summaryOutputTokens,
-        result.summaryModel,
-        this.sendToClient,
-        "context_compactor",
-        null,
-        result.summaryCacheCreationInputTokens ?? 0,
-        result.summaryCacheReadInputTokens ?? 0,
-        collapseRawResponses(result.summaryRawResponses),
-        result.summaryCalls,
-        {
-          tokens: result.estimatedInputTokens,
-          maxTokens: result.maxInputTokens,
-        },
-      );
+      applyCompactionResult(this, result, this.sendToClient, null);
     }
     return result;
   }

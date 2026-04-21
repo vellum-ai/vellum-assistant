@@ -2895,6 +2895,21 @@ paths:
           required: true
           schema:
             type: string
+  /v1/conversations/{id}/playground/compaction-state:
+    get:
+      operationId: conversations_by_id_playground_compactionstate_get
+      summary: Read current compaction state for a conversation
+      tags:
+        - playground
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/conversations/{id}/playground/reset-compaction-circuit:
     post:
       operationId: conversations_by_id_playground_resetcompactioncircuit_post

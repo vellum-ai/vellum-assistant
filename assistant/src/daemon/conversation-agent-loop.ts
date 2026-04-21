@@ -232,11 +232,6 @@ export function trackCompactionOutcome(
     ) {
       const openUntil = Date.now() + COMPACTION_CIRCUIT_COOLDOWN_MS;
       ctx.compactionCircuitOpenUntil = openUntil;
-      // Scope the event to this conversation so clients can gate it via
-      // `belongsToConversation()` — `EventStreamClient` broadcasts every
-      // parsed server message to all subscribers, so without the ID a
-      // breaker trip here would set the "paused" banner on every open
-      // `ChatViewModel`.
       onEvent({
         type: "compaction_circuit_open",
         conversationId: ctx.conversationId,
@@ -245,21 +240,11 @@ export function trackCompactionOutcome(
       });
     }
   } else {
-    // Capture the open state before we clear it — we only emit the
-    // `compaction_circuit_closed` event on the open→closed transition so
-    // the Swift banner can dismiss immediately once auto-compaction
-    // resumes. Firing on every successful compaction would be noise
-    // (the breaker is closed in the common case), so the transition
-    // gate keeps the event meaningful.
+    // Emit only on open→closed transition; firing on the common closed→closed case would be noise.
     const wasOpen = ctx.compactionCircuitOpenUntil !== null;
     ctx.consecutiveCompactionFailures = 0;
     ctx.compactionCircuitOpenUntil = null;
     if (wasOpen) {
-      // Scope the event to this conversation so clients can gate it via
-      // `belongsToConversation()` — `EventStreamClient` broadcasts every
-      // parsed server message to all subscribers, so without the ID a
-      // breaker recovery here would clear the banner on every open
-      // `ChatViewModel`.
       onEvent({
         type: "compaction_circuit_closed",
         conversationId: ctx.conversationId,
@@ -646,55 +631,7 @@ export async function runAgentLoopImpl(
       trackCompactionOutcome(ctx, compacted.summaryFailed, onEvent);
     }
     if (compacted?.compacted) {
-      ctx.messages = compacted.messages;
-      ctx.contextCompactedMessageCount += compacted.compactedPersistedMessages;
-      ctx.contextCompactedAt = Date.now();
-      // Notify memory graph that compaction happened — triggers full context
-      // reload on the next turn to replenish lost memory context.
-      ctx.graphMemory.onCompacted(compacted.compactedPersistedMessages);
-      updateConversationContextWindow(
-        ctx.conversationId,
-        compacted.summaryText,
-        ctx.contextCompactedMessageCount,
-      );
-      // Fire auto-analysis on compaction so the reflective agent can
-      // crystallize anything worth remembering before the context window
-      // narrows further.
-      enqueueAutoAnalysisOnCompaction(
-        ctx.conversationId,
-        ctx.trustContext?.trustClass,
-      );
-      onEvent({
-        type: "context_compacted",
-        conversationId: ctx.conversationId,
-        previousEstimatedInputTokens: compacted.previousEstimatedInputTokens,
-        estimatedInputTokens: compacted.estimatedInputTokens,
-        maxInputTokens: compacted.maxInputTokens,
-        thresholdTokens: compacted.thresholdTokens,
-        compactedMessages: compacted.compactedMessages,
-        summaryCalls: compacted.summaryCalls,
-        summaryInputTokens: compacted.summaryInputTokens,
-        summaryOutputTokens: compacted.summaryOutputTokens,
-        summaryModel: compacted.summaryModel,
-      });
-      emitUsage(
-        ctx,
-        compacted.summaryInputTokens,
-        compacted.summaryOutputTokens,
-        compacted.summaryModel,
-        onEvent,
-        "context_compactor",
-        reqId,
-        compacted.summaryCacheCreationInputTokens ?? 0,
-        compacted.summaryCacheReadInputTokens ?? 0,
-        collapseRawResponses(compacted.summaryRawResponses),
-        undefined /* providerName */,
-        1 /* llmCallCount */,
-        {
-          tokens: compacted.estimatedInputTokens,
-          maxTokens: compacted.maxInputTokens,
-        },
-      );
+      applyCompactionResult(ctx, compacted, onEvent, reqId);
       shouldInjectWorkspace = true;
       if (compacted.compactedPersistedMessages > 0) {
         compactedThisTurn = true;
@@ -1188,54 +1125,7 @@ export async function runAgentLoopImpl(
         }
 
         if (step.compactionResult?.compacted) {
-          ctx.contextCompactedMessageCount +=
-            step.compactionResult.compactedPersistedMessages;
-          ctx.contextCompactedAt = Date.now();
-          updateConversationContextWindow(
-            ctx.conversationId,
-            step.compactionResult.summaryText,
-            ctx.contextCompactedMessageCount,
-          );
-          // Fire auto-analysis on compaction — see forceCompact() for rationale.
-          enqueueAutoAnalysisOnCompaction(
-            ctx.conversationId,
-            ctx.trustContext?.trustClass,
-          );
-          onEvent({
-            type: "context_compacted",
-            conversationId: ctx.conversationId,
-            previousEstimatedInputTokens:
-              step.compactionResult.previousEstimatedInputTokens,
-            estimatedInputTokens: step.compactionResult.estimatedInputTokens,
-            maxInputTokens: step.compactionResult.maxInputTokens,
-            thresholdTokens: step.compactionResult.thresholdTokens,
-            compactedMessages: step.compactionResult.compactedMessages,
-            summaryCalls: step.compactionResult.summaryCalls,
-            summaryInputTokens: step.compactionResult.summaryInputTokens,
-            summaryOutputTokens: step.compactionResult.summaryOutputTokens,
-            summaryModel: step.compactionResult.summaryModel,
-          });
-          emitUsage(
-            ctx,
-            step.compactionResult.summaryInputTokens,
-            step.compactionResult.summaryOutputTokens,
-            step.compactionResult.summaryModel,
-            onEvent,
-            "context_compactor",
-            reqId,
-            step.compactionResult.summaryCacheCreationInputTokens ?? 0,
-            step.compactionResult.summaryCacheReadInputTokens ?? 0,
-            collapseRawResponses(step.compactionResult.summaryRawResponses),
-            undefined /* providerName */,
-            1 /* llmCallCount */,
-            {
-              tokens: step.compactionResult.estimatedInputTokens,
-              maxTokens: step.compactionResult.maxInputTokens,
-            },
-          );
-          ctx.graphMemory.onCompacted(
-            step.compactionResult.compactedPersistedMessages,
-          );
+          applyCompactionResult(ctx, step.compactionResult, onEvent, reqId);
           shouldInjectWorkspace = true;
           reducerCompacted = true;
         }
@@ -1448,54 +1338,8 @@ export async function runAgentLoopImpl(
         trackCompactionOutcome(ctx, midLoopCompact.summaryFailed, onEvent);
       }
       if (midLoopCompact.compacted) {
-        ctx.messages = midLoopCompact.messages;
+        applyCompactionResult(ctx, midLoopCompact, onEvent, reqId);
         reducerCompacted = true;
-        ctx.contextCompactedMessageCount +=
-          midLoopCompact.compactedPersistedMessages;
-        ctx.contextCompactedAt = Date.now();
-        updateConversationContextWindow(
-          ctx.conversationId,
-          midLoopCompact.summaryText,
-          ctx.contextCompactedMessageCount,
-        );
-        // Fire auto-analysis on compaction — see forceCompact() for rationale.
-        enqueueAutoAnalysisOnCompaction(
-          ctx.conversationId,
-          ctx.trustContext?.trustClass,
-        );
-        onEvent({
-          type: "context_compacted",
-          conversationId: ctx.conversationId,
-          previousEstimatedInputTokens:
-            midLoopCompact.previousEstimatedInputTokens,
-          estimatedInputTokens: midLoopCompact.estimatedInputTokens,
-          maxInputTokens: midLoopCompact.maxInputTokens,
-          thresholdTokens: midLoopCompact.thresholdTokens,
-          compactedMessages: midLoopCompact.compactedMessages,
-          summaryCalls: midLoopCompact.summaryCalls,
-          summaryInputTokens: midLoopCompact.summaryInputTokens,
-          summaryOutputTokens: midLoopCompact.summaryOutputTokens,
-          summaryModel: midLoopCompact.summaryModel,
-        });
-        emitUsage(
-          ctx,
-          midLoopCompact.summaryInputTokens,
-          midLoopCompact.summaryOutputTokens,
-          midLoopCompact.summaryModel,
-          onEvent,
-          "context_compactor",
-          reqId,
-          midLoopCompact.summaryCacheCreationInputTokens ?? 0,
-          midLoopCompact.summaryCacheReadInputTokens ?? 0,
-          collapseRawResponses(midLoopCompact.summaryRawResponses),
-          undefined /* providerName */,
-          1 /* llmCallCount */,
-          {
-            tokens: midLoopCompact.estimatedInputTokens,
-            maxTokens: midLoopCompact.maxInputTokens,
-          },
-        );
-        ctx.graphMemory.onCompacted(midLoopCompact.compactedPersistedMessages);
         shouldInjectWorkspace = true;
       }
 
@@ -1725,54 +1569,7 @@ export async function runAgentLoopImpl(
         }
 
         if (step.compactionResult?.compacted) {
-          ctx.contextCompactedMessageCount +=
-            step.compactionResult.compactedPersistedMessages;
-          ctx.contextCompactedAt = Date.now();
-          updateConversationContextWindow(
-            ctx.conversationId,
-            step.compactionResult.summaryText,
-            ctx.contextCompactedMessageCount,
-          );
-          // Fire auto-analysis on compaction — see forceCompact() for rationale.
-          enqueueAutoAnalysisOnCompaction(
-            ctx.conversationId,
-            ctx.trustContext?.trustClass,
-          );
-          onEvent({
-            type: "context_compacted",
-            conversationId: ctx.conversationId,
-            previousEstimatedInputTokens:
-              step.compactionResult.previousEstimatedInputTokens,
-            estimatedInputTokens: step.compactionResult.estimatedInputTokens,
-            maxInputTokens: step.compactionResult.maxInputTokens,
-            thresholdTokens: step.compactionResult.thresholdTokens,
-            compactedMessages: step.compactionResult.compactedMessages,
-            summaryCalls: step.compactionResult.summaryCalls,
-            summaryInputTokens: step.compactionResult.summaryInputTokens,
-            summaryOutputTokens: step.compactionResult.summaryOutputTokens,
-            summaryModel: step.compactionResult.summaryModel,
-          });
-          emitUsage(
-            ctx,
-            step.compactionResult.summaryInputTokens,
-            step.compactionResult.summaryOutputTokens,
-            step.compactionResult.summaryModel,
-            onEvent,
-            "context_compactor",
-            reqId,
-            step.compactionResult.summaryCacheCreationInputTokens ?? 0,
-            step.compactionResult.summaryCacheReadInputTokens ?? 0,
-            collapseRawResponses(step.compactionResult.summaryRawResponses),
-            undefined /* providerName */,
-            1 /* llmCallCount */,
-            {
-              tokens: step.compactionResult.estimatedInputTokens,
-              maxTokens: step.compactionResult.maxInputTokens,
-            },
-          );
-          ctx.graphMemory.onCompacted(
-            step.compactionResult.compactedPersistedMessages,
-          );
+          applyCompactionResult(ctx, step.compactionResult, onEvent, reqId);
           shouldInjectWorkspace = true;
           reducerCompacted = true;
         }
@@ -1890,56 +1687,8 @@ export async function runAgentLoopImpl(
             );
           }
           if (emergencyCompact.compacted) {
-            ctx.messages = emergencyCompact.messages;
+            applyCompactionResult(ctx, emergencyCompact, onEvent, reqId);
             reducerCompacted = true;
-            ctx.contextCompactedMessageCount +=
-              emergencyCompact.compactedPersistedMessages;
-            ctx.contextCompactedAt = Date.now();
-            updateConversationContextWindow(
-              ctx.conversationId,
-              emergencyCompact.summaryText,
-              ctx.contextCompactedMessageCount,
-            );
-            // Fire auto-analysis on compaction — see forceCompact() for rationale.
-            enqueueAutoAnalysisOnCompaction(
-              ctx.conversationId,
-              ctx.trustContext?.trustClass,
-            );
-            onEvent({
-              type: "context_compacted",
-              conversationId: ctx.conversationId,
-              previousEstimatedInputTokens:
-                emergencyCompact.previousEstimatedInputTokens,
-              estimatedInputTokens: emergencyCompact.estimatedInputTokens,
-              maxInputTokens: emergencyCompact.maxInputTokens,
-              thresholdTokens: emergencyCompact.thresholdTokens,
-              compactedMessages: emergencyCompact.compactedMessages,
-              summaryCalls: emergencyCompact.summaryCalls,
-              summaryInputTokens: emergencyCompact.summaryInputTokens,
-              summaryOutputTokens: emergencyCompact.summaryOutputTokens,
-              summaryModel: emergencyCompact.summaryModel,
-            });
-            emitUsage(
-              ctx,
-              emergencyCompact.summaryInputTokens,
-              emergencyCompact.summaryOutputTokens,
-              emergencyCompact.summaryModel,
-              onEvent,
-              "context_compactor",
-              reqId,
-              emergencyCompact.summaryCacheCreationInputTokens ?? 0,
-              emergencyCompact.summaryCacheReadInputTokens ?? 0,
-              collapseRawResponses(emergencyCompact.summaryRawResponses),
-              undefined /* providerName */,
-              1 /* llmCallCount */,
-              {
-                tokens: emergencyCompact.estimatedInputTokens,
-                maxTokens: emergencyCompact.maxInputTokens,
-              },
-            );
-            ctx.graphMemory.onCompacted(
-              emergencyCompact.compactedPersistedMessages,
-            );
             shouldInjectWorkspace = true;
           }
 
@@ -2445,6 +2194,99 @@ function emitUsage(
     rawResponse,
     llmCallCount,
     contextWindow,
+  );
+}
+
+/**
+ * Minimal context shape consumed by `applyCompactionResult`. Both
+ * `AgentLoopConversationContext` and `Conversation` satisfy this via structural
+ * typing, so the helper can back both the 5 agent-loop auto-compaction sites
+ * and the single `forceCompact` user-initiated site.
+ */
+export interface CompactionApplyContext {
+  readonly conversationId: string;
+  messages: Message[];
+  contextCompactedMessageCount: number;
+  contextCompactedAt: number | null;
+  readonly graphMemory: ConversationGraphMemory;
+  readonly provider: Provider;
+  usageStats: UsageStats;
+  trustContext?: TrustContext;
+}
+
+/**
+ * Applies a successful `ContextWindowResult` to a conversation: updates the
+ * in-memory message buffer and compaction counters, notifies the graph memory
+ * and conversation-summary store, enqueues auto-analysis, emits the
+ * `context_compacted` event, and records a `context_compactor` usage event.
+ *
+ * The emitted `usage_update` intentionally omits `contextWindow` — the
+ * `context_compacted` event already carries the fresh
+ * `estimatedInputTokens` / `maxInputTokens` and is the single source of
+ * truth for the UI indicator after compaction. Emitting both caused a
+ * redundant SwiftUI invalidation on every compaction.
+ */
+export function applyCompactionResult(
+  ctx: CompactionApplyContext,
+  result: {
+    messages: Message[];
+    compactedPersistedMessages: number;
+    previousEstimatedInputTokens: number;
+    estimatedInputTokens: number;
+    maxInputTokens: number;
+    thresholdTokens: number;
+    compactedMessages: number;
+    summaryCalls: number;
+    summaryInputTokens: number;
+    summaryOutputTokens: number;
+    summaryModel: string;
+    summaryText: string;
+    summaryCacheCreationInputTokens?: number;
+    summaryCacheReadInputTokens?: number;
+    summaryRawResponses?: unknown[];
+  },
+  onEvent: (msg: ServerMessage) => void,
+  reqId: string | null,
+): void {
+  ctx.messages = result.messages;
+  ctx.contextCompactedMessageCount += result.compactedPersistedMessages;
+  ctx.contextCompactedAt = Date.now();
+  ctx.graphMemory.onCompacted(result.compactedPersistedMessages);
+  updateConversationContextWindow(
+    ctx.conversationId,
+    result.summaryText,
+    ctx.contextCompactedMessageCount,
+  );
+  enqueueAutoAnalysisOnCompaction(
+    ctx.conversationId,
+    ctx.trustContext?.trustClass,
+  );
+  onEvent({
+    type: "context_compacted",
+    conversationId: ctx.conversationId,
+    previousEstimatedInputTokens: result.previousEstimatedInputTokens,
+    estimatedInputTokens: result.estimatedInputTokens,
+    maxInputTokens: result.maxInputTokens,
+    thresholdTokens: result.thresholdTokens,
+    compactedMessages: result.compactedMessages,
+    summaryCalls: result.summaryCalls,
+    summaryInputTokens: result.summaryInputTokens,
+    summaryOutputTokens: result.summaryOutputTokens,
+    summaryModel: result.summaryModel,
+  });
+  emitUsage(
+    ctx,
+    result.summaryInputTokens,
+    result.summaryOutputTokens,
+    result.summaryModel,
+    onEvent,
+    "context_compactor",
+    reqId,
+    result.summaryCacheCreationInputTokens ?? 0,
+    result.summaryCacheReadInputTokens ?? 0,
+    collapseRawResponses(result.summaryRawResponses),
+    undefined /* providerName */,
+    1 /* llmCallCount */,
   );
 }
 

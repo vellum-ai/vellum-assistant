@@ -3,6 +3,7 @@ import type { PlaygroundRouteDeps } from "./deps.js";
 import { forceCompactRouteDefinitions } from "./force-compact.js";
 import { resetCircuitRouteDefinitions } from "./reset-circuit.js";
 import { seededConversationsRouteDefinitions } from "./seeded-conversations.js";
+import { stateRouteDefinitions } from "./state.js";
 
 export type { PlaygroundRouteDeps };
 export { assertPlaygroundEnabled } from "./guard.js";
@@ -17,5 +18,6 @@ export function playgroundRouteDefinitions(
     ...forceCompactRouteDefinitions(deps),
     ...resetCircuitRouteDefinitions(deps),
     ...seededConversationsRouteDefinitions(deps),
+    ...stateRouteDefinitions(deps),
   ];
 }
