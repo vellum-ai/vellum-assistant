@@ -85,10 +85,11 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   };
 
   // When running inside a container (IS_CONTAINERIZED=true), bash commands
-  // execute in an isolated environment — auto-allow all of them so the user
-  // is never prompted. High-risk operations are handled by
-  // shouldAutoAllowHighRisk() in checker.ts. Outside a container, bash
-  // commands run on the host and go through normal permission checks.
+  // with sandboxAutoApprove tags auto-allow via the approval policy's
+  // sandbox auto-approve check. Non-allowlisted commands matched by the
+  // default allow rule below are still auto-allowed at low/medium risk;
+  // only high-risk non-allowlisted commands (runtimes, privilege escalation)
+  // fall through to be prompted.
   const bashShellRule: DefaultRuleTemplate | null = getIsContainerized()
     ? {
         id: "default:allow-bash-global",

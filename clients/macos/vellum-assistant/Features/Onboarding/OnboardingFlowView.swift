@@ -227,6 +227,7 @@ struct OnboardingFlowView: View {
                 completionDelayTask?.cancel()
                 didCallComplete = false
                 state.isHatching = false
+                state.hatchProcessStarted = false
                 state.isManagedHatch = false
                 state.hatchCompleted = false
                 state.hatchFailed = false

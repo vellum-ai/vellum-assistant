@@ -66,14 +66,18 @@ extension AppDelegate {
         }
     }
 
-    func showAuthWindow(reusingWindow existingWindow: NSWindow? = nil) {
-        if let existing = authWindow {
+    func showAuthWindow(
+        reusingWindow existingWindow: NSWindow? = nil,
+        forceOnboarding: Bool = false
+    ) {
+        if let existing = authWindow, !forceOnboarding {
             existing.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        let hasManagedAssistants = LockfileAssistant.loadAll().contains { $0.isManaged && $0.isCurrentEnvironment }
+        let hasManagedAssistants = !forceOnboarding
+            && LockfileAssistant.loadAll().contains { $0.isManaged && $0.isCurrentEnvironment }
         let authView: AnyView
 
         if hasManagedAssistants {
@@ -82,6 +86,9 @@ extension AppDelegate {
                 authManager: authManager,
                 onComplete: { [weak self] in
                     self?.proceedToApp()
+                },
+                onNeedsHostingPicker: { [weak self] in
+                    self?.showAuthWindow(forceOnboarding: true)
                 }
             ))
         } else {
@@ -105,9 +112,14 @@ extension AppDelegate {
 
         let hostingController = NSHostingController(rootView: authView)
 
+        // When forcing the onboarding picker after re-auth, reuse the
+        // current authWindow so the view swaps in-place rather than
+        // closing and re-opening a window.
+        let windowToReuse = existingWindow ?? (forceOnboarding ? authWindow : nil)
+
         let window: NSWindow
-        if let existingWindow {
-            window = existingWindow
+        if let windowToReuse {
+            window = windowToReuse
             window.contentViewController = hostingController
             window.isMovableByWindowBackground = true
             window.backgroundColor = NSColor(VColor.surfaceOverlay)
@@ -159,49 +171,77 @@ extension AppDelegate {
     }
 
     @objc func performRestart() {
-        let bundleURL = Bundle.main.bundleURL
-
-        // Disconnect SSE and health checks *before* the CLI kills the
-        // daemon/gateway.  Otherwise the health check detects the daemon
-        // dying, triggers autoWakeIfAssistantDied(), and wakes the daemon
-        // right back up — fighting with the shutdown.  (Same pattern as
-        // performRetireAsync().)
+        // Terminate-first relaunch: spawn a detached shell watcher that
+        // waits for our PID to exit, then launches a fresh app instance
+        // via `open`.  Only one instance is ever alive, so we don't need
+        // a sentinel file or a single-instance-guard exception.
+        //
+        // Apple provides no first-party "restart self" API; every
+        // self-relaunch in the macOS ecosystem (Sparkle, Electron, etc.)
+        // uses a helper-process variant of this pattern.  `AppBundleRenamer`
+        // already uses a richer version of the same pattern in this codebase.
+        //
+        // Daemon / gateway shutdown runs through the normal terminate path
+        // (`applicationShouldTerminate` → `vellumCli.stop()`), so the new
+        // instance comes up to a cleanly-freed daemon state.
+        //
+        // SSE + health checks are disconnected here (before the normal
+        // shutdown path starts) to prevent `autoWakeIfAssistantDied()` from
+        // waking the daemon right back up while `cli.stop()` is killing it.
+        // Same ordering as `performRetireAsync()`.
         connectionManager.disconnect()
 
-        // Write a timestamped sentinel so the new instance's single-instance
-        // guard knows this is an intentional restart, not a duplicate launch.
-        // The sentinel contains the current Unix timestamp; the new instance
-        // honours it only if it is less than 30 seconds old, so a stale file
-        // left by a crash does not permanently disable the guard.
-        // Uses NSTemporaryDirectory() (per Apple guidelines for transient IPC
-        // files) instead of ~/.vellum to avoid workspace disk assumptions.
-        let sentinelPath = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("vellum-restart-in-progress")
-        let timestamp = "\(Date().timeIntervalSince1970)"
-        try? timestamp.write(to: sentinelPath, atomically: true, encoding: .utf8)
+        let pid = ProcessInfo.processInfo.processIdentifier
+        // Escape for safe interpolation into a bash single-quoted string —
+        // single quotes prevent `$`, `` ` ``, and `\` expansion that double
+        // quotes would allow.  Same pattern as `AppBundleRenamer.shellEscape`.
+        let escapedBundlePath = Bundle.main.bundlePath
+            .replacingOccurrences(of: "'", with: "'\\''")
 
-        let config = NSWorkspace.OpenConfiguration()
-        config.createsNewApplicationInstance = true
-        NSWorkspace.shared.openApplication(at: bundleURL, configuration: config) { [weak self] _, error in
-            if let error {
-                log.error("Restart failed — could not launch new instance: \(error.localizedDescription)")
-                // Clean up the sentinel so a failed restart doesn't leave
-                // a file that could bypass the guard on the next launch.
-                try? FileManager.default.removeItem(at: sentinelPath)
-                // Reconnect SSE and health checks so the app doesn't stay
-                // in a disconnected state after a failed relaunch attempt.
-                // (Same pattern as performRetireAsync()'s cancel path.)
-                Task { @MainActor [weak self] in
-                    try? await self?.connectionManager.connect()
-                }
-                return
-            }
+        let watcher = Process()
+        watcher.executableURL = URL(fileURLWithPath: "/bin/sh")
+        watcher.arguments = [
+            "-c",
+            """
+            # Wait up to 30 seconds for our PID to exit.  Must exceed
+            # `VellumCli.stopTimeout` (15s) plus AppKit teardown headroom,
+            # otherwise a slow daemon/gateway shutdown causes the watcher
+            # to abort before the old instance has actually exited —
+            # terminating the app without relaunching it.  If terminate
+            # is cancelled (e.g. an unsaved-changes sheet returns
+            # `.terminateCancel`) we must not loop forever.
+            for _ in $(seq 1 300); do
+                kill -0 \(pid) 2>/dev/null || break
+                sleep 0.1
+            done
+            # If still alive, abort rather than launching a second instance
+            # that would race the existing one and be killed by the
+            # single-instance guard.
+            if kill -0 \(pid) 2>/dev/null; then
+                exit 0
+            fi
+            open '\(escapedBundlePath)'
+            """
+        ]
+        watcher.standardOutput = FileHandle.nullDevice
+        watcher.standardError = FileHandle.nullDevice
+        watcher.qualityOfService = .utility
+
+        do {
+            try watcher.run()
+        } catch {
+            log.error("Restart failed — could not spawn relaunch watcher: \(error.localizedDescription)")
+            // Reconnect so the app doesn't stay in a disconnected state
+            // after a failed relaunch attempt.  (Same pattern as
+            // performRetireAsync()'s cancel path.)
             Task { @MainActor [weak self] in
-                await self?.vellumCli.stop()
-                self?.isRestarting = true
-                NSApp.terminate(nil)
+                try? await self?.connectionManager.connect()
             }
+            return
         }
+
+        log.info("Restart: relaunch watcher spawned (pid \(watcher.processIdentifier)), terminating self")
+        NSApp.terminate(nil)
     }
 
     @objc public func performLogout() {

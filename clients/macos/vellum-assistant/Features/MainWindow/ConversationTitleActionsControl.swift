@@ -16,6 +16,7 @@ struct ConversationTitleActionsControl: View {
     let onRename: () -> Void
     let onOpenForkParent: () -> Void
     let onAnalyzeConversation: () -> Void
+    let onRefresh: () -> Void
     var onOpenInNewWindow: (() -> Void)? = nil
 
     #if os(macOS)
@@ -146,6 +147,7 @@ struct ConversationTitleActionsControl: View {
                 onArchive: onArchive,
                 onRename: onRename,
                 onAnalyzeConversation: onAnalyzeConversation,
+                onRefresh: onRefresh,
                 onOpenInNewWindow: onOpenInNewWindow
             )
         } onDismiss: {
@@ -166,6 +168,7 @@ struct ConversationActionsMenuContent: View {
     let onArchive: () -> Void
     let onRename: () -> Void
     let onAnalyzeConversation: () -> Void
+    let onRefresh: () -> Void
     var onOpenInNewWindow: (() -> Void)? = nil
 
     var body: some View {
@@ -188,6 +191,10 @@ struct ConversationActionsMenuContent: View {
 
             if let onOpenInNewWindow {
                 VMenuItem(icon: VIcon.externalLink.rawValue, label: "Open in new window", action: onOpenInNewWindow)
+            }
+
+            if presentation.isPersisted {
+                VMenuItem(icon: VIcon.refreshCw.rawValue, label: "Refresh", action: onRefresh)
             }
 
             VMenuItem(

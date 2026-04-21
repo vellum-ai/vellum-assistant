@@ -34,16 +34,20 @@ export function buildPolicyContext(
 
   const executionContext = deriveExecutionContext(context);
 
+  const conversationId = context?.conversationId;
+
   if (tool.origin === "skill") {
     return {
       executionTarget: tool.executionTarget,
       ephemeralRules: ephemeralRules?.length ? ephemeralRules : undefined,
       executionContext,
+      conversationId,
     };
   }
 
   return {
     ephemeralRules: ephemeralRules?.length ? ephemeralRules : undefined,
     executionContext,
+    conversationId,
   };
 }

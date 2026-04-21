@@ -665,6 +665,87 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/webhooks/resend": {
+        post: {
+          summary: "Resend inbound webhook",
+          description:
+            "Receives inbound email events from Resend (BYO), verifies the Svix signature, fetches the email content from the Resend API, normalizes the message, and forwards it to the assistant runtime.",
+          operationId: "resendInboundWebhook",
+          security: [{ SvixSignature: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  description: "Resend webhook event payload.",
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Webhook accepted",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: { ok: { type: "boolean" } },
+                  },
+                },
+              },
+            },
+            "400": {
+              description: "Invalid JSON or unreadable body",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "403": {
+              description: "Signature verification failed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "405": {
+              description: "Method not allowed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "409": {
+              description: "Webhook secret not configured",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "413": {
+              description: "Payload too large",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "500": {
+              description: "Internal error",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/v1/audio/{audioId}": {
         get: {
           summary: "Retrieve synthesized audio",
@@ -2710,6 +2791,350 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/permissions/thresholds": {
+        get: {
+          summary: "Get global auto-approve thresholds",
+          operationId: "globalThresholdGet",
+          security: [{ EdgeScoped: [] }],
+          responses: {
+            "200": {
+              description: "Current thresholds",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      interactive: { type: "string" },
+                      background: { type: "string" },
+                      headless: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+        put: {
+          summary: "Upsert global auto-approve thresholds",
+          operationId: "globalThresholdPut",
+          security: [{ EdgeScoped: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    interactive: { type: "string" },
+                    background: { type: "string" },
+                    headless: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Updated thresholds",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      interactive: { type: "string" },
+                      background: { type: "string" },
+                      headless: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+            "400": { description: "Invalid request body" },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/assistants/{assistantId}/permissions/thresholds": {
+        get: {
+          summary: "Get global auto-approve thresholds (assistant-scoped)",
+          operationId: "globalThresholdGetScoped",
+          security: [{ EdgeScoped: [] }],
+          parameters: [
+            {
+              name: "assistantId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Current thresholds",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      interactive: { type: "string" },
+                      background: { type: "string" },
+                      headless: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+        put: {
+          summary: "Upsert global auto-approve thresholds (assistant-scoped)",
+          operationId: "globalThresholdPutScoped",
+          security: [{ EdgeScoped: [] }],
+          parameters: [
+            {
+              name: "assistantId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    interactive: { type: "string" },
+                    background: { type: "string" },
+                    headless: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Updated thresholds",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      interactive: { type: "string" },
+                      background: { type: "string" },
+                      headless: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+            "400": { description: "Invalid request body" },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/permissions/thresholds/conversations/{conversationId}": {
+        get: {
+          summary: "Get per-conversation threshold override",
+          operationId: "conversationThresholdGet",
+          security: [{ EdgeScoped: [] }],
+          parameters: [
+            {
+              name: "conversationId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Conversation threshold override",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: { threshold: { type: "string" } },
+                  },
+                },
+              },
+            },
+            "404": { description: "No override for this conversation" },
+            "500": { description: "Internal server error" },
+          },
+        },
+        put: {
+          summary: "Upsert per-conversation threshold override",
+          operationId: "conversationThresholdPut",
+          security: [{ EdgeScoped: [] }],
+          parameters: [
+            {
+              name: "conversationId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: { threshold: { type: "string" } },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Updated override",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      conversationId: { type: "string" },
+                      threshold: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+            "400": { description: "Invalid request body" },
+            "500": { description: "Internal server error" },
+          },
+        },
+        delete: {
+          summary: "Delete per-conversation threshold override",
+          operationId: "conversationThresholdDelete",
+          security: [{ EdgeScoped: [] }],
+          parameters: [
+            {
+              name: "conversationId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "204": { description: "Override deleted" },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/assistants/{assistantId}/permissions/thresholds/conversations/{conversationId}":
+        {
+          get: {
+            summary:
+              "Get per-conversation threshold override (assistant-scoped)",
+            operationId: "conversationThresholdGetScoped",
+            security: [{ EdgeScoped: [] }],
+            parameters: [
+              {
+                name: "assistantId",
+                in: "path",
+                required: true,
+                schema: { type: "string" },
+              },
+              {
+                name: "conversationId",
+                in: "path",
+                required: true,
+                schema: { type: "string" },
+              },
+            ],
+            responses: {
+              "200": {
+                description: "Conversation threshold override",
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      properties: { threshold: { type: "string" } },
+                    },
+                  },
+                },
+              },
+              "404": { description: "No override for this conversation" },
+              "500": { description: "Internal server error" },
+            },
+          },
+          put: {
+            summary:
+              "Upsert per-conversation threshold override (assistant-scoped)",
+            operationId: "conversationThresholdPutScoped",
+            security: [{ EdgeScoped: [] }],
+            parameters: [
+              {
+                name: "assistantId",
+                in: "path",
+                required: true,
+                schema: { type: "string" },
+              },
+              {
+                name: "conversationId",
+                in: "path",
+                required: true,
+                schema: { type: "string" },
+              },
+            ],
+            requestBody: {
+              required: true,
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: { threshold: { type: "string" } },
+                  },
+                },
+              },
+            },
+            responses: {
+              "200": {
+                description: "Updated override",
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      properties: {
+                        conversationId: { type: "string" },
+                        threshold: { type: "string" },
+                      },
+                    },
+                  },
+                },
+              },
+              "400": { description: "Invalid request body" },
+              "500": { description: "Internal server error" },
+            },
+          },
+          delete: {
+            summary:
+              "Delete per-conversation threshold override (assistant-scoped)",
+            operationId: "conversationThresholdDeleteScoped",
+            security: [{ EdgeScoped: [] }],
+            parameters: [
+              {
+                name: "assistantId",
+                in: "path",
+                required: true,
+                schema: { type: "string" },
+              },
+              {
+                name: "conversationId",
+                in: "path",
+                required: true,
+                schema: { type: "string" },
+              },
+            ],
+            responses: {
+              "204": { description: "Override deleted" },
+              "500": { description: "Internal server error" },
+            },
+          },
+        },
       "/v1/logs/export": {
         post: {
           summary: "Export logs from all services",

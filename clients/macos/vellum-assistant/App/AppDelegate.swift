@@ -38,7 +38,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var lastRegisteredQuickInputHotkey: String?
     var globalHotkeyObserver: AnyCancellable?
     var escapeMonitor: Any?
-    var isRestarting = false
     var hasSetupHotKey = false
     var fnVGlobalMonitor: Any?
     var fnVLocalMonitor: Any?
@@ -358,32 +357,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // Uses Apple's NSRunningApplication API — the recommended way to
         // detect running instances on macOS.
         //
-        // Exception: performRestart() launches a new instance via
-        // NSWorkspace.openApplication (createsNewApplicationInstance: true)
-        // before terminating the old one.  Both processes are briefly
-        // alive.  performRestart() writes a transient sentinel file that
-        // the new instance checks here; if the file exists we are the
-        // replacement process and should proceed normally.
-        let restartSentinel = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("vellum-restart-in-progress")
-        let isRestart: Bool = {
-            guard let data = try? Data(contentsOf: restartSentinel),
-                  let stamp = String(data: data, encoding: .utf8),
-                  let written = TimeInterval(stamp) else {
-                // No file or unreadable — not a restart.
-                return false
-            }
-            // Honor the sentinel only if it was written within the last
-            // 30 seconds.  Stale sentinels (e.g. from a crash between
-            // writing and the new instance reading it) are ignored so
-            // the single-instance guard stays effective.
-            return Date().timeIntervalSince1970 - written < 30
-        }()
-        // Always remove the sentinel regardless of freshness so it
-        // doesn't accumulate on disk.
-        try? FileManager.default.removeItem(at: restartSentinel)
-
-        if !isRestart, let bundleId = Bundle.main.bundleIdentifier {
+        // `performRestart()` uses the terminate-first relaunch pattern
+        // (a detached shell watcher waits for our PID to exit before
+        // calling `open`), so the replacement process only starts after
+        // this one is gone — no guard exception is needed.
+        if let bundleId = Bundle.main.bundleIdentifier {
             let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
                 .filter { $0 != .current && !$0.isTerminated }
             if let existing = others.first {
@@ -819,14 +797,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     ///
     /// Reference: https://developer.apple.com/documentation/appkit/nsapplicationdelegate/applicationshouldterminate(_:)
     public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        // During a restart, performRestart() already stopped the CLI and
-        // disconnected the connection manager.  Skip the async
-        // .terminateLater path whose MainActor.run dispatch is fragile
-        // during AppKit shutdown and can leave the process as a zombie.
-        if isRestarting {
-            return .terminateNow
-        }
-
         let cli = vellumCli
         Task.detached {
             await cli.stop()

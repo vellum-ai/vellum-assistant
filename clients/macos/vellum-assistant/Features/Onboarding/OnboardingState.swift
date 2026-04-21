@@ -95,6 +95,7 @@ final class OnboardingState {
     var isRehatch: Bool = false
 
     var isHatching: Bool = false
+    var hatchProcessStarted: Bool = false
     var isManagedHatch: Bool = false
     var hasExistingManagedAssistant: Bool = false
     var hatchLogLines: [String] = []
@@ -197,6 +198,7 @@ final class OnboardingState {
     func resetForRetry() {
         // Reset hatch flags
         isHatching = false
+        hatchProcessStarted = false
         isManagedHatch = false
         hasExistingManagedAssistant = false
         hatchFailed = false

@@ -129,7 +129,8 @@ final class ConversationSelectionStore {
     // MARK: - Restoration State
 
     /// Flag to suppress lastActiveConversationIdString writes during initialization and conversation restoration.
-    @ObservationIgnored var isRestoringConversations = false
+    /// Observable so views can react to restoration completing (e.g. dismiss loading skeletons).
+    var isRestoringConversations = false
 
     private(set) var restoreRecentConversations: Bool {
         get { UserDefaults.standard.object(forKey: "restoreRecentConversations") as? Bool ?? true }

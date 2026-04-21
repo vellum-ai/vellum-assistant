@@ -63,11 +63,24 @@ enum AppBundleRenamer {
         #!/bin/bash
         set -euo pipefail
 
-        # Wait for the app to exit (up to 10 seconds)
-        for i in $(seq 1 100); do
+        # Wait for the app to exit (up to 30 seconds).  Must exceed
+        # `VellumCli.stopTimeout` (15s) plus AppKit teardown headroom
+        # so a slow daemon/gateway shutdown doesn't trip the abort
+        # branch below and silently defer the rename another launch.
+        for i in $(seq 1 300); do
             kill -0 \(pid) 2>/dev/null || break
             sleep 0.1
         done
+
+        # Abort if the old process is still alive: proceeding would race
+        # the live instance on filesystem mutations, and the `open` below
+        # would either re-activate the existing instance or hit the
+        # single-instance guard in the new one.  The rename is retried on
+        # next launch via `AppBundleRenamer.needsRename`.
+        if kill -0 \(pid) 2>/dev/null; then
+            rm -f "$0"
+            exit 0
+        fi
 
         APP_DIR='\(shellEscape(bundleURL.path))'
         CONTENTS="$APP_DIR/Contents"
@@ -132,15 +145,10 @@ enum AppBundleRenamer {
             return false
         }
 
-        // Write restart sentinel so the relaunched instance passes the
-        // single-instance guard (same pattern as performRestart).
-        // Uses NSTemporaryDirectory() instead of ~/.vellum to avoid
-        // workspace disk assumptions.
-        let sentinelPath = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("vellum-restart-in-progress")
-        let timestamp = "\(Date().timeIntervalSince1970)"
-        try? timestamp.write(to: sentinelPath, atomically: true, encoding: .utf8)
-
+        // No sentinel file is needed: the rename script gates its `open`
+        // on `kill -0 $pid` exiting, so the relaunched instance only starts
+        // after this process terminates — the single-instance guard sees
+        // no overlapping instance.
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/bash")
         proc.arguments = [scriptURL.path]
@@ -153,7 +161,6 @@ enum AppBundleRenamer {
             log.info("Rename script launched (pid \(proc.processIdentifier)), terminating for relaunch")
         } catch {
             log.error("Failed to launch rename script: \(error.localizedDescription)")
-            try? FileManager.default.removeItem(at: sentinelPath)
             try? FileManager.default.removeItem(at: scriptURL)
             return false
         }

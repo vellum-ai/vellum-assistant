@@ -641,7 +641,7 @@ struct SettingsPanel: View {
             }
 
             // PRIVACY section
-            SettingsPrivacyTab(store: store)
+            SettingsPrivacyTab(store: store, assistantFeatureFlagStore: assistantFeatureFlagStore)
 
         }
         .frame(maxWidth: .infinity, alignment: .leading)

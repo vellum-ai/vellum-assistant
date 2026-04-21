@@ -48,6 +48,7 @@ struct ComposerSection: View, Equatable {
             && lhs.conversationHostAccessControl?.isUpdating == rhs.conversationHostAccessControl?.isUpdating
             && lhs.conversationHostAccessControl?.subtitle == rhs.conversationHostAccessControl?.subtitle
             && lhs.conversationHostAccessControl?.errorMessage == rhs.conversationHostAccessControl?.errorMessage
+            && lhs.showThresholdPicker == rhs.showThresholdPicker
     }
 
     @Binding var inputText: String
@@ -81,6 +82,7 @@ struct ComposerSection: View, Equatable {
     var contextWindowTokens: Int? = nil
     var contextWindowMaxTokens: Int? = nil
     var conversationHostAccessControl: ConversationHostAccessControlConfiguration? = nil
+    var showThresholdPicker: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -121,7 +123,8 @@ struct ComposerSection: View, Equatable {
                 contextWindowFillRatio: contextWindowFillRatio,
                 contextWindowTokens: contextWindowTokens,
                 contextWindowMaxTokens: contextWindowMaxTokens,
-                conversationHostAccessControl: conversationHostAccessControl
+                conversationHostAccessControl: conversationHostAccessControl,
+                showThresholdPicker: showThresholdPicker
             )
             .equatable()
         }

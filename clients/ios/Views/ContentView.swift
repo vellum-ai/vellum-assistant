@@ -6,7 +6,7 @@ struct ContentView: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @Bindable var authManager: AuthManager
     @State private var connectPhase: ConnectPhase = .initial
-    @State private var selectedTab: Tab = .chats
+    @State private var navigateToConnect = false
     /// Single conversation store shared between the Chats tab and the Developer section's
     /// diagnostics. Keeping one store prevents the dual-store data-loss race where two
     /// independent stores each overwrite the other's UserDefaults writes in standalone mode.
@@ -16,8 +16,6 @@ struct ContentView: View {
         self.authManager = authManager
         _conversationStore = StateObject(wrappedValue: IOSConversationStore(connectionManager: connectionManager, eventStreamClient: eventStreamClient))
     }
-
-    private enum Tab { case chats, settings }
 
     private enum ConnectPhase {
         case initial    // Haven't attempted connection yet
@@ -45,15 +43,15 @@ struct ContentView: View {
     var body: some View {
         Group {
             if clientProvider.isConnected || connectPhase == .ready {
-                tabContent
+                rootNavigation
             } else if connectPhase == .failed {
                 connectionFailedView
             } else if hasSavedSettings {
                 connectingView
             } else {
-                // No saved settings — show tabs immediately so the user
-                // can navigate to Settings and configure their connection.
-                tabContent
+                // No saved settings — show the root nav immediately so the user
+                // can open Settings and configure their connection.
+                rootNavigation
             }
         }
         .task {
@@ -99,7 +97,6 @@ struct ContentView: View {
             // this navigation when the view later appears (e.g. if the app was
             // backgrounded and ContentView.task re-runs on re-entry).
             _ = PendingPushNavigation.consume()
-            selectedTab = .chats
             conversationStore.requestSelectConversation(conversationId: conversationId)
         }
     }
@@ -109,18 +106,11 @@ struct ContentView: View {
     /// No-op when the latch is empty (hot path already handled the tap via `.onReceive`).
     private func consumePendingPushNavigationIfNeeded() {
         guard let conversationId = PendingPushNavigation.consume() else { return }
-        selectedTab = .chats
         conversationStore.requestSelectConversation(conversationId: conversationId)
     }
 
     private func navigateToConnectSettings() {
-        // Connection status lives inline in the Settings tab via
-        // `ConnectionInfoSection`, so switching tabs is sufficient.
-        selectedTab = .settings
-    }
-
-    private func navigateToNewConversation() {
-        selectedTab = .chats
+        navigateToConnect = true
     }
 
     // MARK: - Initial Connection
@@ -222,25 +212,16 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Tab Content
+    // MARK: - Root Navigation
 
-    private var tabContent: some View {
-        TabView(selection: $selectedTab) {
-            ChatsTabView(store: conversationStore, onConnectTapped: navigateToConnectSettings)
-                .environmentObject(clientProvider)
-                .id(ObjectIdentifier(clientProvider.client as AnyObject))
-                .tag(Tab.chats)
-                .tabItem {
-                    Label { Text("Chats") } icon: { VIconView(.messageSquare, size: 12) }
-                }
-
-            SettingsView(authManager: authManager, conversationStore: conversationStore)
-                .environmentObject(clientProvider)
-                .tag(Tab.settings)
-                .tabItem {
-                    Label { Text("Settings") } icon: { VIconView(.settings, size: 12) }
-                }
-        }
+    private var rootNavigation: some View {
+        IOSRootNavigationView(
+            authManager: authManager,
+            store: conversationStore,
+            navigateToConnect: $navigateToConnect
+        )
+        .environmentObject(clientProvider)
+        .id(ObjectIdentifier(clientProvider.client as AnyObject))
     }
 }
 #endif

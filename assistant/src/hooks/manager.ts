@@ -1,6 +1,5 @@
 import { type FSWatcher, watch } from "node:fs";
 
-import { getIsContainerized } from "../config/env-registry.js";
 import { Debouncer } from "../util/debounce.js";
 import { pathExists } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
@@ -33,10 +32,6 @@ export class HookManager {
   private readonly debouncer = new Debouncer(500);
 
   initialize(): void {
-    if (getIsContainerized()) {
-      log.info("Hooks disabled in containerized mode");
-      return;
-    }
     this.hooks = discoverHooks();
     this.buildEventIndex();
     const enabled = this.hooks.filter((h) => h.enabled).length;
@@ -112,7 +107,6 @@ export class HookManager {
   }
 
   reload(): void {
-    if (getIsContainerized()) return;
     this.hooks = discoverHooks();
     this.buildEventIndex();
     const enabled = this.hooks.filter((h) => h.enabled).length;
@@ -120,7 +114,6 @@ export class HookManager {
   }
 
   watch(): void {
-    if (getIsContainerized()) return;
     const hooksDir = getWorkspaceHooksDir();
     if (!pathExists(hooksDir)) return;
 

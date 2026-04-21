@@ -4,8 +4,7 @@
  * Usage: bun skills/slack-app-setup/generate-manifest-url.ts <bot-name> [bot-description]
  *
  * The manifest is the single source of truth for all required scopes,
- * event subscriptions, and settings. Keep it in sync with
- * assistant/src/daemon/handlers/slack-channel-oauth-install.ts.
+ * event subscriptions, and settings.
  */
 
 const name = process.argv[2];
@@ -21,7 +20,7 @@ if (!name) {
 const manifest = {
   display_information: {
     name,
-    description: desc,
+    ...(desc ? { description: desc } : {}),
     background_color: "#1a1a2e",
   },
   features: {
@@ -36,7 +35,6 @@ const manifest = {
     },
   },
   oauth_config: {
-    redirect_urls: ["http://localhost:17322/oauth/callback"],
     scopes: {
       bot: [
         "app_mentions:read",

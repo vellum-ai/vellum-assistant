@@ -123,7 +123,7 @@ struct TaskToneSelectionView: View {
 
             // Footer buttons
             VStack(spacing: VSpacing.sm) {
-                VButton(label: "Continue", style: .primary, isFullWidth: true) {
+                VButton(label: "Continue", style: .primary, isFullWidth: true, isDisabled: selectedTasks.isEmpty) {
                     onContinue()
                 }
 

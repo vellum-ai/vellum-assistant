@@ -411,14 +411,14 @@ describe("composeConversationSeed", () => {
     });
 
     test('falls back to event name when title is "Notification" and body is empty', () => {
-      const signal = makeSignal({ sourceEventName: "schedule.complete" });
+      const signal = makeSignal({ sourceEventName: "watcher.notification" });
       const copy = makeCopy({ title: "Notification", body: "" });
       const seed = composeConversationSeed(
         signal,
         "vellum" as NotificationChannel,
         copy,
       );
-      expect(seed).toBe("Schedule complete");
+      expect(seed).toBe("Watcher notification");
     });
 
     test('uses context payload "message" field in fallback when available', () => {
