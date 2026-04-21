@@ -55,7 +55,7 @@ struct TaskToneSelectionView: View {
         VStack(spacing: 0) {
         // Header
         ZStack(alignment: .leading) {
-            Text("What do you want help with?")
+            Text("What are you working on?")
                 .font(VFont.titleLarge)
                 .foregroundStyle(VColor.contentDefault)
                 .frame(maxWidth: .infinity)
