@@ -882,7 +882,14 @@ async function main() {
       // an in-memory job map keyed by the jobId it handed back in the
       // 202 response; this lets callers poll for progress without holding
       // an HTTP connection open for the full import duration.
-      path: /^\/v1\/migrations\/import\/([^/]+)\/status$/,
+      //
+      // Trailing slash is optional to preserve compatibility with existing
+      // pollers. PlatformMigrationClient.pollImportStatus (macOS) and
+      // cli/src/lib/platform-client.ts both hit `.../status/` against the
+      // platform API today; other callers may follow the bare-path
+      // convention (`.../status`). Regex routes in the gateway router are
+      // NOT trailing-slash-normalized, so the optionality is encoded here.
+      path: /^\/v1\/migrations\/import\/([^/]+)\/status\/?$/,
       method: "GET",
       auth: "edge-scoped",
       scope: "settings.write",
