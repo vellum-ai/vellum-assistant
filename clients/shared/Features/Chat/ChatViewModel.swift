@@ -344,10 +344,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// failures). The chat UI surfaces a banner while this is set and the
     /// timestamp is still in the future; the banner auto-dismisses once the
     /// cooldown elapses.
-    public var compactionCircuitOpenUntil: Date? {
-        get { messageManager.compactionCircuitOpenUntil }
-        set { messageManager.compactionCircuitOpenUntil = newValue }
-    }
+    public var compactionCircuitOpenUntil: Date? = nil
     public var contextWindowFillRatio: Double? {
         guard let tokens = contextWindowTokens,
               let max = contextWindowMaxTokens,
