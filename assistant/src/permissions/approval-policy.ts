@@ -23,6 +23,8 @@ export interface ApprovalContext {
 export interface ApprovalDecision {
   decision: "allow" | "prompt" | "deny";
   reason: string;
+  /** Present only when the decision was driven by a matched rule. */
+  matchedRule?: TrustRule;
 }
 
 /** An object that evaluates an approval context and returns a decision. */
@@ -33,9 +35,9 @@ export interface ApprovalPolicy {
 // ── Default implementation ───────────────────────────────────────────────────
 
 /**
- * Replicates the exact approval decision logic from `check()` in checker.ts
- * (lines 604-725). Each branch is annotated with the corresponding checker.ts
- * code path so reviewers can verify 1:1 parity.
+ * Implements the approval decision policy used by `check()` in checker.ts.
+ * Each branch is annotated with the corresponding decision path so reviewers
+ * can verify 1:1 parity.
  *
  * The decision flow:
  *
@@ -72,6 +74,7 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       return {
         decision: "deny",
         reason: `Blocked by deny rule: ${matchedRule.pattern}`,
+        matchedRule,
       };
     }
 
@@ -80,6 +83,7 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       return {
         decision: "prompt",
         reason: `Matched ask rule: ${matchedRule.pattern}`,
+        matchedRule,
       };
     }
 
@@ -90,6 +94,7 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
         return {
           decision: "allow",
           reason: `Matched trust rule: ${matchedRule.pattern}`,
+          matchedRule,
         };
       }
 
@@ -98,10 +103,13 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
         return {
           decision: "allow",
           reason: `Matched trust rule in auto-allow-high-risk context: ${matchedRule.pattern}`,
+          matchedRule,
         };
       }
 
       // 5. Allow rule + High (no auto-allow) → fall through to risk-based
+      // Note: matchedRule is intentionally omitted from the risk-based
+      // fallback return — the decision is driven by risk, not the rule.
     }
 
     // ── 6. No rule + third-party skill tool → prompt ──────────────────
@@ -176,7 +184,7 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
 
   /**
    * Determines at runtime whether a high-risk operation should be auto-allowed.
-   * Mirrors `shouldAutoAllowHighRisk()` in checker.ts.
+   * Auto-allows high-risk operations when running in a containerized sandbox.
    *
    * Auto-allow cases:
    * - Containerized bash: all commands are sandboxed, so high-risk is safe.

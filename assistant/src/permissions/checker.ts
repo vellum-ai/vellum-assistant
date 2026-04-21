@@ -611,8 +611,9 @@ export async function check(
   const approvalDecision = defaultApprovalPolicy.evaluate(approvalContext);
 
   return {
-    ...approvalDecision,
-    matchedRule: approvalContext.matchedRule,
+    decision: approvalDecision.decision,
+    reason: approvalDecision.reason,
+    matchedRule: approvalDecision.matchedRule,
   };
 }
 
