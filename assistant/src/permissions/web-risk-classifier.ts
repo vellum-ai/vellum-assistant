@@ -11,7 +11,6 @@
  */
 
 import type { RiskAssessment, RiskClassifier } from "./risk-types.js";
-import type { AllowlistOption } from "./types.js";
 
 // ── Input type ───────────────────────────────────────────────────────────────
 
@@ -25,126 +24,6 @@ export interface WebClassifierInput {
   allowPrivateNetwork?: boolean;
 }
 
-// ── Allowlist option helpers ─────────────────────────────────────────────────
-
-const WEB_TOOL_DISPLAY_NAMES: Record<string, string> = {
-  web_fetch: "URL fetches",
-  network_request: "network requests",
-};
-
-function escapeMinimatchLiteral(value: string): string {
-  return value.replace(/([\\*?[\]{}()!+@|])/g, "\\$1");
-}
-
-function friendlyHostname(url: URL): string {
-  return url.hostname.replace(/^www\./, "");
-}
-
-/**
- * Normalize a URL for allowlist purposes. Simplified version of the
- * canonical `normalizeWebFetchUrl()` in checker.ts.
- *
- * **Divergence**: This function omits two edge-case guards present in the
- * canonical implementation:
- * - `looksLikeHostPortShorthand()` — bare `host:port` inputs are not
- *   specifically detected, so they fall into the generic `https://` prefix
- *   path which may parse differently for ambiguous inputs.
- * - `looksLikePathOnlyInput()` — bare paths like `/foo/bar` are not
- *   rejected; they'll get an `https://` prefix and likely fail URL parsing.
- * - Non-http(s) scheme rejection (`ftp:`, `file:`, etc.) — the canonical
- *   version explicitly rejects unknown schemes after the initial parse.
- *
- * Importing `normalizeWebFetchUrl` directly would create a circular import
- * (checker.ts → web-risk-classifier.ts → checker.ts). These edge cases are
- * low-severity since they only affect allowlist option rendering, not risk
- * classification.
- */
-function normalizeUrl(rawUrl: string): URL | null {
-  const trimmed = rawUrl.trim();
-  if (!trimmed) return null;
-
-  try {
-    const parsed = new URL(trimmed);
-    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
-      parsed.hash = "";
-      parsed.username = "";
-      parsed.password = "";
-      try {
-        parsed.pathname = decodeURI(parsed.pathname);
-      } catch {
-        // Keep canonical form when decoding fails.
-      }
-      if (parsed.hostname.endsWith(".")) {
-        parsed.hostname = parsed.hostname.replace(/\.+$/, "");
-      }
-      return parsed;
-    }
-  } catch {
-    // Fall through.
-  }
-
-  try {
-    const parsed = new URL(`https://${trimmed}`);
-    parsed.hash = "";
-    parsed.username = "";
-    parsed.password = "";
-    if (parsed.hostname.endsWith(".")) {
-      parsed.hostname = parsed.hostname.replace(/\.+$/, "");
-    }
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Build allowlist options for a web tool invocation, mirroring the logic
- * in checker.ts `urlAllowlistStrategy()`. Options go from most specific
- * (exact URL) to broadest (all fetches of this tool type).
- */
-function buildWebAllowlistOptions(
-  toolName: string,
-  rawUrl?: string,
-): AllowlistOption[] {
-  if (!rawUrl) return [];
-
-  const normalized = normalizeUrl(rawUrl);
-  const exact = normalized?.href ?? rawUrl;
-  const toolLabel = WEB_TOOL_DISPLAY_NAMES[toolName] ?? toolName;
-
-  const options: AllowlistOption[] = [];
-  if (exact) {
-    options.push({
-      label: exact,
-      description: "This exact URL",
-      pattern: `${toolName}:${escapeMinimatchLiteral(exact)}`,
-    });
-  }
-  if (normalized) {
-    const host = friendlyHostname(normalized);
-    options.push({
-      label: `${normalized.origin}/*`,
-      description: `Any page on ${host}`,
-      pattern: `${toolName}:${escapeMinimatchLiteral(normalized.origin)}/*`,
-    });
-  }
-  // Use standalone "**" globstar — minimatch only treats ** as globstar when
-  // it is its own path segment, so "${toolName}:*" would fail to match URL
-  // candidates containing "/". The tool field is already filtered separately.
-  options.push({
-    label: `${toolName}:*`,
-    description: `All ${toolLabel}`,
-    pattern: "**",
-  });
-
-  const seen = new Set<string>();
-  return options.filter((o) => {
-    if (seen.has(o.pattern)) return false;
-    seen.add(o.pattern);
-    return true;
-  });
-}
-
 // ── Classifier ───────────────────────────────────────────────────────────────
 
 /**
@@ -156,8 +35,16 @@ function buildWebAllowlistOptions(
  */
 export class WebRiskClassifier implements RiskClassifier<WebClassifierInput> {
   async classify(input: WebClassifierInput): Promise<RiskAssessment> {
-    const { toolName, url, allowPrivateNetwork } = input;
-    const allowlistOptions = buildWebAllowlistOptions(toolName, url);
+    const { toolName, allowPrivateNetwork } = input;
+
+    // NOTE: We intentionally do NOT produce allowlistOptions here.
+    // The canonical URL normalization logic (normalizeWebFetchUrl in
+    // checker.ts) handles edge cases (path-only inputs, host:port
+    // shorthand, non-http schemes) that our simplified normalizeUrl()
+    // does not. Importing the canonical version would create a circular
+    // dependency. By omitting allowlistOptions, we let the fallback
+    // urlAllowlistStrategy in generateAllowlistOptions() handle scope
+    // option generation using the canonical normalization.
 
     switch (toolName) {
       case "web_search":
@@ -166,7 +53,6 @@ export class WebRiskClassifier implements RiskClassifier<WebClassifierInput> {
           reason: "Web search (read-only)",
           scopeOptions: [],
           matchType: "registry",
-          allowlistOptions,
         };
 
       case "web_fetch":
@@ -178,7 +64,6 @@ export class WebRiskClassifier implements RiskClassifier<WebClassifierInput> {
             reason: "Private network fetch",
             scopeOptions: [],
             matchType: "registry",
-            allowlistOptions,
           };
         }
         return {
@@ -186,7 +71,6 @@ export class WebRiskClassifier implements RiskClassifier<WebClassifierInput> {
           reason: "Web fetch (default)",
           scopeOptions: [],
           matchType: "registry",
-          allowlistOptions,
         };
 
       case "network_request":
@@ -197,7 +81,6 @@ export class WebRiskClassifier implements RiskClassifier<WebClassifierInput> {
           reason: "Network request (proxied credentials)",
           scopeOptions: [],
           matchType: "registry",
-          allowlistOptions,
         };
     }
   }

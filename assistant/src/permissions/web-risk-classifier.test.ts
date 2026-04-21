@@ -124,72 +124,36 @@ describe("network_request", () => {
 });
 
 // ── Allowlist options ────────────────────────────────────────────────────────
+// The web classifier intentionally does NOT produce allowlistOptions.
+// URL normalization for scope options is handled by the canonical
+// urlAllowlistStrategy in checker.ts (avoids circular import + divergent
+// normalization). These tests verify the classifier omits them.
 
 describe("allowlistOptions", () => {
-  test("web_fetch with URL produces exact + origin + wildcard options", async () => {
+  test("web_fetch omits allowlistOptions (defers to canonical urlAllowlistStrategy)", async () => {
     const classifier = makeClassifier();
     const result = await classifier.classify({
       toolName: "web_fetch",
       url: "https://example.com/api/data?key=value",
     });
-    const opts = result.allowlistOptions!;
-    expect(opts).toBeDefined();
-    expect(opts.length).toBe(3);
-
-    // Exact URL
-    expect(opts[0].description).toBe("This exact URL");
-    expect(opts[0].label).toBe("https://example.com/api/data?key=value");
-
-    // Origin wildcard
-    expect(opts[1].description).toBe("Any page on example.com");
-    expect(opts[1].label).toBe("https://example.com/*");
-
-    // All fetches
-    expect(opts[2].description).toBe("All URL fetches");
-    expect(opts[2].label).toBe("web_fetch:*");
-    expect(opts[2].pattern).toBe("**");
+    expect(result.allowlistOptions).toBeUndefined();
   });
 
-  test("network_request with URL produces exact + origin + wildcard options", async () => {
+  test("network_request omits allowlistOptions", async () => {
     const classifier = makeClassifier();
     const result = await classifier.classify({
       toolName: "network_request",
       url: "https://api.example.com/v1/users",
     });
-    const opts = result.allowlistOptions!;
-    expect(opts).toBeDefined();
-    expect(opts.length).toBe(3);
-    expect(opts[0].description).toBe("This exact URL");
-    expect(opts[1].description).toBe("Any page on api.example.com");
-    expect(opts[2].description).toBe("All network requests");
+    expect(result.allowlistOptions).toBeUndefined();
   });
 
-  test("web_search with no URL produces empty allowlistOptions", async () => {
+  test("web_search omits allowlistOptions", async () => {
     const classifier = makeClassifier();
     const result = await classifier.classify({
       toolName: "web_search",
     });
-    expect(result.allowlistOptions).toEqual([]);
-  });
-
-  test("web_fetch with no URL produces empty allowlistOptions", async () => {
-    const classifier = makeClassifier();
-    const result = await classifier.classify({
-      toolName: "web_fetch",
-    });
-    expect(result.allowlistOptions).toEqual([]);
-  });
-
-  test("deduplicates identical patterns", async () => {
-    const classifier = makeClassifier();
-    const result = await classifier.classify({
-      toolName: "web_fetch",
-      url: "https://example.com/",
-    });
-    const opts = result.allowlistOptions!;
-    const patterns = opts.map((o) => o.pattern);
-    const uniquePatterns = new Set(patterns);
-    expect(patterns.length).toBe(uniquePatterns.size);
+    expect(result.allowlistOptions).toBeUndefined();
   });
 });
 
