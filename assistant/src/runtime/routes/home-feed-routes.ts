@@ -171,12 +171,10 @@ export async function handleGetHomeFeed(req: Request): Promise<Response> {
     return item.minTimeAway <= timeAwaySeconds;
   });
 
-  // Separate regular items (shown individually) from low-priority
-  // items (collapsed into a single summary count).
+  // Compute low-priority metadata the client can use to decide how
+  // to render collapsed sections. All items stay in the response —
+  // the client handles collapsing in the UI layer.
   const LOW_PRIORITY_THRESHOLD = 30;
-  const regularItems = filtered.filter(
-    (item) => item.priority >= LOW_PRIORITY_THRESHOLD,
-  );
   const lowPriorityItems = filtered.filter(
     (item) => item.priority < LOW_PRIORITY_THRESHOLD,
   );
@@ -185,7 +183,7 @@ export async function handleGetHomeFeed(req: Request): Promise<Response> {
   const contextBanner = {
     greeting: computeGreeting(now),
     timeAwayLabel: formatRelativeTime(timeAwaySeconds),
-    newCount: regularItems.filter((i) => i.status === "new").length,
+    newCount: filtered.filter((i) => i.status === "new").length,
   };
 
   const lowPriorityCollapsed = {
@@ -198,8 +196,7 @@ export async function handleGetHomeFeed(req: Request): Promise<Response> {
       timeAwayBucket: timeAwayBucket(timeAwaySeconds),
       totalItems: feed.items.length,
       filteredItems: filtered.length,
-      regularItems: regularItems.length,
-      lowPriorityCollapsed: lowPriorityItems.length,
+      lowPriorityCount: lowPriorityItems.length,
       newCount: contextBanner.newCount,
     },
     "GET /v1/home/feed",
@@ -212,7 +209,7 @@ export async function handleGetHomeFeed(req: Request): Promise<Response> {
   maybeTriggerOnVisitRollupRefresh(now);
 
   return Response.json({
-    items: regularItems,
+    items: filtered,
     updatedAt: feed.updatedAt,
     contextBanner,
     lowPriorityCollapsed,
