@@ -590,6 +590,17 @@ struct TeleportSection: View {
             throw TeleportError.importFailed(message: "Failed to save managed assistant configuration to lockfile.")
         }
 
+        // Wait for post-hatch runtime provisioning (assistant_api_key,
+        // platform_assistant_id, webhook_secret, actor token) to complete
+        // before the import starts rearranging the workspace — Django's
+        // POST /v1/secrets can otherwise race with the atomic workspace
+        // swap, return 500, and fail-closed-revoke the just-issued
+        // assistant API key. Mirrors the wait in `teleportLocalToPlatform`.
+        phase = .transferring(step: "Finalizing cloud assistant...")
+        try await ManagedAssistantBootstrapService.shared.awaitAssistantProvisioned(
+            assistantId: platformAssistant.id
+        )
+
         // Step 5 — Import bundle to managed assistant
         phase = .transferring(step: "Importing data to cloud...")
         try await importBundleToManaged(bundleData: bundleData, bundleKey: bundleKey)
