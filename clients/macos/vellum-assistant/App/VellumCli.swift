@@ -94,18 +94,32 @@ final class VellumCli: AssistantManagementClient {
 
     /// Maps provider identifiers (matching `APIKeyManager` keys) to the
     /// environment variable name expected by the CLI / remote startup script.
-    /// Loaded from the shared registry at `meta/provider-env-vars.json` — the
-    /// single source of truth also consumed by the CLI and assistant runtime.
-    nonisolated static let providerEnvVars: [String: String] =
-        loadProviderEnvVarRegistry()?.providers ?? [
-            "anthropic": "ANTHROPIC_API_KEY",
-            "openai": "OPENAI_API_KEY",
-            "gemini": "GEMINI_API_KEY",
-            "fireworks": "FIREWORKS_API_KEY",
-            "openrouter": "OPENROUTER_API_KEY",
-            "brave": "BRAVE_API_KEY",
-            "perplexity": "PERPLEXITY_API_KEY",
-        ]
+    ///
+    /// Combines two sources:
+    ///   - LLM providers from `LLMProviderRegistry` (`meta/llm-provider-catalog.json`,
+    ///     the single source of truth for LLM provider metadata).
+    ///   - Search providers from `meta/provider-env-vars.json` (still the single
+    ///     source of truth for search providers like Brave and Perplexity).
+    ///
+    /// Search-provider entries overwrite any LLM entry with the same id, but in
+    /// practice the two id namespaces do not overlap.
+    nonisolated static let providerEnvVars: [String: String] = {
+        var combined: [String: String] = [:]
+        for provider in LLMProviderRegistry.providers {
+            if let envVar = provider.envVar {
+                combined[provider.id] = envVar
+            }
+        }
+        if let searchProviders = loadProviderEnvVarRegistry()?.providers {
+            for (id, envVar) in searchProviders {
+                combined[id] = envVar
+            }
+        } else {
+            combined["brave"] = "BRAVE_API_KEY"
+            combined["perplexity"] = "PERPLEXITY_API_KEY"
+        }
+        return combined
+    }()
 
     /// Environment variable keys forwarded from the host process to CLI
     /// child processes. Centralised so every call site stays in sync.
