@@ -300,6 +300,40 @@ export const DEFAULT_COMMAND_REGISTRY = {
   // ── Network commands ───────────────────────────────────────────────────────
   curl: {
     baseRisk: "medium",
+    argSchema: {
+      valueFlags: [
+        "-d",
+        "--data",
+        "--data-binary",
+        "--data-raw",
+        "--data-urlencode",
+        "-T",
+        "--upload-file",
+        "-o",
+        "--output",
+        "-H",
+        "--header",
+        "-X",
+        "--request",
+        "-u",
+        "--user",
+        "-A",
+        "--user-agent",
+        "-e",
+        "--referer",
+        "-b",
+        "--cookie",
+        "-c",
+        "--cookie-jar",
+        "--connect-timeout",
+        "-m",
+        "--max-time",
+        "--retry",
+        "-w",
+        "--write-out",
+      ],
+      positionals: "none", // positionals are URLs, not paths
+    },
     argRules: [
       {
         id: "curl:upload-data",
@@ -641,6 +675,26 @@ export const DEFAULT_COMMAND_REGISTRY = {
       push: { baseRisk: "high", reason: "Pushes image to registry" },
       run: {
         baseRisk: "high",
+        argSchema: {
+          valueFlags: [
+            "-v",
+            "--volume",
+            "-p",
+            "--publish",
+            "-e",
+            "--env",
+            "--name",
+            "--network",
+            "-w",
+            "--workdir",
+            "--entrypoint",
+            "--mount",
+            "--cpus",
+            "--memory",
+            "--user",
+            "--platform",
+          ],
+        },
         reason: "Runs arbitrary container",
         argRules: [
           {
