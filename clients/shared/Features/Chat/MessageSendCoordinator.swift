@@ -375,6 +375,7 @@ final class MessageSendCoordinator {
                     delegate.pendingUserMessageDisplayText = nil
                     delegate.pendingUserAttachments = nil
                     delegate.pendingUserMessageAutomated = false
+                    delegate.pendingUserMessageClientMessageId = nil
                     self.errorManager.errorText = delegate.lastFailedSendError
                     return
                 }
