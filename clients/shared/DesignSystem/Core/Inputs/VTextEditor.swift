@@ -1,8 +1,11 @@
 import SwiftUI
 
-/// Multi-line text input with native placeholder support.
-/// Uses `TextField(axis: .vertical)` so the placeholder, typed text,
-/// and caret all share the same text container and align correctly.
+/// Multi-line free-form text input.
+///
+/// Backed by `TextEditor` so Return inserts a newline (matching the platform
+/// convention for multi-line text areas). `TextEditor` has no native
+/// placeholder, so we overlay a `Text` when the bound string is empty, aligned
+/// to the text container's natural insets.
 public struct VTextEditor: View {
     public let placeholder: String
     @Binding public var text: String
@@ -19,17 +22,32 @@ public struct VTextEditor: View {
     }
 
     public var body: some View {
-        TextField(placeholder, text: $text, axis: .vertical)
-            .lineLimit(1...100)
-            .textFieldStyle(.plain)
-            .font(VFont.bodyMediumLighter)
-            .foregroundStyle(VColor.contentDefault)
-            .focused($isFocused)
-            .frame(minHeight: minHeight, maxHeight: maxHeight, alignment: .topLeading)
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
-            .contentShape(Rectangle())
-            .simultaneousGesture(TapGesture().onEnded { isFocused = true })
-            .vInputChrome(isFocused: isFocused)
+        ZStack(alignment: .topLeading) {
+            TextEditor(text: $text)
+                .font(VFont.bodyMediumLighter)
+                .foregroundStyle(VColor.contentDefault)
+                .scrollContentBackground(.hidden)
+                .background(Color.clear)
+                .focused($isFocused)
+
+            if text.isEmpty {
+                Text(placeholder)
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundStyle(VColor.contentTertiary)
+                    // Compensate for the underlying NSTextView's default text-container
+                    // insets (~5pt line fragment padding horizontally, ~8pt vertically)
+                    // so the placeholder sits directly behind the caret.
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 8)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.sm)
+        .frame(minHeight: minHeight, maxHeight: maxHeight, alignment: .topLeading)
+        .contentShape(Rectangle())
+        .simultaneousGesture(TapGesture().onEnded { isFocused = true })
+        .vInputChrome(isFocused: isFocused)
     }
 }
