@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { sanitizeConfigForTransfer } from "../config/sanitize-for-transfer.js";
 
 describe("sanitizeConfigForTransfer", () => {
-  test("strips all four field groups", () => {
+  test("strips every host-specific field group in one pass", () => {
     const input = {
       ingress: {
         publicBaseUrl: "https://example.com",
@@ -17,6 +17,17 @@ describe("sanitizeConfigForTransfer", () => {
           builtIn: true,
         },
       },
+      logFile: {
+        dir: "/Users/alice/.local/share/vellum-dev/assistants/foo/logs",
+        retentionDays: 14,
+      },
+      hostBrowser: {
+        cdpInspect: {
+          enabled: false,
+          desktopAuto: { enabled: true, cooldownMs: 30000 },
+          host: "127.0.0.1",
+        },
+      },
       name: "my-assistant",
     };
 
@@ -26,6 +37,70 @@ describe("sanitizeConfigForTransfer", () => {
     expect(result.ingress.enabled).toBeUndefined();
     expect(result.daemon).toBeUndefined();
     expect(result.skills.load.extraDirs).toEqual([]);
+    expect(result.logFile).toEqual({ retentionDays: 14 });
+    expect(result.hostBrowser).toEqual({
+      cdpInspect: { enabled: false, host: "127.0.0.1" },
+    });
+  });
+
+  test("deletes logFile.dir but preserves host-agnostic logFile fields", () => {
+    /**
+     * logFile.dir is a source-host filesystem path — on a managed pod
+     * the schema's platform-specific default is the correct value, so
+     * we strip the stale one at bundle ingest rather than propagate it.
+     * Other logFile fields (retentionDays, etc.) are host-agnostic and
+     * must survive the transfer.
+     */
+    const input = {
+      logFile: {
+        dir: "/Users/alice/logs",
+        retentionDays: 30,
+      },
+    };
+
+    const result = JSON.parse(sanitizeConfigForTransfer(JSON.stringify(input)));
+
+    expect(result.logFile).toEqual({ retentionDays: 30 });
+  });
+
+  test("leaves logFile untouched when dir is absent", () => {
+    const result = JSON.parse(
+      sanitizeConfigForTransfer(
+        JSON.stringify({ logFile: { retentionDays: 7 } }),
+      ),
+    );
+    expect(result.logFile).toEqual({ retentionDays: 7 });
+  });
+
+  test("deletes hostBrowser.cdpInspect.desktopAuto but preserves siblings", () => {
+    /**
+     * hostBrowser.cdpInspect.desktopAuto is macOS-host-only behavior.
+     * Preserving a source-host-derived `enabled: true` inside a Linux
+     * managed pod's config is misleading; the schema default restores
+     * the correct per-platform value.
+     */
+    const input = {
+      hostBrowser: {
+        cdpInspect: {
+          enabled: false,
+          desktopAuto: { enabled: true, cooldownMs: 30000 },
+          host: "127.0.0.1",
+        },
+      },
+    };
+
+    const result = JSON.parse(sanitizeConfigForTransfer(JSON.stringify(input)));
+
+    expect(result.hostBrowser).toEqual({
+      cdpInspect: { enabled: false, host: "127.0.0.1" },
+    });
+  });
+
+  test("is a no-op when hostBrowser has no cdpInspect subtree", () => {
+    const result = JSON.parse(
+      sanitizeConfigForTransfer(JSON.stringify({ hostBrowser: {} })),
+    );
+    expect(result.hostBrowser).toEqual({});
   });
 
   test("preserves non-target fields unchanged", () => {
