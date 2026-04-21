@@ -132,15 +132,10 @@ enum AppBundleRenamer {
             return false
         }
 
-        // Write restart sentinel so the relaunched instance passes the
-        // single-instance guard (same pattern as performRestart).
-        // Uses NSTemporaryDirectory() instead of ~/.vellum to avoid
-        // workspace disk assumptions.
-        let sentinelPath = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("vellum-restart-in-progress")
-        let timestamp = "\(Date().timeIntervalSince1970)"
-        try? timestamp.write(to: sentinelPath, atomically: true, encoding: .utf8)
-
+        // No sentinel file is needed: the rename script gates its `open`
+        // on `kill -0 $pid` exiting, so the relaunched instance only starts
+        // after this process terminates — the single-instance guard sees
+        // no overlapping instance.
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/bash")
         proc.arguments = [scriptURL.path]
@@ -153,7 +148,6 @@ enum AppBundleRenamer {
             log.info("Rename script launched (pid \(proc.processIdentifier)), terminating for relaunch")
         } catch {
             log.error("Failed to launch rename script: \(error.localizedDescription)")
-            try? FileManager.default.removeItem(at: sentinelPath)
             try? FileManager.default.removeItem(at: scriptURL)
             return false
         }
