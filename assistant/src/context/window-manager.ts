@@ -157,16 +157,19 @@ export interface ContextWindowManagerOptions {
   /** Pre-computed tool token budget to include in all estimations. */
   toolTokenBudget?: number;
   /**
-   * Resolves the active model ID (e.g. `"claude-opus-4-7"`) used by the
-   * current conversation. Passed as a function so callers that compute the
-   * model dynamically (e.g. resolving `modelIntent` per turn) don't have to
-   * rebuild the manager. When the catalog entry for this model is present,
-   * `catalog.contextWindow` acts as the authoritative maximum and the
-   * config's `maxInputTokens` is treated as a conservative ceiling on top
-   * (`effectiveMaxInputTokens = min(catalog.contextWindow, config.maxInputTokens)`).
+   * Active model id (or a thunk that resolves it). Serves two purposes:
    *
-   * When unset, missing, or returning `undefined`, the manager falls back
-   * to `config.maxInputTokens` alone for backwards compatibility.
+   * 1. Threaded into `estimatePromptTokens` so the calibration correction
+   *    matches the `(provider, model)` key recorded by `handleUsage`. When
+   *    the thunk returns `undefined`, the per-provider aggregate key is the
+   *    fallback.
+   * 2. Resolves the per-model capability entry via `getModelCapabilities`.
+   *    When the catalog entry is present, `catalog.contextWindow` is the
+   *    authoritative maximum and `config.maxInputTokens` is a conservative
+   *    ceiling on top:
+   *    `effectiveMaxInputTokens = min(catalog.contextWindow, config.maxInputTokens)`.
+   *    When unset or catalog miss, the manager falls back to
+   *    `config.maxInputTokens` alone for backwards compatibility.
    */
   activeModel?: string | (() => string | undefined);
 }
@@ -241,10 +244,24 @@ export class ContextWindowManager {
    * Provider key for the local token estimator. Wrapper providers (e.g.
    * OpenRouter routing to `anthropic/*`) override `tokenEstimationProvider`
    * so image/PDF sizing uses the same rules as the upstream API instead of
-   * the generic `base64/4` fallback.
+   * the generic `base64/4` fallback. This is also the canonical key used by
+   * the calibration lookup so record and read sites agree.
    */
   private get estimationProviderName(): string {
     return this.provider.tokenEstimationProvider ?? this.provider.name;
+  }
+
+  /**
+   * Resolve the active model id for the calibration lookup. When unset (or
+   * the thunk returns undefined), `estimatePromptTokens` falls back to the
+   * per-provider aggregate key recorded alongside every `(provider, model)`
+   * sample — still catching systematic provider-level bias.
+   */
+  private get activeModel(): string | undefined {
+    if (this._activeModel === undefined) return undefined;
+    return typeof this._activeModel === "function"
+      ? this._activeModel()
+      : this._activeModel;
   }
 
   /** Lazily resolve and cache the system prompt for the duration of a compaction pass. */
@@ -275,6 +292,7 @@ export class ContextWindowManager {
     try {
       const estimated = estimatePromptTokens(messages, this.systemPrompt, {
         providerName: this.estimationProviderName,
+        modelId: this.activeModel,
         toolTokenBudget: this.toolTokenBudget,
       });
       const threshold = Math.floor(
@@ -311,6 +329,7 @@ export class ContextWindowManager {
       options?.precomputedEstimate ??
       estimatePromptTokens(messages, this.systemPrompt, {
         providerName: this.estimationProviderName,
+        modelId: this.activeModel,
         toolTokenBudget: this.toolTokenBudget,
       });
     const thresholdTokens = Math.floor(
@@ -399,6 +418,7 @@ export class ContextWindowManager {
       const estimatedAfterTruncation = didTruncate
         ? estimatePromptTokens(truncatedMessages, this.systemPrompt, {
             providerName: this.estimationProviderName,
+            modelId: this.activeModel,
             toolTokenBudget: this.toolTokenBudget,
           })
         : previousEstimatedInputTokens;
@@ -471,6 +491,7 @@ export class ContextWindowManager {
       this.systemPrompt,
       {
         providerName: this.estimationProviderName,
+        modelId: this.activeModel,
         toolTokenBudget: this.toolTokenBudget,
       },
     );
@@ -603,6 +624,7 @@ export class ContextWindowManager {
       this.systemPrompt,
       {
         providerName: this.estimationProviderName,
+        modelId: this.activeModel,
         toolTokenBudget: this.toolTokenBudget,
       },
     );
@@ -700,6 +722,7 @@ export class ContextWindowManager {
       );
       return estimatePromptTokens(projectedMessages, this.systemPrompt, {
         providerName: this.estimationProviderName,
+        modelId: this.activeModel,
         toolTokenBudget: this.toolTokenBudget,
       });
     };

@@ -1,6 +1,10 @@
 import * as Sentry from "@sentry/node";
 
-import { estimateToolsTokens } from "../context/token-estimator.js";
+import {
+  estimatePromptTokensRaw,
+  estimateToolsTokens,
+  getCalibrationProviderKey,
+} from "../context/token-estimator.js";
 import { truncateOversizedToolResults } from "../context/tool-result-truncation.js";
 import { getHookManager } from "../hooks/manager.js";
 import type {
@@ -100,6 +104,13 @@ export type AgentEvent =
       providerDurationMs: number;
       rawRequest?: unknown;
       rawResponse?: unknown;
+      /**
+       * Pre-send token estimate for the same call. Used by the estimator
+       * calibrator to learn how off the heuristic is versus provider
+       * ground truth. Omitted only when estimation genuinely was not run
+       * for this call (e.g. legacy/stubbed code paths).
+       */
+      estimatedInputTokens?: number;
     };
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
@@ -198,6 +209,21 @@ export class AgentLoop {
     return estimateToolsTokens(tools);
   }
 
+  /**
+   * Resolve the active model id for the next provider call, matching what
+   * `run()` threads into `providerConfig.model`. Estimator callers outside
+   * `run()` (preflight, mid-loop checkpoints, overflow recovery, the window
+   * manager) use this to build the calibration key so recording and lookup
+   * agree on `(provider, model)`. Returns `undefined` when no override is
+   * configured — the provider's default model is then effectively opaque
+   * until its first response lands, and the estimator falls back to the
+   * per-provider aggregate via the empty-model key.
+   */
+  getActiveModel(history?: Message[]): string | undefined {
+    if (!this.resolveSystemPrompt) return undefined;
+    return this.resolveSystemPrompt(history ?? []).model;
+  }
+
   async run(
     messages: Message[],
     onEvent: (event: AgentEvent) => void | Promise<void>,
@@ -292,6 +318,25 @@ export class AgentLoop {
         const providerStart = Date.now();
         lastLlmCallTime = providerStart;
 
+        // Compute the pre-send estimate against the full in-memory
+        // history — matching what upstream callers of
+        // `estimatePromptTokens` (preflight, mid-loop checkpoints, the
+        // window manager) see. We use the RAW estimate (before applying
+        // the existing correction) so the calibrator learns the true
+        // bias against provider ground truth instead of ratcheting a
+        // feedback loop against its own corrected output.
+        const toolTokenBudget =
+          currentTools.length > 0 ? estimateToolsTokens(currentTools) : 0;
+        const preSendEstimatedTokens = estimatePromptTokensRaw(
+          history,
+          turnSystemPrompt,
+          {
+            providerName: getCalibrationProviderKey(this.provider),
+            modelId: turnModel,
+            toolTokenBudget,
+          },
+        );
+
         // Strip image contentBlocks from older tool results to prevent
         // screenshots from accumulating in the context window. The LLM
         // already saw each image on the turn it was captured; keeping
@@ -372,6 +417,7 @@ export class AgentLoop {
           providerDurationMs,
           rawRequest: response.rawRequest,
           rawResponse: response.rawResponse,
+          estimatedInputTokens: preSendEstimatedTokens,
         });
 
         void getHookManager().trigger("post-llm-call", {

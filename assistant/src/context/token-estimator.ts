@@ -1,9 +1,26 @@
 import type {
   ContentBlock,
   Message,
+  Provider,
   ToolDefinition,
 } from "../providers/types.js";
+import { getCorrection } from "./estimator-calibration.js";
 import { parseImageDimensions } from "./image-dimensions.js";
+
+/**
+ * Canonical provider key used for calibration lookups and updates. Wrapper
+ * providers (e.g. OpenRouter routing `anthropic/*` traffic to the Messages
+ * API) set `tokenEstimationProvider` to the upstream provider name so the
+ * calibration key matches the one used when the provider actually produces
+ * the response. Falls back to `name` when the wrapper hint is unset.
+ *
+ * Every caller that records a sample or applies a correction must use this
+ * helper — otherwise wrapper-provider data is scattered across mismatched
+ * keys and the calibration becomes a no-op.
+ */
+export function getCalibrationProviderKey(provider: Provider): string {
+  return provider.tokenEstimationProvider ?? provider.name;
+}
 
 const CHARS_PER_TOKEN = 4;
 const MESSAGE_OVERHEAD_TOKENS = 4;
@@ -44,6 +61,13 @@ const TOOL_DEFINITION_OVERHEAD_TOKENS = 28;
 
 export interface TokenEstimatorOptions {
   providerName?: string;
+  /**
+   * Active model id. Used together with `providerName` to apply the
+   * self-calibration correction maintained in `estimator-calibration.ts`.
+   * When omitted, the correction key falls back to `(providerName, "")`
+   * so per-provider calibration still applies.
+   */
+  modelId?: string;
   /** Pre-computed tool token budget. When provided, added to the prompt total. */
   toolTokenBudget?: number;
 }
@@ -103,7 +127,9 @@ function estimateAnthropicImageTokens(width: number, height: number): number {
     scaledHeight = Math.round(scaledHeight * mpScale);
   }
 
-  return Math.ceil(scaledWidth * scaledHeight * ANTHROPIC_IMAGE_TOKENS_PER_PIXEL);
+  return Math.ceil(
+    scaledWidth * scaledHeight * ANTHROPIC_IMAGE_TOKENS_PER_PIXEL,
+  );
 }
 
 function estimateImageTokens(
@@ -224,7 +250,13 @@ export function estimateToolsTokens(tools: ToolDefinition[]): number {
   return total;
 }
 
-export function estimatePromptTokens(
+/**
+ * Raw (uncorrected) prompt-token estimate — exposed so the calibrator
+ * can record (raw, actual) pairs. Applying calibration to the estimate
+ * it uses for training would create a feedback loop that eventually
+ * drives the correction ratio back to 1.0 regardless of true bias.
+ */
+export function estimatePromptTokensRaw(
   messages: Message[],
   systemPrompt?: string,
   options?: TokenEstimatorOptions,
@@ -234,6 +266,23 @@ export function estimatePromptTokens(
     : 0;
   const toolTokens = options?.toolTokenBudget ?? 0;
   return systemTokens + toolTokens + estimateMessagesTokens(messages, options);
+}
+
+export function estimatePromptTokens(
+  messages: Message[],
+  systemPrompt?: string,
+  options?: TokenEstimatorOptions,
+): number {
+  const raw = estimatePromptTokensRaw(messages, systemPrompt, options);
+
+  // Apply the self-calibration correction. Default is 1.0 for any
+  // (provider, model) pair we haven't recorded a sample for, so first-call
+  // behavior is unchanged. As usage data accumulates, the correction ratio
+  // pulls estimates toward the provider's ground-truth token count.
+  const providerName = options?.providerName ?? "";
+  const modelId = options?.modelId ?? "";
+  const correction = getCorrection(providerName, modelId);
+  return correction === 1.0 ? raw : Math.ceil(raw * correction);
 }
 
 function stableJson(value: unknown): string {

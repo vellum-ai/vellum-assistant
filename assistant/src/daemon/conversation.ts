@@ -533,12 +533,14 @@ export class Conversation {
       config: config.contextWindow,
       toolTokenBudget: this.agentLoop.getToolTokenBudget(),
       // Pass the active model so the manager can resolve `contextWindow`
-      // from the per-model catalog.
+      // from the per-model catalog AND thread the model into the
+      // `(provider, model)` calibration key used by `estimatePromptTokens`.
       //
       // Resolution order (matches `providers/registry.ts#resolveModel`):
-      //   1. `modelOverride` (explicit per-turn override)
-      //   2. `resolveModelIntent(...)` (intent-based resolution; `resolvedModel`
-      //      above already captures 1 & 2).
+      //   1. `modelOverride` (explicit per-turn override; captured via
+      //      `resolvedModel`).
+      //   2. `resolveModelIntent(...)` (intent-based resolution; also
+      //      captured via `resolvedModel`).
       //   3. `config.services.inference.model` — the user's explicit per-
       //      instance configuration. This is the actual runtime model the
       //      provider is instantiated with when the active provider matches

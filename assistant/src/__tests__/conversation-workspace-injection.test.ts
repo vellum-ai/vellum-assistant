@@ -202,6 +202,9 @@ mock.module("../agent/loop.js", () => ({
     getToolTokenBudget() {
       return 0;
     }
+    getActiveModel() {
+      return undefined;
+    }
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void,
