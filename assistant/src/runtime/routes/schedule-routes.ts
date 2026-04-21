@@ -150,6 +150,7 @@ function handleUpdateSchedule(
     "expression",
     "timezone",
     "message",
+    "script",
     "mode",
     "routingIntent",
     "quiet",
@@ -190,13 +191,20 @@ async function handleRunScheduleNow(
 
   // ── Script mode (shell command, no LLM) ──────────────────────────
   if (schedule.mode === "script") {
+    if (!schedule.script) {
+      return httpError(
+        "BAD_REQUEST",
+        "Script schedule has no script command",
+        400,
+      );
+    }
     const runId = createScheduleRun(schedule.id, `script:${schedule.id}`);
     try {
       log.info(
         { jobId: schedule.id, name: schedule.name },
         "Executing script schedule manually via HTTP (run now)",
       );
-      const result = await runScript(schedule.message);
+      const result = await runScript(schedule.script);
       completeScheduleRun(runId, {
         status: result.exitCode === 0 ? "ok" : "error",
         output: result.stdout || undefined,
@@ -406,6 +414,7 @@ export function scheduleRouteDefinitions(deps: {
         expression: z.string(),
         timezone: z.string(),
         message: z.string(),
+        script: z.string().nullable().describe("Shell command for script mode"),
         mode: z.string().describe("notify, execute, or script"),
         routingIntent: z
           .string()

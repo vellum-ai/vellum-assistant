@@ -28,6 +28,7 @@ export const cronJobs = sqliteTable("cron_jobs", {
   reuseConversation: integer("reuse_conversation", { mode: "boolean" })
     .notNull()
     .default(false), // reuse the same conversation across runs
+  script: text("script"), // shell command for script mode (nullable, only used when mode = 'script')
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });

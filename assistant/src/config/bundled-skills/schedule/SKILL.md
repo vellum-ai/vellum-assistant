@@ -86,7 +86,7 @@ The `mode` parameter controls what happens when a schedule fires:
 
 - **execute** (default) - sends the schedule's message to a background assistant conversation for autonomous handling. The assistant processes the message as if the user sent it.
 - **notify** - sends a notification to the user via the notification pipeline. No assistant processing occurs.
-- **script** - runs the `message` field as a shell command directly. No LLM invoked, no conversation created. stdout/stderr are captured in the schedule run record. Exit code 0 = success, non-zero = error. Commands run in the workspace directory with a 60-second timeout.
+- **script** - runs the `script` field as a shell command directly. No LLM invoked, no conversation created. stdout/stderr are captured in the schedule run record. Exit code 0 = success, non-zero = error. Commands run in the workspace directory with a 60-second timeout.
 
 Use `notify` for simple reminders ("remind me to take medicine at 9am"), `execute` for tasks that need assistant action ("check my calendar at 8am and send me a digest"), and `script` for lightweight shell automations that don't need LLM involvement ("refresh a cache", "poll an API", "rotate logs").
 

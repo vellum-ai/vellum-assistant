@@ -66,6 +66,7 @@ export async function executeScheduleUpdate(
   if (input.name !== undefined) updates.name = input.name;
   if (input.timezone !== undefined) updates.timezone = input.timezone;
   if (input.message !== undefined) updates.message = input.message;
+  if (input.script !== undefined) updates.script = input.script;
   if (input.enabled !== undefined) updates.enabled = input.enabled;
 
   // Mode validation and pass-through
@@ -163,6 +164,7 @@ export async function executeScheduleUpdate(
         cronExpression?: string;
         timezone?: string | null;
         message?: string;
+        script?: string | null;
         enabled?: boolean;
         syntax?: ScheduleSyntax;
         expression?: string;

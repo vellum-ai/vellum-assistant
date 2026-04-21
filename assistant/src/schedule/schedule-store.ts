@@ -27,6 +27,7 @@ export interface ScheduleJob {
   cronExpression: string | null;
   timezone: string | null;
   message: string;
+  script: string | null;
   nextRunAt: number;
   lastRunAt: number | null;
   lastStatus: string | null;
@@ -85,6 +86,7 @@ export function createSchedule(params: {
   cronExpression?: string | null;
   timezone?: string | null;
   message: string;
+  script?: string | null;
   enabled?: boolean;
   createdBy?: string;
   syntax?: ScheduleSyntax;
@@ -142,6 +144,7 @@ export function createSchedule(params: {
     scheduleSyntax: syntax,
     timezone,
     message: params.message,
+    script: params.script ?? null,
     nextRunAt,
     lastRunAt: null as number | null,
     lastStatus: null as string | null,
@@ -217,6 +220,7 @@ export function updateSchedule(
     cronExpression?: string;
     timezone?: string | null;
     message?: string;
+    script?: string | null;
     enabled?: boolean;
     syntax?: ScheduleSyntax;
     expression?: string;
@@ -273,6 +277,7 @@ export function updateSchedule(
   if (updates.syntax !== undefined) set.scheduleSyntax = newSyntax;
   if (updates.timezone !== undefined) set.timezone = updates.timezone;
   if (updates.message !== undefined) set.message = updates.message;
+  if (updates.script !== undefined) set.script = updates.script;
   if (updates.enabled !== undefined) set.enabled = updates.enabled;
   if (updates.mode !== undefined) set.mode = updates.mode;
   if (updates.routingIntent !== undefined)
@@ -777,6 +782,7 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     cronExpression: row.cronExpression,
     timezone: row.timezone,
     message: row.message,
+    script: row.script ?? null,
     nextRunAt: row.nextRunAt,
     lastRunAt: row.lastRunAt,
     lastStatus: row.lastStatus,
