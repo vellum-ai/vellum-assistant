@@ -128,19 +128,18 @@ struct WakeUpStepView: View {
             .foregroundStyle(VColor.contentTertiary)
             .padding(.bottom, VSpacing.xs)
 
-        // Characters peeking up from the bottom. `scaledToFill` +
-        // `.frame(height: 56)` + `.clipped()` renders the illustration
-        // full-bleed across the 440pt window and crops the top so the
-        // piece peeks rather than floats. Sitting at 56pt tall keeps the
-        // whole step fitting in a 440×630 window even with the Advanced
-        // disclosure expanded.
+        // Characters peeking up from the bottom. Rendered at the
+        // illustration's natural aspect (4:1 → ~110pt tall at 440pt
+        // window width) so the piece is never cropped. If the Advanced
+        // disclosure is expanded, the step content exceeds the 630pt
+        // window envelope and the outer ScrollView in OnboardingFlowView
+        // engages — deliberate trade so the footer stays intact on the
+        // default collapsed landing view.
         if let characters = Self.welcomeCharacters {
             Image(nsImage: characters)
                 .resizable()
-                .scaledToFill()
+                .aspectRatio(contentMode: .fit)
                 .frame(maxWidth: .infinity)
-                .frame(height: 56)
-                .clipped()
                 .clipShape(UnevenRoundedRectangle(
                     topLeadingRadius: 0,
                     bottomLeadingRadius: VRadius.window,
