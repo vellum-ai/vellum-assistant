@@ -238,8 +238,8 @@ describe("migration import credential filtering", () => {
       ),
     ).toBe(true);
 
-    // Guard against the historic bug: the legacy "vellum:" prefix must NOT
-    // match the real CES account format.
+    // The raw "vellum:" string is not a valid CES account prefix — only
+    // the full "credential/vellum/" format from credentialKey() is correct.
     expect(
       credentialKey("vellum", "assistant_api_key").startsWith("vellum:"),
     ).toBe(false);
