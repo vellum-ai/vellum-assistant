@@ -23,6 +23,7 @@ import {
 } from "./approval-policy.js";
 import { bashRiskClassifier } from "./bash-risk-classifier.js";
 import { fileRiskClassifier } from "./file-risk-classifier.js";
+import { getAutoApproveThreshold } from "./gateway-threshold-reader.js";
 import { type RiskAssessment, riskToRiskLevel } from "./risk-types.js";
 import {
   buildShellAllowlistOptions,
@@ -592,10 +593,16 @@ export async function check(
   // Build approval context from local variables
   const tool = getTool(toolName);
   const config = getConfig();
-  const resolvedThreshold = resolveThreshold(
-    config.permissions.autoApproveUpTo,
+  const gatewayThreshold = await getAutoApproveThreshold(
+    policyContext?.conversationId,
     policyContext?.executionContext,
   );
+  const resolvedThreshold =
+    gatewayThreshold ??
+    resolveThreshold(
+      config.permissions.autoApproveUpTo,
+      policyContext?.executionContext,
+    );
   const approvalContext: ApprovalContext = {
     riskLevel: risk,
     toolName,
