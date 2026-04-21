@@ -337,6 +337,22 @@ async function runUpstreamImport(args: {
     }
 
     if (response.status >= 200 && response.status < 300) {
+      // Daemon returns HTTP 200 for some logical-failure shapes — notably
+      // `{ success: false, reason: "validation_failed", errors: [...] }`
+      // for bundles that failed manifest / hash validation. Callers that
+      // gate on `status === "complete"` would otherwise report success
+      // for an import that actually failed. Inspect the body before
+      // declaring victory.
+      if (isLogicalFailureBody(parsed)) {
+        const errorMessage =
+          extractErrorMessage(parsed) ?? "Import reported failure";
+        markJobFailed(jobId, response.status, errorMessage, parsed);
+        log.warn(
+          { jobId, status: response.status, duration, error: errorMessage },
+          "Migration import async: daemon returned 2xx with success=false body",
+        );
+        return;
+      }
       markJobComplete(jobId, response.status, parsed);
       log.info(
         { jobId, status: response.status, duration },
@@ -397,6 +413,19 @@ function markJobFailed(
   job.error = error;
   if (result !== undefined) job.result = result;
   job.completedAt = Date.now();
+}
+
+/**
+ * The daemon's migration import handler returns HTTP 200 for some logical
+ * failures — specifically `{ success: false, reason: "validation_failed",
+ * errors: [...] }` when the bundle's manifest / hash checks fail. Those
+ * are semantic failures, NOT HTTP-level errors. Detect them so the async
+ * job ends up in the `failed` state rather than `complete`.
+ */
+function isLogicalFailureBody(body: unknown): boolean {
+  if (!body || typeof body !== "object") return false;
+  const record = body as Record<string, unknown>;
+  return record.success === false;
 }
 
 function extractErrorMessage(body: unknown): string | null {
