@@ -36,6 +36,8 @@ export interface QueuedMessage {
   displayContent?: string;
   /** Wall-clock time (ms since epoch) when the message was enqueued, used as the display timestamp. */
   sentAt: number;
+  /** Client-generated UUID nonce for echo dedup on the originating client. */
+  clientMessageId?: string;
 }
 
 /**

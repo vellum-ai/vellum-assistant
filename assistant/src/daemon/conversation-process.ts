@@ -800,6 +800,7 @@ async function drainSingleMessage(
     conversationId: conversation.conversationId,
     messageId: userMessageId,
     requestId: next.requestId,
+    clientMessageId: next.clientMessageId,
   });
 
   // Set the active surface for the dequeued message so runAgentLoop can inject context
@@ -1150,6 +1151,7 @@ async function drainBatch(
       conversationId: conversation.conversationId,
       messageId: lastUserMessageId,
       requestId: qm.requestId,
+      clientMessageId: qm.clientMessageId,
     });
 
     // Persist succeeded. Update last-successful markers so a later tail

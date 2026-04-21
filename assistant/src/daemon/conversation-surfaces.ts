@@ -332,6 +332,7 @@ export interface SurfaceConversationContext {
     options?: { isInteractive?: boolean },
     displayContent?: string,
     transport?: ConversationTransportMetadata,
+    clientMessageId?: string,
   ): { queued: boolean; requestId: string; rejected?: boolean };
   getQueueDepth(): number;
   processMessage(

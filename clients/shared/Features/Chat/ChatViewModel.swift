@@ -289,6 +289,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     self.pendingUserMessageDisplayText = nil
                     self.pendingUserAttachments = nil
                     self.pendingUserMessageAutomated = false
+                    self.pendingUserMessageClientId = nil
                     // Queue tracking state
                     self.pendingQueuedCount = 0
                     self.pendingMessageIds.removeAll()
@@ -614,6 +615,9 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     @ObservationIgnored var pendingUserMessageDisplayText: String?
     /// Whether the pending message is automated (e.g. wake-up greeting).
     @ObservationIgnored var pendingUserMessageAutomated: Bool = false
+    /// Client-generated nonce for the pending user message. Preserved across
+    /// bootstrap so the SSE echo can correlate to the optimistic row.
+    @ObservationIgnored var pendingUserMessageClientId: String?
     /// Optional callback for sending notifications when tool-use messages complete
     @ObservationIgnored public var onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)?
     /// Whether the current assistant response was triggered by a voice message.

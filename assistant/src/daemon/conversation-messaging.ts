@@ -276,6 +276,7 @@ export function enqueueMessage(
   options?: { isInteractive?: boolean },
   displayContent?: string,
   transport?: ConversationTransportMetadata,
+  clientMessageId?: string,
 ): { queued: boolean; requestId: string; rejected?: boolean } {
   if (!ctx.processing) {
     return { queued: false, requestId };
@@ -303,6 +304,7 @@ export function enqueueMessage(
     transport,
     displayContent,
     sentAt: Date.now(),
+    clientMessageId,
   });
   if (!accepted) {
     onEvent({
