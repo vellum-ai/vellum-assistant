@@ -56,6 +56,10 @@ function makeDeps(
       if (conversation.conversationId !== id) return undefined;
       return conversation as unknown as Conversation;
     },
+    listConversationsByTitlePrefix: () => [],
+    deleteConversationById: () => false,
+    createConversation: async () => ({ id: "conv-test" }),
+    addMessage: async () => ({ id: "msg-test" }),
   };
 }
 

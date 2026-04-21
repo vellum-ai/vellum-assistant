@@ -34,6 +34,12 @@ export interface PlaygroundRouteDeps {
    * delete path is intentionally best-effort for freshly-seeded rows.
    */
   readonly deleteConversationById: (id: string) => boolean;
+  readonly createConversation: (title: string) => Promise<{ id: string }>;
+  readonly addMessage: (
+    conversationId: string,
+    role: "user" | "assistant",
+    contentJson: string,
+  ) => Promise<{ id: string }>;
   // Later PRs will extend this interface with additional capabilities.
   // Keep this list minimal.
 }
