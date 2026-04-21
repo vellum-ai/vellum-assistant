@@ -98,7 +98,7 @@ private struct HomeFeedFilterChip: View {
     private var foreground: Color {
         switch type {
         case .nudge:   return VColor.systemNegativeStrong
-        case .action:  return VColor.primaryBase
+        case .action:  return VColor.systemInfoStrong
         case .digest:  return VColor.systemPositiveStrong
         case .thread:  return VColor.systemMidStrong
         }
@@ -109,7 +109,7 @@ private struct HomeFeedFilterChip: View {
     private var background: Color {
         switch type {
         case .nudge:   return VColor.systemNegativeWeak
-        case .action:  return VColor.surfaceActive
+        case .action:  return VColor.systemInfoWeak
         case .digest:  return VColor.systemPositiveWeak
         case .thread:  return VColor.systemMidWeak
         }
