@@ -33,6 +33,7 @@ import {
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Database } from "bun:sqlite";
 import {
   afterAll,
   afterEach,
@@ -117,6 +118,7 @@ mock.module("../config/env.js", () => ({
 // Imports (after mocks so module-level code picks up the stubs)
 // ---------------------------------------------------------------------------
 
+import { resetDb } from "../memory/db-connection.js";
 import { buildVBundle } from "../runtime/migrations/vbundle-builder.js";
 import {
   _setUrlImportValidatorOptionsForTests,
@@ -473,6 +475,179 @@ describe("handleMigrationImport — URL body memory ceiling", () => {
       await fixture.close();
     }
   }, 90_000);
+});
+
+// ---------------------------------------------------------------------------
+// Gap A regression: no-swap success path must not append a stale
+// "newer migration" warning sourced from the live DB. The warning would
+// wrongly attribute live-DB state to the imported bundle when no bundle
+// files actually land on disk (e.g. credentials-only bundle).
+// ---------------------------------------------------------------------------
+
+describe("handleMigrationImport — no-swap path omits newer-migration warning", () => {
+  test("credentials-only bundle does not inherit live-DB migration warnings", async () => {
+    // Seed the live workspace DB with a migration_* checkpoint that's NOT
+    // in the registry. validateMigrationState treats this as a "newer
+    // version" and would otherwise push a warning into the report. With
+    // the gate in appendNewerMigrationWarningsIfAny the warning must be
+    // suppressed when the import didn't modify the workspace.
+    const dbDir = join(testWorkspaceRoot, "data", "db");
+    mkdirSync(dbDir, { recursive: true });
+    const dbPath = join(dbDir, "assistant.db");
+    const seed = new Database(dbPath);
+    try {
+      seed.exec(`
+        CREATE TABLE memory_checkpoints (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+      `);
+      seed
+        .query(
+          `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES (?, ?, ?)`,
+        )
+        .run("migration_from_the_future", "1", Date.now());
+    } finally {
+      seed.close();
+    }
+
+    // Drop any cached Drizzle singleton so getDb() re-opens from the
+    // seeded path above when the handler calls it post-import.
+    resetDb();
+
+    // All-`vellum:*` credentials bundle: the streaming importer returns
+    // ok=true with zero files_created/overwritten (no-swap success),
+    // and the credential-import callback filters every entry as a
+    // platform credential so CES is never invoked.
+    const { archive } = buildVBundle({
+      files: [
+        {
+          path: "credentials/vellum:device-id",
+          data: new TextEncoder().encode("test-device-id"),
+        },
+      ],
+    });
+    const bundlePath = join(testParent, "fixture-creds-only.vbundle");
+    writeFileSync(bundlePath, archive);
+
+    const fixture = await startFixtureServer((_req, res) => {
+      res.writeHead(200, { "Content-Type": "application/octet-stream" });
+      createReadStream(bundlePath).pipe(res);
+    });
+
+    try {
+      const req = new Request("http://localhost/v1/migrations/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: makeFakeSignedUrl(fixture.port) }),
+      });
+
+      const res = await handleMigrationImport(req);
+      const body = (await res.json()) as ImportCommitResponse;
+
+      expect(res.status).toBe(200);
+      expect(body.success).toBe(true);
+      // Zero files touched — this is the no-swap success path.
+      expect(body.summary.files_created).toBe(0);
+      expect(body.summary.files_overwritten).toBe(0);
+
+      // The gate must suppress the newer-migration warning text. The
+      // helper's wording starts with "Imported data contains" and ends
+      // with "migration(s) from a newer version" — matching either
+      // substring is sufficient.
+      const stale = body.warnings.filter((w) =>
+        w.includes("from a newer version"),
+      );
+      expect(stale).toEqual([]);
+    } finally {
+      await fixture.close();
+      // Close the cached DB handle before the workspace dir gets rm'd
+      // in afterEach so we don't leak WAL/SHM files across tests.
+      resetDb();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gap B regression: an upstream body that drops mid-stream (peer reset,
+// socket.destroy() after headers are sent) must surface as 502
+// fetch_failed, not 500 extraction_failed. The tag-at-source plumbing in
+// the URL handler routes importer-rethrown upstream errors to the fetch-
+// failed branch.
+// ---------------------------------------------------------------------------
+
+describe("handleMigrationImport — upstream body dropped mid-stream", () => {
+  test("socket destroy mid-body returns 502 with reason: fetch_failed", async () => {
+    // Build a real gzipped tar prefix, then serve only the first N bytes
+    // and tear down the connection. gunzip inside streamCommitImport
+    // will surface this as a stream error; we tag it at the source so
+    // the handler maps it to 502 fetch_failed. Use random payload bytes
+    // so the gzip output is ~incompressible — a compressed all-zeros
+    // payload shrinks to <500 bytes total, which doesn't give us enough
+    // material to reliably deliver a partial body with gunzip state
+    // still alive across the socket teardown.
+    const incompressible = new Uint8Array(64 * 1024);
+    for (let i = 0; i < incompressible.length; i += 1) {
+      incompressible[i] = Math.floor(Math.random() * 256);
+    }
+    const { archive } = buildVBundle({
+      files: [
+        {
+          path: "workspace/data/db/assistant.db",
+          data: incompressible,
+        },
+      ],
+    });
+    // Safety net: if someone changes buildVBundle to return very small
+    // outputs, drop the test early rather than flaking on a too-short
+    // truncation window. 512 bytes is plenty given 64 KB of random data
+    // gzips to essentially its original size.
+    expect(archive.byteLength).toBeGreaterThan(512);
+
+    // Truncate to the first 256 bytes so upstream cannot deliver a
+    // usable tar stream. gunzip will error on the abrupt close.
+    const truncatedPrefix = archive.slice(0, 256);
+
+    const fixture = await startFixtureServer((_req, res) => {
+      // Chunked transfer (no Content-Length) + socket.destroy() mid-body
+      // is the cleanest way to force Bun's fetch to surface a
+      // post-headers stream error rather than an initial-fetch throw.
+      // We write the prefix in a couple of chunks so the client side can
+      // return from fetch() and hand the body stream to the importer
+      // before we tear the socket down.
+      res.writeHead(200, {
+        "Content-Type": "application/octet-stream",
+        "Transfer-Encoding": "chunked",
+      });
+      const half = Math.floor(truncatedPrefix.byteLength / 2);
+      res.write(truncatedPrefix.slice(0, half), () => {
+        // Give the runtime a chance to deliver the first chunk to the
+        // consumer and enter the streaming import pipeline, then rip
+        // the socket out so the body stream surfaces an abort error.
+        setTimeout(() => {
+          res.socket?.destroy();
+        }, 100);
+      });
+    });
+
+    try {
+      const req = new Request("http://localhost/v1/migrations/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: makeFakeSignedUrl(fixture.port) }),
+      });
+
+      const res = await handleMigrationImport(req);
+      const body = (await res.json()) as FetchFailedResponse;
+
+      expect(res.status).toBe(502);
+      expect(body.success).toBe(false);
+      expect(body.reason).toBe("fetch_failed");
+    } finally {
+      await fixture.close();
+    }
+  }, 15_000);
 });
 
 // ---------------------------------------------------------------------------
