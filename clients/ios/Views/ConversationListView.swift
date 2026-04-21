@@ -772,6 +772,13 @@ struct ConversationChatView: View {
                 forkParentChrome(forkParent: forkParent, action: parentChromeAction)
             }
 
+            // Low-balance / depleted-credits banner (LUM-1004). Self-contained:
+            // fetches the billing summary on appear and routes the "Top up"
+            // affordance to the web billing page in SFSafariViewController.
+            // Renders inline so it stacks cleanly under any fork chrome above
+            // and above the chat content below.
+            LowBalanceBannerHost()
+
             ChatContentView(
                 viewModel: viewModel,
                 pendingAnchorRequestId: anchorRequest?.id,
