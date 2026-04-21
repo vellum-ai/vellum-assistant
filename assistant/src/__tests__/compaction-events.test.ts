@@ -354,6 +354,45 @@ describe("forceCompact event emission", () => {
     expect(usageEvent.model).toBe("test-model");
   });
 
+  test("emits usage_update even when summary LLM was skipped (truncation-only path)", async () => {
+    const collected: ServerMessage[] = [];
+    mockCompactResult = {
+      messages: [],
+      compacted: true,
+      previousEstimatedInputTokens: 150_000,
+      estimatedInputTokens: 80_000,
+      maxInputTokens: 200_000,
+      thresholdTokens: 160_000,
+      compactedMessages: 10,
+      compactedPersistedMessages: 5,
+      summaryCalls: 0,
+      summaryInputTokens: 0,
+      summaryOutputTokens: 0,
+      summaryModel: "",
+      summaryText: "",
+    };
+
+    const conversation = makeConversation(collected, "conv-compact-trunc");
+    await conversation.forceCompact();
+
+    const compactedEvents = collected.filter(
+      (m) => m.type === "context_compacted",
+    );
+    expect(compactedEvents.length).toBe(1);
+
+    const usageEvents = collected.filter((m) => m.type === "usage_update");
+    expect(usageEvents.length).toBe(1);
+    const usageEvent = usageEvents[0] as Extract<
+      ServerMessage,
+      { type: "usage_update" }
+    >;
+    expect(usageEvent.contextWindowTokens).toBe(80_000);
+    expect(usageEvent.contextWindowMaxTokens).toBe(200_000);
+    expect(usageEvent.inputTokens).toBe(0);
+    expect(usageEvent.outputTokens).toBe(0);
+    expect(usageEvent.estimatedCost).toBe(0);
+  });
+
   test("skips emission when compacted is false", async () => {
     const collected: ServerMessage[] = [];
     mockCompactResult = {
