@@ -8,9 +8,6 @@ import VellumAssistantShared
 @Observable
 @MainActor
 final class PreChatOnboardingState {
-    /// Bump when the screen order changes so stale persisted indices are reset.
-    private static let currentFlowVersion = 2
-
     var currentScreen: Int = 0 // 0 = tools, 1 = tasks/tone, 2 = names
     var selectedTools: Set<String> = []
     var selectedTasks: Set<String> = []
@@ -40,11 +37,10 @@ final class PreChatOnboardingState {
     private static let toneKey = "\(prefix)toneValue"
     private static let userNameKey = "\(prefix)userName"
     private static let assistantNameKey = "\(prefix)assistantName"
-    private static let flowVersionKey = "\(prefix)flowVersion"
 
     private static let allKeys: [String] = [
         screenKey, toolsKey, tasksKey, toneKey,
-        userNameKey, assistantNameKey, flowVersionKey,
+        userNameKey, assistantNameKey,
     ]
 
     // MARK: - Init (restore from UserDefaults)
@@ -56,14 +52,6 @@ final class PreChatOnboardingState {
         self.userName = ""
 
         let defaults = UserDefaults.standard
-        let storedVersion = defaults.integer(forKey: Self.flowVersionKey)
-
-        guard storedVersion == Self.currentFlowVersion else {
-            // No persisted state or version mismatch — start fresh.
-            // Pre-fill userName from system account.
-            userName = NameExchangeView.defaultUserName()
-            return
-        }
 
         currentScreen = min(defaults.integer(forKey: Self.screenKey), 2)
 
@@ -92,7 +80,6 @@ final class PreChatOnboardingState {
 
     func persist() {
         let defaults = UserDefaults.standard
-        defaults.set(Self.currentFlowVersion, forKey: Self.flowVersionKey)
         defaults.set(currentScreen, forKey: Self.screenKey)
         defaults.set(Array(selectedTools), forKey: Self.toolsKey)
         defaults.set(Array(selectedTasks), forKey: Self.tasksKey)
