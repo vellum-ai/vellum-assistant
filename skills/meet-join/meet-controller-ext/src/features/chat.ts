@@ -447,16 +447,30 @@ export async function postConsentMessage(
  * isTrusted gate rejects the JS `.click()` fallback) the composer hasn't
  * mounted yet and `sendChat` throws immediately.
  *
- * To close the race we poll for {@link chatSelectors.MESSAGE_LIST} with a
- * short deadline ({@link ENSURE_PANEL_OPEN_TIMEOUT_MS}) via
- * {@link waitForSelector}. When the panel was already open on entry the
- * initial `document.querySelector` returns synchronously, so the poll is
- * a no-op on the fast path. If the deadline expires we fall through
- * silently — `sendChat` will surface its own "chat input not found"
- * diagnostic, which is what the join flow's `try/catch` already handles.
+ * To close the race we poll for {@link chatSelectors.INPUT} with a short
+ * deadline ({@link ENSURE_PANEL_OPEN_TIMEOUT_MS}) via
+ * {@link waitForSelector}. The composer is the thing `sendChat` actually
+ * needs, so anchoring the wait on it keeps this function correct even
+ * when Meet drifts the surrounding chrome (panel header renamed to
+ * "In-call messages", `MESSAGE_LIST` aria-label changed, etc.). When
+ * the panel was already open on entry the initial `document.querySelector`
+ * returns synchronously, so the poll is a no-op on the fast path. If the
+ * deadline expires we fall through silently — `sendChat` will surface
+ * its own "chat input not found" diagnostic, which the join flow's
+ * `try/catch` already handles.
  */
 async function ensurePanelOpen(opts?: EnsurePanelOpenOptions): Promise<void> {
-  if (document.querySelector(chatSelectors.MESSAGE_LIST)) return;
+  // Prefer the composer as the panel-open signal: if it's in the DOM,
+  // `sendChat` will succeed regardless of the surrounding chrome.
+  // `MESSAGE_LIST` is retained as a fallback so existing tests (which
+  // mount only the list, not the composer, to drive the panel-already-
+  // open branch) continue to work.
+  if (
+    document.querySelector(chatSelectors.INPUT) ||
+    document.querySelector(chatSelectors.MESSAGE_LIST)
+  ) {
+    return;
+  }
   const toggle = document.querySelector<HTMLButtonElement>(
     chatSelectors.PANEL_BUTTON,
   );
@@ -500,20 +514,25 @@ async function ensurePanelOpen(opts?: EnsurePanelOpenOptions): Promise<void> {
     // findable.
   }
 
-  // Wait for the message list to mount. In jsdom tests the JS `.click()`
-  // fallback mounts the list synchronously before we reach this line, so
+  // Wait for the composer to mount — the thing `sendChat` actually
+  // queries. In jsdom tests the JS `.click()` fallback mounts the
+  // composer synchronously before we reach this line, so
   // `waitForSelector`'s synchronous first check resolves without ever
   // attaching a MutationObserver. In production Meet the click is queued
-  // through xdotool and the list mounts a beat later; the observer catches
-  // that mutation and resolves before the deadline. If the list never
-  // appears (e.g. host-restricted chat), swallow the timeout — `sendChat`
-  // will surface its own "chat input not found" error through the join
-  // flow's diagnostic wrapper.
+  // through xdotool and the composer mounts a beat later; the observer
+  // catches that mutation and resolves before the deadline. If the
+  // composer never appears (e.g. host-restricted chat, or the panel
+  // failed to open) swallow the timeout — `sendChat` will surface its
+  // own "chat input not found" error through the join flow's diagnostic
+  // wrapper.
+  //
+  // Anchoring on the composer (not the message list) keeps this correct
+  // across Meet's "Continuous chat is turned off" / "In-call messages"
+  // DOM where the list's aria-label no longer matches the old selector.
+  // The composer's `aria-label^="Send a message"` has been stable across
+  // that transition.
   try {
-    await waitForSelector(
-      chatSelectors.MESSAGE_LIST,
-      ENSURE_PANEL_OPEN_TIMEOUT_MS,
-    );
+    await waitForSelector(chatSelectors.INPUT, ENSURE_PANEL_OPEN_TIMEOUT_MS);
   } catch {
     // timeout — handled by downstream sendChat
   }
