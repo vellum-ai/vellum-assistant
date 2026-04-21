@@ -34,10 +34,11 @@ describe("assertPlaygroundEnabled", () => {
 });
 
 describe("playgroundRouteDefinitions", () => {
-  test("aggregates concrete route builders (non-empty)", () => {
-    // Later PRs append more builders. This test just guards that the
-    // aggregator is wired to at least one group — the per-group tests
-    // cover behavior.
+  test("returns route definitions regardless of flag state (guard runs per-request)", () => {
+    // The flag check happens inside each route's handler via
+    // `assertPlaygroundEnabled`, not at registration time. The aggregator
+    // always returns every registered route; each handler returns 404 when
+    // the flag is disabled.
     expect(playgroundRouteDefinitions(makeDeps(true)).length).toBeGreaterThan(
       0,
     );
