@@ -268,7 +268,16 @@ struct ConversationListView: View {
 
     private func archiveActiveConversation(_ conversation: IOSConversation) {
         store.archiveConversation(conversation)
-        if horizontalSizeClass == .regular && selectedConversationId == conversation.id {
+        // Switch away from the archived conversation on both size classes.
+        // The compact (drawer) path needs this because `archiveConversation`
+        // only flips `isArchived` without removing from `store.conversations`,
+        // so `IOSRootNavigationView.reconcileActiveConversation`'s
+        // `.onChange(of: store.conversations.map(\.id))` trigger never fires
+        // — the archived conversation would otherwise stay on-screen.
+        // `selectedConversationId` is bound to `activeConversationId` in both
+        // the iPad split view and the compact drawer, so assigning here
+        // updates whichever path is active.
+        if selectedConversationId == conversation.id {
             selectedConversationId = activeConversations.first?.id
         }
     }
