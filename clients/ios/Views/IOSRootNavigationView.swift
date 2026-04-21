@@ -93,6 +93,16 @@ struct IOSRootNavigationView: View {
             // currently active one has been deleted from the store.
             reconcileActiveConversation()
         }
+        .onChange(of: horizontalSizeClass) { _, newValue in
+            // Re-attempt the compact-only seed on size-class transitions
+            // (rotation, Split View collapse). Without this, an iPad session
+            // that started on `.regular` with no selection would drop into
+            // `compactRoot`'s empty state when the size class flips to
+            // `.compact` until the user opens the drawer to pick a chat.
+            if newValue == .compact {
+                seedActiveConversationIfNeeded()
+            }
+        }
         // Triggered from `ContentView.connectionFailedView` ("Go to Settings")
         // and anywhere else that wants to push the Connect screen. Since the
         // Settings screen now lives inside a sheet, the sheet must be presented
@@ -314,8 +324,18 @@ struct IOSRootNavigationView: View {
 
     // MARK: - Selection request handling
 
+    /// Seeds `activeConversationId` with the first eligible conversation when
+    /// nothing is selected yet — but only on compact. iPad's
+    /// `NavigationSplitView` starts with an empty detail pane until the user
+    /// explicitly taps a conversation in the sidebar, and auto-selecting on
+    /// launch would mount the first conversation's detail view unbidden. That
+    /// detail view's task calls `markConversationSeenIfNeeded(...,
+    /// isExplicitOpen: true)`, which would silently clear unread state /
+    /// attention signals on every launch/reconnect for iPad users. Compact
+    /// needs the seed because `compactRoot` falls back to an empty-state view
+    /// when there is no active conversation.
     private func seedActiveConversationIfNeeded() {
-        guard activeConversationId == nil else { return }
+        guard horizontalSizeClass != .regular, activeConversationId == nil else { return }
         activeConversationId = firstSelectableConversationId()
     }
 
