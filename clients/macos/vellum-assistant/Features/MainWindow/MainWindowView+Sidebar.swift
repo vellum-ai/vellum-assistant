@@ -398,7 +398,6 @@ extension MainWindowView {
             }
 
             // MARK: Nav Items (fixed)
-            // Home has moved to the top-menu bar (see MainWindowView.topBarView).
             SidebarNavRow(icon: VIcon.brain.rawValue, label: cachedAssistantName, isActive: windowState.selection == .panel(.intelligence)) {
                 windowState.showPanel(.intelligence)
             }
@@ -532,7 +531,6 @@ extension MainWindowView {
                 sidebarSectionDivider()
             }
 
-            // Home has moved to the top-menu bar (see MainWindowView.topBarView).
             SidebarNavRow(icon: VIcon.brain.rawValue, label: cachedAssistantName, isActive: windowState.selection == .panel(.intelligence), isExpanded: false) {
                 windowState.showPanel(.intelligence)
             }

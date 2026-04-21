@@ -520,7 +520,12 @@ extension AppDelegate {
 
         let handler: (NSEvent) -> NSEvent? = { [weak self] event in
             guard self?.isBootstrapping != true,
-                  self?.mainWindow?.isVisible == true else { return event }
+                  self?.mainWindow?.isVisible == true,
+                  // Feature-flag check lives in the monitor (not just in
+                  // `openHomePanel()`) so the key chord falls through to
+                  // the responder chain / menu items when Home is disabled
+                  // — otherwise we'd silently swallow ⌘⇧H for no effect.
+                  MacOSClientFeatureFlagManager.shared.isEnabled("home-tab") else { return event }
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.numericPad)
             guard mods == targetModifiers,
                   event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else {
