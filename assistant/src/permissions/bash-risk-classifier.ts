@@ -14,9 +14,11 @@ import type {
   ParsedCommand,
 } from "../tools/terminal/parser.js";
 import { getLogger } from "../util/logger.js";
+import { parseArgs } from "./arg-parser.js";
 import { DEFAULT_COMMAND_REGISTRY } from "./command-registry.js";
 import type {
   ArgRule,
+  ArgSchema,
   BashClassifierInput,
   CommandRiskSpec,
   Risk,
@@ -176,20 +178,17 @@ function getWrappedProgramWithArgs(seg: {
 
 /**
  * Extract the first positional (non-flag) arg, skipping value-consuming flags.
+ * Delegates to the shared `parseArgs()` utility for consistent arg parsing.
  */
 function firstPositionalArg(
   args: string[],
   valueFlags?: Set<string>,
 ): string | undefined {
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg.startsWith("-")) {
-      if (valueFlags?.has(arg)) i++;
-      continue;
-    }
-    return arg;
-  }
-  return undefined;
+  const schema: ArgSchema = valueFlags
+    ? { valueFlags: [...valueFlags], positionals: "none" }
+    : { positionals: "none" };
+  const parsed = parseArgs(args, schema);
+  return parsed.positionals[0];
 }
 
 // ── Safe-file downgrade for rm ────────────────────────────────────────────────
