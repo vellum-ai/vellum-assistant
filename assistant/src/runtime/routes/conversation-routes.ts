@@ -1703,12 +1703,11 @@ export async function handleSendMessage(
 
   // ── Canned first-greeting fast path ──
   // On a completely fresh workspace, skip LLM inference for the macOS
-  // wake-up greeting and return a pre-written response. This eliminates
-  // 10-30s of inference latency on first boot.
-  // When onboarding context is present, skip the canned greeting so the
-  // model can generate a proactive response using the prechat selections.
+  // wake-up greeting and return a pre-written response. When onboarding
+  // context is present the greeting is personalized using the selections;
+  // otherwise a generic greeting is served. Both paths are instant.
   if (isWakeUpGreeting(trimmedContent, conversation.getMessages().length)) {
-    const cannedGreeting = body.onboarding ? null : getCannedFirstGreeting();
+    const cannedGreeting = getCannedFirstGreeting(body.onboarding ?? undefined);
 
     conversation.processing = true;
     let cleanupDeferred = false;
@@ -1746,114 +1745,43 @@ export async function handleSendMessage(
 
       const conversationId = mapping.conversationId;
 
-      if (cannedGreeting) {
-        const assistantMsg = createAssistantMessage(cannedGreeting);
-        await addMessage(
-          mapping.conversationId,
-          "assistant",
-          JSON.stringify(assistantMsg.content),
-          channelMeta,
-        );
-        conversation.getMessages().push(assistantMsg);
-
-        const response = Response.json(
-          { accepted: true, messageId: persisted.id, conversationId },
-          { status: 202 },
-        );
-
-        // Defer event publishing to next tick (same pattern as unknown-slash
-        // fast path) so the HTTP response reaches the client before SSE
-        // events arrive.
-        setTimeout(() => {
-          onEvent({
-            type: "user_message_echo",
-            text: rawContent,
-            conversationId,
-            messageId: persisted.id,
-            clientMessageId,
-          });
-          onEvent({ type: "assistant_text_delta", text: cannedGreeting });
-          onEvent({ type: "message_complete", conversationId });
-          conversation.processing = false;
-          silentlyWithLog(
-            conversation.drainQueue(),
-            "canned-greeting queue drain",
-          );
-        }, 0);
-
-        log.info(
-          { conversationId },
-          "Served canned first greeting — skipped LLM inference",
-        );
-        cleanupDeferred = true;
-        return response;
-      }
-
-      // Onboarding context present — user message is persisted above,
-      // now hand off to the agent loop for a personalized greeting.
-      conversation.abortController = new AbortController();
-      conversation.currentRequestId = crypto.randomUUID();
-
-      conversation.setTurnChannelContext({
-        userMessageChannel: sourceChannel,
-        assistantMessageChannel: sourceChannel,
-      });
-      conversation.setTurnInterfaceContext({
-        userMessageInterface: sourceInterface,
-        assistantMessageInterface: sourceInterface,
-      });
-
-      onEvent({
-        type: "user_message_echo",
-        text: rawContent,
-        conversationId,
-        messageId: persisted.id,
-        clientMessageId,
-      });
-
-      const fallbackGreeting = getCannedFirstGreeting();
-      conversation
-        .runAgentLoop(rawContent, persisted.id, onEvent, {
-          isInteractive,
-          isUserMessage: true,
-        })
-        .catch((err) => {
-          log.error(
-            { err, conversationId },
-            "Agent loop failed (onboarding first greeting) — serving canned fallback",
-          );
-          if (fallbackGreeting) {
-            const assistantMsg = createAssistantMessage(fallbackGreeting);
-            addMessage(
-              conversationId,
-              "assistant",
-              JSON.stringify(assistantMsg.content),
-              channelMeta,
-            ).then(() => {
-              conversation.getMessages().push(assistantMsg);
-              onEvent({
-                type: "assistant_text_delta",
-                text: fallbackGreeting,
-              });
-              onEvent({ type: "message_complete", conversationId });
-              conversation.processing = false;
-              silentlyWithLog(
-                conversation.drainQueue(),
-                "onboarding-fallback queue drain",
-              );
-            });
-          }
-        });
-
-      log.info(
-        { conversationId },
-        "Skipped canned greeting — running agent loop with onboarding context",
+      const assistantMsg = createAssistantMessage(cannedGreeting);
+      await addMessage(
+        mapping.conversationId,
+        "assistant",
+        JSON.stringify(assistantMsg.content),
+        channelMeta,
       );
-      cleanupDeferred = true;
-      return Response.json(
+      conversation.getMessages().push(assistantMsg);
+
+      const response = Response.json(
         { accepted: true, messageId: persisted.id, conversationId },
         { status: 202 },
       );
+
+      setTimeout(() => {
+        onEvent({
+          type: "user_message_echo",
+          text: rawContent,
+          conversationId,
+          messageId: persisted.id,
+          clientMessageId,
+        });
+        onEvent({ type: "assistant_text_delta", text: cannedGreeting });
+        onEvent({ type: "message_complete", conversationId });
+        conversation.processing = false;
+        silentlyWithLog(
+          conversation.drainQueue(),
+          "canned-greeting queue drain",
+        );
+      }, 0);
+
+      log.info(
+        { conversationId, personalized: !!body.onboarding },
+        "Served canned first greeting — skipped LLM inference",
+      );
+      cleanupDeferred = true;
+      return response;
     } finally {
       if (!cleanupDeferred && conversation.processing) {
         conversation.processing = false;
