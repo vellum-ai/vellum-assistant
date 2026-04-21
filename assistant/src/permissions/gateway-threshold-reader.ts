@@ -45,7 +45,7 @@ const GLOBAL_CACHE_TTL_MS = 30_000;
 
 const conversationThresholdCache = new Map<
   string,
-  { threshold: string; timestamp: number }
+  { threshold: string | null; timestamp: number }
 >();
 const CONVERSATION_CACHE_TTL_MS = 5_000;
 
@@ -108,34 +108,42 @@ export async function getAutoApproveThreshold(
 
   // For conversation context with a conversationId, try per-conversation override first
   if (ctx === "conversation" && conversationId) {
-    // Check cache first (5s TTL)
+    // Check cache first (5s TTL) — includes negative entries (404 → no override)
     const cached = conversationThresholdCache.get(conversationId);
     if (cached && Date.now() - cached.timestamp < CONVERSATION_CACHE_TTL_MS) {
-      if (isValidThreshold(cached.threshold)) {
+      if (cached.threshold === null) {
+        // Negative cache hit — no override exists, fall through to global
+      } else if (isValidThreshold(cached.threshold)) {
         return cached.threshold;
       }
-    }
-
-    try {
-      const result = await gatewayGet<ConversationThreshold>(
-        `/v1/permissions/thresholds/conversations/${conversationId}`,
-      );
-      if (isValidThreshold(result.threshold)) {
-        conversationThresholdCache.set(conversationId, {
-          threshold: result.threshold,
-          timestamp: Date.now(),
-        });
-        return result.threshold;
-      }
-    } catch (err) {
-      if (err instanceof GatewayRequestError && err.statusCode === 404) {
-        // No conversation override — fall through to global
-      } else {
-        log.warn(
-          { conversationId, error: String(err) },
-          "Failed to fetch conversation threshold override, falling back to defaults",
+    } else {
+      try {
+        const result = await gatewayGet<ConversationThreshold>(
+          `/v1/permissions/thresholds/conversations/${conversationId}`,
         );
-        return HARDCODED_DEFAULTS[ctx];
+        if (isValidThreshold(result.threshold)) {
+          conversationThresholdCache.set(conversationId, {
+            threshold: result.threshold,
+            timestamp: Date.now(),
+          });
+          return result.threshold;
+        }
+      } catch (err) {
+        if (err instanceof GatewayRequestError && err.statusCode === 404) {
+          // No conversation override — cache the negative result to avoid
+          // redundant gateway requests on every tool call
+          conversationThresholdCache.set(conversationId, {
+            threshold: null,
+            timestamp: Date.now(),
+          });
+          // Fall through to global
+        } else {
+          log.warn(
+            { conversationId, error: String(err) },
+            "Failed to fetch conversation threshold override, falling back to defaults",
+          );
+          return HARDCODED_DEFAULTS[ctx];
+        }
       }
     }
   }
