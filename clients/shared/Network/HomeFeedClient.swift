@@ -12,11 +12,13 @@ public struct HomeFeedResponse: Codable, Sendable, Hashable {
     public let items: [FeedItem]
     public let updatedAt: Date
     public let contextBanner: ContextBanner
+    public let lowPriorityCollapsed: LowPriorityCollapsed
 
-    public init(items: [FeedItem], updatedAt: Date, contextBanner: ContextBanner) {
+    public init(items: [FeedItem], updatedAt: Date, contextBanner: ContextBanner, lowPriorityCollapsed: LowPriorityCollapsed) {
         self.items = items
         self.updatedAt = updatedAt
         self.contextBanner = contextBanner
+        self.lowPriorityCollapsed = lowPriorityCollapsed
     }
 }
 

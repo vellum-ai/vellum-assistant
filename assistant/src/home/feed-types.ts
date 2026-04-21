@@ -101,6 +101,16 @@ export interface FeedItem {
 }
 
 /**
+ * Summary of low-priority items that were collapsed out of the main
+ * feed list. The client renders this as a single "N low priority
+ * updates" line instead of showing each item individually.
+ */
+export interface LowPriorityCollapsed {
+  count: number;
+  itemIds: string[];
+}
+
+/**
  * On-disk file format for `~/.vellum/workspace/data/home-feed.json`.
  *
  * Written by the PR 5 writer, read by the PR 6 HTTP route and
@@ -167,6 +177,11 @@ export const feedItemSchema = z.object({
   urgency: feedItemUrgencySchema.optional(),
   author: feedItemAuthorSchema,
   createdAt: z.string(),
+});
+
+export const lowPriorityCollapsedSchema = z.object({
+  count: z.number().int().min(0),
+  itemIds: z.array(z.string()),
 });
 
 /** Schema for the on-disk `home-feed.json` file. */

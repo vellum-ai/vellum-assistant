@@ -57,7 +57,8 @@ final class HomeFeedStoreTests: XCTestCase {
                 greeting: "Good afternoon, Alex",
                 timeAwayLabel: "Away for 2 hours",
                 newCount: items.filter { $0.status == .new }.count
-            )
+            ),
+            lowPriorityCollapsed: LowPriorityCollapsed(count: 0, itemIds: [])
         )
     }
 
