@@ -130,34 +130,36 @@ extension AppDelegate {
         // changes. This matches the sidebar pattern.
         registerConversationNavMonitor()
 
-        globalHotkeyObserver = Publishers.Merge4(
-            UserDefaults.standard.publisher(for: \.globalHotkeyShortcut).map { _ in () },
-            UserDefaults.standard.publisher(for: \.quickInputHotkeyShortcut).map { _ in () },
-            UserDefaults.standard.publisher(for: \.quickInputHotkeyKeyCode).map { _ in () },
-            UserDefaults.standard.publisher(for: \.sidebarToggleShortcut).map { _ in () }
-        )
-        .merge(with: UserDefaults.standard.publisher(for: \.newChatShortcut).map { _ in () })
-        .merge(with: UserDefaults.standard.publisher(for: \.currentConversationShortcut).map { _ in () })
-        .merge(with: UserDefaults.standard.publisher(for: \.markConversationUnreadShortcut).map { _ in () })
-        .merge(with: UserDefaults.standard.publisher(for: \.popOutShortcut).map { _ in () })
-        .merge(with: UserDefaults.standard.publisher(for: \.homeShortcut).map { _ in () })
-        .merge(with: UserDefaults.standard.publisher(for: \.previousConversationShortcut).map { _ in () })
-        .merge(with: UserDefaults.standard.publisher(for: \.nextConversationShortcut).map { _ in () })
-        .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
-        .sink { [weak self] _ in
-            self?.registerGlobalHotkeyMonitor()
-            self?.registerQuickInputMonitor()
-            self?.registerSidebarToggleMonitor()
-            self?.registerNewChatMonitor()
-            self?.registerCurrentConversationMonitor()
-            self?.registerMarkConversationUnreadMonitor()
-            self?.registerPopOutMonitor()
-            self?.registerHomeShortcutMonitor()
-            self?.registerConversationNavMonitor()
-            self?.updateNewChatMenuItemShortcut()
-            self?.updateCurrentConversationMenuItemShortcut()
-            self?.updateMarkConversationUnreadMenuItemShortcut()
-        }
+        let shortcutPublishers: [AnyPublisher<Void, Never>] = [
+            UserDefaults.standard.publisher(for: \.globalHotkeyShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.quickInputHotkeyShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.quickInputHotkeyKeyCode).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.sidebarToggleShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.newChatShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.currentConversationShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.markConversationUnreadShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.popOutShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.homeShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.previousConversationShortcut).map { _ in () }.eraseToAnyPublisher(),
+            UserDefaults.standard.publisher(for: \.nextConversationShortcut).map { _ in () }.eraseToAnyPublisher(),
+        ]
+
+        globalHotkeyObserver = Publishers.MergeMany(shortcutPublishers)
+            .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.registerGlobalHotkeyMonitor()
+                self?.registerQuickInputMonitor()
+                self?.registerSidebarToggleMonitor()
+                self?.registerNewChatMonitor()
+                self?.registerCurrentConversationMonitor()
+                self?.registerMarkConversationUnreadMonitor()
+                self?.registerPopOutMonitor()
+                self?.registerHomeShortcutMonitor()
+                self?.registerConversationNavMonitor()
+                self?.updateNewChatMenuItemShortcut()
+                self?.updateCurrentConversationMenuItemShortcut()
+                self?.updateMarkConversationUnreadMenuItemShortcut()
+            }
     }
 
     /// Registers a Carbon hotkey for Quick Input that intercepts system-wide,
