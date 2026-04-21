@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
@@ -448,6 +448,88 @@ describe("FileRiskClassifier", () => {
       } finally {
         skillSourcePaths.delete(resolve(absPath));
       }
+    });
+  });
+
+  // ── Allowlist options ─────────────────────────────────────────────────────
+
+  describe("allowlistOptions", () => {
+    test("file_read produces exact file + ancestor dirs + wildcard", async () => {
+      const filePath = "/home/user/project/src/index.ts";
+      const result = await classifyInput({
+        toolName: "file_read",
+        filePath,
+        workingDir: "/",
+      });
+      const opts = result.allowlistOptions!;
+      expect(opts).toBeDefined();
+      expect(opts.length).toBeGreaterThanOrEqual(2);
+
+      // First option is exact file
+      expect(opts[0]).toEqual({
+        label: filePath,
+        description: "This file only",
+        pattern: `file_read:${filePath}`,
+      });
+
+      // Ancestor directory wildcards
+      let dir = dirname(filePath);
+      let i = 1;
+      const maxLevels = 3;
+      let levels = 0;
+      while (dir && dir !== "/" && dir !== "." && levels < maxLevels) {
+        const dirName = dir.split("/").pop() || dir;
+        expect(opts[i]).toEqual({
+          label: `${dir}/**`,
+          description: `Anything in ${dirName}/`,
+          pattern: `file_read:${dir}/**`,
+        });
+        const parent = dirname(dir);
+        if (parent === dir || dir === homedir()) break;
+        dir = parent;
+        i++;
+        levels++;
+      }
+
+      // Last option is the tool wildcard
+      expect(opts[opts.length - 1]).toEqual({
+        label: "file_read:*",
+        description: "All file reads",
+        pattern: "file_read:*",
+      });
+    });
+
+    test("file_write produces options for the given path", async () => {
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: "/tmp/output.txt",
+        workingDir: "/",
+      });
+      const opts = result.allowlistOptions!;
+      expect(opts).toBeDefined();
+      expect(opts[0].pattern).toBe("file_write:/tmp/output.txt");
+      expect(opts[opts.length - 1].pattern).toBe("file_write:*");
+      expect(opts[opts.length - 1].description).toBe("All file writes");
+    });
+
+    test("host_file_read produces options", async () => {
+      const result = await classifyInput({
+        toolName: "host_file_read",
+        filePath: "/etc/config.json",
+        workingDir: "/",
+      });
+      const opts = result.allowlistOptions!;
+      expect(opts).toBeDefined();
+      expect(opts[0].pattern).toBe("host_file_read:/etc/config.json");
+      expect(opts[opts.length - 1].description).toBe("All host file reads");
+    });
+
+    test("empty filePath produces empty allowlistOptions", async () => {
+      const result = await classifyInput({
+        toolName: "file_read",
+        filePath: "",
+      });
+      expect(result.allowlistOptions).toEqual([]);
     });
   });
 });

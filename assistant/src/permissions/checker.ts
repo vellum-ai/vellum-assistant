@@ -23,7 +23,7 @@ import {
 } from "./approval-policy.js";
 import { bashRiskClassifier } from "./bash-risk-classifier.js";
 import { fileRiskClassifier } from "./file-risk-classifier.js";
-import { riskToRiskLevel } from "./risk-types.js";
+import { type RiskAssessment, riskToRiskLevel } from "./risk-types.js";
 import {
   buildShellAllowlistOptions,
   buildShellCommandCandidates,
@@ -60,6 +60,24 @@ const RISK_CACHE_MAX = 256;
 const riskCache = new Map<string, RiskClassification>();
 let riskCacheInvalidationHookRegistered = false;
 
+// ── Assessment cache ─────────────────────────────────────────────────────────
+// Stores the full RiskAssessment from classifier-backed tools so that
+// generateAllowlistOptions() can read classifier-produced allowlistOptions
+// without re-classifying. Keyed on (toolName, inputHash) — a simpler key
+// than the full risk cache since generateAllowlistOptions() does not receive
+// workingDir or manifestOverride. Cleared alongside the risk cache.
+const assessmentCache = new Map<string, RiskAssessment>();
+
+function assessmentCacheKey(
+  toolName: string,
+  input: Record<string, unknown>,
+): string {
+  const { reason: _reason, activity: _activity, ...cacheableInput } = input;
+  const inputJson = JSON.stringify(cacheableInput);
+  const hash = createHash("sha256").update(inputJson).digest("hex");
+  return `${toolName}\0${hash}`;
+}
+
 function riskCacheKey(
   toolName: string,
   input: Record<string, unknown>,
@@ -84,6 +102,7 @@ function riskCacheKey(
 /** Clear the risk classification cache. Called when trust rules change. */
 function clearRiskCache(): void {
   riskCache.clear();
+  assessmentCache.clear();
 }
 
 function ensureRiskCacheInvalidationHook(): void {
@@ -377,6 +396,7 @@ export async function classifyRisk(
 
   // ── Bash/host_bash: delegate to the registry-driven BashRiskClassifier ────
   let result: RiskClassification;
+  let classifierAssessment: RiskAssessment | undefined;
   if (toolName === "bash" || toolName === "host_bash") {
     const command = ((input.command as string) ?? "").trim();
     if (!command) {
@@ -386,6 +406,7 @@ export async function classifyRisk(
         command,
         toolName: toolName as "bash" | "host_bash",
       });
+      classifierAssessment = assessment;
       result = {
         level: riskToRiskLevel(assessment.riskLevel),
         reason: assessment.reason,
@@ -416,6 +437,7 @@ export async function classifyRisk(
       filePath,
       workingDir: isHostTool ? "/" : (workingDir ?? process.cwd()),
     });
+    classifierAssessment = assessment;
     result = {
       level: riskToRiskLevel(assessment.riskLevel),
       reason: assessment.reason,
@@ -428,6 +450,7 @@ export async function classifyRisk(
       url: getStringField(input, "url"),
       allowPrivateNetwork: input.allow_private_network === true,
     });
+    classifierAssessment = assessment;
     result = {
       level: riskToRiskLevel(assessment.riskLevel),
       reason: assessment.reason,
@@ -446,6 +469,7 @@ export async function classifyRisk(
         | "delete_managed_skill",
       skillSelector: getStringField(input, "skill"),
     });
+    classifierAssessment = assessment;
     result = {
       level: riskToRiskLevel(assessment.riskLevel),
       reason: assessment.reason,
@@ -480,6 +504,17 @@ export async function classifyRisk(
       if (oldest !== undefined) riskCache.delete(oldest);
     }
     riskCache.set(cacheKey, result);
+  }
+
+  // Store the full assessment in a separate cache keyed on (toolName, input)
+  // so generateAllowlistOptions() can retrieve classifier-produced options.
+  if (classifierAssessment) {
+    const aKey = assessmentCacheKey(toolName, input);
+    if (assessmentCache.size >= RISK_CACHE_MAX) {
+      const oldest = assessmentCache.keys().next().value;
+      if (oldest !== undefined) assessmentCache.delete(oldest);
+    }
+    assessmentCache.set(aKey, classifierAssessment);
   }
 
   return result;
@@ -838,6 +873,22 @@ export async function generateAllowlistOptions(
 ): Promise<AllowlistOption[]> {
   signal?.throwIfAborted();
 
+  // Check if a classifier already produced allowlist options during
+  // classifyRisk(). If so, return those directly — avoids duplicate
+  // computation and keeps scope option generation unified with risk
+  // classification.
+  const aKey = assessmentCacheKey(toolName, input);
+  const cachedAssessment = assessmentCache.get(aKey);
+  if (
+    cachedAssessment?.allowlistOptions &&
+    cachedAssessment.allowlistOptions.length > 0
+  ) {
+    return cachedAssessment.allowlistOptions;
+  }
+
+  // Fall back to the per-tool strategy function for tools that don't have
+  // classifier-produced options (e.g. bash tools use the shell identity
+  // strategy, or when the cache was missed).
   if (Object.hasOwn(ALLOWLIST_STRATEGIES, toolName)) {
     return ALLOWLIST_STRATEGIES[toolName](toolName, input);
   }

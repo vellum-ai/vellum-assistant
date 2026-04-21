@@ -9,7 +9,7 @@
  * @see /docs/bash-risk-classifier-design.md
  */
 
-import { RiskLevel } from "./types.js";
+import { type AllowlistOption, RiskLevel } from "./types.js";
 
 // ── Risk levels ──────────────────────────────────────────────────────────────
 
@@ -52,6 +52,13 @@ export interface RiskAssessment {
   scopeOptions: ScopeOption[];
   /** How the risk was determined. */
   matchType: "user_rule" | "registry" | "unknown";
+  /**
+   * Allowlist options for the permission prompt "always allow" scope ladder.
+   * Populated by classifiers that unify risk classification and scope option
+   * generation. When present, `generateAllowlistOptions()` returns these
+   * directly instead of calling the per-tool strategy function.
+   */
+  allowlistOptions?: AllowlistOption[];
 }
 
 // ── Classifier interface ─────────────────────────────────────────────────────
