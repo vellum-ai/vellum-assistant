@@ -245,8 +245,26 @@ export function trackCompactionOutcome(
       });
     }
   } else {
+    // Capture the open state before we clear it — we only emit the
+    // `compaction_circuit_closed` event on the open→closed transition so
+    // the Swift banner can dismiss immediately once auto-compaction
+    // resumes. Firing on every successful compaction would be noise
+    // (the breaker is closed in the common case), so the transition
+    // gate keeps the event meaningful.
+    const wasOpen = ctx.compactionCircuitOpenUntil !== null;
     ctx.consecutiveCompactionFailures = 0;
     ctx.compactionCircuitOpenUntil = null;
+    if (wasOpen) {
+      // Scope the event to this conversation so clients can gate it via
+      // `belongsToConversation()` — `EventStreamClient` broadcasts every
+      // parsed server message to all subscribers, so without the ID a
+      // breaker recovery here would clear the banner on every open
+      // `ChatViewModel`.
+      onEvent({
+        type: "compaction_circuit_closed",
+        conversationId: ctx.conversationId,
+      });
+    }
   }
 }
 

@@ -355,6 +355,14 @@ final class ChatActionHandler {
             vm.compactionCircuitOpenUntil = until
             log.warning("Auto-compaction paused until \(until, privacy: .public) — reason: \(event.reason, privacy: .public)")
 
+        case .compactionCircuitClosed(let event):
+            // Auto-compaction is live again — clear the banner state so the UI
+            // dismisses the "paused" banner immediately without waiting for the
+            // original `openUntil` deadline.
+            guard belongsToConversation(event.conversationId) else { return }
+            vm.compactionCircuitOpenUntil = nil
+            log.info("Auto-compaction resumed (circuit breaker closed)")
+
         default:
             break
         }
