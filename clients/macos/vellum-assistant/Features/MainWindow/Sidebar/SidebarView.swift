@@ -1,0 +1,679 @@
+import SwiftUI
+import UniformTypeIdentifiers
+import VellumAssistantShared
+
+/// Top-level sidebar view extracted from `MainWindowView` so its body
+/// re-evaluates only when sidebar-relevant state changes, not on every
+/// mutation anywhere in the window. The previous monolithic
+/// `MainWindowView.body` cascaded down through `sidebarView` →
+/// `SidebarConversationsHeader` on every unrelated state change (LUM-1082).
+struct SidebarView: View {
+    let conversationManager: ConversationManager
+    let listStore: ConversationListStore
+    let appListManager: AppListManager
+    let windowState: MainWindowState
+    let homeStore: HomeStore
+    let assistantFeatureFlagStore: AssistantFeatureFlagStore
+    @Bindable var sidebar: SidebarInteractionState
+
+    let cachedAssistantName: String
+    let showDaemonLoading: Bool
+    let assistantLoadingTimedOut: Bool
+    let sidebarExpanded: Bool
+    let sidebarExpandedWidth: CGFloat
+    let sidebarCollapsedWidth: CGFloat
+
+    @Binding var showConversationSwitcher: Bool
+    @Binding var conversationSwitcherTriggerFrame: CGRect
+
+    let selectConversation: (ConversationModel) -> Void
+    let startNewConversation: () -> Void
+    let showMarkAllReadToast: (Int, [UUID]) -> Void
+    let openAppInWorkspace: (AppListManager.AppItem) -> Void
+
+    @State private var sidebarContentHeight: CGFloat = 0
+    @State private var sidebarFrameHeight: CGFloat = 0
+    @State private var groupToDelete: ConversationGroup?
+    @State private var archiveAllPending: ArchiveAllTarget?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if sidebarExpanded {
+                expandedSidebarContent
+            } else {
+                collapsedSidebarContent
+            }
+        }
+        .padding(.vertical, VSpacing.md)
+        .padding(.horizontal, sidebarExpanded ? VSpacing.md : VSpacing.sm)
+        .frame(maxHeight: .infinity)
+        .frame(width: sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth, alignment: .leading)
+        .background(VColor.surfaceOverlay)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+        .clipped()
+        .alert("Rename Conversation", isPresented: Binding(
+            get: { sidebar.renamingConversationId != nil },
+            set: { if !$0 { sidebar.renamingConversationId = nil } }
+        )) {
+            TextField("Title", text: Binding(
+                get: { sidebar.renameText },
+                set: { sidebar.renameText = $0 }
+            ))
+            Button("Cancel", role: .cancel) { sidebar.renamingConversationId = nil }
+            Button("Save") {
+                if let id = sidebar.renamingConversationId {
+                    conversationManager.renameConversation(id: id, title: sidebar.renameText)
+                }
+                sidebar.renamingConversationId = nil
+            }
+        } message: {
+            Text("Enter a new name for this conversation")
+        }
+        .alert("Rename Group", isPresented: Binding(
+            get: { sidebar.renamingGroupId != nil },
+            set: { if !$0 { sidebar.renamingGroupId = nil } }
+        )) {
+            TextField("Name", text: Binding(
+                get: { sidebar.renamingGroupName },
+                set: { sidebar.renamingGroupName = $0 }
+            ))
+            Button("Cancel", role: .cancel) { sidebar.renamingGroupId = nil }
+            Button("Save") {
+                if let groupId = sidebar.renamingGroupId {
+                    let newName = sidebar.renamingGroupName
+                    Task<Void, Never> { await conversationManager.renameGroup(groupId, name: newName) }
+                }
+                sidebar.renamingGroupId = nil
+            }
+        } message: {
+            Text("Enter a new name for this group")
+        }
+        .onAppear {
+            conversationManager.customGroupsEnabled = assistantFeatureFlagStore.isEnabled("conversation-groups-ui")
+        }
+        .onChange(of: assistantFeatureFlagStore.isEnabled("conversation-groups-ui")) { _, newValue in
+            conversationManager.customGroupsEnabled = newValue
+        }
+    }
+
+    // MARK: - Derived State
+
+    /// All non-schedule/non-background conversations for the collapsed sidebar switcher.
+    private var regularConversations: [ConversationModel] {
+        listStore.visibleConversations.filter {
+            !$0.isScheduleConversation
+                && !$0.isBackgroundConversation
+                && !$0.isChannelConversation
+                && !$0.isAutoAnalysisConversation
+        }
+    }
+
+    /// Unread count in the Scheduled section, used to trigger auto-expand.
+    /// Filters `conversations` directly instead of calling `visibleConversations` to avoid
+    /// an unnecessary O(N log N) sort — only the count is needed.
+    private var scheduledUnreadCount: Int {
+        listStore.conversations
+            .count { !$0.isArchived && $0.kind != .private && $0.groupId == ConversationGroup.scheduled.id && $0.hasUnseenLatestAssistantMessage }
+    }
+
+    /// Small notification-red dot overlaid on the Home sidebar row whenever
+    /// `HomeStore` has observed a background `relationshipStateUpdated` event
+    /// while the user was on some other surface.
+    @ViewBuilder
+    private var homeUnseenChangesDot: some View {
+        if MacOSClientFeatureFlagManager.shared.isEnabled("home-tab")
+            && homeStore.hasUnseenChanges
+            && windowState.selection != .panel(.home) {
+            Circle()
+                .fill(VColor.systemNegativeStrong)
+                .frame(width: 8, height: 8)
+                .offset(x: 4, y: -4)
+                .transition(.scale.combined(with: .opacity))
+                .allowsHitTesting(false)
+                .accessibilityLabel(Text("Unseen changes"))
+        }
+    }
+
+    // MARK: - Row / Section Factories
+
+    private func isConversationSelected(_ conversation: ConversationModel) -> Bool {
+        switch windowState.selection {
+        case .panel:
+            return false
+        case .conversation(let id):
+            return id == conversation.id
+        case .appEditing(_, let conversationId):
+            return conversationId == conversation.id
+        case .app, .none:
+            return conversation.id == windowState.persistentConversationId
+        }
+    }
+
+    /// Builds a `SidebarSectionView` for a group. Extracted from the ForEach body
+    /// to reduce type-checker pressure (the init has many parameters).
+    private func makeSectionView(group: ConversationGroup, conversations: [ConversationModel]) -> SidebarSectionView {
+        let isPinned = group.id == ConversationGroup.pinned.id
+        let isScheduled = group.id == ConversationGroup.scheduled.id
+        let isBackground = group.id == ConversationGroup.background.id
+        let countMode: SidebarSectionView.CountMode = isScheduled
+            ? .subGroups(grouper: { $0.scheduleJobId })
+            : isBackground
+                ? .subGroups(grouper: { $0.source })
+                : .items
+        let subGroupLabelProvider: ((String, [ConversationModel]) -> String)? = isBackground
+            ? { key, _ in
+                if key == "auto-analysis" { return "Reflections" }
+                return String(key.prefix(1).uppercased() + key.dropFirst())
+            }
+            : nil
+        let expandedSubGroups: Binding<Set<String>>? = isScheduled
+            ? Binding(get: { sidebar.expandedScheduleGroups }, set: { sidebar.expandedScheduleGroups = $0 })
+            : isBackground
+                ? Binding(get: { sidebar.expandedBackgroundGroups }, set: { sidebar.expandedBackgroundGroups = $0 })
+                : nil
+        return SidebarSectionView(
+            group: group,
+            conversations: conversations,
+            isExpanded: sidebar.expandedSections.contains(group.id),
+            showAll: sidebar.showAllInSection.contains(group.id),
+            maxCollapsed: isPinned ? .max : 5,
+            isDropTarget: sidebar.dropTargetSectionId == group.id,
+            countMode: countMode,
+            onRename: group.isSystemGroup ? nil : { name in
+                sidebar.renamingGroupId = group.id
+                sidebar.renamingGroupName = name
+            },
+            onDelete: group.isSystemGroup ? nil : {
+                if conversations.isEmpty {
+                    Task<Void, Never> { await conversationManager.deleteGroup(group.id) }
+                } else {
+                    groupToDelete = group
+                }
+            },
+            onMarkAllRead: {
+                let unreadIds = Set(conversations.filter(\.hasUnseenLatestAssistantMessage).map(\.id))
+                guard !unreadIds.isEmpty else { return }
+                let markedIds = conversationManager.markConversationsSeen(in: unreadIds)
+                guard !markedIds.isEmpty else { return }
+                showMarkAllReadToast(markedIds.count, markedIds)
+            },
+            onMarkAllReadInSubGroup: { _, ids in
+                let localIdSet = Set(ids)
+                let markedIds = conversationManager.markConversationsSeen(in: localIdSet)
+                guard !markedIds.isEmpty else { return }
+                showMarkAllReadToast(markedIds.count, markedIds)
+            },
+            onArchiveAll: {
+                let archivableIds = conversations.filter { !$0.isChannelConversation }.map(\.id)
+                guard !archivableIds.isEmpty else { return }
+                archiveAllPending = ArchiveAllTarget(
+                    displayName: group.name,
+                    ids: archivableIds
+                )
+            },
+            onArchiveAllInSubGroup: { subGroupLabel, ids in
+                archiveAllPending = ArchiveAllTarget(
+                    displayName: subGroupLabel,
+                    ids: ids
+                )
+            },
+            selectedConversationId: conversationManager.activeConversationId,
+            onToggleExpand: { sidebar.toggleSection(group.id) },
+            onToggleShowAll: { sidebar.toggleShowAll(group.id) },
+            makeRow: { makeSidebarRow(conversation: $0) },
+            expandedScheduleGroups: expandedSubGroups,
+            subGroupLabelProvider: subGroupLabelProvider,
+            sidebar: sidebar,
+            conversationManager: conversationManager
+        )
+    }
+
+    /// Builds a `SidebarConversationItem` with all state pre-resolved and closures wired,
+    /// so each row is a pure value view that can be skipped via `Equatable`.
+    private func makeSidebarRow(
+        conversation: ConversationModel,
+        onSelect: (() -> Void)? = nil
+    ) -> SidebarConversationItem {
+        SidebarConversationItem(
+            conversation: conversation,
+            isSelected: isConversationSelected(conversation),
+            interactionState: conversationManager.interactionState(for: conversation.id),
+            selectConversation: { selectConversation(conversation) },
+            onSelect: onSelect,
+            onTogglePin: {
+                // Look up current pin state from the live conversations array,
+                // not the captured struct value (which may be stale).
+                let currentlyPinned = conversationManager.conversations
+                    .first(where: { $0.id == conversation.id })?.isPinned ?? false
+                if currentlyPinned {
+                    conversationManager.unpinConversation(id: conversation.id)
+                } else {
+                    conversationManager.pinConversation(id: conversation.id)
+                }
+            },
+            onArchive: { conversationManager.archiveConversation(id: conversation.id) },
+            onStartRename: {
+                sidebar.renamingConversationId = conversation.id
+                sidebar.renameText = conversation.title
+            },
+            onMarkUnread: { conversationManager.markConversationUnread(conversationId: conversation.id) },
+            onDragStart: {
+                sidebar.beginConversationDrag(conversation.id)
+            },
+            onAnalyze: conversation.conversationId != nil && !conversation.isChannelConversation && conversation.kind != .private ? {
+                selectConversation(conversation)
+                Task<Void, Never> { await conversationManager.analyzeActiveConversation() }
+            } : nil,
+            onOpenInNewWindow: conversation.conversationId != nil ? {
+                AppDelegate.shared?.threadWindowManager?.openThread(
+                    conversationLocalId: conversation.id,
+                    conversationManager: conversationManager
+                )
+            } : nil,
+            onShowFeedback: conversation.conversationId != nil && !LogExporter.isManagedAssistant ? {
+                AppDelegate.shared?.showLogReportWindow(scope: .conversation(conversationId: conversation.conversationId!, conversationTitle: conversation.title))
+            } : nil,
+            moveToGroups: listStore.groups.filter { group in
+                group.id != conversation.groupId &&
+                group.id != ConversationGroup.scheduled.id &&
+                (assistantFeatureFlagStore.isEnabled("conversation-groups-ui") || group.isSystemGroup)
+            },
+            onMoveToGroup: { targetGroupId in
+                if let targetGroupId, targetGroupId == ConversationGroup.pinned.id {
+                    // Route through pinConversation to get correct bottom-append ordering.
+                    conversationManager.pinConversation(id: conversation.id)
+                } else {
+                    conversationManager.moveConversationToGroup(conversation.id, groupId: targetGroupId)
+                }
+            }
+        )
+    }
+
+    /// The main conversation groups list content, extracted from the ScrollView body
+    /// to reduce type-checker pressure (avoids "ambiguous use of init" on ScrollView).
+    @ViewBuilder
+    private var conversationGroupsList: some View {
+        LazyVStack(spacing: 0) {
+            if showDaemonLoading && !assistantLoadingTimedOut && listStore.visibleConversations.isEmpty {
+                DaemonLoadingConversationsSkeleton()
+            }
+
+            // Read the pre-partitioned system/custom arrays directly from the
+            // `ConversationListStore`. Anchoring on the store (rather than on
+            // a `ConversationManager` forwarder) keeps the Observation
+            // dependency graph flat — the body re-evaluates exactly when the
+            // object that owns the mutation publishes a change, which is the
+            // pattern recommended for `@Observable` state by
+            // https://developer.apple.com/documentation/swiftui/managing-model-data-in-your-app
+            //
+            // Using the pre-partitioned arrays also avoids re-filtering
+            // `sidebarGroupEntries` on every layout pass — inline `.filter`
+            // allocations produce new array identities each render and force
+            // `ForEachState.update` to re-diff every entry via
+            // `KeyPath._projectReadOnly`.
+            let systemEntries = listStore.systemSidebarGroupEntries
+            let customEntries = listStore.customSidebarGroupEntries
+
+            ForEach(systemEntries) { entry in
+                makeSectionView(group: entry.group, conversations: entry.conversations)
+            }
+
+            if !customEntries.isEmpty {
+                sidebarLabeledDivider(label: "YOUR GROUPS")
+
+                ForEach(customEntries) { entry in
+                    makeSectionView(group: entry.group, conversations: entry.conversations)
+                }
+            }
+
+            // Pagination fallback sentinel: when every section fits within its
+            // collapse limit, no "Show more" button appears, yet the server may
+            // have additional conversations. Render an invisible trigger to load them.
+            // Pinned is excluded (has its own sentinel in SidebarSectionView).
+            // Scheduled/Background paginate by subgroup count, not conversation count,
+            // so we treat them as fitting — in the rare case they have >5 subgroups
+            // they already have their own "Show more", and the extra fetch is benign.
+            let maxCollapsed = 5
+            let allSectionsFit = listStore.sidebarGroupEntries.allSatisfy { entry in
+                entry.group.id == ConversationGroup.pinned.id
+                    || entry.group.id == ConversationGroup.scheduled.id
+                    || entry.group.id == ConversationGroup.background.id
+                    || entry.conversations.count <= maxCollapsed
+            }
+            if listStore.hasMoreConversations && allSectionsFit {
+                Color.clear
+                    .frame(height: 0)
+                    .onAppear {
+                        conversationManager.loadAllRemainingConversations()
+                    }
+            }
+
+        }
+    }
+
+    // MARK: - Pinned App Helpers
+
+    /// A pinned app row — delegates layout to `SidebarPrimaryRow` for both
+    /// expanded and collapsed modes, then adds app-specific context menu and drag.
+    @ViewBuilder
+    private func sidebarPinnedAppRow(_ app: AppListManager.AppItem, isExpanded: Bool = true) -> some View {
+        SidebarPrimaryRow(
+            icon: app.lucideIcon ?? VIcon.layoutGrid.rawValue,
+            label: app.name,
+            isActive: isAppSurfaceActive(appId: app.id),
+            isExpanded: isExpanded
+        ) {
+            openAppInWorkspace(app)
+        }
+        .contextMenu {
+            Button(app.isPinned ? "Unpin" : "Pin to Top") {
+                if app.isPinned {
+                    appListManager.unpinApp(id: app.id)
+                } else {
+                    appListManager.pinApp(id: app.id)
+                }
+            }
+            Button("Open") {
+                openAppInWorkspace(app)
+            }
+            Divider()
+            Button("Remove from Recents", role: .destructive) {
+                appListManager.removeApp(id: app.id)
+            }
+        }
+        .draggable(app.id)
+    }
+
+    /// Check if a given appId matches the currently active workspace surface.
+    private func isAppSurfaceActive(appId: String) -> Bool {
+        guard let surfaceMsg = windowState.activeDynamicSurface,
+              let surface = windowState.activeDynamicParsedSurface,
+              case .dynamicPage(let dpData) = surface.data else { return false }
+        return dpData.appId == appId || surfaceMsg.surfaceId.contains(appId)
+    }
+
+    // MARK: - Expanded / Collapsed Content
+
+    @ViewBuilder
+    private var expandedSidebarContent: some View {
+        VStack(spacing: SidebarLayoutMetrics.listRowGap) {
+            // MARK: Pinned Apps (above nav items)
+            if !appListManager.pinnedApps.isEmpty {
+                VStack(spacing: SidebarLayoutMetrics.listRowGap) {
+                    ForEach(appListManager.pinnedApps) { app in
+                        sidebarPinnedAppRow(app)
+                    }
+                }
+
+                sidebarSectionDivider()
+            }
+
+            // MARK: Nav Items (fixed)
+            if MacOSClientFeatureFlagManager.shared.isEnabled("home-tab") {
+                SidebarNavRow(icon: VIcon.house.rawValue, label: "Home", isActive: windowState.selection == .panel(.home)) {
+                    windowState.showPanel(.home)
+                }
+                .overlay(alignment: .topTrailing) {
+                    homeUnseenChangesDot
+                }
+            }
+            SidebarNavRow(icon: VIcon.brain.rawValue, label: cachedAssistantName, isActive: windowState.selection == .panel(.intelligence)) {
+                windowState.showPanel(.intelligence)
+            }
+            SidebarNavRow(icon: VIcon.layoutGrid.rawValue, label: "Library", isActive: windowState.selection == .panel(.apps)) {
+                windowState.showPanel(.apps)
+            }
+            // Divider between nav items and conversations
+            sidebarSectionDivider()
+
+            // MARK: Conversations (scrollable)
+            SidebarConversationsHeader(
+                hasUnseenConversations: listStore.unseenVisibleConversationCount > 0,
+                isLoading: showDaemonLoading,
+                onMarkAllSeen: {
+                    let markedIds = conversationManager.markAllConversationsSeen()
+                    guard !markedIds.isEmpty else { return }
+                    showMarkAllReadToast(markedIds.count, markedIds)
+                },
+                onNewConversation: { startNewConversation() },
+                onCreateGroup: assistantFeatureFlagStore.isEnabled("conversation-groups-ui") ? {
+                    Task<Void, Never> {
+                        if let group = await conversationManager.createGroup(name: "New Group") {
+                            sidebar.expandedSections.insert(group.id)
+                            sidebar.renamingGroupId = group.id
+                            sidebar.renamingGroupName = group.name
+                        }
+                    }
+                } : nil
+            )
+            .equatable()
+
+            ScrollView(.vertical, showsIndicators: false) {
+                conversationGroupsList
+                    .background(GeometryReader { contentGeo in
+                        Color.clear.preference(
+                            key: SidebarContentHeightKey.self,
+                            value: contentGeo.size.height
+                        )
+                    })
+            }
+            .sheet(item: $groupToDelete) { group in
+                DeleteGroupConfirmationSheet(
+                    groupName: group.name,
+                    onDelete: {
+                        groupToDelete = nil
+                        Task<Void, Never> { await conversationManager.deleteGroup(group.id) }
+                    },
+                    onArchiveAndDelete: {
+                        groupToDelete = nil
+                        Task<Void, Never> { await conversationManager.deleteGroupAndArchiveConversations(group.id) }
+                    },
+                    onCancel: {
+                        groupToDelete = nil
+                    }
+                )
+            }
+            .alert(
+                archiveAllPending.map { "Archive \($0.ids.count) conversation\($0.ids.count == 1 ? "" : "s") in \"\($0.displayName)\"?" } ?? "",
+                isPresented: Binding(
+                    get: { archiveAllPending != nil },
+                    set: { if !$0 { archiveAllPending = nil } }
+                )
+            ) {
+                Button("Cancel", role: .cancel) { archiveAllPending = nil }
+                Button("Archive All", role: .destructive) {
+                    if let pending = archiveAllPending {
+                        archiveAllPending = nil
+                        conversationManager.archiveAllConversations(ids: pending.ids)
+                    }
+                }
+            } message: {
+                Text("This will archive all conversations in this group. You can restore them from Settings \u{203A} Archive.")
+            }
+            .background(GeometryReader { scrollGeo in
+                Color.clear.preference(
+                    key: SidebarFrameHeightKey.self,
+                    value: scrollGeo.size.height
+                )
+            })
+            .onPreferenceChange(SidebarContentHeightKey.self) { sidebarContentHeight = $0 }
+            .onPreferenceChange(SidebarFrameHeightKey.self) { sidebarFrameHeight = $0 }
+            .overlay(alignment: .bottom) {
+                if sidebarContentHeight > sidebarFrameHeight {
+                    LinearGradient(
+                        colors: [VColor.surfaceOverlay.opacity(0), VColor.surfaceOverlay],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 24)
+                    .allowsHitTesting(false)
+                }
+            }
+            .onChange(of: scheduledUnreadCount) { _, newCount in
+                // Auto-expand the Scheduled section when new unread arrives
+                // while collapsed. Other sections (Background, Custom, Pinned)
+                // do NOT auto-expand.
+                if newCount > 0 && !sidebar.expandedSections.contains(ConversationGroup.scheduled.id) {
+                    _ = withAnimation(VAnimation.fast) {
+                        sidebar.expandedSections.insert(ConversationGroup.scheduled.id)
+                    }
+                }
+            }
+
+            Spacer(minLength: VSpacing.sm)
+
+            sidebarSectionDivider()
+
+            // Preferences row (fixed)
+            PreferencesRow(
+                isActive: sidebar.showPreferencesDrawer,
+                isExpanded: true,
+                onToggle: {
+                    withAnimation(VAnimation.snappy) {
+                        sidebar.showPreferencesDrawer.toggle()
+                    }
+                }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var collapsedSidebarContent: some View {
+        VStack(spacing: SidebarLayoutMetrics.listRowGap) {
+            // MARK: Pinned Apps (collapsed)
+            if !appListManager.pinnedApps.isEmpty {
+                VStack(spacing: SidebarLayoutMetrics.listRowGap) {
+                    ForEach(appListManager.pinnedApps) { app in
+                        sidebarPinnedAppRow(app, isExpanded: false)
+                    }
+                }
+
+                sidebarSectionDivider()
+            }
+
+            if MacOSClientFeatureFlagManager.shared.isEnabled("home-tab") {
+                SidebarNavRow(icon: VIcon.house.rawValue, label: "Home", isActive: windowState.selection == .panel(.home), isExpanded: false) {
+                    windowState.showPanel(.home)
+                }
+                .overlay(alignment: .topTrailing) {
+                    homeUnseenChangesDot
+                }
+            }
+            SidebarNavRow(icon: VIcon.brain.rawValue, label: cachedAssistantName, isActive: windowState.selection == .panel(.intelligence), isExpanded: false) {
+                windowState.showPanel(.intelligence)
+            }
+            SidebarNavRow(icon: VIcon.layoutGrid.rawValue, label: "Library", isActive: windowState.selection == .panel(.apps), isExpanded: false) {
+                windowState.showPanel(.apps)
+            }
+            sidebarSectionDivider()
+
+            SidebarNavRow(icon: VIcon.squarePen.rawValue, label: "New Conversation", isActive: false, isExpanded: false) {
+                startNewConversation()
+            }
+
+            // MARK: Conversation Section (collapsed)
+            let switcher = CollapsedConversationSwitcherPresentation(
+                regularConversations: regularConversations,
+                activeConversationId: conversationManager.activeConversationId
+            )
+            if switcher.showsSwitcher {
+                Button {
+                    showConversationSwitcher.toggle()
+                } label: {
+                    ZStack(alignment: .bottomTrailing) {
+                        Text(switcher.badgeText)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(VColor.primaryBase)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
+                        .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
+                        .background(
+                            RoundedRectangle(cornerRadius: VRadius.md)
+                                .fill(windowState.isShowingChat && conversationManager.activeConversation != nil
+                                    ? VColor.surfaceActive
+                                    : VColor.surfaceBase)
+                        )
+
+                        if switcher.switchTargets.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
+                            Circle()
+                                .fill(VColor.systemNegativeStrong)
+                                .frame(width: 8, height: 8)
+                                .offset(x: 4, y: 4)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 0)
+                .accessibilityLabel(switcher.accessibilityLabel)
+                .accessibilityValue(switcher.accessibilityValue)
+                .onDisappear {
+                    showConversationSwitcher = false
+                }
+                .pointerCursor()
+                .onGeometryChange(for: CGRect.self) { proxy in
+                    proxy.frame(in: .named("coreLayout"))
+                } action: { newFrame in
+                    conversationSwitcherTriggerFrame = newFrame
+                }
+            }
+
+            Spacer()
+
+            sidebarSectionDivider()
+
+            PreferencesRow(
+                isActive: sidebar.showPreferencesDrawer,
+                isExpanded: false,
+                onToggle: {
+                    withAnimation(VAnimation.snappy) {
+                        sidebar.showPreferencesDrawer.toggle()
+                    }
+                }
+            )
+        }
+    }
+
+    // MARK: - Section Divider
+
+    @ViewBuilder
+    private func sidebarSectionDivider() -> some View {
+        VColor.surfaceActive
+            .frame(height: 1)
+            .padding(.vertical, SidebarLayoutMetrics.dividerVerticalPadding)
+    }
+
+    @ViewBuilder
+    private func sidebarLabeledDivider(label: String) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            VColor.surfaceActive
+                .frame(height: 1)
+                .accessibilityHidden(true)
+            Text(label)
+                .font(VFont.labelSmall)
+                .foregroundStyle(VColor.contentTertiary)
+                .tracking(1.2)
+                .fixedSize()
+                .accessibilityAddTraits(.isHeader)
+            VColor.surfaceActive
+                .frame(height: 1)
+                .accessibilityHidden(true)
+        }
+        .padding(.vertical, VSpacing.sm)
+    }
+}
+
+// MARK: - Sidebar Scroll Overflow Detection
+
+private struct SidebarContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+private struct SidebarFrameHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}

@@ -58,8 +58,6 @@ struct MainWindowView: View {
 
     @AppStorage("sidebarExpanded") var sidebarExpanded: Bool = true
     @AppStorage("sidebarToggleShortcut") private var sidebarToggleShortcut: String = "cmd+\\"
-    @State var sidebarContentHeight: CGFloat = 0
-    @State var sidebarFrameHeight: CGFloat = 0
     @AppStorage("themePreference") private var themePreference: String = "system"
     @State private var systemIsDark: Bool = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
     let sidebarExpandedWidth: CGFloat = 240
@@ -85,8 +83,6 @@ struct MainWindowView: View {
     @State var showConversationSwitcher = false
     @State var showEarnCreditsModal = false
     @State var conversationSwitcherTriggerFrame: CGRect = .zero
-    @State var groupToDelete: ConversationGroup?
-    @State var archiveAllPending: ArchiveAllTarget?
 
     /// Cached assistant display name, seeded from the static identity cache on init
     /// and refreshed when the daemon emits an identity change event.
