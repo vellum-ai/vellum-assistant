@@ -116,8 +116,9 @@ export function isWorkspaceScopedInvocation(
 
   // Bash workspace scope depends on the environment: containerized bash has the
   // entire filesystem as workspace, so it's always workspace-scoped. Non-containerized
-  // bash is NOT workspace-scoped here — real path resolution (Phase 2) will handle it.
-  // The approval policy's sandbox auto-approve check handles allowlisted commands separately.
+  // bash is NOT workspace-scoped here — path resolution for allowlisted commands is
+  // handled upstream in the checker's hasSandboxAutoApprove computation, which validates
+  // all path arguments against the workspace root for non-containerized environments.
   if (toolName === "bash") return getIsContainerized();
 
   // Unknown tool — conservative default.
