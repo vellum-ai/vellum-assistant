@@ -404,6 +404,9 @@ function makeCtx(
     agentLoop: {
       run: agentLoopRun,
       getToolTokenBudget: () => 0,
+      // Tests here don't exercise calibration; returning undefined makes
+      // the estimator use the per-provider aggregate key.
+      getActiveModel: () => undefined,
     } as unknown as AgentLoopConversationContext["agentLoop"],
     provider: {
       name: "mock-provider",

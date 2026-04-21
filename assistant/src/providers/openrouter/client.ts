@@ -6,6 +6,7 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../types.js";
+import { ContextOverflowError, isContextOverflowError } from "../types.js";
 
 export interface OpenRouterProviderOptions {
   apiKey?: string;
@@ -114,15 +115,31 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
     const effectiveModel = this.resolveEffectiveModel(options);
-    if (isAnthropicModel(effectiveModel)) {
-      return this.getAnthropicInner().sendMessage(
-        messages,
-        tools,
-        systemPrompt,
-        withOpenRouterBodyExtras(options),
-      );
+    try {
+      if (isAnthropicModel(effectiveModel)) {
+        return await this.getAnthropicInner().sendMessage(
+          messages,
+          tools,
+          systemPrompt,
+          withOpenRouterBodyExtras(options),
+        );
+      }
+      return await super.sendMessage(messages, tools, systemPrompt, options);
+    } catch (error) {
+      // Re-tag delegate-thrown ContextOverflowError so the outer provider name
+      // matches the configured provider ("openrouter"). This keeps downstream
+      // error reporting and metrics attribution accurate, while preserving the
+      // actualTokens/maxTokens extracted by the delegate.
+      if (isContextOverflowError(error) && error.provider !== this.name) {
+        throw new ContextOverflowError(error.message, this.name, {
+          actualTokens: error.actualTokens,
+          maxTokens: error.maxTokens,
+          statusCode: error.statusCode,
+          cause: error,
+        });
+      }
+      throw error;
     }
-    return super.sendMessage(messages, tools, systemPrompt, options);
   }
 
   // OpenRouter's unified `reasoning` parameter controls extended thinking on

@@ -434,6 +434,19 @@ export interface ContextCompacted {
   summaryModel: string;
 }
 
+/**
+ * Emitted when the compaction circuit breaker trips. After three consecutive
+ * summary-LLM failures (with local fallback covering each), auto-compaction is
+ * suspended until `openUntil` to avoid repeatedly hammering a broken provider.
+ * User-initiated compaction (`/compact`, `force: true`) bypasses the breaker.
+ */
+export interface CompactionCircuitOpen {
+  type: "compaction_circuit_open";
+  reason: "3_consecutive_failures";
+  /** Timestamp (ms since epoch) when the breaker will allow auto-compaction again. */
+  openUntil: number;
+}
+
 export type ConversationErrorCode =
   | "PROVIDER_NETWORK"
   | "PROVIDER_RATE_LIMIT"
@@ -531,6 +544,7 @@ export type _ConversationsServerMessages =
   | UsageUpdate
   | UsageResponse
   | ContextCompacted
+  | CompactionCircuitOpen
   | ConversationErrorMessage
   | ConversationInfo
   | ConversationTitleUpdated

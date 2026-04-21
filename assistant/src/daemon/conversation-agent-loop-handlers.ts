@@ -13,6 +13,8 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import { recordEstimate } from "../context/estimator-calibration.js";
+import { getCalibrationProviderKey } from "../context/token-estimator.js";
 import {
   addMessage,
   getConversation,
@@ -32,6 +34,7 @@ import {
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import type { ContentBlock, ImageContent } from "../providers/types.js";
+import { isContextOverflowError } from "../providers/types.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import type { DirectiveRequest } from "./assistant-attachments.js";
@@ -78,8 +81,14 @@ export interface EventHandlerState {
   orderingErrorDetected: boolean;
   deferredOrderingError: string | null;
   contextTooLargeDetected: boolean;
-  /** The raw error message from the provider when context_too_large is detected. */
-  contextTooLargeErrorMessage: string | null;
+  /**
+   * The provider error object when context_too_large is detected, preserved
+   * so `parseActualTokensFromError` can prefer the typed
+   * `ContextOverflowError` fields over the string-regex fallback. The
+   * message is always reachable via `.message` on this object — no separate
+   * field is needed.
+   */
+  contextTooLargeError: unknown;
   providerErrorUserMessage: string | null;
   lastAssistantMessageId: string | undefined;
   readonly pendingToolResults: Map<string, PendingToolResult>;
@@ -149,7 +158,7 @@ export function createEventHandlerState(): EventHandlerState {
     orderingErrorDetected: false,
     deferredOrderingError: null,
     contextTooLargeDetected: false,
-    contextTooLargeErrorMessage: null,
+    contextTooLargeError: null,
     providerErrorUserMessage: null,
     lastAssistantMessageId: undefined,
     pendingToolResults: new Map(),
@@ -615,16 +624,20 @@ export function handleError(
   if (isProviderOrderingError(event.error.message)) {
     state.orderingErrorDetected = true;
     state.deferredOrderingError = event.error.message;
+  } else if (isContextOverflowError(event.error)) {
+    // Typed path — the provider client already classified this as overflow.
+    state.contextTooLargeDetected = true;
+    state.contextTooLargeError = event.error;
   } else if (isContextTooLarge(event.error.message)) {
     state.contextTooLargeDetected = true;
-    state.contextTooLargeErrorMessage = event.error.message;
+    state.contextTooLargeError = event.error;
   } else {
     const classified = classifyConversationError(event.error, {
       phase: "agent_loop",
     });
     if (classified.code === "CONTEXT_TOO_LARGE") {
       state.contextTooLargeDetected = true;
-      state.contextTooLargeErrorMessage = event.error.message;
+      state.contextTooLargeError = event.error;
     } else if (
       classified.code === "PROVIDER_ORDERING" ||
       classified.code === "PROVIDER_WEB_SEARCH"
@@ -868,6 +881,33 @@ export function handleUsage(
   state.exchangeCacheReadInputTokens += event.cacheReadInputTokens ?? 0;
   state.exchangeOutputTokens += event.outputTokens;
   state.model = event.model;
+
+  // Feed the self-calibration loop: compare the pre-send estimate to the
+  // provider's ground-truth inputTokens. `recordEstimate` silently ignores
+  // samples below its magnitude threshold or outside its outlier bounds,
+  // so it's safe to call unconditionally.
+  //
+  // The calibration key must match what `estimatePromptTokens` callers look
+  // up — use the canonical provider key (`tokenEstimationProvider ?? name`),
+  // falling back to the response's `actualProvider` only when neither hint
+  // is set on the provider object (shouldn't happen, but cheap). Using
+  // `event.actualProvider` as the primary key would scatter data across
+  // mismatched keys for wrapper providers like OpenRouter.
+  const calibrationProviderKey =
+    getCalibrationProviderKey(deps.ctx.provider) ||
+    (event.actualProvider ?? "");
+  if (
+    calibrationProviderKey.length > 0 &&
+    event.estimatedInputTokens !== undefined &&
+    event.estimatedInputTokens > 0
+  ) {
+    recordEstimate(
+      calibrationProviderKey,
+      event.model,
+      event.estimatedInputTokens,
+      event.inputTokens,
+    );
+  }
   if (event.rawResponse !== undefined) {
     state.exchangeRawResponses.push(event.rawResponse);
   }

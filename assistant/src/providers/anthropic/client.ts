@@ -15,11 +15,49 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../types.js";
+import {
+  ContextOverflowError,
+  extractOverflowTokensFromMessage,
+} from "../types.js";
 
 const log = getLogger("anthropic-client");
 
 /** Validation-specific timeout (10s) so a stalled network doesn't block key submission. */
 const VALIDATION_TIMEOUT_MS = 10_000;
+
+/**
+ * Detect Anthropic's `prompt_too_long` context-overflow signal.
+ *
+ * Anthropic returns HTTP 400 with a body shaped as
+ *   `{ type: "error", error: { type: "invalid_request_error", message: "..." } }`
+ * where the inner `message` carries the "prompt is too long: N tokens > M
+ * maximum" text. The SDK stores the body at `APIError.error` and formats a
+ * top-level `message` by JSON-stringifying the body when no top-level
+ * `.message` key exists — so we probe both the nested body and the
+ * formatted string.
+ */
+export function detectAnthropicContextOverflow(
+  error: InstanceType<typeof Anthropic.APIError>,
+): { actualTokens?: number; maxTokens?: number } | null {
+  // 413 is theoretically adjacent but Anthropic does not emit it today.
+  if (error.status !== 400) return null;
+  const body = error.error as
+    | {
+        type?: string;
+        message?: string;
+        error?: { type?: string; message?: string };
+      }
+    | undefined;
+  const innerMessage =
+    (typeof body === "object" && body != null
+      ? (body.error?.message ?? body.message)
+      : undefined) ?? "";
+  const topLevelMessage = error.message ?? "";
+  const combined = `${innerMessage} ${topLevelMessage}`;
+  if (!/prompt.?is.?too.?long|prompt_too_long/i.test(combined)) return null;
+  // Prefer the clean inner message over the JSON-stringified top-level string.
+  return extractOverflowTokensFromMessage(innerMessage || topLevelMessage);
+}
 
 /** Rate-limit the orphaned-surrogate warning so a single bad stream can't flood logs. */
 const ORPHAN_WARNING_THROTTLE_MS = 60_000;
@@ -1274,6 +1312,19 @@ export class AnthropicProvider implements Provider {
               headers: Object.fromEntries(error.headers?.entries() ?? []),
             },
             `Anthropic API error (${error.status})`,
+          );
+        }
+        const overflow = detectAnthropicContextOverflow(error);
+        if (overflow) {
+          throw new ContextOverflowError(
+            `Anthropic API error (${error.status}): ${error.message}`,
+            "anthropic",
+            {
+              actualTokens: overflow.actualTokens,
+              maxTokens: overflow.maxTokens,
+              statusCode: error.status,
+              cause: error,
+            },
           );
         }
         const retryAfterMs = extractRetryAfterMs(error.headers);

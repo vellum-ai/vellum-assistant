@@ -429,6 +429,8 @@ build_binaries() {
     cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" "$SCRIPT_DIR/daemon-bin/templates"
     rm -rf "$SCRIPT_DIR/daemon-bin/hook-templates"
     cp -R "$ASSISTANT_SRC_DIR/hook-templates" "$SCRIPT_DIR/daemon-bin/hook-templates"
+    rm -rf "$SCRIPT_DIR/daemon-bin/compact-prompts"
+    cp -R "$ASSISTANT_SRC_DIR/src/context/prompts" "$SCRIPT_DIR/daemon-bin/compact-prompts"
     rm -rf "$SCRIPT_DIR/daemon-bin/brain-graph"
     mkdir -p "$SCRIPT_DIR/daemon-bin/brain-graph"
     cp "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" "$SCRIPT_DIR/daemon-bin/brain-graph/"
@@ -763,6 +765,10 @@ if [ -d "$ASSISTANT_SRC_DIR/hook-templates" ]; then
     rm -rf "$SCRIPT_DIR/daemon-bin/hook-templates"
     cp -R "$ASSISTANT_SRC_DIR/hook-templates" "$SCRIPT_DIR/daemon-bin/hook-templates"
 fi
+if [ -d "$ASSISTANT_SRC_DIR/src/context/prompts" ]; then
+    rm -rf "$SCRIPT_DIR/daemon-bin/compact-prompts"
+    cp -R "$ASSISTANT_SRC_DIR/src/context/prompts" "$SCRIPT_DIR/daemon-bin/compact-prompts"
+fi
 if [ -f "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" ]; then
     rm -rf "$SCRIPT_DIR/daemon-bin/brain-graph"
     mkdir -p "$SCRIPT_DIR/daemon-bin/brain-graph"
@@ -1035,6 +1041,10 @@ fi
 if [ -d "$SCRIPT_DIR/daemon-bin/hook-templates" ]; then
     rm -rf "$RESOURCES_DIR/hook-templates"
     cp -R "$SCRIPT_DIR/daemon-bin/hook-templates" "$RESOURCES_DIR/hook-templates"
+fi
+if [ -d "$SCRIPT_DIR/daemon-bin/compact-prompts" ]; then
+    rm -rf "$RESOURCES_DIR/compact-prompts"
+    cp -R "$SCRIPT_DIR/daemon-bin/compact-prompts" "$RESOURCES_DIR/compact-prompts"
 fi
 if [ -d "$SCRIPT_DIR/daemon-bin/brain-graph" ]; then
     rm -rf "$RESOURCES_DIR/brain-graph"
