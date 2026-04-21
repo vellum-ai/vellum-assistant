@@ -890,6 +890,12 @@ export async function streamCommitImport(
     };
   }
 
+  // Ensure the workspace dir exists so writeImportMarker (which writes
+  // at `<realWorkspaceDir>/.import-marker.json`) can land the file on
+  // first-ever imports where the workspace has never been created.
+  // mkdir is idempotent via { recursive: true }.
+  await mkdir(realWorkspaceDir, { recursive: true });
+
   const markerPath = importMarkerPathFor(realWorkspaceDir);
   try {
     await writeImportMarker(markerPath, {
@@ -1426,9 +1432,15 @@ async function swapWorkspaceContents(
   // that legitimately contains an entry with one of those prefixes
   // would otherwise leak state across imports, and a bundle carrying
   // the same name would collide on phase-2 rename-in.
+  //
+  // The recovery marker (`.import-marker.json`) is also reserved — it
+  // lives inside the workspace, must stay put across the swap so
+  // recovery can read it if the process dies mid-swap, and must not be
+  // overwritten by a bundle entry of the same name.
   const scratchBasenames = new Set<string>([
     basename(backupDir),
     basename(tempWorkspaceDir),
+    IMPORT_MARKER_BASENAME,
   ]);
   let liveEntries: string[];
   try {
@@ -2098,16 +2110,28 @@ interface ImportMarker {
   swapCompleted?: boolean;
 }
 
+/** Basename of the recovery marker inside `realWorkspaceDir`. */
+const IMPORT_MARKER_BASENAME = ".import-marker.json";
+
 /**
- * Deterministic marker location next to (but not inside) the workspace dir.
- * Putting it outside the workspace means the marker is not swept away by
- * the atomic rename of the workspace itself.
+ * Deterministic marker location INSIDE `realWorkspaceDir`.
+ *
+ * The marker must live on the same persistent volume as the scratch
+ * dirs (`.pre-import-<ts-uuid>`, `.import-<uuid>`). In Docker/Kubernetes
+ * the workspace is typically a mounted persistent volume while the
+ * container rootfs is ephemeral — a pod restart can drop files on
+ * rootfs while preserving the workspace, so a marker stored at
+ * `dirname(realWorkspaceDir)` could vanish across restart while the
+ * scratch dirs survive, leaving `recoverInterruptedImport` with
+ * nothing to act on and orphaning the interrupted state.
+ *
+ * The dot-prefix keeps it out of the way of normal content; phase 1 of
+ * `swapWorkspaceContents` filters it out via `scratchBasenames`, and
+ * the swap's content move also skips it so the marker stays in place
+ * across the workspace swap itself.
  */
 function importMarkerPathFor(realWorkspaceDir: string): string {
-  return join(
-    dirname(realWorkspaceDir),
-    `${basename(realWorkspaceDir)}.import-marker.json`,
-  );
+  return join(realWorkspaceDir, IMPORT_MARKER_BASENAME);
 }
 
 async function writeImportMarker(
