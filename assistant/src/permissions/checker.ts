@@ -1,17 +1,13 @@
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { loadSkillCatalog, resolveSkillSelector } from "../config/skills.js";
 import { indexCatalogById } from "../skills/include-graph.js";
-import {
-  isSkillSourcePath,
-  normalizeDirPath,
-  normalizeFilePath,
-} from "../skills/path-classifier.js";
+import { normalizeFilePath } from "../skills/path-classifier.js";
 import { computeTransitiveSkillVersionHash } from "../skills/transitive-version-hash.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import type { ManifestOverride } from "../tools/execution-target.js";
@@ -21,16 +17,12 @@ import {
 } from "../tools/network/url-safety.js";
 import { getTool } from "../tools/registry.js";
 import {
-  getDeprecatedDir,
-  getProtectedDir,
-  getWorkspaceHooksDir,
-} from "../util/platform.js";
-import {
   type ApprovalContext,
   DefaultApprovalPolicy,
   resolveThreshold,
 } from "./approval-policy.js";
 import { bashRiskClassifier } from "./bash-risk-classifier.js";
+import { fileRiskClassifier } from "./file-risk-classifier.js";
 import { riskToRiskLevel } from "./risk-types.js";
 import {
   buildShellAllowlistOptions,
@@ -38,6 +30,7 @@ import {
   cachedParse,
   type ParsedCommand,
 } from "./shell-identity.js";
+import { skillLoadRiskClassifier } from "./skill-risk-classifier.js";
 import { findHighestPriorityRule, onRulesChanged } from "./trust-store.js";
 import {
   type AllowlistOption,
@@ -46,6 +39,7 @@ import {
   RiskLevel,
   type ScopeOption,
 } from "./types.js";
+import { webRiskClassifier } from "./web-risk-classifier.js";
 import { isWorkspaceScopedInvocation } from "./workspace-policy.js";
 
 // ── Risk classification cache ────────────────────────────────────────────────
@@ -58,7 +52,7 @@ import { isWorkspaceScopedInvocation } from "./workspace-policy.js";
 /** The result of classifyRisk(): a risk level with an optional human-readable reason. */
 export interface RiskClassification {
   level: RiskLevel;
-  /** Human-readable explanation of why this risk level was assigned (bash/host_bash only). */
+  /** Human-readable explanation of why this risk level was assigned. */
   reason?: string;
 }
 
@@ -397,7 +391,68 @@ export async function classifyRisk(
         reason: assessment.reason,
       };
     }
-  } else {
+  }
+  // ── File tools: delegate to FileRiskClassifier ──────────────────────────
+  else if (
+    [
+      "file_read",
+      "file_write",
+      "file_edit",
+      "host_file_read",
+      "host_file_write",
+      "host_file_edit",
+    ].includes(toolName)
+  ) {
+    const filePath = getStringField(input, "path", "file_path");
+    const isHostTool = toolName.startsWith("host_");
+    const assessment = await fileRiskClassifier.classify({
+      toolName: toolName as
+        | "file_read"
+        | "file_write"
+        | "file_edit"
+        | "host_file_read"
+        | "host_file_write"
+        | "host_file_edit",
+      filePath,
+      workingDir: isHostTool ? "/" : (workingDir ?? process.cwd()),
+    });
+    result = {
+      level: riskToRiskLevel(assessment.riskLevel),
+      reason: assessment.reason,
+    };
+  }
+  // ── Web tools: delegate to WebRiskClassifier ────────────────────────────
+  else if (["web_fetch", "network_request", "web_search"].includes(toolName)) {
+    const assessment = await webRiskClassifier.classify({
+      toolName: toolName as "web_fetch" | "network_request" | "web_search",
+      url: getStringField(input, "url"),
+      allowPrivateNetwork: input.allow_private_network === true,
+    });
+    result = {
+      level: riskToRiskLevel(assessment.riskLevel),
+      reason: assessment.reason,
+    };
+  }
+  // ── Skill tools: delegate to SkillLoadRiskClassifier ────────────────────
+  else if (
+    ["skill_load", "scaffold_managed_skill", "delete_managed_skill"].includes(
+      toolName,
+    )
+  ) {
+    const assessment = await skillLoadRiskClassifier.classify({
+      toolName: toolName as
+        | "skill_load"
+        | "scaffold_managed_skill"
+        | "delete_managed_skill",
+      skillSelector: getStringField(input, "skill"),
+    });
+    result = {
+      level: riskToRiskLevel(assessment.riskLevel),
+      reason: assessment.reason,
+    };
+  }
+  // ── Remaining tools: fall through to classifyRiskUncached ───────────────
+  else {
     result = {
       level: await classifyRiskUncached(
         toolName,
@@ -432,92 +487,10 @@ export async function classifyRisk(
 
 async function classifyRiskUncached(
   toolName: string,
-  input: Record<string, unknown>,
-  workingDir?: string,
+  _input: Record<string, unknown>,
+  _workingDir?: string,
   manifestOverride?: ManifestOverride,
 ): Promise<RiskLevel> {
-  if (toolName === "file_read") {
-    const filePath = getStringField(input, "path", "file_path");
-    if (isActorTokenSigningKeyPath(filePath, workingDir)) {
-      return RiskLevel.High;
-    }
-    return RiskLevel.Low;
-  }
-  if (toolName === "file_write" || toolName === "file_edit") {
-    const filePath = getStringField(input, "path", "file_path");
-    if (
-      filePath &&
-      isSkillSourcePath(
-        resolve(workingDir ?? process.cwd(), filePath),
-        getConfig().skills.load.extraDirs,
-      )
-    ) {
-      return RiskLevel.High;
-    }
-    if (filePath) {
-      const normalizedHooksDir = normalizeDirPath(getWorkspaceHooksDir());
-      const normalizedPath = normalizeFilePath(
-        resolve(workingDir ?? process.cwd(), filePath),
-      );
-      const hooksDirNoTrailingSlash = normalizedHooksDir.slice(0, -1);
-      if (
-        normalizedPath === hooksDirNoTrailingSlash ||
-        normalizedPath.startsWith(normalizedHooksDir)
-      ) {
-        return RiskLevel.High;
-      }
-    }
-    return RiskLevel.Low;
-  }
-  if (toolName === "web_search") return RiskLevel.Low;
-  if (toolName === "web_fetch") {
-    // Private-network fetches are High risk so that blanket allow rules
-    // (including the starter bundle) cannot silently bypass the prompt.
-    return input.allow_private_network === true
-      ? RiskLevel.High
-      : RiskLevel.Low;
-  }
-  // Proxy-authenticated network requests are Medium risk — they carry injected
-  // credentials and the user should approve the target host/origin.
-  if (toolName === "network_request") return RiskLevel.Medium;
-  if (toolName === "skill_load") return RiskLevel.Low;
-
-  // Skill mutation tools are always High risk — they write or delete persistent
-  // skill source code. These tools moved from core tool registry to bundled
-  // skills, but their security classification must remain High regardless of
-  // whether they appear in the tool registry.
-  if (
-    toolName === "scaffold_managed_skill" ||
-    toolName === "delete_managed_skill"
-  ) {
-    return RiskLevel.High;
-  }
-
-  // Escalate host file mutations targeting skill source paths to High risk.
-  // The host variants fall through to the tool registry (Medium) by default,
-  // but writing to skill source code is a privilege-escalation vector.
-  if (toolName === "host_file_write" || toolName === "host_file_edit") {
-    const filePath = getStringField(input, "path", "file_path");
-    if (
-      filePath &&
-      isSkillSourcePath(resolve(filePath), getConfig().skills.load.extraDirs)
-    ) {
-      return RiskLevel.High;
-    }
-    if (filePath) {
-      const normalizedHooksDir = normalizeDirPath(getWorkspaceHooksDir());
-      const normalizedPath = normalizeFilePath(resolve(filePath));
-      const hooksDirNoTrailingSlash = normalizedHooksDir.slice(0, -1);
-      if (
-        normalizedPath === hooksDirNoTrailingSlash ||
-        normalizedPath.startsWith(normalizedHooksDir)
-      ) {
-        return RiskLevel.High;
-      }
-    }
-    // Fall through to the tool registry default (Medium) below.
-  }
-
   // Check the tool registry for a declared default risk level
   const tool = getTool(toolName);
   if (tool) return tool.defaultRiskLevel;
@@ -535,27 +508,6 @@ async function classifyRiskUncached(
 
   // Unknown tool → Medium
   return RiskLevel.Medium;
-}
-
-function isActorTokenSigningKeyPath(
-  filePath: string | undefined,
-  workingDir?: string,
-): boolean {
-  if (!filePath) return false;
-  const cwd = workingDir ?? process.cwd();
-  const resolvedPath = resolve(cwd, filePath);
-  // Include both the per-instance protected dir AND the legacy global
-  // ~/.vellum/protected path so upgraded machines with a host-wide signing
-  // key still classify reads as High risk.
-  const signingKeyPaths = Array.from(
-    new Set([
-      join(homedir(), ".vellum", "protected", "actor-token-signing-key"),
-      join(getProtectedDir(), "actor-token-signing-key"),
-      join(getDeprecatedDir(), "actor-token-signing-key"),
-      resolve(cwd, "deprecated", "actor-token-signing-key"),
-    ]),
-  );
-  return signingKeyPaths.includes(resolvedPath);
 }
 
 export async function check(
