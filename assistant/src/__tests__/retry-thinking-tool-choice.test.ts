@@ -170,7 +170,7 @@ describe("retry normalization: thinking + forced tool_choice", () => {
     expect(lastConfig()?.thinking).toBeUndefined();
   });
 
-  test("strips thinking for openrouter with forced tool_choice", async () => {
+  test("strips thinking for openrouter with anthropic model and forced tool_choice", async () => {
     setLlmConfig({
       default: {
         provider: "openrouter",
@@ -186,6 +186,26 @@ describe("retry normalization: thinking + forced tool_choice", () => {
       },
     });
     expect(lastConfig()?.thinking).toBeUndefined();
+  });
+
+  test("preserves thinking for openrouter with non-anthropic model and forced tool_choice", async () => {
+    setLlmConfig({
+      default: {
+        provider: "openrouter",
+        model: "x-ai/grok-3-mini",
+        thinking: { enabled: true },
+      },
+    });
+    const { provider, lastConfig } = makePipeline("openrouter");
+    await provider.sendMessage([userMessage], undefined, undefined, {
+      config: {
+        callSite: "memoryExtraction",
+        tool_choice: { type: "tool", name: "extract_graph_diff" },
+      },
+    });
+    // Non-Anthropic models on OpenRouter translate thinking into the
+    // `reasoning` parameter via buildExtraCreateParams — should not be stripped
+    expect(lastConfig()?.thinking).toEqual({ type: "adaptive" });
   });
 
   test("does not strip thinking for non-thinking-aware providers", async () => {
