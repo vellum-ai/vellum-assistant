@@ -39,7 +39,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
-import type { Readable } from "node:stream";
+import { type Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
 import { invalidateConfigCache } from "../../config/loader.js";
@@ -273,6 +273,26 @@ export async function streamCommitImport(
       }
 
       const archivePath = entry.header.name;
+
+      // Non-file entries are either directory markers (empty body) or
+      // pax-header / other metadata payloads we don't consume. Apply the
+      // bundle byte cap to their tar-header size too — an attacker could
+      // otherwise keep `manifest.files` small while stuffing huge pax/other
+      // entry bodies, draining the importer for free. Directory bodies are
+      // reliably zero-sized; pax headers are measured in bytes, so this
+      // check is effectively free in the happy path.
+      if (entry.header.type !== "file") {
+        const nonFileSize = entry.header.size ?? 0;
+        if (totalBytesStreamed + nonFileSize > bundleByteCap) {
+          entry.body.destroy();
+          throw new StreamingValidationError(
+            "bundle_too_large",
+            `bundle exceeds ${bundleByteCap}-byte ceiling (non-file entry "${archivePath}" size ${nonFileSize})`,
+            archivePath,
+          );
+        }
+        totalBytesStreamed += nonFileSize;
+      }
 
       if (entry.header.type === "directory") {
         // Best-effort: create the directory inside the temp workspace if it
@@ -1119,30 +1139,42 @@ function rebaseOntoTempWorkspace(
   return resolve(tempWorkspaceDir, resolved.slice(prefix.length));
 }
 
-/** Drain an entry body through the hash verifier, discarding the output. */
+/**
+ * Drain an entry body through the hash verifier, discarding the output.
+ *
+ * Uses `pipeline` (not `.pipe()`) so that if `body` is destroyed mid-stream
+ * — e.g. the upstream fetch body is torn down during a URL import — the
+ * verifier is destroyed too, and this call rejects promptly instead of
+ * hanging on a `for await` that never terminates.
+ */
 async function drainThroughVerifier(
   body: Readable,
   expected: { sha256: string; size: number; archivePath: string },
 ): Promise<void> {
   const verifier = createHashVerifier(expected);
-  body.pipe(verifier);
-  for await (const _chunk of verifier) {
-    // Intentional discard — we only care about the hash/size check that
-    // runs in verifier's _flush.
-  }
+  await pipeline(body, verifier);
 }
 
-/** Collect an entry body into a Buffer, verifying hash+size along the way. */
+/**
+ * Collect an entry body into a Buffer, verifying hash+size along the way.
+ *
+ * Uses `pipeline` + a sink writable that accumulates chunks, so destroy
+ * signals propagate the same way as `drainThroughVerifier` and the hash
+ * verifier's `_flush` (which asserts size+sha256) always runs.
+ */
 async function collectHashVerified(
   body: Readable,
   expected: { sha256: string; size: number; archivePath: string },
 ): Promise<Buffer> {
   const verifier = createHashVerifier(expected);
-  body.pipe(verifier);
   const chunks: Buffer[] = [];
-  for await (const chunk of verifier) {
-    chunks.push(chunk instanceof Buffer ? chunk : Buffer.from(chunk));
-  }
+  const sink = new Writable({
+    write(chunk, _enc, cb) {
+      chunks.push(chunk instanceof Buffer ? chunk : Buffer.from(chunk));
+      cb();
+    },
+  });
+  await pipeline(body, verifier, sink);
   return Buffer.concat(chunks);
 }
 

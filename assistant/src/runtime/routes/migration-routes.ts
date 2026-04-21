@@ -626,6 +626,12 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
   try {
     upstream = await fetch(parsed.data.url, {
       signal: AbortSignal.timeout(URL_FETCH_TIMEOUT_MS),
+      // SSRF guard: `validateGcsSignedUrl` only vetted the initial URL.
+      // Default fetch behavior follows 3xx responses, which would let a
+      // validated `storage.googleapis.com` URL redirect to an arbitrary
+      // host and bypass the allowlist. Reject redirects so we only ever
+      // read bytes from the URL the caller handed us.
+      redirect: "error",
     });
   } catch (err) {
     log.error(
