@@ -25,11 +25,15 @@ final class ReturningUserRouter {
         /// No assistants found — show the hosting-option picker so the user
         /// can hatch or set one up.
         case showHostingPicker
+        /// Multiple assistants (or one with multi-assistant flag) — show the
+        /// assistant picker so the user explicitly chooses which to connect.
+        case showAssistantPicker
 
         var description: String {
             switch self {
             case .autoConnect: "autoConnect"
             case .showHostingPicker: "showHostingPicker"
+            case .showAssistantPicker: "showAssistantPicker"
             }
         }
     }
@@ -65,6 +69,7 @@ final class ReturningUserRouter {
     private let organizationIdProvider: () -> String?
     private let authServiceProvider: () -> ManagedAssistantBootstrapAuthServicing?
     private let lockfileLoader: () -> [LockfileAssistant]
+    private let multiAssistantFlagProvider: () -> Bool
 
     private static let platformTimeoutSeconds: UInt64 = 5
 
@@ -77,11 +82,15 @@ final class ReturningUserRouter {
         },
         lockfileLoader: @escaping () -> [LockfileAssistant] = {
             LockfileAssistant.loadAll()
+        },
+        multiAssistantFlagProvider: @escaping () -> Bool = {
+            MacOSClientFeatureFlagManager.shared.isEnabled("multi-platform-assistant")
         }
     ) {
         self.organizationIdProvider = organizationIdProvider
         self.authServiceProvider = authServiceProvider
         self.lockfileLoader = lockfileLoader
+        self.multiAssistantFlagProvider = multiAssistantFlagProvider
     }
 
     // MARK: - Routing
@@ -138,9 +147,13 @@ final class ReturningUserRouter {
     /// Pure routing decision from a pre-fetched landscape.
     func decide(for landscape: AssistantLandscape) -> RoutingDecision {
         let total = landscape.totalCount
-        log.info("decide: totalCount=\(total) platformConsulted=\(landscape.platformWasConsulted)")
+        let hasMultiFlag = multiAssistantFlagProvider()
+        log.info("decide: totalCount=\(total) multiFlag=\(hasMultiFlag) platformConsulted=\(landscape.platformWasConsulted)")
         if total == 0 {
             return .showHostingPicker
+        }
+        if total > 1 || (total == 1 && hasMultiFlag) {
+            return .showAssistantPicker
         }
         return .autoConnect
     }

@@ -33,7 +33,8 @@ final class ReturningUserRouterTests: XCTestCase {
     private func makeRouter(
         lockfile: [LockfileAssistant] = [],
         orgId: String? = nil,
-        platformResult: Result<[PlatformAssistant], Error>? = nil
+        platformResult: Result<[PlatformAssistant], Error>? = nil,
+        multiAssistantFlag: Bool = false
     ) -> ReturningUserRouter {
         let mockAuth: MockAuthService? = platformResult.map { result in
             MockAuthService(listResult: result)
@@ -41,7 +42,8 @@ final class ReturningUserRouterTests: XCTestCase {
         return ReturningUserRouter(
             organizationIdProvider: { orgId },
             authServiceProvider: { mockAuth },
-            lockfileLoader: { lockfile }
+            lockfileLoader: { lockfile },
+            multiAssistantFlagProvider: { multiAssistantFlag }
         )
     }
 
@@ -92,11 +94,43 @@ final class ReturningUserRouterTests: XCTestCase {
         XCTAssertEqual(router.decide(for: landscape), .autoConnect)
     }
 
-    func testDecideAutoConnectsWithMultipleAssistants() {
-        let router = makeRouter()
+    func testDecideAutoConnectsWithMultipleAssistantsWhenFlagOff() {
+        let router = makeRouter(multiAssistantFlag: false)
         let landscape = ReturningUserRouter.AssistantLandscape(
             lockfileAssistants: [makeLocalAssistant()],
             platformAssistants: [makePlatformAssistant()],
+            platformWasConsulted: true
+        )
+        XCTAssertEqual(router.decide(for: landscape), .showAssistantPicker)
+    }
+
+    // MARK: - Assistant picker routing
+
+    func testDecideShowsPickerForMultipleAssistants() {
+        let router = makeRouter(multiAssistantFlag: false)
+        let landscape = ReturningUserRouter.AssistantLandscape(
+            lockfileAssistants: [makeLocalAssistant(), makeLocalAssistant(id: "local-2")],
+            platformAssistants: [],
+            platformWasConsulted: true
+        )
+        XCTAssertEqual(router.decide(for: landscape), .showAssistantPicker)
+    }
+
+    func testDecideShowsPickerForSingleAssistantWithMultiFlag() {
+        let router = makeRouter(multiAssistantFlag: true)
+        let landscape = ReturningUserRouter.AssistantLandscape(
+            lockfileAssistants: [makeLocalAssistant()],
+            platformAssistants: [],
+            platformWasConsulted: true
+        )
+        XCTAssertEqual(router.decide(for: landscape), .showAssistantPicker)
+    }
+
+    func testDecideAutoConnectsForSingleAssistantWithoutMultiFlag() {
+        let router = makeRouter(multiAssistantFlag: false)
+        let landscape = ReturningUserRouter.AssistantLandscape(
+            lockfileAssistants: [makeLocalAssistant()],
+            platformAssistants: [],
             platformWasConsulted: true
         )
         XCTAssertEqual(router.decide(for: landscape), .autoConnect)

@@ -38,6 +38,11 @@ extension AppDelegate {
                     case .showHostingPicker:
                         log.info("[authFlow] router → showHostingPicker")
                         showAuthWindow()
+                    case .showAssistantPicker:
+                        // decideFast() never returns this (no flag/platform
+                        // check), but handle it for exhaustiveness.
+                        log.info("[authFlow] router → showAssistantPicker")
+                        showAuthWindow()
                     }
                 } else {
                     log.info("[authFlow] router → nil (no current-env entry) — showing auth window")
@@ -89,6 +94,9 @@ extension AppDelegate {
                 },
                 onNeedsHostingPicker: { [weak self] in
                     self?.showAuthWindow(forceOnboarding: true)
+                },
+                onNeedsAssistantPicker: { [weak self] in
+                    self?.showAssistantPicker()
                 }
             ))
         } else {
@@ -168,6 +176,34 @@ extension AppDelegate {
         NSApp.activate(ignoringOtherApps: true)
 
         authWindow = window
+    }
+
+    /// Show the assistant picker in the auth window. Builds the picker
+    /// items from the lockfile (current-environment entries only) and
+    /// swaps the auth window content in-place.
+    private func showAssistantPicker() {
+        let items = LockfileAssistant.loadAll()
+            .filter(\.isCurrentEnvironment)
+            .map(AssistantPickerItem.from(lockfile:))
+
+        let pickerView = AssistantPickerView(
+            assistants: items,
+            onConnect: { [weak self] assistantId in
+                LockfileAssistant.setActiveAssistantId(assistantId)
+                self?.proceedToApp()
+            },
+            onSignOut: { [weak self] in
+                Task {
+                    await self?.authManager.logout()
+                }
+            }
+        )
+
+        if let window = authWindow {
+            window.contentViewController = NSHostingController(rootView: pickerView)
+        } else {
+            showAuthWindow()
+        }
     }
 
     @objc func performRestart() {
