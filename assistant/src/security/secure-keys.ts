@@ -26,7 +26,7 @@ import type {
 
 import { getIsContainerized } from "../config/env-registry.js";
 import type { CesClient } from "../credential-execution/client.js";
-import { getLlmProviderEnvVar } from "../providers/provider-env-vars.js";
+import { getAnyProviderEnvVar } from "../providers/provider-env-vars.js";
 import { getLogger } from "../util/logger.js";
 import { createCesCredentialBackend } from "./ces-credential-client.js";
 import { CesRpcCredentialBackend } from "./ces-rpc-credential-backend.js";
@@ -514,9 +514,10 @@ export async function bulkSetSecureKeysAsync(
  * Retrieve a provider API key, checking secure storage first and falling
  * back to the corresponding `<PROVIDER>_API_KEY` environment variable.
  *
- * Env var names come from `PROVIDER_CATALOG` via `getLlmProviderEnvVar`;
- * keyless providers (e.g. Ollama) return `undefined` and fall through to a
- * stored-only lookup.
+ * Env var names are resolved via `getAnyProviderEnvVar`, which covers both
+ * LLM providers (sourced from `PROVIDER_CATALOG`) and search providers
+ * (sourced from `SEARCH_PROVIDER_ENV_VAR_NAMES`). Keyless providers (e.g.
+ * Ollama) return `undefined` and fall through to a stored-only lookup.
  *
  * Use this instead of raw `getSecureKeyAsync` when looking up provider
  * API keys so that env-var-only setups continue to work.
@@ -526,7 +527,7 @@ export async function getProviderKeyAsync(
 ): Promise<string | undefined> {
   const stored = await getSecureKeyAsync(provider);
   if (stored) return stored;
-  const envVar = getLlmProviderEnvVar(provider);
+  const envVar = getAnyProviderEnvVar(provider);
   return envVar ? process.env[envVar] : undefined;
 }
 
