@@ -88,6 +88,59 @@ export function listPinnedConversations(): ConversationRow[] {
   return query.all().map(parseConversation);
 }
 
+/**
+ * Row shape returned by {@link listConversationsByTitlePrefix}.
+ *
+ * Kept deliberately narrow (no full `ConversationRow`) since the only caller
+ * today is the playground's seeded-conversation listing endpoint, which only
+ * needs display metadata plus a message count to show in a list.
+ */
+export interface ConversationTitlePrefixRow {
+  id: string;
+  title: string;
+  messageCount: number;
+  createdAt: number;
+}
+
+/**
+ * List non-archived conversations whose `title` begins with `prefix`.
+ *
+ * Uses raw SQL with a subquery for `messageCount` so a single round-trip
+ * returns everything the caller needs. The `LIKE ? || '%'` pattern does a
+ * prefix match; SQLite optimizes this with an index when one exists on
+ * `title`, otherwise it degrades to a table scan — acceptable for the
+ * playground-seeded set, which is small by construction.
+ *
+ * Escaping is unnecessary here because the prefix is a build-time constant
+ * (`PLAYGROUND_TITLE_PREFIX`) rather than user input. If callers ever pass
+ * dynamic prefixes, switch to `ESCAPE '\\'` and pre-escape `%` / `_` / `\`.
+ */
+export function listConversationsByTitlePrefix(
+  prefix: string,
+): ConversationTitlePrefixRow[] {
+  interface Row {
+    id: string;
+    title: string;
+    message_count: number;
+    created_at: number;
+  }
+  const rows = rawAll<Row>(
+    `SELECT c.id, c.title,
+            (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) AS message_count,
+            c.created_at
+     FROM conversations c
+     WHERE c.title LIKE ? || '%' AND c.archived_at IS NULL
+     ORDER BY c.created_at DESC`,
+    prefix,
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    messageCount: r.message_count,
+    createdAt: r.created_at,
+  }));
+}
+
 export function countConversations(backgroundOnly = false): number {
   const db = getDb();
   const where = backgroundOnly
@@ -257,10 +310,10 @@ export function searchConversations(
     .from(conversations)
     .where(
       and(
-          sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`,
-          sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
-          sql`${conversations.archivedAt} IS NULL`,
-        ),
+        sql`${conversations.conversationType} NOT IN ('background', 'private', 'scheduled')`,
+        sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
+        sql`${conversations.archivedAt} IS NULL`,
+      ),
     )
     .all();
   for (const row of titleMatchConvs) ftsConvIds.add(row.id);

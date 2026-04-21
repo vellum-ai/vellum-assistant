@@ -15,6 +15,25 @@ import type { Conversation } from "../../../daemon/conversation.js";
 export interface PlaygroundRouteDeps {
   readonly getConversationById: (id: string) => Conversation | undefined;
   readonly isPlaygroundEnabled: () => boolean;
-  // Later PRs (PR 6, PR 16) will extend this interface with additional
-  // capabilities. Keep this list minimal for scaffold.
+  /**
+   * List non-archived conversations whose title starts with `prefix`. Used by
+   * the seeded-conversation endpoints (GET list + bulk DELETE) to enumerate
+   * the playground-owned set without exposing every conversation.
+   */
+  readonly listConversationsByTitlePrefix: (prefix: string) => Array<{
+    id: string;
+    title: string;
+    messageCount: number;
+    createdAt: number;
+  }>;
+  /**
+   * Delete a conversation by ID. Returns `true` when a row was deleted, or
+   * `false` if no conversation with that ID exists. Kept narrow (no
+   * memory/vector cleanup surface) so route handlers don't accidentally
+   * skip the async cleanup the daemon handles elsewhere; the playground
+   * delete path is intentionally best-effort for freshly-seeded rows.
+   */
+  readonly deleteConversationById: (id: string) => boolean;
+  // Later PRs will extend this interface with additional capabilities.
+  // Keep this list minimal.
 }

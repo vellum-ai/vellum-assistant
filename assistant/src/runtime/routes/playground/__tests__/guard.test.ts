@@ -9,6 +9,8 @@ function makeDeps(enabled: boolean): PlaygroundRouteDeps {
   return {
     getConversationById: (_id: string): Conversation | undefined => undefined,
     isPlaygroundEnabled: () => enabled,
+    listConversationsByTitlePrefix: () => [],
+    deleteConversationById: () => false,
   };
 }
 
@@ -32,8 +34,15 @@ describe("assertPlaygroundEnabled", () => {
 });
 
 describe("playgroundRouteDefinitions", () => {
-  test("returns an empty array in the scaffold baseline", () => {
-    expect(playgroundRouteDefinitions(makeDeps(true))).toEqual([]);
-    expect(playgroundRouteDefinitions(makeDeps(false))).toEqual([]);
+  test("aggregates concrete route builders (non-empty)", () => {
+    // Later PRs append more builders. This test just guards that the
+    // aggregator is wired to at least one group — the per-group tests
+    // cover behavior.
+    expect(playgroundRouteDefinitions(makeDeps(true)).length).toBeGreaterThan(
+      0,
+    );
+    expect(playgroundRouteDefinitions(makeDeps(false)).length).toBeGreaterThan(
+      0,
+    );
   });
 });
