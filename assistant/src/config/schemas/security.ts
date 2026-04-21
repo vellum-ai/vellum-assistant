@@ -88,14 +88,37 @@ export const PermissionsConfigSchema = z
         "Whether the assistant can execute commands on the host machine without prompting",
       ),
     autoApproveUpTo: z
-      .enum(["none", "low", "medium"], {
-        error: "permissions.autoApproveUpTo must be one of: none, low, medium",
-      })
+      .union([
+        z.enum(["none", "low", "medium"], {
+          error:
+            "permissions.autoApproveUpTo must be one of: none, low, medium",
+        }),
+        z.object({
+          conversation: z
+            .enum(["none", "low", "medium"])
+            .default("low")
+            .describe(
+              "Threshold for interactive conversation sessions (default: low)",
+            ),
+          background: z
+            .enum(["none", "low", "medium"])
+            .default("medium")
+            .describe(
+              "Threshold for non-interactive guardian sessions (default: medium)",
+            ),
+          headless: z
+            .enum(["none", "low", "medium"])
+            .default("none")
+            .describe(
+              "Threshold for non-interactive non-guardian sessions (default: none)",
+            ),
+        }),
+      ])
       .default("low")
       .describe(
         "Auto-approve tools at or below this risk level without prompting. " +
-          "'none' prompts for everything (strictest), 'low' auto-approves read-only " +
-          "operations (default), 'medium' auto-approves writes and network access too.",
+          "Accepts a scalar ('none', 'low', 'medium') applied to all contexts, " +
+          "or an object with per-context overrides: { conversation, background, headless }.",
       ),
   })
   .describe("Permission enforcement mode for tool operations");

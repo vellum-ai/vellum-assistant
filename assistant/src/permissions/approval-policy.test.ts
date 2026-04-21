@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { ApprovalContext, ApprovalDecision } from "./approval-policy.js";
-import { DefaultApprovalPolicy } from "./approval-policy.js";
+import { DefaultApprovalPolicy, resolveThreshold } from "./approval-policy.js";
 import type { TrustRule } from "./types.js";
 import { RiskLevel } from "./types.js";
 
@@ -707,6 +707,93 @@ describe("autoApproveUpTo threshold", () => {
       });
       expect(result.decision).toBe("allow");
       expect(result.reason).toContain("within auto-approve threshold");
+    });
+  });
+});
+
+// ── resolveThreshold ─────────────────────────────────────────────────────────
+
+describe("resolveThreshold", () => {
+  describe("scalar form", () => {
+    test("returns scalar for conversation context", () => {
+      expect(resolveThreshold("low", "conversation")).toBe("low");
+    });
+
+    test("returns scalar for background context", () => {
+      expect(resolveThreshold("medium", "background")).toBe("medium");
+    });
+
+    test("returns scalar for headless context", () => {
+      expect(resolveThreshold("none", "headless")).toBe("none");
+    });
+
+    test("returns scalar when executionContext is omitted", () => {
+      expect(resolveThreshold("low")).toBe("low");
+    });
+  });
+
+  describe("object form", () => {
+    const perContext = {
+      conversation: "low" as const,
+      background: "medium" as const,
+      headless: "none" as const,
+    };
+
+    test("returns conversation threshold for conversation context", () => {
+      expect(resolveThreshold(perContext, "conversation")).toBe("low");
+    });
+
+    test("returns background threshold for background context", () => {
+      expect(resolveThreshold(perContext, "background")).toBe("medium");
+    });
+
+    test("returns headless threshold for headless context", () => {
+      expect(resolveThreshold(perContext, "headless")).toBe("none");
+    });
+
+    test("defaults to conversation when executionContext is omitted", () => {
+      expect(resolveThreshold(perContext)).toBe("low");
+    });
+  });
+
+  describe("per-context thresholds in policy evaluation", () => {
+    test("conversation context with low threshold prompts medium risk", () => {
+      const result = evaluate({
+        riskLevel: RiskLevel.Medium,
+        toolName: "some_tool",
+        autoApproveUpTo: "low",
+      });
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("background context with medium threshold allows medium risk", () => {
+      const result = evaluate({
+        riskLevel: RiskLevel.Medium,
+        toolName: "some_tool",
+        autoApproveUpTo: "medium",
+      });
+      expect(result.decision).toBe("allow");
+      expect(result.reason).toContain("within auto-approve threshold");
+    });
+
+    test("headless context with none threshold prompts low risk", () => {
+      const result = evaluate({
+        riskLevel: RiskLevel.Low,
+        toolName: "some_tool",
+        autoApproveUpTo: "none",
+      });
+      expect(result.decision).toBe("prompt");
+      expect(result.reason).toContain("above auto-approve threshold");
+    });
+
+    test("background context with medium threshold prompts high risk", () => {
+      const result = evaluate({
+        riskLevel: RiskLevel.High,
+        toolName: "some_tool",
+        autoApproveUpTo: "medium",
+      });
+      expect(result.decision).toBe("prompt");
+      expect(result.reason).toContain("above auto-approve threshold");
     });
   });
 });

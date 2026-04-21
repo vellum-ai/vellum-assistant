@@ -28,6 +28,7 @@ import {
 import {
   type ApprovalContext,
   DefaultApprovalPolicy,
+  resolveThreshold,
 } from "./approval-policy.js";
 import { bashRiskClassifier } from "./bash-risk-classifier.js";
 import { riskToRiskLevel } from "./risk-types.js";
@@ -604,6 +605,10 @@ export async function check(
   // Build approval context from local variables
   const tool = getTool(toolName);
   const config = getConfig();
+  const resolvedThreshold = resolveThreshold(
+    config.permissions.autoApproveUpTo,
+    policyContext?.executionContext,
+  );
   const approvalContext: ApprovalContext = {
     riskLevel: risk,
     toolName,
@@ -618,7 +623,7 @@ export async function check(
       tool?.origin === "skill" ? "skill" : tool ? "builtin" : undefined,
     isSkillBundled: tool?.ownerSkillBundled ?? false,
     hasManifestOverride: !!manifestOverride,
-    autoApproveUpTo: config.permissions.autoApproveUpTo,
+    autoApproveUpTo: resolvedThreshold,
   };
 
   // Delegate the allow/prompt/deny decision to the approval policy

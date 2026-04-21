@@ -1,7 +1,11 @@
+import type { PermissionsConfig } from "../config/schemas/security.js";
 import type { TrustRule } from "./types.js";
 import { RiskLevel } from "./types.js";
 
 // ── Types ────────────────────────────────────────────────────────────────────
+
+/** Execution context for per-context threshold resolution. */
+export type ExecutionContext = "conversation" | "background" | "headless";
 
 /** Contextual information that an approval policy uses to reach a decision. */
 export interface ApprovalContext {
@@ -18,12 +22,34 @@ export interface ApprovalContext {
   /** Whether the tool has a manifest override (unregistered skill tool). */
   hasManifestOverride?: boolean;
   /**
-   * Auto-approve tools at or below this risk level when no rule matches.
+   * Resolved auto-approve threshold for this execution context.
    * - "none": prompt for everything (strictest)
    * - "low": auto-approve Low risk (default, matches existing behavior)
    * - "medium": auto-approve Low and Medium risk
    */
   autoApproveUpTo?: "none" | "low" | "medium";
+}
+
+// ── Threshold resolution ─────────────────────────────────────────────────────
+
+/**
+ * Resolve the `autoApproveUpTo` config value to a scalar threshold for
+ * the given execution context.
+ *
+ * - Scalar string → returned as-is for all contexts
+ * - Object with per-context overrides → returns the value for the context
+ *
+ * When `executionContext` is omitted, defaults to `"conversation"`.
+ */
+export function resolveThreshold(
+  configValue: PermissionsConfig["autoApproveUpTo"] | undefined,
+  executionContext?: ExecutionContext,
+): "none" | "low" | "medium" {
+  if (configValue == null || typeof configValue === "string") {
+    return configValue ?? "low";
+  }
+  const ctx = executionContext ?? "conversation";
+  return configValue[ctx];
 }
 
 /** The outcome of an approval policy evaluation. */
