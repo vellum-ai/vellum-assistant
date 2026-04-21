@@ -58,6 +58,11 @@ import {
   createPrivacyConfigGetHandler,
   createPrivacyConfigPatchHandler,
 } from "./http/routes/privacy-config.js";
+import {
+  createConversationThresholdGetHandler,
+  createConversationThresholdPutHandler,
+  createConversationThresholdDeleteHandler,
+} from "./http/routes/auto-approve-thresholds.js";
 import { createChannelVerificationSessionProxyHandler } from "./http/routes/channel-verification-session-proxy.js";
 import { createCloudOAuthTokenHandler } from "./http/routes/cloud-oauth-token.js";
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
@@ -353,6 +358,12 @@ async function main() {
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
   const handlePrivacyConfigGet = createPrivacyConfigGetHandler();
   const handlePrivacyConfigPatch = createPrivacyConfigPatchHandler();
+  const handleConversationThresholdGet =
+    createConversationThresholdGetHandler();
+  const handleConversationThresholdPut =
+    createConversationThresholdPutHandler();
+  const handleConversationThresholdDelete =
+    createConversationThresholdDeleteHandler();
   const handleTrustRulesList = createTrustRulesListHandler();
   const handleTrustRulesAdd = createTrustRulesAddHandler();
   const handleTrustRulesUpdate = createTrustRulesUpdateHandler();
@@ -1046,6 +1057,53 @@ async function main() {
       auth: "edge-scoped",
       scope: "settings.write",
       handler: (req) => handlePrivacyConfigPatch(req),
+    },
+
+    // ── Per-conversation threshold overrides (scope-protected) ──
+    {
+      path: /^\/v1\/permissions\/thresholds\/conversations\/([^/]+)$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req, params) => handleConversationThresholdGet(req, params),
+    },
+    {
+      path: /^\/v1\/assistants\/([^/]+)\/permissions\/thresholds\/conversations\/([^/]+)$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req, params) =>
+        handleConversationThresholdGet(req, params.slice(1)),
+    },
+    {
+      path: /^\/v1\/permissions\/thresholds\/conversations\/([^/]+)$/,
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) => handleConversationThresholdPut(req, params),
+    },
+    {
+      path: /^\/v1\/assistants\/([^/]+)\/permissions\/thresholds\/conversations\/([^/]+)$/,
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) =>
+        handleConversationThresholdPut(req, params.slice(1)),
+    },
+    {
+      path: /^\/v1\/permissions\/thresholds\/conversations\/([^/]+)$/,
+      method: "DELETE",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) => handleConversationThresholdDelete(req, params),
+    },
+    {
+      path: /^\/v1\/assistants\/([^/]+)\/permissions\/thresholds\/conversations\/([^/]+)$/,
+      method: "DELETE",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) =>
+        handleConversationThresholdDelete(req, params.slice(1)),
     },
 
     // ── Log export ──
