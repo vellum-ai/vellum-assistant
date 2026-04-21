@@ -467,8 +467,10 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      - name: Configure Docker for GCR
-        run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+      - name: Configure Docker for registries
+        run: |
+          gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+          gcloud auth configure-docker us-central1-docker.pkg.dev
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
