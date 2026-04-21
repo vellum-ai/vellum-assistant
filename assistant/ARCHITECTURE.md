@@ -1562,13 +1562,14 @@ graph TB
 
     FIND_RULE -->|"Deny rule"| DENY["decision: deny<br/>Blocked by rule"]
     FIND_RULE -->|"Ask rule"| PROMPT_ASK["decision: prompt<br/>Always ask user"]
-    FIND_RULE -->|"Allow rule"| RISK_CHECK{"Risk level?"}
-    FIND_RULE -->|"No match"| NO_MATCH{"Fallback logic"}
+    FIND_RULE -->|"Allow rule / No match"| SANDBOX_CHECK{"sandboxAutoApprove?<br/>(bash + allowlisted +<br/>containerized)"}
+
+    SANDBOX_CHECK -->|"yes"| AUTO_SANDBOX["decision: allow<br/>Sandbox auto-approve"]
+    SANDBOX_CHECK -->|"no, has Allow rule"| RISK_CHECK{"Risk level?"}
+    SANDBOX_CHECK -->|"no, no match"| NO_MATCH{"Fallback logic"}
 
     RISK_CHECK -->|"Low / Medium"| AUTO_ALLOW["decision: allow<br/>Auto-allowed by rule"]
-    RISK_CHECK -->|"High"| HIGH_CHECK{"sandboxAutoApprove?<br/>(tagged filesystem cmd<br/>in container)"}
-    HIGH_CHECK -->|"yes"| AUTO_ALLOW
-    HIGH_CHECK -->|"no"| RISK_THRESHOLD{"Risk-based<br/>threshold fallback"}
+    RISK_CHECK -->|"High"| RISK_THRESHOLD{"Risk-based<br/>threshold fallback"}
 
     NO_MATCH -->|"tool.origin === 'skill'"| PROMPT_SKILL["decision: prompt<br/>Skill tools always ask"]
     NO_MATCH -->|"strict mode"| PROMPT_STRICT["decision: prompt<br/>No implicit auto-allow"]
