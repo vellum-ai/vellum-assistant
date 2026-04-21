@@ -772,35 +772,35 @@ struct ConversationChatView: View {
         .navigationTitle(conversation.title.isEmpty ? "Chat" : conversation.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if horizontalSizeClass == .compact, let onOpenDrawer {
+            if horizontalSizeClass == .compact {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    VButton(
-                        label: "Chats",
-                        iconOnly: VIcon.panelLeft.rawValue,
-                        style: .ghost,
-                        size: .pillRegular,
-                        isActive: true,
-                        tooltip: "Opens the conversation menu",
-                        iconColor: VColor.contentDefault,
-                        action: onOpenDrawer
-                    )
+                    HStack(spacing: VSpacing.xs) {
+                        if let onOpenDrawer {
+                            VButton(
+                                label: "Chats",
+                                iconOnly: VIcon.panelLeft.rawValue,
+                                style: .ghost,
+                                size: .pillLarge,
+                                isActive: true,
+                                tooltip: "Opens the conversation menu",
+                                iconColor: VColor.contentDefault,
+                                action: onOpenDrawer
+                            )
+                        }
+                        if let onShowSettings {
+                            VButton(
+                                label: "Settings",
+                                iconOnly: VIcon.settings.rawValue,
+                                style: .ghost,
+                                size: .pillLarge,
+                                isActive: true,
+                                tooltip: "Opens the Settings sheet",
+                                iconColor: VColor.contentDefault,
+                                action: onShowSettings
+                            )
+                        }
+                    }
                 }
-                .hideSharedToolbarBackgroundIfAvailable()
-            }
-            if horizontalSizeClass == .compact, let onShowSettings {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    VButton(
-                        label: "Settings",
-                        iconOnly: VIcon.settings.rawValue,
-                        style: .ghost,
-                        size: .pillRegular,
-                        isActive: true,
-                        tooltip: "Opens the Settings sheet",
-                        iconColor: VColor.contentDefault,
-                        action: onShowSettings
-                    )
-                }
-                .hideSharedToolbarBackgroundIfAvailable()
             }
             if horizontalSizeClass == .compact, let onComposeNew {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -808,13 +808,12 @@ struct ConversationChatView: View {
                         label: "New chat",
                         iconOnly: VIcon.squarePen.rawValue,
                         style: .ghost,
-                        size: .pillRegular,
+                        size: .pillLarge,
                         isActive: true,
                         iconColor: VColor.contentDefault,
                         action: onComposeNew
                     )
                 }
-                .hideSharedToolbarBackgroundIfAvailable()
             }
         }
     }

@@ -271,43 +271,40 @@ struct IOSRootNavigationView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
-                VButton(
-                    label: "Chats",
-                    iconOnly: VIcon.panelLeft.rawValue,
-                    style: .ghost,
-                    size: .pillRegular,
-                    isActive: true,
-                    tooltip: "Opens the conversation menu",
-                    iconColor: VColor.contentDefault,
-                    action: openDrawer
-                )
+                HStack(spacing: VSpacing.xs) {
+                    VButton(
+                        label: "Chats",
+                        iconOnly: VIcon.panelLeft.rawValue,
+                        style: .ghost,
+                        size: .pillLarge,
+                        isActive: true,
+                        tooltip: "Opens the conversation menu",
+                        iconColor: VColor.contentDefault,
+                        action: openDrawer
+                    )
+                    VButton(
+                        label: "Settings",
+                        iconOnly: VIcon.settings.rawValue,
+                        style: .ghost,
+                        size: .pillLarge,
+                        isActive: true,
+                        tooltip: "Opens the Settings sheet",
+                        iconColor: VColor.contentDefault,
+                        action: { isSettingsPresented = true }
+                    )
+                }
             }
-            .hideSharedToolbarBackgroundIfAvailable()
-            ToolbarItem(placement: .navigationBarLeading) {
-                VButton(
-                    label: "Settings",
-                    iconOnly: VIcon.settings.rawValue,
-                    style: .ghost,
-                    size: .pillRegular,
-                    isActive: true,
-                    tooltip: "Opens the Settings sheet",
-                    iconColor: VColor.contentDefault,
-                    action: { isSettingsPresented = true }
-                )
-            }
-            .hideSharedToolbarBackgroundIfAvailable()
             ToolbarItem(placement: .navigationBarTrailing) {
                 VButton(
                     label: "New chat",
                     iconOnly: VIcon.squarePen.rawValue,
                     style: .ghost,
-                    size: .pillRegular,
+                    size: .pillLarge,
                     isActive: true,
                     iconColor: VColor.contentDefault,
                     action: composeNewConversation
                 )
             }
-            .hideSharedToolbarBackgroundIfAvailable()
         }
     }
 

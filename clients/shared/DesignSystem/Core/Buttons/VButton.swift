@@ -2,7 +2,7 @@ import SwiftUI
 
 public struct VButton: View {
     public enum Style: Hashable { case primary, danger, dangerOutline, dangerGhost, outlined, ghost, contrast }
-    public enum Size: Hashable { case regular, compact, pill, inline, pillRegular }
+    public enum Size: Hashable { case regular, compact, pill, inline, pillRegular, pillLarge }
 
     public let label: String
     public var leftIcon: String? = nil
@@ -54,9 +54,9 @@ public struct VButton: View {
         Button(action: action) {
             if let iconOnly {
                 HStack(spacing: VSpacing.xs) {
-                    VIconView(.resolve(iconOnly), size: size == .inline ? 10 : 13)
+                    VIconView(.resolve(iconOnly), size: iconOnlyIconSize)
                         .rotationEffect(iconRotation ?? .zero)
-                        .frame(width: size == .inline ? 12 : 20, height: size == .inline ? 12 : 20)
+                        .frame(width: iconOnlyIconFrame, height: iconOnlyIconFrame)
                 }
                 .foregroundStyle(iconColor ?? iconOnlyForegroundColor)
             } else {
@@ -99,6 +99,22 @@ public struct VButton: View {
     }
 
     private var textIconSize: CGFloat { 13 }
+
+    private var iconOnlyIconSize: CGFloat {
+        switch size {
+        case .inline: return 10
+        case .pillLarge: return 16
+        default: return 13
+        }
+    }
+
+    private var iconOnlyIconFrame: CGFloat {
+        switch size {
+        case .inline: return 12
+        case .pillLarge: return 24
+        default: return 20
+        }
+    }
 
     private var iconOnlyForegroundColor: Color {
         if effectivelyDisabled { return VColor.contentDisabled }
@@ -149,7 +165,7 @@ public struct VButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
     public func makeBody(configuration: Configuration) -> some View {
-        let cornerRadius: CGFloat = (size == .pill || size == .pillRegular) ? VRadius.pill : VRadius.md
+        let cornerRadius: CGFloat = (size == .pill || size == .pillRegular || size == .pillLarge) ? VRadius.pill : VRadius.md
         let shape = RoundedRectangle(cornerRadius: cornerRadius)
 
         configuration.label
@@ -290,7 +306,12 @@ private struct ButtonLayoutModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         if isIconOnly {
-            let defaultSize: CGFloat = size == .inline ? 18 : 32
+            let defaultSize: CGFloat
+            switch size {
+            case .inline: defaultSize = 18
+            case .pillLarge: defaultSize = 40
+            default: defaultSize = 32
+            }
             content
                 .frame(width: iconSize ?? defaultSize, height: iconSize ?? defaultSize)
         } else if size == .inline {
@@ -302,6 +323,11 @@ private struct ButtonLayoutModifier: ViewModifier {
             content
                 .padding(.horizontal, VSpacing.sm)
                 .frame(height: 24)
+                .frame(maxWidth: isFullWidth ? .infinity : nil)
+        } else if size == .pillLarge {
+            content
+                .padding(.horizontal, VSpacing.md)
+                .frame(height: 40)
                 .frame(maxWidth: isFullWidth ? .infinity : nil)
         } else {
             // Covers both `.regular` and `.pillRegular`. They intentionally
