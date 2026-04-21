@@ -108,6 +108,14 @@ struct IOSRootNavigationView: View {
             // `.compact` until the user opens the drawer to pick a chat.
             if newValue == .compact {
                 seedActiveConversationIfNeeded()
+            } else if newValue == .regular {
+                // Reset drawer state when transitioning to regular — the drawer
+                // isn't rendered on iPad, but `@State` would otherwise preserve
+                // `isDrawerOpen = true` across the transition and cause the
+                // drawer to reappear already-open if the user later flips back
+                // to compact (e.g. resizing Split View on iPad).
+                isDrawerOpen = false
+                dragTranslation = 0
             }
         }
         // Triggered from `ContentView.connectionFailedView` ("Go to Settings")
