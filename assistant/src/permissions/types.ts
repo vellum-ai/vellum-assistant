@@ -69,4 +69,6 @@ export interface PolicyContext {
    * - "headless": non-interactive non-guardian session
    */
   executionContext?: "conversation" | "background" | "headless";
+  /** Conversation ID for per-conversation threshold overrides. */
+  conversationId?: string;
 }
