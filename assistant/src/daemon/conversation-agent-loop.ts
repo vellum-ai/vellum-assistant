@@ -663,6 +663,12 @@ export async function runAgentLoopImpl(
         compacted.summaryCacheCreationInputTokens ?? 0,
         compacted.summaryCacheReadInputTokens ?? 0,
         collapseRawResponses(compacted.summaryRawResponses),
+        undefined /* providerName */,
+        1 /* llmCallCount */,
+        {
+          tokens: compacted.estimatedInputTokens,
+          maxTokens: compacted.maxInputTokens,
+        },
       );
       shouldInjectWorkspace = true;
       if (compacted.compactedPersistedMessages > 0) {
@@ -1880,6 +1886,12 @@ export async function runAgentLoopImpl(
                 emergencyCompact.summaryCacheCreationInputTokens ?? 0,
                 emergencyCompact.summaryCacheReadInputTokens ?? 0,
                 collapseRawResponses(emergencyCompact.summaryRawResponses),
+                undefined /* providerName */,
+                1 /* llmCallCount */,
+                {
+                  tokens: emergencyCompact.estimatedInputTokens,
+                  maxTokens: emergencyCompact.maxInputTokens,
+                },
               );
               ctx.graphMemory.onCompacted(
                 emergencyCompact.compactedPersistedMessages,
@@ -2026,6 +2038,12 @@ export async function runAgentLoopImpl(
               emergencyCompact.summaryCacheCreationInputTokens ?? 0,
               emergencyCompact.summaryCacheReadInputTokens ?? 0,
               collapseRawResponses(emergencyCompact.summaryRawResponses),
+              undefined /* providerName */,
+              1 /* llmCallCount */,
+              {
+                tokens: emergencyCompact.estimatedInputTokens,
+                maxTokens: emergencyCompact.maxInputTokens,
+              },
             );
             ctx.graphMemory.onCompacted(
               emergencyCompact.compactedPersistedMessages,
