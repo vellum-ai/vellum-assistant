@@ -798,26 +798,32 @@ export async function streamCommitImport(
   // deprecated/ quarantine) whenever the bundle omits those paths —
   // e.g. partial bundles carrying only prompts/config.
   //
-  // carryOverPreservedPaths uses rename (not cp) to keep the carry-over
-  // zero-disk, which is critical on instances with multi-GB Qdrant stores
-  // or SQLite DBs and limited free space. We track every moved entry in
-  // `carried` so we can restore it to the live workspace if the atomic
-  // swap below fails.
-  // Crash-safety marker. Written to disk BEFORE any live-workspace data is
-  // moved, so if the process is killed mid-import the next call to
-  // `recoverInterruptedImport(workspaceDir)` — which streamCommitImport
-  // invokes at the start of every run, and which daemon boot code can call
-  // separately — can replay the carry-over undo and clean up the temp tree.
-  // The marker is deleted after the atomic swap pair succeeds.
+  // Carry-over uses `rename` (not `cp`) to stay zero-disk on the happy
+  // path, which is critical on instances with multi-GB Qdrant stores or
+  // SQLite DBs and limited free space.
+  //
+  // Crash-safety is achieved in two phases:
+  //   1. `planCarryOverPreservedPaths` walks the live + temp trees WITHOUT
+  //      mutating anything and produces the full intended `carried` list.
+  //   2. `writeImportMarker` persists that plan to disk BEFORE any rename
+  //      runs. If the process dies during the subsequent
+  //      `executeCarryOverPlan`, the marker already holds every
+  //      (liveChild, tempChild) pair the next `recoverInterruptedImport`
+  //      needs to replay. The marker is deleted only after the atomic
+  //      swap pair succeeds (or in-process failure paths explicitly
+  //      restore state).
   let carried: CarriedPath[];
   try {
-    carried = await carryOverPreservedPaths(realWorkspaceDir, tempWorkspaceDir);
+    carried = await planCarryOverPreservedPaths(
+      realWorkspaceDir,
+      tempWorkspaceDir,
+    );
   } catch (err) {
     await cleanupTempDir();
     return {
       ok: false,
       reason: "write_failed",
-      message: `Failed to carry over preserved workspace paths: ${errMessage(err)}`,
+      message: `Failed to plan preserved-path carry-over: ${errMessage(err)}`,
     };
   }
 
@@ -831,14 +837,32 @@ export async function streamCommitImport(
       })),
     });
   } catch (err) {
-    // We can still proceed — the rename pair is about to happen and will
-    // usually succeed. But if the process dies mid-swap we won't have the
-    // marker to guide recovery; log a warning so operators know manual
-    // intervention may be needed in that rare case.
-    log.warn(
-      { err, markerPath },
-      "Failed to write import-recovery marker before carry-over; crash mid-swap may require manual recovery",
-    );
+    // Persisting the recovery plan is a prerequisite for crash-safe
+    // carry-over. If we can't write the marker, refuse to mutate the live
+    // workspace — a mid-carryover crash would otherwise be unrecoverable.
+    await cleanupTempDir();
+    return {
+      ok: false,
+      reason: "write_failed",
+      message: `Failed to persist import recovery marker: ${errMessage(err)}`,
+    };
+  }
+
+  try {
+    await executeCarryOverPlan(carried);
+  } catch (err) {
+    // A rename in the plan failed. Restore the already-moved entries so
+    // the live workspace is whole again, then delete the marker and temp
+    // dir. `restoreCarriedPaths` is a no-op on entries that were never
+    // moved (tempChild missing), so passing the full plan is safe.
+    await restoreCarriedPaths(carried);
+    await safelyDeleteMarker(markerPath);
+    await cleanupTempDir();
+    return {
+      ok: false,
+      reason: "write_failed",
+      message: `Failed to carry over preserved workspace paths: ${errMessage(err)}`,
+    };
   }
 
   const backupDir = `${realWorkspaceDir}.pre-import-${Date.now()}`;
@@ -1066,17 +1090,27 @@ function buildReport(
  *     The walk stops descending on any subtree the bundle has completely
  *     populated, since we only need to fill gaps.
  */
-async function carryOverPreservedPaths(
+/**
+ * Pre-compute the full `CarriedPath[]` that `carryOverPreservedPaths` will
+ * move, WITHOUT mutating the live workspace. The result lets us write the
+ * crash-recovery marker before any rename runs, so a crash mid-carry-over
+ * still leaves a complete restoration plan for the next
+ * `recoverInterruptedImport` call.
+ *
+ * The walk mirrors `carryOverPreservedPaths` exactly — if the two were to
+ * disagree, recovery would be incomplete. Directory subtrees that the
+ * bundle didn't populate are recorded as a single top-level move (matches
+ * the one-shot rename the executor does); per-file merges happen otherwise.
+ */
+async function planCarryOverPreservedPaths(
   realWorkspaceDir: string,
   tempWorkspaceDir: string,
 ): Promise<CarriedPath[]> {
-  const carried: CarriedPath[] = [];
+  const plan: CarriedPath[] = [];
   for (const rel of WORKSPACE_PRESERVE_PATHS) {
     const livePath = join(realWorkspaceDir, rel);
     const tempPath = join(tempWorkspaceDir, rel);
 
-    // Live workspace doesn't have anything at this preserved path —
-    // nothing to carry.
     let liveStat;
     try {
       liveStat = await stat(livePath);
@@ -1086,44 +1120,25 @@ async function carryOverPreservedPaths(
     }
 
     if (!liveStat.isDirectory()) {
-      // The preserved path is a regular file. Only carry it if the bundle
-      // did NOT write to that exact path.
       if (existsSync(tempPath)) continue;
-      await mkdir(dirname(tempPath), { recursive: true });
-      await carryOverEntry(livePath, tempPath);
-      carried.push({ liveChild: livePath, tempChild: tempPath });
-      log.debug(
-        { rel, size: liveStat.size, isDir: false },
-        "Preserved live workspace file across streaming import swap",
-      );
+      plan.push({ liveChild: livePath, tempChild: tempPath });
       continue;
     }
 
-    // Directory case: do a per-file merge so bundle-provided files inside
-    // the preserved directory coexist with live files the bundle didn't
-    // touch. We ensure the target dir exists on the temp side (it may not
-    // if the bundle didn't write any entries under this preserved dir)
-    // and then recursively fill gaps.
-    await mkdir(tempPath, { recursive: true });
-    await mergeLiveIntoTempDir(livePath, tempPath, carried);
-    log.debug(
-      { rel, isDir: true },
-      "Merged live preserved directory into streaming import swap tree",
-    );
+    await planMergeLiveIntoTempDir(livePath, tempPath, plan);
   }
-  return carried;
+  return plan;
 }
 
 /**
- * Walk `liveDir` recursively; for every entry that does not already exist
- * at the same relative path under `tempDir`, carry it over (rename with
- * EXDEV fallback). Entries that the bundle already wrote are left
- * untouched so the bundle's version wins.
+ * Same walk as `mergeLiveIntoTempDir` but only records the would-be moves
+ * in `plan`. Intentionally side-effect-free apart from appending to the
+ * plan array.
  */
-async function mergeLiveIntoTempDir(
+async function planMergeLiveIntoTempDir(
   liveDir: string,
   tempDir: string,
-  carried: CarriedPath[],
+  plan: CarriedPath[],
 ): Promise<void> {
   let entries;
   try {
@@ -1140,26 +1155,31 @@ async function mergeLiveIntoTempDir(
 
     if (entry.isDirectory()) {
       if (!existsInTemp) {
-        // The bundle didn't write anything under this subtree — carry the
-        // whole subtree over in one shot. Much cheaper than a recursive
-        // walk when the directory is a large cache (qdrant segments,
-        // embedding-models shards).
-        await carryOverEntry(liveChild, tempChild);
-        carried.push({ liveChild, tempChild });
+        plan.push({ liveChild, tempChild });
         continue;
       }
-      // Bundle wrote SOMETHING under here. Recurse to preserve any live
-      // files the bundle didn't write while leaving bundle-written files
-      // in place.
-      await mergeLiveIntoTempDir(liveChild, tempChild, carried);
+      await planMergeLiveIntoTempDir(liveChild, tempChild, plan);
       continue;
     }
 
-    // Regular file / symlink: carry it only if the bundle didn't write
-    // at this exact path.
     if (existsInTemp) continue;
+    plan.push({ liveChild, tempChild });
+  }
+}
+
+/**
+ * Execute a carry-over plan produced by `planCarryOverPreservedPaths`.
+ * Each entry is moved with `carryOverEntry`; directories that are plan
+ * roots have their parent created so `rename` can land them.
+ *
+ * Per-entry failures abort the loop and throw — the caller is expected to
+ * run `restoreCarriedPaths` on the already-moved entries (a subset of the
+ * plan) on its in-process failure path.
+ */
+async function executeCarryOverPlan(plan: CarriedPath[]): Promise<void> {
+  for (const { liveChild, tempChild } of plan) {
+    await mkdir(dirname(tempChild), { recursive: true });
     await carryOverEntry(liveChild, tempChild);
-    carried.push({ liveChild, tempChild });
   }
 }
 
