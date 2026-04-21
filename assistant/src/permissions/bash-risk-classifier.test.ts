@@ -630,6 +630,17 @@ describe("variable expansion", () => {
     // echo baseRisk is low, no arg rules match, escalateOne(low) = medium
     expect(result.riskLevel).toBe("medium");
   });
+
+  test("curl http://localhost:$PORT → high (baseRisk=medium is floor for escalation after de-escalation)", async () => {
+    const result = await classifier.classify({
+      command: "curl http://localhost:$PORT",
+      toolName: "bash",
+    });
+    // curl baseRisk=medium, curl:localhost arg rule de-escalates to low,
+    // but variable expansion uses max(computedRisk=low, baseRisk=medium)=medium
+    // as the floor, so escalateOne(medium) = high
+    expect(result.riskLevel).toBe("high");
+  });
 });
 
 // ── Assistant subcommand classification ──────────────────────────────────────
