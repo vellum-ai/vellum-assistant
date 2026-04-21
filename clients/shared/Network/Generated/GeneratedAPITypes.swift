@@ -1126,6 +1126,16 @@ public struct CompactionCircuitOpen: Codable, Sendable {
     }
 }
 
+public struct CompactionCircuitClosed: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+
+    public init(type: String, conversationId: String) {
+        self.type = type
+        self.conversationId = conversationId
+    }
+}
+
 public struct ConversationSearchMatchingMessage: Codable, Sendable {
     public let messageId: String
     public let role: String

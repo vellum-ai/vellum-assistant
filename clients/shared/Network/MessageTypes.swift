@@ -2609,6 +2609,7 @@ public enum ServerMessage: Decodable, Sendable {
     case contextCompacted(ContextCompacted)
     case usageUpdate(UsageUpdate)
     case compactionCircuitOpen(CompactionCircuitOpen)
+    case compactionCircuitClosed(CompactionCircuitClosed)
     case serviceGroupUpdateStarting(ServiceGroupUpdateStartingMessage)
     case serviceGroupUpdateProgress(ServiceGroupUpdateProgressMessage)
     case serviceGroupUpdateComplete(ServiceGroupUpdateCompleteMessage)
@@ -3098,6 +3099,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "compaction_circuit_open":
             let message = try CompactionCircuitOpen(from: decoder)
             self = .compactionCircuitOpen(message)
+        case "compaction_circuit_closed":
+            let message = try CompactionCircuitClosed(from: decoder)
+            self = .compactionCircuitClosed(message)
         case "service_group_update_starting":
             let message = try ServiceGroupUpdateStartingMessage(from: decoder)
             self = .serviceGroupUpdateStarting(message)

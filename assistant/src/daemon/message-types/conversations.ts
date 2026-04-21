@@ -465,6 +465,25 @@ export interface CompactionCircuitOpen {
   openUntil: number;
 }
 
+/**
+ * Emitted when the compaction circuit breaker transitions from open → closed
+ * because a successful compaction reset
+ * `ctx.compactionCircuitOpenUntil`. The Swift client clears its banner state
+ * on receipt so the "auto-compaction paused" indicator dismisses immediately
+ * instead of lingering until the original `openUntil` deadline (up to 1h).
+ *
+ * Only fires on the open→closed transition — successful compactions while
+ * the breaker was already closed would be noise.
+ *
+ * `conversationId` scopes the event so clients can ignore transitions from
+ * other conversations via `belongsToConversation()`, mirroring the rest of
+ * the broadcast-aware events.
+ */
+export interface CompactionCircuitClosed {
+  type: "compaction_circuit_closed";
+  conversationId: string;
+}
+
 export type ConversationErrorCode =
   | "PROVIDER_NETWORK"
   | "PROVIDER_RATE_LIMIT"
@@ -563,6 +582,7 @@ export type _ConversationsServerMessages =
   | UsageResponse
   | ContextCompacted
   | CompactionCircuitOpen
+  | CompactionCircuitClosed
   | ConversationErrorMessage
   | ConversationInfo
   | ConversationTitleUpdated
