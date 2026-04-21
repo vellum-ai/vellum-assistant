@@ -135,8 +135,6 @@ export function matchesArgRule(rule: ArgRule, arg: string): boolean {
 }
 
 // ── Wrapper unwrapping ───────────────────────────────────────────────────────
-// Reuses the same logic as checker.ts for wrapper unwrapping. We inline the
-// relevant constants and algorithm here to avoid needing to export from checker.ts.
 
 const WRAPPER_SKIP_FIRST_POSITIONAL = new Set(["timeout", "taskset"]);
 const ENV_VALUE_FLAGS = new Set(["-u", "--unset", "-C", "--chdir"]);
@@ -145,8 +143,6 @@ const TIMEOUT_VALUE_FLAGS = new Set(["-s", "--signal", "-k", "--kill-after"]);
 /**
  * Given a wrapper segment, extract the wrapped program and its args.
  * Returns undefined when no suitable argument is found.
- *
- * Replicates getWrappedProgramWithArgs from checker.ts.
  */
 function getWrappedProgramWithArgs(seg: {
   program: string;
@@ -204,7 +200,7 @@ function firstPositionalArg(
 
 // ── Safe-file downgrade for rm ────────────────────────────────────────────────
 // Bare filenames that `rm` is allowed to delete at Medium risk (instead of
-// High) in sandboxed bash. Matches checker.ts isRmOfKnownSafeFile behavior.
+// High) in sandboxed bash.
 const RM_SAFE_BARE_FILES = new Set(["BOOTSTRAP.md", "UPDATES.md"]);
 
 // ── Segment classification ───────────────────────────────────────────────────
@@ -440,8 +436,7 @@ export function classifySegment(
   // 7. rm safe-file downgrade (sandbox only)
   // When rm targets a single known safe bare file (no flags, no path separators),
   // downgrade to medium in sandboxed bash. host_bash keeps high because it has a
-  // global ask rule that would prompt medium-risk commands. Matches checker.ts
-  // isRmOfKnownSafeFile + toolName guard.
+  // global ask rule that would prompt medium-risk commands.
   if (
     programName === "rm" &&
     toolName === "bash" &&
@@ -655,11 +650,9 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
       maxReason = parsed.dangerousPatterns[0].description;
     }
 
-    // Opaque constructs escalation (matches checker.ts behavior):
+    // Opaque constructs escalation:
     // - With dangerous patterns present → escalate to high
     // - Without dangerous patterns → escalate to medium only
-    // checker.ts returns Medium for opaque constructs before the per-segment
-    // loop, so opaque-without-danger is medium, not high.
     if (parsed.hasOpaqueConstructs) {
       const opaqueTarget: Risk =
         parsed.dangerousPatterns.length > 0 ? "high" : "medium";

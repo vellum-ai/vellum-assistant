@@ -36,8 +36,6 @@ export interface ApprovalPolicy {
 
 /**
  * Implements the approval decision policy used by `check()` in checker.ts.
- * Each branch is annotated with the corresponding decision path so reviewers
- * can verify 1:1 parity.
  *
  * The decision flow:
  *
