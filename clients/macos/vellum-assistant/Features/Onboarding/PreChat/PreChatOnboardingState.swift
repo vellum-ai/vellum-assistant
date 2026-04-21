@@ -62,7 +62,9 @@ final class PreChatOnboardingState {
             selectedTasks = Set(tasks)
         }
 
-        toneValue = defaults.double(forKey: Self.toneKey)
+        if defaults.object(forKey: Self.toneKey) != nil {
+            toneValue = defaults.double(forKey: Self.toneKey)
+        }
 
         if let name = defaults.string(forKey: Self.userNameKey) {
             userName = name
