@@ -11,9 +11,9 @@ struct OnboardingVellumCloudCard: View {
 
     let title: String = "Vellum Cloud"
     let benefits: [String] = [
+        "No API key or technical setup required",
         "Always on, even when your Mac sleeps",
         "Instant sync across all your devices",
-        "No API key or technical setup required",
     ]
     let primaryCTA: String = "Continue with Vellum"
     var isLoading: Bool = false
@@ -40,13 +40,13 @@ struct OnboardingVellumCloudCard: View {
 
                 VBadge(
                     label: "RECOMMENDED",
-                    tone: .accent,
+                    tone: .positive,
                     emphasis: .subtle,
                     shape: .pill
                 )
             }
 
-            Spacer().frame(height: VSpacing.md)
+            Spacer().frame(height: VSpacing.sm)
 
             // Benefits
             VStack(alignment: .leading, spacing: VSpacing.sm) {
@@ -57,7 +57,7 @@ struct OnboardingVellumCloudCard: View {
             .accessibilityElement(children: .contain)
             .accessibilityLabel(Text("Vellum Cloud benefits"))
 
-            Spacer().frame(height: VSpacing.md)
+            Spacer().frame(height: VSpacing.sm)
 
             // CTA — "Logging in…" wins over "Checking…" when both bits are set,
             // since the user has just submitted credentials and a generic

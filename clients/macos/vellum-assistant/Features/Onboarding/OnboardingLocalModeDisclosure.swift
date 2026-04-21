@@ -59,7 +59,7 @@ internal struct OnboardingLocalModeDisclosure: View {
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: 0) {
-                    Spacer().frame(height: VSpacing.md)
+                    Spacer().frame(height: VSpacing.sm)
 
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         ForEach(tradeoffs, id: \.self) { item in
@@ -69,7 +69,7 @@ internal struct OnboardingLocalModeDisclosure: View {
                     .accessibilityElement(children: .contain)
                     .accessibilityLabel(Text("Local Mode details"))
 
-                    Spacer().frame(height: VSpacing.md)
+                    Spacer().frame(height: VSpacing.sm)
 
                     VButton(
                         label: secondaryCTA,
