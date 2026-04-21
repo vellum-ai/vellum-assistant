@@ -226,6 +226,7 @@ export class PermissionChecker {
           none: -1,
           low: 0,
           medium: 1,
+          high: 2,
         };
         const riskOrdinal: Record<string, number> = {
           [RiskLevel.Low]: 0,
