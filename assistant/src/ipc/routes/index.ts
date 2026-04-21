@@ -6,6 +6,7 @@ import { searchContactsRoute } from "./search-contacts.js";
 import { taskTemplateRoutes } from "./task.js";
 import { taskQueueRoutes } from "./task-queue.js";
 import { uiRequestRoute } from "./ui-request.js";
+import { upsertContactRoute } from "./upsert-contact.js";
 import { wakeConversationRoute } from "./wake-conversation.js";
 import { watcherRoutes } from "./watcher.js";
 
@@ -15,6 +16,7 @@ export const cliIpcRoutes: IpcRoute[] = [
   browserExecuteRoute,
   searchContactsRoute,
   uiRequestRoute,
+  upsertContactRoute,
   wakeConversationRoute,
   ...cacheRoutes,
   ...taskTemplateRoutes,

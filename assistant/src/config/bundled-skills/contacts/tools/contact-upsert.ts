@@ -1,30 +1,15 @@
-import {
-  gatewayPost,
-  GatewayRequestError,
-} from "../../../../runtime/gateway-internal-client.js";
+import type { ContactWithChannels } from "../../../../contacts/types.js";
+import { cliIpcCall } from "../../../../ipc/cli-client.js";
+import { resolveGuardianName } from "../../../../prompts/user-reference.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
-interface ContactChannel {
-  type: string;
-  address: string;
-  isPrimary: boolean;
-  externalUserId?: string | null;
-  externalChatId?: string | null;
-}
-
-interface ContactResponse {
-  id: string;
-  displayName: string;
-  notes: string | null;
-  interactionCount: number;
-  channels: ContactChannel[];
-}
-
-function formatContact(c: ContactResponse): string {
-  const lines = [`Contact ${c.id}`, `  Name: ${c.displayName}`];
+function formatContact(c: ContactWithChannels): string {
+  const displayName =
+    c.role === "guardian" ? resolveGuardianName(c.displayName) : c.displayName;
+  const lines = [`Contact ${c.id}`, `  Name: ${displayName}`];
   if (c.notes) lines.push(`  Notes: ${c.notes}`);
   if (c.interactionCount > 0)
     lines.push(`  Interactions: ${c.interactionCount}`);
@@ -71,30 +56,27 @@ export async function executeContactUpsert(
     isPrimary: ch.is_primary,
   }));
 
-  try {
-    const { status, data } = await gatewayPost<{
-      ok: boolean;
-      contact: ContactResponse;
-    }>("/v1/contacts", {
+  const res = await cliIpcCall<ContactWithChannels & { created: boolean }>(
+    "upsert_contact",
+    {
       id: input.id as string | undefined,
       displayName: displayName.trim(),
       notes: input.notes as string | undefined,
       channels,
-    });
+    },
+  );
 
-    const created = status === 201;
-
-    return {
-      content: `${created ? "Created" : "Updated"} contact:\n${formatContact(data.contact)}`,
-      isError: false,
-    };
-  } catch (err) {
-    if (err instanceof GatewayRequestError) {
-      return { content: `Error: ${err.message}`, isError: true };
-    }
-    const msg = err instanceof Error ? err.message : String(err);
-    return { content: `Error: ${msg}`, isError: true };
+  if (!res.ok) {
+    return { content: `Error: ${res.error}`, isError: true };
   }
+
+  const contact = res.result!;
+  const verb = contact.created ? "Created" : "Updated";
+
+  return {
+    content: `${verb} contact:\n${formatContact(contact)}`,
+    isError: false,
+  };
 }
 
 export { executeContactUpsert as run };
