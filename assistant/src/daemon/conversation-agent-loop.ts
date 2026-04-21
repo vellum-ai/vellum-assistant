@@ -1580,8 +1580,7 @@ export async function runAgentLoopImpl(
     // ── Bounded context overflow convergence loop ──────────────────
     // When the provider rejects with context-too-large, iterate through
     // reducer tiers (forced compaction, tool-result truncation, media
-    // stubbing, injection downgrade) with optional approval gating for
-    // interactive latest-turn compression.
+    // stubbing, injection downgrade).
     //
     // When progress was made (agent added messages before hitting the
     // limit), incorporate those new messages into ctx.messages so the
