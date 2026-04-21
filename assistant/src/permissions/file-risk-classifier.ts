@@ -14,7 +14,7 @@
  */
 
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { getConfig } from "../config/loader.js";
 import {
@@ -28,6 +28,7 @@ import {
   getWorkspaceHooksDir,
 } from "../util/platform.js";
 import type { RiskAssessment, RiskClassifier } from "./risk-types.js";
+import type { AllowlistOption } from "./types.js";
 
 // ── Input type ───────────────────────────────────────────────────────────────
 
@@ -80,6 +81,70 @@ function isHooksPath(resolvedPath: string): boolean {
   );
 }
 
+// ── Allowlist option helpers ──────────────────────────────────────────────────
+
+const FILE_TOOL_DISPLAY_NAMES: Record<string, string> = {
+  file_read: "file reads",
+  file_write: "file writes",
+  file_edit: "file edits",
+  host_file_read: "host file reads",
+  host_file_write: "host file writes",
+  host_file_edit: "host file edits",
+};
+
+function friendlyBasename(filePath: string): string {
+  const parts = filePath.split("/");
+  return parts[parts.length - 1] || filePath;
+}
+
+/**
+ * Build allowlist options for a file tool invocation, mirroring the logic
+ * in checker.ts `fileAllowlistStrategy()`. Options go from most specific
+ * (exact file) to broadest (all operations of this tool type).
+ */
+function buildFileAllowlistOptions(
+  toolName: string,
+  filePath: string,
+): AllowlistOption[] {
+  const toolLabel = FILE_TOOL_DISPLAY_NAMES[toolName] ?? toolName;
+  const options: AllowlistOption[] = [];
+
+  // Exact file path
+  options.push({
+    label: filePath,
+    description: "This file only",
+    pattern: `${toolName}:${filePath}`,
+  });
+
+  // Ancestor directory wildcards — walk up from immediate parent, stop at home dir or /
+  const home = homedir();
+  let dir = dirname(filePath);
+  const maxLevels = 3;
+  let levels = 0;
+  while (dir && dir !== "/" && dir !== "." && levels < maxLevels) {
+    const dirName = friendlyBasename(dir);
+    options.push({
+      label: `${dir}/**`,
+      description: `Anything in ${dirName}/`,
+      pattern: `${toolName}:${dir}/**`,
+    });
+    if (dir === home) break;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+    levels++;
+  }
+
+  // All operations of this tool type
+  options.push({
+    label: `${toolName}:*`,
+    description: `All ${toolLabel}`,
+    pattern: `${toolName}:*`,
+  });
+
+  return options;
+}
+
 // ── Classifier ───────────────────────────────────────────────────────────────
 
 /**
@@ -91,6 +156,9 @@ function isHooksPath(resolvedPath: string): boolean {
 export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
   async classify(input: FileClassifierInput): Promise<RiskAssessment> {
     const { toolName, filePath, workingDir } = input;
+    const allowlistOptions = filePath
+      ? buildFileAllowlistOptions(toolName, filePath)
+      : [];
 
     switch (toolName) {
       case "file_read": {
@@ -102,6 +170,7 @@ export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
               reason: "Reads actor token signing key",
               scopeOptions: [],
               matchType: "registry",
+              allowlistOptions,
             };
           }
         }
@@ -110,6 +179,7 @@ export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
           reason: "File read (default)",
           scopeOptions: [],
           matchType: "registry",
+          allowlistOptions,
         };
       }
 
@@ -125,6 +195,7 @@ export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
               reason: "Writes to skill source code",
               scopeOptions: [],
               matchType: "registry",
+              allowlistOptions,
             };
           }
           if (isHooksPath(resolvedPath)) {
@@ -133,6 +204,7 @@ export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
               reason: "Writes to hooks directory",
               scopeOptions: [],
               matchType: "registry",
+              allowlistOptions,
             };
           }
         }
@@ -141,6 +213,7 @@ export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
           reason: `File ${toolName === "file_write" ? "write" : "edit"} (default)`,
           scopeOptions: [],
           matchType: "registry",
+          allowlistOptions,
         };
       }
 
@@ -153,6 +226,7 @@ export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
           reason: "Host file read (default)",
           scopeOptions: [],
           matchType: "registry",
+          allowlistOptions,
         };
       }
 
@@ -170,6 +244,7 @@ export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
               reason: "Writes to skill source code",
               scopeOptions: [],
               matchType: "registry",
+              allowlistOptions,
             };
           }
           if (isHooksPath(resolvedPath)) {
@@ -178,6 +253,7 @@ export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
               reason: "Writes to hooks directory",
               scopeOptions: [],
               matchType: "registry",
+              allowlistOptions,
             };
           }
         }
@@ -187,6 +263,7 @@ export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
           reason: `Host file ${toolName === "host_file_write" ? "write" : "edit"} (default)`,
           scopeOptions: [],
           matchType: "registry",
+          allowlistOptions,
         };
       }
     }

@@ -11,6 +11,7 @@
  */
 
 import type { RiskAssessment, RiskClassifier } from "./risk-types.js";
+import type { AllowlistOption } from "./types.js";
 
 // ── Input type ───────────────────────────────────────────────────────────────
 
@@ -24,6 +25,111 @@ export interface WebClassifierInput {
   allowPrivateNetwork?: boolean;
 }
 
+// ── Allowlist option helpers ─────────────────────────────────────────────────
+
+const WEB_TOOL_DISPLAY_NAMES: Record<string, string> = {
+  web_fetch: "URL fetches",
+  network_request: "network requests",
+};
+
+function escapeMinimatchLiteral(value: string): string {
+  return value.replace(/([\\*?[\]{}()!+@|])/g, "\\$1");
+}
+
+function friendlyHostname(url: URL): string {
+  return url.hostname.replace(/^www\./, "");
+}
+
+/**
+ * Normalize a URL for allowlist purposes. Mirrors the canonicalization
+ * logic in checker.ts `normalizeWebFetchUrl()`.
+ */
+function normalizeUrl(rawUrl: string): URL | null {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return null;
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      parsed.hash = "";
+      parsed.username = "";
+      parsed.password = "";
+      try {
+        parsed.pathname = decodeURI(parsed.pathname);
+      } catch {
+        // Keep canonical form when decoding fails.
+      }
+      if (parsed.hostname.endsWith(".")) {
+        parsed.hostname = parsed.hostname.replace(/\.+$/, "");
+      }
+      return parsed;
+    }
+  } catch {
+    // Fall through.
+  }
+
+  try {
+    const parsed = new URL(`https://${trimmed}`);
+    parsed.hash = "";
+    parsed.username = "";
+    parsed.password = "";
+    if (parsed.hostname.endsWith(".")) {
+      parsed.hostname = parsed.hostname.replace(/\.+$/, "");
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build allowlist options for a web tool invocation, mirroring the logic
+ * in checker.ts `urlAllowlistStrategy()`. Options go from most specific
+ * (exact URL) to broadest (all fetches of this tool type).
+ */
+function buildWebAllowlistOptions(
+  toolName: string,
+  rawUrl?: string,
+): AllowlistOption[] {
+  if (!rawUrl) return [];
+
+  const normalized = normalizeUrl(rawUrl);
+  const exact = normalized?.href ?? rawUrl;
+  const toolLabel = WEB_TOOL_DISPLAY_NAMES[toolName] ?? toolName;
+
+  const options: AllowlistOption[] = [];
+  if (exact) {
+    options.push({
+      label: exact,
+      description: "This exact URL",
+      pattern: `${toolName}:${escapeMinimatchLiteral(exact)}`,
+    });
+  }
+  if (normalized) {
+    const host = friendlyHostname(normalized);
+    options.push({
+      label: `${normalized.origin}/*`,
+      description: `Any page on ${host}`,
+      pattern: `${toolName}:${escapeMinimatchLiteral(normalized.origin)}/*`,
+    });
+  }
+  // Use standalone "**" globstar — minimatch only treats ** as globstar when
+  // it is its own path segment, so "${toolName}:*" would fail to match URL
+  // candidates containing "/". The tool field is already filtered separately.
+  options.push({
+    label: `${toolName}:*`,
+    description: `All ${toolLabel}`,
+    pattern: "**",
+  });
+
+  const seen = new Set<string>();
+  return options.filter((o) => {
+    if (seen.has(o.pattern)) return false;
+    seen.add(o.pattern);
+    return true;
+  });
+}
+
 // ── Classifier ───────────────────────────────────────────────────────────────
 
 /**
@@ -35,7 +141,8 @@ export interface WebClassifierInput {
  */
 export class WebRiskClassifier implements RiskClassifier<WebClassifierInput> {
   async classify(input: WebClassifierInput): Promise<RiskAssessment> {
-    const { toolName, allowPrivateNetwork } = input;
+    const { toolName, url, allowPrivateNetwork } = input;
+    const allowlistOptions = buildWebAllowlistOptions(toolName, url);
 
     switch (toolName) {
       case "web_search":
@@ -44,6 +151,7 @@ export class WebRiskClassifier implements RiskClassifier<WebClassifierInput> {
           reason: "Web search (read-only)",
           scopeOptions: [],
           matchType: "registry",
+          allowlistOptions,
         };
 
       case "web_fetch":
@@ -55,6 +163,7 @@ export class WebRiskClassifier implements RiskClassifier<WebClassifierInput> {
             reason: "Private network fetch",
             scopeOptions: [],
             matchType: "registry",
+            allowlistOptions,
           };
         }
         return {
@@ -62,6 +171,7 @@ export class WebRiskClassifier implements RiskClassifier<WebClassifierInput> {
           reason: "Web fetch (default)",
           scopeOptions: [],
           matchType: "registry",
+          allowlistOptions,
         };
 
       case "network_request":
@@ -72,6 +182,7 @@ export class WebRiskClassifier implements RiskClassifier<WebClassifierInput> {
           reason: "Network request (proxied credentials)",
           scopeOptions: [],
           matchType: "registry",
+          allowlistOptions,
         };
     }
   }
