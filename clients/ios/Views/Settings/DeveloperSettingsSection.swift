@@ -30,6 +30,10 @@ private struct DeveloperSettingsSectionContent: View {
     @State private var assistantLoadError: String?
     @State private var showResetConfirmation = false
 
+    // Non-destructive onboarding replay — see `replayOnboardingSection`.
+    @State private var isReplayingOnboarding = false
+    @State private var replayCompleted = false
+
     init(clientProvider: ClientProvider, authManager: AuthManager, conversationStore: IOSConversationStore) {
         self.clientProvider = clientProvider
         self.authManager = authManager
@@ -42,6 +46,19 @@ private struct DeveloperSettingsSectionContent: View {
 
             Section("Connection") {
                 LabeledContent("Status", value: clientProvider.isConnected ? "Connected" : "Disconnected")
+            }
+
+            Section {
+                Button {
+                    replayCompleted = false
+                    isReplayingOnboarding = true
+                } label: {
+                    Label { Text("Replay Onboarding") } icon: { VIconView(.play, size: 14) }
+                }
+            } header: {
+                Text("Preview")
+            } footer: {
+                Text("Walks through the onboarding screens for visual review. Does not touch tokens, assistant config, or any persisted state.")
             }
 
             Section {
@@ -103,6 +120,23 @@ private struct DeveloperSettingsSectionContent: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This will clear all connection credentials and return to onboarding. You will need to log in or pair again.")
+        }
+        .fullScreenCover(isPresented: $isReplayingOnboarding) {
+            // `replayCompleted` is a local state bound into the replay flow; it
+            // flips when the user taps "Get Started" or "Cancel" inside the
+            // replayed OnboardingView and drives sheet dismissal. The app-wide
+            // `onboarding_completed` AppStorage flag is intentionally untouched.
+            OnboardingView(
+                isCompleted: $replayCompleted,
+                authManager: authManager,
+                isReplay: true
+            )
+            .environmentObject(clientProvider)
+            .onChange(of: replayCompleted) { _, completed in
+                if completed {
+                    isReplayingOnboarding = false
+                }
+            }
         }
         .task {
             await loadAssistants()

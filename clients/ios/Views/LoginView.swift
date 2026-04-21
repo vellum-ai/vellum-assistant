@@ -4,6 +4,10 @@ import VellumAssistantShared
 
 struct LoginView: View {
     @Bindable var authManager: AuthManager
+    /// When true, the primary button advances without invoking WorkOS login.
+    /// Used by the developer "Replay Onboarding" tool so re-viewing the screen
+    /// does not kick off a real auth flow for an already-authenticated user.
+    var isReplay: Bool = false
     /// Called after a successful login so the onboarding flow can advance.
     var onContinue: (() -> Void)?
 
@@ -60,19 +64,23 @@ struct LoginView: View {
 
                 VStack(spacing: VSpacing.sm) {
                     Button {
-                        Task {
-                            await authManager.startWorkOSLogin()
-                            if authManager.isAuthenticated {
-                                onContinue?()
+                        if isReplay {
+                            onContinue?()
+                        } else {
+                            Task {
+                                await authManager.startWorkOSLogin()
+                                if authManager.isAuthenticated {
+                                    onContinue?()
+                                }
                             }
                         }
                     } label: {
                         ZStack {
-                            if authManager.isSubmitting {
+                            if authManager.isSubmitting && !isReplay {
                                 ProgressView()
                                     .tint(VColor.contentInset)
                             } else {
-                                Text("Log In")
+                                Text(isReplay ? "Continue" : "Log In")
                                     .font(VFont.bodyLargeEmphasised)
                                     .foregroundStyle(VColor.contentInset)
                             }
@@ -83,7 +91,7 @@ struct LoginView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
                     .buttonStyle(.plain)
-                    .disabled(authManager.isSubmitting)
+                    .disabled(authManager.isSubmitting && !isReplay)
                 }
                 .padding(.horizontal, VSpacing.lg)
 
