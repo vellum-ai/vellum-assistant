@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import type { ContextWindowConfig } from "../config/types.js";
 import type {
   ContentBlock,
@@ -5,6 +8,7 @@ import type {
   Message,
   Provider,
 } from "../providers/types.js";
+import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
 import { safeStringSlice } from "../util/unicode.js";
 import {
@@ -26,7 +30,33 @@ const COMPACTION_TOOL_RESULT_MAX_CHARS = 6_000;
 const MIN_COMPACTABLE_PERSISTED_MESSAGES = 2;
 const INTERNAL_CONTEXT_SUMMARY_MESSAGES = new WeakSet<Message>();
 
-const SUMMARY_SYSTEM_PROMPT = [
+/**
+ * Load the compaction summary system prompt from the bundled markdown asset.
+ *
+ * `resolveBundledDir` handles the compiled-binary case where the caller path
+ * points to `/$bunfs/` and the asset lives next to the executable (macOS app
+ * bundle `Contents/Resources/` or sibling dir). In source mode it falls back
+ * to the sibling `prompts/` directory.
+ */
+export function loadCompactPrompt(): string {
+  const callerDir = import.meta.dirname ?? __dirname;
+  const promptsDir = resolveBundledDir(callerDir, "prompts", "compact-prompts");
+  const promptPath = join(promptsDir, "compact.md");
+  const contents = readFileSync(promptPath, "utf-8");
+  if (contents.length === 0) {
+    throw new Error(
+      `compact.md at ${promptPath} is empty — compaction summary prompt missing`,
+    );
+  }
+  return contents;
+}
+
+/**
+ * Hardcoded fallback prompt used when the bundled `compact.md` asset is
+ * missing or unreadable, so the daemon can still compact conversations
+ * rather than failing module import at startup.
+ */
+const SUMMARY_PROMPT_FALLBACK = [
   "You compress long assistant conversations into durable working memory.",
   "Focus on actionable state, not prose.",
   "Preserve concrete facts: goals, constraints, decisions, pending questions, file paths, commands, errors, and TODOs.",
@@ -39,6 +69,28 @@ const SUMMARY_SYSTEM_PROMPT = [
   "## Key Artifacts",
   "## Recent Progress",
 ].join("\n");
+
+/**
+ * Load the compact prompt with graceful fallback. If `loader` throws (missing
+ * or unreadable bundled asset, partial deployment, filesystem corruption),
+ * logs a warning and returns the hardcoded fallback string so module import
+ * never fails. The loader is injectable for testability.
+ */
+export function loadCompactPromptOrFallback(
+  loader: () => string = loadCompactPrompt,
+): string {
+  try {
+    return loader();
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to load compact.md from bundle; using inline fallback prompt. The bundled asset may be missing or unreadable.",
+    );
+    return SUMMARY_PROMPT_FALLBACK;
+  }
+}
+
+const SUMMARY_SYSTEM_PROMPT = loadCompactPromptOrFallback();
 
 export interface ContextWindowResult {
   messages: Message[];
