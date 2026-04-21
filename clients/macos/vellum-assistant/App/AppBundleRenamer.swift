@@ -63,8 +63,11 @@ enum AppBundleRenamer {
         #!/bin/bash
         set -euo pipefail
 
-        # Wait for the app to exit (up to 10 seconds)
-        for i in $(seq 1 100); do
+        # Wait for the app to exit (up to 30 seconds).  Must exceed
+        # `VellumCli.stopTimeout` (15s) plus AppKit teardown headroom
+        # so a slow daemon/gateway shutdown doesn't trip the abort
+        # branch below and silently defer the rename another launch.
+        for i in $(seq 1 300); do
             kill -0 \(pid) 2>/dev/null || break
             sleep 0.1
         done

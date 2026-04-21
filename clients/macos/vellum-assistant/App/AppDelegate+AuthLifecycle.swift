@@ -179,10 +179,14 @@ extension AppDelegate {
         watcher.arguments = [
             "-c",
             """
-            # Wait up to 10 seconds for our PID to exit.  If terminate is
-            # cancelled (e.g. an unsaved-changes sheet returns
+            # Wait up to 30 seconds for our PID to exit.  Must exceed
+            # `VellumCli.stopTimeout` (15s) plus AppKit teardown headroom,
+            # otherwise a slow daemon/gateway shutdown causes the watcher
+            # to abort before the old instance has actually exited —
+            # terminating the app without relaunching it.  If terminate
+            # is cancelled (e.g. an unsaved-changes sheet returns
             # `.terminateCancel`) we must not loop forever.
-            for _ in $(seq 1 100); do
+            for _ in $(seq 1 300); do
                 kill -0 \(pid) 2>/dev/null || break
                 sleep 0.1
             done
