@@ -377,10 +377,15 @@ export class ContextWindowManager {
       };
     }
 
-    const keepPlan = this.pickKeepBoundary(messages, userTurnStarts, {
-      minKeepRecentUserTurns: options?.minKeepRecentUserTurns,
-      targetInputTokensOverride: options?.targetInputTokensOverride,
-    });
+    const keepPlan = this.pickKeepBoundary(
+      messages,
+      userTurnStarts,
+      maxInputTokens,
+      {
+        minKeepRecentUserTurns: options?.minKeepRecentUserTurns,
+        targetInputTokensOverride: options?.targetInputTokensOverride,
+      },
+    );
     if (keepPlan.keepFromIndex <= summaryOffset) {
       // All turns fit after truncation projection, but the real in-memory
       // messages may still contain un-truncated tool results. Apply truncation
@@ -556,10 +561,12 @@ export class ContextWindowManager {
     const transcriptBlocks = this.capTranscriptBlocksToTokenBudget(
       serializeMessagesToContentBlocks(compactableMessages),
       existingSummary ?? "No previous summary.",
+      maxInputTokens,
     );
     const summaryUpdate = await this.updateSummary(
       existingSummary ?? "No previous summary.",
       transcriptBlocks,
+      maxInputTokens,
       signal,
     );
     const summary = summaryUpdate.summary;
@@ -645,9 +652,15 @@ export class ContextWindowManager {
     };
   }
 
-  private get targetInputTokens(): number {
+  /**
+   * Budget derived from the snapshotted `maxInputTokens` — accepts the
+   * snapshot as a parameter rather than re-reading `this.effectiveMaxInputTokens`
+   * so every branch of `_maybeCompact` that shares a pass sees the same budget,
+   * even if the `activeModel` callback returns a different model mid-pass.
+   */
+  private computeTargetInputTokens(maxInputTokens: number): number {
     return Math.floor(
-      this.effectiveMaxInputTokens *
+      maxInputTokens *
         (this.config.targetBudgetRatio - this.config.summaryBudgetRatio),
     );
   }
@@ -655,6 +668,7 @@ export class ContextWindowManager {
   private pickKeepBoundary(
     messages: Message[],
     userTurnStarts: number[],
+    maxInputTokens: number,
     opts?: {
       minKeepRecentUserTurns?: number;
       targetInputTokensOverride?: number;
@@ -665,7 +679,8 @@ export class ContextWindowManager {
       userTurnStarts.length,
     );
     const targetTokens =
-      opts?.targetInputTokensOverride ?? this.targetInputTokens;
+      opts?.targetInputTokensOverride ??
+      this.computeTargetInputTokens(maxInputTokens);
 
     // Binary search for the maximum keepTurns whose projected tokens fit
     // within the budget. Token count is monotonically non-decreasing with
@@ -717,10 +732,15 @@ export class ContextWindowManager {
     return { keepFromIndex, keepTurns };
   }
 
-  private get summaryMaxTokens(): number {
+  /**
+   * Budget derived from the snapshotted `maxInputTokens` — accepts the
+   * snapshot as a parameter rather than re-reading `this.effectiveMaxInputTokens`
+   * so every branch of `_maybeCompact` that shares a pass sees the same budget.
+   */
+  private computeSummaryMaxTokens(maxInputTokens: number): number {
     return Math.max(
       1,
-      Math.floor(this.effectiveMaxInputTokens * this.config.summaryBudgetRatio),
+      Math.floor(maxInputTokens * this.config.summaryBudgetRatio),
     );
   }
 
@@ -738,6 +758,7 @@ export class ContextWindowManager {
   private capTranscriptBlocksToTokenBudget(
     blocks: ContentBlock[],
     currentSummary: string,
+    maxInputTokens: number,
   ): ContentBlock[] {
     const overheadTokens =
       estimateTextTokens(SUMMARY_SYSTEM_PROMPT) +
@@ -745,12 +766,9 @@ export class ContextWindowManager {
       // Scaffolding text in buildSummaryContentBlocks ("Update the summary...",
       // section headers, etc.) — generous fixed estimate.
       200 +
-      this.summaryMaxTokens;
+      this.computeSummaryMaxTokens(maxInputTokens);
 
-    const maxTranscriptTokens = Math.max(
-      0,
-      this.effectiveMaxInputTokens - overheadTokens,
-    );
+    const maxTranscriptTokens = Math.max(0, maxInputTokens - overheadTokens);
 
     const estimateBlockTokens = (b: ContentBlock): number =>
       estimateContentBlockTokens(b, {
@@ -842,6 +860,7 @@ export class ContextWindowManager {
   private async updateSummary(
     currentSummary: string,
     transcriptBlocks: ContentBlock[],
+    maxInputTokens: number,
     signal?: AbortSignal,
   ): Promise<{
     summary: string;
@@ -858,6 +877,7 @@ export class ContextWindowManager {
      */
     failed: boolean;
   }> {
+    const summaryMaxTokens = this.computeSummaryMaxTokens(maxInputTokens);
     const contentBlocks = buildSummaryContentBlocks(
       currentSummary,
       transcriptBlocks,
@@ -870,7 +890,7 @@ export class ContextWindowManager {
         undefined,
         SUMMARY_SYSTEM_PROMPT,
         {
-          config: { max_tokens: this.summaryMaxTokens },
+          config: { max_tokens: summaryMaxTokens },
           signal,
         },
       );
@@ -878,7 +898,7 @@ export class ContextWindowManager {
       const nextSummary = extractText(response.content).trim();
       if (nextSummary.length > 0) {
         return {
-          summary: this.clampSummary(nextSummary),
+          summary: this.clampSummary(nextSummary, summaryMaxTokens),
           inputTokens: response.usage.inputTokens,
           outputTokens: response.usage.outputTokens,
           model: response.model,
@@ -913,9 +933,9 @@ export class ContextWindowManager {
     };
   }
 
-  private clampSummary(summary: string): string {
+  private clampSummary(summary: string, summaryMaxTokens: number): string {
     // Budget in tokens → approximate char limit (4 chars ≈ 1 token).
-    const maxChars = this.summaryMaxTokens * 4;
+    const maxChars = summaryMaxTokens * 4;
     if (summary.length <= maxChars) return summary;
     return `${safeStringSlice(summary, 0, maxChars)}...`;
   }

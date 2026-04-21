@@ -533,11 +533,31 @@ export class Conversation {
       config: config.contextWindow,
       toolTokenBudget: this.agentLoop.getToolTokenBudget(),
       // Pass the active model so the manager can resolve `contextWindow`
-      // from the per-model catalog. Fall back to the provider's default
-      // model when no override/intent is set so we still get a catalog
-      // hit for the common case.
-      activeModel: () =>
-        resolvedModel ?? getProviderDefaultModel(provider.name),
+      // from the per-model catalog.
+      //
+      // Resolution order (matches `providers/registry.ts#resolveModel`):
+      //   1. `modelOverride` (explicit per-turn override)
+      //   2. `resolveModelIntent(...)` (intent-based resolution; `resolvedModel`
+      //      above already captures 1 & 2).
+      //   3. `config.services.inference.model` — the user's explicit per-
+      //      instance configuration. This is the actual runtime model the
+      //      provider is instantiated with when the active provider matches
+      //      the configured inference provider (the common case), so the
+      //      context-window manager must see the same model to compute
+      //      capabilities correctly (e.g. OpenRouter custom models whose
+      //      `contextWindow` differs from the provider catalog default).
+      //   4. `getProviderDefaultModel(provider.name)` — final fallback when
+      //      the active provider doesn't match the configured inference
+      //      provider, so we still get a catalog hit instead of falling
+      //      through to `config.maxInputTokens` alone.
+      activeModel: () => {
+        if (resolvedModel !== undefined) return resolvedModel;
+        const currentConfig = getConfig();
+        if (currentConfig.services.inference.provider === provider.name) {
+          return currentConfig.services.inference.model;
+        }
+        return getProviderDefaultModel(provider.name);
+      },
     });
 
     void getHookManager().trigger("conversation-start", {
