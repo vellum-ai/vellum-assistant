@@ -1925,6 +1925,7 @@ function translateAgentEventToServerMessage(
     case "input_json_delta":
     case "usage":
     case "error":
+    case "llm_retry":
       return null;
   }
 }

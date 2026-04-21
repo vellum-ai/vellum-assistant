@@ -150,10 +150,19 @@ export interface SendMessageConfig {
   [key: string]: unknown;
 }
 
+export interface RetryInfo {
+  attempt: number;
+  maxRetries: number;
+  delayMs: number;
+  errorType: string;
+}
+
 export interface SendMessageOptions {
   config?: SendMessageConfig;
   onEvent?: (event: ProviderEvent) => void;
   signal?: AbortSignal;
+  /** Called by RetryProvider before each retry attempt so callers can surface progress. */
+  onRetry?: (info: RetryInfo) => void;
 }
 
 export interface Provider {

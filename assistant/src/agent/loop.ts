@@ -26,6 +26,9 @@ import { isRetryableNetworkError } from "../util/retry.js";
 
 const log = getLogger("agent-loop");
 
+/** Default timeout for a single sendMessage call (including retries): 5 minutes. */
+const DEFAULT_LLM_CALL_TIMEOUT_MS = 5 * 60 * 1000;
+
 export interface AgentLoopConfig {
   maxTokens: number;
   maxInputTokens?: number; // context window size for tool result truncation
@@ -40,6 +43,13 @@ export interface AgentLoopConfig {
   minTurnIntervalMs?: number;
   /** Override the default prompt cache TTL sent to the provider (e.g. "5m" for short-lived subagents). */
   cacheTtl?: "5m" | "1h";
+  /**
+   * Maximum time (ms) to wait for a single `sendMessage` call (including
+   * retries inside RetryProvider) before aborting and surfacing the error.
+   * Prevents indefinite hangs when a provider is unresponsive.
+   * Defaults to 5 minutes.
+   */
+  llmCallTimeoutMs?: number;
 }
 
 export interface CheckpointInfo {
@@ -99,6 +109,13 @@ export type AgentEvent =
       content?: unknown[];
     }
   | { type: "error"; error: Error }
+  | {
+      type: "llm_retry";
+      attempt: number;
+      maxRetries: number;
+      delayMs: number;
+      errorType: string;
+    }
   | {
       type: "usage";
       inputTokens: number;
@@ -420,62 +437,101 @@ export class AgentLoop {
           stripOldImageBlocks(history),
         );
 
-        const response = await this.provider.sendMessage(
-          providerHistory,
-          currentTools.length > 0 ? currentTools : undefined,
-          turnSystemPrompt,
-          {
-            config: providerConfig,
-            onEvent: (event) => {
-              if (event.type === "text_delta") {
-                // Apply sensitive-output placeholder substitution (chunk-safe)
-                if (substitutionMap.size > 0) {
-                  const combined = streamingPending + event.text;
-                  const { emit, pending } = applyStreamingSubstitution(
-                    combined,
-                    substitutionMap,
-                  );
-                  streamingPending = pending;
-                  if (emit.length > 0) {
-                    onEvent({ type: "text_delta", text: emit });
+        // Race the LLM call against a timeout so a hung provider doesn't
+        // stall the agent loop indefinitely.  The timeout AbortController is
+        // merged with the caller's signal via AbortSignal.any() so either
+        // user-cancel or timeout will abort the in-flight request.
+        const llmTimeoutMs =
+          this.config.llmCallTimeoutMs ?? DEFAULT_LLM_CALL_TIMEOUT_MS;
+        const llmTimeoutCtrl = new AbortController();
+        const llmTimer = setTimeout(() => llmTimeoutCtrl.abort(), llmTimeoutMs);
+        const mergedSignal = signal
+          ? AbortSignal.any([signal, llmTimeoutCtrl.signal])
+          : llmTimeoutCtrl.signal;
+
+        let response;
+        try {
+          response = await this.provider.sendMessage(
+            providerHistory,
+            currentTools.length > 0 ? currentTools : undefined,
+            turnSystemPrompt,
+            {
+              config: providerConfig,
+              onEvent: (event) => {
+                if (event.type === "text_delta") {
+                  // Apply sensitive-output placeholder substitution (chunk-safe)
+                  if (substitutionMap.size > 0) {
+                    const combined = streamingPending + event.text;
+                    const { emit, pending } = applyStreamingSubstitution(
+                      combined,
+                      substitutionMap,
+                    );
+                    streamingPending = pending;
+                    if (emit.length > 0) {
+                      onEvent({ type: "text_delta", text: emit });
+                    }
+                  } else {
+                    onEvent({ type: "text_delta", text: event.text });
                   }
-                } else {
-                  onEvent({ type: "text_delta", text: event.text });
+                } else if (event.type === "thinking_delta") {
+                  onEvent({ type: "thinking_delta", thinking: event.thinking });
+                } else if (event.type === "tool_use_preview_start") {
+                  onEvent({
+                    type: "tool_use_preview_start",
+                    toolUseId: event.toolUseId,
+                    toolName: event.toolName,
+                  });
+                } else if (event.type === "input_json_delta") {
+                  onEvent({
+                    type: "input_json_delta",
+                    toolName: event.toolName,
+                    toolUseId: event.toolUseId,
+                    accumulatedJson: event.accumulatedJson,
+                  });
+                } else if (event.type === "server_tool_start") {
+                  onEvent({
+                    type: "server_tool_start",
+                    name: event.name,
+                    toolUseId: event.toolUseId,
+                    input: event.input,
+                  });
+                } else if (event.type === "server_tool_complete") {
+                  onEvent({
+                    type: "server_tool_complete",
+                    toolUseId: event.toolUseId,
+                    isError: event.isError,
+                    ...(event.content ? { content: event.content } : {}),
+                  });
                 }
-              } else if (event.type === "thinking_delta") {
-                onEvent({ type: "thinking_delta", thinking: event.thinking });
-              } else if (event.type === "tool_use_preview_start") {
+              },
+              signal: mergedSignal,
+              onRetry: (info) => {
                 onEvent({
-                  type: "tool_use_preview_start",
-                  toolUseId: event.toolUseId,
-                  toolName: event.toolName,
+                  type: "llm_retry",
+                  attempt: info.attempt,
+                  maxRetries: info.maxRetries,
+                  delayMs: info.delayMs,
+                  errorType: info.errorType,
                 });
-              } else if (event.type === "input_json_delta") {
-                onEvent({
-                  type: "input_json_delta",
-                  toolName: event.toolName,
-                  toolUseId: event.toolUseId,
-                  accumulatedJson: event.accumulatedJson,
-                });
-              } else if (event.type === "server_tool_start") {
-                onEvent({
-                  type: "server_tool_start",
-                  name: event.name,
-                  toolUseId: event.toolUseId,
-                  input: event.input,
-                });
-              } else if (event.type === "server_tool_complete") {
-                onEvent({
-                  type: "server_tool_complete",
-                  toolUseId: event.toolUseId,
-                  isError: event.isError,
-                  ...(event.content ? { content: event.content } : {}),
-                });
-              }
+              },
             },
-            signal,
-          },
-        );
+          );
+        } catch (err) {
+          // If the timeout fired (not a user-cancel), wrap the error so the
+          // downstream classifier sees a clear, actionable message instead
+          // of a generic "The operation was aborted".
+          if (llmTimeoutCtrl.signal.aborted && !signal?.aborted) {
+            throw new ProviderError(
+              `LLM call timed out after ${Math.round(llmTimeoutMs / 1000)}s — the provider did not respond in time. ` +
+                `This may indicate a provider outage or an unusually large request.`,
+              this.provider.name,
+              undefined, // no HTTP status for a timeout
+            );
+          }
+          throw err;
+        } finally {
+          clearTimeout(llmTimer);
+        }
 
         const providerDurationMs = Date.now() - providerStart;
 

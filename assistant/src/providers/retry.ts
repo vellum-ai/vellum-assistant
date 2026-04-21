@@ -3,11 +3,11 @@ import { getConfig } from "../config/loader.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
+  abortableSleep,
   computeRetryDelay,
   DEFAULT_BASE_DELAY_MS,
   DEFAULT_MAX_RETRIES,
   isRetryableNetworkError,
-  sleep,
 } from "../util/retry.js";
 import {
   isContextOverflowError,
@@ -319,8 +319,14 @@ export class RetryProvider implements Provider {
             },
             "Retrying after transient error",
           );
+          normalizedOptions?.onRetry?.({
+            attempt: attempt + 1,
+            maxRetries: DEFAULT_MAX_RETRIES,
+            delayMs: delay,
+            errorType,
+          });
           didRetry = true;
-          await sleep(delay);
+          await abortableSleep(delay, normalizedOptions?.signal);
           continue;
         }
 

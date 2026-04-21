@@ -619,6 +619,30 @@ function annotatePersistedAssistantMessage(
   state.currentTurnToolUseIds = [];
 }
 
+export function handleLlmRetry(
+  _state: EventHandlerState,
+  deps: EventHandlerDeps,
+  event: Extract<AgentEvent, { type: "llm_retry" }>,
+): void {
+  log.warn(
+    {
+      conversationId: deps.ctx.conversationId,
+      attempt: event.attempt,
+      maxRetries: event.maxRetries,
+      delayMs: event.delayMs,
+      errorType: event.errorType,
+    },
+    "LLM call retrying after transient error",
+  );
+  deps.ctx.emitActivityState(
+    "thinking",
+    "thinking_delta",
+    "assistant_turn",
+    deps.reqId,
+    `Retrying (${event.attempt}/${event.maxRetries})\u2026`,
+  );
+}
+
 export function handleError(
   state: EventHandlerState,
   deps: EventHandlerDeps,
@@ -1033,6 +1057,9 @@ export async function dispatchAgentEvent(
         });
         break;
       }
+      case "llm_retry":
+        handleLlmRetry(state, deps, event);
+        break;
       case "error":
         handleError(state, deps, event);
         break;
