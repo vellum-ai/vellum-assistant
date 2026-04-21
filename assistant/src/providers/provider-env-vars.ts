@@ -3,8 +3,8 @@
  *
  * Resolves the `<PROVIDER>_API_KEY` environment variable name for an LLM
  * provider by consulting the single source of truth (`PROVIDER_CATALOG`)
- * rather than the legacy `meta/provider-env-vars.json` / duplicated
- * `shared/provider-env-vars.ts` map.
+ * rather than the legacy `meta/provider-env-vars.json` map (which is now
+ * scoped to search providers only).
  *
  * Returns `undefined` for:
  *   - keyless providers (e.g. Ollama, which has no `envVar` in the catalog)
