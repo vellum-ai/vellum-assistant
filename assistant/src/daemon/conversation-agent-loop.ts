@@ -590,7 +590,10 @@ export async function runAgentLoopImpl(
     let compactedThisTurn = false;
 
     const compactCheck = ctx.contextWindowManager.shouldCompact(ctx.messages);
-    if (compactCheck.needed) {
+    // Skip auto-compaction while the circuit breaker is open. Force paths
+    // and user-initiated /compact bypass this check.
+    const autoCompactAllowed = !isCompactionCircuitOpen(ctx);
+    if (compactCheck.needed && autoCompactAllowed) {
       ctx.emitActivityState(
         "thinking",
         "context_compacting",
@@ -598,9 +601,6 @@ export async function runAgentLoopImpl(
         reqId,
       );
     }
-    // Skip auto-compaction while the circuit breaker is open. Force paths
-    // and user-initiated /compact bypass this check.
-    const autoCompactAllowed = !isCompactionCircuitOpen(ctx);
     const compacted = autoCompactAllowed
       ? await ctx.contextWindowManager.maybeCompact(
           ctx.messages,
