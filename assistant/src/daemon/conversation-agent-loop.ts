@@ -648,6 +648,7 @@ export async function runAgentLoopImpl(
       );
       onEvent({
         type: "context_compacted",
+        conversationId: ctx.conversationId,
         previousEstimatedInputTokens: compacted.previousEstimatedInputTokens,
         estimatedInputTokens: compacted.estimatedInputTokens,
         maxInputTokens: compacted.maxInputTokens,
@@ -1184,6 +1185,7 @@ export async function runAgentLoopImpl(
           );
           onEvent({
             type: "context_compacted",
+            conversationId: ctx.conversationId,
             previousEstimatedInputTokens:
               step.compactionResult.previousEstimatedInputTokens,
             estimatedInputTokens: step.compactionResult.estimatedInputTokens,
@@ -1445,6 +1447,7 @@ export async function runAgentLoopImpl(
         );
         onEvent({
           type: "context_compacted",
+          conversationId: ctx.conversationId,
           previousEstimatedInputTokens:
             midLoopCompact.previousEstimatedInputTokens,
           estimatedInputTokens: midLoopCompact.estimatedInputTokens,
@@ -1720,6 +1723,7 @@ export async function runAgentLoopImpl(
           );
           onEvent({
             type: "context_compacted",
+            conversationId: ctx.conversationId,
             previousEstimatedInputTokens:
               step.compactionResult.previousEstimatedInputTokens,
             estimatedInputTokens: step.compactionResult.estimatedInputTokens,
@@ -1886,6 +1890,7 @@ export async function runAgentLoopImpl(
             );
             onEvent({
               type: "context_compacted",
+              conversationId: ctx.conversationId,
               previousEstimatedInputTokens:
                 emergencyCompact.previousEstimatedInputTokens,
               estimatedInputTokens: emergencyCompact.estimatedInputTokens,

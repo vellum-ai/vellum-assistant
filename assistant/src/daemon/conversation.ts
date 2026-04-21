@@ -1275,6 +1275,7 @@ export class Conversation {
       this.graphMemory.onCompacted(result.compactedPersistedMessages);
       this.sendToClient({
         type: "context_compacted",
+        conversationId: this.conversationId,
         previousEstimatedInputTokens: result.previousEstimatedInputTokens,
         estimatedInputTokens: result.estimatedInputTokens,
         maxInputTokens: result.maxInputTokens,
@@ -1285,46 +1286,31 @@ export class Conversation {
         summaryOutputTokens: result.summaryOutputTokens,
         summaryModel: result.summaryModel,
       });
-      if (result.summaryInputTokens > 0 || result.summaryOutputTokens > 0) {
-        recordUsage(
-          {
-            conversationId: this.conversationId,
-            providerName: this.provider.name,
-            usageStats: this.usageStats,
-          },
-          result.summaryInputTokens,
-          result.summaryOutputTokens,
-          result.summaryModel,
-          this.sendToClient,
-          "context_compactor",
-          null,
-          result.summaryCacheCreationInputTokens ?? 0,
-          result.summaryCacheReadInputTokens ?? 0,
-          collapseRawResponses(result.summaryRawResponses),
-          result.summaryCalls,
-          {
-            tokens: result.estimatedInputTokens,
-            maxTokens: result.maxInputTokens,
-          },
-        );
-      } else {
-        // Truncation-only path — compaction succeeded without a summary LLM
-        // call, so recordUsage's zero-token guard would early-return and the
-        // UI indicator would stay stale. Emit the contextWindow refresh
-        // directly so the client gets the fresh token counts.
-        this.sendToClient({
-          type: "usage_update",
+      // Call recordUsage unconditionally — it early-returns on 0/0 tokens
+      // (the truncation-only path), and the client already picks up the
+      // fresh context-window tokens from the `context_compacted` event
+      // emitted above. Matches the agent-loop auto-compaction sites.
+      recordUsage(
+        {
           conversationId: this.conversationId,
-          inputTokens: 0,
-          outputTokens: 0,
-          totalInputTokens: this.usageStats.inputTokens,
-          totalOutputTokens: this.usageStats.outputTokens,
-          estimatedCost: 0,
-          model: result.summaryModel,
-          contextWindowTokens: result.estimatedInputTokens,
-          contextWindowMaxTokens: result.maxInputTokens,
-        });
-      }
+          providerName: this.provider.name,
+          usageStats: this.usageStats,
+        },
+        result.summaryInputTokens,
+        result.summaryOutputTokens,
+        result.summaryModel,
+        this.sendToClient,
+        "context_compactor",
+        null,
+        result.summaryCacheCreationInputTokens ?? 0,
+        result.summaryCacheReadInputTokens ?? 0,
+        collapseRawResponses(result.summaryRawResponses),
+        result.summaryCalls,
+        {
+          tokens: result.estimatedInputTokens,
+          maxTokens: result.maxInputTokens,
+        },
+      );
     }
     return result;
   }

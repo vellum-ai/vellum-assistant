@@ -28,6 +28,7 @@ final class ChatActionHandlerContextCompactedTests: XCTestCase {
         let json = """
         {
           "type": "context_compacted",
+          "conversationId": "sess-1",
           "previousEstimatedInputTokens": 180000,
           "estimatedInputTokens": 80000,
           "maxInputTokens": 200000,
@@ -45,6 +46,7 @@ final class ChatActionHandlerContextCompactedTests: XCTestCase {
             XCTFail("Expected .contextCompacted, got \(decoded)")
             return
         }
+        XCTAssertEqual(event.conversationId, "sess-1")
         XCTAssertEqual(event.estimatedInputTokens, 80_000)
         XCTAssertEqual(event.maxInputTokens, 200_000)
         XCTAssertEqual(event.previousEstimatedInputTokens, 180_000)
@@ -61,6 +63,7 @@ final class ChatActionHandlerContextCompactedTests: XCTestCase {
 
         let event = ContextCompacted(
             type: "context_compacted",
+            conversationId: "sess-1",
             previousEstimatedInputTokens: 180_000,
             estimatedInputTokens: 80_000,
             maxInputTokens: 200_000,
@@ -76,5 +79,32 @@ final class ChatActionHandlerContextCompactedTests: XCTestCase {
 
         XCTAssertEqual(viewModel.contextWindowTokens, 80_000, "Post-compaction estimated input tokens should overwrite contextWindowTokens")
         XCTAssertEqual(viewModel.contextWindowMaxTokens, 200_000, "contextWindowMaxTokens should be set from the event's maxInputTokens")
+    }
+
+    /// `EventStreamClient` broadcasts every parsed server message to all
+    /// subscribers, so the handler MUST ignore events whose `conversationId`
+    /// does not match this VM. Otherwise a compaction in one conversation
+    /// would overwrite the context-window indicator on every open chat.
+    func testActionHandlerIgnoresEventsFromOtherConversations() {
+        viewModel.contextWindowTokens = 42_000
+        viewModel.contextWindowMaxTokens = 200_000
+
+        // Event for a different conversation — the VM should not mutate.
+        viewModel.handleServerMessage(.contextCompacted(ContextCompacted(
+            type: "context_compacted",
+            conversationId: "sess-other",
+            previousEstimatedInputTokens: 180_000,
+            estimatedInputTokens: 80_000,
+            maxInputTokens: 200_000,
+            thresholdTokens: 160_000,
+            compactedMessages: 12,
+            summaryCalls: 1,
+            summaryInputTokens: 15_000,
+            summaryOutputTokens: 2_000,
+            summaryModel: "claude-sonnet"
+        )))
+
+        XCTAssertEqual(viewModel.contextWindowTokens, 42_000, "Indicator must not be mutated by compactions from sibling conversations")
+        XCTAssertEqual(viewModel.contextWindowMaxTokens, 200_000)
     }
 }
