@@ -892,7 +892,12 @@ async function main() {
       path: /^\/v1\/migrations\/import\/([^/]+)\/status\/?$/,
       method: "GET",
       auth: "edge-scoped",
-      scope: "settings.write",
+      // Read-only polling endpoint — read scope, not write. Matches the
+      // convention used for other GET endpoints in this router (OAuth
+      // providers GET, OAuth apps GET, privacy config GET) so a token
+      // profile with `settings.read` only (e.g. the `ui_page_v1`
+      // profile) can still poll import progress.
+      scope: "settings.read",
       handler: (req, params) =>
         migrationImportStatusProxy(req, params[0] ?? ""),
     },
