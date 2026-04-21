@@ -440,6 +440,22 @@ export interface ContextCompacted {
   summaryInputTokens: number;
   summaryOutputTokens: number;
   summaryModel: string;
+  /**
+   * Quality signals for the generated summary. Emitted for every
+   * compaction (including truncation-only paths where the summary text
+   * is unchanged from the prior pass). Consumers can use these to detect
+   * regressions without needing to read the summary text itself.
+   *
+   * - `summaryCharCount`: length of the produced summary text.
+   * - `summaryHeaderCount`: number of `## ` section headers in the summary.
+   * - `summaryHadMemoryEcho`: `true` if the summary contains any runtime
+   *   injection tag (e.g. `<memory`, `<turn_context>`, `<workspace>`).
+   *   Should always be `false` — `true` indicates the compaction strip
+   *   logic failed to remove an injected block from the summarizer input.
+   */
+  summaryCharCount?: number;
+  summaryHeaderCount?: number;
+  summaryHadMemoryEcho?: boolean;
 }
 
 /**

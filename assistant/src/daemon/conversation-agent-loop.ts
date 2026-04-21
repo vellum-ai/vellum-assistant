@@ -2261,6 +2261,7 @@ export function applyCompactionResult(
     ctx.conversationId,
     ctx.trustContext?.trustClass,
   );
+  const summarySignals = computeSummaryQualitySignals(result.summaryText);
   onEvent({
     type: "context_compacted",
     conversationId: ctx.conversationId,
@@ -2273,6 +2274,9 @@ export function applyCompactionResult(
     summaryInputTokens: result.summaryInputTokens,
     summaryOutputTokens: result.summaryOutputTokens,
     summaryModel: result.summaryModel,
+    summaryCharCount: summarySignals.charCount,
+    summaryHeaderCount: summarySignals.headerCount,
+    summaryHadMemoryEcho: summarySignals.hadMemoryEcho,
   });
   emitUsage(
     ctx,
@@ -2295,4 +2299,31 @@ export function collapseRawResponses(
 ): unknown | undefined {
   if (!rawResponses || rawResponses.length === 0) return undefined;
   return rawResponses.length === 1 ? rawResponses[0] : rawResponses;
+}
+
+/**
+ * Matches any runtime-injection tag that should never appear inside a
+ * generated summary. If the regex hits, either the compaction strip logic
+ * failed to drop an injected block from the summarizer input, or the
+ * summarizer invented tag-like text on its own — both are quality bugs
+ * worth surfacing via telemetry.
+ */
+const SUMMARY_MEMORY_ECHO_PATTERN =
+  /<(?:memory|memory_context|memory_image|turn_context|workspace|knowledge_base|pkb|system_reminder|now_scratchpad|NOW\.md|active_thread|channel_capabilities|transport_hints|system_notice|non_interactive_context|temporal_context|guardian_context|inbound_actor_context|channel_turn_context|interface_turn_context|channel_command_context|voice_call_control)\b/i;
+
+/**
+ * Compute light-weight quality signals for a compaction summary. Emitted
+ * on every `context_compacted` event so regressions (short outputs,
+ * header collapse, memory-injection leakage) are visible without having
+ * to read the summary text from the DB.
+ */
+export function computeSummaryQualitySignals(summaryText: string): {
+  charCount: number;
+  headerCount: number;
+  hadMemoryEcho: boolean;
+} {
+  const charCount = summaryText.length;
+  const headerCount = (summaryText.match(/^## /gm) ?? []).length;
+  const hadMemoryEcho = SUMMARY_MEMORY_ECHO_PATTERN.test(summaryText);
+  return { charCount, headerCount, hadMemoryEcho };
 }

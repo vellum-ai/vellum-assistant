@@ -3,10 +3,12 @@ import { describe, expect, test } from "bun:test";
 import type { ContextWindowConfig } from "../config/types.js";
 import { estimateTextTokens } from "../context/token-estimator.js";
 import {
+  clampSummaryAtSectionBoundary,
   CONTEXT_SUMMARY_MARKER,
   ContextWindowManager,
   createContextSummaryMessage,
   getSummaryFromContextMessage,
+  stripCompactionOnlyInjections,
 } from "../context/window-manager.js";
 import type {
   ContentBlock,
@@ -320,12 +322,12 @@ describe("ContextWindowManager", () => {
       provider,
       systemPrompt: "system prompt",
       config: makeConfig({
-        maxInputTokens: 620,
-        targetBudgetRatio: 0.59,
-        compactThreshold: 0.5,
+        maxInputTokens: 2000,
+        targetBudgetRatio: 0.4,
+        compactThreshold: 0.35,
       }),
     });
-    const long = "f".repeat(500);
+    const long = "f".repeat(1500);
     const history: Message[] = [
       {
         role: "user",
@@ -1667,5 +1669,174 @@ describe("ContextWindowManager", () => {
     expect(result.compacted).toBe(true);
     expect(result.compactedMessages).toBe(3);
     expect(result.messages).toHaveLength(1);
+  });
+});
+
+describe("stripCompactionOnlyInjections", () => {
+  test("removes memory, turn_context, and workspace text blocks from user messages", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<memory __injected>\nrecall notes\n</memory>",
+          },
+          {
+            type: "text",
+            text: "<turn_context>\nActor: Alice\n</turn_context>",
+          },
+          { type: "text", text: "real user content" },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "assistant reply" }],
+      },
+    ];
+    const stripped = stripCompactionOnlyInjections(messages);
+    expect(stripped).toHaveLength(2);
+    const firstText = (stripped[0].content[0] as { text: string }).text;
+    expect(firstText).toBe("real user content");
+    expect(stripped[0].content).toHaveLength(1);
+  });
+
+  test("drops user messages that become empty after stripping", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "<memory __injected>\nonly memory\n</memory>" },
+        ],
+      },
+      { role: "user", content: [{ type: "text", text: "real content" }] },
+    ];
+    const stripped = stripCompactionOnlyInjections(messages);
+    expect(stripped).toHaveLength(1);
+    expect((stripped[0].content[0] as { text: string }).text).toBe(
+      "real content",
+    );
+  });
+
+  test("leaves assistant messages and non-text blocks untouched", () => {
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "<turn_context>\nnot really injected\n</turn_context>",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "t1",
+            content: "<memory>fake</memory>",
+          },
+          { type: "text", text: "user reply" },
+        ],
+      },
+    ];
+    const stripped = stripCompactionOnlyInjections(messages);
+    expect(stripped).toHaveLength(2);
+    expect((stripped[0].content[0] as { text: string }).text).toContain(
+      "turn_context",
+    );
+    expect(stripped[1].content).toHaveLength(2);
+  });
+});
+
+describe("summarizer input excludes runtime injections", () => {
+  test("maybeCompact does not pass memory/turn_context text to the summarizer", async () => {
+    const seenPrompts: string[] = [];
+    const provider = createProvider((messages) => {
+      for (const msg of messages) {
+        for (const block of msg.content) {
+          if (block.type === "text") seenPrompts.push(block.text);
+        }
+      }
+      return {
+        content: [
+          {
+            type: "text",
+            text: "## Facts Worth Remembering\n- summary produced",
+          },
+        ],
+        model: "mock",
+        usage: { inputTokens: 100, outputTokens: 25 },
+        stopReason: "end_turn",
+      };
+    });
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({
+        maxInputTokens: 2000,
+        targetBudgetRatio: 0.4,
+        compactThreshold: 0.35,
+      }),
+    });
+    const long = "x".repeat(1500);
+    const memoryBlob =
+      "<memory __injected>\nBOB_ATTENDED_STANDUP_YESTERDAY\n</memory>";
+    const turnCtx =
+      "<turn_context>\nACTOR_METADATA_THAT_SHOULD_NOT_LEAK\n</turn_context>";
+    const history: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: memoryBlob },
+          { type: "text", text: turnCtx },
+          { type: "text", text: `u1 ${long}` },
+        ],
+      },
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+      message("user", `u3 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+    expect(result.compacted).toBe(true);
+    const joined = seenPrompts.join("\n");
+    expect(joined).not.toContain("BOB_ATTENDED_STANDUP_YESTERDAY");
+    expect(joined).not.toContain("ACTOR_METADATA_THAT_SHOULD_NOT_LEAK");
+    expect(joined).not.toContain("<memory __injected>");
+    expect(joined).not.toContain("<turn_context>");
+    // Real conversation content should survive — at least one of the
+    // middle turns (whose header/body is short enough to fit within the
+    // capped transcript budget) should appear in the summarizer input.
+    expect(joined).toMatch(/u2 |a1 /);
+  });
+});
+
+describe("clampSummaryAtSectionBoundary", () => {
+  test("returns the input unchanged when under the limit", () => {
+    const summary = "## Decisions\nWe decided to ship.";
+    expect(clampSummaryAtSectionBoundary(summary, 1000)).toBe(summary);
+  });
+
+  test("truncates at a `## ` boundary when one exists in the allowed region", () => {
+    const keeper = "## Facts\n" + "a".repeat(200);
+    const dropped = "## Open Threads\n" + "b".repeat(500);
+    const summary = `${keeper}\n${dropped}`;
+    const maxChars = keeper.length + 20;
+    const clamped = clampSummaryAtSectionBoundary(summary, maxChars);
+    expect(clamped.endsWith("...")).toBe(true);
+    expect(clamped).not.toContain("## Open Threads");
+    expect(clamped).toContain("## Facts");
+    // No mid-header cut: nothing that looks like a partial heading.
+    expect(/##\s*$/.test(clamped)).toBe(false);
+  });
+
+  test("falls back to a hard cut when no section boundary is past the midpoint", () => {
+    const body = "no section headers in this output " + "z".repeat(1000);
+    const clamped = clampSummaryAtSectionBoundary(body, 100);
+    expect(clamped.endsWith("...")).toBe(true);
+    expect(clamped.length).toBeLessThanOrEqual(100);
   });
 });
