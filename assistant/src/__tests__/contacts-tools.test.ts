@@ -37,6 +37,19 @@ mock.module("../runtime/auth/token-service.js", () => ({
   mintEdgeRelayToken: () => "test-token",
 }));
 
+// contact-search now calls cliIpcCall instead of the gateway HTTP.
+// Mock the IPC client to dispatch search_contacts to the real store
+// (backed by the test DB) without needing a running IPC server.
+mock.module("../ipc/cli-client.js", () => ({
+  cliIpcCall: async (method: string, params?: Record<string, unknown>) => {
+    if (method === "search_contacts") {
+      const { searchContacts } = await import("../contacts/contact-store.js");
+      return { ok: true, result: searchContacts(params ?? {}) };
+    }
+    return { ok: false, error: `Unknown IPC method: ${method}` };
+  },
+}));
+
 import type { Database } from "bun:sqlite";
 
 import { executeContactMerge } from "../config/bundled-skills/contacts/tools/contact-merge.js";
