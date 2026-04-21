@@ -4,7 +4,7 @@ import SwiftUI
 /// Recommended "Vellum Cloud" card shown in the onboarding first step.
 ///
 /// Self-contained subview: no outside state. Composed into
-/// `WakeUpStepView` alongside the sibling "Your Machine" card.
+/// `WakeUpStepView` alongside the sibling `OnboardingLocalModeDisclosure`.
 @MainActor
 struct OnboardingVellumCloudCard: View {
     // MARK: - Configuration
@@ -29,7 +29,7 @@ struct OnboardingVellumCloudCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header: title + RECOMMENDED chip. Uses `titleSmall` so it
-            // sits a notch below the page title (`VFont.titleMedium` on
+            // sits a notch below the page title (`VFont.titleLarge` on
             // `WakeUpStepView`) without clashing with the page's sans
             // family.
             HStack(alignment: .top) {

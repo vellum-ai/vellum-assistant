@@ -40,8 +40,14 @@ final class OnboardingWindow {
 
         let hostingController = NSHostingController(rootView: flowView)
 
+        // Window sizing mirrors the auth-gate entry point
+        // (`AppDelegate+AuthLifecycle`'s `showAuthWindow`) — 460pt wide
+        // so the cards have matching breathing room across both
+        // onboarding entry points (first-launch auth gate vs. re-hatch
+        // from Settings). OnboardingFlowView's own `.frame(minWidth:
+        // 440, minHeight: 630)` still enforces the absolute floor.
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 440, height: 630),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 630),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -56,7 +62,7 @@ final class OnboardingWindow {
 
         window.contentMinSize = NSSize(width: 440, height: 630)
 
-        let startWidth: CGFloat = 440
+        let startWidth: CGFloat = 460
         let startHeight: CGFloat = 630
         if let visibleFrame = Self.visibleScreenFrame() {
             let x = visibleFrame.midX - startWidth / 2
