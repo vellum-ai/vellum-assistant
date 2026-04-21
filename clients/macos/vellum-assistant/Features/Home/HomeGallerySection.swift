@@ -439,25 +439,32 @@ struct HomeGallerySection: View {
                 HomeEmailEditorDemo()
             }
 
-            // MARK: - HomeInvoicePreview
+            // MARK: - HomeDocumentPreview
 
-            if filter == nil || filter == "homeInvoicePreview" {
+            if filter == nil || filter == "homeDocumentPreview" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
 
                 GallerySectionHeader(
-                    title: "HomeInvoicePreview",
-                    description: "Pure body content showing a document / invoice image in the Home detail panel."
+                    title: "HomeDocumentPreview",
+                    description: "Pure body content showing a document, image, or any file attachment preview in the Home detail panel. Optional right-aligned footer actions."
                 )
 
                 HomeDetailPanel(
                     icon: .file,
-                    title: "Authorise Payment to Slack",
+                    title: "Porsche-preview-2.4S.png",
                     onGoToThread: {},
                     onDismiss: {}
                 ) {
-                    HomeInvoicePreview(image: nil, placeholderCaption: "Sample invoice")
+                    HomeDocumentPreview(
+                        image: nil,
+                        placeholderCaption: "Preview unavailable",
+                        actions: [
+                            .init(label: "Action", style: .outlined, action: {}),
+                            .init(label: "Action", style: .primary, action: {})
+                        ]
+                    )
                 }
                 .frame(height: 520)
             }
@@ -736,11 +743,18 @@ private struct HomeSplitLayoutDemo: View {
         case .invoice:
             HomeDetailPanel(
                 icon: .file,
-                title: "Authorise Payment to Slack",
+                title: "Porsche-preview-2.4S.png",
                 onGoToThread: {},
                 onDismiss: {}
             ) {
-                HomeInvoicePreview(image: nil, placeholderCaption: "Sample invoice")
+                HomeDocumentPreview(
+                    image: nil,
+                    placeholderCaption: "Preview unavailable",
+                    actions: [
+                        .init(label: "Action", style: .outlined, action: {}),
+                        .init(label: "Action", style: .primary, action: {})
+                    ]
+                )
             }
         }
     }
@@ -766,7 +780,7 @@ extension HomeGallerySection {
         case "homeRecapRow": HomeGallerySection(filter: "homeRecapRow")
         case "homeDetailPanel": HomeGallerySection(filter: "homeDetailPanel")
         case "homeEmailEditor": HomeGallerySection(filter: "homeEmailEditor")
-        case "homeInvoicePreview": HomeGallerySection(filter: "homeInvoicePreview")
+        case "homeDocumentPreview": HomeGallerySection(filter: "homeDocumentPreview")
         case "homeSplitLayout": HomeGallerySection(filter: "homeSplitLayout")
         case "homeSuggestionPillBar": HomeGallerySection(filter: "homeSuggestionPillBar")
         case "homeFeedFilterBar": HomeGallerySection(filter: "homeFeedFilterBar")

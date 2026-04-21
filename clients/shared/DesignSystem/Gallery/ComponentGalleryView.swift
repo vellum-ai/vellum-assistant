@@ -126,10 +126,10 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                     description: "Pure body content for the email editor variant of the Home detail panel."
                 ),
                 GalleryComponent(
-                    "homeInvoicePreview",
-                    "HomeInvoicePreview",
-                    keywords: ["invoice", "document", "preview", "detail"],
-                    description: "Pure body content showing a document / invoice image in the Home detail panel."
+                    "homeDocumentPreview",
+                    "HomeDocumentPreview",
+                    keywords: ["document", "preview", "image", "attachment", "file", "invoice", "detail"],
+                    description: "Pure body content showing a document, image, or any file attachment preview in the Home detail panel. Optional right-aligned footer actions."
                 ),
                 GalleryComponent(
                     "homeSplitLayout",
