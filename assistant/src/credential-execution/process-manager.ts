@@ -444,6 +444,69 @@ function createSocketTransport(socket: Socket): CesTransport {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Route a single CES stderr line to the appropriate log level so that
+ * only genuine errors reach the Sentry stream.
+ *
+ * CES is a pino-backed child process that writes INFO/DEBUG/WARN/ERROR
+ * all to stderr (stdout is reserved for the stdio-RPC transport). We
+ * parse the embedded pino level (JSON path) or match a severity prefix
+ * (pretty-printed path) and route each line to the matching log method.
+ *
+ * Exported for testing.
+ */
+export function logCesLine(
+  line: string,
+  pid: number | undefined,
+  logger: {
+    debug: (obj: object, msg: string) => void;
+    info: (obj: object, msg: string) => void;
+    warn: (obj: object, msg: string) => void;
+    error: (obj: object, msg: string) => void;
+  } = log,
+): void {
+  const meta = { pid };
+  const msg = `[ces-stderr] ${line}`;
+
+  // Pino JSON path: parse the line and bucket by numeric `level`.
+  try {
+    const parsed = JSON.parse(line);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof (parsed as { level?: unknown }).level === "number"
+    ) {
+      const level = (parsed as { level: number }).level;
+      if (level >= 50) {
+        logger.error(meta, msg);
+      } else if (level >= 40) {
+        logger.warn(meta, msg);
+      } else if (level >= 30) {
+        logger.info(meta, msg);
+      } else {
+        logger.debug(meta, msg);
+      }
+      return;
+    }
+  } catch {
+    // Not JSON — fall through to prefix-based routing.
+  }
+
+  // Pretty-printed / fragment path: look for a level prefix on the line.
+  // Strip an optional pino-pretty-style leading timestamp: "[HH:MM:SS.mmm] ".
+  const prefixStripped = line.replace(
+    /^\[\d{1,2}:\d{2}:\d{2}(?:\.\d{1,3})?\]\s+/,
+    "",
+  );
+  if (/^(FATAL|ERROR)\b/i.test(prefixStripped)) {
+    logger.error(meta, msg);
+  } else if (/^(WARN|WARNING)\b/i.test(prefixStripped)) {
+    logger.warn(meta, msg);
+  } else {
+    logger.info(meta, msg);
+  }
+}
+
 function forwardStderrToLogger(proc: Subprocess): void {
   if (!proc.stderr || typeof proc.stderr === "number") return;
 
@@ -462,11 +525,11 @@ function forwardStderrToLogger(proc: Subprocess): void {
         while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
           const line = buffer.slice(0, newlineIdx).trimEnd();
           buffer = buffer.slice(newlineIdx + 1);
-          if (line) log.error({ pid: proc.pid }, `[ces-stderr] ${line}`);
+          if (line) logCesLine(line, proc.pid);
         }
       }
       const trailing = buffer.trimEnd();
-      if (trailing) log.error({ pid: proc.pid }, `[ces-stderr] ${trailing}`);
+      if (trailing) logCesLine(trailing, proc.pid);
     } catch {
       // Process ended or stream closed; nothing to forward.
     }

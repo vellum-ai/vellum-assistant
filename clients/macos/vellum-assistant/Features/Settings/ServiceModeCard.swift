@@ -83,6 +83,51 @@ extension ServiceModeCard where Footer == EmptyView {
     }
 }
 
+// MARK: - Disabled Managed Segment Control
+
+/// A segment control that visually matches `VSegmentControl` but has the
+/// "Managed" segment permanently disabled with a tooltip. Used by service
+/// cards where managed mode is not yet available.
+@MainActor
+struct DisabledManagedSegmentControl: View {
+    var tooltip: String = ""
+
+    var body: some View {
+        HStack(spacing: 0) {
+            // Disabled "Managed" segment
+            Text("Managed")
+                .font(VFont.bodySmallDefault)
+                .fixedSize()
+                .foregroundStyle(VColor.contentDisabled)
+                .padding(.horizontal, VSpacing.sm)
+                .frame(maxWidth: .infinity)
+                .frame(height: 24)
+                .contentShape(Rectangle())
+                .help(tooltip)
+
+            // Always-active "Your Own" segment
+            Text("Your Own")
+                .font(VFont.bodySmallDefault)
+                .fixedSize()
+                .foregroundStyle(VColor.contentEmphasized)
+                .padding(.horizontal, VSpacing.sm)
+                .frame(maxWidth: .infinity)
+                .frame(height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(VColor.contentInset)
+                        .shadow(color: VColor.auxBlack.opacity(0.08), radius: 2, x: 0, y: 1)
+                )
+        }
+        .padding(2)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .fill(VColor.contentBackground)
+        )
+        .frame(width: 220)
+    }
+}
+
 // MARK: - Reusable Action Buttons
 
 /// Reusable save/reset action buttons for service cards.

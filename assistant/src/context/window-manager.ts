@@ -44,13 +44,16 @@ const SUMMARY_SYSTEM_PROMPT = [
 /**
  * Pattern matching a Slack-style reply tag-line's parent-alias reference.
  * The chronological renderer emits reply lines as
- * `[MM/DD/YY HH:MM @sender → Mxxxxxx]: body`, where `Mxxxxxx` is the first 6
- * hex chars of sha256(threadTs). A retained-tail text block that contains
- * this pattern is carrying a live reference to a parent that may still live
- * in the compactable region — the summarizer needs to know about it to act
- * on the Thread-anchors clause of SUMMARY_SYSTEM_PROMPT.
+ * `[MM/DD/YY HH:MM @sender → Mxxxxxx]: body`, or, for edited replies,
+ * `[MM/DD/YY HH:MM @sender → Mxxxxxx, edited MM/DD/YY HH:MM]: body`. The
+ * character after the 6-hex parent alias is therefore `]` for a plain reply
+ * or `,` for an edited one — the regex accepts either. `Mxxxxxx` is the
+ * first 6 hex chars of sha256(threadTs). A retained-tail text block that
+ * contains this pattern is carrying a live reference to a parent that may
+ * still live in the compactable region — the summarizer needs to know about
+ * it to act on the Thread-anchors clause of SUMMARY_SYSTEM_PROMPT.
  */
-const THREAD_REPLY_REFERENCE_PATTERN = /→ M[0-9a-f]{6}]/;
+const THREAD_REPLY_REFERENCE_PATTERN = /→ M[0-9a-f]{6}[,\]]/;
 
 export interface ContextWindowResult {
   messages: Message[];

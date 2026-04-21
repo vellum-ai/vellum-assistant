@@ -47,7 +47,7 @@ const RISK_ORD: Record<Risk, number> = {
  * known-medium one, but not as definitive as a known-high one.
  */
 export function riskOrd(risk: Risk): number {
-  return RISK_ORD[risk] ?? 2; // default to unknown
+  return RISK_ORD[risk];
 }
 
 /** Return the higher of two risk levels. */
@@ -82,6 +82,11 @@ function getCompiledPattern(pattern: string): RegExp {
     compiledPatterns.set(pattern, re);
   }
   return re;
+}
+
+/** Clear the compiled regex cache. Exposed for tests and hot-swap scenarios. */
+export function clearCompiledPatterns(): void {
+  compiledPatterns.clear();
 }
 
 // ── Arg rule matching ────────────────────────────────────────────────────────
@@ -169,17 +174,6 @@ function getWrappedProgramWithArgs(seg: {
   return undefined;
 }
 
-// ── Git value flags (for subcommand extraction) ──────────────────────────────
-const GIT_VALUE_FLAGS = new Set([
-  "-C",
-  "-c",
-  "--git-dir",
-  "--work-tree",
-  "--namespace",
-  "--super-prefix",
-  "--config-env",
-]);
-
 /**
  * Extract the first positional (non-flag) arg, skipping value-consuming flags.
  */
@@ -203,6 +197,17 @@ function firstPositionalArg(
 // High) in sandboxed bash.
 const RM_SAFE_BARE_FILES = new Set(["BOOTSTRAP.md", "UPDATES.md"]);
 
+// Flags that don't affect rm safety — they don't enable recursive deletion or
+// change which files are targeted.
+const RM_BENIGN_FLAGS = new Set([
+  "-f",
+  "-i",
+  "-v",
+  "--force",
+  "--interactive",
+  "--verbose",
+]);
+
 // ── Segment classification ───────────────────────────────────────────────────
 
 /**
@@ -216,14 +221,14 @@ const RM_SAFE_BARE_FILES = new Set(["BOOTSTRAP.md", "UPDATES.md"]);
 function resolveSubcommand(
   spec: CommandRiskSpec,
   args: string[],
-  program: string,
 ): { spec: CommandRiskSpec; remainingArgs: string[] } {
   if (!spec.subcommands || args.length === 0) {
     return { spec, remainingArgs: args };
   }
 
-  // For git, skip global flags that consume a value
-  const valueFlags = program === "git" ? GIT_VALUE_FLAGS : undefined;
+  const valueFlags = spec.globalValueFlags
+    ? new Set(spec.globalValueFlags)
+    : undefined;
   const subcommandName = firstPositionalArg(args, valueFlags);
 
   if (!subcommandName || !spec.subcommands[subcommandName]) {
@@ -235,7 +240,7 @@ function resolveSubcommand(
   const remainingArgs = args.slice(subIdx + 1);
 
   // Recurse for nested subcommands (e.g., git stash drop, gh pr view)
-  return resolveSubcommand(subSpec, remainingArgs, subcommandName);
+  return resolveSubcommand(subSpec, remainingArgs);
 }
 
 /**
@@ -290,16 +295,19 @@ export function classifySegment(
   }
 
   // 3. Handle wrappers — unwrap and classify inner command (recursive)
-  //    Special case: `command -v` / `command -V` are read-only lookups, not
-  //    wrapper invocations. Don't unwrap — instead fall through to arg/base
-  //    risk evaluation (the argRule for -v/-V will keep it low).
+  //    When a wrapper's first arg matches a nonExecFlags entry, the wrapper is
+  //    in a non-exec mode (e.g. `command -v`, `env -0`). Skip unwrapping and
+  //    fall through to arg/base risk evaluation.
   if (spec.isWrapper) {
-    const isCommandLookup =
-      programName === "command" &&
+    // nonExecFlags only checks args[0] — a flag in a later position won't
+    // suppress unwrapping.  This is intentional: wrappers place their mode
+    // flag first (e.g. `command -v`, `timeout --help`).
+    const isNonExecMode =
+      spec.nonExecFlags &&
       segment.args.length > 0 &&
-      (segment.args[0] === "-v" || segment.args[0] === "-V");
+      spec.nonExecFlags.includes(segment.args[0]);
 
-    if (!isCommandLookup) {
+    if (!isNonExecMode) {
       const inner = getWrappedProgramWithArgs(segment);
       if (inner) {
         // Build a synthetic segment for the inner command
@@ -329,12 +337,12 @@ export function classifySegment(
         matchType: "registry",
       };
     }
-    // `command -v/-V`: fall through to subcommand/arg rule evaluation
+    // Non-exec mode: fall through to subcommand/arg rule evaluation
   }
 
   // 4. Subcommand resolution
   const { spec: resolvedSpec, remainingArgs: _remainingArgs } =
-    resolveSubcommand(spec, segment.args, programName);
+    resolveSubcommand(spec, segment.args);
 
   // 5. Evaluate arg rules
   //
@@ -425,8 +433,13 @@ export function classifySegment(
   }
 
   // 6. Check for variable expansion in args (conservative escalation)
+  // Use max(computedRisk, baseRisk) as the floor for escalation so that
+  // de-escalated commands still escalate from at least baseRisk.
+  // Example: `curl http://localhost:$PORT` — arg rule de-escalates to low,
+  // but baseRisk=medium is the floor, so escalateOne(medium) → high.
   if (segment.args.some((a) => a.includes("$"))) {
-    const escalated = escalateOne(resolvedSpec.baseRisk);
+    const escalationBase = maxRisk(risk, resolvedSpec.baseRisk);
+    const escalated = escalateOne(escalationBase);
     if (riskOrd(escalated) > riskOrd(risk)) {
       risk = escalated;
       reason = `${segment.program} with variable expansion`;
@@ -434,23 +447,23 @@ export function classifySegment(
   }
 
   // 7. rm safe-file downgrade (sandbox only)
-  // When rm targets a single known safe bare file (no flags, no path separators),
+  // When rm targets a single known safe bare file (with only benign flags),
   // downgrade to medium in sandboxed bash. host_bash keeps high because it has a
   // global ask rule that would prompt medium-risk commands.
-  if (
-    programName === "rm" &&
-    toolName === "bash" &&
-    risk === "high" &&
-    segment.args.length === 1
-  ) {
-    const target = segment.args[0];
+  if (programName === "rm" && toolName === "bash" && risk === "high") {
+    // Strip benign flags (-f, -i, -v) and check if exactly one bare filename remains
+    const positionalArgs = segment.args.filter((a) => !a.startsWith("-"));
+    const flagArgs = segment.args.filter((a) => a.startsWith("-"));
+    const allFlagsBenign = flagArgs.every((f) => RM_BENIGN_FLAGS.has(f));
+
     if (
-      !target.startsWith("-") &&
-      !target.includes("/") &&
-      RM_SAFE_BARE_FILES.has(target)
+      positionalArgs.length === 1 &&
+      allFlagsBenign &&
+      !positionalArgs[0].includes("/") &&
+      RM_SAFE_BARE_FILES.has(positionalArgs[0])
     ) {
       risk = "medium";
-      reason = `rm of known safe file: ${target}`;
+      reason = `rm of known safe file: ${positionalArgs[0]}`;
     }
   }
 

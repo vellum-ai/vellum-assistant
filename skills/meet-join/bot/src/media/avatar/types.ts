@@ -127,6 +127,23 @@ export interface AvatarRenderer {
    * for those backends.
    */
   notifyPlaybackTimestamp?(ts: number): void;
+  /**
+   * Optional — reset the renderer's internal audio-playback clock back
+   * to its "no audio queued yet" state. Called by the HTTP server at
+   * the start of every new `/play_audio` stream, in lockstep with the
+   * audio-playback handle's `resetPlaybackClock()`. Without this reset
+   * the renderer's monotonic clock would sit at the end-of-prior-
+   * utterance timestamp, and every viseme from the next utterance
+   * (stamped as ms-from-THAT-utterance-start, i.e. restarting at 0)
+   * would satisfy `visemeTs <= currentPlaybackTimestamp` and flush
+   * immediately on arrival — the exact bug `notifyPlaybackTimestamp`
+   * exists to prevent.
+   *
+   * Implementations should also drop any buffered viseme state that
+   * belonged to the prior utterance so it cannot leak into the fresh
+   * stream.
+   */
+  resetPlaybackTimestamp?(): void;
 }
 
 /**

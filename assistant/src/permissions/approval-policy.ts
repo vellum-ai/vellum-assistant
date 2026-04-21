@@ -41,7 +41,18 @@ export interface ApprovalContext {
  *
  * When `executionContext` is omitted, defaults to `"conversation"`.
  */
-/** Per-context defaults when `autoApproveUpTo` is omitted from config. */
+/**
+ * Per-context defaults when `autoApproveUpTo` is omitted from config entirely.
+ *
+ * In production the Zod schema defaults to the equivalent object form, so this
+ * map acts as defense-in-depth for test configs / direct callers that bypass
+ * schema validation.
+ *
+ * Note: when the user sets a scalar value (e.g. `"low"`), it applies uniformly
+ * to ALL contexts — including headless, whose default here is `"none"`. A scalar
+ * `"low"` is therefore *less strict* than the headless default. This is
+ * intentional: the user explicitly chose a uniform threshold.
+ */
 const CONTEXT_DEFAULTS: Record<ExecutionContext, "none" | "low" | "medium"> = {
   conversation: "low",
   background: "medium",
@@ -61,6 +72,17 @@ export function resolveThreshold(
   const ctx = executionContext ?? "conversation";
   return configValue[ctx];
 }
+
+// ── Ordinal maps for threshold comparison ─────────────────────────────────────
+// Hoisted to module level since these are constant. Unknown enum values
+// conservatively map to the strictest interpretation: risk defaults to 2 (high)
+// and threshold defaults to 0 (low).
+const RISK_ORDINAL: Record<string, number> = { low: 0, medium: 1, high: 2 };
+const THRESHOLD_ORDINAL: Record<string, number> = {
+  none: -1,
+  low: 0,
+  medium: 1,
+};
 
 /** The outcome of an approval policy evaluation. */
 export interface ApprovalDecision {
@@ -205,14 +227,8 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
 
     // ── 10–11. Risk-based fallback: compare risk against configured threshold ─
     const autoApproveUpTo = context.autoApproveUpTo ?? "low";
-    const riskOrdinal: Record<string, number> = { low: 0, medium: 1, high: 2 };
-    const thresholdOrdinal: Record<string, number> = {
-      none: -1,
-      low: 0,
-      medium: 1,
-    };
-    const risk = riskOrdinal[riskLevel] ?? 2;
-    const threshold = thresholdOrdinal[autoApproveUpTo] ?? 0;
+    const risk = RISK_ORDINAL[riskLevel] ?? 2;
+    const threshold = THRESHOLD_ORDINAL[autoApproveUpTo] ?? 0;
     if (risk <= threshold) {
       return {
         decision: "allow",

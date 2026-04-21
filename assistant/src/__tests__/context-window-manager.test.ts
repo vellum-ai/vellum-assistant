@@ -1372,6 +1372,55 @@ describe("ContextWindowManager", () => {
     expect(userPromptText).toContain("→ M1a2b3c");
   });
 
+  test("summary prompt lists retained-tail thread-reply references for edited replies", async () => {
+    const capturedMessages: Message[][] = [];
+    const provider: Provider = {
+      name: "mock",
+      async sendMessage(messages: Message[]): Promise<ProviderResponse> {
+        capturedMessages.push(messages);
+        return {
+          content: [{ type: "text", text: "## Goals\n- ok" }],
+          model: "mock-model",
+          usage: { inputTokens: 60, outputTokens: 12 },
+          stopReason: "end_turn",
+        };
+      },
+    };
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({ maxInputTokens: 600 }),
+    });
+    const long = "x".repeat(240);
+    // An edited reply renders with `, edited …` between the parent alias and
+    // the closing bracket: `→ Mxxxxxx, edited MM/DD/YY HH:MM]`. The regex
+    // must still flag these lines so retention works for edited replies.
+    const history: Message[] = [
+      message("user", `[11/14/23 14:25 @alice]: parent kickoff ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+      message(
+        "user",
+        `[11/14/23 14:28 @bob → M1a2b3c, edited 11/14/23 14:32]: reply ${long}`,
+      ),
+      message("assistant", `a3 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+    expect(result.compacted).toBe(true);
+    expect(capturedMessages.length).toBeGreaterThan(0);
+    const userPromptText = capturedMessages[0]
+      .flatMap((m) => m.content)
+      .filter(
+        (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text",
+      )
+      .map((b) => b.text)
+      .join("\n");
+    expect(userPromptText).toContain("### Retained Thread References");
+    expect(userPromptText).toContain("→ M1a2b3c, edited 11/14/23 14:32");
+  });
+
   test("summary prompt omits retained references when retained tail has no thread markers", async () => {
     const capturedMessages: Message[][] = [];
     const provider: Provider = {

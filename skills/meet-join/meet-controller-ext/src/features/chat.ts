@@ -40,6 +40,7 @@ import type {
   ExtensionInboundChatMessage,
   ExtensionToBotMessage,
 } from "../../../contracts/native-messaging.js";
+import { trustedTypeDurationMs } from "../../../contracts/native-messaging.js";
 import { chatSelectors } from "../dom/selectors.js";
 import { waitForSelector } from "../dom/wait.js";
 
@@ -65,22 +66,6 @@ const ENSURE_PANEL_OPEN_TIMEOUT_MS = 2000;
  * `skills/meet-join/bot/src/control/http-server.ts`.
  */
 export const MEET_CHAT_MAX_LENGTH = 2000;
-
-/**
- * Per-character wait (ms) after emitting `trusted_type` so xdotool's
- * X-server keystrokes finish landing in the composer before we dispatch
- * the send-button click. Must match `xdotool --delay` (25ms/char) inside
- * the bot — see `bot/src/browser/xdotool-type.ts`'s `DEFAULT_DELAY_MS`.
- */
-const TRUSTED_TYPE_PER_CHAR_MS = 25;
-
-/**
- * Fixed overhead added on top of the per-character scaling to cover
- * xdotool startup + the native-messaging round-trip from extension →
- * bot → X server. Sized from observed production latency (emit → first
- * keystroke dispatched) plus a small safety margin.
- */
-const TRUSTED_TYPE_OVERHEAD_MS = 250;
 
 /** Options passed to {@link startChatReader}. */
 export interface ChatReaderOptions {
@@ -233,11 +218,14 @@ export function startChatReader(opts: ChatReaderOptions): ChatReader {
  *    fallback only for the `onEvent`-less case (jsdom tests and any Meet
  *    build where synthetic input is accepted).
  *
- *    After emitting, we wait `text.length * TRUSTED_TYPE_PER_CHAR_MS +
- *    TRUSTED_TYPE_OVERHEAD_MS` so the (async) xdotool keystrokes have
- *    time to land before the send-button click is dispatched. A fixed
- *    250ms window was too short for messages longer than ~10 characters
- *    (xdotool's default per-keystroke delay is 25ms).
+ *    After emitting, we wait {@link trustedTypeDurationMs}(`text.length`)
+ *    so the (async) xdotool keystrokes have time to land before the send-
+ *    button click is dispatched. A fixed 250ms window was too short for
+ *    messages longer than ~10 characters (xdotool's default per-keystroke
+ *    delay is 25ms). The wait formula is the single source of truth for
+ *    the extension wait, the bot's xdotool kill timer, and the bot /
+ *    daemon `send_chat` reply timers — see the helper's definition in
+ *    `contracts/native-messaging.ts`.
  *
  * 2. Before the send-button `.click()`, a `trusted_click` is emitted for
  *    the button's screen coordinates. This mirrors the panel-toggle fix
@@ -296,8 +284,11 @@ export async function sendChat(
       // does not require focus to succeed.
     }
     opts.onEvent({ type: "trusted_type", text });
-    const waitMs =
-      text.length * TRUSTED_TYPE_PER_CHAR_MS + TRUSTED_TYPE_OVERHEAD_MS;
+    // Wait exactly as long as xdotool needs to type the text — the
+    // shared helper returns `text.length * 25ms + 250ms` by default and
+    // stays in sync with the bot's xdotool kill timer and the bot/daemon
+    // `send_chat` timeouts that scale off the same formula.
+    const waitMs = trustedTypeDurationMs(text.length);
     await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
   } else {
     // No `onEvent` sink — we can't drive xdotool, so fall back to the

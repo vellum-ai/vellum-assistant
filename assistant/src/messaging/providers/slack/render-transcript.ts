@@ -278,7 +278,7 @@ function buildMessageContentBlocks(
  * (`[…and N more reactions to Mxxx]`, singular `reaction` when N===1), emitted
  * at the point the overflow window closes — i.e. immediately before the next
  * event that is not an overflowing reaction for the same target — so trailers
- * stay in chronological position instead of batching at the tail.
+ * stay in chronological position rather than clustered at the end.
  */
 export function renderSlackTranscript(
   messages: RenderableSlackMessage[],

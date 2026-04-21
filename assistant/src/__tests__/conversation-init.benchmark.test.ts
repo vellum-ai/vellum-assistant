@@ -202,6 +202,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getTurnTimeBounds: () => null,
   PRIVATE_CONVERSATION_FORK_ERROR: "Cannot fork a private conversation",
   countConversationsByScheduleJobId: () => 0,
+  countMessagesWithSlackMeta: () => 0,
   forkConversation: () => null,
   wipeConversation: () => ({
     conversations: 0,

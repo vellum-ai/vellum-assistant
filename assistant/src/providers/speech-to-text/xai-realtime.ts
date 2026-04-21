@@ -236,87 +236,107 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
     const ws = this.createWebSocket(url);
     this.ws = ws;
 
-    // Wait for the WebSocket to open or fail.
+    // Attach the session-lifetime handlers (message, close, error)
+    // BEFORE awaiting the handshake. Gating on `settled` lets the
+    // handlers route to handshake-settle paths while the handshake is
+    // in flight, then to the normal session paths afterwards. This
+    // closes the narrow window in which a close/error/message could
+    // fire between WS open and the await resuming — with separate
+    // connect-phase vs session-phase listeners those events would
+    // otherwise have no handler attached.
     //
-    // The connect-phase listeners below are removed in every settle path
-    // (resolve, reject, timeout) so they can't fire alongside the
-    // session-lifetime handlers attached after this Promise resolves.
-    // Leaving them attached would leak stale closures for the life of
-    // the session — they'd be no-ops (short-circuited by `settled`),
-    // but would still run on every message/error/close dispatch.
+    // The xAI realtime protocol also requires waiting for
+    // `transcript.created` before the session is ready to accept
+    // audio. Resolving on WS `open` alone would mean early sendAudio()
+    // calls could be silently dropped by the provider, losing the
+    // first utterance. start() therefore defers resolution until
+    // either `transcript.created` arrives or the handshake budget
+    // expires.
     await new Promise<void>((resolve, reject) => {
       let settled = false;
 
-      const cleanup = () => {
-        ws.removeEventListener("open", onOpen);
-        ws.removeEventListener("error", onError);
-        ws.removeEventListener("close", onClose);
-      };
-
-      const connectTimer = setTimeout(() => {
+      const handshakeTimer = setTimeout(() => {
         if (settled) return;
         settled = true;
-        cleanup();
         this.forceClose();
         reject(new Error("xAI realtime connect timeout"));
       }, this.connectTimeoutMs);
 
-      const onOpen = () => {
+      const settleResolve = () => {
         if (settled) return;
         settled = true;
-        clearTimeout(connectTimer);
-        cleanup();
+        clearTimeout(handshakeTimer);
         resolve();
       };
 
-      const onError = (ev: unknown) => {
+      const settleReject = (err: Error) => {
         if (settled) return;
         settled = true;
-        clearTimeout(connectTimer);
-        cleanup();
-        const msg =
-          ev instanceof Error
-            ? ev.message
-            : typeof ev === "object" && ev !== null && "message" in ev
-              ? String((ev as { message: unknown }).message)
-              : "WebSocket error during connect";
-        // Match the connect-timeout path — null out this.ws (via
-        // forceClose) so the instance can be reused for a retry.
-        // Without this, a subsequent start() call would throw
-        // "start() called twice" even though no session was ever
-        // established.
+        clearTimeout(handshakeTimer);
+        // Null out this.ws (via forceClose) so the instance can be
+        // reused for a retry. Without this, a subsequent start() call
+        // would throw "start() called twice" even though no session
+        // was ever established.
         this.forceClose();
-        reject(new Error(`xAI realtime connect error: ${msg}`));
+        reject(err);
       };
 
-      const onClose = (ev: { code: number; reason: string }) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(connectTimer);
-        cleanup();
-        // 401 / 403 on connect arrive as WebSocket close codes 4001 /
-        // 4003 in most runtimes (or 1008 policy-violation in others).
-        // We surface the underlying code in the message — callers that
-        // need granular auth handling can branch on the rejection text.
-        //
-        // Null out this.ws so the instance can be reused for a retry
-        // (see onError above for the same rationale).
-        this.forceClose();
-        reject(
-          new Error(
-            `xAI WebSocket closed before open (code=${ev.code}, reason=${ev.reason})`,
-          ),
-        );
+      // `open` is informational — we wait for `transcript.created` to
+      // consider the handshake complete. The listener detaches itself
+      // after firing so the listener map settles at the shape
+      // session-lifetime handlers expect.
+      const onOpen = () => {
+        ws.removeEventListener("open", onOpen);
       };
-
       ws.addEventListener("open", onOpen);
-      ws.addEventListener("error", onError);
-      ws.addEventListener("close", onClose);
+
+      ws.addEventListener("message", (ev: { data: unknown }) => {
+        if (!settled) {
+          if (tryParseHandshakeFrame(ev.data)?.type === "transcript.created") {
+            settleResolve();
+            return;
+          }
+          // Any other pre-handshake frame flows through normal routing;
+          // per xAI protocol these shouldn't occur before
+          // `transcript.created` but we handle them conservatively.
+          this.handleProviderMessage(ev.data);
+          return;
+        }
+        this.handleProviderMessage(ev.data);
+      });
+
+      ws.addEventListener("close", (ev: { code: number; reason: string }) => {
+        if (!settled) {
+          // 401 / 403 on connect arrive as WebSocket close codes 4001 /
+          // 4003 in most runtimes (or 1008 policy-violation in others).
+          // We surface the underlying code in the message — callers
+          // that need granular auth handling can branch on the
+          // rejection text.
+          settleReject(
+            new Error(
+              `xAI WebSocket closed before handshake (code=${ev.code}, reason=${ev.reason})`,
+            ),
+          );
+          return;
+        }
+        this.handleProviderClose(ev.code, ev.reason);
+      });
+
+      ws.addEventListener("error", (ev: unknown) => {
+        if (!settled) {
+          const msg =
+            ev instanceof Error
+              ? ev.message
+              : typeof ev === "object" && ev !== null && "message" in ev
+                ? String((ev as { message: unknown }).message)
+                : "WebSocket error during connect";
+          settleReject(new Error(`xAI realtime connect error: ${msg}`));
+          return;
+        }
+        this.handleProviderError(ev);
+      });
     });
 
-    // Socket is now open — attach the message/close/error handlers for
-    // the active session lifetime.
-    this.attachSessionHandlers(ws);
     this.resetInactivityTimer();
 
     log.info("xAI realtime session opened");
@@ -411,25 +431,6 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
       },
-    });
-  }
-
-  /**
-   * Attach session-lifetime handlers (message, close, error) to the
-   * opened WebSocket. These handlers drive the event normalization
-   * pipeline.
-   */
-  private attachSessionHandlers(ws: WsLike): void {
-    ws.addEventListener("message", (ev: { data: unknown }) => {
-      this.handleProviderMessage(ev.data);
-    });
-
-    ws.addEventListener("close", (ev: { code: number; reason: string }) => {
-      this.handleProviderClose(ev.code, ev.reason);
-    });
-
-    ws.addEventListener("error", (ev: unknown) => {
-      this.handleProviderError(ev);
     });
   }
 
@@ -729,6 +730,30 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
 // ---------------------------------------------------------------------------
 
 /**
+ * Best-effort parse of an inbound frame during the handshake window.
+ * Returns `undefined` on parse failure — callers fall back to normal
+ * message routing. Kept separate from {@link XAIRealtimeTranscriber}
+ * so the handshake gate doesn't drag in the full event-emission path.
+ */
+function tryParseHandshakeFrame(data: unknown): XAIStreamFrame | undefined {
+  let raw: string;
+  if (typeof data === "string") {
+    raw = data;
+  } else if (data instanceof ArrayBuffer) {
+    raw = new TextDecoder().decode(data);
+  } else {
+    return undefined;
+  }
+  try {
+    const frame = JSON.parse(raw) as XAIStreamFrame;
+    if (frame && typeof frame === "object") return frame;
+  } catch {
+    // fall through
+  }
+  return undefined;
+}
+
+/**
  * Derive a single `speakerLabel` for a diarized chunk.
  *
  * xAI attaches per-word speaker tags in the `words` array when
@@ -741,9 +766,9 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
  * resolver treats unlabeled chunks the same as a non-diarizing
  * provider.
  *
- * The returned label is prefixed with `speaker-` (e.g. `speaker-0`)
- * to match the Deepgram adapter's output format, keeping consumer
- * code provider-agnostic.
+ * The returned label is `String(speaker)` (e.g. `"0"`) to match the
+ * Deepgram adapter's output format, keeping consumer code
+ * provider-agnostic.
  */
 function extractSpeakerLabel(
   words: XAIStreamWord[] | undefined,
@@ -767,5 +792,5 @@ function extractSpeakerLabel(
       bestCount = count;
     }
   }
-  return `speaker-${bestSpeaker}`;
+  return String(bestSpeaker);
 }
