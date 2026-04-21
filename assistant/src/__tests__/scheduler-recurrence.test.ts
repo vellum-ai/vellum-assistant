@@ -126,11 +126,7 @@ describe("scheduler RRULE execution", () => {
       processedMessages.push({ conversationId, message });
     };
 
-    const scheduler = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler = startScheduler(processMessage, () => {});
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
@@ -170,11 +166,7 @@ describe("scheduler RRULE execution", () => {
       onMessage?.();
     };
 
-    const scheduler = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler = startScheduler(processMessage, () => {});
     // The run_task path involves a dynamic import which can take >50ms in CI,
     // exceeding the patched setTimeout delay. Await the actual callback instead
     // of relying on a fixed timeout.
@@ -239,11 +231,7 @@ describe("scheduler RRULE execution", () => {
     };
 
     // First tick: the expired schedule should fire its final due run
-    const scheduler1 = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler1 = startScheduler(processMessage, () => {});
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler1.stop();
 
@@ -263,11 +251,7 @@ describe("scheduler RRULE execution", () => {
 
     // Second tick: the disabled schedule must NOT fire again
     processedMessages.length = 0;
-    const scheduler2 = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler2 = startScheduler(processMessage, () => {});
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler2.stop();
 
@@ -297,11 +281,7 @@ describe("scheduler RRULE execution", () => {
       processedMessages.push({ conversationId, message });
     };
 
-    const scheduler = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler = startScheduler(processMessage, () => {});
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
@@ -361,11 +341,7 @@ describe("scheduler RRULE execution", () => {
       processedMessages.push(message);
     };
 
-    const scheduler = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler = startScheduler(processMessage, () => {});
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
@@ -414,11 +390,7 @@ describe("scheduler RRULE execution", () => {
       processedMessages.push(message);
     };
 
-    const scheduler = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler = startScheduler(processMessage, () => {});
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
@@ -497,11 +469,7 @@ describe("scheduler RRULE execution", () => {
         processedMessages.push(message);
       };
 
-      const scheduler = startScheduler(
-        processMessage,
-        () => {},
-        () => {},
-      );
+      const scheduler = startScheduler(processMessage, () => {});
       await new Promise((resolve) => setTimeout(resolve, 500));
       scheduler.stop();
 
@@ -540,11 +508,7 @@ describe("scheduler RRULE execution", () => {
     const forcedDueAt = getSchedule(schedule.id)!.nextRunAt;
 
     const processMessage = async () => {};
-    const scheduler = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler = startScheduler(processMessage, () => {});
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
@@ -575,11 +539,7 @@ describe("scheduler RRULE execution", () => {
       processedMessages.push({ conversationId, message });
     };
 
-    const scheduler = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler = startScheduler(processMessage, () => {});
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
@@ -627,11 +587,7 @@ describe("scheduler RRULE execution", () => {
       notifyCalls.push(payload);
     };
 
-    const scheduler = startScheduler(
-      async () => {},
-      notifyScheduleOneShot,
-      () => {},
-    );
+    const scheduler = startScheduler(async () => {}, notifyScheduleOneShot);
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
@@ -664,11 +620,7 @@ describe("scheduler RRULE execution", () => {
       throw new Error("Simulated failure");
     };
 
-    const scheduler = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler = startScheduler(processMessage, () => {});
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
@@ -710,11 +662,7 @@ describe("scheduler RRULE execution", () => {
       notifyCalls.push(payload);
     };
 
-    const scheduler = startScheduler(
-      async () => {},
-      notifyScheduleOneShot,
-      () => {},
-    );
+    const scheduler = startScheduler(async () => {}, notifyScheduleOneShot);
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
@@ -767,11 +715,7 @@ describe("scheduler RRULE execution", () => {
       notifyCalls.push(payload);
     };
 
-    const scheduler = startScheduler(
-      async () => {},
-      notifyScheduleOneShot,
-      () => {},
-    );
+    const scheduler = startScheduler(async () => {}, notifyScheduleOneShot);
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 

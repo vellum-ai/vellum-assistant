@@ -941,29 +941,6 @@ export async function runDaemon(): Promise<void> {
           throwOnError: true,
         });
       },
-      (schedule) => {
-        void emitNotificationSignal({
-          sourceEventName: "schedule.complete",
-          sourceChannel: "scheduler",
-          sourceContextId: schedule.id,
-          attentionHints: {
-            requiresAction: false,
-            urgency: "medium",
-            isAsyncBackground: true,
-            visibleInSourceNow: false,
-          },
-          contextPayload: {
-            scheduleId: schedule.id,
-            name: schedule.name,
-          },
-          conversationMetadata: {
-            groupId: "system:scheduled",
-            scheduleJobId: schedule.id,
-            source: "schedule",
-          },
-          dedupeKey: `schedule:complete:${schedule.id}:${Date.now()}`,
-        });
-      },
       (notification) => {
         void emitNotificationSignal({
           sourceEventName: "watcher.notification",

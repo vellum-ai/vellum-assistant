@@ -49,8 +49,6 @@ export type ScheduleNotifyModeNotifier = (payload: {
   routingHints: Record<string, unknown>;
 }) => void | Promise<void>;
 
-export type ScheduleNotifier = (schedule: { id: string; name: string }) => void;
-
 export type ScheduleConversationCreatedNotifier = (info: {
   conversationId: string;
   scheduleJobId: string;
@@ -67,7 +65,6 @@ const TICK_INTERVAL_MS = 15_000;
 export function startScheduler(
   processMessage: ScheduleMessageProcessor,
   notifyScheduleOneShot: ScheduleNotifyModeNotifier,
-  notifySchedule: ScheduleNotifier,
   watcherNotifier?: WatcherNotifier,
   watcherEscalator?: WatcherEscalator,
   onScheduleConversationCreated?: ScheduleConversationCreatedNotifier,
@@ -82,7 +79,6 @@ export function startScheduler(
       await runScheduleOnce(
         processMessage,
         notifyScheduleOneShot,
-        notifySchedule,
         watcherNotifier,
         watcherEscalator,
         onScheduleConversationCreated,
@@ -105,7 +101,6 @@ export function startScheduler(
       return runScheduleOnce(
         processMessage,
         notifyScheduleOneShot,
-        notifySchedule,
         watcherNotifier,
         watcherEscalator,
         onScheduleConversationCreated,
@@ -121,7 +116,6 @@ export function startScheduler(
 async function runScheduleOnce(
   processMessage: ScheduleMessageProcessor,
   notifyScheduleOneShot: ScheduleNotifyModeNotifier,
-  notifySchedule: ScheduleNotifier,
   watcherNotifier?: WatcherNotifier,
   watcherEscalator?: WatcherEscalator,
   onScheduleConversationCreated?: ScheduleConversationCreatedNotifier,
@@ -241,7 +235,6 @@ async function runScheduleOnce(
         } else {
           completeScheduleRun(runId, { status: "ok" });
           if (!job.quiet) {
-            notifySchedule({ id: job.id, name: job.name });
             emitScheduleFeedEvent({
               title: job.name,
               summary: "Scheduled task ran.",
@@ -340,7 +333,6 @@ async function runScheduleOnce(
       });
       completeScheduleRun(runId, { status: "ok" });
       if (!job.quiet) {
-        notifySchedule({ id: job.id, name: job.name });
         emitScheduleFeedEvent({
           title: job.name,
           summary: isOneShot ? "One-shot reminder ran." : "Scheduled job ran.",

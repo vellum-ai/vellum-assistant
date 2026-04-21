@@ -313,11 +313,6 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     body: str(payload.message, str(payload.label, "A reminder has fired")),
   }),
 
-  "schedule.complete": (payload) => ({
-    title: "Schedule Complete",
-    body: `${str(payload.name, "A schedule")} has finished running`,
-  }),
-
   "guardian.question": (payload) => {
     const question = str(
       payload.questionText,
