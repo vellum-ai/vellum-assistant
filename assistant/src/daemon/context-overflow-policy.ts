@@ -4,10 +4,7 @@ import type { ContextOverflowRecoveryConfig } from "../config/schemas/inference.
  * Actions the overflow recovery loop can take when the context window is
  * exceeded and standard compaction has already been applied.
  */
-export type OverflowAction =
-  | "auto_compress_latest_turn"
-  | "request_user_approval"
-  | "fail_gracefully";
+export type OverflowAction = "auto_compress_latest_turn" | "fail_gracefully";
 
 export interface OverflowPolicyInput {
   overflowRecovery: ContextOverflowRecoveryConfig;
@@ -19,8 +16,8 @@ export interface OverflowPolicyInput {
  * to a concrete overflow action.
  *
  * The recovery pipeline calls this after standard compaction is exhausted.
- * Interactive conversations default to asking the user before compressing the
- * latest turn; non-interactive conversations auto-compress.
+ * All conversations auto-compress the latest turn when standard compaction is
+ * exhausted, unless the policy is `drop` (opt-out) or recovery is disabled.
  */
 export function resolveOverflowAction(
   input: OverflowPolicyInput,
@@ -40,11 +37,5 @@ export function resolveOverflowAction(
     return "fail_gracefully";
   }
 
-  // For non-interactive conversations, compress without asking.
-  if (!isInteractive) {
-    return "auto_compress_latest_turn";
-  }
-
-  // Interactive conversations ask for approval before compressing.
-  return "request_user_approval";
+  return "auto_compress_latest_turn";
 }

@@ -2606,6 +2606,7 @@ public enum ServerMessage: Decodable, Sendable {
     case meetError(MeetErrorMessage)
     case meetSpeakingStarted(MeetSpeakingStartedMessage)
     case meetSpeakingEnded(MeetSpeakingEndedMessage)
+    case contextCompacted(ContextCompacted)
     case usageUpdate(UsageUpdate)
     case compactionCircuitOpen(CompactionCircuitOpen)
     case serviceGroupUpdateStarting(ServiceGroupUpdateStartingMessage)
@@ -3088,6 +3089,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "host_browser_cancel":
             let message = try HostBrowserCancelRequest(from: decoder)
             self = .hostBrowserCancel(message)
+        case "context_compacted":
+            let message = try ContextCompacted(from: decoder)
+            self = .contextCompacted(message)
         case "usage_update":
             let message = try UsageUpdate(from: decoder)
             self = .usageUpdate(message)
