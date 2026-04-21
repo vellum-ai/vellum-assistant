@@ -277,9 +277,7 @@ struct IOSRootNavigationView: View {
                         iconOnly: VIcon.panelLeft.rawValue,
                         style: .ghost,
                         size: .pillLarge,
-                        isActive: true,
                         tooltip: "Opens the conversation menu",
-                        iconColor: VColor.contentDefault,
                         action: openDrawer
                     )
                     VButton(
@@ -287,9 +285,7 @@ struct IOSRootNavigationView: View {
                         iconOnly: VIcon.settings.rawValue,
                         style: .ghost,
                         size: .pillLarge,
-                        isActive: true,
                         tooltip: "Opens the Settings sheet",
-                        iconColor: VColor.contentDefault,
                         action: { isSettingsPresented = true }
                     )
                 }
@@ -300,8 +296,6 @@ struct IOSRootNavigationView: View {
                     iconOnly: VIcon.squarePen.rawValue,
                     style: .ghost,
                     size: .pillLarge,
-                    isActive: true,
-                    iconColor: VColor.contentDefault,
                     action: composeNewConversation
                 )
             }

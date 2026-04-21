@@ -781,9 +781,7 @@ struct ConversationChatView: View {
                                 iconOnly: VIcon.panelLeft.rawValue,
                                 style: .ghost,
                                 size: .pillLarge,
-                                isActive: true,
                                 tooltip: "Opens the conversation menu",
-                                iconColor: VColor.contentDefault,
                                 action: onOpenDrawer
                             )
                         }
@@ -793,9 +791,7 @@ struct ConversationChatView: View {
                                 iconOnly: VIcon.settings.rawValue,
                                 style: .ghost,
                                 size: .pillLarge,
-                                isActive: true,
                                 tooltip: "Opens the Settings sheet",
-                                iconColor: VColor.contentDefault,
                                 action: onShowSettings
                             )
                         }
@@ -809,8 +805,6 @@ struct ConversationChatView: View {
                         iconOnly: VIcon.squarePen.rawValue,
                         style: .ghost,
                         size: .pillLarge,
-                        isActive: true,
-                        iconColor: VColor.contentDefault,
                         action: onComposeNew
                     )
                 }
