@@ -94,5 +94,49 @@ final class LowBalanceBannerIOSTests: XCTestCase {
                       "Expected http/https scheme, got \(url.scheme ?? "nil")")
         XCTAssertNotNil(url.host)
     }
+
+    // MARK: - LowBalanceBannerSession per-org isolation
+
+    func testSessionDismissalIsolatedBetweenOrgs() {
+        // A dismissal recorded for orgA must not suppress the banner for
+        // orgB. Covers the "log out, sign into a different low-balance org"
+        // regression from PR #27277 review.
+        let session = LowBalanceBannerSession()
+
+        session.setDismissed(.low, forOrg: "org-A")
+
+        XCTAssertEqual(session.dismissedState(forOrg: "org-A"), .low)
+        XCTAssertNil(session.dismissedState(forOrg: "org-B"),
+                     "orgB should not inherit orgA's dismissal")
+    }
+
+    func testSessionClearDismissedRemovesOnlyTargetOrg() {
+        let session = LowBalanceBannerSession()
+        session.setDismissed(.low, forOrg: "org-A")
+        session.setDismissed(.depleted, forOrg: "org-B")
+
+        session.clearDismissed(forOrg: "org-A")
+
+        XCTAssertNil(session.dismissedState(forOrg: "org-A"))
+        XCTAssertEqual(session.dismissedState(forOrg: "org-B"), .depleted,
+                       "Clearing orgA should not touch orgB")
+    }
+
+    func testSessionNilOrgIdIsNoOp() {
+        // Pre-login (no `connectedOrganizationId`) the banner wouldn't be
+        // showing anyway, so session mutations with a nil org are a no-op
+        // rather than crashing or silently writing to a shared nil slot.
+        let session = LowBalanceBannerSession()
+
+        session.setDismissed(.depleted, forOrg: nil)
+        XCTAssertNil(session.dismissedState(forOrg: nil))
+        XCTAssertNil(session.dismissedState(forOrg: "org-A"),
+                     "A nil-keyed setDismissed must not leak into a real org slot")
+
+        // Clearing with nil should also be safe and not affect real orgs.
+        session.setDismissed(.low, forOrg: "org-A")
+        session.clearDismissed(forOrg: nil)
+        XCTAssertEqual(session.dismissedState(forOrg: "org-A"), .low)
+    }
 }
 #endif
