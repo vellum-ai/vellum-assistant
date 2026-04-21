@@ -131,7 +131,7 @@ describe("allow rule", () => {
       isContainerized: false,
     });
     expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("High risk");
+    expect(result.reason).toContain("high risk");
     // Decision is driven by risk-based fallback, not the rule
     expect(result.matchedRule).toBeUndefined();
   });
@@ -156,7 +156,7 @@ describe("allow rule", () => {
       isContainerized: true,
     });
     expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("High risk");
+    expect(result.reason).toContain("high risk");
     // Decision is driven by risk-based fallback, not the rule
     expect(result.matchedRule).toBeUndefined();
   });
@@ -169,7 +169,7 @@ describe("allow rule", () => {
       isContainerized: false,
     });
     expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("High risk");
+    expect(result.reason).toContain("high risk");
     // Decision is driven by risk-based fallback, not the rule
     expect(result.matchedRule).toBeUndefined();
   });
@@ -289,9 +289,9 @@ describe("no rule — workspace mode", () => {
       permissionsMode: "workspace",
       isWorkspaceScoped: false,
     });
-    // Falls through to risk-based: Low → allow
+    // Falls through to risk-based: Low → allow (within default "low" threshold)
     expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("Low risk");
+    expect(result.reason).toContain("low risk");
   });
 
   test("workspace mode, Medium risk → falls through to risk-based prompt", () => {
@@ -314,9 +314,9 @@ describe("no rule — workspace mode", () => {
       isWorkspaceScoped: true,
     });
     // Non-containerized bash falls through the workspace check.
-    // Then hits risk-based: Low → allow
+    // Then hits risk-based: Low → allow (within default "low" threshold)
     expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("Low risk");
+    expect(result.reason).toContain("low risk");
   });
 
   test("workspace mode, bash, containerized, Low risk, workspace-scoped → allow via workspace mode", () => {
@@ -368,7 +368,7 @@ describe("no rule — bundled skill tool", () => {
       isSkillBundled: true,
     });
     expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("High risk");
+    expect(result.reason).toContain("high risk");
   });
 });
 
@@ -381,7 +381,7 @@ describe("risk-based fallback (no rule, no special case)", () => {
       toolName: "some_tool",
     });
     expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("High risk");
+    expect(result.reason).toContain("high risk");
   });
 
   test("Low risk → allow", () => {
@@ -390,7 +390,7 @@ describe("risk-based fallback (no rule, no special case)", () => {
       toolName: "some_tool",
     });
     expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("Low risk");
+    expect(result.reason).toContain("low risk");
   });
 
   test("Medium risk → prompt", () => {
@@ -442,7 +442,7 @@ describe("edge cases", () => {
     });
     // Allow rule + High risk + non-bash → falls through to risk-based: High → prompt
     expect(result.decision).toBe("prompt");
-    expect(result.reason).toContain("High risk");
+    expect(result.reason).toContain("high risk");
   });
 
   test("reason includes the matched rule pattern", () => {
@@ -474,7 +474,7 @@ describe("edge cases", () => {
     expect(result.decision).toBe("allow");
   });
 
-  test("workspace mode non-containerized bash, Low risk, workspace-scoped → Low risk allow (not workspace allow)", () => {
+  test("workspace mode non-containerized bash, Low risk, workspace-scoped → low risk allow (not workspace allow)", () => {
     // This is the subtle bash host exception. The workspace mode check
     // specifically skips bash when not containerized, so it falls through
     // to the risk-based path where Low risk still auto-allows.
@@ -486,10 +486,10 @@ describe("edge cases", () => {
       isWorkspaceScoped: true,
     });
     expect(result.decision).toBe("allow");
-    // The reason should be "Low risk" not "Workspace mode" — the workspace
+    // The reason should be "low risk" not "Workspace mode" — the workspace
     // auto-allow was bypassed because bash is on the host.
     expect(result.reason).not.toContain("Workspace mode");
-    expect(result.reason).toContain("Low risk");
+    expect(result.reason).toContain("low risk");
   });
 
   test("hasManifestOverride with toolOrigin set to skill — third-party check triggers on origin", () => {
@@ -513,8 +513,200 @@ describe("edge cases", () => {
     });
     // toolOrigin is "builtin", so the third-party skill check doesn't trigger.
     // The hasManifestOverride check requires !toolOrigin, but toolOrigin is set.
-    // Falls through to risk-based: Low → allow.
+    // Falls through to risk-based: Low → allow (within default "low" threshold).
     expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("Low risk");
+    expect(result.reason).toContain("low risk");
+  });
+});
+
+// ── autoApproveUpTo threshold ─────────────────────────────────────────────────
+
+describe("autoApproveUpTo threshold", () => {
+  describe('autoApproveUpTo: "none" — everything prompts', () => {
+    test("Low risk → prompt", () => {
+      const result = evaluate({
+        riskLevel: RiskLevel.Low,
+        toolName: "some_tool",
+        autoApproveUpTo: "none",
+      });
+      expect(result.decision).toBe("prompt");
+      expect(result.reason).toContain("above auto-approve threshold");
+    });
+
+    test("Medium risk → prompt", () => {
+      const result = evaluate({
+        riskLevel: RiskLevel.Medium,
+        toolName: "some_tool",
+        autoApproveUpTo: "none",
+      });
+      expect(result.decision).toBe("prompt");
+      expect(result.reason).toContain("above auto-approve threshold");
+    });
+
+    test("High risk → prompt", () => {
+      const result = evaluate({
+        riskLevel: RiskLevel.High,
+        toolName: "some_tool",
+        autoApproveUpTo: "none",
+      });
+      expect(result.decision).toBe("prompt");
+      expect(result.reason).toContain("above auto-approve threshold");
+    });
+  });
+
+  describe('autoApproveUpTo: "low" — default, matches existing behavior', () => {
+    test("Low risk → allow", () => {
+      const result = evaluate({
+        riskLevel: RiskLevel.Low,
+        toolName: "some_tool",
+        autoApproveUpTo: "low",
+      });
+      expect(result.decision).toBe("allow");
+      expect(result.reason).toContain("within auto-approve threshold");
+    });
+
+    test("Medium risk → prompt", () => {
+      const result = evaluate({
+        riskLevel: RiskLevel.Medium,
+        toolName: "some_tool",
+        autoApproveUpTo: "low",
+      });
+      expect(result.decision).toBe("prompt");
+      expect(result.reason).toContain("above auto-approve threshold");
+    });
+
+    test("High risk → prompt", () => {
+      const result = evaluate({
+        riskLevel: RiskLevel.High,
+        toolName: "some_tool",
+        autoApproveUpTo: "low",
+      });
+      expect(result.decision).toBe("prompt");
+      expect(result.reason).toContain("above auto-approve threshold");
+    });
+  });
+
+  describe('autoApproveUpTo: "medium" — Low and Medium auto-allow', () => {
+    test("Low risk → allow", () => {
+      const result = evaluate({
+        riskLevel: RiskLevel.Low,
+        toolName: "some_tool",
+        autoApproveUpTo: "medium",
+      });
+      expect(result.decision).toBe("allow");
+      expect(result.reason).toContain("within auto-approve threshold");
+    });
+
+    test("Medium risk → allow", () => {
+      const result = evaluate({
+        riskLevel: RiskLevel.Medium,
+        toolName: "some_tool",
+        autoApproveUpTo: "medium",
+      });
+      expect(result.decision).toBe("allow");
+      expect(result.reason).toContain("within auto-approve threshold");
+    });
+
+    test("High risk → prompt", () => {
+      const result = evaluate({
+        riskLevel: RiskLevel.High,
+        toolName: "some_tool",
+        autoApproveUpTo: "medium",
+      });
+      expect(result.decision).toBe("prompt");
+      expect(result.reason).toContain("above auto-approve threshold");
+    });
+  });
+
+  describe("threshold interacts correctly with rule-based decisions", () => {
+    test("deny rule still denies regardless of threshold", () => {
+      const denyRule = makeRule({ decision: "deny" });
+      const result = evaluate({
+        riskLevel: RiskLevel.Low,
+        toolName: "bash",
+        matchedRule: denyRule,
+        autoApproveUpTo: "medium",
+      });
+      expect(result.decision).toBe("deny");
+      expect(result.matchedRule).toBe(denyRule);
+    });
+
+    test("ask rule still prompts regardless of threshold", () => {
+      const askRule = makeRule({ decision: "ask" });
+      const result = evaluate({
+        riskLevel: RiskLevel.Low,
+        toolName: "bash",
+        matchedRule: askRule,
+        autoApproveUpTo: "medium",
+      });
+      expect(result.decision).toBe("prompt");
+      expect(result.matchedRule).toBe(askRule);
+    });
+
+    test("allow rule still allows non-High regardless of threshold", () => {
+      const allowRule = makeRule({ decision: "allow" });
+      const result = evaluate({
+        riskLevel: RiskLevel.Medium,
+        toolName: "file_write",
+        matchedRule: allowRule,
+        autoApproveUpTo: "none",
+      });
+      expect(result.decision).toBe("allow");
+      expect(result.matchedRule).toBe(allowRule);
+    });
+  });
+
+  describe("threshold interacts correctly with strict mode", () => {
+    test("strict mode still prompts even with medium threshold", () => {
+      const result = evaluate({
+        riskLevel: RiskLevel.Low,
+        toolName: "file_read",
+        permissionsMode: "strict",
+        autoApproveUpTo: "medium",
+      });
+      expect(result.decision).toBe("prompt");
+      expect(result.reason).toContain("Strict mode");
+    });
+  });
+
+  describe("threshold interacts correctly with workspace mode", () => {
+    test("workspace mode workspace-scoped Low still allows via workspace path (before threshold)", () => {
+      const result = evaluate({
+        riskLevel: RiskLevel.Low,
+        toolName: "file_read",
+        permissionsMode: "workspace",
+        isWorkspaceScoped: true,
+        autoApproveUpTo: "none",
+      });
+      // Workspace mode auto-allow fires before the threshold fallback
+      expect(result.decision).toBe("allow");
+      expect(result.reason).toContain("Workspace mode");
+    });
+
+    test("workspace mode non-workspace-scoped Low with none threshold → prompt", () => {
+      const result = evaluate({
+        riskLevel: RiskLevel.Low,
+        toolName: "file_read",
+        permissionsMode: "workspace",
+        isWorkspaceScoped: false,
+        autoApproveUpTo: "none",
+      });
+      // Falls through workspace check (not workspace-scoped), then threshold
+      // "none" means Low risk is above threshold → prompt
+      expect(result.decision).toBe("prompt");
+      expect(result.reason).toContain("above auto-approve threshold");
+    });
+  });
+
+  describe("threshold defaults to low when omitted", () => {
+    test("omitted autoApproveUpTo behaves as low", () => {
+      const result = evaluate({
+        riskLevel: RiskLevel.Low,
+        toolName: "some_tool",
+        // autoApproveUpTo not set
+      });
+      expect(result.decision).toBe("allow");
+      expect(result.reason).toContain("within auto-approve threshold");
+    });
   });
 });
