@@ -19,7 +19,9 @@ describe("slack-app-setup skill regression", () => {
 
   test("forbids plaintext forms and chat-pasted secrets", () => {
     expect(skillContent).toContain("Do NOT use `ui_show`");
-    expect(skillContent).toContain("Do NOT ask the user to paste them in chat");
+    expect(skillContent).toContain(
+      "Do NOT ask the user to paste tokens in chat",
+    );
   });
 
   test("does not instruct the agent to reimplement Slack validation in shell", () => {
