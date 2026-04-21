@@ -179,9 +179,20 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 clientProvider?.rebuildClient()
             }
         )
-        authManager.postAuthenticationHook = {
+        authManager.postAuthenticationHook = { [weak clientProvider] in
             do {
-                _ = try await reconciler.reconcile()
+                let reconciled = try await reconciler.reconcile()
+                // When `reconcile()` returns a non-nil assistant it has just
+                // rebuilt the `GatewayConnectionManager`, which leaves the new
+                // client in a disconnected state (`rebuildClient()` tears the
+                // old client down and never dials the new one). Kick off the
+                // connection here so the Connect screen and SSE stream come
+                // back online immediately after logout → re-login instead of
+                // having to wait for a background → foreground transition to
+                // retrigger `SceneDelegate.sceneWillEnterForeground`.
+                if reconciled != nil, let client = clientProvider?.client {
+                    try? await client.connect()
+                }
             } catch {
                 log.error("Managed assistant reconcile failed: \(error.localizedDescription, privacy: .public)")
             }

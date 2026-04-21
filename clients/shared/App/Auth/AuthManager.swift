@@ -50,6 +50,7 @@ public final class AuthManager {
     ///
     /// Hook failures are owned by the hook — the auth state transition is
     /// already committed by the time the hook runs.
+    @ObservationIgnored
     public var postAuthenticationHook: (@MainActor @Sendable () async -> Void)?
 
     public init() {}
