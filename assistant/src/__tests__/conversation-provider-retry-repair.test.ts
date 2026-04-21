@@ -26,7 +26,7 @@ mock.module("../config/loader.js", () => ({
     daemon: {
       titleGenerationMaxTokens: 30,
     },
-    
+
     llm: {
       default: {
         provider: "mock-provider",
@@ -138,11 +138,6 @@ mock.module("../daemon/context-overflow-reducer.js", () => ({
 
 mock.module("../daemon/context-overflow-policy.js", () => ({
   resolveOverflowAction: () => "fail_gracefully",
-}));
-
-mock.module("../daemon/context-overflow-approval.js", () => ({
-  requestCompressionApproval: async () => ({ approved: false }),
-  CONTEXT_OVERFLOW_TOOL_NAME: "context_overflow_compression",
 }));
 
 mock.module("../prompts/system-prompt.js", () => ({

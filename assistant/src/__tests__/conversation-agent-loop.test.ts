@@ -103,13 +103,6 @@ mock.module("../daemon/context-overflow-policy.js", () => ({
   resolveOverflowAction: () => mockOverflowAction,
 }));
 
-// Approval: default to denied
-let mockApprovalResult = { approved: false };
-mock.module("../daemon/context-overflow-approval.js", () => ({
-  requestCompressionApproval: async () => mockApprovalResult,
-  CONTEXT_OVERFLOW_TOOL_NAME: "context_overflow_compression",
-}));
-
 let hookBlocked = false;
 let hookBlockedBy = "";
 
@@ -514,7 +507,6 @@ beforeEach(() => {
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
-  mockApprovalResult = { approved: false };
   mockInjectionBlocks = {};
   recordUsageMock.mockClear();
   recordRequestLogMock.mockClear();
@@ -1306,71 +1298,6 @@ describe("session-agent-loop", () => {
       expect(conversationError).toBeUndefined();
       const complete = events.find((e) => e.type === "message_complete");
       expect(complete).toBeDefined();
-    });
-
-    test("interactive deny produces graceful assistant response instead of conversation_error", async () => {
-      const events: ServerMessage[] = [];
-
-      // Reducer exhausts all tiers but context is still too large
-      mockReducerStepFn = (msgs: Message[]) => ({
-        messages: msgs,
-        tier: "injection_downgrade",
-        state: {
-          appliedTiers: [
-            "forced_compaction",
-            "tool_result_truncation",
-            "media_stubbing",
-            "injection_downgrade",
-          ],
-          injectionMode: "minimal",
-          exhausted: true,
-        },
-        estimatedTokens: 120000,
-      });
-
-      mockOverflowAction = "request_user_approval";
-      mockApprovalResult = { approved: false };
-
-      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
-        onEvent({
-          type: "error",
-          error: new Error("context_length_exceeded"),
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 100,
-          outputTokens: 0,
-          model: "test-model",
-          providerDurationMs: 50,
-        });
-        return messages;
-      };
-
-      const ctx = makeCtx({
-        agentLoopRun,
-        contextWindowManager: {
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async () => ({ compacted: false }),
-        } as unknown as AgentLoopConversationContext["contextWindowManager"],
-      });
-
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
-
-      // Should NOT emit conversation_error
-      const conversationError = events.find(
-        (e) => e.type === "conversation_error",
-      );
-      expect(conversationError).toBeUndefined();
-
-      // Should emit a graceful assistant text delta instead
-      const textDeltas = events.filter(
-        (e) => e.type === "assistant_text_delta",
-      );
-      expect(textDeltas.length).toBeGreaterThanOrEqual(1);
-      const lastDelta = textDeltas[textDeltas.length - 1] as {
-        text: string;
-      };
-      expect(lastDelta.text).toContain("compression was declined");
     });
 
     test("non-interactive auto-compress continues without approval prompt", async () => {
