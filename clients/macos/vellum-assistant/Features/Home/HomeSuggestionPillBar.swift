@@ -119,7 +119,7 @@ struct HomeSuggestionPillBar: View {
         .padding(VSpacing.lg)
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
-                .stroke(VColor.borderBase, lineWidth: 1)
+                .stroke(VColor.borderDisabled, lineWidth: 1)
         )
     }
 }

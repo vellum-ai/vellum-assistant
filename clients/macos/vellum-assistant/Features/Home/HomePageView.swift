@@ -292,20 +292,12 @@ struct HomePageView<DetailPanel: View>: View {
     }
 
     /// Trailing Action button label for a recap row, or nil to hide the
-    /// button entirely. Nudges are tap-to-open (no button); actions
-    /// always show a button; digests show a button only if the daemon
-    /// attached explicit actions; threads are tap-to-open.
+    /// button entirely. Currently always `nil` — rows are tap-to-open
+    /// across every type. The inline Action affordance is intentionally
+    /// withheld until product signs off on which item shapes should
+    /// surface one; until then the entire row is the hit target.
     private func actionLabel(for item: FeedItem) -> String? {
-        switch item.type {
-        case .nudge:
-            return nil
-        case .action:
-            return "Action"
-        case .digest:
-            return (item.actions?.isEmpty == false) ? "Action" : nil
-        case .thread:
-            return nil
-        }
+        return nil
     }
 
     // MARK: - Actions
