@@ -1698,6 +1698,25 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/guardian/reset-bootstrap": {
+        post: {
+          summary: "Reset guardian bootstrap lock",
+          description:
+            "Loopback-only, bare-metal-only endpoint that removes the guardian-init lock file so that /v1/guardian/init can be called again. Used by the desktop app to recover from a lost actor token.",
+          operationId: "guardianResetBootstrap",
+          responses: {
+            "200": { description: "Lock file removed (or already absent)" },
+            "403": {
+              description:
+                "Forbidden — non-loopback origin or containerized mode",
+            },
+            "409": {
+              description: "Guardian init is in progress — try again shortly",
+            },
+            "500": { description: "Failed to remove lock file" },
+          },
+        },
+      },
       "/v1/channel-verification-sessions/revoke": {
         post: {
           summary: "Revoke verification binding",
