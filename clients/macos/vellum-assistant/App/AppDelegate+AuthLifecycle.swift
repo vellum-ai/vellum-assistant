@@ -210,6 +210,16 @@ extension AppDelegate {
 
         if let window = authWindow {
             window.contentViewController = NSHostingController(rootView: pickerView)
+            // Ensure the window matches the standard auth size — it may
+            // have been resized or the content swap can leave it undersized.
+            window.contentMinSize = NSSize(width: 420, height: 580)
+            if let visibleFrame = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame {
+                let targetWidth: CGFloat = 460
+                let targetHeight: CGFloat = 620
+                let x = visibleFrame.midX - targetWidth / 2
+                let y = visibleFrame.midY - targetHeight / 2
+                window.setFrame(NSRect(x: x, y: y, width: targetWidth, height: targetHeight), display: true, animate: true)
+            }
         } else {
             showAuthWindow()
         }
