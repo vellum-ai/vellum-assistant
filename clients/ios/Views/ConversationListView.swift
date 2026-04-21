@@ -774,34 +774,37 @@ struct ConversationChatView: View {
         .toolbar {
             if horizontalSizeClass == .compact, let onOpenDrawer {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: onOpenDrawer) {
-                        VIconView(.panelLeft, size: 20)
-                    }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.circle)
-                    .accessibilityLabel("Chats")
-                    .accessibilityHint("Opens the conversation menu")
+                    VButton(
+                        label: "Chats",
+                        iconOnly: VIcon.panelLeft.rawValue,
+                        style: .ghost,
+                        size: .pillRegular,
+                        tooltip: "Opens the conversation menu",
+                        action: onOpenDrawer
+                    )
                 }
             }
             if horizontalSizeClass == .compact, let onShowSettings {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: onShowSettings) {
-                        VIconView(.settings, size: 20)
-                    }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.circle)
-                    .accessibilityLabel("Settings")
-                    .accessibilityHint("Opens the Settings sheet")
+                    VButton(
+                        label: "Settings",
+                        iconOnly: VIcon.settings.rawValue,
+                        style: .ghost,
+                        size: .pillRegular,
+                        tooltip: "Opens the Settings sheet",
+                        action: onShowSettings
+                    )
                 }
             }
             if horizontalSizeClass == .compact, let onComposeNew {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: onComposeNew) {
-                        VIconView(.squarePen, size: 20)
-                    }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.circle)
-                    .accessibilityLabel("New chat")
+                    VButton(
+                        label: "New chat",
+                        iconOnly: VIcon.squarePen.rawValue,
+                        style: .ghost,
+                        size: .pillRegular,
+                        action: onComposeNew
+                    )
                 }
             }
         }
