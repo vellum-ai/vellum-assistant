@@ -38,12 +38,24 @@ let cachedGlobalThresholds: GlobalThresholds | null = null;
 let cachedGlobalTimestamp = 0;
 const GLOBAL_CACHE_TTL_MS = 30_000;
 
+// ── Conversation threshold cache (5s TTL) ────────────────────────────────────
+// Shorter TTL than global because the user can change mid-conversation via the
+// picker UI, but still avoids a network roundtrip on every single tool call
+// within a burst.
+
+const conversationThresholdCache = new Map<
+  string,
+  { threshold: string; timestamp: number }
+>();
+const CONVERSATION_CACHE_TTL_MS = 5_000;
+
 /**
  * Clear the global threshold cache. Exported for testing.
  */
 export function _clearGlobalCacheForTesting(): void {
   cachedGlobalThresholds = null;
   cachedGlobalTimestamp = 0;
+  conversationThresholdCache.clear();
 }
 
 // ── Hardcoded fallback defaults ──────────────────────────────────────────────
@@ -96,11 +108,23 @@ export async function getAutoApproveThreshold(
 
   // For conversation context with a conversationId, try per-conversation override first
   if (ctx === "conversation" && conversationId) {
+    // Check cache first (5s TTL)
+    const cached = conversationThresholdCache.get(conversationId);
+    if (cached && Date.now() - cached.timestamp < CONVERSATION_CACHE_TTL_MS) {
+      if (isValidThreshold(cached.threshold)) {
+        return cached.threshold;
+      }
+    }
+
     try {
       const result = await gatewayGet<ConversationThreshold>(
         `/v1/permissions/thresholds/conversations/${conversationId}`,
       );
       if (isValidThreshold(result.threshold)) {
+        conversationThresholdCache.set(conversationId, {
+          threshold: result.threshold,
+          timestamp: Date.now(),
+        });
         return result.threshold;
       }
     } catch (err) {

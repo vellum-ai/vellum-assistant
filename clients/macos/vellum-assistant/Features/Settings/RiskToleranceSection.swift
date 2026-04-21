@@ -15,12 +15,15 @@ struct RiskToleranceSection: View {
     var assistantFeatureFlagStore: AssistantFeatureFlagStore
 
     /// Current selection for the interactive ("When chatting") threshold.
-    @State private var interactiveSelection: RiskThreshold = .none
+    /// Defaults to `.low` to match the gateway schema default.
+    @State private var interactiveSelection: RiskThreshold = .low
 
     /// Current selection for the background ("Scheduled tasks") threshold.
-    @State private var backgroundSelection: RiskThreshold = .none
+    /// Defaults to `.medium` to match the gateway schema default.
+    @State private var backgroundSelection: RiskThreshold = .medium
 
     /// Current selection for the headless ("Automation / API") threshold.
+    /// Defaults to `.none` to match the gateway schema default.
     @State private var headlessSelection: RiskThreshold = .none
 
     /// In-flight sync task so rapid picker changes cancel the previous
@@ -30,6 +33,11 @@ struct RiskToleranceSection: View {
     /// In-flight load task so repeated view appearances don't stack
     /// concurrent GETs against the gateway.
     @State private var loadTask: Task<Void, Never>?
+
+    /// Whether the initial load from the gateway has completed at least
+    /// once. Prevents `syncThresholds()` from persisting stale defaults
+    /// before we know the real server state.
+    @State private var hasLoadedInitial: Bool = false
 
     /// Tracks whether the user has actively picked an option since the
     /// view appeared. Once set, `loadThresholds()` will NOT overwrite
@@ -145,9 +153,10 @@ struct RiskToleranceSection: View {
             do {
                 let thresholds = try await thresholdClient.getGlobalThresholds()
                 guard !Task.isCancelled else { return }
+                hasLoadedInitial = true
                 guard !hasUserInteracted else { return }
-                interactiveSelection = RiskThreshold(rawValue: thresholds.interactive) ?? .none
-                backgroundSelection = RiskThreshold(rawValue: thresholds.background) ?? .none
+                interactiveSelection = RiskThreshold(rawValue: thresholds.interactive) ?? .low
+                backgroundSelection = RiskThreshold(rawValue: thresholds.background) ?? .medium
                 headlessSelection = RiskThreshold(rawValue: thresholds.headless) ?? .none
             } catch {
                 riskToleranceLog.error(
@@ -169,6 +178,9 @@ struct RiskToleranceSection: View {
     /// `loadThresholds()` call can reconcile the picker against the
     /// authoritative gateway state.
     private func syncThresholds() {
+        // Don't sync until we've loaded at least once — otherwise we'd
+        // persist stale local defaults over the real server state.
+        guard hasLoadedInitial else { return }
         syncTask?.cancel()
         syncTask = Task {
             do {

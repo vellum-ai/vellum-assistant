@@ -1095,14 +1095,14 @@ async function main() {
 
     // ── Per-conversation threshold overrides (scope-protected) ──
     {
-      path: /^\/v1\/permissions\/thresholds\/conversations\/([^/]+)$/,
+      path: /^\/v1\/permissions\/thresholds\/conversations\/([^/]+)\/?$/,
       method: "GET",
       auth: "edge-scoped",
       scope: "settings.read",
       handler: (req, params) => handleConversationThresholdGet(req, params),
     },
     {
-      path: /^\/v1\/assistants\/([^/]+)\/permissions\/thresholds\/conversations\/([^/]+)$/,
+      path: /^\/v1\/assistants\/([^/]+)\/permissions\/thresholds\/conversations\/([^/]+)\/?$/,
       method: "GET",
       auth: "edge-scoped",
       scope: "settings.read",
@@ -1110,14 +1110,14 @@ async function main() {
         handleConversationThresholdGet(req, params.slice(1)),
     },
     {
-      path: /^\/v1\/permissions\/thresholds\/conversations\/([^/]+)$/,
+      path: /^\/v1\/permissions\/thresholds\/conversations\/([^/]+)\/?$/,
       method: "PUT",
       auth: "edge-scoped",
       scope: "settings.write",
       handler: (req, params) => handleConversationThresholdPut(req, params),
     },
     {
-      path: /^\/v1\/assistants\/([^/]+)\/permissions\/thresholds\/conversations\/([^/]+)$/,
+      path: /^\/v1\/assistants\/([^/]+)\/permissions\/thresholds\/conversations\/([^/]+)\/?$/,
       method: "PUT",
       auth: "edge-scoped",
       scope: "settings.write",
@@ -1125,14 +1125,14 @@ async function main() {
         handleConversationThresholdPut(req, params.slice(1)),
     },
     {
-      path: /^\/v1\/permissions\/thresholds\/conversations\/([^/]+)$/,
+      path: /^\/v1\/permissions\/thresholds\/conversations\/([^/]+)\/?$/,
       method: "DELETE",
       auth: "edge-scoped",
       scope: "settings.write",
       handler: (req, params) => handleConversationThresholdDelete(req, params),
     },
     {
-      path: /^\/v1\/assistants\/([^/]+)\/permissions\/thresholds\/conversations\/([^/]+)$/,
+      path: /^\/v1\/assistants\/([^/]+)\/permissions\/thresholds\/conversations\/([^/]+)\/?$/,
       method: "DELETE",
       auth: "edge-scoped",
       scope: "settings.write",
