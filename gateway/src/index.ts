@@ -58,6 +58,10 @@ import {
   createPrivacyConfigGetHandler,
   createPrivacyConfigPatchHandler,
 } from "./http/routes/privacy-config.js";
+import {
+  createThresholdsGetHandler,
+  createThresholdsPutHandler,
+} from "./http/routes/auto-approve-thresholds.js";
 import { createChannelVerificationSessionProxyHandler } from "./http/routes/channel-verification-session-proxy.js";
 import { createCloudOAuthTokenHandler } from "./http/routes/cloud-oauth-token.js";
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
@@ -353,6 +357,8 @@ async function main() {
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
   const handlePrivacyConfigGet = createPrivacyConfigGetHandler();
   const handlePrivacyConfigPatch = createPrivacyConfigPatchHandler();
+  const handleThresholdsGet = createThresholdsGetHandler();
+  const handleThresholdsPut = createThresholdsPutHandler();
   const handleTrustRulesList = createTrustRulesListHandler();
   const handleTrustRulesAdd = createTrustRulesAddHandler();
   const handleTrustRulesUpdate = createTrustRulesUpdateHandler();
@@ -1046,6 +1052,36 @@ async function main() {
       auth: "edge-scoped",
       scope: "settings.write",
       handler: (req) => handlePrivacyConfigPatch(req),
+    },
+
+    // ── Auto-approve thresholds (scope-protected) ──
+    {
+      path: "/v1/permissions/thresholds",
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleThresholdsGet(req),
+    },
+    {
+      path: /^\/v1\/assistants\/([^/]+)\/permissions\/thresholds\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleThresholdsGet(req),
+    },
+    {
+      path: "/v1/permissions/thresholds",
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleThresholdsPut(req),
+    },
+    {
+      path: /^\/v1\/assistants\/([^/]+)\/permissions\/thresholds\/?$/,
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleThresholdsPut(req),
     },
 
     // ── Log export ──
