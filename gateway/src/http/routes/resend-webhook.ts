@@ -160,6 +160,22 @@ async function fetchResendEmailContent(
 }
 
 /**
+ * Parse an RFC 5322 address like `"Alice <alice@example.com>"` into its
+ * components. Returns the raw email address and optional display name.
+ */
+function parseEmailAddress(raw: string): {
+  address: string;
+  displayName?: string;
+} {
+  const match = raw.match(/^(.+?)\s*<([^>]+)>$/);
+  if (match) {
+    const name = match[1].trim().replace(/^["']|["']$/g, "");
+    return { address: match[2].trim(), displayName: name || undefined };
+  }
+  return { address: raw.trim() };
+}
+
+/**
  * Normalize a Resend `email.received` webhook event into a
  * `VellumEmailPayload` suitable for `normalizeEmailWebhook()`.
  */
@@ -181,18 +197,23 @@ function normalizeResendToVellumPayload(
   // Use the first 'to' address as the recipient for routing
   const recipientAddress = data.to[0];
 
-  // Derive a stable conversation ID from threading headers or message ID.
-  // If we have an In-Reply-To, the conversation is anchored to that thread.
-  // Otherwise, use the recipient address as the conversation anchor (all
-  // emails to the same address form one conversation stream).
-  const conversationId = inReplyTo ?? recipientAddress;
+  // Derive a stable conversation ID using the root of the References
+  // chain (first entry = thread root Message-ID per RFC 5322). This
+  // ensures all replies in a thread resolve to the same conversation.
+  // Falls back to recipientAddress for new threads with no References.
+  const referencesRoot = references?.trim().split(/\s+/)[0];
+  const conversationId = referencesRoot ?? recipientAddress;
 
-  // Prefer plain text from the API response; fall back to stripping HTML
-  const bodyText = content?.text ?? undefined;
-  const strippedText = bodyText ?? undefined;
+  // Prefer plain text; fall back to raw HTML so HTML-only emails aren't empty
+  const bodyText = content?.text ?? content?.html ?? undefined;
+  const strippedText = content?.text ?? undefined;
+
+  // Parse from into canonical address + optional display name
+  const parsed = parseEmailAddress(data.from);
 
   return {
-    from: data.from,
+    from: parsed.address,
+    fromName: parsed.displayName,
     to: recipientAddress,
     subject: data.subject,
     strippedText,

@@ -665,6 +665,87 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/webhooks/resend": {
+        post: {
+          summary: "Resend inbound webhook",
+          description:
+            "Receives inbound email events from Resend (BYO), verifies the Svix signature, fetches the email content from the Resend API, normalizes the message, and forwards it to the assistant runtime.",
+          operationId: "resendInboundWebhook",
+          security: [{ SvixSignature: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  description: "Resend webhook event payload.",
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Webhook accepted",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: { ok: { type: "boolean" } },
+                  },
+                },
+              },
+            },
+            "400": {
+              description: "Invalid JSON or unreadable body",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "403": {
+              description: "Signature verification failed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "405": {
+              description: "Method not allowed",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "409": {
+              description: "Webhook secret not configured",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "413": {
+              description: "Payload too large",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "500": {
+              description: "Internal error",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/v1/audio/{audioId}": {
         get: {
           summary: "Retrieve synthesized audio",
