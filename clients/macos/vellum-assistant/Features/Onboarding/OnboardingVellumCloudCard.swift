@@ -42,7 +42,7 @@ struct OnboardingVellumCloudCard: View {
 
                 VBadge(
                     label: "RECOMMENDED",
-                    tone: .neutral,
+                    tone: .accent,
                     emphasis: .subtle,
                     shape: .pill
                 )
@@ -58,7 +58,7 @@ struct OnboardingVellumCloudCard: View {
             Spacer().frame(height: VSpacing.md)
 
             // Benefits
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
                 ForEach(benefits, id: \.self) { benefit in
                     benefitRow(benefit)
                 }
@@ -97,6 +97,7 @@ struct OnboardingVellumCloudCard: View {
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg, style: .continuous)
                 .fill(VColor.surfaceLift)
+                .shadow(color: VColor.auxBlack.opacity(0.05), radius: 8, x: 0, y: 2)
         )
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.lg, style: .continuous)
