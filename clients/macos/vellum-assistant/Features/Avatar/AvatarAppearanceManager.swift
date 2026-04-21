@@ -110,10 +110,17 @@ final class AvatarAppearanceManager {
             assistantName = AssistantDisplayName.resolve(info?.name, fallback: "V")
             updateDockLabel()
         }
-        // Avatar is fetched later via reloadAvatar() once the gateway is
-        // confirmed ready. Fetching here would race the daemon startup and
-        // clear the avatar to nil on connection-refused, falling back to the
-        // bundled Vellum logo.
+
+        // Hydrate the dock icon from the local cache synchronously so the
+        // avatar appears immediately on launch, before the daemon is ready.
+        // `reloadAvatar()` later refreshes against the authoritative state
+        // via the gateway and overwrites the cache if anything changed.
+        hydrateFromCache()
+
+        // Remote avatar/trait fetches are deferred to reloadAvatar() once
+        // the gateway is confirmed ready. Fetching here would race daemon
+        // startup and clear the avatar on connection-refused; the local
+        // cache covers the cold-start window until that retry succeeds.
 
         // Refresh assistantName and invalidate cached fallback avatars when
         // the user renames their assistant so the initial-letter avatar
@@ -178,12 +185,14 @@ final class AvatarAppearanceManager {
             if response.isSuccess, !response.data.isEmpty {
                 cachedChatAvatar = nil
                 customAvatarImage = NSImage(data: response.data)
+                AvatarCache.saveImage(response.data)
                 updateDockIcon()
                 return
             }
             if Self.isAuthoritativeAbsence(statusCode: response.statusCode) {
                 if customAvatarImage != nil { customAvatarImage = nil }
                 cachedChatAvatar = nil
+                AvatarCache.clearImage()
                 updateDockIcon()
                 return
             }
@@ -220,6 +229,10 @@ final class AvatarAppearanceManager {
                 cachedChatAvatar = nil
                 cachedFallbackAvatar = nil
                 cachedFullFallbackAvatar = nil
+                if let body = characterBodyShape, let eyes = characterEyeStyle, let color = characterColor {
+                    AvatarCache.saveTraits(bodyShape: body, eyeStyle: eyes, color: color)
+                }
+                AvatarCache.clearImage()
                 updateDockIcon()
                 return
             }
@@ -229,6 +242,7 @@ final class AvatarAppearanceManager {
                 if characterColor != nil { characterColor = nil }
                 cachedFallbackAvatar = nil
                 cachedFullFallbackAvatar = nil
+                AvatarCache.clearTraits()
                 updateDockIcon()
                 return
             }
@@ -304,6 +318,16 @@ final class AvatarAppearanceManager {
             characterColor = nil
         }
         updateDockIcon()
+
+        // Update the local client-side cache so the next cold launch can
+        // hydrate the dock icon before the daemon is ready.
+        if isCharacter, let body = bodyShape, let eyes = eyeStyle, let color = color {
+            AvatarCache.saveTraits(bodyShape: body, eyeStyle: eyes, color: color)
+            AvatarCache.clearImage()
+        } else {
+            AvatarCache.saveImage(pngData)
+            AvatarCache.clearTraits()
+        }
 
         // Persist to the assistant's workspace via the gateway.
         Task {
@@ -416,8 +440,27 @@ final class AvatarAppearanceManager {
         cachedFullFallbackAvatar = nil
         cachedFullFallbackName = nil
         assistantName = "V"
+        AvatarCache.clearAll()
         updateDockIcon()
         updateDockLabel()
+    }
+
+    // MARK: - Local Cache Hydration
+
+    /// Loads any persisted avatar state from the local cache and populates
+    /// in-memory properties. Runs synchronously during `start()` so the dock
+    /// icon reflects the user's avatar before the daemon is reachable.
+    private func hydrateFromCache() {
+        let cached = AvatarCache.load()
+        if let traits = cached.traits {
+            characterBodyShape = traits.bodyShape
+            characterEyeStyle = traits.eyeStyle
+            characterColor = traits.color
+            updateDockIcon()
+        } else if let image = cached.image {
+            customAvatarImage = image
+            updateDockIcon()
+        }
     }
 
     func clearCustomAvatar() {
@@ -428,6 +471,7 @@ final class AvatarAppearanceManager {
         cachedChatAvatar = nil
         cachedFallbackAvatar = nil
         cachedFullFallbackAvatar = nil
+        AvatarCache.clearAll()
         updateDockIcon()
 
         // Remove files from the assistant's workspace via the gateway.
@@ -628,5 +672,98 @@ final class AvatarAppearanceManager {
             attrStr.draw(at: textPoint)
             return true
         }
+    }
+}
+
+// MARK: - Local Avatar Cache
+
+/// On-disk cache of the avatar image and character traits, persisted under
+/// Application Support so the dock icon can be hydrated synchronously on cold
+/// launch before the daemon is ready. The gateway remains the authoritative
+/// source; this is a pure client-side cache that mirrors whatever state has
+/// been successfully fetched or saved. Cleared on logout, assistant switch,
+/// explicit avatar clear, and authoritative 404 responses.
+///
+/// Reference: [File System Basics](https://developer.apple.com/library/archive/documentation/FileManagement/Conceptual/FileSystemProgrammingGuide/FileSystemOverview/FileSystemOverview.html)
+/// — Apple recommends `Library/Application Support/` for app-specific data
+/// files that should persist across launches but are not directly user-created.
+/// `Caches/` would let the OS purge contents, which would defeat the
+/// cold-start hydration purpose.
+fileprivate enum AvatarCache {
+    struct Snapshot {
+        var image: NSImage?
+        var traits: (bodyShape: AvatarBodyShape, eyeStyle: AvatarEyeStyle, color: AvatarColor)?
+    }
+
+    private struct CachedTraits: Codable {
+        let bodyShape: String
+        let eyeStyle: String
+        let color: String
+    }
+
+    private static let cacheDir: URL = {
+        let base = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Application Support")
+        return base
+            .appendingPathComponent(Bundle.appBundleIdentifier, isDirectory: true)
+            .appendingPathComponent("AvatarCache", isDirectory: true)
+    }()
+
+    private static let imageURL = cacheDir.appendingPathComponent("avatar-image.png")
+    private static let traitsURL = cacheDir.appendingPathComponent("character-traits.json")
+
+    static func load() -> Snapshot {
+        var snapshot = Snapshot()
+        if let data = try? Data(contentsOf: traitsURL),
+           let cached = try? JSONDecoder().decode(CachedTraits.self, from: data),
+           let body = AvatarBodyShape(rawValue: cached.bodyShape),
+           let eyes = AvatarEyeStyle(rawValue: cached.eyeStyle),
+           let color = AvatarColor(rawValue: cached.color) {
+            snapshot.traits = (body, eyes, color)
+        } else if let data = try? Data(contentsOf: imageURL),
+                  let image = NSImage(data: data) {
+            snapshot.image = image
+        }
+        return snapshot
+    }
+
+    static func saveImage(_ data: Data) {
+        ensureDir()
+        try? data.write(to: imageURL, options: .atomic)
+    }
+
+    static func clearImage() {
+        try? FileManager.default.removeItem(at: imageURL)
+    }
+
+    static func saveTraits(bodyShape: AvatarBodyShape, eyeStyle: AvatarEyeStyle, color: AvatarColor) {
+        ensureDir()
+        let cached = CachedTraits(
+            bodyShape: bodyShape.rawValue,
+            eyeStyle: eyeStyle.rawValue,
+            color: color.rawValue
+        )
+        if let data = try? JSONEncoder().encode(cached) {
+            try? data.write(to: traitsURL, options: .atomic)
+        }
+    }
+
+    static func clearTraits() {
+        try? FileManager.default.removeItem(at: traitsURL)
+    }
+
+    static func clearAll() {
+        clearImage()
+        clearTraits()
+    }
+
+    private static func ensureDir() {
+        try? FileManager.default.createDirectory(
+            at: cacheDir,
+            withIntermediateDirectories: true
+        )
     }
 }
