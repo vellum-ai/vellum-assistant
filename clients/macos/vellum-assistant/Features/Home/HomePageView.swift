@@ -57,6 +57,12 @@ struct HomePageView<DetailPanel: View>: View {
     /// refresh. Persistent per-account dismissal is a follow-up.
     @State private var suggestionsDismissed: Bool = false
 
+    /// Types the user has tapped in the filter bar. Empty means "show
+    /// everything" — a non-empty set is treated as an inclusion filter
+    /// in ``groupedFeed``. Deliberately view-local (not persisted):
+    /// the filter is a transient read-time affordance, not a setting.
+    @State private var activeFilters: Set<FeedItemType> = []
+
     /// Editorial column width. Bumped from 600pt to 960pt to match the
     /// Figma redesign — the new three-block layout reads as a wider page,
     /// not a narrow column.
@@ -119,6 +125,13 @@ struct HomePageView<DetailPanel: View>: View {
                         }
                     )
                 }
+
+                HomeFeedFilterBar(
+                    selected: activeFilters,
+                    onToggle: { type in
+                        activeFilters.formSymmetricDifference([type])
+                    }
+                )
 
                 ForEach(Array(groupedFeed.enumerated()), id: \.element.group) { _, bucket in
                     VStack(alignment: .leading, spacing: VSpacing.md) {
@@ -185,15 +198,19 @@ struct HomePageView<DetailPanel: View>: View {
 
     // MARK: - Feed grouping
 
-    /// Sorts the feed by `priority desc, createdAt desc`, then delegates
-    /// to `HomeFeedTimeGroup.bucket(_:)` for day-bucketing. Replaces the
+    /// Sorts the feed by `priority desc, createdAt desc`, applies the
+    /// active type filter (empty set = show all), then delegates to
+    /// `HomeFeedTimeGroup.bucket(_:)` for day-bucketing. Replaces the
     /// prior `attentionItems` / `activityItems` partitioning.
     private var groupedFeed: [(group: HomeFeedTimeGroup, items: [FeedItem])] {
         let sorted = feedStore.items.sorted { a, b in
             if a.priority != b.priority { return a.priority > b.priority }
             return a.createdAt > b.createdAt
         }
-        return HomeFeedTimeGroup.bucket(sorted)
+        let filtered = sorted.filter { item in
+            activeFilters.isEmpty || activeFilters.contains(item.type)
+        }
+        return HomeFeedTimeGroup.bucket(filtered)
     }
 
     // MARK: - Suggestions
@@ -234,7 +251,10 @@ struct HomePageView<DetailPanel: View>: View {
     ///   nudge + assistant   → heart
     ///   action              → arrow-left (inbound intent)
     ///   digest              → bell
-    ///   thread              → message-circle
+    ///   thread              → calendar (aligned with the Schedule
+    ///                                    filter chip so row icons
+    ///                                    and chips share one visual
+    ///                                    language)
     private func icon(for item: FeedItem) -> VIcon {
         switch item.type {
         case .nudge:
@@ -247,7 +267,7 @@ struct HomePageView<DetailPanel: View>: View {
         case .digest:
             return .bell
         case .thread:
-            return .messageCircle
+            return .calendar
         }
     }
 
@@ -266,7 +286,9 @@ struct HomePageView<DetailPanel: View>: View {
             // Plan: Forest._500. Closest existing token.
             return VColor.systemPositiveStrong
         case .thread:
-            return VColor.contentSecondary
+            // Aligned with the Schedule filter chip — amber/mid pair
+            // so thread rows and the Schedule chip share one tint.
+            return VColor.systemMidStrong
         }
     }
 
@@ -285,7 +307,8 @@ struct HomePageView<DetailPanel: View>: View {
             // Plan: Forest._900. Closest existing weak-positive tint.
             return VColor.systemPositiveWeak
         case .thread:
-            return VColor.surfaceActive
+            // Aligned with the Schedule filter chip — amber/mid pair.
+            return VColor.systemMidWeak
         }
     }
 
