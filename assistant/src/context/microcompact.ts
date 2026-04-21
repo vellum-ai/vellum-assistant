@@ -66,7 +66,8 @@ export interface MicrocompactResult {
   messages: Message[];
   reclaimedTokens: number;
   clearedToolResults: number;
-  clearedImages: number;
+  /** Count of image + file blocks that were replaced with text stubs. */
+  clearedMedia: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -112,7 +113,7 @@ export function microcompact(
       messages,
       reclaimedTokens: 0,
       clearedToolResults: 0,
-      clearedImages: 0,
+      clearedMedia: 0,
     };
   }
 
@@ -135,13 +136,13 @@ export function microcompact(
       messages,
       reclaimedTokens: 0,
       clearedToolResults: 0,
-      clearedImages: 0,
+      clearedMedia: 0,
     };
   }
 
   let reclaimedTokens = 0;
   let clearedToolResults = 0;
-  let clearedImages = 0;
+  let clearedMedia = 0;
   let anyChange = false;
 
   const nextMessages: Message[] = messages.map((msg, idx) => {
@@ -149,6 +150,11 @@ export function microcompact(
 
     let changed = false;
     const nextContent: ContentBlock[] = msg.content.map((block) => {
+      // guard:allow-tool-result-only — compaction here operates on locally-
+      // executed `tool_result` bodies (string `.content`, possible
+      // `.contentBlocks` media). `web_search_tool_result` has an opaque
+      // encrypted content shape and is never microcompacted; it's treated as
+      // a tool-response only in `isToolResultOnlyUserMessage` above.
       if (block.type === "tool_result") {
         const tr = block as ToolResultContent;
         const toolName = toolNameById.get(tr.tool_use_id);
@@ -170,7 +176,7 @@ export function microcompact(
         // Only count a reclaim if stubbing actually shrinks the block.
         // The stub is always valid, but avoid double-counting no-op cases.
         reclaimedTokens += saved;
-        clearedImages += 1;
+        clearedMedia += 1;
         changed = true;
         return { type: "text", text: CLEARED_IMAGE_TEXT };
       }
@@ -178,7 +184,7 @@ export function microcompact(
       if (block.type === "file") {
         const saved = estimateFileReclaim(block);
         reclaimedTokens += saved;
-        clearedImages += 1;
+        clearedMedia += 1;
         changed = true;
         return { type: "text", text: CLEARED_FILE_TEXT };
       }
@@ -196,7 +202,7 @@ export function microcompact(
       messages,
       reclaimedTokens: 0,
       clearedToolResults: 0,
-      clearedImages: 0,
+      clearedMedia: 0,
     };
   }
 
@@ -204,7 +210,7 @@ export function microcompact(
     messages: nextMessages,
     reclaimedTokens,
     clearedToolResults,
-    clearedImages,
+    clearedMedia,
   };
 }
 
@@ -258,19 +264,44 @@ function computeProtectedBoundary(
 }
 
 /**
- * A user message that contains only tool_result blocks represents the
- * response side of a tool call rather than a fresh user turn.
+ * A user message that contains only tool-response blocks (or system-injected
+ * metadata) represents the response side of a tool call rather than a fresh
+ * user turn.
+ *
+ * Qualifying blocks:
+ *  - `tool_result` — locally-executed tool responses.
+ *  - `web_search_tool_result` — server-side web-search responses. Same
+ *    semantic as `tool_result` (paired with a prior `server_tool_use`), just
+ *    a distinct discriminant. Missing this variant would cause these
+ *    messages to masquerade as real user turns and eat `protectRecentTurns`
+ *    budget on tool churn.
+ *  - `text` blocks whose body is wholly inside `<system_notice>...</system_notice>`.
+ *    Those are system-injected reminders/progress checks, not user-authored.
  */
 function isToolResultOnlyUserMessage(message: Message): boolean {
   if (message.content.length === 0) return false;
-  return message.content.every((b) => b.type === "tool_result");
+  return message.content.every(isToolResponseOrSystemNoticeBlock);
+}
+
+function isToolResponseOrSystemNoticeBlock(block: ContentBlock): boolean {
+  if (block.type === "tool_result" || block.type === "web_search_tool_result") {
+    return true;
+  }
+  if (block.type === "text") {
+    const text = block.text;
+    return (
+      text.startsWith("<system_notice>") && text.endsWith("</system_notice>")
+    );
+  }
+  return false;
 }
 
 /**
  * Compact a single tool_result block in the stripped region.
  *
  *  - If `isProtected` is true, we keep the body but strip `<ax-tree>` blocks
- *    and drop any rich `contentBlocks` (images attached to the tool result).
+ *    and drop media (image/file) entries from `contentBlocks`, preserving
+ *    any text entries so meaningful tool output isn't silently removed.
  *  - Otherwise we replace the body with a short placeholder and drop
  *    `contentBlocks` entirely.
  *
@@ -290,16 +321,34 @@ function compactToolResult(
   const originalContent = block.content;
   const originalContentTokens = estimateTextTokens(originalContent);
 
-  // Rich contentBlocks (e.g. tool-attached images) are always dropped in
-  // the stripped region, regardless of protection. Protected tools retain
-  // their text body; the images are not the expensive part of a subagent
-  // result and are rarely load-bearing once the turn is stale.
-  let contentBlocksTokens = 0;
+  // Rich contentBlocks may include text (meaningful tool output) alongside
+  // media (images/files). For UNPROTECTED results we drop the entire array
+  // (the body is being wholesale-replaced). For PROTECTED results we keep
+  // text entries but strip media — images aren't the expensive part of a
+  // subagent result and are rarely load-bearing once the turn is stale, but
+  // text entries can carry real content we must not silently erase.
+  const originalContentBlocks = block.contentBlocks;
   const hadContentBlocks =
-    block.contentBlocks != null && block.contentBlocks.length > 0;
+    originalContentBlocks != null && originalContentBlocks.length > 0;
+
+  let preservedContentBlocks: ContentBlock[] | undefined;
+  let droppedBlocksTokens = 0;
   if (hadContentBlocks) {
-    for (const cb of block.contentBlocks!) {
-      contentBlocksTokens += estimateContentBlockTokenCost(cb);
+    if (isProtected) {
+      const kept: ContentBlock[] = [];
+      for (const cb of originalContentBlocks) {
+        if (cb.type === "text") {
+          kept.push(cb);
+        } else {
+          droppedBlocksTokens += estimateContentBlockTokenCost(cb);
+        }
+      }
+      preservedContentBlocks = kept;
+    } else {
+      for (const cb of originalContentBlocks) {
+        droppedBlocksTokens += estimateContentBlockTokenCost(cb);
+      }
+      preservedContentBlocks = undefined;
     }
   }
 
@@ -318,7 +367,11 @@ function compactToolResult(
   const bodyTokensSaved = originalContentTokens - newContentTokens;
 
   const bodyChanged = newContent !== originalContent;
-  const didChange = bodyChanged || hadContentBlocks;
+  // A protected result with only text contentBlocks would be a no-op — nothing
+  // meaningful would be dropped. Only count contentBlocks as a "change" when
+  // we actually drop at least one entry.
+  const contentBlocksChanged = hadContentBlocks && droppedBlocksTokens > 0;
+  const didChange = bodyChanged || contentBlocksChanged;
 
   if (!didChange) {
     return {
@@ -329,7 +382,7 @@ function compactToolResult(
     };
   }
 
-  const tokensSaved = Math.max(0, bodyTokensSaved + contentBlocksTokens);
+  const tokensSaved = Math.max(0, bodyTokensSaved + droppedBlocksTokens);
 
   const replacement: ToolResultContent = {
     type: "tool_result",
@@ -338,6 +391,9 @@ function compactToolResult(
   };
   if (block.is_error != null) {
     replacement.is_error = block.is_error;
+  }
+  if (preservedContentBlocks != null && preservedContentBlocks.length > 0) {
+    replacement.contentBlocks = preservedContentBlocks;
   }
 
   return {

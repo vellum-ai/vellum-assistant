@@ -393,7 +393,7 @@ describe("microcompact — image/file stubbing", () => {
 
     const result = microcompact(msgs);
 
-    expect(result.clearedImages).toBe(2);
+    expect(result.clearedMedia).toBe(2);
     expect(result.reclaimedTokens).toBeGreaterThan(0);
 
     // The image and file blocks should be replaced with text stubs.
@@ -431,7 +431,7 @@ describe("microcompact — image/file stubbing", () => {
     ];
 
     const result = microcompact(msgs);
-    expect(result.clearedImages).toBe(0);
+    expect(result.clearedMedia).toBe(0);
     expect(result.messages).toBe(msgs);
 
     const firstBlocks = result.messages[0].content;
@@ -566,6 +566,216 @@ describe("microcompact — tool_use/tool_result pairing", () => {
     expect(cleared.contentBlocks).toBeUndefined();
     expect(cleared.content).toBe("[Old tool result content cleared]");
   });
+
+  test("preserves text entries in contentBlocks on protected tool_results, drops media", () => {
+    // A protected (Task) tool_result in the stripped region carrying both a
+    // text entry AND an image entry in its `contentBlocks`. Before the P2
+    // fix, BOTH were dropped; text entries can be meaningful (protected-tool
+    // narration) and must survive.
+    const messages: Message[] = [
+      userText("initial"),
+      assistantToolUse("tu-prot", "Task"),
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "tu-prot",
+            content: big("task-body"),
+            contentBlocks: [
+              { type: "text", text: "important narration from subagent" },
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: "image/png",
+                  data: "X".repeat(10_000),
+                },
+              },
+            ],
+          } as ToolResultContent,
+        ],
+      },
+      // Push 4 turns to strip the first.
+      userText("t1"),
+      { role: "assistant", content: [{ type: "text", text: "r1" }] },
+      userText("t2"),
+      { role: "assistant", content: [{ type: "text", text: "r2" }] },
+      userText("t3"),
+      { role: "assistant", content: [{ type: "text", text: "r3" }] },
+      userText("t4"),
+      { role: "assistant", content: [{ type: "text", text: "r4" }] },
+    ];
+
+    const result = microcompact(messages);
+    const preserved = result.messages[2].content[0] as ToolResultContent;
+
+    // Body is preserved (protected tool — ax-tree stripping only, body kept).
+    expect(preserved.type).toBe("tool_result");
+    expect(preserved.content.startsWith("task-body:")).toBe(true);
+
+    // Text contentBlock entry survives.
+    expect(preserved.contentBlocks).toBeDefined();
+    expect(preserved.contentBlocks!.length).toBe(1);
+    expect(preserved.contentBlocks![0]).toEqual({
+      type: "text",
+      text: "important narration from subagent",
+    });
+
+    // Media entry was dropped, which saved tokens.
+    expect(result.reclaimedTokens).toBeGreaterThan(0);
+  });
+
+  test("protected tool_result with only text contentBlocks is a no-op (body unchanged, text kept)", () => {
+    // No media to strip and no ax-tree in body — nothing should change.
+    const messages: Message[] = [
+      userText("initial"),
+      assistantToolUse("tu-prot-txt", "Task"),
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "tu-prot-txt",
+            content: "task body without ax-tree",
+            contentBlocks: [
+              { type: "text", text: "only a text attachment here" },
+            ],
+          } as ToolResultContent,
+        ],
+      },
+      userText("t1"),
+      { role: "assistant", content: [{ type: "text", text: "r1" }] },
+      userText("t2"),
+      { role: "assistant", content: [{ type: "text", text: "r2" }] },
+      userText("t3"),
+      { role: "assistant", content: [{ type: "text", text: "r3" }] },
+      userText("t4"),
+      { role: "assistant", content: [{ type: "text", text: "r4" }] },
+    ];
+
+    const result = microcompact(messages, { minGainTokens: 0 });
+    // No reclaim for the protected tool_result, so it keeps its original text
+    // entries and body.
+    const kept = result.messages[2].content[0] as ToolResultContent;
+    expect(kept.content).toBe("task body without ax-tree");
+    expect(kept.contentBlocks).toBeDefined();
+    expect(kept.contentBlocks!.length).toBe(1);
+    expect(kept.contentBlocks![0]).toEqual({
+      type: "text",
+      text: "only a text attachment here",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// (h) web_search_tool_result & system_notice classifier
+// ---------------------------------------------------------------------------
+
+describe("microcompact — tool-response-only user message classifier", () => {
+  test("web_search_tool_result-only user messages do not count as a user turn", () => {
+    // Single real user turn followed by an assistant server_tool_use and a
+    // web_search_tool_result-only user message. protectRecentTurns=1 should
+    // still protect the single real user turn plus its trailing assistant
+    // response — NOT wastefully also protect the web_search_tool_result
+    // message (which would push the real tool_result on the prior turn out of
+    // reach).
+    const msgs: Message[] = [
+      userText("first real user turn"),
+      assistantToolUse("tu-old", "Bash"),
+      toolResult("tu-old", big("old-body")),
+      userText("second real user turn"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "server_tool_use",
+            id: "srv-1",
+            name: "web_search",
+            input: { query: "x" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "web_search_tool_result",
+            tool_use_id: "srv-1",
+            content: [],
+          },
+        ],
+      },
+      { role: "assistant", content: [{ type: "text", text: "done" }] },
+    ];
+
+    // protectRecentTurns=1 should protect ONLY "second real user turn" and
+    // everything after. tu-old (attached to "first real user turn") should be
+    // cleared.
+    const result = microcompact(msgs, { protectRecentTurns: 1 });
+    expect(result.clearedToolResults).toBe(1);
+
+    const trs = findToolResults(result.messages);
+    expect(trs[0].content).toBe("[Old tool result content cleared]");
+  });
+
+  test("system_notice-only text user messages do not count as a user turn", () => {
+    // System notices (retry nudges / progress checks) are injected as
+    // user-role text blocks wrapped in <system_notice>...</system_notice>.
+    // They must not be treated as real user turns.
+    const msgs: Message[] = [
+      userText("first real user turn"),
+      assistantToolUse("tu-old", "Bash"),
+      toolResult("tu-old", big("old-body")),
+      userText("second real user turn"),
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "some response" }],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<system_notice>please continue</system_notice>",
+          },
+        ],
+      },
+    ];
+
+    const result = microcompact(msgs, { protectRecentTurns: 1 });
+    expect(result.clearedToolResults).toBe(1);
+
+    const trs = findToolResults(result.messages);
+    expect(trs[0].content).toBe("[Old tool result content cleared]");
+  });
+
+  test("mixed user message (real text + tool_result) still counts as a user turn", () => {
+    // A user message containing both real text AND tool-response blocks is
+    // still a real user turn — don't misclassify.
+    const msgs: Message[] = [
+      userText("older turn"),
+      assistantToolUse("tu-old", "Bash"),
+      toolResult("tu-old", big("old-body")),
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "new user message with context" },
+          {
+            type: "tool_result",
+            tool_use_id: "tu-old",
+            content: "inline result",
+          } as ToolResultContent,
+        ],
+      },
+      { role: "assistant", content: [{ type: "text", text: "response" }] },
+    ];
+
+    // protectRecentTurns=1 should protect the mixed message + trailing
+    // assistant response; the older turn's tool_result should be cleared.
+    const result = microcompact(msgs, { protectRecentTurns: 1 });
+    expect(result.clearedToolResults).toBe(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -590,6 +800,6 @@ describe("microcompact — counter sanity", () => {
     const result = microcompact([]);
     expect(result.reclaimedTokens).toBe(0);
     expect(result.clearedToolResults).toBe(0);
-    expect(result.clearedImages).toBe(0);
+    expect(result.clearedMedia).toBe(0);
   });
 });
