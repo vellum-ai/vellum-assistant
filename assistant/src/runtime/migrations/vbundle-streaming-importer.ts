@@ -1156,16 +1156,39 @@ async function drainThroughVerifier(
 }
 
 /**
+ * Hard cap on the per-entry size that `collectHashVerified` is willing to
+ * buffer in memory. Applied to credential bodies and config files — both
+ * are expected to be KB-scale in practice. Exceeding this cap signals a
+ * crafted or corrupted bundle and is rejected before any bytes are read,
+ * so the streaming importer's memory guarantees still hold on a 3 GB pod
+ * even when the URL import is attacker-controlled.
+ */
+const MAX_BUFFERED_ENTRY_BYTES = 16 * 1024 * 1024;
+
+/**
  * Collect an entry body into a Buffer, verifying hash+size along the way.
  *
  * Uses `pipeline` + a sink writable that accumulates chunks, so destroy
  * signals propagate the same way as `drainThroughVerifier` and the hash
  * verifier's `_flush` (which asserts size+sha256) always runs.
+ *
+ * Rejects entries whose manifest-declared size exceeds
+ * `MAX_BUFFERED_ENTRY_BYTES` BEFORE reading any bytes, so an oversized
+ * credential or config file cannot drive RSS up by `expected.size` on a
+ * memory-limited pod.
  */
 async function collectHashVerified(
   body: Readable,
   expected: { sha256: string; size: number; archivePath: string },
 ): Promise<Buffer> {
+  if (expected.size > MAX_BUFFERED_ENTRY_BYTES) {
+    body.destroy();
+    throw new StreamingValidationError(
+      "entry_too_large_to_buffer",
+      `Archive entry "${expected.archivePath}" declares ${expected.size} bytes, exceeding the ${MAX_BUFFERED_ENTRY_BYTES}-byte in-memory buffer cap for credentials/configs`,
+      expected.archivePath,
+    );
+  }
   const verifier = createHashVerifier(expected);
   const chunks: Buffer[] = [];
   const sink = new Writable({
