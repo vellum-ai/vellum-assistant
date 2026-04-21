@@ -33,6 +33,10 @@ const manifest = {
       display_name: name,
       always_online: true,
     },
+    assistant_view: {
+      assistant_description: desc || name,
+      suggested_prompts: [],
+    },
   },
   oauth_config: {
     scopes: {
