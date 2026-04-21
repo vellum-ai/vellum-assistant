@@ -1271,7 +1271,7 @@ function resolveHostBrowserSender(
  * failure. The route handler path must never reject because of a
  * best-effort persistence step.
  */
-function persistOnboardingArtifacts(onboarding: {
+export function persistOnboardingArtifacts(onboarding: {
   tools: string[];
   tasks: string[];
   tone: string;
