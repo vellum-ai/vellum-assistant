@@ -656,6 +656,13 @@ async function main() {
         channelVerificationSessionProxy.handleGuardianInit(req, getClientIp()),
     },
     {
+      path: "/v1/guardian/reset-bootstrap",
+      method: "POST",
+      auth: "none",
+      handler: (_req, _params, getClientIp) =>
+        channelVerificationSessionProxy.handleResetBootstrap(getClientIp()),
+    },
+    {
       path: "/v1/channel-verification-sessions",
       method: "POST",
       auth: "edge",
