@@ -1011,6 +1011,7 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     func refreshActiveConversation() {
         guard let conversationId = activeConversation?.conversationId else { return }
+        activeViewModel?.prepareForNotificationCatchUp()
         conversationRestorer.requestReconnectHistory(conversationId: conversationId)
     }
 
