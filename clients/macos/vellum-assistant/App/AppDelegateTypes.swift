@@ -18,7 +18,7 @@ enum AssistantStatus {
         case .thinking: return "\(name) is thinking..."
         case .error: return "\(name) encountered an error"
         case .disconnected: return "Disconnected from \(name)"
-        case .authFailed: return "Authentication failed — click to re-pair \(name)"
+        case .authFailed: return "Authentication failed — use Re-pair \(name) below"
         }
     }
 

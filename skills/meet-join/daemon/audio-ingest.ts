@@ -43,6 +43,10 @@ import {
 
 import type { TranscriptChunkEvent } from "../contracts/index.js";
 
+import {
+  listProviderIds,
+  supportsBoundary,
+} from "../../../assistant/src/providers/speech-to-text/provider-catalog.js";
 import { resolveStreamingTranscriber } from "../../../assistant/src/providers/speech-to-text/resolve.js";
 import type {
   StreamingTranscriber,
@@ -574,9 +578,12 @@ async function defaultCreateTranscriber(): Promise<StreamingTranscriber> {
     diarize: "preferred",
   });
   if (!transcriber) {
+    const streamingProviders = listProviderIds()
+      .filter((id) => supportsBoundary(id, "daemon-streaming"))
+      .join(", ");
     throw new MeetAudioIngestError(
       "The configured STT provider is unusable for Meet transcription. " +
-        "Set services.stt.provider to deepgram, google-gemini, or openai-whisper " +
+        `Set services.stt.provider to ${streamingProviders} ` +
         "and ensure credentials are present.",
     );
   }

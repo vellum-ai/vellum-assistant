@@ -413,6 +413,24 @@ describe("RefreshCircuitBreaker", () => {
     expect(breaker.isOpen("service-x")).toBe(true);
     expect(breaker.isOpen("service-y")).toBe(false);
   });
+
+  test("transient (non-credential) failures do not trip the breaker", () => {
+    const breaker = new RefreshCircuitBreaker();
+    for (let i = 0; i < REFRESH_FAILURE_THRESHOLD + 5; i++) {
+      breaker.recordFailure("transient-svc", false);
+    }
+    expect(breaker.isOpen("transient-svc")).toBe(false);
+    expect(breaker.getState("transient-svc")).toBeUndefined();
+  });
+
+  test("tracks isCredentialError flag on breaker state", () => {
+    const breaker = new RefreshCircuitBreaker();
+    for (let i = 0; i < REFRESH_FAILURE_THRESHOLD; i++) {
+      breaker.recordFailure("cred-svc", true);
+    }
+    expect(breaker.isOpen("cred-svc")).toBe(true);
+    expect(breaker.getState("cred-svc")!.isCredentialError).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

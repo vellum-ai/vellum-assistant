@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "voice_config_update",
-      "description": "Update a voice configuration setting. Use tts_provider to switch the global TTS provider (valid providers: elevenlabs, fish-audio, deepgram — defined by the provider catalog). Use tts_voice_id to set the ElevenLabs voice ID, fish_audio_reference_id for Fish Audio voice reference. Deepgram uses the same API key as speech-to-text and requires no additional voice config. Changes persist to services.tts config and take effect immediately.",
+      "description": "Update a voice configuration setting. Use tts_provider to switch the global TTS provider (valid providers: elevenlabs, fish-audio, deepgram, xai — defined by the provider catalog). Use tts_voice_id to set the ElevenLabs voice ID, fish_audio_reference_id for Fish Audio voice reference. Deepgram uses the same API key as speech-to-text and requires no additional voice config. Changes persist to services.tts config and take effect immediately.",
       "category": "system",
       "risk": "low",
       "input_schema": {
@@ -18,10 +18,10 @@
               "tts_provider",
               "tts_voice_id"
             ],
-            "description": "The voice setting to change. tts_provider selects the global TTS provider from the provider catalog (elevenlabs, fish-audio, deepgram). tts_voice_id sets the ElevenLabs voice. fish_audio_reference_id sets the Fish Audio voice reference. Deepgram uses its default model and shares the STT API key."
+            "description": "The voice setting to change. tts_provider selects the global TTS provider from the provider catalog (valid providers: elevenlabs, fish-audio, deepgram, xai). tts_voice_id sets the ElevenLabs voice. fish_audio_reference_id sets the Fish Audio voice reference. Deepgram uses its default model and shares the STT API key."
           },
           "value": {
-            "description": "The new value for the setting. For tts_provider: a valid provider ID from the provider catalog (elevenlabs, fish-audio, deepgram). For tts_voice_id: an alphanumeric ElevenLabs voice ID. For fish_audio_reference_id: a Fish Audio voice reference ID. For conversation_timeout: seconds (5, 10, 15, 30, or 60). For activation_key: key identifier string."
+            "description": "The new value for the setting. For tts_provider: one of elevenlabs, fish-audio, deepgram, xai. For tts_voice_id: an alphanumeric ElevenLabs voice ID. For fish_audio_reference_id: a Fish Audio voice reference ID. For conversation_timeout: seconds (5, 10, 15, 30, or 60). For activation_key: key identifier string."
           },
           "activity": {
             "type": "string",

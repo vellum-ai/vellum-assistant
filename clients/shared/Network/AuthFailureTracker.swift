@@ -16,20 +16,32 @@ import Foundation
 /// jitter. A 30s window (the original default) could hold at most 3 such
 /// entries and so could never trip the detector.
 ///
-/// The clock is injected so tests can drive time deterministically without
-/// relying on `sleep`. All mutation is serialized through a private
+/// The clock source is **monotonic and sleep-inclusive** (backed by
+/// `mach_continuous_time()`), not wall-clock (`Date()`) and not
+/// `DispatchTime.now()` / `mach_absolute_time()`. Pruning compares elapsed
+/// seconds since an arbitrary fixed reference, so NTP adjustments, manual
+/// clock changes, and daylight-savings transitions cannot corrupt the window
+/// — a backward wall-clock jump would otherwise keep stale failures live, and
+/// a forward jump would prune real ones. It also must advance while the
+/// system is asleep: on macOS (the primary target), `DispatchTime.now()` and
+/// `ProcessInfo.systemUptime` both pause during sleep, so a laptop that
+/// accumulates 3 failures, sleeps for hours, and hits one more failure on
+/// wake would trip the detector on what is really a single fresh failure.
+/// `mach_continuous_time()` keeps advancing across sleep, so the window ages
+/// correctly. The clock is injected so tests can drive time deterministically
+/// without relying on `sleep`. All mutation is serialized through a private
 /// `DispatchQueue` so the tracker is safe to call from a periodic health-check
 /// task and from request-completion callbacks concurrently.
 public final class AuthFailureTracker {
     private struct Entry {
-        let timestamp: Date
+        let timestamp: TimeInterval
         let statusCode: Int
         let path: String
     }
 
     public let windowSeconds: TimeInterval
     public let minFailures: Int
-    private let now: () -> Date
+    private let now: () -> TimeInterval
     private let queue = DispatchQueue(label: "ai.vellum.AuthFailureTracker")
 
     private var entries: [Entry] = []
@@ -39,11 +51,28 @@ public final class AuthFailureTracker {
     public init(
         windowSeconds: TimeInterval = 90,
         minFailures: Int = 4,
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> TimeInterval = AuthFailureTracker.monotonicNow
     ) {
         self.windowSeconds = windowSeconds
         self.minFailures = minFailures
         self.now = now
+    }
+
+    private static let machTimebase: mach_timebase_info_data_t = {
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        return info
+    }()
+
+    /// Default monotonic clock: seconds since an arbitrary fixed reference,
+    /// sourced from `mach_continuous_time()`. Unlike `mach_absolute_time()`
+    /// (which backs `DispatchTime.now()`), the continuous clock keeps
+    /// advancing while the system is asleep — required on macOS so the
+    /// 90s sliding window ages correctly across laptop sleep.
+    public static func monotonicNow() -> TimeInterval {
+        let ticks = mach_continuous_time()
+        let nanos = ticks &* UInt64(machTimebase.numer) / UInt64(machTimebase.denom)
+        return TimeInterval(nanos) / 1_000_000_000
     }
 
     /// Record a completed HTTP response. Only 401 and 429 contribute to the
@@ -89,8 +118,8 @@ public final class AuthFailureTracker {
 
     // MARK: - Private
 
-    private func pruneLocked(relativeTo current: Date) {
-        let cutoff = current.addingTimeInterval(-windowSeconds)
+    private func pruneLocked(relativeTo current: TimeInterval) {
+        let cutoff = current - windowSeconds
         entries.removeAll { $0.timestamp < cutoff }
     }
 }

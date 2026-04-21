@@ -271,6 +271,7 @@ function makeDeps(opts: MakeDepsOpts = {}): {
         text: typeOpts.text,
         delayMs: typeOpts.delayMs,
         display: typeOpts.display,
+        timeoutMs: typeOpts.timeoutMs,
       });
       if (opts.xdotoolTypeError) throw opts.xdotoolTypeError;
     },
@@ -513,7 +514,9 @@ describe("runBot — extension message routing", () => {
     const before = handles.daemonEvents.length;
     handles.fireExtensionMessage({
       type: "lifecycle",
-      meetingId: "m-1",
+      // Extension stamps `meetingId = location.pathname` — the Meet URL
+      // code from MEET_URL, not the env UUID.
+      meetingId: "abc-defg-hij",
       timestamp: new Date().toISOString(),
       state: "joined",
     });
@@ -534,7 +537,7 @@ describe("runBot — extension message routing", () => {
     const before = handles.daemonEvents.length;
     handles.fireExtensionMessage({
       type: "participant.change",
-      meetingId: "m-1",
+      meetingId: "abc-defg-hij",
       timestamp: new Date().toISOString(),
       joined: [{ id: "p-1", name: "Alice" }],
       left: [],
@@ -553,14 +556,14 @@ describe("runBot — extension message routing", () => {
     const before = handles.daemonEvents.length;
     handles.fireExtensionMessage({
       type: "speaker.change",
-      meetingId: "m-1",
+      meetingId: "abc-defg-hij",
       timestamp: new Date().toISOString(),
       speakerId: "p-1",
       speakerName: "Alice",
     });
     handles.fireExtensionMessage({
       type: "chat.inbound",
-      meetingId: "m-1",
+      meetingId: "abc-defg-hij",
       timestamp: new Date().toISOString(),
       fromId: "p-2",
       fromName: "Bob",
@@ -641,12 +644,37 @@ describe("runBot — extension message routing", () => {
     expect(typeCall!.text).toBe("hello world");
     expect(typeCall!.delayMs).toBe(25);
     expect(typeCall!.display).toBe(":99");
+    // timeoutMs must scale with text length — the legacy fixed 15s
+    // default killed xdotool mid-type for messages above ~590 chars.
+    // 11 chars * 25ms/char + 250ms overhead + 5000ms safety slack.
+    expect(typeCall!.timeoutMs).toBe(11 * 25 + 250 + 5_000);
     // Success should surface via logInfo with the character count.
     expect(
       handles.infos.some((m) =>
         m.includes("trusted_type dispatched (11 chars)"),
       ),
     ).toBe(true);
+  });
+
+  test("trusted_type scales xdotool kill timeout for long messages", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    // 2000-char Meet-chat maximum — the case where the legacy fixed 15s
+    // xdotool timeout truncated the message mid-type.
+    const longText = "x".repeat(2000);
+    handles.fireExtensionMessage({
+      type: "trusted_type",
+      text: longText,
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const typeCall = handles.calls.find((c) => c.kind === "xdotool.type");
+    expect(typeCall).toBeDefined();
+    // 2000 chars * 25ms (default delay) + 250ms overhead + 5000ms slack.
+    expect(typeCall!.timeoutMs).toBe(2000 * 25 + 250 + 5_000);
+    expect(typeCall!.timeoutMs).toBeGreaterThan(15_000);
   });
 
   test("trusted_type xdotool failures surface via logError but don't shut down", async () => {
@@ -1135,6 +1163,108 @@ describe("runBot — Gap A: meetingId rewrite at bot boundary", () => {
 });
 
 /** -----------------------------------------------------------------------
+ * Foreign-tab source gate
+ * -----------------------------------------------------------------------
+ * The background service worker fans every bot command out to every open
+ * Meet tab in the Chrome profile. A stray tab (prior bot session, user-
+ * opened Meet, etc.) could otherwise emit lifecycle / telemetry events
+ * that we'd stamp with the session UUID and treat as authoritative —
+ * clearing the join-deadline timer, firing spurious `joined` / `error`
+ * at the daemon, and mixing telemetry across meetings. The bot compares
+ * each event's extension-supplied `meetingId` (the source tab's URL
+ * code) against the code derived from MEET_URL and drops mismatches.
+ */
+describe("runBot — foreign-tab source gate", () => {
+  test("lifecycle event from a foreign tab is dropped", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const before = handles.daemonEvents.length;
+    handles.fireExtensionMessage({
+      type: "lifecycle",
+      // Wrong Meet code — a stray tab pointed at a different meeting.
+      meetingId: "zzz-yyyy-xxx",
+      timestamp: new Date().toISOString(),
+      state: "joined",
+    });
+
+    // No daemon event enqueued.
+    expect(handles.daemonEvents.length).toBe(before);
+    // Diagnostic logged via logInfo.
+    expect(
+      handles.infos.some((m) =>
+        m.includes("dropping lifecycle event from foreign tab"),
+      ),
+    ).toBe(true);
+  });
+
+  test("foreign-tab lifecycle:joined does not clear the join-deadline timer", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps({ extensionJoinedTimeoutMs: 50 });
+    const running = runBot(deps);
+    await new Promise((r) => setTimeout(r, 5));
+    handles.fireExtensionReady();
+    await running;
+
+    // A stray tab's `joined` must NOT cancel the deadline.
+    handles.fireExtensionMessage({
+      type: "lifecycle",
+      meetingId: "zzz-yyyy-xxx",
+      timestamp: new Date().toISOString(),
+      state: "joined",
+    });
+
+    // Wait past the deadline — the timer should still trip.
+    const deadline = Date.now() + 1_000;
+    while (handles.exitCode() === null && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(handles.exitCode()).toBe(1);
+
+    const lifecycleStates = handles.daemonEvents
+      .filter((e): e is LifecycleEvent => e.type === "lifecycle")
+      .map((e) => ({ state: e.state, detail: e.detail }));
+    const errState = lifecycleStates.find((s) => s.state === "error");
+    expect(errState?.detail).toContain(
+      "extension did not reach joined state within 50ms",
+    );
+  });
+
+  test("participant.change / speaker.change / chat.inbound from foreign tabs are dropped", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    const before = handles.daemonEvents.length;
+    handles.fireExtensionMessage({
+      type: "participant.change",
+      meetingId: "zzz-yyyy-xxx",
+      timestamp: new Date().toISOString(),
+      joined: [{ id: "p-1", name: "Alice" }],
+      left: [],
+    });
+    handles.fireExtensionMessage({
+      type: "speaker.change",
+      meetingId: "zzz-yyyy-xxx",
+      timestamp: new Date().toISOString(),
+      speakerId: "p-1",
+      speakerName: "Alice",
+    });
+    handles.fireExtensionMessage({
+      type: "chat.inbound",
+      meetingId: "zzz-yyyy-xxx",
+      timestamp: new Date().toISOString(),
+      fromId: "p-2",
+      fromName: "Bob",
+      text: "hello",
+    });
+
+    expect(handles.daemonEvents.length).toBe(before);
+  });
+});
+
+/** -----------------------------------------------------------------------
  * Gap B: extension-joined deadline
  * -----------------------------------------------------------------------
  * `waitForReady` only proves the extension is alive, not that Chrome landed
@@ -1209,7 +1339,7 @@ describe("runBot — Gap B: extension-joined deadline", () => {
     expect(handles.daemonStopped()).toBe(false);
   });
 
-  test("lifecycle:error from extension clears the timer (no duplicate shutdown)", async () => {
+  test("lifecycle:error from extension triggers shutdown with exit code 1", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps({ extensionJoinedTimeoutMs: 50 });
     const running = runBot(deps);
@@ -1217,10 +1347,10 @@ describe("runBot — Gap B: extension-joined deadline", () => {
     handles.fireExtensionReady();
     await running;
 
-    // Fire `error` — handler updates state and clears the timer, but does
-    // not itself initiate shutdown (that's the extension's signal the
-    // meet-side died; shutdown is a separate path we're validating is
-    // idempotent).
+    // Fire `error` — the extension is signaling the meet-side died. The
+    // handler must drive a graceful shutdown so subsystems tear down
+    // promptly and the chrome-exit watcher doesn't misclassify the
+    // subsequent clean Chrome exit as an unexpected crash.
     handles.fireExtensionMessage({
       type: "lifecycle",
       meetingId: "abc-defg-hij",
@@ -1229,18 +1359,76 @@ describe("runBot — Gap B: extension-joined deadline", () => {
       detail: "prejoin captcha",
     });
 
-    // Give the timer plenty of time to fire if it wasn't cleared.
-    await new Promise((r) => setTimeout(r, 100));
+    // Wait for shutdown to complete.
+    const deadline = Date.now() + 1_000;
+    while (handles.exitCode() === null && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
 
-    // The error lifecycle event was forwarded.
-    const lifecycleStates = handles.daemonEvents
+    expect(handles.exitCode()).toBe(1);
+
+    // shutdown() publishes lifecycle:error to the daemon with the detail
+    // forwarded from the extension; the handler itself no longer emits a
+    // separate error event, so we see exactly one.
+    const errEvents = handles.daemonEvents
       .filter((e): e is LifecycleEvent => e.type === "lifecycle")
-      .map((e) => e.state);
-    expect(lifecycleStates).toContain("error");
+      .filter((e) => e.state === "error");
+    expect(errEvents.length).toBe(1);
+    expect(errEvents[0]?.detail).toBe("prejoin captcha");
 
-    // But no timer-driven shutdown should have fired.
-    // exitCode remains null because nothing else triggered shutdown.
-    expect(handles.exitCode()).toBeNull();
+    // Full shutdown should have run.
+    const counts = handles.stopCounts();
+    expect(counts.httpServer).toBe(1);
+    expect(counts.chrome).toBe(1);
+    expect(counts.audio).toBe(1);
+    expect(counts.xvfb).toBe(1);
+    expect(counts.socketServer).toBe(1);
+    expect(handles.daemonStopped()).toBe(true);
+  });
+
+  test("lifecycle:left from extension triggers shutdown with exit code 0", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps({ extensionJoinedTimeoutMs: 50 });
+    const running = runBot(deps);
+    await new Promise((r) => setTimeout(r, 5));
+    handles.fireExtensionReady();
+    await running;
+
+    // Fire `left` — the meeting ended naturally (host ended it, bot was
+    // kicked, etc.). The handler must drive a graceful shutdown and exit 0
+    // so the clean leave isn't misclassified as an error.
+    handles.fireExtensionMessage({
+      type: "lifecycle",
+      meetingId: "abc-defg-hij",
+      timestamp: new Date().toISOString(),
+      state: "left",
+      detail: "meeting ended",
+    });
+
+    // Wait for shutdown to complete.
+    const deadline = Date.now() + 1_000;
+    while (handles.exitCode() === null && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    expect(handles.exitCode()).toBe(0);
+
+    // Exactly one lifecycle:left event (published by shutdown, not the
+    // handler, so there's no duplicate).
+    const leftEvents = handles.daemonEvents
+      .filter((e): e is LifecycleEvent => e.type === "lifecycle")
+      .filter((e) => e.state === "left");
+    expect(leftEvents.length).toBe(1);
+    expect(leftEvents[0]?.detail).toBe("meeting ended");
+
+    // Full shutdown should have run.
+    const counts = handles.stopCounts();
+    expect(counts.httpServer).toBe(1);
+    expect(counts.chrome).toBe(1);
+    expect(counts.audio).toBe(1);
+    expect(counts.xvfb).toBe(1);
+    expect(counts.socketServer).toBe(1);
+    expect(handles.daemonStopped()).toBe(true);
   });
 });
 

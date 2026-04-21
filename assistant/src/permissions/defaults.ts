@@ -1,13 +1,7 @@
 import { join } from "node:path";
 
-import type {
-  ScopedTrustRule,
-  TrustRuleBase,
-} from "@vellumai/ces-contracts";
-import {
-  MANAGED_SKILL_TOOLS,
-  SKILL_LOAD_TOOL,
-} from "@vellumai/ces-contracts";
+import type { ScopedTrustRule, TrustRuleBase } from "@vellumai/ces-contracts";
+import { MANAGED_SKILL_TOOLS, SKILL_LOAD_TOOL } from "@vellumai/ces-contracts";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
@@ -19,13 +13,13 @@ import { getWorkspaceDir } from "../util/platform.js";
  * A default rule template is structurally identical to TrustRuleBase
  * minus `createdAt` (set at backfill time) and `userModifiedAt` (set
  * when users explicitly override defaults), plus the optional
- * `allowHighRisk` field that some tool families support.
+ * `scope` field that scoped tool families support.
  */
 export type DefaultRuleTemplate = Omit<
   TrustRuleBase,
   "createdAt" | "userModifiedAt"
 > & {
-  allowHighRisk?: boolean;
+  scope?: string;
 };
 
 /**
@@ -91,8 +85,9 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
   };
 
   // When running inside a container (IS_CONTAINERIZED=true), bash commands
-  // execute in an isolated environment — auto-allow all of them (including
-  // high-risk) so the user is never prompted.  Outside a container, bash
+  // execute in an isolated environment — auto-allow all of them so the user
+  // is never prompted. High-risk operations are handled by
+  // shouldAutoAllowHighRisk() in checker.ts. Outside a container, bash
   // commands run on the host and go through normal permission checks.
   const bashShellRule: DefaultRuleTemplate | null = getIsContainerized()
     ? {
@@ -102,7 +97,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
         scope: "everywhere",
         decision: "allow",
         priority: 50,
-        allowHighRisk: true,
       }
     : null;
 
@@ -115,7 +109,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     id: `default:ask-${tool}-global`,
     tool,
     pattern: "**",
-    scope: "everywhere",
     decision: "ask" as const,
     priority: 1000,
   }));
@@ -126,7 +119,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     id: `default:ask-${tool}-global`,
     tool,
     pattern: `${tool}:*`,
-    scope: "everywhere",
     decision: "ask" as const,
     priority: 1000,
   }));
@@ -198,7 +190,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     scope: workspaceDir,
     decision: "allow",
     priority: 100,
-    allowHighRisk: true,
   };
 
   const updatesDeleteRule: DefaultRuleTemplate = {
@@ -208,7 +199,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     scope: workspaceDir,
     decision: "allow",
     priority: 100,
-    allowHighRisk: true,
   };
 
   // Skill source directories — writing or editing skill source files should
@@ -260,7 +250,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     id: "default:ask-skill_load_dynamic-global",
     tool: SKILL_LOAD_TOOL,
     pattern: "skill_load_dynamic:*",
-    scope: "everywhere",
     decision: "ask",
     priority: 200,
   };
@@ -269,7 +258,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     id: "default:allow-skill_load-global",
     tool: SKILL_LOAD_TOOL,
     pattern: "skill_load:*",
-    scope: "everywhere",
     decision: "allow",
     priority: 100,
   };
@@ -278,7 +266,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     id: "default:allow-skill_execute-global",
     tool: "skill_execute",
     pattern: "skill_execute:*",
-    scope: "everywhere",
     decision: "allow",
     priority: 100,
   };
@@ -292,7 +279,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
       id: `default:allow-${tool}-global`,
       tool,
       pattern: `${tool}:*`,
-      scope: "everywhere",
       decision: "allow" as const,
       priority: 100,
     }),
@@ -303,7 +289,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     id: "default:allow-recall-global",
     tool: "recall",
     pattern: "recall:*",
-    scope: "everywhere",
     decision: "allow",
     priority: 100,
   };

@@ -2,14 +2,18 @@ import XCTest
 @testable import VellumAssistantShared
 
 final class AuthFailureTrackerTests: XCTestCase {
-    /// Helper that exposes a mutable `Date` the tracker reads via its injected clock.
+    /// Helper that exposes a mutable monotonic `TimeInterval` the tracker reads
+    /// via its injected clock. The tracker uses a monotonic clock source (not
+    /// `Date`) to stay robust against NTP / wall-clock jumps, so the test fake
+    /// models elapsed seconds since an arbitrary fixed reference rather than a
+    /// wall-clock instant.
     private final class Clock {
-        var now: Date
-        init(_ start: Date = Date(timeIntervalSince1970: 1_700_000_000)) {
+        var now: TimeInterval
+        init(_ start: TimeInterval = 1_700_000_000) {
             self.now = start
         }
         func advance(_ seconds: TimeInterval) {
-            now = now.addingTimeInterval(seconds)
+            now += seconds
         }
     }
 

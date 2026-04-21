@@ -43,6 +43,8 @@ export interface GmailMessagePart {
 }
 
 const MAX_RETRIES = 3;
+/** Higher retry count for batch modify — each retry is cheap relative to restarting the whole run. */
+const MAX_RETRIES_BATCH_MODIFY = 5;
 const INITIAL_BACKOFF_MS = 1_000;
 const IDEMPOTENT_METHODS = new Set([
   "GET",
@@ -55,6 +57,18 @@ const IDEMPOTENT_METHODS = new Set([
 const BATCH_CONCURRENCY = 10;
 
 /**
+ * Thrown when Gmail returns a 403 indicating the daily sending/read quota
+ * has been exhausted. Callers should write an `interrupted` op-log entry
+ * and bail — retrying before midnight PT is pointless.
+ */
+export class DailyQuotaExceededError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DailyQuotaExceededError";
+  }
+}
+
+/**
  * Execute an authenticated Gmail API request via `assistant oauth request`.
  * Retries 429 and 5xx errors with exponential backoff for idempotent methods.
  */
@@ -62,9 +76,14 @@ export async function gmailRequest<T = unknown>(
   opts: GmailRequestOptions,
 ): Promise<GmailResponse<T>> {
   const method = (opts.method ?? "GET").toUpperCase();
-  const canRetry = IDEMPOTENT_METHODS.has(method);
+  // batchModify is effectively idempotent — re-removing INBOX from an already-
+  // archived message is a no-op — so we allow retries for it.
+  const isBatchModify =
+    method === "POST" && opts.path === "/messages/batchModify";
+  const canRetry = IDEMPOTENT_METHODS.has(method) || isBatchModify;
+  const maxRetries = isBatchModify ? MAX_RETRIES_BATCH_MODIFY : MAX_RETRIES;
 
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const args: string[] = [
       "assistant",
       "oauth",
@@ -136,10 +155,21 @@ export async function gmailRequest<T = unknown>(
       );
     }
 
-    // Retry on 429 (rate limit) and 5xx (server error) for idempotent methods
+    // 403 with quota/rate keywords = daily quota exhausted.
+    // This is NOT retryable — the quota resets at midnight PT.
+    if (
+      result.status === 403 &&
+      /quota|rate/i.test(JSON.stringify(result.body))
+    ) {
+      throw new DailyQuotaExceededError(
+        "Gmail daily quota exceeded. Resume after midnight PT.",
+      );
+    }
+
+    // Retry on 429 (rate limit) and 5xx (server error) for retryable methods
     const isRetryable =
       result.status === 429 || (result.status >= 500 && result.status < 600);
-    if (canRetry && isRetryable && attempt < MAX_RETRIES) {
+    if (canRetry && isRetryable && attempt < maxRetries) {
       const retryAfter = result.headers?.["retry-after"];
       const delayMs = retryAfter
         ? parseInt(retryAfter, 10) * 1000

@@ -30,6 +30,12 @@ export const MEET_TAB_URL_PATTERN = "https://meet.google.com/*";
 export function startContentBridge(port: NativePort): void {
   // Content scripts post messages up to the service worker via
   // chrome.runtime.sendMessage; we validate and forward to the native host.
+  //
+  // `avatar.started` / `avatar.frame` originate in the separate avatar
+  // tab (see `features/avatar.ts`) and are forwarded to the native port
+  // by the avatar feature's own listener. Relaying them here would
+  // double-post every frame — doubling base64 decode, JPEG→Y4M ffmpeg
+  // spawns, and device-writer load on the bot side.
   chrome.runtime.onMessage.addListener(
     (
       raw: unknown,
@@ -42,6 +48,12 @@ export function startContentBridge(port: NativePort): void {
           "[meet-ext] dropped invalid content->bot message:",
           result.error.message,
         );
+        return false;
+      }
+      if (
+        result.data.type === "avatar.started" ||
+        result.data.type === "avatar.frame"
+      ) {
         return false;
       }
       try {
@@ -107,7 +119,18 @@ async function fanOutToMeetTabs(msg: BotToExtensionMessage): Promise<void> {
     for (const tab of tabs) {
       if (typeof tab.id !== "number") continue;
       try {
-        await chrome.tabs.sendMessage(tab.id, msg);
+        const response = (await chrome.tabs.sendMessage(tab.id, msg)) as
+          | { ok?: boolean; reason?: string }
+          | undefined;
+        // A non-matching tab responds with `{ ok: false }` so we don't
+        // count it as delivery. Without this, a stray Meet tab in the
+        // same profile would silently consume a join command while the
+        // real tab's content script was still mounting, and the retry
+        // loop would exit before reaching the real tab.
+        if (response && response.ok === false) {
+          lastError = response.reason ?? "rejected by content script";
+          continue;
+        }
         anyDelivered = true;
       } catch (err) {
         lastError = err;

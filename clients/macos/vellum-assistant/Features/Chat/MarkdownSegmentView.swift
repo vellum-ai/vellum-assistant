@@ -909,19 +909,26 @@ func clearMathImageCache() {
 
 /// Converts an `NSColor` to a stable hex cache-key component. Uses the
 /// sRGB-calibrated components so color-space shifts don't cause cache misses
-/// on logically identical colors. Returns a sentinel when the color cannot be
-/// bridged into sRGB (e.g. an asset-catalog pattern or named color whose
-/// component accessors would throw) so the caller falls back to a stable but
-/// non-RGB-derived key instead of crashing.
+/// on logically identical colors. When the color cannot be bridged into sRGB
+/// (e.g. an asset-catalog pattern or named color whose component accessors
+/// would throw), derives a distinguishing key from the `CGColor` color-space
+/// name and components so two unresolved colors do not collide on the same
+/// cache entry.
 private func mathCacheColorKey(_ color: NSColor) -> String {
-    guard let rgb = color.usingColorSpace(.sRGB) else {
-        return "unresolved"
+    if let rgb = color.usingColorSpace(.sRGB) {
+        let r = Int((rgb.redComponent * 255).rounded())
+        let g = Int((rgb.greenComponent * 255).rounded())
+        let b = Int((rgb.blueComponent * 255).rounded())
+        let a = Int((rgb.alphaComponent * 255).rounded())
+        return String(format: "%02X%02X%02X%02X", r, g, b, a)
     }
-    let r = Int((rgb.redComponent * 255).rounded())
-    let g = Int((rgb.greenComponent * 255).rounded())
-    let b = Int((rgb.blueComponent * 255).rounded())
-    let a = Int((rgb.alphaComponent * 255).rounded())
-    return String(format: "%02X%02X%02X%02X", r, g, b, a)
+    let cg = color.cgColor
+    let spaceName = (cg.colorSpace?.name as String?) ?? "unknown"
+    if let components = cg.components {
+        let joined = components.map { String(format: "%.6f", $0) }.joined(separator: ",")
+        return "unresolved:\(spaceName):\(joined)"
+    }
+    return "unresolved:\(spaceName):\(color.description)"
 }
 
 /// Renders a LaTeX block via `SwiftMath.MathImage`. Results are cached per
@@ -997,7 +1004,11 @@ private struct MathBlockView: View {
 
     @ViewBuilder
     private func rendered(image: NSImage, intrinsicSize: CGSize) -> some View {
-        let limit = maxContentWidth ?? intrinsicSize.width
+        // Match peer MarkdownSegment renderers: nil maxContentWidth means
+        // "no caller-specified limit", which collapses to the default chat
+        // bubble max. Treating nil as unlimited let long equations render
+        // at full intrinsic width in InlineFilePreviewView / SubagentDetailPanel.
+        let limit = maxContentWidth ?? VSpacing.chatBubbleMaxWidth
         let needsScroll = intrinsicSize.width > limit && intrinsicSize.width > 0
         let renderedWidth: CGFloat = needsScroll
             ? intrinsicSize.width
@@ -1014,6 +1025,8 @@ private struct MathBlockView: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: intrinsicSize.width, height: intrinsicSize.height)
+                    .accessibilityLabel(latex)
+                    .accessibilityValue("math equation")
             }
             .frame(height: intrinsicSize.height)
         } else {
@@ -1022,6 +1035,8 @@ private struct MathBlockView: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: renderedWidth, height: renderedHeight)
+                .accessibilityLabel(latex)
+                .accessibilityValue("math equation")
         }
     }
 

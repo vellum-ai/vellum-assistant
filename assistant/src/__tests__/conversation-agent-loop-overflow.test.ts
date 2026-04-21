@@ -77,6 +77,13 @@ mock.module("../context/token-estimator.js", () => ({
     typeof mockEstimateTokens === "function"
       ? mockEstimateTokens(msgs)
       : mockEstimateTokens,
+  // Conversation agent loop now calls this helper to canonicalize the
+  // provider key shared with the calibration system. The tests here
+  // don't exercise that path, so a passthrough mock is fine.
+  getCalibrationProviderKey: (provider: {
+    name: string;
+    tokenEstimationProvider?: string;
+  }) => provider.tokenEstimationProvider ?? provider.name,
 }));
 
 // Reducer: by default returns the input untouched and marks exhausted
@@ -166,6 +173,8 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOriginChannel: () => null,
   getMessageById: () => null,
   updateMessageContent: () => {},
+  updateMessageMetadata: () => {},
+  clearPkbSystemReminderMetadataForConversation: () => {},
 }));
 
 mock.module("../memory/retriever.js", () => ({
@@ -216,8 +225,10 @@ mock.module("../daemon/conversation-memory.js", () => ({
 
 let mockApplyRuntimeInjections: (msgs: Message[]) => Message[] = (msgs) => msgs;
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
-  applyRuntimeInjections: async (msgs: Message[]) =>
-    mockApplyRuntimeInjections(msgs),
+  applyRuntimeInjections: async (msgs: Message[]) => ({
+    messages: mockApplyRuntimeInjections(msgs),
+    blocks: {},
+  }),
   stripInjectionsForCompaction: (msgs: Message[]) => msgs,
   findLastInjectedNowContent: () => null,
   readNowScratchpad: () => null,
@@ -399,6 +410,10 @@ function makeCtx(
     agentLoop: {
       run: agentLoopRun,
       getToolTokenBudget: () => 0,
+      // Tests in this file don't exercise calibration, so returning
+      // undefined is fine — the estimator falls back to the per-provider
+      // aggregate key.
+      getActiveModel: () => undefined,
     } as unknown as AgentLoopConversationContext["agentLoop"],
     provider: {
       name: "mock-provider",

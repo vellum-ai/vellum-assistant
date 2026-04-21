@@ -38,6 +38,7 @@ public final class EventStreamClient {
     private let maxReconnectDelay: TimeInterval = 30.0
     private var shouldReconnect = true
     private var hasShownCreditsExhausted = false
+    private var hasConnectedAtLeastOnce = false
 
     /// Dedicated URLSession for the current SSE connection. Each new stream
     /// gets its own session so that `invalidateAndCancel()` can tear down the
@@ -338,6 +339,20 @@ public final class EventStreamClient {
 
                 self.hasShownCreditsExhausted = false
                 log.info("SSE stream connected")
+
+                // On reconnect (not the first connect), broadcast a synthetic
+                // conversation_list_invalidated so any events missed during the
+                // disconnect window are recovered via the normal refetch path.
+                // Without this, a pin/rename/reorder that landed while SSE was
+                // reconnecting would leave the sidebar stale until app restart.
+                if self.hasConnectedAtLeastOnce {
+                    self.broadcastMessage(
+                        .conversationListInvalidated(
+                            ConversationListInvalidatedMessage(reason: "sse_reconnected")
+                        )
+                    )
+                }
+                self.hasConnectedAtLeastOnce = true
 
                 for try await line in bytes.lines {
                     if Task.isCancelled { break }

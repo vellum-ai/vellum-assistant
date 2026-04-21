@@ -4,9 +4,6 @@ import VellumAssistantShared
 
 // Onboarding step identifiers for the cloud-login flow:
 //   Welcome → Login → Ready
-// Microphone and speech recognition permissions are requested at point-of-use
-// (first voice-button tap in InputBarView) per Apple HIG guidance:
-// https://developer.apple.com/design/human-interface-guidelines/privacy#Requesting-permission
 private enum OnboardingStep: Hashable {
     case welcome
     case login

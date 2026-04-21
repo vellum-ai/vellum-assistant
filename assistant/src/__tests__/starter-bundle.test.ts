@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { ruleScope } from "@vellumai/ces-contracts";
+
 // Set up a temp directory before importing trust-store
 const TEST_ROOT = join(
   import.meta.dirname ?? __dirname,
@@ -148,14 +150,15 @@ describe("Starter approval bundle", () => {
     expect(starterRules.length).toBe(getStarterBundleRules().length);
 
     for (const rule of starterRules) {
-      // Canonical shape: scope is always present and set to "everywhere"
-      expect(rule.scope).toBe("everywhere");
+      // Effective scope is always "everywhere" — scoped and generic tools
+      // carry an explicit scope field, while URL tools omit it (ruleScope
+      // returns "everywhere" for rules without a scope field).
+      expect(ruleScope(rule)).toBe("everywhere");
 
       // Starter rules are all allow decisions — they should not carry
-      // family-specific metadata signals (allowHighRisk, executionTarget).
+      // family-specific metadata signals (executionTarget).
       // These rules cover read-only/information-gathering tools that are
       // either generic or scoped family, but none require high-risk access.
-      expect(rule.allowHighRisk).toBeUndefined();
       expect(rule.executionTarget).toBeUndefined();
 
       // Base fields must be present

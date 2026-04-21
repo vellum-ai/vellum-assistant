@@ -205,6 +205,159 @@ final class MeetStatusPanelTests: XCTestCase {
         XCTAssertEqual(joinedAt, fixedNow)
     }
 
+    /// SSE reconnect mid-meeting when the panel is already `.joined` — the
+    /// daemon replays `meet.joined` (but not `meet.joining`). The replay must
+    /// be a no-op: the URL-based title and original `joinedAt` must survive
+    /// so the elapsed counter doesn't reset to 00:00.
+    func testReplayedJoinedForSameMeetingPreservesTitleAndJoinedAt() async throws {
+        let initialNow = Date(timeIntervalSince1970: 1_700_800_000)
+        var clockValue = initialNow
+        let (stream, continuation) = AsyncStream<ServerMessage>.makeStream()
+        let vm = MeetStatusViewModel(
+            messageStream: stream,
+            clock: { clockValue }
+        )
+
+        continuation.yield(.meetJoining(
+            MeetJoiningMessage(
+                type: "meet.joining",
+                meetingId: "replay-meeting",
+                url: "https://meet.google.com/replay"
+            )
+        ))
+        continuation.yield(.meetJoined(
+            MeetJoinedMessage(type: "meet.joined", meetingId: "replay-meeting")
+        ))
+        try await waitUntil(timeout: 2.0) {
+            if case .joined = vm.state { return true }
+            return false
+        }
+
+        // Advance the clock, then replay meet.joined (no meet.joining) as
+        // would happen on an SSE reconnect.
+        clockValue = initialNow.addingTimeInterval(120)
+        continuation.yield(.meetJoined(
+            MeetJoinedMessage(type: "meet.joined", meetingId: "replay-meeting")
+        ))
+
+        try await Task.sleep(nanoseconds: 150_000_000)
+        guard case let .joined(meetingId, title, joinedAt) = vm.state else {
+            return XCTFail("expected .joined state after replay")
+        }
+        XCTAssertEqual(meetingId, "replay-meeting")
+        XCTAssertEqual(title, "https://meet.google.com/replay")
+        XCTAssertEqual(joinedAt, initialNow)
+    }
+
+    // MARK: - meetingId scoping
+
+    /// With multiple simultaneous meetings, a stale `meet.left` for meeting A
+    /// must not wipe meeting B's live banner. The state machine ignores the
+    /// event when its meetingId does not match the in-flight meeting.
+    func testLeftForNonCurrentMeetingDoesNotResetJoinedState() async throws {
+        let fixedNow = Date(timeIntervalSince1970: 1_700_500_000)
+        let (vm, continuation) = makeViewModel(fixedNow: fixedNow)
+
+        // Drive the panel to .joined for meeting B.
+        continuation.yield(.meetJoining(
+            MeetJoiningMessage(
+                type: "meet.joining",
+                meetingId: "meeting-b",
+                url: "https://meet.google.com/meeting-b"
+            )
+        ))
+        continuation.yield(.meetJoined(
+            MeetJoinedMessage(type: "meet.joined", meetingId: "meeting-b")
+        ))
+        try await waitUntil(timeout: 2.0) {
+            if case .joined = vm.state { return true }
+            return false
+        }
+
+        // Stale .left for a different meeting must NOT collapse to idle.
+        continuation.yield(.meetLeft(
+            MeetLeftMessage(
+                type: "meet.left",
+                meetingId: "meeting-a",
+                reason: "stale"
+            )
+        ))
+
+        // Give the consumer task a chance to pull the event off the stream.
+        try await Task.sleep(nanoseconds: 150_000_000)
+        guard case let .joined(meetingId, _, _) = vm.state else {
+            return XCTFail("expected banner to still be .joined for meeting-b")
+        }
+        XCTAssertEqual(meetingId, "meeting-b")
+    }
+
+    /// Matching-meetingId `meet.left` still transitions correctly after the
+    /// guard is in place — ensures we don't regress the happy path.
+    func testLeftForCurrentMeetingResetsToIdle() async throws {
+        let (vm, continuation) = makeViewModel()
+
+        continuation.yield(.meetJoining(
+            MeetJoiningMessage(
+                type: "meet.joining",
+                meetingId: "meeting-c",
+                url: "https://meet.google.com/meeting-c"
+            )
+        ))
+        continuation.yield(.meetJoined(
+            MeetJoinedMessage(type: "meet.joined", meetingId: "meeting-c")
+        ))
+        try await waitUntil(timeout: 2.0) {
+            if case .joined = vm.state { return true }
+            return false
+        }
+
+        continuation.yield(.meetLeft(
+            MeetLeftMessage(
+                type: "meet.left",
+                meetingId: "meeting-c",
+                reason: "user-requested"
+            )
+        ))
+        try await waitUntil(timeout: 2.0) {
+            vm.state == .idle
+        }
+    }
+
+    /// A stale `meet.error` for a non-current meeting must not overwrite the
+    /// live `.joined` banner for a different meeting.
+    func testErrorForNonCurrentMeetingDoesNotReplaceJoinedState() async throws {
+        let (vm, continuation) = makeViewModel()
+
+        continuation.yield(.meetJoining(
+            MeetJoiningMessage(
+                type: "meet.joining",
+                meetingId: "meeting-d",
+                url: "https://meet.google.com/meeting-d"
+            )
+        ))
+        continuation.yield(.meetJoined(
+            MeetJoinedMessage(type: "meet.joined", meetingId: "meeting-d")
+        ))
+        try await waitUntil(timeout: 2.0) {
+            if case .joined = vm.state { return true }
+            return false
+        }
+
+        continuation.yield(.meetError(
+            MeetErrorMessage(
+                type: "meet.error",
+                meetingId: "meeting-e",
+                detail: "bot crashed"
+            )
+        ))
+
+        try await Task.sleep(nanoseconds: 150_000_000)
+        guard case let .joined(meetingId, _, _) = vm.state else {
+            return XCTFail("expected banner to still be .joined for meeting-d")
+        }
+        XCTAssertEqual(meetingId, "meeting-d")
+    }
+
     // MARK: - Error
 
     func testErrorEventShowsErrorState() async throws {

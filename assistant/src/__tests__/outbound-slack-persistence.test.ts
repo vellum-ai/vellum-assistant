@@ -96,7 +96,7 @@ import {
   handleMessageComplete,
 } from "../daemon/conversation-agent-loop-handlers.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import { setThreadTs } from "../memory/slack-thread-store.js";
+import { clearThreadTs, setThreadTs } from "../memory/slack-thread-store.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -134,9 +134,13 @@ function makeDeps(
     } as EventHandlerDeps["turnChannelContext"],
     turnInterfaceContext: {
       userMessageInterface:
-        assistantMessageChannel === "vellum" ? "macos" : assistantMessageChannel,
+        assistantMessageChannel === "vellum"
+          ? "macos"
+          : assistantMessageChannel,
       assistantMessageInterface:
-        assistantMessageChannel === "vellum" ? "macos" : assistantMessageChannel,
+        assistantMessageChannel === "vellum"
+          ? "macos"
+          : assistantMessageChannel,
     } as EventHandlerDeps["turnInterfaceContext"],
   } as EventHandlerDeps;
 }
@@ -240,6 +244,34 @@ describe("outbound assistant Slack metadata persistence", () => {
     expect(slackMeta.threadTs).toBeUndefined();
     // channelTs is still absent for the same persistence-vs-send reason.
     expect(slackMeta.channelTs).toBeUndefined();
+  });
+
+  test("does NOT stamp a stale threadTs after the mapping is cleared", async () => {
+    const conversationId = "conv-slack-cleared";
+    const channelId = "C789CLEARED";
+    // Simulate an earlier threaded turn that seeded the mapping, followed
+    // by a channel-root turn whose inbound path cleared it.
+    setThreadTs(conversationId, channelId, "1111.2222");
+    clearThreadTs(conversationId);
+
+    const deps = makeDeps(conversationId, {
+      assistantMessageChannel: "slack",
+      requesterChatId: channelId,
+    });
+    await handleMessageComplete(
+      state,
+      deps,
+      makeMessageCompleteEvent("root reply"),
+    );
+
+    const persisted = lastAssistantPersisted();
+    const slackMetaRaw = persisted.metadata?.slackMeta;
+    expect(typeof slackMetaRaw).toBe("string");
+    const slackMeta = JSON.parse(slackMetaRaw as string) as Record<
+      string,
+      unknown
+    >;
+    expect(slackMeta.threadTs).toBeUndefined();
   });
 
   test("does NOT stamp slackMeta on non-Slack outbound assistant messages", async () => {

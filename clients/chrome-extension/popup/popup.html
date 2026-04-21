@@ -601,15 +601,14 @@
 
     <div id="troubleshoot-body" hidden>
       <div class="advanced-setting">
-        <label for="port-input">Connection port</label>
-        <input
-          type="text"
-          id="port-input"
-          placeholder="7830"
-          autocomplete="off"
-          spellcheck="false"
-        />
-        <p class="hint">Only change this if support asks you to.</p>
+        <label for="environment-select">Environment</label>
+        <select id="environment-select">
+          <option value="local">Local</option>
+          <option value="dev">Development</option>
+          <option value="staging">Staging</option>
+          <option value="production">Production</option>
+        </select>
+        <p class="hint" id="environment-hint">Overrides the build default for this extension profile.</p>
       </div>
 
       <p class="local-status" id="local-status" style="display:none">Not paired</p>

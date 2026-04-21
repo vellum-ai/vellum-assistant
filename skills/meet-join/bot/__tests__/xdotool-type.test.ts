@@ -83,9 +83,38 @@ describe("xdotoolType", () => {
       "--delay",
       "25",
       "--clearmodifiers",
+      "--",
       "hello world",
     ]);
     expect(fake.calls[0]!.options.env?.DISPLAY).toBe(":99");
+  });
+
+  test("passes text starting with '-' safely via the '--' end-of-options marker", async () => {
+    // Regression: without `--` before the text token, xdotool parses
+    // anything starting with `-` as an option flag (e.g. a negative number
+    // like `-14.7873` would be rejected as an unknown option).
+    const child = makeFakeChild();
+    const fake = makeFakeSpawn(child);
+
+    const pending = xdotoolType({
+      text: "-14.7873",
+      display: ":99",
+      spawn: fake.spawn,
+    });
+    child.__simulateExit(0);
+    await pending;
+
+    expect(fake.calls[0]!.args).toEqual([
+      "type",
+      "--delay",
+      "25",
+      "--clearmodifiers",
+      "--",
+      "-14.7873",
+    ]);
+    // The `--` token must appear immediately before the user-supplied text.
+    const args = fake.calls[0]!.args;
+    expect(args.indexOf("--")).toBe(args.length - 2);
   });
 
   test("honours custom delayMs", async () => {
@@ -106,6 +135,7 @@ describe("xdotoolType", () => {
       "--delay",
       "100",
       "--clearmodifiers",
+      "--",
       "abc",
     ]);
   });

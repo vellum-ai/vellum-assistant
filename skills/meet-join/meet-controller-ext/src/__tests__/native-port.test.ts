@@ -218,6 +218,25 @@ describe("openNativePort", () => {
     handle.close();
   });
 
+  test("onConnect fires after each successful (re)connect", async () => {
+    const baseMs = 20;
+    const handle = openNativePort({ reconnectBaseMs: baseMs });
+    let connects = 0;
+    handle.onConnect(() => {
+      connects += 1;
+    });
+    // Subscribing after `connect()` has already run should fire immediately
+    // so late subscribers still get the startup signal.
+    expect(connects).toBe(1);
+
+    disconnect(fake.connectCalls[0]!.port);
+    await sleep(baseMs + 20);
+    expect(fake.connectCalls.length).toBe(2);
+    expect(connects).toBe(2);
+
+    handle.close();
+  });
+
   test("close() prevents further reconnect attempts", async () => {
     const baseMs = 20;
     const handle = openNativePort({ reconnectBaseMs: baseMs });

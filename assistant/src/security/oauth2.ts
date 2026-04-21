@@ -790,9 +790,22 @@ export async function startOAuth2Flow(
   );
 }
 
+// Retry constants for transient failures during token refresh.
+const REFRESH_MAX_RETRIES = 3;
+const REFRESH_INITIAL_DELAY_MS = 500;
+const REFRESH_MAX_DELAY_MS = 4_000;
+
+function isRetryableRefreshError(status: number): boolean {
+  return status >= 500 || status === 429;
+}
+
 /**
  * Refresh an OAuth2 access token using a refresh token.
  * Supports both PKCE (no secret) and client_secret flows.
+ *
+ * Retries up to {@link REFRESH_MAX_RETRIES} times on transient failures
+ * (network errors, 5xx, 429) with exponential backoff + jitter. Credential
+ * errors (400 invalid_grant/invalid_client, 401, 403) fail immediately.
  */
 export async function refreshOAuth2Token(
   tokenExchangeUrl: string,
@@ -830,45 +843,95 @@ export async function refreshOAuth2Token(
     }
   }
 
-  const resp = await fetch(tokenExchangeUrl, {
-    method: "POST",
-    headers,
-    body:
-      bodyFormat === "json" ? JSON.stringify(body) : new URLSearchParams(body),
-  });
+  const requestBody =
+    bodyFormat === "json" ? JSON.stringify(body) : new URLSearchParams(body);
 
-  if (!resp.ok) {
-    const rawBody = await resp.text().catch(() => "");
-    const safeDetail: Record<string, unknown> = {};
-    let errorCode = "";
-    try {
-      const parsed = JSON.parse(rawBody) as Record<string, unknown>;
-      if (parsed.error) {
-        safeDetail.error = String(parsed.error);
-        errorCode = String(parsed.error);
-      }
-      if (parsed.error_description)
-        safeDetail.error_description = String(parsed.error_description);
-    } catch {
-      safeDetail.error = "[non-JSON response]";
+  let lastError: Error | undefined;
+
+  for (let attempt = 0; attempt <= REFRESH_MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      const baseDelay = Math.min(
+        REFRESH_INITIAL_DELAY_MS * 2 ** (attempt - 1),
+        REFRESH_MAX_DELAY_MS,
+      );
+      const jitter = Math.random() * baseDelay * 0.5;
+      const delay = baseDelay + jitter;
+      log.info(
+        { attempt, delayMs: Math.round(delay) },
+        "Retrying OAuth2 token refresh after transient failure",
+      );
+      await new Promise((r) => setTimeout(r, delay));
     }
-    log.error(
-      { status: resp.status, ...safeDetail },
-      "OAuth2 token refresh failed",
-    );
-    const detail = errorCode
-      ? `HTTP ${resp.status}: ${errorCode}`
-      : `HTTP ${resp.status}`;
-    throw new Error(`OAuth2 token refresh failed (${detail})`);
+
+    let resp: Response;
+    try {
+      resp = await fetch(tokenExchangeUrl, {
+        method: "POST",
+        headers,
+        body: requestBody,
+      });
+    } catch (err) {
+      // Network error (DNS, connection refused, timeout)
+      lastError =
+        err instanceof Error ? err : new Error(`Network error: ${String(err)}`);
+      log.warn(
+        { err: lastError, attempt },
+        "OAuth2 token refresh network error",
+      );
+      continue;
+    }
+
+    if (!resp.ok) {
+      const rawBody = await resp.text().catch(() => "");
+      const safeDetail: Record<string, unknown> = {};
+      let errorCode = "";
+      try {
+        const parsed = JSON.parse(rawBody) as Record<string, unknown>;
+        if (parsed.error) {
+          safeDetail.error = String(parsed.error);
+          errorCode = String(parsed.error);
+        }
+        if (parsed.error_description)
+          safeDetail.error_description = String(parsed.error_description);
+      } catch {
+        safeDetail.error = "[non-JSON response]";
+      }
+
+      const detail = errorCode
+        ? `HTTP ${resp.status}: ${errorCode}`
+        : `HTTP ${resp.status}`;
+
+      // Credential errors fail immediately — no retry will help.
+      if (!isRetryableRefreshError(resp.status)) {
+        log.error(
+          { status: resp.status, ...safeDetail },
+          "OAuth2 token refresh failed",
+        );
+        throw new Error(`OAuth2 token refresh failed (${detail})`);
+      }
+
+      lastError = new Error(`OAuth2 token refresh failed (${detail})`);
+      log.warn(
+        { status: resp.status, attempt, ...safeDetail },
+        "OAuth2 token refresh transient failure",
+      );
+      continue;
+    }
+
+    const data = (await resp.json()) as Record<string, unknown>;
+
+    return {
+      accessToken: data.access_token as string,
+      refreshToken: (data.refresh_token as string | undefined) ?? refreshToken,
+      expiresIn: data.expires_in as number | undefined,
+      scope: data.scope as string | undefined,
+      tokenType: data.token_type as string | undefined,
+    };
   }
 
-  const data = (await resp.json()) as Record<string, unknown>;
-
-  return {
-    accessToken: data.access_token as string,
-    refreshToken: (data.refresh_token as string | undefined) ?? refreshToken,
-    expiresIn: data.expires_in as number | undefined,
-    scope: data.scope as string | undefined,
-    tokenType: data.token_type as string | undefined,
-  };
+  log.error(
+    { attempts: REFRESH_MAX_RETRIES + 1 },
+    "OAuth2 token refresh failed after all retries",
+  );
+  throw lastError ?? new Error("OAuth2 token refresh failed after retries");
 }

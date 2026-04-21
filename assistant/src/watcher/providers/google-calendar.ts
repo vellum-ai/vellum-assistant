@@ -8,6 +8,7 @@
 
 import type { OAuthConnection } from "../../oauth/connection.js";
 import { resolveOAuthConnection } from "../../oauth/connection-resolver.js";
+import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { getLogger } from "../../util/logger.js";
 import type {
   FetchResult,
@@ -164,7 +165,12 @@ function eventToItem(event: CalendarEvent, eventType: string): WatcherItem {
       start,
       end,
       location: event.location ?? "",
-      description: event.description ?? "",
+      description: event.description
+        ? wrapUntrustedContent(event.description, {
+            source: "calendar",
+            maxChars: 5000,
+          })
+        : "",
       status: event.status ?? "confirmed",
       organizer: event.organizer?.email ?? "",
       attendees:

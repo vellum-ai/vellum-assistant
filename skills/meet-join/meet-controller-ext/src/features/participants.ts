@@ -155,17 +155,39 @@ export function startParticipantScraper(
   let previous: Map<string, Participant> = new Map();
   let firstPollComplete = false;
   let stopped = false;
+  // Only try to open the panel when we can't find the list. Calling
+  // `ensurePanelOpen()` on every tick fights with sibling features
+  // (`chat.ts` opens its own panel on start) because Meet closes whichever
+  // side panel isn't currently showing when a new toggle is clicked.
+  let panelOpenAttempted = false;
 
   const poll = (): void => {
     if (stopped) return;
 
     let rows: ScrapedRow[];
     try {
-      ensurePanelOpen();
+      if (!panelOpenAttempted) {
+        ensurePanelOpen();
+        panelOpenAttempted = true;
+      }
       rows = scrapeRows();
+      // If the panel was closed out from under us (e.g. the chat reader
+      // toggled its panel and Meet auto-collapsed participants), retry
+      // opening on the next tick. Return early so we don't diff against
+      // `rows = []` and emit synthetic `left` events for participants who
+      // are still in the meeting — the next tick will reopen the panel
+      // and the diff will stay stable.
+      if (
+        rows.length === 0 &&
+        !document.querySelector(selectors.INGAME_PARTICIPANT_LIST)
+      ) {
+        panelOpenAttempted = false;
+        return;
+      }
     } catch {
       // Transient DOM error (navigation, panel auto-closed, etc.). Skip this
       // tick and try again next interval.
+      panelOpenAttempted = false;
       return;
     }
 
@@ -218,13 +240,20 @@ export function startParticipantScraper(
     if (joined.length === 0 && left.length === 0) return;
     if (stopped) return;
 
-    onEvent({
-      type: "participant.change",
-      meetingId,
-      timestamp: new Date().toISOString(),
-      joined,
-      left,
-    });
+    try {
+      onEvent({
+        type: "participant.change",
+        meetingId,
+        timestamp: new Date().toISOString(),
+        joined,
+        left,
+      });
+    } catch {
+      // Never let a subscriber error crash the polling loop — matches the
+      // defensive pattern in speaker.ts and chat.ts. Also guards the
+      // synchronous first poll below from leaking the `setInterval` handle
+      // if `onEvent` throws before `startParticipantScraper` returns.
+    }
   };
 
   const timer = setInterval(poll, pollMs);

@@ -237,8 +237,9 @@ maybeDescribe("consent-monitor live LLM judgement", () => {
         const session = makeFakeSessionManager();
         const timer = makeTimerControl();
 
+        const meetingId = fixture.events[0]!.meetingId;
         const monitor = new MeetConsentMonitor({
-          meetingId: `live-${fixture.name}`,
+          meetingId,
           assistantId: "self",
           sessionManager: session,
           config: {
@@ -257,7 +258,6 @@ maybeDescribe("consent-monitor live LLM judgement", () => {
         });
         monitor.start();
 
-        const meetingId = fixture.events[0]!.meetingId;
         for (const event of fixture.events) {
           dispatcher.dispatch(meetingId, event);
         }

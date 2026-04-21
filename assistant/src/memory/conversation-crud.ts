@@ -10,6 +10,7 @@ import {
   gte,
   inArray,
   isNull,
+  like,
   lt,
   lte,
   sql,
@@ -23,6 +24,7 @@ import { CHANNEL_IDS, INTERFACE_IDS, isChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import { UserError } from "../util/errors.js";
+import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import { getConversationsDir } from "../util/platform.js";
 import { createRowMapper } from "../util/row-mapper.js";
@@ -102,6 +104,9 @@ export const messageMetadataSchema = z
     forkSourceMessageId: z.string().optional(),
     /** Image source paths from desktop attachments, keyed by filename. */
     imageSourcePaths: z.record(z.string(), z.string()).optional(),
+    memoryInjectedBlock: z.string().optional(),
+    turnContextBlock: z.string().optional(),
+    pkbSystemReminderBlock: z.string().optional(),
   })
   .passthrough();
 
@@ -420,9 +425,7 @@ export function findAnalysisConversationFor(
  * not found. Tiny convenience used by the recursion guard in the
  * auto-analyze loop.
  */
-export function getConversationSource(
-  conversationId: string,
-): string | null {
+export function getConversationSource(conversationId: string): string | null {
   const db = getDb();
   const row = db
     .select({ source: conversations.source })
@@ -1044,6 +1047,49 @@ export function getMessages(conversationId: string): MessageRow[] {
     .map(parseMessage);
 }
 
+/**
+ * Count messages whose metadata JSON contains a `slackMeta` envelope, capped
+ * at `limit`. Pushes the cap into SQL (`LIKE` + `LIMIT`) so warm Slack DM
+ * conversations don't require a full-table scan + JSON parse on every
+ * inbound message to confirm the cold-start threshold has been cleared.
+ * Returns the number of matching rows up to `limit`; callers compare against
+ * the cold-start threshold to decide whether to backfill.
+ */
+export function countMessagesWithSlackMeta(
+  conversationId: string,
+  limit: number,
+): number {
+  const db = getDb();
+  const rows = db
+    .select({ one: sql`1` })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        like(messages.metadata, '%"slackMeta"%'),
+      ),
+    )
+    .limit(limit)
+    .all();
+  return rows.length;
+}
+
+/**
+ * Efficient existence check — returns true if the conversation has at least
+ * one message row. Uses `LIMIT 1` + `select({ 1 })` to avoid loading and
+ * parsing any message content.
+ */
+export function hasMessages(conversationId: string): boolean {
+  const db = getDb();
+  const row = db
+    .select({ one: sql`1` })
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .limit(1)
+    .get();
+  return row !== undefined;
+}
+
 export interface PaginatedMessagesResult {
   messages: MessageRow[];
   hasMore: boolean;
@@ -1457,6 +1503,27 @@ export function updateMessageMetadata(
 }
 
 /**
+ * Bulk-remove the `pkbSystemReminderBlock` field from every user-message
+ * metadata row in a conversation. Called from compaction-strip sites so
+ * post-restart rehydration stays consistent with the in-memory state
+ * produced by `stripInjectionsForCompaction` (which removes
+ * `<system_reminder>` from live messages but cannot touch the DB).
+ */
+export function clearPkbSystemReminderMetadataForConversation(
+  conversationId: string,
+): void {
+  rawRun(
+    `UPDATE messages
+        SET metadata = json_remove(metadata, '$.pkbSystemReminderBlock')
+      WHERE conversation_id = ?
+        AND role = 'user'
+        AND metadata IS NOT NULL
+        AND json_extract(metadata, '$.pkbSystemReminderBlock') IS NOT NULL`,
+    conversationId,
+  );
+}
+
+/**
  * Atomically update both `content` and (shallow-merged) `metadata` for a
  * message. Used by edit-propagation paths that need to update the message
  * body and stamp metadata (e.g. `slackMeta.editedAt`) in a single
@@ -1478,7 +1545,7 @@ export function updateMessageContentAndMetadata(
       .from(messages)
       .where(eq(messages.id, messageId))
       .get();
-    const existing = row?.metadata ? JSON.parse(row.metadata) : {};
+    const existing = row?.metadata ? safeParseRecord(row.metadata) : {};
     tx.update(messages)
       .set({
         content: newContent,

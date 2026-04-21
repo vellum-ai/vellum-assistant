@@ -271,6 +271,95 @@ describe("nmh-shim", () => {
     expect(elapsed).toBeLessThan(1500);
   });
 
+  test("preserves multibyte UTF-8 split across socket chunk boundaries", async () => {
+    const socketPath = freshSocketPath();
+    handle = await startServer(socketPath);
+
+    const stdin = new ManualReadable();
+    const stdout = new CollectingWritable();
+
+    const shimDone = runShim({
+      socketPath,
+      stdin,
+      stdout,
+      connectRetries: 3,
+      connectRetryDelayMs: 20,
+    });
+    shimDone.catch(() => {
+      // Swallow; asserted by stdout shape below.
+    });
+
+    const client = await handle.onClient;
+
+    // Build a payload whose JSON encoding contains characters that span
+    // multiple UTF-8 bytes (here: an emoji that requires a 4-byte sequence
+    // and CJK characters that require 3 bytes). Splitting the byte stream
+    // mid-codepoint would corrupt this if the shim decoded chunks
+    // independently.
+    const message = "héllo 🌍 世界";
+    const payload = { type: "diagnostic", level: "info", message };
+    const lineBytes = Buffer.from(`${JSON.stringify(payload)}\n`, "utf8");
+
+    // Split such that at least one multibyte codepoint straddles the seam.
+    const splitAt = lineBytes.indexOf(0xf0); // first byte of the 4-byte 🌍
+    expect(splitAt).toBeGreaterThan(0);
+    client.write(lineBytes.subarray(0, splitAt + 1));
+    await sleep(20);
+    client.write(lineBytes.subarray(splitAt + 1));
+
+    const deadline = Date.now() + 1000;
+    let collected: unknown[] = [];
+    while (Date.now() < deadline && collected.length < 1) {
+      const buf = stdout.collected();
+      if (buf.byteLength > 0) {
+        collected = createFrameReader().push(buf);
+      }
+      if (collected.length < 1) await sleep(10);
+    }
+
+    expect(collected).toHaveLength(1);
+    expect(collected[0]).toEqual(payload);
+
+    stdin.finish();
+    await shimDone;
+  });
+
+  test("settles cleanly on socket close without leaking stdin listeners", async () => {
+    const socketPath = freshSocketPath();
+    handle = await startServer(socketPath);
+
+    const stdin = new ManualReadable();
+    const stdout = new CollectingWritable();
+
+    const before = stdin.listenerCount("data");
+
+    const shimDone = runShim({
+      socketPath,
+      stdin,
+      stdout,
+      connectRetries: 3,
+      connectRetryDelayMs: 20,
+    });
+
+    const client = await handle.onClient;
+    // Give the shim a tick to finish wiring listeners after its connect
+    // callback resolves on this side.
+    await sleep(10);
+    expect(stdin.listenerCount("data")).toBeGreaterThan(before);
+    expect(stdin.listenerCount("end")).toBeGreaterThan(0);
+    expect(stdin.listenerCount("error")).toBeGreaterThan(0);
+
+    // Server closes — runShim should resolve and detach every stdin
+    // listener it attached, so the host process's event loop isn't
+    // pinned alive by the shim's references.
+    client.end();
+    await shimDone;
+
+    expect(stdin.listenerCount("data")).toBe(before);
+    expect(stdin.listenerCount("end")).toBe(0);
+    expect(stdin.listenerCount("error")).toBe(0);
+  });
+
   test("resolves cleanly when the server closes the connection", async () => {
     const socketPath = freshSocketPath();
     handle = await startServer(socketPath);

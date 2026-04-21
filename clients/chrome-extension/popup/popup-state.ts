@@ -21,6 +21,7 @@
 
 import type { AssistantDescriptor } from '../background/native-host-assistants.js';
 import type { AssistantAuthProfile } from '../background/assistant-auth-profile.js';
+import type { ExtensionEnvironment } from '../background/extension-environment.js';
 
 // ── Health state types (mirrored from worker.ts) ───────────────────
 
@@ -402,4 +403,97 @@ export function hasTroubleshootingControls(
   authProfile: AssistantAuthProfile | null,
 ): boolean {
   return authProfile === 'local-pair' || authProfile === 'cloud-oauth';
+}
+
+// ── Environment display helpers ─────────────────────────────────────
+//
+// These functions derive user-facing labels and display state for the
+// environment selector dropdown in the popup's Advanced section.
+
+/**
+ * Response shape from the worker's `environment-get` and
+ * `environment-set` messages.
+ */
+export interface EnvironmentStateResponse {
+  ok: boolean;
+  effectiveEnvironment?: ExtensionEnvironment;
+  overrideEnvironment?: ExtensionEnvironment | null;
+  buildDefaultEnvironment?: ExtensionEnvironment;
+  error?: string;
+}
+
+/**
+ * The set of environments available in the dropdown.
+ */
+export const ENVIRONMENT_OPTIONS: readonly ExtensionEnvironment[] = [
+  'local',
+  'dev',
+  'staging',
+  'production',
+] as const;
+
+/**
+ * Map an environment value to a user-friendly display label.
+ *
+ * | Value        | Label       |
+ * |--------------|-------------|
+ * | local        | Local       |
+ * | dev          | Development |
+ * | staging      | Staging     |
+ * | production   | Production  |
+ */
+export function environmentLabel(env: ExtensionEnvironment): string {
+  switch (env) {
+    case 'local':
+      return 'Local';
+    case 'dev':
+      return 'Development';
+    case 'staging':
+      return 'Staging';
+    case 'production':
+      return 'Production';
+  }
+}
+
+/**
+ * Derive the effective environment to display, applying the precedence
+ * rules:
+ *   1. overrideEnvironment (popup-persisted selection)
+ *   2. buildDefaultEnvironment (compile-time define)
+ *   3. fallback to 'dev'
+ *
+ * This mirrors the worker's resolution logic but operates on the
+ * pre-resolved response fields for display purposes.
+ */
+export function deriveEffectiveEnvironment(
+  overrideEnvironment: ExtensionEnvironment | null | undefined,
+  buildDefaultEnvironment: ExtensionEnvironment | undefined,
+): ExtensionEnvironment {
+  if (overrideEnvironment) return overrideEnvironment;
+  if (buildDefaultEnvironment) return buildDefaultEnvironment;
+  return 'dev';
+}
+
+/**
+ * Derive a brief hint string explaining the current environment
+ * selection source.
+ *
+ * - When an override is active: "Overriding build default (<default>)"
+ * - When using build default: "Using build default"
+ * - When no info available: "Using default"
+ */
+export function deriveEnvironmentHint(
+  overrideEnvironment: ExtensionEnvironment | null | undefined,
+  buildDefaultEnvironment: ExtensionEnvironment | undefined,
+): string {
+  if (overrideEnvironment) {
+    const defaultLabel = buildDefaultEnvironment
+      ? environmentLabel(buildDefaultEnvironment)
+      : 'dev';
+    return `Overriding build default (${defaultLabel})`;
+  }
+  if (buildDefaultEnvironment) {
+    return 'Using build default';
+  }
+  return 'Using default';
 }

@@ -42,10 +42,16 @@ export const ExtensionReadyMessageSchema = z.object({
 });
 export type ExtensionReadyMessage = z.infer<typeof ExtensionReadyMessageSchema>;
 
-/** Lifecycle state values reported by the extension to the bot. */
+/**
+ * Lifecycle state values reported by the extension to the bot. Mirrors
+ * {@link ./events.js}'s `LifecycleStateSchema` — keep these enums in sync so
+ * the extension-side and daemon-side lifecycle telemetry share a single
+ * vocabulary.
+ */
 export const ExtensionLifecycleStateSchema = z.enum([
   "joining",
   "joined",
+  "leaving",
   "left",
   "error",
 ]);
@@ -174,6 +180,125 @@ export const ExtensionTrustedTypeMessageSchema = z.object({
 export type ExtensionTrustedTypeMessage = z.infer<
   typeof ExtensionTrustedTypeMessageSchema
 >;
+
+// ---------------------------------------------------------------------------
+// Shared trusted-type timing helpers
+// ---------------------------------------------------------------------------
+//
+// xdotool's per-keystroke delay (default 25ms) makes typing duration scale
+// linearly with text length: a 2000-char chat (Meet's max) takes 50s of
+// real-time keystroke dispatch on the bot's Xvfb display. The four sites
+// that bound this round-trip — extension wait between trusted_type emit
+// and send-button click, bot xdotoolType kill timer, bot send_chat reply
+// timer, daemon HTTP timeout — must all derive from the SAME formula or
+// the chain pre-empts itself: short timeouts kill xdotool mid-type and
+// post truncated text; mismatched timeouts surface false failures while
+// the extension still completes successfully.
+//
+// These helpers are the single source of truth shared across all four
+// sites. The reason each successive timeout is larger than the one inside
+// it is simply that the outer waiter has to cover the inner work plus
+// transit (native-messaging hop, HTTP round-trip).
+
+/**
+ * Default xdotool `--delay` value in milliseconds. Mirrors
+ * `DEFAULT_DELAY_MS` in `bot/src/browser/xdotool-type.ts` — kept aligned
+ * so the timing helpers below correctly predict typing duration when the
+ * extension does not pass an explicit `delayMs`.
+ */
+export const TRUSTED_TYPE_DEFAULT_DELAY_MS = 25;
+
+/**
+ * Fixed overhead for the xdotool spawn + the native-messaging round-trip
+ * from extension → bot → X server (emit → first keystroke dispatched).
+ * Sized from observed production latency with a small safety margin.
+ */
+export const TRUSTED_TYPE_OVERHEAD_MS = 250;
+
+/**
+ * Extra slack added on top of the predicted typing duration when sizing
+ * the xdotool kill timer in the bot. Covers OS-scheduling jitter on the
+ * Xvfb display and the time xdotool itself takes to release after the
+ * final keystroke. Independent of the extension wait so a larger value
+ * here cannot push xdotool past the moment the extension dispatches the
+ * send-button click.
+ */
+const TRUSTED_TYPE_KILL_SLACK_MS = 5_000;
+
+/**
+ * Slack added on top of the typing duration when sizing the bot's
+ * `send_chat` reply timer. Must cover: extension's typing wait → send-
+ * button click → DOM transition → `send_chat_result` native-messaging
+ * frame back to the bot. Generous enough that minor extension scheduling
+ * slips don't surface as user-visible failures.
+ */
+const TRUSTED_TYPE_REPLY_SLACK_MS = 10_000;
+
+/**
+ * Slack added on top of the bot's `send_chat` reply timer when sizing
+ * the daemon's `/send_chat` HTTP timeout. Covers the HTTP round-trip
+ * between daemon and bot container so the daemon does not pre-empt a
+ * reply that is genuinely on its way.
+ */
+const TRUSTED_TYPE_HTTP_SLACK_MS = 5_000;
+
+/**
+ * Predict how long xdotool will spend typing `textLength` characters at
+ * the given per-keystroke `delayMs` (default
+ * {@link TRUSTED_TYPE_DEFAULT_DELAY_MS}). This is the lower bound the
+ * extension must wait between emitting `trusted_type` and clicking the
+ * send button — clicking earlier would post a partial message.
+ */
+export function trustedTypeDurationMs(
+  textLength: number,
+  delayMs: number = TRUSTED_TYPE_DEFAULT_DELAY_MS,
+): number {
+  return textLength * delayMs + TRUSTED_TYPE_OVERHEAD_MS;
+}
+
+/**
+ * Recommended kill timeout for the bot-side xdotool process. Returns the
+ * predicted typing duration plus {@link TRUSTED_TYPE_KILL_SLACK_MS}. The
+ * bot's `trusted_type` handler passes this to `xdotoolType` so long
+ * messages are not killed mid-type (the legacy fixed 15s ceiling truncated
+ * any chat above ~590 characters).
+ */
+export function trustedTypeKillTimeoutMs(
+  textLength: number,
+  delayMs?: number,
+): number {
+  return trustedTypeDurationMs(textLength, delayMs) + TRUSTED_TYPE_KILL_SLACK_MS;
+}
+
+/**
+ * Recommended `send_chat` reply timeout for the bot. Must exceed the
+ * extension's typing wait plus the post-type click round-trip. The bot's
+ * `sendChatViaExtension` uses this value when starting the reply timer so
+ * valid sub-2000-char messages do not surface false failures.
+ */
+export function trustedTypeReplyTimeoutMs(
+  textLength: number,
+  delayMs?: number,
+): number {
+  return (
+    trustedTypeDurationMs(textLength, delayMs) + TRUSTED_TYPE_REPLY_SLACK_MS
+  );
+}
+
+/**
+ * Recommended `/send_chat` HTTP timeout for the daemon. Sized to outlive
+ * the bot's reply timer by a small margin so the HTTP layer never
+ * pre-empts a reply that is genuinely in flight. The daemon's
+ * `defaultBotSendChatFetch` uses this value per request.
+ */
+export function trustedTypeHttpTimeoutMs(
+  textLength: number,
+  delayMs?: number,
+): number {
+  return (
+    trustedTypeReplyTimeoutMs(textLength, delayMs) + TRUSTED_TYPE_HTTP_SLACK_MS
+  );
+}
 
 /**
  * Result of a prior `send_chat` command, correlated by `requestId`.
@@ -387,11 +512,16 @@ export const BotJoinCommandSchema = z.object({
 });
 export type BotJoinCommand = z.infer<typeof BotJoinCommandSchema>;
 
-/** Ask the extension to cleanly leave the current meeting. */
+/**
+ * Ask the extension to cleanly leave the current meeting. Mirrors the
+ * daemon-facing `LeaveCommandSchema` in {@link ./commands.js} — `reason` is
+ * optional there, so it is optional here too (a native-messaging bridge
+ * that forwards a reasonless leave must not be rejected).
+ */
 export const BotLeaveCommandSchema = z.object({
   type: z.literal("leave"),
-  /** Human-readable reason, surfaced in logs/telemetry. */
-  reason: z.string().min(1),
+  /** Optional human-readable reason, surfaced in logs/telemetry. */
+  reason: z.string().min(1).optional(),
 });
 export type BotLeaveCommand = z.infer<typeof BotLeaveCommandSchema>;
 

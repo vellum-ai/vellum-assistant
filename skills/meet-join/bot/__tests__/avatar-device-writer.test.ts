@@ -198,6 +198,38 @@ describe("attachDeviceWriter", () => {
     expect(renderer.subscriberCount()).toBe(0);
   });
 
+  test("sink.write returning false (backpressure) counts as a drop", () => {
+    // Node writable streams signal backpressure by returning `false`
+    // without throwing. The writer must account for that or diagnostic
+    // counters will mis-report overload as success.
+    const renderer = new FakeAvatarRenderer();
+    const backpressuredSink = {
+      writes: [] as Uint8Array[],
+      write(chunk: Uint8Array): boolean {
+        this.writes.push(chunk);
+        return false;
+      },
+    };
+    let now = 0;
+    const handle = attachDeviceWriter({
+      renderer,
+      sink: backpressuredSink,
+      maxFps: 30,
+      now: () => now,
+    });
+
+    renderer.emitFrame(makeFrame({ timestamp: 1 }));
+    now = 50;
+    renderer.emitFrame(makeFrame({ timestamp: 2 }));
+
+    // Both writes were attempted but neither was accepted cleanly.
+    expect(backpressuredSink.writes).toHaveLength(2);
+    expect(handle.dispatchedCount()).toBe(0);
+    expect(handle.droppedCount()).toBe(2);
+
+    handle.stop();
+  });
+
   test("sink.write throwing counts as a drop (no crash)", () => {
     const renderer = new FakeAvatarRenderer();
     const angrySink = {

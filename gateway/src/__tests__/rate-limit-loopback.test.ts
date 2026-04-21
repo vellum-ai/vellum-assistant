@@ -55,4 +55,19 @@ describe("checkAuthRateLimit loopback exemption", () => {
     );
     expect(res).toBeNull();
   });
+
+  test("prunes accumulated failure state for loopback IPs", () => {
+    const ip = "127.0.0.1";
+    const limiter = blockedLimiter(ip, 500);
+    // Internal failures map holds the array of timestamps for this IP before
+    // the check runs; since isBlocked is never reached for loopback, clearIp
+    // must prune explicitly.
+    const failures = (limiter as unknown as { failures: Map<string, number[]> })
+      .failures;
+    expect(failures.get(ip)?.length ?? 0).toBe(500);
+
+    expect(checkAuthRateLimit(URL_V1, limiter, ip)).toBeNull();
+
+    expect(failures.has(ip)).toBe(false);
+  });
 });

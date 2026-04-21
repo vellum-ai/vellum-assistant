@@ -208,16 +208,18 @@ export async function getAllRules(): Promise<TrustRule[]> {
 export async function addRule(params: {
   tool: string;
   pattern: string;
-  scope: string;
+  scope?: string;
   decision?: TrustRule["decision"];
   priority?: number;
-  allowHighRisk?: boolean;
   executionTarget?: string;
 }): Promise<TrustRule> {
+  // Only include scope in the request body if provided.
+  const { scope, ...rest } = params;
+  const body = scope != null ? { ...rest, scope } : rest;
   const data = await request<{ rule: unknown }>(
     "POST",
     "/v1/trust-rules",
-    params,
+    body,
   );
   return parseRuleResponse(data.rule);
 }
@@ -231,7 +233,6 @@ export async function updateRule(
     scope?: string;
     decision?: TrustRule["decision"];
     priority?: number;
-    allowHighRisk?: boolean;
     executionTarget?: string;
   },
 ): Promise<TrustRule> {
@@ -303,17 +304,15 @@ export function getAllRulesSync(): TrustRule[] {
 export function addRuleSync(params: {
   tool: string;
   pattern: string;
-  scope: string;
+  scope?: string;
   decision?: TrustRule["decision"];
   priority?: number;
-  allowHighRisk?: boolean;
   executionTarget?: string;
 }): TrustRule {
-  const data = requestSync<{ rule: unknown }>(
-    "POST",
-    "/v1/trust-rules",
-    params,
-  );
+  // Only include scope in the request body if provided.
+  const { scope, ...rest } = params;
+  const body = scope != null ? { ...rest, scope } : rest;
+  const data = requestSync<{ rule: unknown }>("POST", "/v1/trust-rules", body);
   return parseRuleResponse(data.rule);
 }
 
@@ -326,7 +325,6 @@ export function updateRuleSync(
     scope?: string;
     decision?: TrustRule["decision"];
     priority?: number;
-    allowHighRisk?: boolean;
     executionTarget?: string;
   },
 ): TrustRule {

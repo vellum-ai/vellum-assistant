@@ -34,9 +34,9 @@ A single wrong archive of an important email kills trust. Earn autonomy in stage
 
 | Stage | Archive behavior | Draft behavior | Alerts |
 |-------|------------------|----------------|--------|
-| **0 — Flag-only** (default) | Nothing archived. Everything that *would* be archived is listed in a summary for user review. | Drafts created in-thread, listed in summary. | Urgent scan active. |
-| **1 — Standard** | Silent archive of known-safe categories only (calendar responses, no-reply, newsletters). Cold outreach still flagged. | Drafts created in-thread, summarized per run. | Urgent scan active. |
-| **2 — Aggressive** | Above + cold outreach archived by LLM judgment (default archive, flag only when relevant to user). | Same as Stage 1. | Urgent scan active. |
+| **0 — Flag-only** (default) | Nothing archived. All archive calls use `--dry-run`. Summary shows what *would* be archived for user review. | Drafts created in-thread, listed in summary. | Urgent scan active. |
+| **1 — Standard** | Silent archive of known-safe categories only (calendar responses, no-reply, newsletters). Cold outreach still flagged. Batches > 1,000 ops auto-dry-run. | Drafts created in-thread, summarized per run. | Urgent scan active. |
+| **2 — Aggressive** | Above + cold outreach archived by LLM judgment (default archive, flag only when relevant to user). All ops logged for reversal. | Same as Stage 1. | Urgent scan active. |
 
 **Graduation requires the user to explicitly say "graduate me" or equivalent.** Do not infer from silence.
 
@@ -100,7 +100,7 @@ Confirm cadence with user. Overnight: urgent-scan only.
 
 ### 5. Voice profile
 
-Run `messaging_analyze_style` on the user's recent sent mail. Store the style profile in PKB for draft generation.
+Run `messaging_analyze_style` on the user's recent sent mail. Store the style profile in the Personal Knowledge Base for draft generation.
 
 ### 6. Draft preference
 
@@ -112,7 +112,9 @@ Confirm the user wants drafts generated. Some prefer flag-only forever.
 
 Each step is silent unless something qualifies for interrupt. Run these in order.
 
-### Step 0: Missed-run check
+### Step 0: Missed-run check & resume
+
+**Resume interrupted runs first.** Before starting a new pipeline pass, check `bun run scripts/gmail-runs.ts list`. If the most recent run has `status: "interrupted"`, resume it via `bun run scripts/gmail-archive.ts archive --resume "<run-id>"` before proceeding. Also run `bun run scripts/gmail-runs.ts prune` to clean up logs older than 30 days.
 
 Read the last-run timestamp via `gmail-prefs.ts --action get-management-config`. If `last-run` is more than 2x the scheduled interval ago (e.g. >6 hours for a 3-hour schedule), notify the user:
 - **Slack:** "📬 Inbox management hasn't run since [time]. I'm catching up now."
@@ -167,7 +169,7 @@ For each remaining email from real humans expecting a response:
 1. Check for existing draft in the thread — call `list_drafts`, filter results by thread ID. If draft exists, skip.
 2. Read full thread context via `get_thread`.
 3. Decide: does this need a reply? If no, skip.
-4. Create draft in-thread via `gmail-email.ts draft --thread-id "..." --in-reply-to "..."`. Draft must be fully written in the user's voice (use PKB style profile), substantive, no placeholders. **Never auto-send.**
+4. Create draft in-thread via `gmail-email.ts draft --thread-id "..." --in-reply-to "..."`. Draft must be fully written in the user's voice (use Personal Knowledge Base style profile), substantive, no placeholders. **Never auto-send.**
 
 After the pass, send one summary:
 - **Slack:** `[N] drafts ready for review:` + per-item bullets

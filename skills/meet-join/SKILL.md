@@ -123,9 +123,9 @@ Barge-in is automatic: if a human speaks while the assistant is talking, the ass
 Enable the avatar when:
 
 - The user explicitly asks the assistant to be on camera (e.g. "turn your video on", "show your avatar").
-- The meeting context expects video participation (e.g. a presentation or 1:1 where other participants are on camera and have signalled they welcome a visual presence).
+- A participant in the meeting explicitly invites the assistant to turn on video and the user has signalled that kind of participation is welcome.
 
 Avoid enabling the avatar when:
 
-- The user has not asked for it. Do not turn it on proactively.
+- The user has not asked for it. Do not turn it on proactively based on ambient meeting context (e.g. others being on camera) alone.
 - The assistant is not actively speaking. Most participants read "video on" as presence and attention — the avatar is not a watching observer. Disable it during long stretches of silence and re-enable it when the assistant is about to speak again.

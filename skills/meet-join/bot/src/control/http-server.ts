@@ -451,6 +451,27 @@ export function createHttpServer(
         return c.json({ error: `failed to start playback: ${message}` }, 500);
       }
 
+      // The playback handle is a module-level singleton (see
+      // `audio-playback.ts` — the same `handle` is returned across every
+      // POST). Its utterance-relative clock accumulates across POSTs
+      // unless we explicitly reset it, which would cause every viseme
+      // from the second-and-later utterance (daemon-stamped as ms from
+      // THAT utterance's start, so also restarting at 0) to satisfy
+      // `visemeTs < effectivePlaybackMs` and flush immediately on
+      // arrival — defeating the point of buffering. Reset here so each
+      // stream gets a fresh 0-based clock matching the daemon's
+      // per-utterance timestamp coordinate system. Reset the viseme-
+      // driven renderer's mirror clock in lockstep for the same reason.
+      handle.resetPlaybackClock();
+      const rendererAtStreamStart = avatarRenderer;
+      if (
+        rendererAtStreamStart !== null &&
+        rendererAtStreamStart.capabilities.needsVisemes &&
+        typeof rendererAtStreamStart.resetPlaybackTimestamp === "function"
+      ) {
+        rendererAtStreamStart.resetPlaybackTimestamp();
+      }
+
       const controller = new AbortController();
       activeStreams.set(streamId, { controller, handle });
 
@@ -463,31 +484,22 @@ export function createHttpServer(
       // wiring is a no-op for them — this timing fix is inert for
       // hosted / GPU-sidecar backends whose audio-to-motion timing is
       // owned server-side.
-      const renderer = avatarRenderer;
-      let unsubscribePlaybackTimestamp: (() => void) | null = null;
-      if (
-        renderer !== null &&
-        renderer.capabilities.needsVisemes &&
-        typeof renderer.notifyPlaybackTimestamp === "function"
-      ) {
-        const notify = renderer.notifyPlaybackTimestamp.bind(renderer);
-        unsubscribePlaybackTimestamp = handle.onPlaybackTimestamp((ts) => {
-          // Guard against a mid-stream `/avatar/disable`: that handler
-          // sets `avatarRenderer = null` and calls `renderer.stop()`,
-          // but this closure still holds the renderer reference captured
-          // at stream start. Without the current-reference check, every
-          // playback-timestamp tick between disable-fire and stream-end
-          // would land on a stopped renderer. TalkingHead.js's stopped
-          // channel silently drops messages, but any renderer whose
-          // `notifyPlaybackTimestamp` treats post-stop notifications as
-          // an error would crash. The unsubscribe in `finally` only
-          // fires at stream end, so this guard is what severs the
-          // bridge immediately when disable lands.
-          if (avatarRenderer === renderer) {
-            notify(ts);
-          }
-        });
-      }
+      //
+      // The renderer is resolved DYNAMICALLY on every tick rather than
+      // snapshotted at stream start — otherwise a mid-stream
+      // `/avatar/disable` + `/avatar/enable` would leave every tick
+      // landing on the old (stopped) renderer while the freshly
+      // enabled one got nothing. Reading the closure variable on each
+      // tick also severs the bridge immediately when `/avatar/disable`
+      // nulls `avatarRenderer`, which is what the teardown regression
+      // test guards.
+      const unsubscribePlaybackTimestamp = handle.onPlaybackTimestamp((ts) => {
+        const current = avatarRenderer;
+        if (current === null) return;
+        if (!current.capabilities.needsVisemes) return;
+        if (typeof current.notifyPlaybackTimestamp !== "function") return;
+        current.notifyPlaybackTimestamp(ts);
+      });
 
       // Observability hook — invoked fire-and-forget so slow callbacks don't
       // stall the audio pipeline.
@@ -503,7 +515,7 @@ export function createHttpServer(
         } catch {
           // Best-effort; silence is cosmetic.
         }
-        unsubscribePlaybackTimestamp?.();
+        unsubscribePlaybackTimestamp();
         return c.json({ streamId, bytes: 0 }, 200);
       }
 
@@ -572,10 +584,9 @@ export function createHttpServer(
         } catch {
           // Best-effort.
         }
-        // Drop the playback→renderer bridge so a stale closure doesn't
-        // keep a reference to a renderer that might be torn down by a
-        // concurrent /avatar/disable.
-        unsubscribePlaybackTimestamp?.();
+        // Drop the playback→renderer bridge at stream end so the next
+        // stream subscribes fresh.
+        unsubscribePlaybackTimestamp();
       }
 
       if (writeError) {
@@ -753,6 +764,12 @@ export function createHttpServer(
       try {
         await renderer.start();
       } catch (err) {
+        // `start()` may have partially initialized resources (GPU
+        // session, WebRTC connection, spawned tab) before throwing.
+        // Best-effort teardown so an unexpected error doesn't leak
+        // them — `avatarRenderer` is still null, so no later
+        // `/avatar/disable` call would clean up.
+        await renderer.stop().catch(() => {});
         if (err instanceof AvatarRendererUnavailableError) {
           return c.json(
             {

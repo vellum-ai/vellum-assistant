@@ -39,7 +39,12 @@ export async function run(
   // Persist with isAutoTitle = 0 so auto-generation won't overwrite it
   updateConversationTitle(conversationId, trimmedTitle, 0);
 
-  // Notify connected clients so the UI updates immediately
+  // Notify the client currently viewing this conversation so the header
+  // updates in-place. Scoped to this conversation so foreign
+  // `conversationId` values don't leak to other subscribers' speculative
+  // ID-resolution paths. Other clients learn about the rename via the
+  // unscoped `conversation_list_invalidated` published below, which
+  // triggers their sidebars to refetch and pick up the new title.
   const assistantId = context.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
   assistantEventHub
     .publish(
@@ -55,6 +60,23 @@ export async function run(
     )
     .catch((err) => {
       log.warn({ err }, "Failed to publish conversation_title_updated event");
+    });
+
+  // Broadcast `conversation_list_invalidated` unscoped so every connected
+  // client's sidebar refetches and picks up the renamed title. Mirrors
+  // the HTTP rename route in `conversation-management-routes.ts`.
+  assistantEventHub
+    .publish(
+      buildAssistantEvent(assistantId, {
+        type: "conversation_list_invalidated",
+        reason: "renamed",
+      }),
+    )
+    .catch((err) => {
+      log.warn(
+        { err },
+        "Failed to publish conversation_list_invalidated for rename",
+      );
     });
 
   log.info({ conversationId, title: trimmedTitle }, "Conversation renamed");

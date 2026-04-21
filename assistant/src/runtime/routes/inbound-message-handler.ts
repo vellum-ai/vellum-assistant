@@ -21,6 +21,7 @@ import {
 } from "../../memory/conversation-attention-store.js";
 import {
   addMessage,
+  countMessagesWithSlackMeta,
   getMessageById,
   getMessages,
   updateMessageMetadata,
@@ -40,6 +41,7 @@ import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../../messaging/providers/slack/message-metadata.js";
+import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
@@ -68,6 +70,28 @@ import { tryTranscribeAudioAttachments } from "./inbound-stages/transcribe-audio
 import { handleVerificationIntercept } from "./inbound-stages/verification-intercept.js";
 
 const log = getLogger("runtime-http");
+
+// Delete-lookup retry configuration. Delete webhooks can race ahead of
+// the inbound handler's `linkMessage` call when the original message's
+// agent loop is still running. Retrying buys time for the link to land
+// before we drop the deletion signal. Mirrors the edit-intercept path's
+// EDIT_LOOKUP_RETRIES / EDIT_LOOKUP_DELAY_MS constants.
+let deleteLookupRetries = 5;
+let deleteLookupDelayMs = 2000;
+
+/**
+ * Test-only override for the delete-lookup retry timings. Used by
+ * tests that exercise the "no such message" path without waiting
+ * through the full production backoff. Not exported from any barrel
+ * file — only the test file imports it directly.
+ */
+export function _setDeleteLookupConfigForTests(
+  retries: number,
+  delayMs: number,
+): void {
+  deleteLookupRetries = retries;
+  deleteLookupDelayMs = delayMs;
+}
 
 export async function handleChannelInbound(
   req: Request,
@@ -283,16 +307,39 @@ export async function handleChannelInbound(
     // The original message's externalMessageId may differ from its ts
     // (Slack populates client_msg_id when present), so we join via the
     // sourceMessageId column which records the ts explicitly.
-    const original = deliveryCrud.findMessageBySourceId(
-      sourceChannel,
-      conversationExternalId,
-      deletedMessageTs,
-    );
+    //
+    // Retry with backoff mirrors the edit-intercept path: delete webhooks
+    // can race ahead of `linkMessage` when the original message's agent
+    // loop is still running. Without retries a delete that arrives in
+    // that window is silently dropped and the deletion signal is lost.
+    let original: { messageId: string; conversationId: string } | null = null;
+    for (let attempt = 0; attempt <= deleteLookupRetries; attempt++) {
+      original = deliveryCrud.findMessageBySourceId(
+        sourceChannel,
+        conversationExternalId,
+        deletedMessageTs,
+      );
+      if (original) break;
+      if (attempt < deleteLookupRetries) {
+        log.info(
+          {
+            conversationExternalId,
+            deletedMessageTs,
+            attempt: attempt + 1,
+            maxAttempts: deleteLookupRetries,
+          },
+          "Original message not linked yet, retrying delete lookup",
+        );
+        await new Promise((resolve) =>
+          setTimeout(resolve, deleteLookupDelayMs),
+        );
+      }
+    }
 
     if (!original) {
       log.debug(
         { conversationExternalId, deletedMessageTs },
-        "No stored message found for Slack delete; ignoring",
+        "No stored message found for Slack delete after retries; ignoring",
       );
       return Response.json({ accepted: true, deleted: false });
     }
@@ -517,8 +564,8 @@ export async function handleChannelInbound(
   //   1. Guardian approval-by-reaction. A `reaction:` (added) event from
   //      the guardian on an active approval prompt is consumed by
   //      `handleApprovalInterception` to apply the decision. In that case
-  //      we do NOT persist the reaction as a transcript line — pre-upgrade
-  //      semantics carried no transcript trace for resolved reactions.
+  //      we do NOT persist the reaction as a transcript line — resolved
+  //      guardian approval reactions have no transcript representation.
   //   2. All other reactions (non-guardian, no pending approval, stale,
   //      and any `reaction_removed:` event regardless of actor) fall
   //      through to `persistSlackReactionAsMessage` so the chronological
@@ -859,7 +906,13 @@ export async function handleChannelInbound(
     // of whether content/attachments are present — callback payloads always
     // have non-empty content (normalize.ts sets message.content to cbq.data),
     // so checking for empty content alone would miss stale callbacks.
-    if (hasCallbackData) {
+    //
+    // Reaction events (`reaction:` / `reaction_removed:`) are persisted by
+    // the earlier `isSlackReactionEvent` branch and never reach here; guard
+    // explicitly so a future refactor can't let a reaction ts drive a
+    // "This approval request has been resolved." edit that would clobber
+    // the user's reacted-to message.
+    if (hasCallbackData && !isSlackReactionEvent(body)) {
       // Record seen signal even for stale callbacks — the user still interacted
       if (sourceChannel === "telegram" || sourceChannel === "slack") {
         try {
@@ -952,11 +1005,11 @@ export async function handleChannelInbound(
       }
 
       // Slack inbound metadata captured for thread-aware persistence. The
-      // gateway forwards `thread_ts` under `sourceMetadata.threadId` (PR 2)
-      // and the message's own ts under `sourceMetadata.messageId`. Persistence
-      // turns this into a `slackMeta` sub-object in the row's metadata column
-      // so the chronological renderer in later PRs can reconstruct thread
-      // structure without re-fetching from Slack.
+      // gateway forwards `thread_ts` under `sourceMetadata.threadId` and the
+      // message's own ts under `sourceMetadata.messageId`. Persistence turns
+      // this into a `slackMeta` sub-object in the row's metadata column so
+      // the chronological renderer can reconstruct thread structure without
+      // re-fetching from Slack.
       const slackThreadTs =
         sourceChannel === "slack" &&
         typeof sourceMetadata?.threadId === "string"
@@ -976,6 +1029,18 @@ export async function handleChannelInbound(
             }
           : undefined;
 
+      // Account identifier threaded into backfill so `resolveConnection()`
+      // can pick the right workspace in multi-account setups. Best-effort:
+      // the gateway forwards `sourceMetadata.account` when it knows which
+      // Slack workspace the event came from; when absent, both helpers
+      // fall back to the default-active connection.
+      const slackAccount =
+        sourceChannel === "slack" &&
+        typeof sourceMetadata?.account === "string" &&
+        sourceMetadata.account.length > 0
+          ? sourceMetadata.account
+          : undefined;
+
       // ── DM cold-start backfill ──
       // First time a Slack DM lands in a conversation that has fewer than
       // SLACK_DM_BACKFILL_WARM_THRESHOLD stored slackMeta messages, fetch a
@@ -987,6 +1052,11 @@ export async function handleChannelInbound(
         await tryBackfillSlackDmIfCold({
           conversationId: result.conversationId,
           channelId: conversationExternalId,
+          account: slackAccount,
+          // Exclude the just-arrived webhook message from the history window —
+          // the normal inbound persistence path writes it separately, so
+          // including it here would produce duplicate user turns.
+          latestTs: slackInbound?.channelTs,
         });
       }
 
@@ -1006,8 +1076,20 @@ export async function handleChannelInbound(
           conversationId: result.conversationId,
           channelId: conversationExternalId,
           threadTs: slackThreadTs,
+          excludeChannelTs: slackInbound?.channelTs,
+          account: slackAccount,
         });
       }
+
+      // Wrap non-guardian inbound content in external_content boundaries so
+      // the model can distinguish external channel messages from instructions.
+      const contentForProcessing =
+        trustCtx.trustClass !== "guardian"
+          ? wrapUntrustedContent(trimmedContent, {
+              source: "webhook",
+              sourceDetail: trustCtx.requesterIdentifier,
+            })
+          : trimmedContent;
 
       // Fire-and-forget: process the message and deliver the reply in the background.
       // The HTTP response returns immediately so the gateway webhook is not blocked.
@@ -1017,7 +1099,7 @@ export async function handleChannelInbound(
         processMessage,
         conversationId: result.conversationId,
         eventId: result.eventId,
-        content: trimmedContent,
+        content: contentForProcessing,
         attachmentIds: hasAttachments ? attachmentIds : undefined,
         sourceChannel,
         sourceInterface,
@@ -1147,6 +1229,7 @@ async function persistSlackReactionAsMessage(params: {
     "user",
     "[reaction]",
     { slackMeta: writeSlackMetadata(slackMeta) },
+    { skipIndexing: true },
   );
   deliveryCrud.linkMessage(params.eventId, persisted.id);
   deliveryStatus.markProcessed(params.eventId);
@@ -1162,37 +1245,16 @@ async function persistSlackReactionAsMessage(params: {
 const SLACK_DM_BACKFILL_WARM_THRESHOLD = 3;
 
 /**
- * Count messages in a conversation whose `metadata` carries a parseable
- * `slackMeta` envelope. Used as the warm-storage signal for cold-start
- * backfill: any conversation with fewer than the warm threshold is treated
- * as a candidate for one-shot history hydration.
- *
- * Tolerant of legacy / malformed rows: rows without metadata, with invalid
- * JSON, or without a `slackMeta` key are skipped. Counting is intentionally
- * cheap (no SQL JSON probing) so it stays portable across drivers.
+ * Count messages in a conversation whose `metadata` carries a `slackMeta`
+ * envelope, capped at the warm threshold. Delegates to the DB helper which
+ * pushes both `LIKE` and `LIMIT` into SQL so a warm DM conversation never
+ * scans beyond the threshold's worth of rows on the webhook critical path.
  */
 function countSlackMetaMessages(conversationId: string): number {
-  const rows = getMessages(conversationId);
-  let count = 0;
-  for (const row of rows) {
-    if (!row.metadata) continue;
-    let parent: Record<string, unknown> | null = null;
-    try {
-      const parsed = JSON.parse(row.metadata) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        parent = parsed as Record<string, unknown>;
-      }
-    } catch {
-      continue;
-    }
-    if (!parent) continue;
-    const raw = parent.slackMeta;
-    if (typeof raw !== "string") continue;
-    if (readSlackMetadata(raw)) {
-      count++;
-    }
-  }
-  return count;
+  return countMessagesWithSlackMeta(
+    conversationId,
+    SLACK_DM_BACKFILL_WARM_THRESHOLD,
+  );
 }
 
 /**
@@ -1218,7 +1280,11 @@ function readStoredSlackChannelTs(conversationId: string): Set<string> {
     const raw = parent.slackMeta;
     if (typeof raw !== "string") continue;
     const meta = readSlackMetadata(raw);
-    if (meta) seen.add(meta.channelTs);
+    // Only message rows represent stored Slack messages. Reaction rows carry
+    // `channelTs` equal to the target message's ts, so including them would
+    // make a reaction on a thread parent wrongly short-circuit ancestor
+    // backfill (the parent itself may still be unseen).
+    if (meta && meta.eventKind === "message") seen.add(meta.channelTs);
   }
   return seen;
 }
@@ -1227,12 +1293,14 @@ function readStoredSlackChannelTs(conversationId: string): Set<string> {
  * Persist a single backfilled Slack message as a `messages` row with a
  * `slackMeta` envelope.
  *
- * Shared insertion point for both DM cold-start backfill and thread-ancestor
- * backfill. Backfilled rows are always recorded with role `"user"` — the
- * renderer reads `slackMeta` to format author / timestamp / thread context,
- * so the role distinction is not used for display. Caller is responsible
- * for dedup checks before invoking; this helper performs no idempotency
- * check itself.
+ * Shared insertion point for any path that hydrates Slack history lazily
+ * (DM cold-start backfill, thread-ancestor backfill, etc.). Role is derived
+ * from `message.metadata.isBot` — bot-authored rows map to `"assistant"` so
+ * our own prior replies (and any other bot traffic) are not rehydrated as
+ * user turns, which would otherwise corrupt speaker attribution and make
+ * the assistant treat its own outputs as new user input on later turns.
+ * Caller is responsible for dedup checks before invoking; this helper
+ * performs no idempotency check itself.
  */
 async function persistBackfilledSlackMessage(params: {
   conversationId: string;
@@ -1248,10 +1316,22 @@ async function persistBackfilledSlackMessage(params: {
     ...(message.threadId ? { threadTs: message.threadId } : {}),
     ...(message.sender?.name ? { displayName: message.sender.name } : {}),
   };
-  await addMessage(params.conversationId, "user", message.text ?? "", {
+  const role = message.metadata?.isBot === true ? "assistant" : "user";
+  await addMessage(params.conversationId, role, message.text ?? "", {
     slackMeta: writeSlackMetadata(slackMeta),
   });
 }
+
+/**
+ * In-memory map of in-flight DM cold-start backfills keyed by conversationId.
+ * Concurrent inbound DMs to the same cold conversation share a single
+ * backfill promise instead of each issuing their own Slack history fetch and
+ * write — without this, two near-simultaneous DMs would both observe a cold
+ * count, both fetch the same history window, and both insert duplicate rows
+ * (channelTs lives inside a JSON metadata blob, so the DB has no uniqueness
+ * constraint to fall back on).
+ */
+const _dmBackfillInFlight = new Map<string, Promise<void>>();
 
 /**
  * One-shot DM cold-start backfill. When a Slack DM lands in a conversation
@@ -1267,6 +1347,26 @@ async function persistBackfilledSlackMessage(params: {
 async function tryBackfillSlackDmIfCold(params: {
   conversationId: string;
   channelId: string;
+  account?: string;
+  latestTs?: string;
+}): Promise<void> {
+  const existing = _dmBackfillInFlight.get(params.conversationId);
+  if (existing) {
+    await existing;
+    return;
+  }
+  const promise = runBackfillSlackDmIfCold(params).finally(() => {
+    _dmBackfillInFlight.delete(params.conversationId);
+  });
+  _dmBackfillInFlight.set(params.conversationId, promise);
+  await promise;
+}
+
+async function runBackfillSlackDmIfCold(params: {
+  conversationId: string;
+  channelId: string;
+  account?: string;
+  latestTs?: string;
 }): Promise<void> {
   try {
     const storedCount = countSlackMetaMessages(params.conversationId);
@@ -1274,7 +1374,16 @@ async function tryBackfillSlackDmIfCold(params: {
       return;
     }
 
-    const fetched = await backfillDm(params.channelId, { limit: 50 });
+    // Pass the webhook message's ts as `before` (Slack's `latest`,
+    // exclusive) so history never contains the message that's about to be
+    // persisted by the live inbound path. Without this bound the just-arrived
+    // DM would be written twice — once here and once via normal persistence —
+    // producing duplicate user turns.
+    const fetched = await backfillDm(params.channelId, {
+      limit: 50,
+      account: params.account,
+      before: params.latestTs,
+    });
     if (fetched.length === 0) {
       log.debug(
         { conversationId: params.conversationId, channelId: params.channelId },
@@ -1323,14 +1432,30 @@ async function tryBackfillSlackDmIfCold(params: {
       "DM cold-start backfill complete",
     );
   } catch (err) {
-    log.warn(
-      {
-        err,
-        conversationId: params.conversationId,
-        channelId: params.channelId,
-      },
-      "DM cold-start backfill failed; proceeding without history",
-    );
+    // `channel_not_found` almost always means the resolved connection is
+    // pointing at the wrong Slack workspace (a real config bug), so log it
+    // at ERROR to match backfill's rethrow contract. Other failures
+    // (timeout, auth, ratelimited, …) stay at WARN — they're expected
+    // transient blips and the caller proceeds without backfilled history.
+    const channelNotFound =
+      err instanceof Error && /channel_not_found/i.test(err.message);
+    const payload = {
+      err,
+      conversationId: params.conversationId,
+      channelId: params.channelId,
+      account: params.account,
+    };
+    if (channelNotFound) {
+      log.error(
+        payload,
+        "DM cold-start backfill hit channel_not_found — connection likely points at the wrong Slack workspace",
+      );
+    } else {
+      log.warn(
+        payload,
+        "DM cold-start backfill failed; proceeding without history",
+      );
+    }
   }
 }
 
@@ -1413,8 +1538,25 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
   conversationId: string;
   channelId: string;
   threadTs: string;
+  /**
+   * The inbound message's own `channelTs`. Pre-seeded into the dedup set so
+   * this helper does not re-persist the just-received message when Slack's
+   * `conversations.replies` returns it in the thread window. Necessary
+   * because thread backfill runs concurrently with
+   * `processChannelMessageInBackground`, so the inbound row may not yet be
+   * in the DB when `readStoredSlackChannelTs` snapshots the conversation.
+   */
+  excludeChannelTs?: string;
+  /**
+   * OAuth account identifier used to disambiguate which Slack workspace the
+   * backfill should read from in multi-account setups. Passed through to
+   * `backfillThread` → `resolveConnection`. Best-effort: if omitted, the
+   * resolver falls back to the default-active connection.
+   */
+  account?: string;
 }): Promise<void> {
-  const { conversationId, channelId, threadTs } = params;
+  const { conversationId, channelId, threadTs, excludeChannelTs, account } =
+    params;
   const cacheKey = `${conversationId}:${threadTs}`;
 
   try {
@@ -1423,6 +1565,7 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
     }
 
     const storedChannelTs = readStoredSlackChannelTs(conversationId);
+    if (excludeChannelTs) storedChannelTs.add(excludeChannelTs);
     if (storedChannelTs.has(threadTs)) {
       // Parent is already in the conversation; mark the cache so a burst of
       // replies in this thread does not redo the DB scan for each one.
@@ -1440,7 +1583,7 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
     _backfillTriggerCache.set(cacheKey, Date.now());
     pruneBackfillCacheIfNeeded();
 
-    const fetched = await backfillThread(channelId, threadTs);
+    const fetched = await backfillThread(channelId, threadTs, { account });
     if (fetched.length === 0) {
       log.debug(
         { conversationId, channelId, threadTs },
@@ -1480,9 +1623,21 @@ export async function triggerSlackThreadBackfillIfNeeded(params: {
       "Slack thread backfill persisted ancestor messages",
     );
   } catch (err) {
-    log.warn(
-      { err, conversationId, channelId, threadTs },
-      "Slack thread backfill failed; proceeding without it",
-    );
+    // `channel_not_found` almost always means the resolved connection is
+    // pointing at the wrong Slack workspace (a real config bug), so log it
+    // at ERROR to match backfill's rethrow contract. Other failures
+    // (timeout, auth, ratelimited, …) stay at WARN — they're expected
+    // transient blips and dispatch proceeds without the ancestors.
+    const channelNotFound =
+      err instanceof Error && /channel_not_found/i.test(err.message);
+    const payload = { err, conversationId, channelId, threadTs, account };
+    if (channelNotFound) {
+      log.error(
+        payload,
+        "Slack thread backfill hit channel_not_found — connection likely points at the wrong Slack workspace",
+      );
+    } else {
+      log.warn(payload, "Slack thread backfill failed; proceeding without it");
+    }
   }
 }

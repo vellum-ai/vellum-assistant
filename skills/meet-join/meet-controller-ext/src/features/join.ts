@@ -95,6 +95,19 @@ export interface RunJoinFlowOptions {
     outerHeight: number;
     innerHeight: number;
   };
+  /**
+   * Fired synchronously the moment the bot is admitted to the meeting
+   * (step 5 succeeds — `INGAME_READY_INDICATOR` is mounted) and BEFORE the
+   * best-effort consent post runs.
+   *
+   * Callers emit `lifecycle:joined` from here so the daemon sees the join
+   * complete independently of the secondary consent / scraper-install
+   * work that follows. Chat-DOM drift in step 6 must not gate the
+   * "joined" signal — the bot is already in the meeting at this point,
+   * and tearing it back out over a missing greeting would be strictly
+   * worse than letting the consent post fail as a diagnostic.
+   */
+  onAdmitted?: () => void;
 }
 
 /**
@@ -134,6 +147,7 @@ export async function runJoinFlow(opts: RunJoinFlowOptions): Promise<void> {
       selectors.PREJOIN_MEDIA_PROMPT_ACCEPT_BUTTON,
       MEDIA_PROMPT_TIMEOUT_MS,
       doc,
+      { interactable: true },
     );
     (modal as HTMLElement).click();
   } catch {
@@ -153,6 +167,11 @@ export async function runJoinFlow(opts: RunJoinFlowOptions): Promise<void> {
       ],
       PREJOIN_TIMEOUT_MS,
       doc,
+      // Meet leaves hidden template/transition copies of these nodes in the
+      // tree during the prejoin mount; we must wait for a genuinely
+      // interactable match so the admission click path doesn't branch on a
+      // ghost node and then time out waiting for the in-meeting UI.
+      { interactable: true },
     );
   } catch {
     fail(
@@ -316,6 +335,12 @@ export async function runJoinFlow(opts: RunJoinFlowOptions): Promise<void> {
       `meet-ext: in-meeting UI did not appear within ${MEETING_ROOM_TIMEOUT_MS}ms (host may not have admitted the bot): ${msg}`,
     );
   }
+
+  // Bot is in the meeting. Fire the admitted hook before step 6 so the
+  // caller can publish `lifecycle:joined` before the best-effort consent
+  // post runs — chat-DOM drift there must not delay or block the join
+  // completion signal reaching the daemon.
+  opts.onAdmitted?.();
 
   // Step 6 — post the consent notice in chat. Best effort: the bot is
   // already admitted at this point, so a chat-post failure should surface as

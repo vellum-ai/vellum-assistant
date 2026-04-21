@@ -93,6 +93,7 @@ import {
 } from "./conversation.js";
 import { ConversationEvictor } from "./conversation-evictor.js";
 import { registerLaunchConversationDeps } from "./conversation-launch.js";
+import { buildSlackMetaForPersistence } from "./conversation-messaging.js";
 import { formatCompactResult } from "./conversation-process.js";
 import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
 import { resolveSlash, type SlashContext } from "./conversation-slash.js";
@@ -1522,6 +1523,18 @@ export class DaemonServer {
     };
     const slashResult = await resolveSlash(content, slashContext);
 
+    // Slack inbound metadata is materialized once here for the slash-command
+    // bypass paths (unknown-slash and /compact), which persist the user row
+    // directly via `addMessage` and would otherwise drop the envelope. The
+    // agent-loop path does not consume this variable — it forwards
+    // `options.slackInbound` through `persistMetadata` and the envelope is
+    // built internally by `buildSlackMetaForPersistence` inside
+    // `persistQueuedMessageBody`.
+    const slackMeta = buildSlackMetaForPersistence({
+      slackInbound: options?.slackInbound,
+      turnChannel: conversation.getTurnChannelContext()?.userMessageChannel,
+    });
+
     if (slashResult.kind === "unknown") {
       const serverTurnCtx = conversation.getTurnChannelContext();
       const serverProvenance = provenanceFromTrustContext(
@@ -1553,13 +1566,20 @@ export class DaemonServer {
           ? { imageSourcePaths }
           : {}),
       };
+      // slackMeta encodes the inbound user message's ts/thread — it attaches
+      // to the user row only. The assistant's slash-command response does not
+      // originate from Slack and must not inherit the user's channelTs, which
+      // would break ordering in the chronological renderer.
+      const userMetaWithSlack = slackMeta
+        ? { ...serverChannelMeta, slackMeta }
+        : serverChannelMeta;
       const cleanMsg = createUserMessage(content, attachments);
       const llmMsg = enrichMessageWithSourcePaths(cleanMsg, attachments);
       const persisted = await addMessage(
         conversationId,
         "user",
         JSON.stringify(cleanMsg.content),
-        serverChannelMeta,
+        userMetaWithSlack,
       );
       conversation.getMessages().push(llmMsg);
 
@@ -1637,12 +1657,15 @@ export class DaemonServer {
             }
           : {}),
       };
+      const compactUserMeta = slackMeta
+        ? { ...compactChannelMeta, slackMeta }
+        : compactChannelMeta;
       const cleanMsg = createUserMessage(content, attachments);
       const persisted = await addMessage(
         conversationId,
         "user",
         JSON.stringify(cleanMsg.content),
-        compactChannelMeta,
+        compactUserMeta,
       );
       conversation.getMessages().push(cleanMsg);
 

@@ -279,7 +279,10 @@ function applyMediaStubbing(
       providerName: config.providerName,
     });
     const adjustedNonMediaTokens = nonMediaTokens + estimatedStubTokens;
-    const mediaTokenBudget = Math.max(0, config.targetTokens - adjustedNonMediaTokens);
+    const mediaTokenBudget = Math.max(
+      0,
+      config.targetTokens - adjustedNonMediaTokens,
+    );
 
     const stripped = stripMediaPayloadsForRetry(messages, {
       mediaTokenBudget,

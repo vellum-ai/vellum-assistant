@@ -154,9 +154,41 @@ struct AssistantTransferSection: View {
                 throw TransferError.importFailed(message: "Failed to save managed assistant configuration to lockfile.")
             }
 
+            // Wait for post-hatch runtime provisioning (assistant_api_key,
+            // platform_assistant_id, webhook_secret, actor token) to complete
+            // before the import starts rearranging the workspace — otherwise
+            // Django's POST /v1/secrets can race with the atomic workspace
+            // swap, return 500, and fail-closed-revoke the just-issued
+            // assistant API key.
+            currentStep = "Finalizing cloud assistant..."
+            try await ManagedAssistantBootstrapService.shared.awaitAssistantProvisioned(
+                assistantId: platformAssistant.id
+            )
+
             // Step 3 — Import bundle to managed assistant
             currentStep = "Uploading data to cloud..."
             try await importBundleToManaged(bundleData: bundleData)
+
+            // Step 3b — Inject client-resolvable vellum identity fields that
+            // Django's post-hatch provisioning doesn't cover (org id, user id).
+            // Normal local bootstrap sets these via `LocalAssistantBootstrapService`;
+            // the transfer flow has to do it here because it skips that bootstrap.
+            //
+            // Best-effort: if the org id isn't already cached from
+            // `ensureManagedAssistant()` above, skip injection rather than
+            // blocking the transfer on a fresh network lookup — the export
+            // and import have already succeeded, and a failed injection is
+            // recoverable (managed assistant still boots; org/user tagging
+            // just stays blank until the next explicit set).
+            if let organizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId"),
+               !organizationId.isEmpty {
+                await ManagedAssistantIdentityInjection.inject(
+                    into: platformAssistant.id,
+                    organizationId: organizationId
+                )
+            } else {
+                log.warning("[transfer] Skipping vellum identity injection — no cached organization id for \(platformAssistant.id, privacy: .public)")
+            }
 
             // Step 4 — Switch to managed assistant
             currentStep = "Switching to cloud assistant..."
@@ -205,10 +237,13 @@ struct AssistantTransferSection: View {
                 throw TransferError.exportFailed(statusCode: 0)
             }
 
-            // Step 2 — Poll for completion (up to 5 minutes)
+            // Step 2 — Poll for completion (up to 60 minutes, to match large-bundle timeout budget)
             currentStep = "Waiting for export..."
             var downloadUrl: String?
-            for _ in 0..<100 {
+            let pollInterval: UInt64 = 3_000_000_000 // 3 seconds
+            let exportPollTimeout: TimeInterval = 3600 // 60 minutes
+            let exportPollStart = Date()
+            while Date().timeIntervalSince(exportPollStart) < exportPollTimeout {
                 try Task.checkCancellation()
                 let (statusResult, statusResponse): (ExportStatusResponse?, _) = try await GatewayHTTPClient.get(
                     path: "migrations/export/\(jobId)/status"
@@ -226,7 +261,7 @@ struct AssistantTransferSection: View {
                 } else if statusResult.status == "failed" {
                     throw TransferError.importFailed(message: statusResult.error ?? "Export job failed")
                 } else if statusResult.status == "pending" || statusResult.status == "processing" {
-                    try await Task.sleep(nanoseconds: 3_000_000_000)
+                    try await Task.sleep(nanoseconds: pollInterval)
                 } else {
                     throw TransferError.exportFailed(statusCode: 0)
                 }
@@ -285,7 +320,7 @@ struct AssistantTransferSection: View {
                     path: "migrations/import",
                     body: bundleData,
                     contentType: "application/octet-stream",
-                    timeout: 120
+                    timeout: 3600
                 )
             }
             guard importResponse.isSuccess else {
@@ -330,7 +365,7 @@ struct AssistantTransferSection: View {
     private func exportAssistantBundle() async throws -> Data {
         let response = try await GatewayHTTPClient.post(
             path: "migrations/export",
-            timeout: 60
+            timeout: 3600
         )
         guard response.isSuccess else {
             throw TransferError.exportFailed(statusCode: response.statusCode)
@@ -401,7 +436,7 @@ struct AssistantTransferSection: View {
             }
 
             let pollInterval: UInt64 = 5_000_000_000 // 5 seconds
-            let timeout: TimeInterval = 600 // 10 minutes
+            let timeout: TimeInterval = 3600 // 60 minutes
             let start = Date()
 
             while Date().timeIntervalSince(start) < timeout {
@@ -432,7 +467,7 @@ struct AssistantTransferSection: View {
                     throw TransferError.importFailed(message: status.error ?? "Import job failed")
                 }
             }
-            throw TransferError.importFailed(message: "Import timed out after 10 minutes")
+            throw TransferError.importFailed(message: "Import timed out after 60 minutes")
         }
 
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -469,7 +504,7 @@ private enum TransferError: LocalizedError {
         case .exportFailed(let statusCode):
             return "Export failed (HTTP \(statusCode))"
         case .exportTimedOut:
-            return "Export timed out after 5 minutes"
+            return "Export timed out after 60 minutes"
         case .importFailed(let message):
             return "Import failed: \(message)"
         case .managedEntryNotFound:

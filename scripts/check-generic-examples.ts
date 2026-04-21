@@ -67,7 +67,7 @@ const SHAPE_PATTERNS: Pattern[] = [
     // digits do NOT fall in the reserved 555-0100..555-0199 range that IANA
     // allocates for fiction. Matches common formats including (xxx) xxx-xxxx.
     regex:
-      /["'`](?:\+?1[-. ]?)?\(?(?!555\)?[-. ]?01\d\d)\d{3}\)?[-. ]?\d{3}[-. ]?\d{4}["'`]/,
+      /["'`](?:\+?1[-. ]?)?\(?\d{3}\)?[-. ]?(?!555[-. ]?01\d\d)\d{3}[-. ]?\d{4}["'`]/,
     severity: "WARN",
     description:
       "phone number outside the reserved 555-01XX range (use 555-01xx in fixtures)",
@@ -194,7 +194,7 @@ function parseUnifiedDiff(diff: string): AddedLine[] {
 
 function getDiff(mode: "staged" | "ci"): string {
   if (mode === "staged") {
-    return execSync("git diff --cached --unified=0 --no-color", {
+    return execSync("git diff --cached --unified=1 --no-color", {
       maxBuffer: 64 * 1024 * 1024,
     }).toString();
   }
@@ -211,7 +211,7 @@ function getDiff(mode: "staged" | "ci"): string {
     ? `origin/${process.env.GITHUB_BASE_REF}`
     : base;
   return execSync(
-    `git diff ${baseRef}...HEAD --unified=0 --no-color`,
+    `git diff ${baseRef}...HEAD --unified=1 --no-color`,
     {
       maxBuffer: 64 * 1024 * 1024,
     },
@@ -325,13 +325,23 @@ const TEST_CASES: TestCase[] = [
     expectPatterns: ["non-example-email"],
   },
   {
-    name: "reserved phone is OK",
-    content: `const n = "555-0142";`,
+    name: "reserved 10-digit phone is OK",
+    content: `const n = "212-555-0142";`,
     expectPatterns: [],
   },
   {
-    name: "real phone is flagged",
+    name: "reserved 10-digit phone with parens is OK",
+    content: `const n = "(212) 555-0142";`,
+    expectPatterns: [],
+  },
+  {
+    name: "real 10-digit phone is flagged",
     content: `const n = "212-555-1234";`,
+    expectPatterns: ["non-reserved-phone"],
+  },
+  {
+    name: "real 10-digit phone with parens is flagged",
+    content: `const n = "(212) 555-9999";`,
     expectPatterns: ["non-reserved-phone"],
   },
   {

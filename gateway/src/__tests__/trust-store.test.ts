@@ -13,10 +13,13 @@ import {
 import { join } from "node:path";
 import { describe, test, expect, beforeEach } from "bun:test";
 
+import { isScopedRule, ruleScope } from "@vellumai/ces-contracts/trust-rules";
+
 import {
   loadRules,
   getAllRules,
   addRule,
+  updateRule,
   findMatchingRule,
   findHighestPriorityRule,
   clearRules,
@@ -61,7 +64,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("normalization on load", () => {
-  test("strips executionTarget but preserves allowHighRisk on URL tool rules", () => {
+  test("strips executionTarget and allowHighRisk on URL tool rules", () => {
     writeTrustFile({
       version: 3,
       rules: [
@@ -82,9 +85,9 @@ describe("normalization on load", () => {
     const rules = loadRules();
     expect(rules).toHaveLength(1);
     expect(rules[0].id).toBe("r1");
-    // URL rules should not have executionTarget.
+    // URL rules should not have executionTarget or allowHighRisk.
     expect("executionTarget" in rules[0]).toBe(false);
-    expect((rules[0] as { allowHighRisk?: boolean }).allowHighRisk).toBe(true);
+    expect("allowHighRisk" in rules[0]).toBe(false);
 
     // Verify file was re-saved with normalized rules
     const saved = readTrustFile();
@@ -92,10 +95,10 @@ describe("normalization on load", () => {
     const savedRules = saved.rules as Array<Record<string, unknown>>;
     expect(savedRules).toHaveLength(1);
     expect("executionTarget" in savedRules[0]).toBe(false);
-    expect(savedRules[0].allowHighRisk).toBe(true);
+    expect("allowHighRisk" in savedRules[0]).toBe(false);
   });
 
-  test("strips executionTarget but preserves allowHighRisk on managed skill rules", () => {
+  test("strips executionTarget and allowHighRisk on managed skill rules", () => {
     writeTrustFile({
       version: 3,
       rules: [
@@ -116,10 +119,10 @@ describe("normalization on load", () => {
     const rules = loadRules();
     expect(rules).toHaveLength(1);
     expect("executionTarget" in rules[0]).toBe(false);
-    expect((rules[0] as { allowHighRisk?: boolean }).allowHighRisk).toBe(true);
+    expect("allowHighRisk" in rules[0]).toBe(false);
   });
 
-  test("strips executionTarget but preserves allowHighRisk on skill_load rules", () => {
+  test("strips executionTarget and allowHighRisk on skill_load rules", () => {
     writeTrustFile({
       version: 3,
       rules: [
@@ -140,10 +143,10 @@ describe("normalization on load", () => {
     const rules = loadRules();
     expect(rules).toHaveLength(1);
     expect("executionTarget" in rules[0]).toBe(false);
-    expect((rules[0] as { allowHighRisk?: boolean }).allowHighRisk).toBe(true);
+    expect("allowHighRisk" in rules[0]).toBe(false);
   });
 
-  test("preserves executionTarget and allowHighRisk on scoped tool rules", () => {
+  test("preserves executionTarget but strips allowHighRisk on scoped tool rules", () => {
     writeTrustFile({
       version: 3,
       rules: [
@@ -164,10 +167,10 @@ describe("normalization on load", () => {
     const rules = loadRules();
     expect(rules).toHaveLength(1);
     expect((rules[0] as any).executionTarget).toBe("host");
-    expect((rules[0] as any).allowHighRisk).toBe(true);
+    expect("allowHighRisk" in rules[0]).toBe(false);
   });
 
-  test("preserves executionTarget and allowHighRisk on generic (unknown) tool rules", () => {
+  test("preserves executionTarget but strips allowHighRisk on generic (unknown) tool rules", () => {
     writeTrustFile({
       version: 3,
       rules: [
@@ -188,7 +191,7 @@ describe("normalization on load", () => {
     const rules = loadRules();
     expect(rules).toHaveLength(1);
     expect((rules[0] as any).executionTarget).toBe("container");
-    expect((rules[0] as any).allowHighRisk).toBe(false);
+    expect("allowHighRisk" in rules[0]).toBe(false);
   });
 
   test("strips legacy principal-scoped fields and re-saves", () => {
@@ -246,6 +249,79 @@ describe("normalization on load", () => {
     const rules = loadRules();
     expect(rules).toHaveLength(1);
     expect(rules[0].id).toBe("r7-good");
+  });
+
+  test("strips scope from non-scoped URL tool rules on load", () => {
+    writeTrustFile({
+      version: 3,
+      rules: [
+        {
+          id: "r-url-scope",
+          tool: "web_fetch",
+          pattern: "**",
+          scope: "/some/path",
+          decision: "allow",
+          priority: 100,
+          createdAt: 1000,
+        },
+      ],
+    });
+
+    const rules = loadRules();
+    expect(rules).toHaveLength(1);
+    // Scope should have been stripped for non-scoped URL tool
+    expect("scope" in rules[0]).toBe(false);
+    // ruleScope() returns "everywhere" for non-scoped rules without scope
+    expect(ruleScope(rules[0])).toBe("everywhere");
+
+    // Verify file was re-saved with scope stripped
+    const saved = readTrustFile();
+    const savedRules = saved.rules as Array<Record<string, unknown>>;
+    expect("scope" in savedRules[0]).toBe(false);
+  });
+
+  test("strips scope from non-scoped managed skill rules on load", () => {
+    writeTrustFile({
+      version: 3,
+      rules: [
+        {
+          id: "r-skill-scope",
+          tool: "scaffold_managed_skill",
+          pattern: "**",
+          scope: "/some/path",
+          decision: "allow",
+          priority: 100,
+          createdAt: 1000,
+        },
+      ],
+    });
+
+    const rules = loadRules();
+    expect(rules).toHaveLength(1);
+    expect("scope" in rules[0]).toBe(false);
+    expect(ruleScope(rules[0])).toBe("everywhere");
+  });
+
+  test("strips scope from non-scoped skill_load rules on load", () => {
+    writeTrustFile({
+      version: 3,
+      rules: [
+        {
+          id: "r-skillload-scope",
+          tool: "skill_load",
+          pattern: "**",
+          scope: "/some/path",
+          decision: "allow",
+          priority: 100,
+          createdAt: 1000,
+        },
+      ],
+    });
+
+    const rules = loadRules();
+    expect(rules).toHaveLength(1);
+    expect("scope" in rules[0]).toBe(false);
+    expect(ruleScope(rules[0])).toBe("everywhere");
   });
 
   test("does not re-save when no normalization is needed", () => {
@@ -572,6 +648,136 @@ describe("CRUD operations", () => {
 
     clearRules();
     expect(getAllRules()).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ruleScope() integration
+// ---------------------------------------------------------------------------
+
+describe("ruleScope() integration", () => {
+  test("ruleScope returns 'everywhere' for non-scoped rules loaded from disk", () => {
+    writeTrustFile({
+      version: 3,
+      rules: [
+        {
+          id: "rs-url",
+          tool: "web_fetch",
+          pattern: "**",
+          decision: "allow",
+          priority: 100,
+          createdAt: 1000,
+        },
+        {
+          id: "rs-skill",
+          tool: "scaffold_managed_skill",
+          pattern: "**",
+          decision: "allow",
+          priority: 100,
+          createdAt: 1000,
+        },
+      ],
+    });
+
+    const rules = loadRules();
+    expect(rules).toHaveLength(2);
+    // Both non-scoped rules should have ruleScope() return "everywhere"
+    for (const rule of rules) {
+      expect(ruleScope(rule)).toBe("everywhere");
+    }
+  });
+
+  test("ruleScope returns explicit scope for scoped rules loaded from disk", () => {
+    writeTrustFile({
+      version: 3,
+      rules: [
+        {
+          id: "rs-bash",
+          tool: "bash",
+          pattern: "**",
+          scope: "/home/user/project",
+          decision: "allow",
+          priority: 100,
+          createdAt: 1000,
+        },
+      ],
+    });
+
+    const rules = loadRules();
+    expect(rules).toHaveLength(1);
+    expect(ruleScope(rules[0])).toBe("/home/user/project");
+  });
+
+  test("non-scoped rules match via ruleScope() even when loaded with scope on disk", () => {
+    // Write a web_fetch rule that has scope on disk (legacy data)
+    writeTrustFile({
+      version: 3,
+      rules: [
+        {
+          id: "rs-legacy-url",
+          tool: "web_fetch",
+          pattern: "**",
+          scope: "/specific/path",
+          decision: "allow",
+          priority: 100,
+          createdAt: 1000,
+        },
+      ],
+    });
+
+    loadRules();
+
+    // The rule should match everywhere because scope is stripped for URL tools
+    expect(
+      findMatchingRule("web_fetch", "https://example.com", "/any/path"),
+    ).toBeTruthy();
+    expect(
+      findMatchingRule("web_fetch", "https://example.com", "/other/path"),
+    ).toBeTruthy();
+  });
+
+  test("addRule omits scope for non-scoped tools", () => {
+    const rule = addRule(
+      "web_fetch",
+      "https://example.com/**",
+      "everywhere",
+      "allow",
+      80,
+    );
+    expect(rule.tool).toBe("web_fetch");
+    // Non-scoped rules should not carry scope
+    expect("scope" in rule).toBe(false);
+    expect(ruleScope(rule)).toBe("everywhere");
+  });
+
+  test("addRule preserves scope for scoped tools", () => {
+    const rule = addRule("bash", "echo **", "/home/user/project", "allow", 80);
+    expect(rule.tool).toBe("bash");
+    expect(isScopedRule(rule)).toBe(true);
+    if (isScopedRule(rule)) expect(rule.scope).toBe("/home/user/project");
+    expect(ruleScope(rule)).toBe("/home/user/project");
+  });
+
+  test("updateRule ignores scope updates for non-scoped tools", () => {
+    const rule = addRule(
+      "web_fetch",
+      "https://example.com/**",
+      "everywhere",
+      "allow",
+      80,
+    );
+    // Try to update scope on a non-scoped tool — should be ignored
+    const updated = updateRule(rule.id, { scope: "/some/dir" });
+    expect("scope" in updated).toBe(false);
+    expect(ruleScope(updated)).toBe("everywhere");
+  });
+
+  test("updateRule applies scope updates for scoped tools", () => {
+    const rule = addRule("bash", "echo **", "/home/user/project", "allow", 80);
+    const updated = updateRule(rule.id, { scope: "/home/user/other" });
+    expect(isScopedRule(updated)).toBe(true);
+    if (isScopedRule(updated)) expect(updated.scope).toBe("/home/user/other");
+    expect(ruleScope(updated)).toBe("/home/user/other");
   });
 });
 

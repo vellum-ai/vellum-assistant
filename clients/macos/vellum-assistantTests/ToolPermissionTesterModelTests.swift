@@ -294,32 +294,6 @@ final class ToolPermissionTesterModelTests: XCTestCase {
 
         let trustCall = mockTrustRuleClient.addTrustRuleCalls[0]
         XCTAssertEqual(trustCall.decision, "allow")
-        XCTAssertEqual(trustCall.allowHighRisk, true)
-    }
-
-    func testAlwaysAllow_mediumRisk_doesNotSetAllowHighRisk() {
-        mockToolClient.simulateResponse = ToolPermissionSimulateResponseMessage(
-            type: "tool_permission_simulate_response",
-            success: true, decision: "allow", riskLevel: "low", reason: "ok",
-            promptPayload: nil, executionTarget: nil, matchedRuleId: nil, error: nil
-        )
-
-        model.toolName = "host_bash"
-        model.lastResult = SimulationResult(
-            decision: "prompt", riskLevel: "medium", reason: "test",
-            matchedRuleId: nil, promptPayload: nil,
-            snapshotToolName: "", snapshotInputJSON: "{}", snapshotExecutionTarget: nil
-        )
-
-        model.alwaysAllow(pattern: "echo *", scope: "project")
-
-        let predicate = NSPredicate { _, _ in self.mockTrustRuleClient.addTrustRuleCalls.count >= 1 }
-        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
-        wait(for: [expectation], timeout: 2.0)
-
-        let trustCall = mockTrustRuleClient.addTrustRuleCalls[0]
-        XCTAssertEqual(trustCall.decision, "allow")
-        XCTAssertNil(trustCall.allowHighRisk)
     }
 
     func testAlwaysAllow_emptyMetadata_doesNotPassNilFields() {

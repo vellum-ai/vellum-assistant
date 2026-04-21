@@ -11,7 +11,6 @@ public protocol TrustRuleClientProtocol {
         pattern: String,
         scope: String,
         decision: String,
-        allowHighRisk: Bool?,
         executionTarget: String?
     ) async throws
     func removeTrustRule(id: String) async throws
@@ -60,7 +59,6 @@ public struct TrustRuleClient: TrustRuleClientProtocol {
         pattern: String,
         scope: String,
         decision: String,
-        allowHighRisk: Bool? = nil,
         executionTarget: String? = nil
     ) async throws {
         var body: [String: Any] = [
@@ -69,7 +67,6 @@ public struct TrustRuleClient: TrustRuleClientProtocol {
             "scope": scope,
             "decision": decision,
         ]
-        if let allowHighRisk { body["allowHighRisk"] = allowHighRisk }
         if let executionTarget { body["executionTarget"] = executionTarget }
 
         let response = try await GatewayHTTPClient.post(

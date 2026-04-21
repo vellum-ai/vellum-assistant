@@ -32,6 +32,7 @@ import {
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
+import { _setDeleteLookupConfigForTests } from "../runtime/routes/inbound-message-handler.js";
 
 initializeDb();
 
@@ -159,6 +160,11 @@ describe("Slack delete propagation", () => {
   beforeEach(() => {
     resetState();
     seedActiveDeleteActor("C0123CHANNEL");
+    // Keep the lookup retry-loop fast by default so the "no such message"
+    // paths don't pay the full production backoff. The race-test below
+    // overrides this to a longer delay so the first retry can observe
+    // the deferred linkMessage.
+    _setDeleteLookupConfigForTests(2, 20);
   });
 
   test("marks slackMeta.deletedAt and leaves content untouched", async () => {
@@ -319,14 +325,83 @@ describe("Slack delete propagation", () => {
     expect(slackMeta!.deletedAt).toBeUndefined();
   });
 
+  test("delete that races ahead of linkMessage is retried until the link lands", async () => {
+    // Simulates the race: a delete webhook arrives after `recordInbound`
+    // has inserted the original event row but before the agent-loop path
+    // has called `linkMessage` to bind it to a stored message. Without
+    // the retry loop the delete would silently no-op and the deletion
+    // signal would be lost.
+    const db = getDb();
+    const externalChatId = "C0123CHANNEL";
+    const originalTs = "5555.5555";
+    const inbound = recordInbound("slack", externalChatId, originalTs, {
+      sourceMessageId: originalTs,
+    });
+
+    const messageId = `msg-${originalTs}`;
+    const slackMeta = writeSlackMetadata({
+      source: "slack",
+      channelId: externalChatId,
+      channelTs: originalTs,
+      eventKind: "message",
+      displayName: "Test User",
+    });
+    db.insert(messages)
+      .values({
+        id: messageId,
+        conversationId: inbound.conversationId,
+        role: "user",
+        content: "Original text",
+        createdAt: Date.now(),
+        metadata: JSON.stringify({
+          userMessageChannel: "slack",
+          userMessageInterface: "slack",
+          slackMeta,
+        }),
+      })
+      .run();
+
+    // Shorten retries to a handful of small backoffs so the test is fast
+    // while still exercising the loop.
+    _setDeleteLookupConfigForTests(5, 50);
+
+    // Link the message after a short delay — this lands during one of the
+    // retry backoffs. Intentionally not awaited.
+    const LINK_DELAY_MS = 120;
+    setTimeout(() => {
+      linkMessage(inbound.eventId, messageId);
+    }, LINK_DELAY_MS);
+
+    const req = buildSlackDeleteRequest({
+      externalChatId,
+      deletedTs: originalTs,
+    });
+    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    const json = (await resp.json()) as Record<string, unknown>;
+
+    expect(resp.status).toBe(200);
+    expect(json.accepted).toBe(true);
+    expect(json.deleted).toBe(true);
+    expect(json.messageId).toBe(messageId);
+
+    const row = db
+      .select()
+      .from(messages)
+      .where(eq(messages.id, messageId))
+      .get();
+    const parsed = JSON.parse(row!.metadata!) as Record<string, unknown>;
+    const parsedSlackMeta = readSlackMetadata(parsed.slackMeta as string);
+    expect(parsedSlackMeta!.deletedAt).toBeDefined();
+  });
+
   test("delete from non-member actor is rejected by ACL and does not apply", async () => {
     // Use a channel where NO active member is seeded so the actor cannot
-    // resolve via the channel's externalChatId either. This is the
-    // regression check for the gap where the delete short-circuit ran
-    // before ingress ACL — under the fix the ACL must reject the delete
-    // so no row is mutated. Also clear the C0123CHANNEL seed for the
-    // alt channel below since beforeEach wires the seed on C0123CHANNEL
-    // only.
+    // resolve via the channel's externalChatId either. Verifies that ACL
+    // enforcement rejects delete events from non-members before the delete
+    // handler processes them — the delete must not apply and no row should
+    // be mutated when the actor is not an active member of the target
+    // channel. Also clear the C0123CHANNEL seed for the alt channel below
+    // since beforeEach wires the seed on C0123CHANNEL only.
     const altChannel = "C0_NON_MEMBER_CHAN";
     const seeded = seedSlackMessage({
       externalChatId: altChannel,

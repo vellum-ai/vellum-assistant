@@ -2,6 +2,7 @@ import type { Command } from "commander";
 
 import {
   cleanupShortSegments,
+  compactLongMemoryNodes,
   findReextractTarget,
   findReextractTargets,
   getMemorySystemStatus,
@@ -35,7 +36,7 @@ Key concepts:
 Examples:
   $ assistant memory status
   $ assistant memory query "What is the project deadline?"
-  $ assistant memory backfill`
+  $ assistant memory backfill`,
   );
 
   memory
@@ -57,7 +58,7 @@ Fields shown:
   jobs               Status of background jobs (backfill, cleanup, rebuild-index)
 
 Examples:
-  $ assistant memory status`
+  $ assistant memory status`,
     )
     .action(async () => {
       initializeDb();
@@ -97,7 +98,7 @@ useful after bulk imports or if the incremental state has become inconsistent.
 
 Examples:
   $ assistant memory backfill
-  $ assistant memory backfill --force`
+  $ assistant memory backfill --force`,
     )
     .action((opts: { force?: boolean }) => {
       initializeDb();
@@ -121,20 +122,20 @@ existing short segments that were stored before the filter was added.
 
 Examples:
   $ assistant memory cleanup-segments
-  $ assistant memory cleanup-segments --dry-run`
+  $ assistant memory cleanup-segments --dry-run`,
     )
     .action(async (opts: { dryRun?: boolean }) => {
       initializeDb();
       const result = await cleanupShortSegments({ dryRun: opts.dryRun });
       if (opts.dryRun) {
         log.info(
-          `Dry run: ${result.dryRunCount} short segment(s) would be removed.`
+          `Dry run: ${result.dryRunCount} short segment(s) would be removed.`,
         );
       } else {
         log.info(`Removed ${result.removed} short segment(s).`);
         if (result.failed > 0) {
           log.warn(
-            `${result.failed} segment(s) skipped — Qdrant deletion failed. Re-run when Qdrant is available.`
+            `${result.failed} segment(s) skipped — Qdrant deletion failed. Re-run when Qdrant is available.`,
           );
         }
       }
@@ -143,7 +144,7 @@ Examples:
   memory
     .command("query <text>")
     .description(
-      "Run a memory recall query and print the injected memory payload"
+      "Run a memory recall query and print the injected memory payload",
     )
     .option("-c, --conversation <id>", "Optional conversation ID")
     .addHelpText(
@@ -164,7 +165,7 @@ context-aware recall. If omitted, the most recent conversation is used.
 Examples:
   $ assistant memory query "What is the project deadline?"
   $ assistant memory query "preferred communication style" --conversation conv_abc123
-  $ assistant memory query "API rate limits"`
+  $ assistant memory query "API rate limits"`,
     )
     .action(async (text: string, opts?: { conversation?: string }) => {
       initializeDb();
@@ -181,8 +182,8 @@ Examples:
         for (const r of result.results) {
           log.info(
             `[${r.type}] (confidence: ${r.confidence.toFixed(
-              2
-            )}, score: ${r.score.toFixed(3)})`
+              2,
+            )}, score: ${r.score.toFixed(3)})`,
           );
           log.info(r.content);
           log.info("");
@@ -208,7 +209,7 @@ status" to monitor job progress.
 
 Examples:
   $ assistant memory rebuild-index
-  $ assistant memory status`
+  $ assistant memory status`,
     )
     .action(() => {
       initializeDb();
@@ -219,13 +220,13 @@ Examples:
   memory
     .command("re-extract")
     .description(
-      "Re-extract memories from conversations using the latest extraction prompt"
+      "Re-extract memories from conversations using the latest extraction prompt",
     )
     .option(
       "-c, --conversation <id>",
       "Target a specific conversation by ID (repeatable)",
       (val: string, prev: string[]) => [...prev, val],
-      [] as string[]
+      [] as string[],
     )
     .option("-t, --top <n>", "Auto-select top N conversations by message count")
     .option("--dry-run", "Show what would be re-extracted without doing it")
@@ -248,7 +249,7 @@ background worker).
 Examples:
   $ assistant memory re-extract --top 20
   $ assistant memory re-extract --conversation conv_abc123
-  $ assistant memory re-extract --top 10 --dry-run`
+  $ assistant memory re-extract --top 10 --dry-run`,
     )
     .action(
       (opts: { conversation?: string[]; top?: string; dryRun?: boolean }) => {
@@ -288,7 +289,7 @@ Examples:
 
         if (targets.length === 0) {
           log.info(
-            "No targets specified. Use --conversation <id> or --top <n>."
+            "No targets specified. Use --conversation <id> or --top <n>.",
           );
           return;
         }
@@ -307,8 +308,117 @@ Examples:
 
         const { jobIds } = requestReextract(targets);
         log.info(
-          `\nQueued ${jobIds.length} re-extraction job(s). The assistant will process them in the background.`
+          `\nQueued ${jobIds.length} re-extraction job(s). The assistant will process them in the background.`,
         );
-      }
+      },
+    );
+
+  memory
+    .command("compact")
+    .description(
+      "Rewrite memory nodes whose content exceeds the length cap (backfill)",
+    )
+    .option(
+      "--threshold <n>",
+      "Content length threshold — nodes longer than this are candidates (default: 400)",
+      (v: string) => Number.parseInt(v, 10),
+      400,
+    )
+    .option(
+      "--limit <n>",
+      "Maximum number of candidates to process (default: no limit)",
+      (v: string) => Number.parseInt(v, 10),
+    )
+    .option("--apply", "Rewrite content (default is a candidate-only preview)")
+    .addHelpText(
+      "after",
+      `
+One-off backfill for memory graphs that accumulated over-long content before
+the extraction prompt was tightened to enforce the 1-3 sentence / ~300
+character cap. Scans memory_graph_nodes (skipping fidelity=gone) for entries
+whose content length exceeds --threshold, then either lists them (default)
+or rewrites each via the memoryConsolidation LLM call site (--apply).
+
+Only the content field is rewritten; significance, emotionalCharge, edges,
+triggers, and image_refs are preserved. Each rewrite is logged in
+memory_graph_node_edits with source="manual" so it is reversible.
+
+Start with a bounded spot-check before processing the whole graph:
+
+  $ assistant memory compact --limit 3 --apply
+
+Examples:
+  $ assistant memory compact                     # preview candidates
+  $ assistant memory compact --threshold 500     # tighter threshold
+  $ assistant memory compact --limit 5 --apply   # rewrite first 5
+  $ assistant memory compact --apply             # rewrite everything`,
+    )
+    .action(
+      async (opts: { threshold: number; limit?: number; apply?: boolean }) => {
+        initializeDb();
+        const apply = Boolean(opts.apply);
+
+        if (!Number.isFinite(opts.threshold) || opts.threshold <= 0) {
+          log.info("--threshold must be a positive integer");
+          return;
+        }
+        if (
+          opts.limit !== undefined &&
+          (!Number.isFinite(opts.limit) || opts.limit <= 0)
+        ) {
+          log.info("--limit must be a positive integer");
+          return;
+        }
+
+        log.info(
+          `Scanning memory_graph_nodes for content > ${opts.threshold} chars${
+            apply ? "" : " (preview — no changes will be written)"
+          }...`,
+        );
+
+        const result = await compactLongMemoryNodes({
+          threshold: opts.threshold,
+          limit: opts.limit,
+          apply,
+          onCandidates: (candidates) => {
+            log.info(`Found ${candidates.length} candidate node(s)`);
+            if (!apply) {
+              for (const c of candidates) {
+                log.info(`  ${c.id}  ${c.beforeLen} chars`);
+              }
+            }
+          },
+          onProgress: (evt) => {
+            const tag = `[${evt.action}]`;
+            log.info(
+              `${tag} ${evt.nodeId}: ${evt.beforeLen} → ${evt.afterLen} chars${
+                evt.reason ? ` (${evt.reason})` : ""
+              }`,
+            );
+            if (evt.newContent && evt.action === "compacted") {
+              log.info(`  new: ${evt.newContent}`);
+            }
+          },
+        });
+
+        log.info("");
+        log.info(`Scanned above threshold: ${result.scanned}`);
+        log.info(`Processed:               ${result.processed}`);
+        if (apply) {
+          log.info(`Compacted:               ${result.compacted}`);
+          log.info(`Skipped:                 ${result.skipped}`);
+          log.info(`Failures:                ${result.failures}`);
+          if (result.processed > 0) {
+            log.info(
+              `Chars: ${result.beforeChars} → ${result.afterChars} (saved ${
+                result.beforeChars - result.afterChars
+              })`,
+            );
+          }
+        } else if (result.processed > 0) {
+          log.info("");
+          log.info("Preview only. Re-run with --apply to rewrite.");
+        }
+      },
     );
 }

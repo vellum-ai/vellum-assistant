@@ -36,10 +36,23 @@ port.onMessage((msg) => {
   }
 });
 
-// Emit the ready handshake as soon as the port is open. The bot uses this as
-// the signal that the in-container extension is attached and ready to
-// receive join/leave/send_chat commands.
-port.post({
-  type: "ready",
-  extensionVersion: chrome.runtime.getManifest().version,
+// Emit the ready handshake on every (re)connect. The bot uses this as the
+// signal that the in-container extension is attached and ready to receive
+// join/leave/send_chat commands. We route through `onConnect` rather than
+// posting synchronously at module scope so a transient `connectNative`
+// failure (which leaves the port disconnected) can't throw out of the
+// service-worker entrypoint and abort startup before the reconnect loop
+// gets a chance to engage.
+port.onConnect(() => {
+  try {
+    port.post({
+      type: "ready",
+      extensionVersion: chrome.runtime.getManifest().version,
+    });
+  } catch (err) {
+    // The port may have torn down between the onConnect fire and this post
+    // (e.g. the native host disconnected immediately). The reconnect loop
+    // will try again and fire onConnect once the port is back.
+    console.warn("[meet-ext] failed to send ready handshake", err);
+  }
 });

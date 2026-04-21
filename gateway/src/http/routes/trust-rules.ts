@@ -11,6 +11,8 @@
  * URL-tool rule) are silently stripped before persistence.
  */
 
+import { SCOPED_TOOLS } from "@vellumai/ces-contracts/trust-rules";
+
 import { getLogger } from "../../logger.js";
 import {
   addRule,
@@ -23,6 +25,9 @@ import {
   acceptStarterBundle,
   type TrustDecision,
 } from "../../trust-store.js";
+
+/** Set for O(1) lookup when determining if a tool is scoped. */
+const SCOPED_TOOLS_SET: ReadonlySet<string> = new Set(SCOPED_TOOLS);
 
 const log = getLogger("trust-rules");
 
@@ -73,15 +78,8 @@ export function createTrustRulesAddHandler() {
       );
     }
 
-    const {
-      tool,
-      pattern,
-      scope,
-      decision,
-      priority,
-      allowHighRisk,
-      executionTarget,
-    } = body as Record<string, unknown>;
+    const { tool, pattern, scope, decision, priority, executionTarget } =
+      body as Record<string, unknown>;
 
     if (typeof tool !== "string" || !tool) {
       return Response.json(
@@ -95,9 +93,18 @@ export function createTrustRulesAddHandler() {
         { status: 400 },
       );
     }
-    if (typeof scope !== "string" || !scope) {
+    // Scope is required for scoped tools; for non-scoped tools it defaults
+    // to "everywhere" (a no-op that parseTrustRule will strip).
+    const isScoped = SCOPED_TOOLS_SET.has(tool as string);
+    if (isScoped && (typeof scope !== "string" || !scope)) {
       return Response.json(
-        { error: '"scope" must be a non-empty string' },
+        { error: '"scope" must be a non-empty string for scoped tools' },
+        { status: 400 },
+      );
+    }
+    if (scope !== undefined && typeof scope !== "string") {
+      return Response.json(
+        { error: '"scope" must be a string when provided' },
         { status: 400 },
       );
     }
@@ -116,12 +123,6 @@ export function createTrustRulesAddHandler() {
         { status: 400 },
       );
     }
-    if (allowHighRisk !== undefined && typeof allowHighRisk !== "boolean") {
-      return Response.json(
-        { error: '"allowHighRisk" must be a boolean' },
-        { status: 400 },
-      );
-    }
     if (executionTarget !== undefined && typeof executionTarget !== "string") {
       return Response.json(
         { error: '"executionTarget" must be a string' },
@@ -129,16 +130,19 @@ export function createTrustRulesAddHandler() {
       );
     }
 
+    // For non-scoped tools, pass "everywhere" as a no-op default — addRule
+    // will strip it via parseTrustRule for non-scoped tool families.
+    const effectiveScope = (scope as string) || "everywhere";
+
     try {
       // Canonicalization is handled inside trust-store addRule.
       const rule = addRule(
         tool as string,
         pattern as string,
-        scope as string,
+        effectiveScope,
         (decision as TrustDecision) ?? "allow",
         (priority as number) ?? 100,
         {
-          ...(allowHighRisk != null ? { allowHighRisk } : {}),
           ...(executionTarget != null ? { executionTarget } : {}),
         },
       );
@@ -219,6 +223,8 @@ export function createTrustRulesUpdateHandler() {
     }
 
     try {
+      // For non-scoped tools, don't include scope in the update — updateRule
+      // will ignore it for non-scoped tool families anyway.
       const rule = updateRule(ruleId, {
         tool: tool as string | undefined,
         pattern: pattern as string | undefined,

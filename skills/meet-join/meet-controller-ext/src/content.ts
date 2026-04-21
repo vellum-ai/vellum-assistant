@@ -24,18 +24,16 @@
  * in that case because the scrapers require an admitted meeting.
  */
 import type {
-  BotCameraDisableCommand,
-  BotCameraEnableCommand,
-  BotSendChatCommand,
   BotToExtensionMessage,
-  ExtensionCameraResultMessage,
-  ExtensionSendChatResultMessage,
   ExtensionToBotMessage,
 } from "../../contracts/native-messaging.js";
 import { BotToExtensionMessageSchema } from "../../contracts/native-messaging.js";
 
-import { disableCamera, enableCamera } from "./features/camera.js";
-import { type ChatReader, sendChat, startChatReader } from "./features/chat.js";
+import {
+  enqueueSendChat,
+  handleCameraToggle,
+} from "./handle-send-chat.js";
+import { type ChatReader, startChatReader } from "./features/chat.js";
 import { runJoinFlow } from "./features/join.js";
 import {
   startParticipantScraper,
@@ -62,6 +60,31 @@ console.log("[meet-ext] content script loaded on", location.href);
 function deriveMeetingId(): string {
   const path = location.pathname.replace(/^\/+/, "").split("/")[0] ?? "";
   return path || location.pathname;
+}
+
+/**
+ * Extract the meeting id from a Meet join URL.
+ *
+ * The background bridge fans every bot command out to every open
+ * `https://meet.google.com/*` tab, so a stray lobby tab in the same
+ * Chrome profile would otherwise start its own speaker scraper and mix
+ * `speaker.change` events from an unrelated meeting into the session
+ * stream. Tabs self-filter by comparing this value against
+ * {@link deriveMeetingId} before acting on a `join` command.
+ *
+ * Returns `null` when the URL cannot be parsed or has no path segment;
+ * callers treat that as "does not match any tab" so a malformed command
+ * cannot inadvertently drive every Meet tab.
+ */
+function extractMeetingIdFromUrl(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  const segment = parsed.pathname.replace(/^\/+/, "").split("/")[0] ?? "";
+  return segment || null;
 }
 
 /**
@@ -168,11 +191,28 @@ function startMeetingSession(
  */
 let activeSession: MeetingSessionHandle | null = null;
 
+/**
+ * Monotonic counter that invalidates in-flight `handleJoin` invocations.
+ *
+ * `runJoinFlow` can take up to ~125s (5s media-prompt + 30s prejoin + 90s
+ * admission) and `handleJoin` is fire-and-forget. Without a guard, a
+ * `leave` or a second `join` arriving mid-flow has no way to cancel the
+ * pending flow: the `leave` handler sees `activeSession === null` (cleared
+ * at the top of `handleJoin`) and no-ops, then when `runJoinFlow`
+ * eventually resolves the original invocation installs scrapers the
+ * daemon already thinks are gone — or clobbers the scrapers that a newer
+ * `join` installed. Every mutation that should invalidate the current
+ * join increments this counter; `handleJoin` captures the value at entry
+ * and skips its post-await side effects (session install, `joined` event)
+ * once the counter has moved on.
+ */
+let joinGeneration = 0;
+
 chrome.runtime.onMessage.addListener(
   (
     raw: unknown,
     _sender: chrome.runtime.MessageSender,
-    _sendResponse: (response?: unknown) => void,
+    sendResponse: (response?: unknown) => void,
   ): boolean => {
     const parsed = BotToExtensionMessageSchema.safeParse(raw);
     if (!parsed.success) {
@@ -188,18 +228,51 @@ chrome.runtime.onMessage.addListener(
     const msg: BotToExtensionMessage = parsed.data;
 
     if (msg.type === "join") {
+      // The background bridge broadcasts every bot command to every open
+      // Meet tab. Only the tab whose URL matches the target meeting
+      // should start a session — otherwise a stray lobby tab in the same
+      // Chrome profile would spin up its own speaker scraper and mix
+      // telemetry from unrelated meetings into the bot's event stream.
+      const targetMeetingId = extractMeetingIdFromUrl(msg.meetingUrl);
+      const currentMeetingId = deriveMeetingId();
+      if (targetMeetingId === null || targetMeetingId !== currentMeetingId) {
+        console.debug(
+          "[meet-ext] ignoring join for non-matching tab:",
+          `target=${targetMeetingId ?? "<unparseable>"}`,
+          `current=${currentMeetingId}`,
+        );
+        // Respond with an explicit rejection so the background bridge
+        // does not treat this silent drop as a successful delivery. If
+        // a stray Meet tab in the same Chrome profile received the
+        // `join` and we returned undefined, `chrome.tabs.sendMessage`
+        // would resolve and the bridge would stop retrying before the
+        // real tab's content script mounted.
+        sendResponse({ ok: false, reason: "non-matching-tab" });
+        return false;
+      }
       void handleJoin(msg.meetingUrl, msg.displayName, msg.consentMessage);
       return false;
     }
 
     if (msg.type === "leave") {
+      // Bump the generation so any in-flight `handleJoin` awaiting
+      // `runJoinFlow` aborts its post-await session install instead of
+      // resurrecting scrapers after the daemon has asked the bot to leave.
+      joinGeneration += 1;
       activeSession?.stop();
       activeSession = null;
       return false;
     }
 
     if (msg.type === "send_chat") {
-      void handleSendChat(msg);
+      // Serialize send_chat handling per tab. `sendChat` mutates a single
+      // shared textarea (`.value = text`) and then clicks the send button,
+      // so two overlapping commands would race on the composer — the
+      // second call's value-write can clobber the first before its click
+      // lands, posting the wrong text while both requests still report
+      // ok=true. `enqueueSendChat` chains invocations onto a per-tab
+      // Promise so they run strictly in arrival order.
+      void enqueueSendChat(msg);
       return false;
     }
 
@@ -224,9 +297,14 @@ chrome.runtime.onMessage.addListener(
  *   - `error` is emitted if the flow rejects; the session factory is
  *     NOT installed because the scrapers require an admitted meeting.
  *
- * The prior session (if any) is torn down synchronously before the
- * new flow kicks off so overlapping joins cannot double-install
- * scrapers against the same DOM.
+ * Cancellation: `runJoinFlow` can take up to ~125s, during which a
+ * `leave` or a second `join` command may arrive. Both paths bump
+ * {@link joinGeneration}; when the in-flight invocation's captured
+ * generation no longer matches, it skips the session install, the
+ * `joined` emit, and (for errors) the `error` emit — leaving whatever
+ * the newer command installed untouched. The prior session (if any)
+ * is still torn down synchronously at the top of each join so a fresh
+ * join does not overlap scrapers with the previous meeting's DOM.
  */
 async function handleJoin(
   meetingUrl: string,
@@ -234,6 +312,8 @@ async function handleJoin(
   consentMessage: string,
 ): Promise<void> {
   const meetingId = deriveMeetingId();
+  joinGeneration += 1;
+  const generation = joinGeneration;
   activeSession?.stop();
   activeSession = null;
 
@@ -244,6 +324,24 @@ async function handleJoin(
   } catch (err) {
     console.warn("[meet-ext] lifecycle(joining) send failed:", err);
   }
+
+  // Tracks whether `onAdmitted` fired. Used to (a) suppress a duplicate
+  // post-await `joined` emit in the happy path and (b) guard the error
+  // catch from emitting `lifecycle:error` once we've already told the
+  // daemon we joined — a late reject from the best-effort consent post
+  // must not walk back the admission signal.
+  let admitted = false;
+  const finalizeAdmission = (): void => {
+    if (generation !== joinGeneration) return;
+    if (admitted) return;
+    admitted = true;
+    activeSession = startMeetingSession({ meetingId, displayName });
+    try {
+      chrome.runtime.sendMessage(lifecycleMessage("joined", meetingId));
+    } catch (err) {
+      console.warn("[meet-ext] lifecycle(joined) send failed:", err);
+    }
+  };
 
   try {
     await runJoinFlow({
@@ -258,8 +356,23 @@ async function handleJoin(
           console.warn("[meet-ext] runJoinFlow event send failed:", err);
         }
       },
+      onAdmitted: finalizeAdmission,
     });
   } catch (err) {
+    // A newer leave/join has already bumped the generation and
+    // emitted its own lifecycle — swallow the stale error instead of
+    // confusing the daemon with a late `error` for an invocation it
+    // no longer cares about.
+    if (generation !== joinGeneration) return;
+    // If admission already fired, the daemon is in `joined`. Any late
+    // throw here comes from a post-admission step (currently only step 6
+    // catches internally, but a future addition might not) — downgrade
+    // to a diagnostic rather than emitting `error` and walking the
+    // lifecycle back.
+    if (admitted) {
+      console.warn("[meet-ext] post-admission runJoinFlow threw:", err);
+      return;
+    }
     const detail =
       err instanceof Error ? err.message : String(err ?? "unknown error");
     try {
@@ -270,135 +383,9 @@ async function handleJoin(
     return;
   }
 
-  // Join succeeded — install per-meeting scrapers and emit "joined".
-  activeSession = startMeetingSession({ meetingId, displayName });
-  try {
-    chrome.runtime.sendMessage(lifecycleMessage("joined", meetingId));
-  } catch (err) {
-    console.warn("[meet-ext] lifecycle(joined) send failed:", err);
-  }
+  // Defense-in-depth: if runJoinFlow resolved without firing `onAdmitted`,
+  // that's an invariant violation in the flow — install the session and
+  // emit `joined` here so the daemon isn't left hanging.
+  finalizeAdmission();
 }
 
-/**
- * Execute a {@link BotSendChatCommand} and emit a matching
- * {@link ExtensionSendChatResultMessage} back to the background. Errors
- * are caught and surfaced via `ok: false` so the bot can correlate the
- * failure with the originating request.
- *
- * Threads an `onEvent` sink + `window` reference through to
- * {@link sendChat} so the runtime `meet_send_chat` tool path emits
- * `trusted_type` (for the composer) and `trusted_click` (for the send
- * button) just like the consent-post path does inside `runJoinFlow`.
- * Without this, Meet's `isTrusted` gate silently swallows both the
- * synthetic composer input and the JS `.click()` on the send button —
- * every post-admission send would no-op on production Meet builds that
- * enforce the gate.
- */
-async function handleSendChat(cmd: BotSendChatCommand): Promise<void> {
-  const sendToBot = (event: ExtensionToBotMessage): void => {
-    try {
-      void chrome.runtime.sendMessage(event);
-    } catch (err) {
-      console.warn("[meet-ext] sendMessage failed:", err);
-    }
-  };
-
-  let reply: ExtensionSendChatResultMessage;
-  try {
-    await sendChat(cmd.text, {
-      onEvent: sendToBot,
-      // Pass the live `window` so `sendChat` can compute screen-space
-      // coordinates for the send button's `trusted_click`. Mirrors the
-      // fallback that `postConsentMessage` relies on in `features/join.ts`.
-      window: globalThis as unknown as {
-        screenX: number;
-        screenY: number;
-        outerHeight: number;
-        innerHeight: number;
-      },
-    });
-    reply = {
-      type: "send_chat_result",
-      requestId: cmd.requestId,
-      ok: true,
-    };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    reply = {
-      type: "send_chat_result",
-      requestId: cmd.requestId,
-      ok: false,
-      error: message,
-    };
-  }
-  try {
-    chrome.runtime.sendMessage(reply);
-  } catch (err) {
-    console.warn("[meet-ext] failed to send send_chat_result:", err);
-  }
-}
-
-/**
- * Execute a {@link BotCameraEnableCommand} / {@link BotCameraDisableCommand}
- * and emit a matching {@link ExtensionCameraResultMessage} back to the
- * background. Mirrors {@link handleSendChat}: forwards a trusted_click via
- * `onEvent` so the bot drives the click through xdotool (Meet's isTrusted
- * gate rejects synthetic clicks on bottom-toolbar controls in general, so
- * we assume the camera toggle is gated too and route through xdotool by
- * default). Errors are surfaced via `ok: false` with a descriptive reason.
- */
-async function handleCameraToggle(
-  cmd: BotCameraEnableCommand | BotCameraDisableCommand,
-): Promise<void> {
-  const sendToBot = (event: ExtensionToBotMessage): void => {
-    try {
-      void chrome.runtime.sendMessage(event);
-    } catch (err) {
-      console.warn("[meet-ext] sendMessage failed:", err);
-    }
-  };
-
-  let reply: ExtensionCameraResultMessage;
-  try {
-    const run = cmd.type === "camera.enable" ? enableCamera : disableCamera;
-    const result = await run({
-      onEvent: sendToBot,
-      // Pass the live `window` so the camera feature can compute screen-
-      // space coordinates for the toggle's `trusted_click`. Mirrors the
-      // fallback that `postConsentMessage` / `sendChat` rely on.
-      window: globalThis as unknown as {
-        screenX: number;
-        screenY: number;
-        outerHeight: number;
-        innerHeight: number;
-      },
-    });
-    reply = {
-      type: "camera_result",
-      requestId: cmd.requestId,
-      ok: true,
-      changed: result.changed,
-    };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    reply = {
-      type: "camera_result",
-      requestId: cmd.requestId,
-      ok: false,
-      error: message,
-    };
-  }
-  try {
-    chrome.runtime.sendMessage(reply);
-  } catch (err) {
-    console.warn("[meet-ext] failed to send camera_result:", err);
-  }
-}
-
-// Export the send-chat + camera-toggle handlers for unit testing. They are
-// wired into `chrome.runtime.onMessage` above when the script loads; the
-// tests import them directly to drive the tool paths end-to-end without
-// needing to fake the chrome.runtime.onMessage dispatcher. Not part of the
-// extension's public surface — the background SW never imports content.ts.
-export { handleSendChat as __handleSendChat };
-export { handleCameraToggle as __handleCameraToggle };

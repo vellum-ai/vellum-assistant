@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import type { ContextWindowConfig } from "../config/types.js";
 import type {
   ContentBlock,
@@ -5,6 +8,7 @@ import type {
   Message,
   Provider,
 } from "../providers/types.js";
+import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
 import { safeStringSlice } from "../util/unicode.js";
 import {
@@ -26,12 +30,38 @@ const COMPACTION_TOOL_RESULT_MAX_CHARS = 6_000;
 const MIN_COMPACTABLE_PERSISTED_MESSAGES = 2;
 const INTERNAL_CONTEXT_SUMMARY_MESSAGES = new WeakSet<Message>();
 
-const SUMMARY_SYSTEM_PROMPT = [
+/**
+ * Load the compaction summary system prompt from the bundled markdown asset.
+ *
+ * `resolveBundledDir` handles the compiled-binary case where the caller path
+ * points to `/$bunfs/` and the asset lives next to the executable (macOS app
+ * bundle `Contents/Resources/` or sibling dir). In source mode it falls back
+ * to the sibling `prompts/` directory.
+ */
+export function loadCompactPrompt(): string {
+  const callerDir = import.meta.dirname ?? __dirname;
+  const promptsDir = resolveBundledDir(callerDir, "prompts", "compact-prompts");
+  const promptPath = join(promptsDir, "compact.md");
+  const contents = readFileSync(promptPath, "utf-8");
+  if (contents.length === 0) {
+    throw new Error(
+      `compact.md at ${promptPath} is empty — compaction summary prompt missing`,
+    );
+  }
+  return contents;
+}
+
+/**
+ * Hardcoded fallback prompt used when the bundled `compact.md` asset is
+ * missing or unreadable, so the daemon can still compact conversations
+ * rather than failing module import at startup.
+ */
+const SUMMARY_PROMPT_FALLBACK = [
   "You compress long assistant conversations into durable working memory.",
   "Focus on actionable state, not prose.",
   "Preserve concrete facts: goals, constraints, decisions, pending questions, file paths, commands, errors, and TODOs.",
   "Remove repetition and stale details that were superseded.",
-  'Thread anchors: when a compacted message is the parent of a thread whose replies survive in the retained context, preserve the parent\'s text verbatim — do not summarize or paraphrase it. Reactions on such anchors may be aggregated (e.g., "three users reacted").',
+  'Thread anchors: when a "Retained Thread References" section is present, each listed reply cites its parent via `→ Mxxxxxx`. If that parent appears in the Transcript, preserve its text verbatim (reactions may be aggregated as "N users reacted"). Omit when the section is absent.',
   "Return concise markdown using these section headers exactly:",
   "## Goals",
   "## Constraints",
@@ -40,6 +70,42 @@ const SUMMARY_SYSTEM_PROMPT = [
   "## Key Artifacts",
   "## Recent Progress",
 ].join("\n");
+
+/**
+ * Load the compact prompt with graceful fallback. If `loader` throws (missing
+ * or unreadable bundled asset, partial deployment, filesystem corruption),
+ * logs a warning and returns the hardcoded fallback string so module import
+ * never fails. The loader is injectable for testability.
+ */
+export function loadCompactPromptOrFallback(
+  loader: () => string = loadCompactPrompt,
+): string {
+  try {
+    return loader();
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to load compact.md from bundle; using inline fallback prompt. The bundled asset may be missing or unreadable.",
+    );
+    return SUMMARY_PROMPT_FALLBACK;
+  }
+}
+
+const SUMMARY_SYSTEM_PROMPT = loadCompactPromptOrFallback();
+
+/**
+ * Pattern matching a Slack-style reply tag-line's parent-alias reference.
+ * The chronological renderer emits reply lines as
+ * `[MM/DD/YY HH:MM @sender → Mxxxxxx]: body`, or, for edited replies,
+ * `[MM/DD/YY HH:MM @sender → Mxxxxxx, edited MM/DD/YY HH:MM]: body`. The
+ * character after the 6-hex parent alias is therefore `]` for a plain reply
+ * or `,` for an edited one — the regex accepts either. `Mxxxxxx` is the
+ * first 6 hex chars of sha256(threadTs). A retained-tail text block that
+ * contains this pattern is carrying a live reference to a parent that may
+ * still live in the compactable region — the summarizer needs to know about
+ * it to act on the Thread-anchors clause of SUMMARY_SYSTEM_PROMPT.
+ */
+const THREAD_REPLY_REFERENCE_PATTERN = /→ M[0-9a-f]{6}[,\]]/;
 
 export interface ContextWindowResult {
   messages: Message[];
@@ -59,6 +125,13 @@ export interface ContextWindowResult {
   summaryRawResponses?: unknown[];
   summaryText: string;
   reason?: string;
+  /**
+   * True when the summary LLM call threw and the local fallback produced the
+   * summary. Callers use this to distinguish provider-side summary failures
+   * from successful compactions so they can apply circuit-breaker logic
+   * without losing the fallback-compacted messages.
+   */
+  summaryFailed?: boolean;
 }
 
 export interface ShouldCompactResult {
@@ -283,6 +356,7 @@ export class ContextWindowManager {
       minKeepRecentUserTurns: options?.minKeepRecentUserTurns,
       targetInputTokensOverride: options?.targetInputTokensOverride,
       conversationOriginChannel: options?.conversationOriginChannel,
+      force: options?.force,
     });
     if (keepPlan.keepFromIndex <= summaryOffset) {
       // All turns fit after truncation projection, but the real in-memory
@@ -456,13 +530,18 @@ export class ContextWindowManager {
       };
     }
 
+    const retainedThreadRefs = collectRetainedThreadReferences(
+      messages.slice(keepPlan.keepFromIndex),
+    );
     const transcriptBlocks = this.capTranscriptBlocksToTokenBudget(
       serializeMessagesToContentBlocks(compactableMessages),
       existingSummary ?? "No previous summary.",
+      retainedThreadRefs,
     );
     const summaryUpdate = await this.updateSummary(
       existingSummary ?? "No previous summary.",
       transcriptBlocks,
+      retainedThreadRefs,
       signal,
     );
     const summary = summaryUpdate.summary;
@@ -472,6 +551,7 @@ export class ContextWindowManager {
     const summaryCacheCreationInputTokens =
       summaryUpdate.cacheCreationInputTokens;
     const summaryCacheReadInputTokens = summaryUpdate.cacheReadInputTokens;
+    const summaryFailed = summaryUpdate.failed;
     const summaryRawResponses: unknown[] = [];
     if (Array.isArray(summaryUpdate.rawResponse)) {
       summaryRawResponses.push(...summaryUpdate.rawResponse);
@@ -543,6 +623,7 @@ export class ContextWindowManager {
       summaryCacheReadInputTokens,
       summaryRawResponses,
       summaryText: summary,
+      summaryFailed,
     };
   }
 
@@ -560,6 +641,7 @@ export class ContextWindowManager {
       minKeepRecentUserTurns?: number;
       targetInputTokensOverride?: number;
       conversationOriginChannel?: string;
+      force?: boolean;
     },
   ): { keepFromIndex: number; keepTurns: number } {
     // Slack-originated conversations rely on multi-turn thread context
@@ -615,6 +697,32 @@ export class ContextWindowManager {
       lo = hi;
     }
 
+    // Under forced compaction with only the implicit default floor in play,
+    // that floor stops being an absolute override when the kept region still
+    // exceeds the target. Walk keepTurns below the floor — down to 0 if
+    // needed — so /compact can always drive the conversation toward target,
+    // even when the floor turn itself is oversized (e.g. a huge paste in the
+    // last user message). Exceptions that still treat the floor as hard:
+    //   - Explicit `minKeepRecentUserTurns` (the caller opted in to that
+    //     floor; emergency recovery already passes 0 when it wants to go all
+    //     the way down).
+    //   - Slack origin (the bumped 8-turn floor protects thread reply chains
+    //     and quoted-message context that the next reply may directly cite).
+    // Automatic mid-loop compaction (force !== true) always honors the floor
+    // so the in-flight agent turn isn't summarized away.
+    const floorIsImplicitDefault =
+      opts?.minKeepRecentUserTurns === undefined &&
+      opts?.conversationOriginChannel !== "slack";
+    if (
+      opts?.force &&
+      floorIsImplicitDefault &&
+      projectedTokensForKeep(lo) > targetTokens
+    ) {
+      while (lo > 0 && projectedTokensForKeep(lo) > targetTokens) {
+        lo--;
+      }
+    }
+
     const keepTurns = lo;
     const rawKeepFromIndex =
       keepTurns === 0
@@ -646,10 +754,13 @@ export class ContextWindowManager {
   private capTranscriptBlocksToTokenBudget(
     blocks: ContentBlock[],
     currentSummary: string,
+    retainedThreadRefs: string[],
   ): ContentBlock[] {
+    const retainedRefsText = retainedThreadRefs.join("\n");
     const overheadTokens =
       estimateTextTokens(SUMMARY_SYSTEM_PROMPT) +
       estimateTextTokens(currentSummary) +
+      estimateTextTokens(retainedRefsText) +
       // Scaffolding text in buildSummaryContentBlocks ("Update the summary...",
       // section headers, etc.) — generous fixed estimate.
       200 +
@@ -750,6 +861,7 @@ export class ContextWindowManager {
   private async updateSummary(
     currentSummary: string,
     transcriptBlocks: ContentBlock[],
+    retainedThreadRefs: string[],
     signal?: AbortSignal,
   ): Promise<{
     summary: string;
@@ -759,12 +871,20 @@ export class ContextWindowManager {
     cacheCreationInputTokens: number;
     cacheReadInputTokens: number;
     rawResponse?: unknown;
+    /**
+     * True when the provider.sendMessage call threw and the local fallback
+     * was used. Callers (the agent loop) use this to drive circuit-breaker
+     * state without having to reimplement the fallback themselves.
+     */
+    failed: boolean;
   }> {
     const contentBlocks = buildSummaryContentBlocks(
       currentSummary,
       transcriptBlocks,
+      retainedThreadRefs,
     );
     const summaryMessage: Message = { role: "user", content: contentBlocks };
+    let failed = false;
     try {
       const response = await this.provider.sendMessage(
         [summaryMessage],
@@ -787,9 +907,11 @@ export class ContextWindowManager {
             response.usage.cacheCreationInputTokens ?? 0,
           cacheReadInputTokens: response.usage.cacheReadInputTokens ?? 0,
           rawResponse: response.rawResponse,
+          failed: false,
         };
       }
     } catch (err) {
+      failed = true;
       log.warn({ err }, "Summary generation failed, using local fallback");
     }
 
@@ -808,6 +930,7 @@ export class ContextWindowManager {
       model: "",
       cacheCreationInputTokens: 0,
       cacheReadInputTokens: 0,
+      failed,
     };
   }
 
@@ -964,24 +1087,66 @@ export function createContextSummaryMessage(summary: string): Message {
 function buildSummaryContentBlocks(
   currentSummary: string,
   transcriptBlocks: ContentBlock[],
+  retainedThreadRefs: string[],
 ): ContentBlock[] {
+  const lines = [
+    "Update the summary with new transcript data.",
+    "If new information conflicts with older notes, keep the most recent and explicit detail.",
+    "Keep all unresolved asks and next steps.",
+    "For any images included below, describe their visual content in the summary so the information is preserved after compaction.",
+    "",
+    "### Existing Summary",
+    currentSummary.trim().length > 0 ? currentSummary.trim() : "None.",
+    "",
+  ];
+  if (retainedThreadRefs.length > 0) {
+    lines.push(
+      "### Retained Thread References",
+      "These reply tag lines remain in the live context after compaction. Each `→ Mxxxxxx` cites a parent message by alias; if that parent appears in the Transcript below, preserve its text verbatim.",
+      ...retainedThreadRefs.map((ref) => `- ${ref}`),
+      "",
+    );
+  }
+  lines.push("### Transcript");
   return [
     {
       type: "text",
-      text: [
-        "Update the summary with new transcript data.",
-        "If new information conflicts with older notes, keep the most recent and explicit detail.",
-        "Keep all unresolved asks and next steps.",
-        "For any images included below, describe their visual content in the summary so the information is preserved after compaction.",
-        "",
-        "### Existing Summary",
-        currentSummary.trim().length > 0 ? currentSummary.trim() : "None.",
-        "",
-        "### Transcript",
-      ].join("\n"),
+      text: lines.join("\n"),
     } as ContentBlock,
     ...transcriptBlocks,
   ];
+}
+
+/**
+ * Scan retained-tail messages for Slack-style reply tag lines that cite a
+ * thread parent via the `→ Mxxxxxx` alias convention. Returns the full tag
+ * line for each match (de-duplicated, order-preserved) so the summarizer
+ * has a concrete list of parents whose text must be preserved verbatim.
+ *
+ * Non-slack conversations and retained tails without any reply markers
+ * produce an empty list — in that case the summarizer is told explicitly
+ * that no verbatim preservation is required.
+ */
+function collectRetainedThreadReferences(
+  retainedMessages: Message[],
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const msg of retainedMessages) {
+    for (const block of msg.content) {
+      if (block.type !== "text") continue;
+      const text = (block as { text: string }).text;
+      for (const line of text.split("\n")) {
+        if (!THREAD_REPLY_REFERENCE_PATTERN.test(line)) continue;
+        const trimmed = line.trim();
+        if (trimmed.length === 0) continue;
+        if (seen.has(trimmed)) continue;
+        seen.add(trimmed);
+        out.push(trimmed);
+      }
+    }
+  }
+  return out;
 }
 
 /**

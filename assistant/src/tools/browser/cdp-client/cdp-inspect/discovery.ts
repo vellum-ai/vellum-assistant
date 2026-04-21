@@ -420,6 +420,19 @@ export async function probeDevToolsJsonVersion(opts: {
         err,
       );
     }
+
+    // Late-timeout guard: Bun's `response.text()` can resolve with the
+    // already-buffered bytes when the underlying socket is cut off by
+    // our abort, rather than rejecting. Without this check, a truncated
+    // body from a stalled server would reach the JSON parser and be
+    // classified as `invalid_response` instead of `timeout`.
+    if (handle.timedOut || opts.signal?.aborted === true) {
+      throw classifyFetchError(
+        new Error("Discovery body read returned before completion."),
+        handle.timedOut,
+        opts.signal?.aborted === true,
+      );
+    }
   } finally {
     handle.cleanup();
   }
@@ -523,6 +536,15 @@ export async function listDevToolsTargets(opts: {
         "invalid_response",
         "Failed to read /json/list response body.",
         err,
+      );
+    }
+
+    // See the matching comment in probeDevToolsJsonVersion.
+    if (handle.timedOut || opts.signal?.aborted === true) {
+      throw classifyFetchError(
+        new Error("Discovery body read returned before completion."),
+        handle.timedOut,
+        opts.signal?.aborted === true,
       );
     }
   } finally {

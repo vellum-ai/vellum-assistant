@@ -28,13 +28,59 @@ import { sanitizeConfigForTransfer } from "../../config/sanitize-for-transfer.js
 import { isGuardianPersonaCustomized } from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
 import type { PathResolver } from "./vbundle-import-analyzer.js";
+import { mergeMetadataPreservingVellum } from "./vbundle-metadata-merge.js";
 import type { ManifestType, VBundleTarEntry } from "./vbundle-validator.js";
 import { validateVBundle } from "./vbundle-validator.js";
 
 const log = getLogger("vbundle-importer");
 
 /** Archive path for the legacy guardian user persona file. */
-const LEGACY_USER_MD_ARCHIVE_PATH = "prompts/USER.md";
+export const LEGACY_USER_MD_ARCHIVE_PATH = "prompts/USER.md";
+
+/**
+ * Archive paths recognized as JSON config files that must be run through
+ * `sanitizeConfigForTransfer` before writing to disk. Exported so the
+ * streaming importer can apply the same defense-in-depth treatment.
+ */
+export const CONFIG_ARCHIVE_PATHS: ReadonlySet<string> = new Set([
+  "workspace/config.json",
+  "config/settings.json",
+]);
+
+/**
+ * Archive path for the credential metadata file. On import, bundle contents
+ * must be merged with the target's live `vellum:*` entries so the gateway's
+ * `readServiceCredentials` can still locate the platform API key after a
+ * local→platform teleport. Both importers consult this constant.
+ */
+export const CREDENTIAL_METADATA_ARCHIVE_PATH =
+  "workspace/data/credentials/metadata.json";
+
+/**
+ * Paths inside the workspace directory that must be preserved across an
+ * import when the bundle does not carry entries for them.
+ *
+ * Each entry is a path RELATIVE to the workspace root. Two kinds of live
+ * data warrant carry-over:
+ *
+ * - `embedding-models` / `deprecated`: large local caches / quarantine
+ *   directories that are never shipped inside bundles but are expensive
+ *   or impossible to reconstruct from an import.
+ * - `data/db` / `data/qdrant`: user-critical state (SQLite assistant DB;
+ *   Qdrant vector store). If the bundle omits them — e.g. a partial
+ *   bundle covering only prompts/config — the live copies must survive.
+ *
+ * Both the buffer-based `commitImport` (which selectively clears the
+ * workspace in place) and the streaming importer (which swaps the
+ * workspace with a freshly-populated temp tree) consult this list so
+ * their behavior stays in sync.
+ */
+export const WORKSPACE_PRESERVE_PATHS: readonly string[] = [
+  "embedding-models",
+  "deprecated",
+  "data/db",
+  "data/qdrant",
+];
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -171,10 +217,19 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     entryMap = validation.entries;
   }
 
-  // Directories to preserve when clearing the workspace.
-  const WORKSPACE_SKIP_DIRS = new Set(["embedding-models", "deprecated"]);
-  // data/qdrant and data/db are nested — we skip them inside "data/"
-  const DATA_SKIP_DIRS = new Set(["qdrant", "db"]);
+  // Directories to preserve when clearing the workspace. Derived from the
+  // shared WORKSPACE_PRESERVE_PATHS list so the streaming importer's
+  // carry-over logic and this in-place clear stay in sync.
+  const WORKSPACE_SKIP_DIRS = new Set<string>();
+  const DATA_SKIP_DIRS = new Set<string>();
+  for (const rel of WORKSPACE_PRESERVE_PATHS) {
+    const parts = rel.split("/");
+    if (parts.length === 1) {
+      WORKSPACE_SKIP_DIRS.add(parts[0]);
+    } else if (parts.length === 2 && parts[0] === "data") {
+      DATA_SKIP_DIRS.add(parts[1]);
+    }
+  }
 
   // Step 1b: Clear the workspace directory before restore if the bundle
   // contains new-format workspace/ entries. This ensures an exact-match
@@ -195,6 +250,30 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     (f) => f.path.startsWith("workspace/") && !!pathResolver.resolve(f.path),
   );
 
+  // Capture the target's credential metadata BEFORE the workspace clear
+  // runs. Step 1b wipes `data/credentials/`, so reading live metadata
+  // later (during the per-file write loop) would always miss. The merge
+  // helper needs this content to preserve the target's platform-identity
+  // (`vellum:*`) entries across the overwrite.
+  let liveCredentialMetadataJson: string | null = null;
+  const credentialMetadataDiskPath = pathResolver.resolve(
+    CREDENTIAL_METADATA_ARCHIVE_PATH,
+  );
+  if (credentialMetadataDiskPath && existsSync(credentialMetadataDiskPath)) {
+    try {
+      liveCredentialMetadataJson = readFileSync(
+        credentialMetadataDiskPath,
+        "utf-8",
+      );
+    } catch (err) {
+      log.warn(
+        { err, path: credentialMetadataDiskPath },
+        "Failed to read live credential metadata before import; vellum:* entries may not be preserved",
+      );
+    }
+  }
+
+  let workspaceWasCleared = false;
   if (hasWorkspaceEntries && workspaceDir && existsSync(workspaceDir)) {
     try {
       // Clear workspace contents selectively, preserving skip dirs
@@ -218,6 +297,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
           rmSync(entryPath, { recursive: true, force: true });
         }
       }
+      workspaceWasCleared = true;
     } catch (err) {
       return {
         ok: false,
@@ -358,13 +438,45 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
 
     // Sanitize config files to strip environment-specific fields (defense-in-depth)
     let dataToWrite: Uint8Array = archiveEntry.data;
-    if (
-      fileEntry.path === "workspace/config.json" ||
-      fileEntry.path === "config/settings.json"
-    ) {
+    if (CONFIG_ARCHIVE_PATHS.has(fileEntry.path)) {
       const configJson = new TextDecoder().decode(archiveEntry.data);
       const sanitized = sanitizeConfigForTransfer(configJson);
       dataToWrite = new TextEncoder().encode(sanitized);
+    }
+
+    // Preserve target's `vellum:*` metadata entries across the overwrite.
+    // Django's post-hatch provisioning writes these on the target via
+    // POST /v1/secrets; a naive overwrite of the bundle's metadata.json
+    // would wipe them and break the gateway's vellum credential read.
+    // We use the snapshot captured BEFORE the workspace clear because
+    // Step 1b may have already removed the live file.
+    if (fileEntry.path === CREDENTIAL_METADATA_ARCHIVE_PATH) {
+      const bundleJson = new TextDecoder().decode(archiveEntry.data);
+      const merged = mergeMetadataPreservingVellum(
+        bundleJson,
+        liveCredentialMetadataJson,
+      );
+      dataToWrite = new TextEncoder().encode(merged);
+    }
+
+    // If we're about to replace a SQLite main database file, remove any
+    // pre-existing `.db-wal`/`.db-shm`/`.db-journal` siblings at the
+    // target. Those auxiliary files are only valid as a pair with the
+    // exact `.db` that wrote them; leaving them alongside a replacement
+    // DB causes SQLite to replay incompatible WAL frames on the first
+    // open and report "database disk image is malformed". The exporter
+    // already checkpointed the source WAL into the main DB before the
+    // bundle was built, so dropping the sibling aux files doesn't lose
+    // data from the source workspace.
+    if (diskPath.endsWith(".db")) {
+      for (const suffix of [".db-wal", ".db-shm", ".db-journal"]) {
+        const auxPath = `${diskPath.slice(0, -".db".length)}${suffix}`;
+        try {
+          rmSync(auxPath, { force: true });
+        } catch {
+          /* best effort — if the aux file doesn't exist we're fine */
+        }
+      }
     }
 
     // Write the file
@@ -414,6 +526,39 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
       sha256: expectedSha256,
       backup_path: backupPath,
     });
+  }
+
+  // If Step 1b actually cleared the workspace AND the bundle did not
+  // carry a metadata.json entry, the target's vellum:* entries were
+  // wiped along with the `data/credentials/` directory. Restore them by
+  // writing a minimal file containing just the preserved entries so the
+  // gateway can still locate the platform API key. When Step 1b did NOT
+  // run (e.g. workspaceDir unset) the live metadata.json is still on
+  // disk untouched — we must not rewrite it here or we would drop the
+  // non-vellum entries the caller chose to keep.
+  const bundleHadMetadata = manifest.files.some(
+    (f) => f.path === CREDENTIAL_METADATA_ARCHIVE_PATH,
+  );
+  if (
+    workspaceWasCleared &&
+    !bundleHadMetadata &&
+    liveCredentialMetadataJson &&
+    credentialMetadataDiskPath
+  ) {
+    const merged = mergeMetadataPreservingVellum(
+      JSON.stringify({ version: 5, credentials: [] }),
+      liveCredentialMetadataJson,
+    );
+    try {
+      mkdirSync(dirname(credentialMetadataDiskPath), { recursive: true });
+      writeFileSync(credentialMetadataDiskPath, merged);
+    } catch (err) {
+      warnings.push(
+        `Failed to restore preserved vellum:* credential metadata: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   // Build final report

@@ -187,6 +187,24 @@ public enum GuardianTokenFileReader {
             : .importValid(creds)
     }
 
+    /// Deletes any CLI-persisted guardian token on disk for the given
+    /// assistant. Used by forced re-bootstrap paths to avoid re-importing a
+    /// stale/revoked token that shares the same file. A missing file is
+    /// treated as success.
+    @discardableResult
+    public static func deleteTokenFile(assistantId: String) -> Bool {
+        let path = guardianTokenPath(for: assistantId)
+        guard FileManager.default.fileExists(atPath: path) else { return true }
+        do {
+            try FileManager.default.removeItem(atPath: path)
+            log.info("Deleted guardian token file at \(path, privacy: .public)")
+            return true
+        } catch {
+            log.warning("Failed to delete guardian token file at \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
     // MARK: - Path Resolution
 
     /// Resolves `$XDG_CONFIG_HOME/vellum{-env}/assistants/<id>/guardian-token.json`,

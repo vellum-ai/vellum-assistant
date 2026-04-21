@@ -459,6 +459,14 @@ private struct PinnedLatestTurnSection: View {
     let isUnanchoredThinking: Bool
     let thinkingLabel: String
 
+    // Minimum height equal to the scroll container's visible height
+    // (minus the outer LazyVStack's vertical padding). Sourced from a
+    // zero-size `containerRelativeFrame` probe in the `.background` so
+    // the section grows to fill the viewport when content is short but
+    // is still free to exceed it when an assistant response is longer
+    // than a viewport — preserving scrollability for tall answers.
+    @State private var viewportMinHeight: CGFloat = 0
+
     private var hasResponseContent: Bool {
         contentView.showsStandaloneLatestEdgeActivity
             || !contentView.state.orphanSubagents.isEmpty
@@ -470,13 +478,13 @@ private struct PinnedLatestTurnSection: View {
         // equals visual order: anchor at top, response below, spacer
         // fills remaining viewport, sentinel marks the latest edge.
         //
-        // The section's height is bound to the scroll viewport via
-        // `containerRelativeFrame` so it tracks the chat area's height in
-        // the SAME layout pass as composer-induced viewport changes. A
-        // previous `viewportHeight` @State + computed-spacer pattern lagged
-        // one frame behind the AppKit clip-view frame change and caused the
-        // anchor row's top to briefly clip on every Enter keystroke in the
-        // composer.
+        // `.frame(minHeight:)` (not a fixed `containerRelativeFrame` on
+        // the VStack) gives the section a viewport-sized floor while
+        // letting it grow when anchor + response exceeds the viewport.
+        // Without the floor, the `Spacer` below cannot keep the anchor
+        // pinned to the visual top while a short response is streaming.
+        // Without growth, a tall assistant response is capped at the
+        // viewport and the newest content becomes unreachable by scroll.
         VStack(alignment: .leading, spacing: 0) {
             contentView.transcriptRow(
                 row: anchorRow,
@@ -492,13 +500,30 @@ private struct PinnedLatestTurnSection: View {
 
             contentView.latestEdgeSentinel(isFlipped: false)
         }
-        .containerRelativeFrame(.vertical, alignment: .top) { length, _ in
-            // Subtract the outer LazyVStack's vertical padding (top + bottom
-            // of `MessageListContentView.body`) so the anchor row ends with
-            // the intentional VSpacing.md visual gap above it.
-            length - VSpacing.md * 2
-        }
+        .frame(minHeight: viewportMinHeight, alignment: .top)
+        .background(viewportMinHeightProbe)
         .flipped()
+    }
+
+    /// Zero-width `Color.clear` sized to the scroll container's visible
+    /// height via `containerRelativeFrame`. `onGeometryChange` mirrors the
+    /// resolved height into `@State` so the VStack's `minHeight` tracks
+    /// the viewport. `max(0, …)` keeps the closure non-negative for the
+    /// transient zero-height layout passes SwiftUI runs during setup and
+    /// window/split-view collapse — negative frame dimensions produce
+    /// layout warnings and unstable pinned-turn rendering.
+    private var viewportMinHeightProbe: some View {
+        Color.clear
+            .containerRelativeFrame(.vertical, alignment: .top) { length, _ in
+                max(0, length - VSpacing.md * 2)
+            }
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.height
+            } action: { newHeight in
+                if abs(viewportMinHeight - newHeight) > 0.5 {
+                    viewportMinHeight = newHeight
+                }
+            }
     }
 
     @ViewBuilder

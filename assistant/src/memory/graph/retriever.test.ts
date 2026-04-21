@@ -8,9 +8,9 @@
 // runs unmocked so the mocks do not leak across test files in a shared
 // process.
 //
-// Focus: the plumbing added in PR 3 — surfacing the dense query vector
-// (and the optional sparse vector) on ContextLoadResult so downstream callers
-// can reuse them without re-embedding.
+// Focus: the plumbing that surfaces the dense query vector (and the optional
+// sparse vector) on ContextLoadResult so downstream callers can reuse them
+// without re-embedding.
 // ---------------------------------------------------------------------------
 
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -164,7 +164,6 @@ describe("loadContextMemory — query/sparse vector surfacing", () => {
     expect(result.queryVector).toBeUndefined();
     expect(result.sparseVector).toBeUndefined();
   });
-
 });
 
 describe("retrieveForTurn — query/sparse vector surfacing", () => {
@@ -198,7 +197,10 @@ describe("retrieveForTurn — query/sparse vector surfacing", () => {
     // nothing), the queryVector should still be surfaced so the PKB hint
     // retriever can fire on every turn.
     expect(result.queryVector).toEqual([0.9, 0.8, 0.7]);
-    expect(result.sparseVector).toBeUndefined();
+    // Per-turn now populates sparseVector from the user message (TF-IDF),
+    // paired with the combined-text dense for PKB hybrid search.
+    expect(result.sparseVector).toBeDefined();
+    expect(result.sparseVector!.indices.length).toBeGreaterThan(0);
   });
 
   test("returns undefined queryVector when the embedding backend throws", async () => {
@@ -213,10 +215,12 @@ describe("retrieveForTurn — query/sparse vector surfacing", () => {
       tracker,
     });
 
-    // Circuit-breaker path: embedding failure is swallowed; no throw and no
-    // vector surfaced.
+    // Circuit-breaker path: embedding failure is swallowed; no dense vector
+    // surfaced. Sparse vector (local TF-IDF) is independent of the embedding
+    // backend, so it is still produced from the user message.
     expect(result.queryVector).toBeUndefined();
-    expect(result.sparseVector).toBeUndefined();
+    expect(result.sparseVector).toBeDefined();
+    expect(result.sparseVector!.indices.length).toBeGreaterThan(0);
   });
 
   test("returns undefined queryVector when there is no text to embed", async () => {
@@ -234,7 +238,7 @@ describe("retrieveForTurn — query/sparse vector surfacing", () => {
   });
 });
 
-describe("loadContextMemory — dual-query capability ranking (PR 3)", () => {
+describe("loadContextMemory — dual-query capability ranking", () => {
   // Capture seeded capability node IDs so the searchGraphNodes mock can
   // reference them by ID (the mock runs at call time, not seed time).
   let inboxNodeId = "";
@@ -244,8 +248,7 @@ describe("loadContextMemory — dual-query capability ranking (PR 3)", () => {
   // Build a config where capabilityReserve=1 so the ranking code actually
   // prunes (it only prunes when capabilityNodes.length > capabilityReserve).
   const DUAL_QUERY_CONFIG: AssistantConfig = structuredClone(DEFAULT_CONFIG);
-  DUAL_QUERY_CONFIG.memory.retrieval.injection.contextLoad.capabilityReserve =
-    1;
+  DUAL_QUERY_CONFIG.memory.retrieval.injection.contextLoad.capabilityReserve = 1;
 
   // Keyword-routed embed: any text that contains a topic keyword returns a
   // one-hot vector identifying that topic. Anything else falls back to a
@@ -372,11 +375,9 @@ describe("loadContextMemory — dual-query capability ranking (PR 3)", () => {
     embedRouter = keywordEmbedRouter;
     searchRouter = vectorSearchRouter;
 
-    // Summary is short and the user query is much longer — in the pre-PR-6
-    // world the length-ratio guard would have skipped the dedicated embed
-    // here. After PR 6 removed the firstUserText unshift, summaries and the
-    // user query are disjoint signals, so we always pay for both embeds
-    // when a userQuery is present.
+    // Summary is short and the user query is much longer. Summaries and
+    // the user query are disjoint signals, so we always pay for both
+    // embeds when a userQuery is present.
     const result = await loadContextMemory({
       scopeId: "default",
       recentSummaries: ["hi"],
@@ -387,6 +388,45 @@ describe("loadContextMemory — dual-query capability ranking (PR 3)", () => {
 
     expect(result.userQueryVector).toBeDefined();
     expect(embedCallCount).toBe(2);
+  });
+
+  test("produces userQuerySparseVector alongside userQueryVector when user query is non-empty", async () => {
+    embedRouter = keywordEmbedRouter;
+    searchRouter = vectorSearchRouter;
+
+    const result = await loadContextMemory({
+      scopeId: "default",
+      recentSummaries: [LONG_HEARTBEAT_SUMMARY],
+      userQuery: "clean up my inbox",
+      config: DUAL_QUERY_CONFIG,
+    });
+
+    expect(result.userQueryVector).toBeDefined();
+    expect(result.userQuerySparseVector).toBeDefined();
+    expect(result.userQuerySparseVector!.indices.length).toBeGreaterThan(0);
+    expect(result.userQuerySparseVector!.values.length).toBe(
+      result.userQuerySparseVector!.indices.length,
+    );
+  });
+
+  test("omits userQuerySparseVector when user query is absent or whitespace-only", async () => {
+    embedRouter = keywordEmbedRouter;
+    searchRouter = vectorSearchRouter;
+
+    const missing = await loadContextMemory({
+      scopeId: "default",
+      recentSummaries: [LONG_HEARTBEAT_SUMMARY],
+      config: DUAL_QUERY_CONFIG,
+    });
+    expect(missing.userQuerySparseVector).toBeUndefined();
+
+    const blank = await loadContextMemory({
+      scopeId: "default",
+      recentSummaries: [LONG_HEARTBEAT_SUMMARY],
+      userQuery: "   ",
+      config: DUAL_QUERY_CONFIG,
+    });
+    expect(blank.userQuerySparseVector).toBeUndefined();
   });
 
   test("skips the dedicated embed when userQuery is missing or empty", async () => {

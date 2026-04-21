@@ -14,9 +14,7 @@ struct OnboardingFlowView: View {
     var onOpenSettings: () -> Void
 
     @State private var isAdvancingFromWakeUp = false
-    @State private var isBootstrappingManaged = false
     @State private var isResolvingAssociatedManagedAssistant = false
-    @State private var managedBootstrapError: String?
     @State private var didCallComplete = false
     @State private var completionDelayTask: Task<Void, Never>?
     @State private var isShowingPreChat = false
@@ -68,7 +66,9 @@ struct OnboardingFlowView: View {
                 )
                 .transition(.opacity)
             } else if state.isHatching {
-                HatchingStepView(state: state)
+                HatchingStepView(state: state, onRetryManaged: {
+                    await performManagedBootstrap()
+                })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(
                         RadialGradient(
@@ -107,10 +107,7 @@ struct OnboardingFlowView: View {
                     // Step content — Group flattens into parent VStack so
                     // the inner Spacer flexes with the top Spacer above.
                     Group {
-                        if isBootstrappingManaged {
-                            managedBootstrapView
-                        } else {
-                            switch state.currentStep {
+                        switch state.currentStep {
                             case 0:
                                 if managedSignInEnabled && authManager.isAuthenticated {
                                     // Already authenticated — show a brief loading
@@ -169,7 +166,6 @@ struct OnboardingFlowView: View {
                                 )
                             default:
                                 EmptyView()
-                            }
                         }
                     }
                     .transition(
@@ -178,15 +174,7 @@ struct OnboardingFlowView: View {
                             removal: .opacity.combined(with: .offset(y: -8))
                         )
                     )
-                    .id(isBootstrappingManaged ? -1 : state.currentStep)
-
-                    // Bottom padding so content isn't flush with window edge.
-                    // All onboarding steps now have a characters footer that sits
-                    // flush at the window bottom, so only add padding for the
-                    // managed bootstrap view.
-                    if isBootstrappingManaged {
-                        Color.clear.frame(height: VSpacing.xxl)
-                    }
+                    .id(state.currentStep)
                 }
                 .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
                 }
@@ -242,14 +230,13 @@ struct OnboardingFlowView: View {
                 state.isManagedHatch = false
                 state.hatchCompleted = false
                 state.hatchFailed = false
+                state.hatchFailureReason = nil
                 state.hatchProgressTarget = 0.0
                 state.hatchProgressDisplay = 0.0
                 state.hatchStepLabel = nil
                 state.hatchTotalSteps = 1
                 state.hatchCurrentStep = 0
                 isShowingPreChat = false
-                isBootstrappingManaged = false
-                managedBootstrapError = nil
                 withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
                     state.currentStep = 0
                 }
@@ -347,58 +334,6 @@ struct OnboardingFlowView: View {
         state.advance()
     }
 
-    @ViewBuilder
-    private var managedBootstrapView: some View {
-        VStack(spacing: VSpacing.lg) {
-            if managedBootstrapError == nil {
-                HStack(spacing: VSpacing.sm) {
-                    ProgressView()
-                        .controlSize(.small)
-                        .progressViewStyle(.circular)
-                    Text("Setting up your assistant...")
-                        .font(VFont.titleSmall)
-                        .foregroundStyle(VColor.contentSecondary)
-                }
-            } else {
-                VStack(spacing: VSpacing.xl) {
-                    VStack(spacing: VSpacing.sm) {
-                        VIconView(.circleX, size: 32)
-                            .foregroundStyle(VColor.systemNegativeStrong)
-
-                        Text("Setup failed")
-                            .font(VFont.titleMedium)
-                            .foregroundStyle(VColor.contentDefault)
-
-                        Text("Something went wrong while setting up your assistant.")
-                            .font(VFont.bodyMediumDefault)
-                            .foregroundStyle(VColor.contentSecondary)
-                            .multilineTextAlignment(.center)
-                    }
-
-                    if let error = managedBootstrapError {
-                        VInlineMessage(humanReadableError(from: error), tone: .error)
-                    }
-
-                    VStack(spacing: VSpacing.sm) {
-                        VButton(label: "Try again", style: .primary, isFullWidth: true) {
-                            Task {
-                                await performManagedBootstrap()
-                            }
-                        }
-
-                        VButton(label: "Go back", style: .ghost) {
-                            isBootstrappingManaged = false
-                            managedBootstrapError = nil
-                        }
-                    }
-                }
-                .frame(maxWidth: 320)
-            }
-        }
-
-        Spacer()
-    }
-
     /// Extracts a human-readable message from an error string that may be JSON.
     private func humanReadableError(from raw: String) -> String {
         guard let data = raw.data(using: .utf8),
@@ -409,11 +344,25 @@ struct OnboardingFlowView: View {
         return detail
     }
 
+    /// Drives the managed-hatch flow end-to-end inside `HatchingStepView`.
+    ///
+    /// The view is shown *before* the platform API call begins so the user sees
+    /// a single consistent loading surface from tap to ready — errors from
+    /// `activateManagedAssistant()` surface in the same view via the shared
+    /// `hatchFailed` / `hatchFailureReason` path that the health-poll uses.
     private func performManagedBootstrap() async {
-        isBootstrappingManaged = true
-        managedBootstrapError = nil
-        state.hasExistingManagedAssistant = false
         log.info("Beginning managed assistant bootstrap")
+        state.hasExistingManagedAssistant = false
+        state.hatchFailed = false
+        state.hatchFailureReason = nil
+        state.hatchCompleted = false
+        state.hatchLogLines = []
+        state.hatchTotalSteps = 3
+        state.hatchCurrentStep = 0
+        state.hatchProgressTarget = 0.0
+        state.hatchStepLabel = "Setting up your assistant\u{2026}"
+        state.isManagedHatch = true
+        state.isHatching = true
 
         do {
             let activation = try await ManagedAssistantConnectionCoordinator().activateManagedAssistant()
@@ -426,15 +375,12 @@ struct OnboardingFlowView: View {
                 log.info("Managed bootstrap created new assistant \(assistant.id, privacy: .public)")
             }
 
-            isBootstrappingManaged = false
-            state.isManagedHatch = true
-            state.isHatching = true
             log.info("Managed bootstrap completed for assistant \(assistant.id, privacy: .public); waiting for daemon connection")
-
             await awaitManagedAssistantReady(assistantId: assistant.id)
         } catch {
             log.error("Managed bootstrap failed: \(error.localizedDescription)")
-            managedBootstrapError = error.localizedDescription
+            state.hatchFailureReason = humanReadableError(from: error.localizedDescription)
+            state.hatchFailed = true
         }
     }
 
@@ -457,6 +403,7 @@ struct OnboardingFlowView: View {
             try await ManagedAssistantBootstrapService.shared.awaitAssistantProvisioned(assistantId: assistantId)
         } catch {
             log.error("Provisioning poll failed for \(assistantId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            state.hatchFailureReason = humanReadableError(from: error.localizedDescription)
             state.hatchFailed = true
             return
         }
@@ -467,12 +414,15 @@ struct OnboardingFlowView: View {
         state.hatchStepLabel = "Connecting to assistant..."
         state.hatchProgressTarget = 0.66
 
-        let timeout: TimeInterval = 120
-        let start = CFAbsoluteTimeGetCurrent()
+        // Use ContinuousClock rather than wall-clock so NTP adjustments or
+        // DST transitions mid-poll don't shorten or extend the deadline.
+        let timeout: Duration = .seconds(120)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
         var lastError: Error?
         var lastStatusCode: Int?
 
-        while CFAbsoluteTimeGetCurrent() - start < timeout {
+        while clock.now < deadline {
             do {
                 let (_, response): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
                     path: "assistants/{assistantId}/health",
@@ -480,6 +430,27 @@ struct OnboardingFlowView: View {
                 ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
                 if response.isSuccess {
                     log.info("Managed assistant \(assistantId, privacy: .public) is ready")
+
+                    // Inject client-resolvable vellum identity fields that
+                    // Django's post-hatch provisioning doesn't cover (org
+                    // id, user id). Local assistants get these via
+                    // `LocalAssistantBootstrapService`; the managed hatch
+                    // path skips that bootstrap, so onboarding has to
+                    // inject them directly. Best-effort: skip when the
+                    // org id isn't cached rather than blocking onboarding
+                    // on a fresh lookup. `ensureManagedAssistant()`
+                    // already resolved and persisted the org id earlier
+                    // in the bootstrap.
+                    if let organizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId"),
+                       !organizationId.isEmpty {
+                        await ManagedAssistantIdentityInjection.inject(
+                            into: assistantId,
+                            organizationId: organizationId
+                        )
+                    } else {
+                        log.warning("Skipping vellum identity injection — no cached organization id for \(assistantId, privacy: .public)")
+                    }
+
                     state.hatchCurrentStep = 3
                     state.hatchStepLabel = "Ready"
                     state.hatchProgressTarget = 1.0
@@ -496,17 +467,19 @@ struct OnboardingFlowView: View {
                 log.warning("Health check request failed for assistant \(assistantId, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
 
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled else { return }
         }
 
+        let timeoutSeconds = Int(timeout.components.seconds)
         if let error = lastError {
-            log.error("Managed assistant \(assistantId, privacy: .public) not ready after \(timeout)s; last error: \(error.localizedDescription, privacy: .public)")
+            log.error("Managed assistant \(assistantId, privacy: .public) not ready after \(timeoutSeconds)s; last error: \(error.localizedDescription, privacy: .public)")
         } else if let statusCode = lastStatusCode {
-            log.error("Managed assistant \(assistantId, privacy: .public) not ready after \(timeout)s; last status code: \(statusCode)")
+            log.error("Managed assistant \(assistantId, privacy: .public) not ready after \(timeoutSeconds)s; last status code: \(statusCode)")
         } else {
-            log.error("Managed assistant \(assistantId, privacy: .public) not ready after \(timeout)s; no health check attempts completed")
+            log.error("Managed assistant \(assistantId, privacy: .public) not ready after \(timeoutSeconds)s; no health check attempts completed")
         }
+        state.hatchFailureReason = "Your assistant didn't respond in time. Please try again."
         state.hatchFailed = true
     }
 }

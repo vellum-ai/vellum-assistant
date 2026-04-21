@@ -116,6 +116,8 @@ interface RecordedViseme {
 interface FakeBot {
   url: string;
   visemes: RecordedViseme[];
+  /** Total bytes received on `/play_audio` POSTs across all streams. */
+  playAudioBytes: number;
   /**
    * When set, every `/avatar/viseme` POST replies with this status. Used
    * to verify 4xx/5xx tolerance.
@@ -129,6 +131,7 @@ function startFakeBot(): FakeBot {
   const state: FakeBot = {
     url: "",
     visemes,
+    playAudioBytes: 0,
     visemeStatusOverride: null,
     stop: async () => {
       /* set below */
@@ -163,8 +166,9 @@ function startFakeBot(): FakeBot {
         if (req.body) {
           const reader = req.body.getReader();
           while (true) {
-            const { done } = await reader.read();
+            const { done, value } = await reader.read();
             if (done) break;
+            if (value) state.playAudioBytes += value.byteLength;
           }
         }
         return new Response("", { status: 200 });
@@ -435,6 +439,38 @@ describe("MeetTtsBridge.onViseme — amplitude fallback path", () => {
     // Allow a small epsilon for float accumulation.
     expect(events[0]!.weight).toBeGreaterThan(0.4);
     expect(events[0]!.weight).toBeLessThan(0.6);
+  });
+
+  test("amplitude tap does not steal bytes from the bot's /play_audio body", async () => {
+    // Regression: the tap was previously a `.on("data")` listener on a
+    // PassThrough that was then converted to the HTTP body — two flowing-
+    // mode consumers raced for chunks and some bytes were dropped. Sending
+    // a large payload with subscribers active must still deliver every
+    // byte to the bot.
+    const amplitude = 16_384;
+    const payload = [makeConstantPcm(500, amplitude)];
+    const expectedBytes = payload[0]!.byteLength;
+    const provider = makePlainProvider(payload);
+    const { spawn } = makeSpawnMock();
+
+    const bridge = new MeetTtsBridge(
+      { meetingId: MEETING_ID, botBaseUrl: fakeBot.url, botApiToken: TOKEN },
+      {
+        providerFactory: () => provider,
+        spawn,
+        newStreamId: () => "stream-no-steal",
+      },
+    );
+
+    bridge.onViseme(() => {
+      /* presence of a subscriber activates the tap */
+    });
+
+    const before = fakeBot.playAudioBytes;
+    const { completion } = await bridge.speak({ text: "no-steal" });
+    await completion;
+
+    expect(fakeBot.playAudioBytes - before).toBe(expectedBytes);
   });
 
   test("does not run the amplitude tap when no subscribers are registered", async () => {

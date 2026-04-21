@@ -130,7 +130,10 @@ describe("renderSlackTranscript — basics", () => {
       userMsg(TS_14_25, "@alice", "hi (revised)", { editedAt: MS_14_30 }),
     ]);
     expect(out).toEqual([
-      textMsg("user", "[11/14/23 14:25 @alice, edited 11/14/23 14:30]: hi (revised)"),
+      textMsg(
+        "user",
+        "[11/14/23 14:25 @alice, edited 11/14/23 14:30]: hi (revised)",
+      ),
     ]);
   });
 
@@ -141,7 +144,9 @@ describe("renderSlackTranscript — basics", () => {
     const out = renderSlackTranscript([
       userMsg(TS_14_25, "@alice", "v2", { editedAt: MS_14_32 }),
     ]);
-    expect(out).toEqual([textMsg("user", "[11/14/23 14:25 @alice, edited 11/14/23 14:32]: v2")]);
+    expect(out).toEqual([
+      textMsg("user", "[11/14/23 14:25 @alice, edited 11/14/23 14:32]: v2"),
+    ]);
   });
 
   test("edited message in a thread renders both arrow and edit suffix", () => {
@@ -153,7 +158,10 @@ describe("renderSlackTranscript — basics", () => {
     ]);
     const alias = parentAlias(TS_14_25);
     expect(out).toEqual([
-      textMsg("user", `[11/14/23 14:28 @bob → ${alias}, edited 11/14/23 14:30]: got it (edit)`),
+      textMsg(
+        "user",
+        `[11/14/23 14:28 @bob → ${alias}, edited 11/14/23 14:30]: got it (edit)`,
+      ),
     ]);
   });
 
@@ -418,9 +426,83 @@ describe("renderSlackTranscript — reaction cap", () => {
     const out = renderSlackTranscript(messages, { maxReactionsPerMessage: 2 });
     // 1 msg + 2 reactions + 1 trailer for 1 excess.
     expect(out.length).toBe(4);
+    // Singular "reaction" when excess is exactly 1.
     expect(extractTagLineTexts(out)[out.length - 1]).toMatch(
-      /…and 1 more reactions to M[0-9a-f]{6}\]/,
+      /…and 1 more reaction to M[0-9a-f]{6}\]/,
     );
+  });
+
+  test("overflow trailer uses plural 'reactions' when excess > 1", () => {
+    const messages: RenderableSlackMessage[] = [
+      userMsg(TS_14_25, "@alice", "hi"),
+      reactionMsg("1700000800.000001", "@u1", "👍", TS_14_25),
+      reactionMsg("1700000800.000002", "@u2", "🎉", TS_14_25),
+      reactionMsg("1700000800.000003", "@u3", "🔥", TS_14_25),
+      reactionMsg("1700000800.000004", "@u4", "💯", TS_14_25),
+    ];
+    const out = renderSlackTranscript(messages, { maxReactionsPerMessage: 2 });
+    // 1 msg + 2 reactions + 1 trailer for 2 excess.
+    expect(out.length).toBe(4);
+    expect(extractTagLineTexts(out)[out.length - 1]).toMatch(
+      /…and 2 more reactions to M[0-9a-f]{6}\]/,
+    );
+  });
+
+  test("overflow trailer lands in chronological position, before later non-reaction messages", () => {
+    // Reactions overflow the cap, then a later message arrives. The trailer
+    // must be emitted at the point the overflow window closes — immediately
+    // before the later message — so chronology is preserved.
+    const alias = parentAlias(TS_14_25);
+    const messages: RenderableSlackMessage[] = [
+      userMsg(TS_14_25, "@alice", "hi"),
+      // Cap is 2 — first two reactions render inline.
+      reactionMsg("1699971950.000001", "@u1", "👍", TS_14_25), // 14:25:50
+      reactionMsg("1699971955.000002", "@u2", "🎉", TS_14_25), // 14:25:55
+      // Next two reactions overflow.
+      reactionMsg("1699971960.000003", "@u3", "🔥", TS_14_25), // 14:26
+      reactionMsg("1699971965.000004", "@u4", "💯", TS_14_25), // 14:26:05
+      // A later top-level message — trailer must land BEFORE this line.
+      userMsg(TS_14_30, "@bob", "later"),
+    ];
+    const out = renderSlackTranscript(messages, { maxReactionsPerMessage: 2 });
+    expect(extractTagLineTexts(out)).toEqual([
+      "[11/14/23 14:25 @alice]: hi",
+      `[11/14/23 14:25 @u1 reacted 👍 to ${alias}]`,
+      `[11/14/23 14:25 @u2 reacted 🎉 to ${alias}]`,
+      `[…and 2 more reactions to ${alias}]`,
+      "[11/14/23 14:30 @bob]: later",
+    ]);
+  });
+
+  test("overflow trailer for one target flushes before reaction event on a different target", () => {
+    // Two independent reaction streams. The first target overflows, then a
+    // reaction arrives for a second target. The first target's trailer must
+    // close its window before the second target's reaction is emitted.
+    const parentA_ts = "1700000000.000001";
+    const parentB_ts = "1700000000.000002";
+    const aliasA = parentAlias(parentA_ts);
+    const aliasB = parentAlias(parentB_ts);
+    const messages: RenderableSlackMessage[] = [
+      userMsg(parentA_ts, "@alice", "A"),
+      userMsg(parentB_ts, "@bob", "B"),
+      // Overflow the cap on A.
+      reactionMsg("1700000100.000001", "@u1", "👍", parentA_ts),
+      reactionMsg("1700000100.000002", "@u2", "🎉", parentA_ts),
+      reactionMsg("1700000100.000003", "@u3", "🔥", parentA_ts), // excess 1
+      reactionMsg("1700000100.000004", "@u4", "💯", parentA_ts), // excess 2
+      // Reaction on B arrives chronologically after the overflow — A's
+      // trailer should flush here, before B's reaction renders.
+      reactionMsg("1700000100.000005", "@u5", "👏", parentB_ts),
+    ];
+    const out = renderSlackTranscript(messages, { maxReactionsPerMessage: 2 });
+    expect(extractTagLineTexts(out)).toEqual([
+      "[11/14/23 22:13 @alice]: A",
+      "[11/14/23 22:13 @bob]: B",
+      `[11/14/23 22:15 @u1 reacted 👍 to ${aliasA}]`,
+      `[11/14/23 22:15 @u2 reacted 🎉 to ${aliasA}]`,
+      `[…and 2 more reactions to ${aliasA}]`,
+      `[11/14/23 22:15 @u5 reacted 👏 to ${aliasB}]`,
+    ]);
   });
 
   test("caps are tracked per-target message independently", () => {
@@ -470,8 +552,8 @@ describe("renderSlackTranscript — mixed message + reaction chronology", () => 
 
   test("removed reactions interleave with messages by their own ts", () => {
     // A reaction is added at 14:26 then removed at 14:30; bob posts a message
-    // at 14:28 in between. The "removed" line must land between bob's message
-    // and dan's later message, not collapsed beside the "added" line.
+    // at 14:28 in between. The "removed" line must land after bob's message,
+    // not collapsed beside the "added" line.
     const aliasParent = parentAlias(TS_14_25);
     const out = renderSlackTranscript([
       userMsg(TS_14_25, "@alice", "lunch?"),
@@ -582,7 +664,9 @@ describe("renderSlackTranscript — four design-brief scenarios", () => {
     const out = renderSlackTranscript(messages);
     const carolAlias = parentAlias(carolTopTs);
     const texts = extractTagLineTexts(out);
-    expect(texts[texts.length - 1]).toBe(`[11/14/23 14:28 @frank → ${carolAlias}]: +1`);
+    expect(texts[texts.length - 1]).toBe(
+      `[11/14/23 14:28 @frank → ${carolAlias}]: +1`,
+    );
   });
 
   test("scenario: new top-level message (no threadTs)", () => {
@@ -593,7 +677,9 @@ describe("renderSlackTranscript — four design-brief scenarios", () => {
     const out = renderSlackTranscript(messages);
     const texts = extractTagLineTexts(out);
     // No arrow on the new top-level row.
-    expect(texts[texts.length - 1]).toBe("[11/14/23 14:31 @gina]: anyone in office?");
+    expect(texts[texts.length - 1]).toBe(
+      "[11/14/23 14:31 @gina]: anyone in office?",
+    );
   });
 });
 
@@ -755,20 +841,19 @@ describe("extractTagLineTexts", () => {
   });
 });
 
-// ── contentBlocks preservation (PR 3 behavioural change) ─────────────────────
+// ── contentBlocks preservation ───────────────────────────────────────────────
 
 describe("renderSlackTranscript — replayable content-block preservation", () => {
-  // PR 3 flips the behaviour established in PR 2: when `contentBlocks` is
-  // populated, the renderer preserves replayable Anthropic blocks
-  // (tool_use, tool_result, thinking, redacted_thinking, image, file)
-  // verbatim alongside the tag line. Non-replayable blocks (ui_surface,
-  // server_tool_use, web_search_tool_result, unknown types) are stripped.
-  // Legacy rows (no contentBlocks field) continue to render as a single
-  // text block.
+  // When `contentBlocks` is populated, the renderer preserves replayable
+  // Anthropic blocks (tool_use, tool_result, thinking, redacted_thinking,
+  // image, file) verbatim alongside the tag line. Non-replayable blocks
+  // (ui_surface, server_tool_use, web_search_tool_result, unknown types) are
+  // stripped. Legacy rows (no contentBlocks field) render as a single text
+  // block.
 
   test("[text, tool_use] assistant row preserves tool_use after tag line", () => {
     // Assistant tool_use is paired with a follow-up user tool_result so the
-    // PR 4 orphan filter leaves both blocks intact.
+    // orphan-pair filter leaves both blocks intact.
     const assistantRow: RenderableSlackMessage = {
       ...userMsg(TS_14_25, null, "looking it up", {
         role: "assistant",
@@ -796,7 +881,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
 
   test("[tool_result] user row emits only tool_result — no tag line", () => {
     // Pair the user tool_result with a preceding assistant tool_use so the
-    // PR 4 orphan filter leaves the row intact; the assertion still pins
+    // orphan-pair filter leaves the row intact; the assertion still pins
     // the shape of the user row specifically (no tag line, single block).
     const assistantRow: RenderableSlackMessage = {
       ...userMsg(TS_14_24, null, "", { role: "assistant" }),
@@ -957,7 +1042,44 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
     expect(out).toEqual([
       {
         role: "user",
-        content: [{ type: "text", text: "[11/14/23 14:25 @alice — deleted 11/14/23 14:32]" }],
+        content: [
+          {
+            type: "text",
+            text: "[11/14/23 14:25 @alice — deleted 11/14/23 14:32]",
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("row with only non-replayable blocks emits fallback tag line annotated with what was stripped", () => {
+    // Rows whose only content blocks are non-replayable (e.g. `server_tool_use`,
+    // `ui_surface`) must still produce a turn so chronology and adjacent
+    // tool_result context are preserved. `buildMessageContentBlocks` emits a
+    // single fallback text block whose tag line names each stripped block's
+    // type (and tool name, when available).
+    const base: RenderableSlackMessage = {
+      ...userMsg(TS_14_25, null, "ran a web search", { role: "assistant" }),
+      contentBlocks: [
+        {
+          type: "server_tool_use",
+          id: "st_1",
+          name: "web_search",
+          input: { q: "x" },
+        },
+        { type: "ui_surface", foo: "bar" } as unknown as never,
+      ] as never,
+    };
+    const out = renderSlackTranscript([base]);
+    expect(out).toEqual([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "[11/14/23 14:25]: ran a web search [stripped non-replayable: server_tool_use(web_search), ui_surface]",
+          },
+        ],
       },
     ]);
   });
@@ -979,7 +1101,9 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
       contentBlocks: [],
     };
     const out = renderSlackTranscript([base]);
-    expect(out).toEqual([textMsg("user", "[11/14/23 14:25 @alice]: empty blocks")]);
+    expect(out).toEqual([
+      textMsg("user", "[11/14/23 14:25 @alice]: empty blocks"),
+    ]);
   });
 
   test("reaction row ignores contentBlocks and renders the single reaction tag line", () => {
@@ -1001,13 +1125,13 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
   });
 });
 
-// ── orphan tool_use / tool_result filter (PR 4) ──────────────────────────────
+// ── orphan tool_use / tool_result filter ─────────────────────────────────────
 
 describe("renderSlackTranscript — orphan tool_use / tool_result filter", () => {
-  // PR 4 adds a final safety pass that strips any tool_use without a
-  // matching tool_result (and vice versa) before returning. Messages that
-  // become empty after filtering are dropped entirely so the caller never
-  // sees `{role, content: []}`.
+  // A final safety pass strips any tool_use without a matching tool_result
+  // (and vice versa) before returning. Messages that become empty after
+  // filtering are dropped entirely so the caller never sees
+  // `{role, content: []}`.
 
   test("orphan tool_use is dropped; surrounding tag line survives", () => {
     // Assistant row has [text, tool_use] but no follower tool_result exists
@@ -1031,9 +1155,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
     expect(out).toEqual([
       {
         role: "assistant",
-        content: [
-          { type: "text", text: "[11/14/23 14:25]: looking it up" },
-        ],
+        content: [{ type: "text", text: "[11/14/23 14:25]: looking it up" }],
       },
     ]);
   });
@@ -1113,11 +1235,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
       ],
     };
     // A normal neighbour row to confirm we don't accidentally drop it too.
-    const neighbour: RenderableSlackMessage = userMsg(
-      TS_14_26,
-      "@bob",
-      "hi",
-    );
+    const neighbour: RenderableSlackMessage = userMsg(TS_14_26, "@bob", "hi");
     const out = renderSlackTranscript([orphanResultRow, neighbour]);
     expect(out).toEqual([textMsg("user", "[11/14/23 14:26 @bob]: hi")]);
     // Sanity: the output contains no {role, content: []} placeholder.

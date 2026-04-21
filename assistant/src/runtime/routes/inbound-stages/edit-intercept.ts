@@ -26,6 +26,7 @@ import {
   mergeSlackMetadata,
   readSlackMetadata,
 } from "../../../messaging/providers/slack/message-metadata.js";
+import { safeParseRecord } from "../../../util/json.js";
 import { getLogger } from "../../../util/logger.js";
 
 const log = getLogger("runtime-http");
@@ -118,19 +119,44 @@ export async function handleEditIntercept(
   }
 
   if (original) {
+    const newContent = content ?? "";
+    // Short-circuit no-op edits: Slack fires `message_changed` for link
+    // unfurls and other decorations where the text is identical to the
+    // previous revision. Skipping the DB write here covers that case and
+    // also drops trivially-redundant edit webhooks. We only have the
+    // authoritative previous text once the original row is located, so
+    // this check lives after the lookup.
+    const existingRow = getMessageById(original.messageId);
+    if (existingRow && existingRow.content === newContent) {
+      log.debug(
+        {
+          assistantId,
+          sourceChannel,
+          sourceMessageId,
+          messageId: original.messageId,
+        },
+        "Edit text unchanged; skipping update",
+      );
+      return Response.json({
+        accepted: true,
+        duplicate: false,
+        noop: true,
+        eventId: editResult.eventId,
+      });
+    }
     if (sourceChannel === "slack") {
       // Slack edits stamp `slackMeta.editedAt` so the chronological
       // transcript renderer can surface the edited marker. The merge
-      // tolerates rows that pre-date PR 11's slackMeta enrichment by
-      // synthesizing the minimum-required fields from the lookup data.
+      // tolerates rows that lack slackMeta enrichment by synthesizing
+      // the minimum-required fields from the lookup data.
       applySlackEditMetadata({
         messageId: original.messageId,
         conversationExternalId,
         sourceMessageId,
-        newContent: content ?? "",
+        newContent,
       });
     } else {
-      updateMessageContent(original.messageId, content ?? "");
+      updateMessageContent(original.messageId, newContent);
     }
     log.info(
       { assistantId, sourceMessageId, messageId: original.messageId },
@@ -174,12 +200,12 @@ export async function handleEditIntercept(
  * Apply a Slack edit to the stored message: update content and stamp
  * `slackMeta.editedAt` in the same transaction.
  *
- * If the row already has a valid `slackMeta` sub-object (post-PR-11
- * messages), the merge preserves all existing fields and only sets/refreshes
- * `editedAt`. If the row pre-dates `slackMeta` enrichment, the helper
- * synthesizes the minimum-required fields (`source`, `channelId`,
- * `channelTs`, `eventKind`) from the values that brought us here so the
- * resulting metadata is still readable by `readSlackMetadata`.
+ * If the row already has a valid `slackMeta` sub-object, the merge preserves
+ * all existing fields and only sets/refreshes `editedAt`. If the row lacks
+ * `slackMeta` enrichment, the helper synthesizes the minimum-required fields
+ * (`source`, `channelId`, `channelTs`, `eventKind`) from the values that
+ * brought us here so the resulting metadata is still readable by
+ * `readSlackMetadata`.
  */
 function applySlackEditMetadata(params: {
   messageId: string;
@@ -201,7 +227,7 @@ function applySlackEditMetadata(params: {
   const editedAt = Date.now();
   const parsedExisting = readSlackMetadata(existingSlackMeta ?? null);
 
-  // For pre-PR-11 rows (no valid existing slackMeta), `mergeSlackMetadata`
+  // When the row has no valid existing slackMeta, `mergeSlackMetadata`
   // would produce a record missing the required fields and fail subsequent
   // `readSlackMetadata` calls. Seed defaults from the lookup-derived facts
   // so the post-merge value is always a valid `SlackMessageMetadata`.
@@ -220,17 +246,4 @@ function applySlackEditMetadata(params: {
   updateMessageContentAndMetadata(messageId, newContent, {
     slackMeta: mergedSlackMeta,
   });
-}
-
-/** Tolerant JSON.parse that returns `{}` for invalid or non-object payloads. */
-function safeParseRecord(raw: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {};
-    }
-    return parsed as Record<string, unknown>;
-  } catch {
-    return {};
-  }
 }

@@ -15,7 +15,10 @@ import {
 import type { ContentBlock, ImageContent } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { embedWithRetry } from "../embed.js";
-import { selectedBackendSupportsMultimodal } from "../embedding-backend.js";
+import {
+  generateSparseEmbedding,
+  selectedBackendSupportsMultimodal,
+} from "../embedding-backend.js";
 import type { QdrantSparseVector } from "../qdrant-client.js";
 import { searchGraphNodes } from "./graph-search.js";
 import type { InContextTracker } from "./injection.js";
@@ -51,6 +54,13 @@ import type {
 import { isCapabilityNode } from "./types.js";
 
 const log = getLogger("graph-retriever");
+
+function extractCapabilityId(node: MemoryNode): string | null {
+  const match = node.content.match(
+    /^skill:(\S+)\n|^cli:(\S+)\n|^\s*The ".*?" skill \(([^)]+)\)|^\s*The "assistant (\S+)" CLI command/,
+  );
+  return match?.[1] ?? match?.[2] ?? match?.[3] ?? match?.[4] ?? null;
+}
 
 // ---------------------------------------------------------------------------
 // LLM re-ranking + deduplication
@@ -355,9 +365,9 @@ export interface ContextLoadOpts {
   maxNodes?: number;
   /**
    * Optional dedicated user-message query text. When present and non-empty,
-   * `loadContextMemory` (PR 3) embeds this text independently of
+   * `loadContextMemory` embeds this text independently of
    * `recentSummaries` and uses the resulting vector to rank capability
-   * reserve slots. Leave `undefined` to preserve pre-PR-3 behavior.
+   * reserve slots. Leave `undefined` to use summary-only retrieval.
    */
   userQuery?: string;
 }
@@ -382,13 +392,23 @@ export interface ContextLoadResult {
    */
   sparseVector?: QdrantSparseVector;
   /**
-   * Dense query vector computed from `opts.userQuery` (PR 3). Surfaced so
+   * Dense query vector computed from `opts.userQuery`. Surfaced so
    * downstream callers (PKB hint search) can prefer it over the
    * summary-based `queryVector` for user-intent-aligned retrieval.
    * `undefined` when `userQuery` was not provided, was effectively empty,
    * or the dedicated embed call was skipped/failed.
    */
   userQueryVector?: number[];
+  /**
+   * Sparse (TF-IDF) vector of `opts.userQuery`. Surfaced so PKB hint search
+   * can pair it with `userQueryVector` to run a hybrid dense+sparse query —
+   * RRF fusion captures lexical matches (exact filenames, proper nouns,
+   * uncommon tokens) that pure dense embeddings wash out. Computed locally
+   * (no embedding-service call), so it's cheap to produce whenever the user
+   * query is non-empty. `undefined` on the same conditions as
+   * `userQueryVector`.
+   */
+  userQuerySparseVector?: QdrantSparseVector;
 }
 
 /**
@@ -435,15 +455,13 @@ export async function loadContextMemory(
     }
   }
 
-  // 1b. (PR 3) Dedicated user-query embedding. Always run the dedicated
-  //     user-query embed when a user query is present. Summaries and the
-  //     user query are now disjoint signals (the unshift was removed in
-  //     PR 6), so there is no redundancy between the two vectors — the
-  //     length-ratio short-circuit that previously lived here was written
-  //     against pre-PR-6 semantics and would drop the embed precisely in
-  //     the workloads that benefit most (short summaries + substantive
-  //     user question).
+  // 1b. Dedicated user-query embedding. Always embed the user query
+  //     independently when present. Summaries and the user query are
+  //     disjoint signals, so both vectors carry unique retrieval value —
+  //     especially in workloads with short summaries and a substantive
+  //     user question.
   let userQueryVector: number[] | null = null;
+  let userQuerySparseVector: QdrantSparseVector | undefined = undefined;
   const userQueryCandidateIds = new Map<string, number>(); // nodeId → score
   const trimmedUserQuery = opts.userQuery?.trim() ?? "";
   const shouldEmbedUserQuery = trimmedUserQuery.length > 0;
@@ -459,6 +477,14 @@ export async function loadContextMemory(
       }
     } catch (err) {
       log.warn({ err }, "Failed to embed userQuery for context load");
+    }
+    // Sparse embedding is a local TF-IDF computation — no network call, so
+    // compute it independently of the dense embed. Even if the dense call
+    // failed, a sparse vector is still useful for downstream consumers that
+    // can operate on it alone.
+    const sparse = generateSparseEmbedding(trimmedUserQuery);
+    if (sparse.indices.length > 0) {
+      userQuerySparseVector = sparse;
     }
   }
 
@@ -485,11 +511,10 @@ export async function loadContextMemory(
   }
   const pureSemanticHits = semanticCandidateIds.size;
 
-  // 2b. (PR 3) Run a parallel Qdrant search against the user-query vector and
-  //     merge the results into the organic scoring pool (max-score union).
-  //     This keeps PR 3 strictly additive: candidates that only match the
-  //     user-query vector still participate in downstream scoring, and
-  //     candidates that match both vectors retain the higher score.
+  // 2b. Run a parallel Qdrant search against the user-query vector and merge
+  //     the results into the organic scoring pool via max-score union: a node
+  //     hit by only the user-query vector still participates in downstream
+  //     scoring, and a node hit by both vectors retains the higher score.
   if (userQueryVector) {
     try {
       const results = await searchGraphNodes(
@@ -642,13 +667,8 @@ export async function loadContextMemory(
 
   // 5b. Reserve slots for skill/CLI capabilities.
   //
-  // Source candidates primarily from the semantic-search candidate set
-  // (the same strategy `retrieveForTurn` uses). A prior approach pulled
-  // top-N procedural rows ordered by significance, but organic procedural
-  // memories share `type = 'procedural'` with capability nodes and
-  // dominate the significance ordering on mature assistants, starving
-  // the capability slots entirely.
-  //
+  // Source candidates from the hydrated semantic-search set (the same
+  // strategy `retrieveForTurn` uses) so ranking reflects query relevance.
   // For cold-start cases (capability nodes exist in SQLite but their
   // embeddings haven't landed in Qdrant yet), fall back to a narrow
   // SQL pull that matches only capability-shaped content so organic
@@ -656,6 +676,8 @@ export async function loadContextMemory(
   const capabilityReserve = ctxLoadCfg.capabilityReserve;
   const capabilityEntries: { node: MemoryNode; sim: number }[] = [];
   if (capabilityReserve > 0) {
+    const uniqueCapabilityIds = new Set<string>();
+    let untaggedCount = 0;
     for (const [nodeId, node] of nodeMap) {
       if (node.fidelity === "gone") continue;
       if (!isCapabilityNode(node)) continue;
@@ -664,9 +686,18 @@ export async function loadContextMemory(
         semanticCandidateIds.get(nodeId) ??
         0;
       capabilityEntries.push({ node, sim });
+      const capId = extractCapabilityId(node);
+      if (capId) uniqueCapabilityIds.add(capId);
+      else untaggedCount++;
     }
 
-    if (capabilityEntries.length < capabilityReserve) {
+    // Gate the fallback on distinct capability IDs (plus any entries
+    // whose content didn't match a known ID pattern), not raw entry
+    // count — duplicate capability-ID seeding formats can otherwise push
+    // `capabilityEntries.length` past the threshold and then collapse
+    // below it during the dedup pass below.
+    const distinctCount = uniqueCapabilityIds.size + untaggedCount;
+    if (distinctCount < capabilityReserve) {
       const alreadySeen = new Set(capabilityEntries.map((e) => e.node.id));
       const fallback = queryCapabilityNodes(
         opts.scopeId,
@@ -691,10 +722,7 @@ export async function loadContextMemory(
   const selectedCapabilities: MemoryNode[] = [];
   for (const { node } of capabilityEntries) {
     if (selectedCapabilities.length >= capabilityReserve) break;
-    const match = node.content.match(
-      /^skill:(\S+)\n|^cli:(\S+)\n|^\s*The ".*?" skill \(([^)]+)\)|^\s*The "assistant (\S+)" CLI command/,
-    );
-    const capId = match?.[1] ?? match?.[2] ?? match?.[3] ?? match?.[4];
+    const capId = extractCapabilityId(node);
     if (capId) {
       if (seenCapabilityIds.has(capId)) continue;
       seenCapabilityIds.add(capId);
@@ -809,6 +837,7 @@ export async function loadContextMemory(
     queryVector: queryVector ?? undefined,
     sparseVector,
     userQueryVector: userQueryVector ?? undefined,
+    userQuerySparseVector,
   };
 }
 
@@ -893,6 +922,24 @@ export async function retrieveForTurn(
     .filter((m) => m.length > 0)
     .join("\n\n");
 
+  // Sparse (TF-IDF) vector of the user's last message only. Surfaced so PKB
+  // hint search can pair it with the per-turn dense vector, pulling in
+  // lexical matches (exact filenames, proper nouns, uncommon tokens) that
+  // pure dense embeddings wash out. Computed locally with no network call.
+  // The dense `queryVector` for per-turn is the combined assistant+user
+  // embedding (it drives graph search), so this pairing is slightly
+  // asymmetric — the sparse signal is user-only while the dense is mixed.
+  // That's acceptable for PKB's purpose: lexical matches are overwhelmingly
+  // driven by the user's own wording.
+  const trimmedUserLast = opts.userLastMessage.trim();
+  let perTurnSparseVector: QdrantSparseVector | undefined = undefined;
+  if (trimmedUserLast.length > 0) {
+    const sparse = generateSparseEmbedding(trimmedUserLast);
+    if (sparse.indices.length > 0) {
+      perTurnSparseVector = sparse;
+    }
+  }
+
   // Image-to-image search: embed incoming user images as queries
   // Runs before the text-empty early return so image-only turns are handled
   const imageBlocks = (opts.userLastMessageBlocks ?? []).filter(
@@ -956,7 +1003,7 @@ export async function retrieveForTurn(
         queryContext: queryText || null,
       },
       queryVector: undefined,
-      sparseVector: undefined,
+      sparseVector: perTurnSparseVector,
     };
   }
 
@@ -1030,7 +1077,7 @@ export async function retrieveForTurn(
             queryContext: queryText || null,
           },
           queryVector: undefined,
-          sparseVector: undefined,
+          sparseVector: perTurnSparseVector,
         };
       }
     }
@@ -1084,7 +1131,7 @@ export async function retrieveForTurn(
         queryContext: queryText || null,
       },
       queryVector: queryEmbeddings[0],
-      sparseVector: undefined,
+      sparseVector: perTurnSparseVector,
     };
   }
 
@@ -1268,6 +1315,6 @@ export async function retrieveForTurn(
       topCandidates,
     },
     queryVector: queryEmbeddings[0],
-    sparseVector: undefined,
+    sparseVector: perTurnSparseVector,
   };
 }

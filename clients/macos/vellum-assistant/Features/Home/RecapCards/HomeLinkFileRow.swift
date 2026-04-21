@@ -33,11 +33,14 @@ struct HomeLinkFileRow: View {
 
     // MARK: - Icon circle
 
-    /// 26pt circular container with active surface background.
+    /// 26pt circular container with the `contentBackground` token as its
+    /// fill so the circle reads as a distinct beige chip against the
+    /// lighter `surfaceOverlay` outer pill (matches Figma node
+    /// `3496:72525` — `bg-[#f2f0ee]`).
     private var iconCircle: some View {
         ZStack {
             Circle()
-                .fill(VColor.surfaceLift)
+                .fill(VColor.contentBackground)
                 .frame(width: 26, height: 26)
 
             VIconView(icon, size: 12)

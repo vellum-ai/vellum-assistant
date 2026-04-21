@@ -98,7 +98,13 @@ describe("ExtensionReadyMessageSchema", () => {
 
 describe("ExtensionLifecycleMessageSchema", () => {
   test("parses every lifecycle state", () => {
-    for (const state of ["joining", "joined", "left", "error"] as const) {
+    for (const state of [
+      "joining",
+      "joined",
+      "leaving",
+      "left",
+      "error",
+    ] as const) {
       const input = {
         type: "lifecycle" as const,
         state,
@@ -551,6 +557,12 @@ describe("BotJoinCommandSchema", () => {
 describe("BotLeaveCommandSchema", () => {
   test("parses a leave with reason", () => {
     const input = { type: "leave" as const, reason: "host ended meeting" };
+    const parsed = BotLeaveCommandSchema.parse(input);
+    expect(parsed).toEqual(input);
+  });
+
+  test("parses a leave without reason", () => {
+    const input = { type: "leave" as const };
     const parsed = BotLeaveCommandSchema.parse(input);
     expect(parsed).toEqual(input);
   });

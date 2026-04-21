@@ -31,6 +31,10 @@ import {
 import * as approvalMessageComposer from "../runtime/approval-message-composer.js";
 import * as gatewayClient from "../runtime/gateway-client.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
+import {
+  _clearApprovalPromptTsTrackerForTesting,
+  trackApprovalPromptTs,
+} from "../runtime/routes/approval-prompt-ts-tracker.js";
 import { handleApprovalInterception } from "../runtime/routes/guardian-approval-interception.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 
@@ -60,6 +64,7 @@ function resetTables(): void {
     /* tables may not exist yet */
   }
   pendingInteractions.clear();
+  _clearApprovalPromptTsTrackerForTesting();
 }
 
 function createTestGuardianApproval(
@@ -227,6 +232,8 @@ describe("guardian grant minting on tool-approval decisions", () => {
       TOOL_NAME,
       TOOL_INPUT,
     );
+    const approvalMessageTs = "1700000000.000100";
+    trackApprovalPromptTs("slack", GUARDIAN_CHAT, approvalMessageTs);
 
     const result = await handleApprovalInterception({
       conversationId: "guardian-conv-1",
@@ -238,6 +245,7 @@ describe("guardian grant minting on tool-approval decisions", () => {
       replyCallbackUrl: "https://gateway.test/deliver",
       trustCtx: makeTrustContext(),
       assistantId: ASSISTANT_ID,
+      approvalMessageTs,
     });
 
     expect(result.handled).toBe(true);

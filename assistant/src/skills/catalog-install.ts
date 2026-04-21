@@ -51,13 +51,28 @@ export function getSkillsIndexPath(): string {
   return join(getWorkspaceSkillsDir(), "SKILLS.md");
 }
 
+/**
+ * Resolve the directory containing a `catalog.json` and first-party skill
+ * sources — either bundled next to a compiled binary (e.g. `Vellum.app`) or
+ * in the dev repo.
+ *
+ * Both `getCatalog()` in `catalog-cache.ts` and `resolveCatalog()` below
+ * merge the local catalog with the remote one so skills published after a
+ * release still show up; the local catalog is used as an offline fallback
+ * when the remote fetch fails.
+ */
 export function getRepoSkillsDir(): string | undefined {
   const importDir = import.meta.dir;
 
   if (importDir.startsWith("/$bunfs/")) {
     const execDir = dirname(process.execPath);
     // macOS .app bundle: binary in Contents/MacOS/, resources in Contents/Resources/
-    const resourcesPath = join(execDir, "..", "Resources", "first-party-skills");
+    const resourcesPath = join(
+      execDir,
+      "..",
+      "Resources",
+      "first-party-skills",
+    );
     if (existsSync(join(resourcesPath, "catalog.json"))) {
       return resourcesPath;
     }

@@ -235,6 +235,40 @@ describe('listAssistants', () => {
     expect(fakeRuntime.currentPort?.sent).toEqual([{ type: 'list_assistants' }]);
   });
 
+  test('includes environment in the frame when provided', async () => {
+    fakeRuntime.onConnect = (port) => {
+      queueMicrotask(() => {
+        port.emitMessage({
+          type: 'assistants_response',
+          assistants: [],
+          activeAssistantId: null,
+          protocolVersion: 1,
+        });
+      });
+    };
+
+    await listAssistants({ environment: 'dev' });
+    expect(fakeRuntime.currentPort?.sent).toEqual([
+      { type: 'list_assistants', environment: 'dev' },
+    ]);
+  });
+
+  test('omits environment from the frame when not provided', async () => {
+    fakeRuntime.onConnect = (port) => {
+      queueMicrotask(() => {
+        port.emitMessage({
+          type: 'assistants_response',
+          assistants: [],
+          activeAssistantId: null,
+          protocolVersion: 1,
+        });
+      });
+    };
+
+    await listAssistants();
+    expect(fakeRuntime.currentPort?.sent).toEqual([{ type: 'list_assistants' }]);
+  });
+
   test('returns empty catalog when native host reports no assistants', async () => {
     fakeRuntime.onConnect = (port) => {
       queueMicrotask(() => {

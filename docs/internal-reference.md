@@ -187,7 +187,7 @@ User approval decisions are persisted as trust rules in `~/.vellum/protected/tru
 
 - **Pattern matching**: Minimatch glob patterns for tool commands and file paths.
 - **Execution target binding**: Rules can be scoped to `sandbox` or `host` execution contexts.
-- **High-risk override**: Rules with `allowHighRisk: true` auto-allow even high-risk tool invocations.
+- **Runtime high-risk auto-allow**: High-risk bash commands with an allow rule in containerized environments are auto-allowed at runtime by `DefaultApprovalPolicy.shouldAutoAllowHighRisk()` without requiring persisted state. Other risk-based decisions use the `autoApproveUpTo` threshold (default: `"low"`).
 
 #### Shell command allowlist options
 
@@ -666,6 +666,7 @@ Both paths share the same `CallController`, `voice-session-bridge`, and `RunOrch
 | `deepgram`               | `conversation-relay-native` | `<Connect><ConversationRelay>` | Twilio transcribes natively; daemon receives text   |
 | `google-gemini`          | `conversation-relay-native` | `<Connect><ConversationRelay>` | Twilio transcribes natively; daemon receives text   |
 | `openai-whisper`         | `media-stream-custom`       | `<Connect><Stream>`            | Raw audio to daemon; server-side batch transcription |
+| `xai`                    | `media-stream-custom`       | `<Connect><Stream>`            | Raw audio to daemon; server-side batch transcription |
 
 Model normalization for Twilio-native providers:
 - Deepgram defaults `speechModel` to `"nova-3"` when unset.
@@ -744,15 +745,15 @@ STTStreamingClient  ──WSS──>  stt-stream-websocket.ts  ──WS──>  
                                                                         │
                                                             resolveStreamingTranscriber()
                                                                         │
-                                                         ┌──────────────┼──────────────┐
-                                                         │              │              │
-                                                  DeepgramRealtime  GoogleGemini   OpenAIWhisper
-                                                  Transcriber       Live Stream    Streaming
-                                                  (realtime-ws)     Transcriber    Transcriber
+                                                         ┌──────────────┼──────────────┬──────────────┐
+                                                         │              │              │              │
+                                                  DeepgramRealtime  GoogleGemini   OpenAIWhisper   XAIRealtime
+                                                  Transcriber       Live Stream    Streaming       Transcriber
+                                                  (realtime-ws)     Transcriber    Transcriber     (realtime-ws)
                                                                     (realtime-ws)  (incr-batch)
-                                                         │              │              │
-                                                  WSS to Deepgram  WSS to Gemini  HTTP polling
-                                                  /v1/listen       Live API       to Whisper API
+                                                         │              │              │              │
+                                                  WSS to Deepgram  WSS to Gemini  HTTP polling    WSS to xAI
+                                                  /v1/listen       Live API       to Whisper API  realtime API
 ```
 
 **Provider support matrix:**
@@ -762,12 +763,13 @@ STTStreamingClient  ──WSS──>  stt-stream-websocket.ts  ──WS──>  
 | `deepgram`       | `realtime-ws`               | Yes               | Yes            |
 | `google-gemini`  | `realtime-ws`               | Yes               | Yes            |
 | `openai-whisper` | `incremental-batch`         | Yes               | Yes            |
+| `xai`            | `realtime-ws`               | Yes               | Yes            |
 
 ### Debugging Stream Sessions
 
 #### 1. Verify provider supports streaming
 
-Check the configured STT provider in the assistant's config (`services.stt.provider`). All three providers (`deepgram`, `google-gemini`, and `openai-whisper`) support conversation streaming. The client checks `STTProviderRegistry.isStreamingAvailable` before opening a WebSocket — if the provider's `conversationStreamingMode` is `"none"`, streaming sessions are not attempted.
+Check the configured STT provider in the assistant's config (`services.stt.provider`). All four providers (`deepgram`, `google-gemini`, `openai-whisper`, and `xai`) support conversation streaming. The client checks `STTProviderRegistry.isStreamingAvailable` before opening a WebSocket — if the provider's `conversationStreamingMode` is `"none"`, streaming sessions are not attempted.
 
 #### 2. Verify credentials are configured
 
@@ -928,6 +930,7 @@ Use this checklist when rolling out conversation STT streaming to macOS and iOS.
 - [ ] Configure `services.stt.provider` to `deepgram`. Record a conversation message. Verify partial transcripts appear in real time in the chat composer. Verify the final transcript matches spoken audio.
 - [ ] Configure `services.stt.provider` to `google-gemini`. Record a conversation message. Verify partial transcripts appear in real time via Gemini Live. Verify the final transcript matches spoken audio.
 - [ ] Configure `services.stt.provider` to `openai-whisper`. Record a conversation message. Verify partial transcripts appear (with ~1-second latency, incremental-batch mode). Verify the final transcript matches spoken audio.
+- [ ] Configure `services.stt.provider` to `xai`. Record a conversation message. Verify partial transcripts appear in real time via the xAI realtime WebSocket (`realtime-ws` mode). Verify the final transcript matches spoken audio.
 - [ ] With `deepgram` configured, simulate a network disconnect mid-recording (e.g. disable WiFi). Verify the client falls back to batch STT and produces a final transcript.
 - [ ] With `deepgram` configured, remove the Deepgram API key. Start a recording. Verify the session fails gracefully and batch STT is used.
 - [ ] Verify dictation mode (not conversation) still uses the batch STT path regardless of streaming availability.
@@ -937,6 +940,7 @@ Use this checklist when rolling out conversation STT streaming to macOS and iOS.
 - [ ] Configure `services.stt.provider` to `deepgram`. Record via the input bar. Verify streaming partials update the text field. Verify the final transcript is committed via `onVoiceResult`.
 - [ ] Configure `services.stt.provider` to `google-gemini`. Record via the input bar. Verify real-time partials appear via Gemini Live. Verify the final transcript is committed.
 - [ ] Configure `services.stt.provider` to `openai-whisper`. Record via the input bar. Verify incremental partials appear. Verify the final transcript is committed.
+- [ ] Configure `services.stt.provider` to `xai`. Record via the input bar. Verify real-time partials appear via the xAI realtime WebSocket. Verify the final transcript is committed.
 - [ ] Simulate streaming failure (e.g. bad API key). Verify `resolveTranscriptWithServiceFirst()` fires and batch STT produces a result.
 - [ ] Verify auto-stop coordination: when auto-stop fires and streaming is active, verify the streaming final takes precedence. When streaming has closed/failed before auto-stop, verify batch fallback is triggered.
 

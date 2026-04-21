@@ -19,9 +19,9 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { createConnection, type Socket } from "node:net";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
   createNmhSocketServer,
@@ -429,6 +429,82 @@ describe("createNmhSocketServer — shutdown", () => {
     // A second stop() must not throw.
     await server.stop();
     active.server = undefined;
+  });
+});
+
+describe("createNmhSocketServer — cutover resets handshake", () => {
+  test("waitForReady after a reconnect waits for the new client's ready frame", async () => {
+    const logger = captureLogger();
+    const path = freshSocketPath();
+    const server = track(createNmhSocketServer({ socketPath: path, logger }));
+    await server.start();
+
+    // First client connects and completes the handshake.
+    const first = trackClient(await connectClient(path));
+    writeJsonLine(first, {
+      type: "ready",
+      extensionVersion: "1.0.0",
+    } satisfies ExtensionToBotMessage);
+    await server.waitForReady(2000);
+
+    // Second client connects — the cutover must invalidate the sticky ready
+    // flag so a fresh `waitForReady` blocks on the new handshake rather than
+    // resolving immediately against the previous client's state.
+    const second = trackClient(await connectClient(path));
+    // Give the server a tick to accept the second connection before we
+    // inspect its post-cutover handshake state.
+    await sleep(20);
+
+    let resolved = false;
+    const pending = server.waitForReady(2000).then(() => {
+      resolved = true;
+    });
+    await sleep(30);
+    expect(resolved).toBe(false);
+
+    writeJsonLine(second, {
+      type: "ready",
+      extensionVersion: "1.0.0",
+    } satisfies ExtensionToBotMessage);
+    await pending;
+    expect(resolved).toBe(true);
+  });
+});
+
+describe("createNmhSocketServer — start failure recovery", () => {
+  test("a failed start() leaves the server retryable rather than silently no-op", async () => {
+    const logger = captureLogger();
+    // Start with a non-existent parent directory — listen() on a Unix socket
+    // whose parent does not exist fails with ENOENT. If `started=true` were
+    // set before listen() resolved, the retry below would silently no-op and
+    // never bind even after the directory is created.
+    const badPath = join(
+      tmpdir(),
+      `socket-server-bad-${Math.random().toString(36).slice(2, 10)}`,
+      "nested",
+      "x.sock",
+    );
+
+    const server = track(
+      createNmhSocketServer({ socketPath: badPath, logger }),
+    );
+    let firstErr: unknown;
+    try {
+      await server.start();
+    } catch (err) {
+      firstErr = err;
+    }
+    expect(firstErr).toBeInstanceOf(Error);
+
+    // Make the previously-missing parent directory exist and retry on the
+    // SAME instance. This is the critical regression check: the production
+    // bug was that a failed start() flipped `started=true` before listen()
+    // resolved, so a subsequent start() on the same instance would silently
+    // no-op and never bind. Constructing a fresh instance for the retry
+    // would not catch that regression — only same-instance retry does.
+    mkdirSync(dirname(badPath), { recursive: true });
+    await server.start();
+    expect(existsSync(badPath)).toBe(true);
   });
 });
 

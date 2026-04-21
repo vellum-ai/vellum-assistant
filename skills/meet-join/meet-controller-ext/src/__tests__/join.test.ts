@@ -304,20 +304,45 @@ function insertChatSurface(doc: Document): {
  */
 function installGlobalDoc(doc: Document): () => void {
   const win = (doc as unknown as { defaultView: Window }).defaultView;
-  const prevDoc = (globalThis as Record<string, unknown>).document;
-  const prevWin = (globalThis as Record<string, unknown>).window;
+  // Mirror the chat.test.ts harness: `chat.ts` references the textarea
+  // prototype's native `value` setter (the React-controlled-input
+  // bypass), so tests that drive `postConsentMessage` via the full join
+  // flow must expose jsdom's `HTMLTextAreaElement` / `Event` / `window`
+  // on `globalThis`. Without this, `Object.getOwnPropertyDescriptor(
+  // HTMLTextAreaElement.prototype, 'value')` resolves against Bun's
+  // bare runtime (where HTMLTextAreaElement may be unavailable or
+  // prototype-incompatible with the jsdom instance), the native setter
+  // call no-ops, and the composer stays empty.
+  const keys = [
+    "document",
+    "window",
+    "Event",
+    "HTMLTextAreaElement",
+    "HTMLButtonElement",
+    "MutationObserver",
+  ] as const;
+  const prev: Partial<Record<(typeof keys)[number], unknown>> = {};
+  for (const k of keys) {
+    prev[k] = (globalThis as Record<string, unknown>)[k];
+  }
   (globalThis as Record<string, unknown>).document = doc;
   (globalThis as Record<string, unknown>).window = win;
+  const winRec = win as unknown as Record<string, unknown>;
+  (globalThis as Record<string, unknown>).Event = winRec.Event;
+  (globalThis as Record<string, unknown>).HTMLTextAreaElement =
+    winRec.HTMLTextAreaElement;
+  (globalThis as Record<string, unknown>).HTMLButtonElement =
+    winRec.HTMLButtonElement;
+  (globalThis as Record<string, unknown>).MutationObserver =
+    winRec.MutationObserver;
   return () => {
-    if (prevDoc === undefined) {
-      delete (globalThis as Record<string, unknown>).document;
-    } else {
-      (globalThis as Record<string, unknown>).document = prevDoc;
-    }
-    if (prevWin === undefined) {
-      delete (globalThis as Record<string, unknown>).window;
-    } else {
-      (globalThis as Record<string, unknown>).window = prevWin;
+    for (const k of keys) {
+      const v = prev[k];
+      if (v === undefined) {
+        delete (globalThis as Record<string, unknown>)[k];
+      } else {
+        (globalThis as Record<string, unknown>)[k] = v;
+      }
     }
   };
 }
@@ -832,6 +857,108 @@ describe("runJoinFlow (content-script port)", () => {
         (e as { level?: string }).level === "error",
     );
     expect(diag).toBeDefined();
+  });
+
+  test("fires onAdmitted after admission but before consent post", async () => {
+    const { doc } = loadPrejoinDom();
+    removeMediaModal(doc);
+    insertPostAdmissionToolbar(doc);
+    insertChatSurface(doc);
+    const restore = installGlobalDoc(doc);
+
+    // Capture events and the onAdmitted call in the same ordered stream so
+    // the assertion can pin down "admitted precedes any consent-post DOM
+    // activity" — the whole point of this callback.
+    const timeline: Array<{ kind: "event" | "admitted"; data?: unknown }> = [];
+    try {
+      await runJoinFlow({
+        meetingUrl: "https://meet.google.com/abc-defg-hij",
+        displayName: "Vellum Bot",
+        consentMessage: "Hi, Vellum is listening.",
+        meetingId: "mtg-admitted",
+        onEvent: (e) => timeline.push({ kind: "event", data: e }),
+        onAdmitted: () => timeline.push({ kind: "admitted" }),
+        doc,
+      });
+    } finally {
+      restore();
+    }
+
+    // onAdmitted fired exactly once.
+    const admittedEntries = timeline.filter((e) => e.kind === "admitted");
+    expect(admittedEntries.length).toBe(1);
+
+    // Consent-post emits a `trusted_type` message containing the consent
+    // text. onAdmitted must land before that so the daemon can publish
+    // `meet.joined` without waiting on chat-composer DOM.
+    const admittedIdx = timeline.findIndex((e) => e.kind === "admitted");
+    const trustedTypeIdx = timeline.findIndex(
+      (e) =>
+        e.kind === "event" &&
+        typeof e.data === "object" &&
+        e.data !== null &&
+        (e.data as { type?: string }).type === "trusted_type",
+    );
+    expect(admittedIdx).toBeGreaterThan(-1);
+    if (trustedTypeIdx !== -1) {
+      expect(admittedIdx).toBeLessThan(trustedTypeIdx);
+    }
+  });
+
+  test("fires onAdmitted even when the consent post fails", async () => {
+    const { doc } = loadPrejoinDom();
+    removeMediaModal(doc);
+    insertPostAdmissionToolbar(doc);
+    // Message list present so ensurePanelOpen short-circuits; no composer
+    // so sendChat throws "chat input not found" — the production failure
+    // mode we are trying to de-couple from the join signal.
+    const list = doc.createElement("div");
+    list.setAttribute("role", "list");
+    list.setAttribute("aria-label", "Chat messages");
+    doc.body.appendChild(list);
+    const restore = installGlobalDoc(doc);
+
+    let admittedCalls = 0;
+    try {
+      await runJoinFlow({
+        meetingUrl: "https://meet.google.com/abc-defg-hij",
+        displayName: "Vellum Bot",
+        consentMessage: "Hi, Vellum is listening.",
+        meetingId: "mtg-admitted-consent-fail",
+        onEvent: () => {},
+        onAdmitted: () => {
+          admittedCalls += 1;
+        },
+        doc,
+      });
+    } finally {
+      restore();
+    }
+
+    expect(admittedCalls).toBe(1);
+  });
+
+  test("does NOT fire onAdmitted when admission times out", async () => {
+    const { doc } = loadPrejoinDom();
+    removeMediaModal(doc);
+    // No post-admission toolbar — step 5 times out.
+
+    let admittedCalls = 0;
+    await expect(
+      runJoinFlow({
+        meetingUrl: "https://meet.google.com/abc-defg-hij",
+        displayName: "Vellum Bot",
+        consentMessage: "Hi, Vellum is listening.",
+        meetingId: "mtg-admit-timeout",
+        onEvent: () => {},
+        onAdmitted: () => {
+          admittedCalls += 1;
+        },
+        doc,
+      }),
+    ).rejects.toThrow(/in-meeting UI did not appear/i);
+
+    expect(admittedCalls).toBe(0);
   });
 
   test("resolves step 5 against the committed ingame fixture", async () => {

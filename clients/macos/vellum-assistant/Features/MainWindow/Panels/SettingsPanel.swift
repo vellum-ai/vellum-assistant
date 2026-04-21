@@ -522,6 +522,12 @@ struct SettingsPanel: View {
                 )
             }
 
+            // TEXT-TO-SPEECH
+            TTSServiceCard(store: store)
+
+            // SPEECH-TO-TEXT
+            STTServiceCard(store: store)
+
             // EMAIL (feature-flagged)
             if isEmailChannelEnabled {
                 EmailServiceCard(store: store)

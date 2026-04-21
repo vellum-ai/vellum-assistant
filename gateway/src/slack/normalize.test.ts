@@ -961,6 +961,38 @@ describe("normalizeSlackMessageEdit", () => {
 
     expect(result).toBeNull();
   });
+
+  it("infers DM from channel ID prefix when channel_type is absent", () => {
+    const config = makeConfig({ unmappedPolicy: "reject" });
+    // Build the event directly so `channel_type` is truly absent — the
+    // makeMessageChangedEvent helper coalesces undefined back to "channel".
+    const event: SlackMessageChangedEvent = {
+      type: "message",
+      subtype: "message_changed",
+      channel: "D789",
+      ts: "1700000000.000200",
+      event_ts: "1700000000.000200",
+      message: {
+        user: "U123",
+        text: "edited content",
+        ts: "1700000000.000100",
+      },
+      previous_message: {
+        user: "U123",
+        text: "original content",
+        ts: "1700000000.000100",
+      },
+    };
+    const result = normalizeSlackMessageEdit(event, "Ev5", config);
+
+    // Without the DM-prefix fallback this would be null (unmapped + reject).
+    expect(result).not.toBeNull();
+    expect(result!.routing.assistantId).toBe("ast-1");
+    // DMs should not be tagged as channel chat even when inferred.
+    expect(result!.event.source.chatType).toBeUndefined();
+    // DM without thread_ts — threadTs should be omitted so replies go inline.
+    expect(result!.threadTs).toBeUndefined();
+  });
 });
 
 // --- normalizeSlackMessageDelete ---
@@ -1106,6 +1138,25 @@ describe("normalizeSlackMessageDelete", () => {
     expect(result).not.toBeNull();
     expect(result!.routing.assistantId).toBe("ast-1");
   });
+
+  it("infers DM from channel ID prefix when channel_type is absent", () => {
+    const config = makeConfig({ unmappedPolicy: "reject" });
+    const event = makeMessageDeletedEvent({
+      channel: "D789",
+      channel_type: undefined,
+    });
+    const result = normalizeSlackMessageDelete(
+      event,
+      "evt-del-dm-infer",
+      config,
+    );
+
+    // Without the DM-prefix fallback this would be null (unmapped + reject).
+    expect(result).not.toBeNull();
+    expect(result!.routing.assistantId).toBe("ast-1");
+    // DMs should not be tagged as channel chat even when inferred.
+    expect(result!.event.source.chatType).toBeUndefined();
+  });
 });
 
 // --- source.threadId propagation ---
@@ -1227,6 +1278,31 @@ describe("source.threadId propagation", () => {
         channelType: "im",
       });
       const result = normalizeSlackMessageEdit(event, "evt-tid-10", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBeUndefined();
+    });
+  });
+
+  describe("normalizeSlackBlockActions", () => {
+    it("populates source.threadId when message.thread_ts is present", () => {
+      const config = makeConfig();
+      const payload = makeBlockActionsPayload();
+      payload.message = {
+        ts: "1234567890.999999",
+        thread_ts: "1234567890.000001",
+        text: "Choose an option",
+      };
+      const result = normalizeSlackBlockActions(payload, "env-tid-1", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBe("1234567890.000001");
+    });
+
+    it("omits source.threadId when message.thread_ts is absent", () => {
+      const config = makeConfig();
+      const payload = makeBlockActionsPayload();
+      const result = normalizeSlackBlockActions(payload, "env-tid-2", config);
 
       expect(result).not.toBeNull();
       expect(result!.event.source.threadId).toBeUndefined();

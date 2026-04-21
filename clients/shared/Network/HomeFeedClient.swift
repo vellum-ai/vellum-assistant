@@ -13,17 +13,20 @@ public struct HomeFeedResponse: Codable, Sendable, Hashable {
     public let updatedAt: Date
     public let contextBanner: ContextBanner
     public let suggestedPrompts: [SuggestedPrompt]
+    public let lowPriorityCollapsed: LowPriorityCollapsed
 
     public init(
         items: [FeedItem],
         updatedAt: Date,
         contextBanner: ContextBanner,
-        suggestedPrompts: [SuggestedPrompt] = []
+        suggestedPrompts: [SuggestedPrompt] = [],
+        lowPriorityCollapsed: LowPriorityCollapsed = LowPriorityCollapsed(count: 0, itemIds: [])
     ) {
         self.items = items
         self.updatedAt = updatedAt
         self.contextBanner = contextBanner
         self.suggestedPrompts = suggestedPrompts
+        self.lowPriorityCollapsed = lowPriorityCollapsed
     }
 
     public init(from decoder: Decoder) throws {
@@ -32,6 +35,7 @@ public struct HomeFeedResponse: Codable, Sendable, Hashable {
         updatedAt = try container.decode(Date.self, forKey: .updatedAt)
         contextBanner = try container.decode(ContextBanner.self, forKey: .contextBanner)
         suggestedPrompts = try container.decodeIfPresent([SuggestedPrompt].self, forKey: .suggestedPrompts) ?? []
+        lowPriorityCollapsed = try container.decodeIfPresent(LowPriorityCollapsed.self, forKey: .lowPriorityCollapsed) ?? LowPriorityCollapsed(count: 0, itemIds: [])
     }
 }
 

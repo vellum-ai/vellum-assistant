@@ -25,10 +25,7 @@ import {
   type TrustClass,
 } from "../runtime/actor-trust-resolver.js";
 import { unregisterConversationSender } from "../tools/browser/browser-screencast.js";
-import {
-  type AbortReason,
-  createAbortReason,
-} from "../util/abort-reasons.js";
+import { type AbortReason, createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import {
   unregisterCallNotifiers,
@@ -65,7 +62,9 @@ function parseProvenanceTrustClass(
   return undefined;
 }
 
-function filterMessagesForUntrustedActor(messages: MessageRow[]): MessageRow[] {
+export function filterMessagesForUntrustedActor(
+  messages: MessageRow[],
+): MessageRow[] {
   return messages.filter((m) => {
     const provenanceTrustClass = parseProvenanceTrustClass(m.metadata);
     return (
@@ -191,7 +190,7 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
 
   const parsedMessages: Message[] = dbMessages
     .slice(ctx.contextCompactedMessageCount)
-    .map((m) => {
+    .map((m, index, arr) => {
       const role = m.role as "user" | "assistant";
       let content: ContentBlock[];
       try {
@@ -214,12 +213,37 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
       if (role === "user" && m.metadata) {
         try {
           const meta = JSON.parse(m.metadata);
+          const isTail = index === arr.length - 1;
+
+          // turn_context and system_reminder rehydrate for historical rows
+          // only; the tail gets fresh blocks via applyRuntimeInjections on
+          // the next turn. All three rehydration steps are prepends — the
+          // ordering below (system_reminder first, memory second,
+          // turn_context last) builds the documented shape right-to-left,
+          // since each prepend shifts previously-prepended blocks one slot
+          // right:
+          //   [<turn_context>, <memory __injected>, <system_reminder>, ...original]
+          if (!isTail && typeof meta.pkbSystemReminderBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.pkbSystemReminderBlock },
+              ...content,
+            ];
+          }
+
+          // Memory remains rehydrated on all rows (existing behavior).
           if (typeof meta.memoryInjectedBlock === "string") {
             content = [
               {
                 type: "text" as const,
                 text: `<memory __injected>\n${meta.memoryInjectedBlock}\n</memory>`,
               },
+              ...content,
+            ];
+          }
+
+          if (!isTail && typeof meta.turnContextBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.turnContextBlock },
               ...content,
             ];
           }

@@ -14,9 +14,11 @@ import * as deliveryChannels from "../../../memory/delivery-channels.js";
 import * as deliveryCrud from "../../../memory/delivery-crud.js";
 import * as deliveryStatus from "../../../memory/delivery-status.js";
 import {
+  clearThreadTs,
   extractChannelFromCallbackUrl,
   extractMessageTsFromCallbackUrl,
   extractThreadTsFromCallbackUrl,
+  peekThreadMapping,
   setThreadTs,
 } from "../../../memory/slack-thread-store.js";
 import { resolveGuardianName } from "../../../prompts/user-reference.js";
@@ -171,12 +173,32 @@ export function processChannelMessageInBackground(
         })
       : undefined;
 
-    // Track Slack thread mapping so replies go to the correct thread
+    // Align the Slack thread mapping with this turn's inbound state:
+    // set it when the inbound arrived in a thread, clear it when the
+    // inbound arrived at the channel root. `getThreadTs` is consulted
+    // at outbound-persistence time, so the mapping must reflect the
+    // current turn — a lingering mapping from a prior thread turn
+    // would otherwise be stamped onto a channel-root reply.
+    //
+    // The update must happen BEFORE `processMessage` runs because outbound
+    // persistence (inside the agent loop) reads the mapping. But if a prior
+    // threaded turn is still in flight, our `processMessage` call will be
+    // rejected as already-processing and our update would erase that
+    // in-flight turn's mapping. Snapshot the prior state here and restore
+    // it in the `already processing` rejection path below.
+    let priorSlackMapping: { threadTs: string; channelId: string } | null =
+      null;
+    let slackMappingMutated = false;
     if (sourceChannel === "slack" && replyCallbackUrl) {
+      priorSlackMapping = peekThreadMapping(conversationId);
       const inboundThreadTs = extractThreadTsFromCallbackUrl(replyCallbackUrl);
       const inboundChannel = extractChannelFromCallbackUrl(replyCallbackUrl);
       if (inboundThreadTs && inboundChannel) {
         setThreadTs(conversationId, inboundChannel, inboundThreadTs);
+        slackMappingMutated = true;
+      } else {
+        clearThreadTs(conversationId);
+        slackMappingMutated = true;
       }
     }
 
@@ -230,6 +252,27 @@ export function processChannelMessageInBackground(
         );
       }
     } catch (err) {
+      // When another turn is already processing this conversation,
+      // `prepareConversationForMessage` throws before any of this turn's
+      // work runs. Our pre-await mapping update would otherwise stomp the
+      // in-flight turn's mapping, causing its outbound persistence to
+      // record `slackMeta` with the wrong (or missing) `threadTs`. Restore
+      // the snapshot so the in-flight turn sees the mapping it installed.
+      if (
+        slackMappingMutated &&
+        err instanceof Error &&
+        err.message.includes("already processing a message")
+      ) {
+        if (priorSlackMapping) {
+          setThreadTs(
+            conversationId,
+            priorSlackMapping.channelId,
+            priorSlackMapping.threadTs,
+          );
+        } else {
+          clearThreadTs(conversationId);
+        }
+      }
       log.error(
         { err, conversationId },
         "Background channel message processing failed",
@@ -352,7 +395,10 @@ export function setSlackThinkingStatus(
       },
       mintBearerToken(),
     ).catch((err) => {
-      log.debug({ err, chatId, messageTs }, "Failed to add Slack eyes reaction");
+      log.debug(
+        { err, chatId, messageTs },
+        "Failed to add Slack eyes reaction",
+      );
     });
 
     const clearReaction = () => {
@@ -377,7 +423,10 @@ export function setSlackThinkingStatus(
       );
     };
 
-    const safetyTimer = setTimeout(clearReaction, SLACK_THINKING_MAX_DURATION_MS);
+    const safetyTimer = setTimeout(
+      clearReaction,
+      SLACK_THINKING_MAX_DURATION_MS,
+    );
     (safetyTimer as { unref?: () => void }).unref?.();
 
     return clearReaction;

@@ -27,6 +27,7 @@ import {
   feedItemSchema,
   type FeedItemStatus,
   suggestedPromptSchema,
+  lowPriorityCollapsedSchema,
 } from "../../home/feed-types.js";
 import { patchFeedItemStatus, readHomeFeed } from "../../home/feed-writer.js";
 import { runRollupProducer } from "../../home/rollup-producer.js";
@@ -76,10 +77,11 @@ const getHomeFeedResponseSchema = z.object({
   updatedAt: z.string(),
   contextBanner: contextBannerSchema,
   suggestedPrompts: z.array(suggestedPromptSchema),
+  lowPriorityCollapsed: lowPriorityCollapsedSchema,
 });
 
 const patchFeedItemRequestSchema = z.object({
-  status: z.enum(["new", "seen", "acted_on"]),
+  status: z.enum(["new", "seen", "acted_on", "dismissed"]),
 });
 
 // ---------------------------------------------------------------------------
@@ -172,11 +174,24 @@ export async function handleGetHomeFeed(req: Request): Promise<Response> {
     return item.minTimeAway <= timeAwaySeconds;
   });
 
+  // Compute low-priority metadata the client can use to decide how
+  // to render collapsed sections. All items stay in the response —
+  // the client handles collapsing in the UI layer.
+  const LOW_PRIORITY_THRESHOLD = 30;
+  const lowPriorityItems = filtered.filter(
+    (item) => item.priority < LOW_PRIORITY_THRESHOLD,
+  );
+
   const now = new Date();
   const contextBanner = {
     greeting: computeGreeting(now),
     timeAwayLabel: formatRelativeTime(timeAwaySeconds),
     newCount: filtered.filter((i) => i.status === "new").length,
+  };
+
+  const lowPriorityCollapsed = {
+    count: lowPriorityItems.length,
+    itemIds: lowPriorityItems.map((item) => item.id),
   };
 
   const suggestedPrompts = await getSuggestedPrompts();
@@ -186,6 +201,7 @@ export async function handleGetHomeFeed(req: Request): Promise<Response> {
       timeAwayBucket: timeAwayBucket(timeAwaySeconds),
       totalItems: feed.items.length,
       filteredItems: filtered.length,
+      lowPriorityCount: lowPriorityItems.length,
       newCount: contextBanner.newCount,
       suggestedPromptsCount: suggestedPrompts.length,
     },
@@ -203,6 +219,7 @@ export async function handleGetHomeFeed(req: Request): Promise<Response> {
     updatedAt: feed.updatedAt,
     contextBanner,
     suggestedPrompts,
+    lowPriorityCollapsed,
   });
 }
 
@@ -276,7 +293,7 @@ function maybeTriggerOnVisitRollupRefresh(now: Date): void {
 /**
  * `PATCH /v1/home/feed/:id`.
  *
- * Body: `{ status: "new" | "seen" | "acted_on" }`. Returns the updated
+ * Body: `{ status: "new" | "seen" | "acted_on" | "dismissed" }`. Returns the updated
  * `FeedItem` on success.
  *
  * Disambiguates the writer's `null` return by looking up the item via

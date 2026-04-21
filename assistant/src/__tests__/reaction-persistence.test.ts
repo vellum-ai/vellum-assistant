@@ -52,6 +52,10 @@ import {
 import { messages } from "../memory/schema/conversations.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
+import {
+  _clearApprovalPromptTsTrackerForTesting,
+  trackApprovalPromptTs,
+} from "../runtime/routes/approval-prompt-ts-tracker.js";
 import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 import {
   isSlackReactionEvent,
@@ -391,11 +395,9 @@ describe("Slack reaction event persistence", () => {
 // Guardian approval-by-reaction integration test
 // ---------------------------------------------------------------------------
 //
-// Verifies that a guardian's `reaction:` event on a pending approval prompt
-// applies the decision via `handleApprovalInterception` and short-circuits
-// the reaction-persistence path so no transcript-line row is written. This
-// is the regression check for the gap where the reaction short-circuit ran
-// before approval interception, silently breaking guardian approval-by-reaction.
+// Verifies that approval interception runs before reaction persistence so a
+// guardian's `reaction:` event on a pending approval prompt applies the
+// decision and no transcript-line row is written for the reaction itself.
 
 const GUARDIAN_USER_ID = "U_GUARDIAN_REACT";
 const GUARDIAN_DISPLAY_NAME = "Guardian Reactor";
@@ -461,6 +463,7 @@ describe("guardian approval-by-reaction integration via handleChannelInbound", (
     db.run("DELETE FROM contacts");
     db.run("DELETE FROM channel_guardian_approval_requests");
     pendingInteractions.clear();
+    _clearApprovalPromptTsTrackerForTesting();
     msgCounter = 0;
   });
 
@@ -486,6 +489,9 @@ describe("guardian approval-by-reaction integration via handleChannelInbound", (
     seedPendingGuardianApprovalForReaction(requestId, conversationId);
 
     const reactedTs = "1700000099.000001";
+    // Simulate the approval prompt having been delivered on this ts so the
+    // guardian reaction is scoped to a tracked prompt message.
+    trackApprovalPromptTs("slack", SLACK_CHANNEL_ID, reactedTs);
     const body = {
       sourceChannel: "slack",
       interface: "slack",
@@ -510,18 +516,34 @@ describe("guardian approval-by-reaction integration via handleChannelInbound", (
       body: JSON.stringify(body),
     });
 
-    const resp = await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
+    // Wire a non-undefined `approvalConversationGenerator` to mirror the
+    // production configuration. The deterministic reaction handler must
+    // short-circuit before the generator is consulted — if it runs, it
+    // returns `keep_pending` so the assertions below would fail loudly.
+    const approvalConversationGenerator = mock(async () => ({
+      disposition: "keep_pending" as const,
+      replyText: "mock conversational turn should not be invoked for reactions",
+    }));
+
+    const resp = await handleChannelInbound(
+      req,
+      undefined,
+      TEST_BEARER_TOKEN,
+      undefined,
+      approvalConversationGenerator,
+    );
     const json = (await resp.json()) as Record<string, unknown>;
 
     expect(resp.status).toBe(200);
     expect(json.accepted).toBe(true);
     expect(json.approval).toBe("guardian_decision_applied");
+    expect(approvalConversationGenerator).not.toHaveBeenCalled();
 
     // The pending approval row is resolved (no longer pending).
     expect(getPendingApprovalForRequest(requestId)).toBeNull();
 
-    // No transcript row was written for the reaction itself — pre-upgrade
-    // semantics carried no transcript trace for resolved approvals.
+    // No transcript row was written for the reaction itself — resolved
+    // guardian approval reactions have no transcript representation.
     const reactionRows = readPersistedMessages().filter((row) => {
       if (!row.metadata) return false;
       try {

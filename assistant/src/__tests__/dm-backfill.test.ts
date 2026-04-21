@@ -212,7 +212,12 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     expect(backfillDmMock).toHaveBeenCalledTimes(1);
     const [channelArg, optsArg] = backfillDmMock.mock.calls[0];
     expect(channelArg).toBe(SLACK_DM_CHANNEL_ID);
-    expect(optsArg).toEqual({ limit: 50 });
+    // The webhook message's own ts must be passed as `before` so Slack's
+    // history window excludes it — otherwise backfill would re-insert the
+    // message that the live inbound path is already persisting.
+    expect(optsArg?.limit).toBe(50);
+    expect(typeof optsArg?.before).toBe("string");
+    expect(optsArg?.before).toMatch(/^1700000000\.10000/);
 
     // All three backfilled rows are persisted with a slackMeta envelope.
     // The live new DM's row is enqueued on the agent loop's persistence path
@@ -303,6 +308,78 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     });
     await handleChannelInbound(req, noopProcessMessage, TEST_BEARER_TOKEN);
     expect(backfillDmMock).toHaveBeenCalledTimes(0);
+  });
+
+  test("concurrent cold DMs share a single backfill (no double-write)", async () => {
+    // Two near-simultaneous DMs into the same cold conversation must not
+    // each trigger their own backfill — the in-flight lock dedupes them so
+    // Slack history is fetched once and rows are written once.
+    let resolveBackfill: ((messages: Message[]) => void) | null = null;
+    backfillDmMock.mockImplementation(
+      () =>
+        new Promise<Message[]>((resolve) => {
+          resolveBackfill = resolve;
+        }),
+    );
+
+    const first = handleChannelInbound(
+      buildDmRequest("first concurrent DM"),
+      noopProcessMessage,
+      TEST_BEARER_TOKEN,
+    );
+    const second = handleChannelInbound(
+      buildDmRequest("second concurrent DM"),
+      noopProcessMessage,
+      TEST_BEARER_TOKEN,
+    );
+
+    // Wait for both handlers to register their await on the in-flight
+    // promise before resolving the underlying backfill fetch.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(resolveBackfill).not.toBeNull();
+    resolveBackfill!([
+      makeBackfilledMessage({ id: "1700000000.000001", text: "older A" }),
+      makeBackfilledMessage({ id: "1700000000.000002", text: "older B" }),
+    ]);
+
+    await Promise.all([first, second]);
+
+    expect(backfillDmMock).toHaveBeenCalledTimes(1);
+    const rows = readPersistedSlackRows();
+    expect(rows.length).toBe(2);
+    const texts = rows.map((r) => r.content).sort();
+    expect(texts).toEqual(["older A", "older B"]);
+  });
+
+  test("bot-authored backfilled messages are persisted with role=assistant", async () => {
+    // Slack DM history includes our own prior bot replies. If those rows
+    // were rehydrated as `user` turns, the assistant would later treat its
+    // own output as new user input and speaker attribution would break.
+    backfillDmMock.mockImplementation(async () => [
+      makeBackfilledMessage({
+        id: "1700000000.000001",
+        text: "user reply",
+        sender: { id: SLACK_DM_USER_ID, name: "Alice" },
+      }),
+      makeBackfilledMessage({
+        id: "1700000000.000002",
+        text: "assistant reply",
+        sender: { id: "B_BOT", name: "assistant-bot" },
+        metadata: { isBot: true },
+      }),
+    ]);
+
+    await handleChannelInbound(
+      buildDmRequest("live new DM"),
+      noopProcessMessage,
+      TEST_BEARER_TOKEN,
+    );
+
+    const rows = readPersistedSlackRows();
+    expect(rows.length).toBe(2);
+    const byText = new Map(rows.map((r) => [r.content, r.role]));
+    expect(byText.get("user reply")).toBe("user");
+    expect(byText.get("assistant reply")).toBe("assistant");
   });
 
   test("backfill skips channelTs values already stored", async () => {

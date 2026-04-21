@@ -29,7 +29,7 @@ const ManifestFileEntry = z.object({
   size: z.number().int().nonnegative(),
 });
 
-const ManifestSchema = z.object({
+export const ManifestSchema = z.object({
   schema_version: z.string(),
   created_at: z.string(),
   source: z.string().optional(),
@@ -176,7 +176,7 @@ function sha256Hex(data: Uint8Array | string): string {
  * Canonicalize a JSON object by sorting keys recursively, then SHA-256 hash it.
  * This matches the platform's canonicalization approach.
  */
-function canonicalizeJson(obj: unknown): string {
+export function canonicalizeJson(obj: unknown): string {
   return JSON.stringify(obj, (_key, value) => {
     if (value && typeof value === "object" && !Array.isArray(value)) {
       const sorted: Record<string, unknown> = {};
@@ -187,6 +187,18 @@ function canonicalizeJson(obj: unknown): string {
     }
     return value;
   });
+}
+
+/**
+ * Recompute the `manifest_sha256` field for a manifest object. Strips the
+ * `manifest_sha256` property, canonicalizes the remaining JSON, and returns
+ * the SHA-256 hex digest. Centralized here so the streaming validator and
+ * the in-memory validator agree on the exact canonicalization.
+ */
+export function computeManifestSha256(manifest: unknown): string {
+  const copy = { ...(manifest as Record<string, unknown>) };
+  delete copy.manifest_sha256;
+  return sha256Hex(canonicalizeJson(copy));
 }
 
 // ---------------------------------------------------------------------------
@@ -300,10 +312,7 @@ export function validateVBundle(data: Uint8Array): VBundleValidationResult {
   // Step 5: Verify manifest checksum
   // The manifest_sha256 field is the SHA-256 of the canonicalized JSON
   // with the manifest_sha256 field itself excluded.
-  const manifestForChecksum = { ...(manifestRaw as Record<string, unknown>) };
-  delete manifestForChecksum.manifest_sha256;
-  const canonicalized = canonicalizeJson(manifestForChecksum);
-  const computedManifestSha256 = sha256Hex(canonicalized);
+  const computedManifestSha256 = computeManifestSha256(manifestRaw);
 
   if (computedManifestSha256 !== manifest.manifest_sha256) {
     errors.push({

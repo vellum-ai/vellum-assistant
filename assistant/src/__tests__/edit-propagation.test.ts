@@ -61,9 +61,14 @@ async function seedSlackMessage(opts: {
 }): Promise<SeededFixture> {
   const { conversationExternalId, channelTs, initialContent } = opts;
 
-  const inboundResult = recordInbound("slack", conversationExternalId, channelTs, {
-    sourceMessageId: channelTs,
-  });
+  const inboundResult = recordInbound(
+    "slack",
+    conversationExternalId,
+    channelTs,
+    {
+      sourceMessageId: channelTs,
+    },
+  );
 
   const inserted = await addMessage(
     inboundResult.conversationId,
@@ -83,7 +88,10 @@ async function seedSlackMessage(opts: {
   };
 }
 
-function readMessageRow(messageId: string): { content: string; metadata: string | null } {
+function readMessageRow(messageId: string): {
+  content: string;
+  metadata: string | null;
+} {
   const db = getDb();
   const row = db
     .select({ content: messages.content, metadata: messages.metadata })
@@ -172,9 +180,8 @@ describe("Slack edit propagation", () => {
     const afterFirst = readMessageRow(seeded.messageId);
     expect(afterFirst.content).toBe("first edit");
     const firstSlackMeta = readSlackMetadata(
-      (JSON.parse(afterFirst.metadata!) as Record<string, unknown>).slackMeta as
-        | string
-        | null,
+      (JSON.parse(afterFirst.metadata!) as Record<string, unknown>)
+        .slackMeta as string | null,
     );
     expect(firstSlackMeta).not.toBeNull();
     const firstEditedAt = firstSlackMeta!.editedAt!;
@@ -196,9 +203,8 @@ describe("Slack edit propagation", () => {
     const afterSecond = readMessageRow(seeded.messageId);
     expect(afterSecond.content).toBe("second edit");
     const secondSlackMeta = readSlackMetadata(
-      (JSON.parse(afterSecond.metadata!) as Record<string, unknown>).slackMeta as
-        | string
-        | null,
+      (JSON.parse(afterSecond.metadata!) as Record<string, unknown>)
+        .slackMeta as string | null,
     );
     expect(secondSlackMeta).not.toBeNull();
     expect(secondSlackMeta!.editedAt!).toBeGreaterThan(firstEditedAt);
@@ -208,38 +214,67 @@ describe("Slack edit propagation", () => {
     expect(secondSlackMeta!.eventKind).toBe("message");
   });
 
+  test("no-op edit (identical text, e.g. unfurl) skips DB write", async () => {
+    const seeded = await seedSlackMessage({
+      conversationExternalId: "C0123CHANNEL",
+      channelTs: "1234.5678",
+      initialContent: "original text",
+    });
+
+    const before = readMessageRow(seeded.messageId);
+
+    const resp = await handleEditIntercept({
+      sourceChannel: "slack",
+      conversationExternalId: seeded.conversationExternalId,
+      externalMessageId: nextEditEventId(),
+      sourceMessageId: seeded.channelTs,
+      canonicalAssistantId: "self",
+      assistantId: "self",
+      // Same text as stored -- simulates a Slack unfurl `message_changed`
+      // where only attachments changed.
+      content: "original text",
+    });
+
+    expect(resp.status).toBe(200);
+    const respJson = (await resp.json()) as Record<string, unknown>;
+    expect(respJson.accepted).toBe(true);
+    expect(respJson.duplicate).toBe(false);
+    expect(respJson.noop).toBe(true);
+
+    const after = readMessageRow(seeded.messageId);
+    expect(after.content).toBe(before.content);
+    // No metadata mutation either -- the write is fully skipped.
+    expect(after.metadata).toBe(before.metadata);
+  });
+
   // The lookup retries 5 times with 2s backoff (~10s total) before giving up,
   // so this test legitimately needs to outrun the default 5s per-test timeout.
-  test(
-    "missing-target edit is a no-op (no throw, no row changed)",
-    async () => {
-      const seeded = await seedSlackMessage({
-        conversationExternalId: "C0123CHANNEL",
-        channelTs: "1234.5678",
-        initialContent: "original text",
-      });
-      const beforeUnknown = readMessageRow(seeded.messageId);
+  test("missing-target edit is a no-op (no throw, no row changed)", async () => {
+    const seeded = await seedSlackMessage({
+      conversationExternalId: "C0123CHANNEL",
+      channelTs: "1234.5678",
+      initialContent: "original text",
+    });
+    const beforeUnknown = readMessageRow(seeded.messageId);
 
-      const resp = await handleEditIntercept({
-        sourceChannel: "slack",
-        conversationExternalId: seeded.conversationExternalId,
-        // sourceMessageId points at a ts that was never stored.
-        externalMessageId: nextEditEventId(),
-        sourceMessageId: "9999.0000",
-        canonicalAssistantId: "self",
-        assistantId: "self",
-        content: "new text",
-      });
+    const resp = await handleEditIntercept({
+      sourceChannel: "slack",
+      conversationExternalId: seeded.conversationExternalId,
+      // sourceMessageId points at a ts that was never stored.
+      externalMessageId: nextEditEventId(),
+      sourceMessageId: "9999.0000",
+      canonicalAssistantId: "self",
+      assistantId: "self",
+      content: "new text",
+    });
 
-      expect(resp.status).toBe(200);
-      const respJson = (await resp.json()) as Record<string, unknown>;
-      expect(respJson.accepted).toBe(true);
-      expect(respJson.duplicate).toBe(false);
+    expect(resp.status).toBe(200);
+    const respJson = (await resp.json()) as Record<string, unknown>;
+    expect(respJson.accepted).toBe(true);
+    expect(respJson.duplicate).toBe(false);
 
-      const afterUnknown = readMessageRow(seeded.messageId);
-      expect(afterUnknown.content).toBe(beforeUnknown.content);
-      expect(afterUnknown.metadata).toBe(beforeUnknown.metadata);
-    },
-    30_000,
-  );
+    const afterUnknown = readMessageRow(seeded.messageId);
+    expect(afterUnknown.content).toBe(beforeUnknown.content);
+    expect(afterUnknown.metadata).toBe(beforeUnknown.metadata);
+  }, 30_000);
 });

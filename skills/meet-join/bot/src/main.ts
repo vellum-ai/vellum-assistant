@@ -58,6 +58,10 @@ import type {
   BotToExtensionMessage,
   ExtensionToBotMessage,
 } from "../../contracts/native-messaging.js";
+import {
+  trustedTypeKillTimeoutMs,
+  trustedTypeReplyTimeoutMs,
+} from "../../contracts/native-messaging.js";
 
 import {
   launchChrome,
@@ -245,6 +249,15 @@ export interface BotDeps {
     text: string;
     display: string;
     delayMs?: number;
+    /**
+     * Per-call kill timeout. When omitted, `xdotool-type.ts` falls back to
+     * its own default (which does NOT scale with text length). The
+     * `trusted_type` handler below computes a scaled value via
+     * {@link trustedTypeKillTimeoutMs} so long chats (≥ ~590 chars at the
+     * default 25ms/keystroke) are not truncated by the legacy fixed
+     * 15s ceiling.
+     */
+    timeoutMs?: number;
   }) => Promise<void>;
   startAudioCapture: (opts: AudioCaptureOptions) => Promise<AudioCaptureHandle>;
   createDaemonClient: (opts: {
@@ -376,6 +389,14 @@ function publishLifecycle(
     state,
     ...(detail !== undefined ? { detail } : {}),
   };
+  // Log before enqueue so the silent-success path is visible when
+  // debugging join-flow stalls — without this line the only evidence a
+  // lifecycle event even ran through this function was in the daemon
+  // logs, which made it impossible to tell locally whether the extension
+  // ever reached `joined` after an earlier diagnostic.
+  deps.logInfo(
+    `meet-bot: forwarding lifecycle:${state} to daemon${detail ? ` (${detail})` : ""}`,
+  );
   client.enqueue(event);
 }
 
@@ -435,6 +456,32 @@ export async function runBot(deps: BotDeps): Promise<void> {
 
   BotState.setMeeting(meetingId);
 
+  // Derive the Meet URL code (e.g. `abc-defg-hij`) from `MEET_URL`. The
+  // Chrome extension stamps every outbound event with `meetingId =
+  // location.pathname` from the page it's injected into, so this code
+  // is the authoritative filter on whether an event belongs to our
+  // session.
+  //
+  // The background service worker fans every bot command out to every
+  // open `meet.google.com/*` tab in the Chrome profile, and content-
+  // script-side gating (see `meet-controller-ext/src/content.ts`) only
+  // stops the `join` flow from spinning up on stray tabs. If a user had
+  // a prior Meet tab open in the same profile — or a second bot session
+  // leaked a tab — its content script would still emit lifecycle /
+  // telemetry events into the shared `chrome.runtime.sendMessage` pipe,
+  // which the background forwards to the NMH socket. Without this
+  // filter we would happily stamp the env UUID onto those frames and
+  // treat them as authoritative for the current session — clearing the
+  // join-deadline timer, firing spurious `lifecycle:joined` / `error`
+  // at the daemon, and mixing participant / speaker / chat telemetry
+  // across meetings.
+  //
+  // A non-matching `meetingId` gets logged at diagnostic level and
+  // dropped; a genuinely missing / unparseable code falls back to
+  // "accept" so we don't silently blackhole the intended session when
+  // the URL has an unusual shape.
+  const expectedMeetingCode = extractMeetingCodeFromUrl(meetUrl);
+
   // Shared shutdown state — read by signal handlers, `/leave`, and boot
   // error paths. We construct it up-front so the error-reporting path can
   // still produce a usable shutdown even if the daemon client never gets
@@ -492,6 +539,19 @@ export async function runBot(deps: BotDeps): Promise<void> {
       clearTimeout(extensionJoinedTimer);
       extensionJoinedTimer = null;
     }
+  };
+
+  /**
+   * Return true when an inbound extension event belongs to the tab
+   * driving this bot's Meet session. Compares the event's
+   * extension-supplied `meetingId` (= `location.pathname` code, e.g.
+   * `abc-defg-hij`) against the code derived from `MEET_URL`. Falls
+   * back to `true` when we couldn't derive an expected code, so an
+   * unusually-shaped URL doesn't blackhole the intended session.
+   */
+  const isFromOurTab = (extMeetingId: string): boolean => {
+    if (expectedMeetingCode === null) return true;
+    return extMeetingId === expectedMeetingCode;
   };
 
   /**
@@ -821,12 +881,22 @@ export async function runBot(deps: BotDeps): Promise<void> {
     // test timing semantics (`joinedSettleMs`) intact.
     await deps.sleep(deps.joinedSettleMs);
 
+    // A terminal lifecycle (`left`/`error`) or chrome-exit that landed
+    // during the settle window already fire-and-forgot `shutdown(...)`.
+    // Short-circuit the rest of the boot sequence so we don't bring up
+    // audio/HTTP against subsystems that are already being torn down —
+    // otherwise `meet-bot ready` can log after the meeting has already
+    // terminally failed, and the HTTP control surface briefly accepts
+    // requests. All subsequent awaits carry the same guard.
+    if (shutdownInProgress) return;
+
     // ---------------------------------------------------------------------
     // Step 7 — audio capture.
     // ---------------------------------------------------------------------
     subsystems.audioCapture = await deps.startAudioCapture({
       socketPath: `${env.socketDir}/audio.sock`,
     });
+    if (shutdownInProgress) return;
 
     // ---------------------------------------------------------------------
     // Step 8 — HTTP control surface.
@@ -861,6 +931,7 @@ export async function runBot(deps: BotDeps): Promise<void> {
       avatar: avatarHttpOptions,
     });
     await subsystems.httpServer.start(env.httpPort);
+    if (shutdownInProgress) return;
 
     deps.logInfo(`meet-bot ready (meetingId=${meetingId})`);
   } catch (err) {
@@ -889,17 +960,47 @@ export async function runBot(deps: BotDeps): Promise<void> {
         );
         return;
       case "lifecycle": {
+        // Source-tab gate. See `expectedMeetingCode` at boot time for
+        // the full rationale: a stray Meet tab's lifecycle events would
+        // otherwise clear our join-deadline timer and fire spurious
+        // `joined` / `error` at the daemon.
+        if (!isFromOurTab(msg.meetingId)) {
+          deps.logInfo(
+            `meet-bot: dropping lifecycle event from foreign tab (meetingId=${msg.meetingId}, state=${msg.state}, expected=${expectedMeetingCode ?? "<none>"})`,
+          );
+          return;
+        }
         const state: LifecycleState = msg.state;
-        // Drive local bot-state on `joined` / terminal states; the
-        // `joining` emitted by the extension is informational — we already
-        // set BotState before `waitForReady` returned.
+        // If shutdown is already in progress (SIGTERM, /leave, chrome-exit
+        // watcher, daemon-error), this lifecycle is either the extension
+        // echoing our own `leave` or a race with another trigger. shutdown()
+        // publishes the terminal lifecycle itself, so swallow here to avoid
+        // duplicate daemon events and double-firing the exit path.
+        if (shutdownInProgress) return;
+        // Drive local bot-state on `joined`; terminal states (`left`/`error`)
+        // delegate phase management to shutdown() below so we don't
+        // double-set. `joining` emitted by the extension is informational —
+        // we already set BotState before `waitForReady` returned.
         if (state === "joined") BotState.setPhase("joined");
-        if (state === "error") BotState.setPhase("error");
-        if (state === "left") BotState.setPhase("leaving");
         // Clear the extension-joined deadline as soon as the extension
         // reaches a terminal post-prejoin state. Idempotent.
-        if (state === "joined" || state === "error") {
+        if (state === "joined" || state === "error" || state === "left") {
           clearExtensionJoinedTimer();
+        }
+        // Terminal states from the extension — the meeting ended or the
+        // join irrecoverably failed. Fire a graceful shutdown so subsystems
+        // tear down promptly; otherwise the subsequent Chrome exit trips
+        // the unexpected-exit watcher and misclassifies a clean leave as
+        // an error. shutdown() publishes lifecycle:<state> itself, so we
+        // skip the forward-publish below to avoid a duplicate event.
+        if (state === "left" || state === "error") {
+          const exitCode = state === "error" ? 1 : 0;
+          void shutdown(state, msg.detail).then(() => {
+            detachSigterm();
+            detachSigint();
+            deps.exit(exitCode);
+          });
+          return;
         }
         // Rewrite meetingId to the authoritative UUID from env. The
         // extension derives its `meetingId` from `location.pathname` (the
@@ -919,6 +1020,13 @@ export async function runBot(deps: BotDeps): Promise<void> {
       case "participant.change":
       case "speaker.change":
       case "chat.inbound":
+        // Source-tab gate — see lifecycle case above.
+        if (!isFromOurTab(msg.meetingId)) {
+          deps.logInfo(
+            `meet-bot: dropping ${msg.type} from foreign tab (meetingId=${msg.meetingId}, expected=${expectedMeetingCode ?? "<none>"})`,
+          );
+          return;
+        }
         // Belt-and-suspenders: overwrite meetingId with the authoritative
         // UUID before forwarding. See lifecycle case above for rationale.
         if (subsystems.daemonClient) {
@@ -956,11 +1064,17 @@ export async function runBot(deps: BotDeps): Promise<void> {
         // failure, never cascade into a bot shutdown. The extension has
         // already focused the target element; the bot just types into
         // whatever is focused on the Xvfb display.
+        //
+        // We pass an explicit `timeoutMs` scaled to the message length so
+        // xdotool is not killed mid-type on long chats. `xdotool-type.ts`'s
+        // built-in default is a fixed 15s, which truncated any message
+        // above ~590 characters at the default 25ms/keystroke delay.
         deps
           .xdotoolType({
             text: msg.text,
             delayMs: msg.delayMs,
             display: env.xvfbDisplay,
+            timeoutMs: trustedTypeKillTimeoutMs(msg.text.length, msg.delayMs),
           })
           .then(() =>
             deps.logInfo(
@@ -1004,23 +1118,34 @@ export async function runBot(deps: BotDeps): Promise<void> {
   /**
    * Dispatch a `send_chat` command to the extension and wait for the
    * matching `send_chat_result`. Resolves on `ok: true`, rejects on
-   * `ok: false` or on a 10s timeout. Called from the HTTP `/send_chat`
-   * route.
+   * `ok: false` or on a length-scaled timeout. Called from the HTTP
+   * `/send_chat` route.
+   *
+   * The reply timeout scales with text length via
+   * {@link trustedTypeReplyTimeoutMs} because the extension types the
+   * text one keystroke at a time (25ms default) before clicking send —
+   * a fixed 10s ceiling would fail valid messages above ~390 chars.
+   * `deps.sendChatTimeoutMs` stays a floor so short messages retain
+   * their original budget.
    */
   async function sendChatViaExtension(text: string): Promise<void> {
     if (!subsystems.socketServer) {
       throw new Error("send_chat: socket server not started");
     }
     const requestId = deps.generateRequestId();
+    const timeoutMs = Math.max(
+      deps.sendChatTimeoutMs,
+      trustedTypeReplyTimeoutMs(text.length),
+    );
     const waitForResult = new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         pendingSendChat.delete(requestId);
         reject(
           new Error(
-            `send_chat: extension did not reply within ${deps.sendChatTimeoutMs}ms (requestId=${requestId})`,
+            `send_chat: extension did not reply within ${timeoutMs}ms (requestId=${requestId})`,
           ),
         );
-      }, deps.sendChatTimeoutMs);
+      }, timeoutMs);
       pendingSendChat.set(requestId, { resolve, reject, timer });
     });
 
@@ -1045,6 +1170,28 @@ export async function runBot(deps: BotDeps): Promise<void> {
 
 function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Extract the Meet code (e.g. `abc-defg-hij`) from a Meet URL like
+ * `https://meet.google.com/abc-defg-hij`. Mirrors the content script's
+ * own `deriveMeetingId` / `extractMeetingIdFromUrl` helpers so the bot
+ * can compare whichever code the extension stamped on an inbound event
+ * against the code derived from our own `MEET_URL`.
+ *
+ * Returns `null` when the URL cannot be parsed or has no leading path
+ * segment; callers treat `null` as "cannot filter" and fall through to
+ * accepting the event rather than blackholing the session.
+ */
+function extractMeetingCodeFromUrl(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  const segment = parsed.pathname.replace(/^\/+/, "").split("/")[0] ?? "";
+  return segment || null;
 }
 
 /**

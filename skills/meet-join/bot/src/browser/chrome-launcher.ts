@@ -206,6 +206,25 @@ export async function launchChrome(
     stdio: ["ignore", "pipe", "pipe"],
   });
 
+  // Attach `error` handler before anything else can throw. `spawn()` can emit
+  // `error` asynchronously (ENOENT on missing binary, EACCES on permission
+  // failures, or runtime signal-delivery errors) and an unhandled `error`
+  // event crashes the entire process — the pid guard below would throw
+  // synchronously, but the async event still fires on the next tick.
+  const exitPromise = new Promise<number>((resolve) => {
+    child.on("exit", (code) => {
+      // `code` is null when the process was killed by a signal. Report 0 in
+      // that case so downstream callers can treat "clean shutdown" uniformly.
+      resolve(typeof code === "number" ? code : 0);
+    });
+    child.on("error", (err) => {
+      logger.error(
+        `[chrome] spawn error: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      resolve(0);
+    });
+  });
+
   // Forward stdout/stderr through the logger. Chrome emits many benign
   // warnings (DBus, etc.); we route everything to `info` rather than split
   // stderr into `error`, because the split is noisy and not useful in
@@ -229,14 +248,6 @@ export async function launchChrome(
       `launchChrome: spawn returned a child with no pid (binary=${chromeBinary})`,
     );
   }
-
-  const exitPromise = new Promise<number>((resolve) => {
-    child.on("exit", (code) => {
-      // `code` is null when the process was killed by a signal. Report 0 in
-      // that case so downstream callers can treat "clean shutdown" uniformly.
-      resolve(typeof code === "number" ? code : 0);
-    });
-  });
 
   let stopCalled = false;
   const stop = async (): Promise<void> => {
@@ -265,9 +276,12 @@ export async function launchChrome(
     }
 
     // Race the exit against the grace timer. If Chrome hasn't exited in 5s,
-    // escalate to SIGKILL.
+    // escalate to SIGKILL. Hoist the timer handle so we can clear it when
+    // Chrome exits cleanly; otherwise it pins the event loop for up to
+    // `sigkillGraceMs` after shutdown, delaying process exit.
+    let graceTimer: ReturnType<typeof setTimeout> | undefined;
     const timer = new Promise<"timeout">((resolve) => {
-      setTimeout(() => resolve("timeout"), sigkillGraceMs);
+      graceTimer = setTimeout(() => resolve("timeout"), sigkillGraceMs);
     });
     const raced = await Promise.race([
       exitPromise.then(() => "exited" as const),
@@ -283,6 +297,8 @@ export async function launchChrome(
         );
       }
       await exitPromise;
+    } else if (graceTimer !== undefined) {
+      clearTimeout(graceTimer);
     }
   };
 

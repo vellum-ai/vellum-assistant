@@ -22,10 +22,50 @@ import { afterAll, describe, expect, mock, test } from "bun:test";
 // Module-scope state so each test can tweak inputs without re-installing mocks.
 let flagEnabled = true;
 let captured: Array<{ name: string }> | null = null;
+const capturedRoutes: Array<{
+  pattern: RegExp;
+  methods: string[];
+  handler: (req: Request, match: RegExpMatchArray) => Promise<Response>;
+}> = [];
 
 mock.module("../../../assistant/src/tools/registry.js", () => ({
-  registerExternalTools: (tools: Array<{ name: string }>) => {
+  registerExternalTools: (
+    toolsOrProvider:
+      | Array<{ name: string }>
+      | (() => Array<{ name: string }>),
+  ) => {
+    // register.ts registers a lazy provider so the flag read happens
+    // after daemon startup's default-config merge. Resolve the provider
+    // here to assert the tools it would produce at initializeTools() time.
+    const tools =
+      typeof toolsOrProvider === "function"
+        ? toolsOrProvider()
+        : toolsOrProvider;
     captured = tools.map((t) => ({ name: t.name }));
+  },
+}));
+
+mock.module("../../../assistant/src/runtime/skill-route-registry.js", () => ({
+  registerSkillRoute: (route: {
+    pattern: RegExp;
+    methods: string[];
+    handler: (req: Request, match: RegExpMatchArray) => Promise<Response>;
+  }) => {
+    capturedRoutes.push(route);
+  },
+}));
+
+// Stub the meet-internal route module so we can (a) assert the exact
+// meetingId passed to the handler after URL decoding, and (b) avoid
+// pulling in the real handler's transitive imports (session router,
+// http-errors) during test boot. We re-declare the path regex here so
+// register.ts still gets a usable value at the original export name.
+let lastHandlerMeetingId: string | null = null;
+mock.module("../routes/meet-internal.js", () => ({
+  MEET_INTERNAL_EVENTS_PATH_RE: /^\/v1\/internal\/meet\/([^/]+)\/events$/,
+  handleMeetInternalEvents: async (_req: Request, meetingId: string) => {
+    lastHandlerMeetingId = meetingId;
+    return new Response(null, { status: 204 });
   },
 }));
 
@@ -135,5 +175,29 @@ describe("meet-join register", () => {
     // accept the drift.
     const meetTools = registeredNames.filter((n) => n.startsWith("meet_"));
     expect(new Set(meetTools).size).toBe(EXPECTED_TOOL_NAMES.length);
+  });
+
+  test("registers the meet-internal POST route for bot ingress", () => {
+    // Without this registration the bot's POST /v1/internal/meet/:id/events
+    // request falls through to the daemon's JWT middleware, which rejects
+    // the bot's opaque hex bearer token with
+    // "malformed_token: expected 3 dot-separated parts".
+    const route = capturedRoutes.find((r) =>
+      r.pattern.test("/v1/internal/meet/abc123/events"),
+    );
+    expect(route).toBeDefined();
+    expect(route?.methods).toEqual(["POST"]);
+    const match = "/v1/internal/meet/abc123/events".match(route!.pattern);
+    expect(match?.[1]).toBe("abc123");
+  });
+
+  test("meet-internal route handler URL-decodes the meetingId capture", async () => {
+    const path = "/v1/internal/meet/abc%20123/events";
+    const route = capturedRoutes.find((r) => r.pattern.test(path));
+    expect(route).toBeDefined();
+    const match = path.match(route!.pattern)!;
+    const req = new Request(`http://host${path}`, { method: "POST" });
+    await route!.handler(req, match);
+    expect(lastHandlerMeetingId).toBe("abc 123");
   });
 });

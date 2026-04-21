@@ -381,6 +381,13 @@ async function createStreamingTranscriber(
         pcmSampleRate: options.sampleRate,
       });
     }
+    case "xai": {
+      const { XAIRealtimeTranscriber } = await import("./xai-realtime.js");
+      return new XAIRealtimeTranscriber(apiKey, {
+        sampleRate: options.sampleRate,
+        ...(options.diarize ? { diarize: true } : {}),
+      });
+    }
     default: {
       const _exhaustive: never = providerId;
       return null;

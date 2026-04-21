@@ -42,6 +42,14 @@ interface InstalledDom {
     datetime?: string;
     isSelf?: boolean;
   }) => void;
+  /**
+   * Register a callback that fires synchronously after the toggle-click
+   * handler has mounted (or remounted) the panel elements (list,
+   * composer, send button). Tests use this to attach click listeners or
+   * stub `getBoundingClientRect` on elements that only exist after the
+   * panel opens.
+   */
+  onPanelOpen: (fn: () => void) => void;
 }
 
 /**
@@ -66,19 +74,42 @@ function installChatDom(): InstalledDom {
   }
 
   let toggleClicks = 0;
+  const onPanelOpenCallbacks: Array<() => void> = [];
   const attachToggleHandler = (): void => {
     const toggle = document.querySelector(chatSelectors.PANEL_BUTTON);
     if (!toggle) return;
     toggle.addEventListener("click", () => {
       toggleClicks += 1;
-      // If the message list has been removed, recreate it so a subsequent
-      // query succeeds.
+      const aside = document.querySelector("aside");
+      // Remount the whole chat surface (list + composer + send button)
+      // together. In production Meet, closing the panel tears all three
+      // down at once and reopening it mounts them together. Keeping the
+      // fixture in sync with that invariant is what lets
+      // `ensurePanelOpen`'s new composer-anchored short-circuit behave
+      // the same way in tests as it does against real Meet.
       if (!document.querySelector(chatSelectors.MESSAGE_LIST)) {
-        const aside = document.querySelector("aside");
         const list = document.createElement("div");
         list.setAttribute("role", "list");
         list.setAttribute("aria-label", "Chat messages");
         aside?.insertBefore(list, aside.firstChild);
+      }
+      if (!document.querySelector(chatSelectors.INPUT)) {
+        const input = document.createElement("textarea");
+        input.setAttribute("aria-label", "Send a message");
+        aside?.appendChild(input);
+      }
+      if (!document.querySelector(chatSelectors.SEND_BUTTON)) {
+        const sendButton = document.createElement("button");
+        sendButton.setAttribute("type", "button");
+        sendButton.setAttribute("aria-label", "Send a message");
+        sendButton.textContent = "Send";
+        aside?.appendChild(sendButton);
+      }
+      // Run any post-mount hooks the test registered. Tests use this to
+      // attach click listeners or stub geometry on the freshly-mounted
+      // composer / send button before `sendChat` queries them.
+      for (const fn of onPanelOpenCallbacks) {
+        fn();
       }
     });
   };
@@ -127,8 +158,14 @@ function installChatDom(): InstalledDom {
   };
 
   const closePanel: InstalledDom["closePanel"] = () => {
-    const list = document.querySelector(chatSelectors.MESSAGE_LIST);
-    list?.remove();
+    // Production Meet tears down the whole chat surface when the panel
+    // closes — list, composer, and send button all go away together.
+    // Removing only the list would leave `ensurePanelOpen`'s composer-
+    // anchored short-circuit incorrectly satisfied and skip the toggle
+    // click the callers are validating.
+    document.querySelector(chatSelectors.MESSAGE_LIST)?.remove();
+    document.querySelector(chatSelectors.INPUT)?.remove();
+    document.querySelector(chatSelectors.SEND_BUTTON)?.remove();
   };
 
   // Restore original globals on teardown. Stored on the JSDOM instance so
@@ -148,6 +185,9 @@ function installChatDom(): InstalledDom {
     panelToggleClicks: () => toggleClicks,
     closePanel,
     appendMessage,
+    onPanelOpen: (fn: () => void): void => {
+      onPanelOpenCallbacks.push(fn);
+    },
   };
 }
 
@@ -447,9 +487,14 @@ describe("sendChat", () => {
     expect(sendButton).not.toBeNull();
 
     // Record the temporal order of:
-    //   1. the synthetic "input" event firing on the textarea (post `.value = text`)
-    //   2. each onEvent call (trusted_type or trusted_click for the send button)
-    //   3. the send-button click.
+    //   1. each onEvent call (trusted_type or trusted_click for the send button)
+    //   2. the send-button click.
+    //
+    // When `onEvent` is wired, `sendChat` deliberately does NOT dispatch
+    // the synthetic `input` event on the textarea — it relies on xdotool
+    // to land the keystrokes via trusted X-server events. The synthetic
+    // path is only taken as a fallback when no `onEvent` sink is
+    // provided (see the regression test below for that path).
     const timeline: Array<
       | { kind: "input"; value: string }
       | { kind: "event"; ev: ExtensionToBotMessage }
@@ -488,22 +533,73 @@ describe("sendChat", () => {
       expect(trustedType.text).toBe("hello");
     }
 
-    // Ordering: input event first (carries the native-setter value), then
-    // trusted_type, then any send-button trusted_click, then the JS click.
+    // With `onEvent` wired, no synthetic `input` event is dispatched —
+    // xdotool is the sole text-entry path. Ordering: trusted_type first,
+    // then any send-button trusted_click, then the JS click.
     const inputIdx = timeline.findIndex((e) => e.kind === "input");
     const trustedTypeIdx = timeline.findIndex(
       (e) => e.kind === "event" && e.ev.type === "trusted_type",
     );
     const sendClickIdx = timeline.findIndex((e) => e.kind === "send-click");
-    expect(inputIdx).toBeGreaterThanOrEqual(0);
-    expect(trustedTypeIdx).toBeGreaterThan(inputIdx);
+    expect(inputIdx).toBe(-1);
+    expect(trustedTypeIdx).toBeGreaterThanOrEqual(0);
     expect(sendClickIdx).toBeGreaterThan(trustedTypeIdx);
+  });
 
-    // The textarea should still carry the native-setter value at send time.
-    const sendEntry = timeline[sendClickIdx];
-    if (sendEntry && sendEntry.kind === "send-click") {
-      expect(sendEntry.inputValue).toBe("hello");
+  test("writes the textarea via the prototype value setter (React controlled-input bypass)", async () => {
+    // Meet's composer is a React-controlled textarea: React 16+ wraps the
+    // element's `.value` setter with an instance-level interceptor so
+    // direct assignment (`input.value = "x"`) updates React's tracker in
+    // lockstep with the DOM, and the subsequent synthetic `input` event
+    // sees "no change" and skips onChange. `sendChat` must therefore go
+    // through `HTMLTextAreaElement.prototype`'s native setter (the
+    // prototype descriptor, which the React shim shadows at the instance
+    // level) to drive a real value change. This regression test installs
+    // an instance-level setter that records whether it was hit — if the
+    // old `input.value = text` code path regresses, the instance setter
+    // fires and the assertion flips.
+    const doc = installed!.dom.window.document;
+    const input = doc.querySelector<HTMLTextAreaElement>(chatSelectors.INPUT)!;
+
+    let instanceSetterHits = 0;
+    let lastProtoWrite = "";
+    // Shadow the prototype `value` setter at the instance level the same
+    // way React's `inputValueTracking` does. The native prototype setter
+    // (which `sendChat` must call) bypasses this shim entirely, while the
+    // old `.value = text` assignment goes through it.
+    const protoDesc = Object.getOwnPropertyDescriptor(
+      installed!.dom.window.HTMLTextAreaElement.prototype,
+      "value",
+    );
+    if (!protoDesc || !protoDesc.set || !protoDesc.get) {
+      throw new Error("jsdom HTMLTextAreaElement.prototype has no value descriptor");
     }
+    const protoSetter = protoDesc.set;
+    const protoGetter = protoDesc.get;
+    Object.defineProperty(input, "value", {
+      configurable: true,
+      get() {
+        return protoGetter.call(input);
+      },
+      set(v: string) {
+        instanceSetterHits += 1;
+        // Forward to the prototype so the textarea still receives the
+        // value — we only care about counting instance-level hits.
+        protoSetter.call(input, v);
+      },
+    });
+
+    // Record every input event's captured value so we can cross-check
+    // that the native-setter write landed before the synthetic event.
+    input.addEventListener("input", () => {
+      lastProtoWrite = protoGetter.call(input);
+    });
+
+    await sendChat("react-controlled");
+
+    expect(instanceSetterHits).toBe(0);
+    expect(lastProtoWrite).toBe("react-controlled");
+    expect(protoGetter.call(input)).toBe("react-controlled");
   });
 
   test("accepts exactly 2000 characters", async () => {
@@ -621,9 +717,13 @@ describe("sendChat", () => {
     expect(trustedClicks[0]!.x).toBe(1330);
     expect(trustedClicks[0]!.y).toBe(820);
 
-    // Text populated + input event dispatched before the trusted_click emits.
-    expect(input.value).toBe("hello");
-    expect(inputEvents).toBeGreaterThanOrEqual(1);
+    // With `onEvent` wired, sendChat relies on xdotool for text entry and
+    // skips the synthetic `.value = text` + `input` event dispatch — the
+    // composer is populated by the bot's xdotool-driven keystrokes, not
+    // by the extension. So the textarea stays empty in-test, and no
+    // synthetic `input` event fires.
+    expect(input.value).toBe("");
+    expect(inputEvents).toBe(0);
 
     // JS click fallback still fires AFTER the trusted_click — the bot will
     // already have dispatched the real xdotool click by the time the JS
@@ -653,16 +753,23 @@ describe("postConsentMessage", () => {
 
     const doc = installed!.dom.window.document;
     let sendClicks = 0;
-    doc
-      .querySelector<HTMLButtonElement>(chatSelectors.SEND_BUTTON)!
-      .addEventListener("click", () => {
-        sendClicks += 1;
-      });
+    // The send button doesn't exist until the toggle-click handler
+    // remounts the chat surface, so attach the listener inside the
+    // post-mount hook.
+    installed!.onPanelOpen(() => {
+      doc
+        .querySelector<HTMLButtonElement>(chatSelectors.SEND_BUTTON)!
+        .addEventListener("click", () => {
+          sendClicks += 1;
+        });
+    });
 
     await postConsentMessage("consent please");
 
     expect(installed!.panelToggleClicks()).toBe(1);
     expect(sendClicks).toBe(1);
+    // No `onEvent` wired → sendChat takes the synthetic-setter fallback,
+    // which still populates the composer in the jsdom harness.
     const input = doc.querySelector<HTMLTextAreaElement>(chatSelectors.INPUT);
     expect(input!.value).toBe("consent please");
   });
@@ -698,27 +805,30 @@ describe("postConsentMessage", () => {
         },
       }) as DOMRect;
 
-    // Pre-stub the send button geometry too. The send button lives on the
-    // chat fixture (mounted since fixture load), even though the MESSAGE_LIST
-    // was removed by `closePanel()` — only the list node is gone, not the
-    // composer.
-    const sendButton = doc.querySelector<HTMLButtonElement>(
-      chatSelectors.SEND_BUTTON,
-    )!;
-    sendButton.getBoundingClientRect = () =>
-      ({
-        left: 1300,
-        top: 700,
-        width: 60,
-        height: 40,
-        right: 1360,
-        bottom: 740,
-        x: 1300,
-        y: 700,
-        toJSON() {
-          return {};
-        },
-      }) as DOMRect;
+    // Stub the send button geometry via the post-mount hook — `closePanel`
+    // now tears down the entire chat surface (list + composer + send) to
+    // mirror production, so the send button doesn't exist until the
+    // toggle-click handler remounts it. Registering the stub here guarantees
+    // it runs right after remount and before `sendChat` reads the rect.
+    installed!.onPanelOpen(() => {
+      const sendButton = doc.querySelector<HTMLButtonElement>(
+        chatSelectors.SEND_BUTTON,
+      )!;
+      sendButton.getBoundingClientRect = () =>
+        ({
+          left: 1300,
+          top: 700,
+          width: 60,
+          height: 40,
+          right: 1360,
+          bottom: 740,
+          x: 1300,
+          y: 700,
+          toJSON() {
+            return {};
+          },
+        }) as DOMRect;
+    });
 
     const events: ExtensionToBotMessage[] = [];
     await postConsentMessage("hi", {
@@ -881,5 +991,37 @@ describe("postConsentMessage", () => {
     // And the list is mounted now, proving the async mount fired before
     // the chat post completed.
     expect(doc.querySelector(chatSelectors.MESSAGE_LIST)).not.toBeNull();
+  });
+
+  test("opens the panel when MESSAGE_LIST aria-label has drifted off the known value", async () => {
+    // Regression: Meet's "Continuous chat is turned off" mode renders the
+    // chat panel header as "In-call messages" and may rename the
+    // underlying list's aria-label off "Chat messages" — the selector
+    // `[role="list"][aria-label="Chat messages"]` then misses even though
+    // the composer is present and usable. Before the composer-anchored
+    // short-circuit, ensurePanelOpen would click the toggle (closing the
+    // panel!) and the subsequent sendChat query would race the panel
+    // remount and throw "chat input not found".
+    //
+    // We simulate that state by removing MESSAGE_LIST and mounting a
+    // drifted-aria-label list alongside a working composer + send
+    // button. `ensurePanelOpen` must see the composer, short-circuit,
+    // and leave the toggle alone.
+    const doc = installed!.dom.window.document;
+    doc.querySelector(chatSelectors.MESSAGE_LIST)?.remove();
+    const driftedList = doc.createElement("div");
+    driftedList.setAttribute("role", "list");
+    driftedList.setAttribute("aria-label", "In-call messages");
+    doc.body.appendChild(driftedList);
+    // Composer + send button are already in the fixture — leave them.
+
+    expect(installed!.panelToggleClicks()).toBe(0);
+    await postConsentMessage("hi");
+    // No toggle click: the composer was already visible, so the panel
+    // was deemed open without re-toggling. A regression would click
+    // once (or more, driving the panel closed) here.
+    expect(installed!.panelToggleClicks()).toBe(0);
+    const input = doc.querySelector<HTMLTextAreaElement>(chatSelectors.INPUT);
+    expect(input!.value).toBe("hi");
   });
 });
