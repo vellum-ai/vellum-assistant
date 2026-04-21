@@ -208,7 +208,7 @@ public final class ChatMessageManager {
     public var isCompacting: Bool = false
     public var contextWindowTokens: Int? = nil
     public var contextWindowMaxTokens: Int? = nil
-    /// Timestamp when auto-compaction will resume after the daemon's circuit
+    /// Timestamp when auto-compaction will resume after the assistant's circuit
     /// breaker opened (3 consecutive summary-LLM failures). `nil` when the
     /// breaker is closed. UI surfaces a banner while this is non-nil and in
     /// the future.
