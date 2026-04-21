@@ -150,9 +150,9 @@ final class ReturningUserRouterTests: XCTestCase {
         XCTAssertEqual(decision, .showHostingPicker)
     }
 
-    func testNoOrgIdSkipsPlatformFetch() async {
+    func testNoOrgIdSkipsPlatformFetch() async throws {
         let router = makeRouter(lockfile: [makeLocalAssistant()], orgId: nil)
-        let landscape = await router.fetchLandscape()
+        let landscape = try await router.fetchLandscape()
         XCTAssertFalse(landscape.platformWasConsulted)
         XCTAssertEqual(landscape.totalCount, 1)
     }
