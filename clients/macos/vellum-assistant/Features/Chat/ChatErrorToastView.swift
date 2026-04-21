@@ -267,9 +267,9 @@ struct CompactionCircuitOpenBanner: View {
         }
         .foregroundStyle(VColor.auxWhite) // Intentional: white on solid accent background.
         .frame(minHeight: 32)
-        .padding(.leading, VSpacing.md)
-        .padding(.trailing, VSpacing.lg)
-        .padding(.vertical, VSpacing.xs)
+        // Single EdgeInsets padding per clients/macos/AGENTS.md — stacked
+        // `.padding(...)` modifiers each add layout-engine depth.
+        .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.md, bottom: VSpacing.xs, trailing: VSpacing.lg))
         .background(VColor.systemMidStrong)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .transition(.move(edge: .top).combined(with: .opacity))

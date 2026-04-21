@@ -335,9 +335,12 @@ final class ChatActionHandler {
             }
 
         case .compactionCircuitOpen(let event):
-            // The daemon emits this on the per-conversation event stream, so
-            // no conversationId guard is required (the payload doesn't carry
-            // one). `openUntil` is milliseconds-since-epoch; convert to Date.
+            // `EventStreamClient` broadcasts every parsed server message to all
+            // subscribers, so we must gate on `conversationId` to avoid setting
+            // the "auto-compaction paused" banner on unrelated `ChatViewModel`s
+            // when a breaker trips in another conversation. `openUntil` is
+            // milliseconds-since-epoch; convert to Date.
+            guard belongsToConversation(event.conversationId) else { return }
             let until = Date(timeIntervalSince1970: event.openUntil / 1000.0)
             vm.compactionCircuitOpenUntil = until
             log.warning("Auto-compaction paused until \(until, privacy: .public) — reason: \(event.reason, privacy: .public)")
