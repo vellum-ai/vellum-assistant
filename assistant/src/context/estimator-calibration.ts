@@ -89,9 +89,20 @@ export function recordEstimate(
 /**
  * Correction factor to multiply a raw estimate by. Defaults to 1.0 for any
  * unseen (provider, model) tuple, so first-call behavior is unchanged.
+ *
+ * When the model-specific key has no recorded samples, falls back to the
+ * per-provider aggregate `(provider, "")`. This covers model-alias
+ * mismatches where the configured model string (e.g. `claude-opus-4-6`)
+ * differs from the model the provider echoes back in its response
+ * (e.g. `claude-opus-4-6-20250514`).
  */
 export function getCorrection(provider: string, model: string): number {
-  return CALIBRATIONS.get(key(provider, model))?.ratio ?? 1.0;
+  const specific = CALIBRATIONS.get(key(provider, model));
+  if (specific) return specific.ratio;
+  if (model.length > 0) {
+    return CALIBRATIONS.get(key(provider, ""))?.ratio ?? 1.0;
+  }
+  return 1.0;
 }
 
 /** Test helper — clears all calibration state. */

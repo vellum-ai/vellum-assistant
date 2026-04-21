@@ -145,11 +145,28 @@ describe("estimator calibration", () => {
     expect(openaiAggregate?.ratio).toBeCloseTo(0.9, 5);
   });
 
-  test("empty model string is treated as its own key (per-provider fallback)", () => {
+  test("specific-model lookup falls back to the per-provider aggregate when no model-specific samples exist", () => {
+    // Writing only to the aggregate simulates the case where callers without
+    // a resolved modelId have been recording, and then a model-specific
+    // caller asks for its correction.
     recordEstimate("anthropic", "", 100_000, 130_000);
     expect(getCorrection("anthropic", "")).toBeCloseTo(1.3, 5);
-    // A specific model under the same provider is unaffected.
-    expect(getCorrection("anthropic", "claude-sonnet-4-5")).toBe(1.0);
+    // The specific model has no own samples, but gets the aggregate.
+    expect(getCorrection("anthropic", "claude-sonnet-4-5")).toBeCloseTo(1.3, 5);
+    // An unseen provider still defaults to 1.0.
+    expect(getCorrection("gemini", "gemini-2.5-pro")).toBe(1.0);
+  });
+
+  test("specific-model samples take precedence over the aggregate", () => {
+    recordEstimate("anthropic", "", 100_000, 130_000); // aggregate = 1.3
+    recordEstimate("anthropic", "claude-opus-4-7", 100_000, 110_000); // specific = 1.1
+    expect(getCorrection("anthropic", "claude-opus-4-7")).not.toBeCloseTo(
+      1.3,
+      5,
+    );
+    // A different model under the same provider still falls back to the
+    // aggregate (which now reflects both samples via EWMA).
+    expect(getCorrection("anthropic", "claude-sonnet-4-5")).not.toBe(1.0);
   });
 
   test("recording with a specific model also updates the per-provider aggregate", () => {
