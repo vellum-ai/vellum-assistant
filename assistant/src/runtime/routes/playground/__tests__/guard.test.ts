@@ -32,8 +32,16 @@ describe("assertPlaygroundEnabled", () => {
 });
 
 describe("playgroundRouteDefinitions", () => {
-  test("returns an empty array in the scaffold baseline", () => {
-    expect(playgroundRouteDefinitions(makeDeps(true))).toEqual([]);
-    expect(playgroundRouteDefinitions(makeDeps(false))).toEqual([]);
+  test("returns route definitions regardless of flag state (guard runs per-request)", () => {
+    // The flag check happens inside each route's handler via
+    // `assertPlaygroundEnabled`, not at registration time. The aggregator
+    // always returns every registered route; each handler returns 404 when
+    // the flag is disabled.
+    expect(playgroundRouteDefinitions(makeDeps(true)).length).toBeGreaterThan(
+      0,
+    );
+    expect(playgroundRouteDefinitions(makeDeps(false)).length).toBeGreaterThan(
+      0,
+    );
   });
 });
