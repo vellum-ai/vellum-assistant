@@ -628,9 +628,14 @@ export async function check(
   // was classified at that level (e.g. "High risk (Recursive force delete): requires approval").
   let enrichedReason = approvalDecision.reason;
   if (riskReason && !approvalDecision.matchedRule) {
-    const riskLabelMatch = enrichedReason.match(/^(High|Medium|Low) risk(.*)/);
+    const riskLabelMatch = enrichedReason.match(
+      /^(High|Medium|Low|high|medium|low) risk(.*)/i,
+    );
     if (riskLabelMatch) {
-      enrichedReason = `${riskLabelMatch[1]} risk (${riskReason})${riskLabelMatch[2]}`;
+      const capitalizedLabel =
+        riskLabelMatch[1].charAt(0).toUpperCase() +
+        riskLabelMatch[1].slice(1).toLowerCase();
+      enrichedReason = `${capitalizedLabel} risk (${riskReason})${riskLabelMatch[2]}`;
     }
   }
 
