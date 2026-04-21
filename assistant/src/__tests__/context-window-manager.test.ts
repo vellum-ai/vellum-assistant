@@ -837,13 +837,9 @@ describe("ContextWindowManager", () => {
   });
 
   test("force compaction with loose target override still summarizes persisted messages", async () => {
-    // Regression: a mid-loop compaction that fires above the compact
-    // threshold with a loose `targetInputTokensOverride` (looser than
-    // `config.targetInputTokens`) must still summarize persisted
-    // messages rather than short-circuiting into the truncate-only
-    // early-exit. The window manager guarantees this by clamping the
-    // override to no looser than the configured target in
-    // `pickKeepBoundary`.
+    // `pickKeepBoundary` clamps `targetInputTokensOverride` to
+    // `config.targetInputTokens`, so a loose override cannot
+    // short-circuit summarization into the truncate-only early-exit.
 
     let summaryCalls = 0;
     const provider = createProvider(() => {
@@ -856,18 +852,9 @@ describe("ContextWindowManager", () => {
       };
     });
 
-    // Scaled mirror of production config (200k → 1000):
-    //   maxInputTokens       = 1000 (prod 200k)
-    //   compactThreshold     = 0.3  → threshold 300   (prod 160k)
-    //   targetBudgetRatio    = 0.1  → post-compact target 50 (prod 50k)
-    //   summaryBudgetRatio   = 0.05
-    //
-    // Production uses maxInputTokens=200_000, compactThreshold=0.8,
-    // targetBudgetRatio=0.3, summaryBudgetRatio=0.05. We shrink the
-    // absolute numbers to keep the test fast while preserving the key
-    // ratio: the mid-loop override (~0.85 × max) is roughly 17× the
-    // post-compaction target (~0.05 × max), so any history that sits
-    // between "above threshold" and "below override" hits the bug.
+    // Scaled from prod (max 200k → 1000) preserving key ratios: the
+    // loose override (~0.85×max) is ~17× the post-compaction target
+    // (~0.05×max), so history between the two exercises the clamp.
     const manager = new ContextWindowManager({
       provider,
       systemPrompt: "system prompt",
@@ -879,9 +866,7 @@ describe("ContextWindowManager", () => {
       }),
     });
 
-    // Build a history sized in the "no-op zone": well above the
-    // 300-token compact threshold, well below the 850-token preflight
-    // budget analog.
+    // History in the "no-op zone": above threshold (300), below override (850).
     const long = "x".repeat(180);
     const history: Message[] = [
       message("user", `u1 ${long}`),
@@ -895,16 +880,13 @@ describe("ContextWindowManager", () => {
       message("user", `u5 ${long}`),
     ];
 
-    // Simulate the mid-loop caller pattern: force + override set to
-    // preflightBudget (maxInputTokens * 0.85 = 850).
     const preflightBudgetAnalog = Math.floor(1000 * 0.85);
     const result = await manager.maybeCompact(history, undefined, {
       force: true,
       targetInputTokensOverride: preflightBudgetAnalog,
     });
 
-    // The reported token count (to prove we were actually in the
-    // "should compact" zone).
+    // Guard: we're actually above the compact threshold.
     expect(result.previousEstimatedInputTokens).toBeGreaterThan(
       result.thresholdTokens,
     );
