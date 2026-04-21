@@ -126,13 +126,6 @@ mock.module("../daemon/context-overflow-policy.js", () => ({
   resolveOverflowAction: () => mockOverflowAction,
 }));
 
-// Approval: default to denied
-let mockApprovalResult = { approved: false };
-mock.module("../daemon/context-overflow-approval.js", () => ({
-  requestCompressionApproval: async () => mockApprovalResult,
-  CONTEXT_OVERFLOW_TOOL_NAME: "context_overflow_compression",
-}));
-
 let hookBlocked = false;
 let hookBlockedBy = "";
 
@@ -575,7 +568,6 @@ beforeEach(() => {
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
-  mockApprovalResult = { approved: false };
   mockApplyRuntimeInjections = (msgs) => msgs;
   recordUsageMock.mockClear();
 });

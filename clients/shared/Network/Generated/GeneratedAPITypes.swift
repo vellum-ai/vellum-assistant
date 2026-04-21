@@ -1110,6 +1110,20 @@ public struct ContextCompacted: Codable, Sendable {
     }
 }
 
+public struct CompactionCircuitOpen: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let reason: String
+    public let openUntil: Double
+
+    public init(type: String, conversationId: String, reason: String, openUntil: Double) {
+        self.type = type
+        self.conversationId = conversationId
+        self.reason = reason
+        self.openUntil = openUntil
+    }
+}
+
 public struct ConversationSearchMatchingMessage: Codable, Sendable {
     public let messageId: String
     public let role: String

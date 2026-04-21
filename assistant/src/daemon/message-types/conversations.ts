@@ -439,9 +439,16 @@ export interface ContextCompacted {
  * summary-LLM failures (with local fallback covering each), auto-compaction is
  * suspended until `openUntil` to avoid repeatedly hammering a broken provider.
  * User-initiated compaction (`/compact`, `force: true`) bypasses the breaker.
+ *
+ * `conversationId` scopes the event so clients can ignore breaker trips from
+ * other conversations — `EventStreamClient` broadcasts every parsed server
+ * message to all subscribers, so without this field a breaker trip in one
+ * conversation would set the "auto-compaction paused" banner on every open
+ * `ChatViewModel`.
  */
 export interface CompactionCircuitOpen {
   type: "compaction_circuit_open";
+  conversationId: string;
   reason: "3_consecutive_failures";
   /** Timestamp (ms since epoch) when the breaker will allow auto-compaction again. */
   openUntil: number;
