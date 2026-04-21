@@ -325,6 +325,24 @@ async function handleJoin(
     console.warn("[meet-ext] lifecycle(joining) send failed:", err);
   }
 
+  // Tracks whether `onAdmitted` fired. Used to (a) suppress a duplicate
+  // post-await `joined` emit in the happy path and (b) guard the error
+  // catch from emitting `lifecycle:error` once we've already told the
+  // daemon we joined — a late reject from the best-effort consent post
+  // must not walk back the admission signal.
+  let admitted = false;
+  const finalizeAdmission = (): void => {
+    if (generation !== joinGeneration) return;
+    if (admitted) return;
+    admitted = true;
+    activeSession = startMeetingSession({ meetingId, displayName });
+    try {
+      chrome.runtime.sendMessage(lifecycleMessage("joined", meetingId));
+    } catch (err) {
+      console.warn("[meet-ext] lifecycle(joined) send failed:", err);
+    }
+  };
+
   try {
     await runJoinFlow({
       meetingUrl,
@@ -338,6 +356,7 @@ async function handleJoin(
           console.warn("[meet-ext] runJoinFlow event send failed:", err);
         }
       },
+      onAdmitted: finalizeAdmission,
     });
   } catch (err) {
     // A newer leave/join has already bumped the generation and
@@ -345,6 +364,15 @@ async function handleJoin(
     // confusing the daemon with a late `error` for an invocation it
     // no longer cares about.
     if (generation !== joinGeneration) return;
+    // If admission already fired, the daemon is in `joined`. Any late
+    // throw here comes from a post-admission step (currently only step 6
+    // catches internally, but a future addition might not) — downgrade
+    // to a diagnostic rather than emitting `error` and walking the
+    // lifecycle back.
+    if (admitted) {
+      console.warn("[meet-ext] post-admission runJoinFlow threw:", err);
+      return;
+    }
     const detail =
       err instanceof Error ? err.message : String(err ?? "unknown error");
     try {
@@ -355,19 +383,9 @@ async function handleJoin(
     return;
   }
 
-  // If a leave or newer join landed while runJoinFlow was awaiting,
-  // the daemon no longer expects us to install scrapers for this
-  // meeting. Bailing out here avoids both (a) resurrecting a session
-  // after `leave` and (b) clobbering the session that a newer `join`
-  // installed.
-  if (generation !== joinGeneration) return;
-
-  // Join succeeded — install per-meeting scrapers and emit "joined".
-  activeSession = startMeetingSession({ meetingId, displayName });
-  try {
-    chrome.runtime.sendMessage(lifecycleMessage("joined", meetingId));
-  } catch (err) {
-    console.warn("[meet-ext] lifecycle(joined) send failed:", err);
-  }
+  // Defense-in-depth: if runJoinFlow resolved without firing `onAdmitted`,
+  // that's an invariant violation in the flow — install the session and
+  // emit `joined` here so the daemon isn't left hanging.
+  finalizeAdmission();
 }
 

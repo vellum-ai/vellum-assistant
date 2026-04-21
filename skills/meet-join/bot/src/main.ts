@@ -389,6 +389,14 @@ function publishLifecycle(
     state,
     ...(detail !== undefined ? { detail } : {}),
   };
+  // Log before enqueue so the silent-success path is visible when
+  // debugging join-flow stalls — without this line the only evidence a
+  // lifecycle event even ran through this function was in the daemon
+  // logs, which made it impossible to tell locally whether the extension
+  // ever reached `joined` after an earlier diagnostic.
+  deps.logInfo(
+    `meet-bot: forwarding lifecycle:${state} to daemon${detail ? ` (${detail})` : ""}`,
+  );
   client.enqueue(event);
 }
 
