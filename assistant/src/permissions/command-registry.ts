@@ -606,11 +606,7 @@ export const DEFAULT_COMMAND_REGISTRY = {
   // ── Wrapper commands ───────────────────────────────────────────────────────
   // These unwrap to find and classify the inner command. The classifier takes
   // max(wrapper.baseRisk, inner.risk).
-  env: {
-    baseRisk: "low",
-    isWrapper: true,
-    nonExecFlags: ["-0", "--null", "-u", "--unset"],
-  },
+  env: { baseRisk: "low", isWrapper: true },
   nice: { baseRisk: "low", isWrapper: true },
   nohup: { baseRisk: "low", isWrapper: true },
   timeout: {
