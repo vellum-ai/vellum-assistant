@@ -115,8 +115,7 @@ struct AssistantPickerItem: Identifiable {
     static func from(lockfile: LockfileAssistant, platformName: String? = nil) -> AssistantPickerItem {
         let name = AssistantDisplayName.resolve(
             platformName,
-            IdentityInfo.cached(for: lockfile.assistantId)?.name,
-            lockfile.assistantId
+            IdentityInfo.cached(for: lockfile.assistantId)?.name
         )
         let subtitle = lockfile.isManaged ? "Managed" : "Local"
         return AssistantPickerItem(
@@ -129,7 +128,7 @@ struct AssistantPickerItem: Identifiable {
 
     @MainActor
     static func from(platform: PlatformAssistant) -> AssistantPickerItem {
-        let name = AssistantDisplayName.resolve(platform.name, platform.id)
+        let name = AssistantDisplayName.resolve(platform.name)
         return AssistantPickerItem(
             id: platform.id,
             displayName: name,
