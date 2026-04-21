@@ -1883,6 +1883,48 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages.count, 0)
     }
 
+    // MARK: - Subagent Abort
+
+    func testAbortSubagentMarksLocalAsAbortedOn404() async throws {
+        viewModel.activeSubagents = [
+            SubagentInfo(id: "s1", label: "Test", status: .running)
+        ]
+        let client = FakeSubagentClient(abortResult: .alreadyTerminal) // simulates 404 / already-terminal
+        await viewModel.abortSubagent("s1", client: client)
+        XCTAssertEqual(viewModel.activeSubagents.first?.status, .aborted)
+    }
+
+    func testAbortSubagentMarksLocalAsAbortedOnSuccess() async throws {
+        viewModel.activeSubagents = [
+            SubagentInfo(id: "s1", label: "Test", status: .running)
+        ]
+        let client = FakeSubagentClient(abortResult: .success)
+        await viewModel.abortSubagent("s1", client: client)
+        XCTAssertEqual(viewModel.activeSubagents.first?.status, .aborted)
+    }
+
+    func testAbortSubagentDoesNotDowngradeTerminalStatus() async throws {
+        viewModel.activeSubagents = [
+            SubagentInfo(id: "s1", label: "Test", status: .completed)
+        ]
+        let client = FakeSubagentClient(abortResult: .alreadyTerminal)
+        await viewModel.abortSubagent("s1", client: client)
+        // If the daemon already sent `completed`, don't clobber it to `aborted`.
+        XCTAssertEqual(viewModel.activeSubagents.first?.status, .completed)
+    }
+
+    func testAbortSubagentLeavesRunningOnNetworkFailure() async throws {
+        viewModel.activeSubagents = [
+            SubagentInfo(id: "s1", label: "Test", status: .running)
+        ]
+        let client = FakeSubagentClient(abortResult: .failed)
+        await viewModel.abortSubagent("s1", client: client)
+        // On a genuine failure (network, timeout, 5xx, non-404 client error)
+        // the subagent is possibly still running — do NOT flip the local entry
+        // to `.aborted`, otherwise the UI hides the Abort button and blocks retry.
+        XCTAssertEqual(viewModel.activeSubagents.first?.status, .running)
+    }
+
     // MARK: - History Attachment Hydration
 
     func testPopulateFromHistoryHydratesAssistantAttachments() {
@@ -3386,4 +3428,11 @@ final class MockConversationQueueClient: ConversationQueueClientProtocol, @unche
         }
         return deleteResult
     }
+}
+
+private struct FakeSubagentClient: SubagentClientProtocol {
+    let abortResult: SubagentAbortResult
+    func abort(subagentId: String, conversationId: String?) async -> SubagentAbortResult { abortResult }
+    func fetchDetail(subagentId: String, conversationId: String) async -> SubagentDetailResponse? { nil }
+    func sendMessage(subagentId: String, content: String, conversationId: String?) async -> Bool { true }
 }

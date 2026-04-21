@@ -381,7 +381,7 @@ struct ChatView: View {
                 onInspectMessage: onInspectMessage,
                 mediaEmbedSettings: mediaEmbedSettings,
                 onAbortSubagent: { subagentId in
-                    Task { await SubagentClient().abort(subagentId: subagentId, conversationId: viewModel.conversationId) }
+                    Task { await viewModel.abortSubagent(subagentId) }
                 },
                 onSubagentTap: onSubagentTap,
                 onRehydrateMessage: { messageId in viewModel.rehydrateMessage(id: messageId) },
