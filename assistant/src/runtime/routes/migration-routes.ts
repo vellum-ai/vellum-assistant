@@ -15,7 +15,7 @@
  */
 
 import { createReadStream } from "node:fs";
-import { Readable } from "node:stream";
+import { PassThrough, Readable } from "node:stream";
 import { Database } from "bun:sqlite";
 
 import { z } from "zod";
@@ -521,6 +521,41 @@ const URL_FETCH_TIMEOUT_MS = 60 * 60 * 1000;
 const MigrationImportUrlBody = z.object({ url: z.string().min(1) });
 
 /**
+ * Marker attached to errors that originate from the upstream HTTP body
+ * stream (peer reset, abort mid-stream, DNS/transport failure after
+ * headers were received). The handler's catch/result-mapping path looks
+ * for this tag to return 502 `fetch_failed` instead of 500
+ * `extraction_failed` for truncated bodies, matching the OpenAPI
+ * contract.
+ */
+const kFetchBodyError = Symbol.for("vellum.migrationImport.fetchBodyError");
+
+/**
+ * Sidecar flag on the wrapper PassThrough indicating that its upstream
+ * was torn down by a tagged fetch-body error. Checked after
+ * streamCommitImport returns — the importer preserves the error message
+ * in `result.reason = "extraction_failed"` but strips the tag.
+ */
+const kFetchBodyTornDown = Symbol.for(
+  "vellum.migrationImport.fetchBodyTornDown",
+);
+
+function tagFetchBodyError(err: NodeJS.ErrnoException): void {
+  (err as unknown as Record<symbol, boolean>)[kFetchBodyError] = true;
+}
+
+function isFetchBodyError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  return (err as unknown as Record<symbol, boolean>)[kFetchBodyError] === true;
+}
+
+function wasFetchBodyTornDown(stream: PassThrough): boolean {
+  return (
+    (stream as unknown as Record<symbol, boolean>)[kFetchBodyTornDown] === true
+  );
+}
+
+/**
  * Test seam: the integration test needs to point the validator at a local
  * HTTP server fixture. Production callers never pass this — the default
  * keeps the validator strict (GCS host, HTTPS only, no explicit port).
@@ -647,9 +682,48 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
   // Convert the WHATWG ReadableStream from fetch() into a Node Readable so
   // the tar-stream / gunzip / hash-verifier pipeline inside
   // streamCommitImport can consume it via `.pipe()`.
-  const nodeStream = Readable.fromWeb(
+  const upstreamNodeStream = Readable.fromWeb(
     upstream.body as unknown as import("node:stream/web").ReadableStream<Uint8Array>,
   );
+
+  // Wrap the upstream stream in a PassThrough that tags any error bubbling
+  // from the upstream HTTP body (peer reset, abort mid-stream, etc.) with a
+  // known symbol. When that tagged error surfaces out of
+  // streamCommitImport's gunzip/tar pipeline, we can distinguish it from a
+  // legitimate bundle-format failure and map it to 502 fetch_failed instead
+  // of 500 extraction_failed — matching the OpenAPI contract for the URL
+  // body shape. We also propagate errors from the wrapper back to the
+  // upstream stream so its underlying connection is torn down cleanly.
+  //
+  // Bun's `Readable.fromWeb(fetchBody)` does NOT emit `'error'` when the
+  // TCP socket is torn down mid-response — it just emits `'close'` with
+  // no final `'end'`. We therefore track BOTH signals:
+  //   • explicit `'error'`   → tag the error, destroy the wrapper.
+  //   • premature `'close'`  → synthesize an error, tag it, destroy the
+  //     wrapper. "Premature" = close fired without end first.
+  const taggedSource = new PassThrough();
+  let upstreamEnded = false;
+  upstreamNodeStream.on("end", () => {
+    upstreamEnded = true;
+  });
+  upstreamNodeStream.on("error", (err: NodeJS.ErrnoException) => {
+    tagFetchBodyError(err);
+    (taggedSource as unknown as Record<symbol, boolean>)[kFetchBodyTornDown] =
+      true;
+    taggedSource.destroy(err);
+  });
+  upstreamNodeStream.on("close", () => {
+    if (upstreamEnded) return;
+    const err = new Error(
+      "Upstream body stream closed before end",
+    ) as NodeJS.ErrnoException;
+    err.code = "ERR_UPSTREAM_BODY_CLOSED";
+    tagFetchBodyError(err);
+    (taggedSource as unknown as Record<symbol, boolean>)[kFetchBodyTornDown] =
+      true;
+    taggedSource.destroy(err);
+  });
+  upstreamNodeStream.pipe(taggedSource);
 
   const pathResolver = new DefaultPathResolver(
     getWorkspaceDir(),
@@ -669,7 +743,7 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
 
   try {
     result = await streamCommitImport({
-      source: nodeStream,
+      source: taggedSource,
       pathResolver,
       workspaceDir: getWorkspaceDir(),
       importCredentials: async (bundleCredentials) => {
@@ -683,6 +757,20 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
       },
     });
   } catch (err) {
+    if (isFetchBodyError(err)) {
+      log.error(
+        {
+          host: validated.host,
+          path: validated.path,
+          err: err instanceof Error ? err.message : String(err),
+        },
+        "Upstream body stream failed mid-import",
+      );
+      return Response.json(
+        { success: false, reason: "fetch_failed" },
+        { status: 502 },
+      );
+    }
     log.error(
       {
         host: validated.host,
@@ -699,6 +787,25 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
   }
 
   if (!result.ok) {
+    // streamCommitImport swallows the raw cause and maps any
+    // non-validation throw to `extraction_failed`. If the cause was an
+    // upstream body failure that we tagged at the source, surface the
+    // tag through the result (the importer preserves the message) by
+    // detecting the latched flag on the wrapper stream.
+    if (wasFetchBodyTornDown(taggedSource)) {
+      log.error(
+        {
+          host: validated.host,
+          path: validated.path,
+          reason: result.reason,
+        },
+        "Upstream body stream failed mid-import (detected via result)",
+      );
+      return Response.json(
+        { success: false, reason: "fetch_failed" },
+        { status: 502 },
+      );
+    }
     log.warn(
       {
         host: validated.host,
@@ -837,8 +944,18 @@ async function importBundleCredentialsIntoCes(
  * Append a warning to `report` when the newly-imported database contains
  * migration checkpoints from a daemon version newer than this one. Silent
  * on any validation error — the import has already succeeded.
+ *
+ * Gated on the report's own file counts: if the import didn't create or
+ * overwrite any workspace files (no-swap success — e.g. credentials-only
+ * bundle, all-skipped legacy bundle), the live DB is unchanged and any
+ * "newer migrations" detected there came from the existing workspace,
+ * NOT from the imported bundle. Attributing them to the bundle would be a
+ * false positive, so skip the check entirely in that case.
  */
 function appendNewerMigrationWarningsIfAny(report: ImportCommitReport): void {
+  if (report.summary.files_created + report.summary.files_overwritten === 0) {
+    return;
+  }
   try {
     const migrationValidation = validateMigrationState(getDb());
     if (migrationValidation.unknownCheckpoints.length > 0) {
