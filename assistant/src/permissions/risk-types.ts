@@ -153,14 +153,6 @@ export interface CommandRiskSpec {
   /** Human-readable reason for the base risk (shown when no arg rule matches). */
   reason?: string;
   /**
-   * Global flags that consume the next token as a value (e.g. git -C <path>).
-   * Used by resolveSubcommand to skip past flag-value pairs when locating the
-   * first positional arg (the subcommand name).
-   *
-   * @deprecated Use argSchema.valueFlags instead. Kept for backward compatibility during migration.
-   */
-  globalValueFlags?: string[];
-  /**
    * When true, this command auto-approves in the assistant's workspace
    * without consulting the user's autoApproveUpTo threshold.
    */
