@@ -447,14 +447,15 @@ struct MainWindowView: View {
     private var topBarView: some View {
         HStack(spacing: VSpacing.sm) {
             if !isSettingsOpen {
-                VButton(label: "Sidebar", iconOnly: VIcon.panelLeft.rawValue, style: .ghost, tooltip: sidebarTooltip) {
+                VButton(label: "Sidebar", iconOnly: VIcon.panelLeft.rawValue, style: .ghost) {
                     withAnimation(VAnimation.panel) {
                         sidebarExpanded.toggle()
                     }
                 }
+                .vTooltip(sidebarTooltip)
 
                 if MacOSClientFeatureFlagManager.shared.isEnabled("home-tab") {
-                    VButton(label: "Home", iconOnly: VIcon.house.rawValue, style: .ghost, tooltip: "Home") {
+                    VButton(label: "Home", iconOnly: VIcon.house.rawValue, style: .ghost) {
                         windowState.showPanel(.home)
                     }
                     .overlay(alignment: .topTrailing) {
@@ -472,24 +473,28 @@ struct MainWindowView: View {
                                 .accessibilityLabel(Text("Unseen changes"))
                         }
                     }
+                    .vTooltip("Home")
                 }
 
-                VButton(label: "Search", iconOnly: VIcon.search.rawValue, style: .ghost, tooltip: "Search (\u{2318}K)") {
+                VButton(label: "Search", iconOnly: VIcon.search.rawValue, style: .ghost) {
                     AppDelegate.shared?.toggleCommandPalette()
                 }
+                .vTooltip("Search (\u{2318}K)")
 
                 HStack(spacing: 0) {
-                    VButton(label: "Back", iconOnly: VIcon.chevronLeft.rawValue, style: .ghost, tooltip: "Back (\u{2318}[)") {
+                    VButton(label: "Back", iconOnly: VIcon.chevronLeft.rawValue, style: .ghost) {
                         windowState.navigateBack()
                     }
                     .disabled(!windowState.canGoBack)
                     .opacity(windowState.canGoBack ? 1 : 0.35)
+                    .vTooltip("Back (\u{2318}[)")
 
-                    VButton(label: "Forward", iconOnly: VIcon.chevronRight.rawValue, style: .ghost, tooltip: "Forward (\u{2318}])") {
+                    VButton(label: "Forward", iconOnly: VIcon.chevronRight.rawValue, style: .ghost) {
                         windowState.navigateForward()
                     }
                     .disabled(!windowState.navigationHistory.canGoForward)
                     .opacity(windowState.navigationHistory.canGoForward ? 1 : 0.35)
+                    .vTooltip("Forward (\u{2318}])")
                 }
             }
             WindowDragArea()
