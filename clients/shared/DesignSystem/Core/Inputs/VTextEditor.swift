@@ -29,6 +29,7 @@ public struct VTextEditor: View {
                 .scrollContentBackground(.hidden)
                 .background(Color.clear)
                 .focused($isFocused)
+                .accessibilityLabel(placeholder)
 
             if text.isEmpty {
                 Text(placeholder)
