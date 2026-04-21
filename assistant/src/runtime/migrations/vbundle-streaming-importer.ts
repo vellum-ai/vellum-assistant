@@ -1146,13 +1146,24 @@ function rebaseOntoTempWorkspace(
  * — e.g. the upstream fetch body is torn down during a URL import — the
  * verifier is destroyed too, and this call rejects promptly instead of
  * hanging on a `for await` that never terminates.
+ *
+ * A `/dev/null` Writable sink terminates the chain so the verifier's
+ * readable side is continuously drained. Without this sink, a Transform as
+ * the last pipeline stage would stall once its internal buffer reached
+ * `highWaterMark` (16 KB default), since nothing would pull its output,
+ * and `pipeline` would hang indefinitely on any skipped entry >~16 KB.
  */
 async function drainThroughVerifier(
   body: Readable,
   expected: { sha256: string; size: number; archivePath: string },
 ): Promise<void> {
   const verifier = createHashVerifier(expected);
-  await pipeline(body, verifier);
+  const devNull = new Writable({
+    write(_chunk, _enc, cb) {
+      cb();
+    },
+  });
+  await pipeline(body, verifier, devNull);
 }
 
 /**
