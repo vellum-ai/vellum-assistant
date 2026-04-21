@@ -271,34 +271,26 @@ struct IOSRootNavigationView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
-                HStack(spacing: VSpacing.xs) {
-                    VButton(
-                        label: "Chats",
-                        iconOnly: VIcon.panelLeft.rawValue,
-                        style: .ghost,
-                        size: .pillLarge,
-                        tooltip: "Opens the conversation menu",
-                        action: openDrawer
-                    )
-                    VButton(
-                        label: "Settings",
-                        iconOnly: VIcon.settings.rawValue,
-                        style: .ghost,
-                        size: .pillLarge,
-                        tooltip: "Opens the Settings sheet",
-                        action: { isSettingsPresented = true }
-                    )
+                Button(action: openDrawer) {
+                    VIconView(.panelLeft, size: 20)
                 }
+                .accessibilityLabel("Chats")
             }
+            .hideSharedToolbarBackgroundIfAvailable()
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: { isSettingsPresented = true }) {
+                    VIconView(.settings, size: 20)
+                }
+                .accessibilityLabel("Settings")
+            }
+            .hideSharedToolbarBackgroundIfAvailable()
             ToolbarItem(placement: .navigationBarTrailing) {
-                VButton(
-                    label: "New chat",
-                    iconOnly: VIcon.squarePen.rawValue,
-                    style: .ghost,
-                    size: .pillLarge,
-                    action: composeNewConversation
-                )
+                Button(action: composeNewConversation) {
+                    VIconView(.squarePen, size: 20)
+                }
+                .accessibilityLabel("New chat")
             }
+            .hideSharedToolbarBackgroundIfAvailable()
         }
     }
 

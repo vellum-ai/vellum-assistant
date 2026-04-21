@@ -772,42 +772,32 @@ struct ConversationChatView: View {
         .navigationTitle(conversation.title.isEmpty ? "Chat" : conversation.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if horizontalSizeClass == .compact {
+            if horizontalSizeClass == .compact, let onOpenDrawer {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    HStack(spacing: VSpacing.xs) {
-                        if let onOpenDrawer {
-                            VButton(
-                                label: "Chats",
-                                iconOnly: VIcon.panelLeft.rawValue,
-                                style: .ghost,
-                                size: .pillLarge,
-                                tooltip: "Opens the conversation menu",
-                                action: onOpenDrawer
-                            )
-                        }
-                        if let onShowSettings {
-                            VButton(
-                                label: "Settings",
-                                iconOnly: VIcon.settings.rawValue,
-                                style: .ghost,
-                                size: .pillLarge,
-                                tooltip: "Opens the Settings sheet",
-                                action: onShowSettings
-                            )
-                        }
+                    Button(action: onOpenDrawer) {
+                        VIconView(.panelLeft, size: 20)
                     }
+                    .accessibilityLabel("Chats")
                 }
+                .hideSharedToolbarBackgroundIfAvailable()
+            }
+            if horizontalSizeClass == .compact, let onShowSettings {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: onShowSettings) {
+                        VIconView(.settings, size: 20)
+                    }
+                    .accessibilityLabel("Settings")
+                }
+                .hideSharedToolbarBackgroundIfAvailable()
             }
             if horizontalSizeClass == .compact, let onComposeNew {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    VButton(
-                        label: "New chat",
-                        iconOnly: VIcon.squarePen.rawValue,
-                        style: .ghost,
-                        size: .pillLarge,
-                        action: onComposeNew
-                    )
+                    Button(action: onComposeNew) {
+                        VIconView(.squarePen, size: 20)
+                    }
+                    .accessibilityLabel("New chat")
                 }
+                .hideSharedToolbarBackgroundIfAvailable()
             }
         }
     }
