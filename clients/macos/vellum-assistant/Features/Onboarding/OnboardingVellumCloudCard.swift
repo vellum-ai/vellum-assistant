@@ -29,10 +29,13 @@ struct OnboardingVellumCloudCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header: serif title + RECOMMENDED chip
+            // Header: title + RECOMMENDED chip. Uses `titleMedium` so it
+            // sits a notch below the page title (`VFont.titleLarge` on
+            // `WakeUpStepView`) without clashing with the page's sans
+            // family.
             HStack(alignment: .top) {
                 Text(title)
-                    .font(VFont.brandSmall)
+                    .font(VFont.titleMedium)
                     .foregroundStyle(VColor.contentEmphasized)
 
                 Spacer(minLength: VSpacing.sm)
@@ -85,10 +88,10 @@ struct OnboardingVellumCloudCard: View {
             }
         }
         .padding(EdgeInsets(
-            top: VSpacing.xl,
-            leading: VSpacing.xl,
-            bottom: VSpacing.xl,
-            trailing: VSpacing.xl
+            top: VSpacing.lg,
+            leading: VSpacing.lg,
+            bottom: VSpacing.lg,
+            trailing: VSpacing.lg
         ))
         .frame(maxWidth: .infinity)
         .background(

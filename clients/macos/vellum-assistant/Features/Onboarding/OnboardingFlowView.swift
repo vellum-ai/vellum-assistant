@@ -88,7 +88,7 @@ struct OnboardingFlowView: View {
                 VStack(spacing: 0) {
                     if state.currentStep == 0 {
                         // Step 0 only: top inset + app icon
-                        Color.clear.frame(height: VSpacing.xxl)
+                        Color.clear.frame(height: 80)
 
                         if let nsImage = Self.appIcon {
                             Image(nsImage: nsImage)
@@ -97,7 +97,7 @@ struct OnboardingFlowView: View {
                                 .frame(width: 80, height: 80)
                                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                                 .shadow(color: VColor.auxBlack.opacity(0.15), radius: 1, x: 0, y: 1)
-                                .padding(.bottom, VSpacing.xl)
+                                .padding(.bottom, 78)
                         }
                     } else {
                         // Steps 1–3: top inset only (no icon)
@@ -195,7 +195,7 @@ struct OnboardingFlowView: View {
             }
         }
         }
-        .frame(minWidth: 440, minHeight: 720)
+        .frame(minWidth: 440, minHeight: 980)
         .task {
             if !authManager.isAuthenticated {
                 await authManager.checkSession()
