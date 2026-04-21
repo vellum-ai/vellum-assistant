@@ -304,16 +304,18 @@ private struct ButtonLayoutModifier: ViewModifier {
     let isFullWidth: Bool
     let iconSize: CGFloat?
 
+    private var iconOnlyDefaultSize: CGFloat {
+        switch size {
+        case .inline: return 18
+        case .pillLarge: return 40
+        default: return 32
+        }
+    }
+
     func body(content: Content) -> some View {
         if isIconOnly {
-            let defaultSize: CGFloat
-            switch size {
-            case .inline: defaultSize = 18
-            case .pillLarge: defaultSize = 40
-            default: defaultSize = 32
-            }
             content
-                .frame(width: iconSize ?? defaultSize, height: iconSize ?? defaultSize)
+                .frame(width: iconSize ?? iconOnlyDefaultSize, height: iconSize ?? iconOnlyDefaultSize)
         } else if size == .inline {
             content
                 .padding(.horizontal, VSpacing.xs)
