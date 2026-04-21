@@ -2,11 +2,9 @@ import SwiftUI
 import UniformTypeIdentifiers
 import VellumAssistantShared
 
-/// Top-level sidebar view extracted from `MainWindowView` so its body
-/// re-evaluates only when sidebar-relevant state changes, not on every
-/// mutation anywhere in the window. The previous monolithic
-/// `MainWindowView.body` cascaded down through `sidebarView` →
-/// `SidebarConversationsHeader` on every unrelated state change (LUM-1082).
+/// Top-level sidebar view whose body re-evaluates only when
+/// sidebar-relevant state changes, isolating it from unrelated
+/// mutations in the main window.
 struct SidebarView: View {
     let conversationManager: ConversationManager
     let listStore: ConversationListStore
@@ -16,7 +14,7 @@ struct SidebarView: View {
     @Bindable var sidebar: SidebarInteractionState
 
     let cachedAssistantName: String
-    let showDaemonLoading: Bool
+    let showAssistantLoading: Bool
     let assistantLoadingTimedOut: Bool
     let sidebarExpanded: Bool
     let sidebarExpandedWidth: CGFloat
@@ -275,7 +273,7 @@ struct SidebarView: View {
     @ViewBuilder
     private var conversationGroupsList: some View {
         LazyVStack(spacing: 0) {
-            if showDaemonLoading && !assistantLoadingTimedOut && listStore.visibleConversations.isEmpty {
+            if showAssistantLoading && !assistantLoadingTimedOut && listStore.visibleConversations.isEmpty {
                 DaemonLoadingConversationsSkeleton()
             }
 
@@ -402,7 +400,7 @@ struct SidebarView: View {
             // MARK: Conversations (scrollable)
             SidebarConversationsHeader(
                 hasUnseenConversations: listStore.unseenVisibleConversationCount > 0,
-                isLoading: showDaemonLoading,
+                isLoading: showAssistantLoading,
                 onMarkAllSeen: {
                     let markedIds = conversationManager.markAllConversationsSeen()
                     guard !markedIds.isEmpty else { return }

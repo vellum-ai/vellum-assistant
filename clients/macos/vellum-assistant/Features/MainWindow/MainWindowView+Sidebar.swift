@@ -82,10 +82,9 @@ extension MainWindowView {
 
     // MARK: - Sidebar Construction
 
-    /// Constructs the sidebar with all dependencies wired up. Extracted into a
-    /// standalone `SidebarView` struct so its body re-evaluates only when
-    /// sidebar-relevant state changes — not on every mutation in
-    /// `MainWindowView` (LUM-1082 fix, part of the LUM-984 extraction work).
+    /// Constructs the sidebar with all dependencies wired up. The body lives
+    /// on the standalone `SidebarView` struct so it re-evaluates only when
+    /// sidebar-relevant state changes.
     @ViewBuilder
     var sidebarView: some View {
         SidebarView(
@@ -96,7 +95,7 @@ extension MainWindowView {
             assistantFeatureFlagStore: assistantFeatureFlagStore,
             sidebar: sidebar,
             cachedAssistantName: cachedAssistantName,
-            showDaemonLoading: showDaemonLoading,
+            showAssistantLoading: showAssistantLoading,
             assistantLoadingTimedOut: assistantLoadingTimedOut,
             sidebarExpanded: sidebarExpanded,
             sidebarExpandedWidth: sidebarExpandedWidth,

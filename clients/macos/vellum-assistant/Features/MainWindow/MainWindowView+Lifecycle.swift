@@ -32,9 +32,9 @@ extension MainWindowView {
                 connectionManager.clearLastUpdateOutcome()
             }
             .onChange(of: listStore.conversations.isEmpty) { _, isEmpty in
-                if !isEmpty && showDaemonLoading {
+                if !isEmpty && showAssistantLoading {
                     withAnimation(VAnimation.standard) {
-                        showDaemonLoading = false
+                        showAssistantLoading = false
                     }
                 }
             }
@@ -43,9 +43,9 @@ extension MainWindowView {
                 // zero-conversations case (list stays empty but restoration is done)
                 // and the managed-assistant case where the HTTP fetch exceeds the
                 // timer-based fallback.
-                if !isRestoring && showDaemonLoading {
+                if !isRestoring && showAssistantLoading {
                     withAnimation(VAnimation.standard) {
-                        showDaemonLoading = false
+                        showAssistantLoading = false
                     }
                 }
             }
@@ -175,11 +175,11 @@ extension MainWindowView {
         // complete, including the zero-conversations case). This timer only
         // fires if restoration never completes — e.g. daemon hangs or fetch
         // fails past its own retries.
-        guard connected, showDaemonLoading else { return }
+        guard connected, showAssistantLoading else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
-            guard showDaemonLoading else { return }
+            guard showAssistantLoading else { return }
             withAnimation(VAnimation.standard) {
-                showDaemonLoading = false
+                showAssistantLoading = false
             }
         }
     }
