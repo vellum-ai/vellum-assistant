@@ -76,6 +76,7 @@ private struct HomeFeedFilterChip: View {
             .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .pointerCursor()
         .accessibilityLabel(Text("\(accessibilityName) filter, \(isSelected ? "active" : "inactive")"))
         .accessibilityAddTraits(.isButton)
     }
