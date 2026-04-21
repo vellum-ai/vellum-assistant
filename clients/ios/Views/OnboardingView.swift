@@ -23,7 +23,7 @@ struct OnboardingView: View {
     @State private var managedBootstrapError: String?
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        ZStack {
             if isBootstrappingManaged {
                 managedBootstrapView
                     .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
@@ -49,7 +49,11 @@ struct OnboardingView: View {
                         .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
                 }
             }
-
+        }
+        .overlay(alignment: .topLeading) {
+            // Scope the cancel affordance to an overlay so the ZStack's default
+            // center alignment is preserved for ReadyStep and managedBootstrapView
+            // (bare VStacks that would otherwise render top-leading).
             if isReplay {
                 Button("Cancel") {
                     isCompleted = true
