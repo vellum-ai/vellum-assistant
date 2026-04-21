@@ -202,7 +202,7 @@ describe("Tool execution pipeline benchmark", () => {
     expect(p50).toBeLessThan(15);
     expect(p95).toBeLessThan(40);
     // Verify correctness: ls should be low risk
-    expect(results[0]).toBe(RiskLevel.Low);
+    expect(results[0].level).toBe(RiskLevel.Low);
   });
 
   test("classifyRisk: medium-risk tool (file_write)", async () => {
@@ -213,7 +213,7 @@ describe("Tool execution pipeline benchmark", () => {
 
     const p50 = percentile(timings, 50);
     expect(p50).toBeLessThan(5);
-    expect(results[0]).toBe(RiskLevel.Low);
+    expect(results[0].level).toBe(RiskLevel.Low);
   });
 
   test("check: full permission check for low-risk tool", async () => {

@@ -100,7 +100,7 @@ export class PermissionChecker {
       }
     }
 
-    const risk = await classifyRisk(
+    const { level: risk, reason: riskReason } = await classifyRisk(
       name,
       input,
       context.workingDir,
@@ -168,6 +168,7 @@ export class PermissionChecker {
           conversationId: context.conversationId,
           requestId: context.requestId,
           riskLevel,
+          riskReason,
           decision: "deny",
           reason: result.reason,
           durationMs,
@@ -252,6 +253,7 @@ export class PermissionChecker {
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
+            riskReason,
             decision: "deny",
             reason: "Non-interactive session: no client to approve prompt",
             durationMs,
@@ -326,6 +328,7 @@ export class PermissionChecker {
           conversationId: context.conversationId,
           requestId: context.requestId,
           riskLevel,
+          riskReason,
           reason: result.reason,
           allowlistOptions: promptOptions.allowlistOptions,
           scopeOptions: promptOptions.scopeOptions,
@@ -391,6 +394,7 @@ export class PermissionChecker {
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
+            riskReason,
             decision: "deny",
             reason: denialReason,
             durationMs,
@@ -439,6 +443,7 @@ export class PermissionChecker {
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
+            riskReason,
             decision: "always_deny",
             reason: denialReason,
             durationMs,
