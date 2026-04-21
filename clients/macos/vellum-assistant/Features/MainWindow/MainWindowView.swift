@@ -656,27 +656,46 @@ struct MainWindowView: View {
         VStack(spacing: 0) {
             topBarView
 
-            // Main container: sidebar + content with uniform padding
+            // Main container: sidebar + content with uniform padding.
+            //
+            // Animation-scope policy here is intentionally asymmetric:
+            //
+            // • `value: sidebarExpanded` — kept as an ambient `.animation(_:value:)`
+            //   on both columns so the sidebar width and chat frame stay in sync
+            //   during a sidebar toggle. The toggle is driven both from SwiftUI
+            //   (the topBar button wraps its mutation in `withAnimation`) and from
+            //   an `NSEvent` keyboard monitor that writes `UserDefaults` directly
+            //   (see `AppDelegate+InputMonitors.swift` → `registerSidebarToggleMonitor`);
+            //   the ambient modifier is the only thing that animates the latter path
+            //   without requiring the monitor to hop onto the main actor with a
+            //   `withAnimation` wrapper.
+            //
+            // • `value: isSettingsOpen` — deliberately NOT applied here. An ambient
+            //   scope on this subtree interpolates every animatable modifier inside
+            //   it when a panel opens or closes, including the conditional
+            //   `.flipped()` (rotation + scale) transform on typing-indicator rows
+            //   in the chat message list. That caused LUM-821: the thinking dots
+            //   swept through 90°–135° when a user opened Settings or Logs & Usage
+            //   during streaming. Transitions into/out of `.panel(.settings)` and
+            //   `.panel(.logsAndUsage)` are instead driven explicitly via
+            //   `withAnimation(VAnimation.panel)` at every state-mutation site
+            //   (including inside `MainWindowState.showPanel(_:)`), which scopes
+            //   the animation to the selection change rather than the whole
+            //   chat subtree.
+            //
+            // Per Apple, `.animation(_:value:)` applies to all animatable changes
+            // in the wrapped subtree when the watched value changes:
+            // https://developer.apple.com/documentation/swiftui/view/animation(_:value:)
+            // See also WWDC23 — Wind your way through advanced animations in
+            // SwiftUI: https://developer.apple.com/videos/play/wwdc2023/10156/
             HStack(spacing: 0) {
-                // Frame/opacity/padding animations are driven explicitly via
-                // `withAnimation(VAnimation.panel)` at the state-mutation sites
-                // (sidebar toggle, panel selection). We intentionally do NOT apply
-                // an ambient `.animation(_:value:)` modifier here: that would create
-                // an animation scope over the entire chat subtree and interpolate
-                // every animatable modifier inside it — including conditional
-                // `.flipped()` (rotation + scale) transforms on typing-indicator
-                // rows — when a panel opens or closes. Per Apple, `.animation(_:value:)`
-                // applies to all animatable changes in the wrapped subtree when the
-                // watched value changes:
-                // https://developer.apple.com/documentation/swiftui/view/animation(_:value:)
-                // See also WWDC23 — Wind your way through advanced animations in
-                // SwiftUI: https://developer.apple.com/videos/play/wwdc2023/10156/
                 sidebarView
                     .frame(width: isSettingsOpen ? 0 : (sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth))
                     .clipped()
                     .opacity(isSettingsOpen ? 0 : 1)
                     .allowsHitTesting(!isSettingsOpen)
                     .padding(.trailing, isSettingsOpen ? 0 : 16)
+                    .animation(VAnimation.panel, value: sidebarExpanded)
 
                 chatContentView(windowSize: windowSize)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
@@ -684,6 +703,7 @@ struct MainWindowView: View {
                     .overlay {
                         assistantLoadingOverlayIfNeeded
                     }
+                    .animation(VAnimation.panel, value: sidebarExpanded)
             }
             .padding(16)
         }

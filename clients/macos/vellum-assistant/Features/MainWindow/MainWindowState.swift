@@ -282,8 +282,21 @@ public final class MainWindowState {
 
     // MARK: - Panel Navigation
 
+    /// Navigate to a side panel.
+    ///
+    /// The selection change is wrapped in `withAnimation(VAnimation.panel)` so
+    /// callers outside SwiftUI's normal update path (command palette actions,
+    /// `NSEvent` monitors, menu items invoked via `AppDelegate`) get the same
+    /// panel-slide transition as in-view buttons without having to remember to
+    /// wrap their call site. This is also what keeps the chat frame and sidebar
+    /// width in sync with the settings open/close transition: `coreLayoutBase`
+    /// intentionally does *not* apply an ambient `.animation(_:value: isSettingsOpen)`
+    /// modifier — see the comment in `MainWindowView.coreLayoutBase` for why —
+    /// so the animation has to originate here.
     func showPanel(_ panel: SidePanelType) {
-        selection = .panel(panel)
+        withAnimation(VAnimation.panel) {
+            selection = .panel(panel)
+        }
         lastActivePanelString = String(describing: panel)
     }
 
