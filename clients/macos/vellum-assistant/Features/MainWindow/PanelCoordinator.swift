@@ -197,10 +197,12 @@ extension MainWindowView {
             },
             onSuggestionSelected: { suggestion in
                 // Home suggestion pill: start a brand-new conversation
-                // pre-seeded with the suggestion's label and navigate
-                // into it. `forceNew: true` is critical — we always want
-                // the Home suggestion bar to create a fresh thread.
-                conversationManager.openConversation(message: suggestion.label, forceNew: true)
+                // pre-seeded with the suggestion's full prompt text (NOT
+                // the short pill label — the label is ~3 words, the
+                // prompt is the actual seed message the daemon authored).
+                // `forceNew: true` is critical — we always want the Home
+                // suggestion bar to create a fresh thread.
+                conversationManager.openConversation(message: suggestion.prompt, forceNew: true)
                 onDismiss()
                 if let id = conversationManager.activeConversationId {
                     windowState.selection = .conversation(id)

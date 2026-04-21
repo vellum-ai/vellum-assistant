@@ -3,10 +3,44 @@ import VellumAssistantShared
 
 /// A suggestion shown inside `HomeSuggestionPillBar` — an icon + short label
 /// pair the user can tap to seed a new conversation with ("have you tried…").
+///
+/// `label` is the short pill copy (what the user sees on the pill); `prompt`
+/// is the full seed message routed into the daemon when the pill is tapped.
+/// The two differ: a pill might say "Plan a trip" while the seed prompt is
+/// "Help me plan my next vacation to Japan — flights, lodging, itinerary."
 struct HomeSuggestion: Identifiable, Hashable {
     let id: String
     let icon: VIcon
     let label: String
+    let prompt: String
+}
+
+extension HomeSuggestion {
+    /// Bridge a wire-model `SuggestedPrompt` into the UI-facing
+    /// `HomeSuggestion`. The icon string (a Lucide key, optionally
+    /// prefixed with `lucide-`) is resolved against `VIcon`'s raw values;
+    /// unknown/nil keys fall back to `.sparkles` so bad data never crashes.
+    init(from wire: SuggestedPrompt) {
+        self.id = wire.id
+        self.icon = Self.resolveIcon(wire.icon)
+        self.label = wire.label
+        self.prompt = wire.prompt
+    }
+
+    /// Best-effort `VIcon` lookup for a Lucide key coming off the wire.
+    /// Tries the prefixed form first (`lucide-mail`), then the bare form
+    /// (`mail` ↦ `lucide-mail`), then falls back to `.sparkles`. Matches
+    /// the behavior described in the Home redesign plan for graceful
+    /// handling of future server-added icons.
+    private static func resolveIcon(_ key: String?) -> VIcon {
+        guard let key, !key.isEmpty else { return .sparkles }
+        if let icon = VIcon(rawValue: key) { return icon }
+        if !key.hasPrefix("lucide-"),
+           let icon = VIcon(rawValue: "lucide-\(key)") {
+            return icon
+        }
+        return .sparkles
+    }
 }
 
 /// A single dark-capsule pill with a leading circular icon badge and an
