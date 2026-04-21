@@ -132,6 +132,12 @@ export interface CommandRiskSpec {
    */
   isWrapper?: boolean;
   /**
+   * Flags that put a wrapper into a non-exec mode (e.g. command -v, env -0).
+   * When the first arg matches a non-exec flag, skip unwrapping and classify
+   * the wrapper standalone against its own arg rules.
+   */
+  nonExecFlags?: string[];
+  /**
    * Does this command have non-standard syntax where intermediate scope
    * options would be confusing? (find, xargs, awk, etc.)
    * When true, the scope ladder only offers exact match and command-level wildcard.
@@ -139,6 +145,12 @@ export interface CommandRiskSpec {
   complexSyntax?: boolean;
   /** Human-readable reason for the base risk (shown when no arg rule matches). */
   reason?: string;
+  /**
+   * Global flags that consume the next token as a value (e.g. git -C <path>).
+   * Used by resolveSubcommand to skip past flag-value pairs when locating the
+   * first positional arg (the subcommand name).
+   */
+  globalValueFlags?: string[];
 }
 
 // ── User rule types ──────────────────────────────────────────────────────────

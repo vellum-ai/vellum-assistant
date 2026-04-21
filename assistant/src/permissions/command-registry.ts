@@ -254,6 +254,15 @@ export const DEFAULT_COMMAND_REGISTRY = {
   // Divergences are noted inline.
   git: {
     baseRisk: "medium",
+    globalValueFlags: [
+      "-C",
+      "-c",
+      "--git-dir",
+      "--work-tree",
+      "--namespace",
+      "--super-prefix",
+      "--config-env",
+    ],
     subcommands: {
       // LOW_RISK_GIT_SUBCOMMANDS from checker.ts:
       status: { baseRisk: "low" },
@@ -348,6 +357,7 @@ export const DEFAULT_COMMAND_REGISTRY = {
   // they download and execute code, with subcommand-level overrides.
   npm: {
     baseRisk: "medium",
+    globalValueFlags: ["--prefix", "--userconfig", "--globalconfig", "--cache"],
     subcommands: {
       ls: { baseRisk: "low" },
       list: { baseRisk: "low" },
@@ -496,6 +506,8 @@ export const DEFAULT_COMMAND_REGISTRY = {
   },
   ruby: { baseRisk: "high", reason: "Executes arbitrary Ruby code" },
   go: {
+    // baseRisk is low (unlike npm's medium) because bare `go` prints help.
+    // Dangerous subcommands (run, test, generate, get) are handled individually.
     baseRisk: "low",
     subcommands: {
       mod: { baseRisk: "low" },
@@ -504,12 +516,22 @@ export const DEFAULT_COMMAND_REGISTRY = {
       build: { baseRisk: "medium" },
       test: { baseRisk: "high", reason: "Executes arbitrary test code" },
       run: { baseRisk: "high", reason: "Compiles and executes Go code" },
+      get: {
+        baseRisk: "medium",
+        reason:
+          "Downloads and installs packages; may execute arbitrary code via tool directives",
+      },
+      generate: {
+        baseRisk: "high",
+        reason: "Runs arbitrary commands via //go:generate directives",
+      },
     },
   },
 
   // ── Docker ─────────────────────────────────────────────────────────────────
   docker: {
     baseRisk: "medium",
+    globalValueFlags: ["--host", "-H", "--config", "--context", "--log-level"],
     subcommands: {
       ps: { baseRisk: "low" },
       images: { baseRisk: "low" },
@@ -609,11 +631,16 @@ export const DEFAULT_COMMAND_REGISTRY = {
   env: { baseRisk: "low", isWrapper: true },
   nice: { baseRisk: "low", isWrapper: true },
   nohup: { baseRisk: "low", isWrapper: true },
-  timeout: { baseRisk: "low", isWrapper: true },
+  timeout: {
+    baseRisk: "low",
+    isWrapper: true,
+    nonExecFlags: ["--help", "--version"],
+  },
   time: { baseRisk: "low", isWrapper: true },
   command: {
     baseRisk: "low",
     isWrapper: true,
+    nonExecFlags: ["-v", "-V"],
     argRules: [
       {
         id: "command:lookup",
@@ -708,6 +735,7 @@ export const DEFAULT_COMMAND_REGISTRY = {
   // ── Version control tools ──────────────────────────────────────────────────
   gh: {
     baseRisk: "low",
+    globalValueFlags: ["--repo", "-R"],
     subcommands: {
       pr: {
         baseRisk: "low",
