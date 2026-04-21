@@ -72,9 +72,9 @@ struct ConversationListView: View {
     /// compact size classes where `IOSRootNavigationView` owns the NavigationStack.
     var onSelectConversation: ((UUID) -> Void)?
 
-    /// Invoked when the user taps the Settings entry point. Present on both the
-    /// iPad sidebar toolbar and the drawer footer so Settings has a single,
-    /// consistent presentation path (a bottom sheet owned by `IOSRootNavigationView`).
+    /// Invoked when the user taps the Settings entry point in the iPad sidebar
+    /// toolbar. The bottom sheet itself is owned by `IOSRootNavigationView`.
+    /// Nil on compact, where the chat header hosts the Settings gear instead.
     var onShowSettings: (() -> Void)?
 
     /// Single source of truth for the active conversation, owned by
@@ -209,10 +209,9 @@ struct ConversationListView: View {
         .toolbar {
             // Mirror the Settings entry from `conversationList.toolbar` so iPad
             // first-run users can reach Settings even before the store's
-            // initial conversation load completes. Compact (drawer) mode
-            // reaches Settings via the drawer's own footer and doesn't need
-            // this toolbar item.
-            if !isDrawerMode, let onShowSettings {
+            // initial conversation load completes. Compact reaches Settings
+            // via the chat header gear and passes a nil callback here.
+            if let onShowSettings {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(action: onShowSettings) {
                         VIconView(.settings, size: 20)
@@ -538,7 +537,7 @@ struct ConversationListView: View {
             await store.refreshConversationList(daemon: clientProvider.client)
         }
         .toolbar {
-            if !isDrawerMode, let onShowSettings {
+            if let onShowSettings {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button(action: onShowSettings) {
                         VIconView(.settings, size: 20)
@@ -736,6 +735,9 @@ struct ConversationChatView: View {
     var onOpenDrawer: (() -> Void)?
     /// Starts a new conversation. Non-nil only on compact size classes.
     var onComposeNew: (() -> Void)?
+    /// Presents the Settings bottom sheet. Non-nil only on compact size classes;
+    /// iPad reaches Settings via the persistent sidebar toolbar instead.
+    var onShowSettings: (() -> Void)?
 
     var body: some View {
         let anchorRequest = store.pendingAnchorRequest(for: conversation.id)
@@ -768,6 +770,15 @@ struct ConversationChatView: View {
                     }
                     .accessibilityLabel("Chats")
                     .accessibilityHint("Opens the conversation menu")
+                }
+            }
+            if horizontalSizeClass == .compact, let onShowSettings {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: onShowSettings) {
+                        VIconView(.settings, size: 20)
+                    }
+                    .accessibilityLabel("Settings")
+                    .accessibilityHint("Opens the Settings sheet")
                 }
             }
             if horizontalSizeClass == .compact, let onComposeNew {

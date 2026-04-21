@@ -41,7 +41,6 @@ struct IOSRootNavigationView: View {
     /// signal on a conversation the user never explicitly opened.
     @State private var activeConversationWasSeeded: Bool = false
     @State private var dragTranslation: CGFloat = 0
-    @State private var settingsPresentDelayTask: Task<Void, Never>?
 
     /// Width of the drawer — capped so the underlying chat still peeks through.
     private let drawerMaxWidth: CGFloat = 360
@@ -128,15 +127,6 @@ struct IOSRootNavigationView: View {
                 isSettingsPresented = true
             }
         }
-        .onDisappear {
-            // `settingsPresentDelayTask` is spawned from the drawer's "Settings"
-            // footer to wait for the drawer's close animation before presenting
-            // the sheet. Cancel any pending delay when this view is torn down
-            // (e.g. when `ContentView.id(ObjectIdentifier(client))` recreates
-            // the navigation root) so it doesn't fire against stale state.
-            settingsPresentDelayTask?.cancel()
-            settingsPresentDelayTask = nil
-        }
     }
 
     // MARK: - Compact (iPhone)
@@ -161,7 +151,6 @@ struct IOSRootNavigationView: View {
                 ConversationDrawerView(
                     store: store,
                     onSelectConversation: selectConversation,
-                    onShowSettings: showSettingsAfterDrawerClose,
                     onClose: closeDrawer,
                     activeConversationId: $activeConversationId
                 )
@@ -226,7 +215,8 @@ struct IOSRootNavigationView: View {
                 store: store,
                 conversation: conversation,
                 onOpenDrawer: openDrawer,
-                onComposeNew: composeNewConversation
+                onComposeNew: composeNewConversation,
+                onShowSettings: { isSettingsPresented = true }
             )
             .task(id: id) {
                 store.loadHistoryIfNeeded(for: id)
@@ -288,6 +278,15 @@ struct IOSRootNavigationView: View {
                 .accessibilityLabel("Chats")
                 .accessibilityHint("Opens the conversation menu")
             }
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button {
+                    isSettingsPresented = true
+                } label: {
+                    VIconView(.settings, size: 20)
+                }
+                .accessibilityLabel("Settings")
+                .accessibilityHint("Opens the Settings sheet")
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: composeNewConversation) {
                     VIconView(.squarePen, size: 20)
@@ -316,23 +315,6 @@ struct IOSRootNavigationView: View {
 
     private func closeDrawer() {
         isDrawerOpen = false
-    }
-
-    /// Closes the drawer, waits a beat so its dismissal animation can start,
-    /// then presents the Settings sheet. The short delay avoids the jank of
-    /// two overlapping animations kicking off on the same frame. The delay is
-    /// implemented with a cancellable `Task` (not `DispatchQueue.asyncAfter`)
-    /// so that if the view is torn down mid-delay the pending sheet
-    /// presentation is cancelled — `DispatchQueue.main.asyncAfter` blocks are
-    /// not cancellable (see `clients/AGENTS.md` — "Task Lifecycle Patterns").
-    private func showSettingsAfterDrawerClose() {
-        closeDrawer()
-        settingsPresentDelayTask?.cancel()
-        settingsPresentDelayTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            guard !Task.isCancelled else { return }
-            isSettingsPresented = true
-        }
     }
 
     private func selectConversation(_ id: UUID) {
@@ -417,13 +399,9 @@ struct IOSRootNavigationView: View {
         // A selection request is always a jump-to-chat intent (push
         // notification tap, fork navigation, etc.). Dismiss the Settings sheet
         // if it's up so the user actually sees the target conversation
-        // instead of remaining behind the modal, and cancel any pending
-        // delayed Settings-present task so it doesn't re-open the sheet on top
-        // of the target chat after it lands. This applies to both size
+        // instead of remaining behind the modal. This applies to both size
         // classes — the sheet is owned by this view and covers the sidebar on
         // iPad just as it covers the chat on iPhone.
-        settingsPresentDelayTask?.cancel()
-        settingsPresentDelayTask = nil
         if isSettingsPresented {
             isSettingsPresented = false
         }
