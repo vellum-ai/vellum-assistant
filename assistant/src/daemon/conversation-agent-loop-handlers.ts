@@ -14,6 +14,7 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
+import { getCalibrationProviderKey } from "../context/token-estimator.js";
 import {
   addMessage,
   getConversation,
@@ -858,12 +859,23 @@ export function handleUsage(
   // provider's ground-truth inputTokens. `recordEstimate` silently ignores
   // samples below its magnitude threshold or outside its outlier bounds,
   // so it's safe to call unconditionally.
+  //
+  // The calibration key must match what `estimatePromptTokens` callers look
+  // up — use the canonical provider key (`tokenEstimationProvider ?? name`),
+  // falling back to the response's `actualProvider` only when neither hint
+  // is set on the provider object (shouldn't happen, but cheap). Using
+  // `event.actualProvider` as the primary key would scatter data across
+  // mismatched keys for wrapper providers like OpenRouter.
+  const calibrationProviderKey =
+    getCalibrationProviderKey(deps.ctx.provider) ||
+    (event.actualProvider ?? "");
   if (
+    calibrationProviderKey.length > 0 &&
     event.estimatedInputTokens !== undefined &&
     event.estimatedInputTokens > 0
   ) {
     recordEstimate(
-      providerName,
+      calibrationProviderKey,
       event.model,
       event.estimatedInputTokens,
       event.inputTokens,

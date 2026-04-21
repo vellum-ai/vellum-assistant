@@ -155,6 +155,14 @@ export interface ContextWindowManagerOptions {
   config: ContextWindowConfig;
   /** Pre-computed tool token budget to include in all estimations. */
   toolTokenBudget?: number;
+  /**
+   * Active model id (or a thunk that resolves it). Threaded into
+   * `estimatePromptTokens` so the calibration correction matches the
+   * `(provider, model)` key recorded by `handleUsage`. When omitted or the
+   * thunk returns `undefined`, the per-provider aggregate key is used as
+   * the fallback.
+   */
+  activeModel?: string | (() => string | undefined);
 }
 
 export class ContextWindowManager {
@@ -162,6 +170,10 @@ export class ContextWindowManager {
   private readonly _systemPrompt: string | (() => string);
   private readonly config: ContextWindowConfig;
   private readonly toolTokenBudget: number;
+  private readonly _activeModel:
+    | string
+    | (() => string | undefined)
+    | undefined;
   /**
    * Number of leading messages that are non-persisted (injected inherited
    * context from a parent conversation).  `countPersistedMessages` subtracts
@@ -192,16 +204,31 @@ export class ContextWindowManager {
     this._systemPrompt = options.systemPrompt;
     this.config = options.config;
     this.toolTokenBudget = options.toolTokenBudget ?? 0;
+    this._activeModel = options.activeModel;
   }
 
   /**
    * Provider key for the local token estimator. Wrapper providers (e.g.
    * OpenRouter routing to `anthropic/*`) override `tokenEstimationProvider`
    * so image/PDF sizing uses the same rules as the upstream API instead of
-   * the generic `base64/4` fallback.
+   * the generic `base64/4` fallback. This is also the canonical key used by
+   * the calibration lookup so record and read sites agree.
    */
   private get estimationProviderName(): string {
     return this.provider.tokenEstimationProvider ?? this.provider.name;
+  }
+
+  /**
+   * Resolve the active model id for the calibration lookup. When unset (or
+   * the thunk returns undefined), `estimatePromptTokens` falls back to the
+   * per-provider aggregate key recorded alongside every `(provider, model)`
+   * sample — still catching systematic provider-level bias.
+   */
+  private get activeModel(): string | undefined {
+    if (this._activeModel === undefined) return undefined;
+    return typeof this._activeModel === "function"
+      ? this._activeModel()
+      : this._activeModel;
   }
 
   /** Lazily resolve and cache the system prompt for the duration of a compaction pass. */
@@ -232,6 +259,7 @@ export class ContextWindowManager {
     try {
       const estimated = estimatePromptTokens(messages, this.systemPrompt, {
         providerName: this.estimationProviderName,
+        modelId: this.activeModel,
         toolTokenBudget: this.toolTokenBudget,
       });
       const threshold = Math.floor(
@@ -264,6 +292,7 @@ export class ContextWindowManager {
       options?.precomputedEstimate ??
       estimatePromptTokens(messages, this.systemPrompt, {
         providerName: this.estimationProviderName,
+        modelId: this.activeModel,
         toolTokenBudget: this.toolTokenBudget,
       });
     const thresholdTokens = Math.floor(
@@ -347,6 +376,7 @@ export class ContextWindowManager {
       const estimatedAfterTruncation = didTruncate
         ? estimatePromptTokens(truncatedMessages, this.systemPrompt, {
             providerName: this.estimationProviderName,
+            modelId: this.activeModel,
             toolTokenBudget: this.toolTokenBudget,
           })
         : previousEstimatedInputTokens;
@@ -419,6 +449,7 @@ export class ContextWindowManager {
       this.systemPrompt,
       {
         providerName: this.estimationProviderName,
+        modelId: this.activeModel,
         toolTokenBudget: this.toolTokenBudget,
       },
     );
@@ -549,6 +580,7 @@ export class ContextWindowManager {
       this.systemPrompt,
       {
         providerName: this.estimationProviderName,
+        modelId: this.activeModel,
         toolTokenBudget: this.toolTokenBudget,
       },
     );
@@ -638,6 +670,7 @@ export class ContextWindowManager {
       );
       return estimatePromptTokens(projectedMessages, this.systemPrompt, {
         providerName: this.estimationProviderName,
+        modelId: this.activeModel,
         toolTokenBudget: this.toolTokenBudget,
       });
     };

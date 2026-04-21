@@ -113,7 +113,9 @@ describe("estimator calibration", () => {
     recordEstimate("openai", "gpt-5", 100_000, 90_000);
 
     const snap = getCalibrationSnapshot();
-    expect(snap).toHaveLength(2);
+    // Every non-empty-model sample also updates the per-provider aggregate
+    // key (provider, ""). Two providers × {specific model, aggregate} = 4.
+    expect(snap).toHaveLength(4);
 
     const anthropicEntry = snap.find(
       (e) => e.provider === "anthropic" && e.model === "claude-sonnet-4-5",
@@ -128,6 +130,19 @@ describe("estimator calibration", () => {
     expect(openaiEntry).toBeDefined();
     expect(openaiEntry?.samples).toBe(1);
     expect(openaiEntry?.ratio).toBeCloseTo(0.9, 5);
+
+    // Per-provider aggregates are present and track the specific samples.
+    const anthropicAggregate = snap.find(
+      (e) => e.provider === "anthropic" && e.model === "",
+    );
+    expect(anthropicAggregate?.samples).toBe(2);
+    expect(anthropicAggregate?.ratio).toBeCloseTo(1.3, 5);
+
+    const openaiAggregate = snap.find(
+      (e) => e.provider === "openai" && e.model === "",
+    );
+    expect(openaiAggregate?.samples).toBe(1);
+    expect(openaiAggregate?.ratio).toBeCloseTo(0.9, 5);
   });
 
   test("empty model string is treated as its own key (per-provider fallback)", () => {
@@ -135,5 +150,47 @@ describe("estimator calibration", () => {
     expect(getCorrection("anthropic", "")).toBeCloseTo(1.3, 5);
     // A specific model under the same provider is unaffected.
     expect(getCorrection("anthropic", "claude-sonnet-4-5")).toBe(1.0);
+  });
+
+  test("recording with a specific model also updates the per-provider aggregate", () => {
+    // The calibration writes `(provider, model)` and every caller of
+    // `estimatePromptTokens` that cannot resolve a model falls back to
+    // `(provider, "")`. Without the aggregate update, those callers would
+    // stay at the 1.0 default forever, defeating the whole mechanism.
+    recordEstimate("anthropic", "claude-sonnet-4-5", 100_000, 130_000);
+    expect(getCorrection("anthropic", "claude-sonnet-4-5")).toBeCloseTo(1.3, 5);
+    expect(getCorrection("anthropic", "")).toBeCloseTo(1.3, 5);
+    // A different provider is unaffected.
+    expect(getCorrection("openai", "")).toBe(1.0);
+  });
+
+  test("the per-provider aggregate tracks a rolling EWMA across models", () => {
+    // Samples across two models for one provider should each feed the
+    // aggregate EWMA, so a generic lookup reflects recent activity from
+    // any model on that provider.
+    recordEstimate("anthropic", "claude-sonnet-4-5", 100_000, 120_000);
+    recordEstimate("anthropic", "claude-opus-4-7", 100_000, 120_000);
+    recordEstimate("anthropic", "claude-sonnet-4-5", 100_000, 120_000);
+    recordEstimate("anthropic", "claude-opus-4-7", 100_000, 120_000);
+
+    // After four consistent 1.2 samples (folded into both the model-specific
+    // and the aggregate keys) the EWMA for each sits very close to 1.2.
+    expect(getCorrection("anthropic", "")).toBeCloseTo(1.2, 1);
+    expect(getCorrection("anthropic", "claude-sonnet-4-5")).toBeCloseTo(1.2, 1);
+    expect(getCorrection("anthropic", "claude-opus-4-7")).toBeCloseTo(1.2, 1);
+  });
+
+  test("explicit empty-model recording does not double-count the aggregate", () => {
+    // When a caller passes an empty model string (degenerate case), the
+    // aggregate update path must not run — otherwise the sample would be
+    // folded into the EWMA twice and the ratio would be wrong.
+    recordEstimate("anthropic", "", 100_000, 120_000);
+    // Exactly one sample applied.
+    const snap = getCalibrationSnapshot().filter(
+      (e) => e.provider === "anthropic" && e.model === "",
+    );
+    expect(snap).toHaveLength(1);
+    expect(snap[0].samples).toBe(1);
+    expect(snap[0].ratio).toBeCloseTo(1.2, 5);
   });
 });

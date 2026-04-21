@@ -3,6 +3,7 @@ import * as Sentry from "@sentry/node";
 import {
   estimatePromptTokensRaw,
   estimateToolsTokens,
+  getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import { truncateOversizedToolResults } from "../context/tool-result-truncation.js";
 import { getHookManager } from "../hooks/manager.js";
@@ -208,6 +209,21 @@ export class AgentLoop {
     return estimateToolsTokens(tools);
   }
 
+  /**
+   * Resolve the active model id for the next provider call, matching what
+   * `run()` threads into `providerConfig.model`. Estimator callers outside
+   * `run()` (preflight, mid-loop checkpoints, overflow recovery, the window
+   * manager) use this to build the calibration key so recording and lookup
+   * agree on `(provider, model)`. Returns `undefined` when no override is
+   * configured — the provider's default model is then effectively opaque
+   * until its first response lands, and the estimator falls back to the
+   * per-provider aggregate via the empty-model key.
+   */
+  getActiveModel(history?: Message[]): string | undefined {
+    if (!this.resolveSystemPrompt) return undefined;
+    return this.resolveSystemPrompt(history ?? []).model;
+  }
+
   async run(
     messages: Message[],
     onEvent: (event: AgentEvent) => void | Promise<void>,
@@ -315,7 +331,7 @@ export class AgentLoop {
           history,
           turnSystemPrompt,
           {
-            providerName: this.provider.name,
+            providerName: getCalibrationProviderKey(this.provider),
             modelId: turnModel,
             toolTokenBudget,
           },

@@ -1,10 +1,26 @@
 import type {
   ContentBlock,
   Message,
+  Provider,
   ToolDefinition,
 } from "../providers/types.js";
 import { getCorrection } from "./estimator-calibration.js";
 import { parseImageDimensions } from "./image-dimensions.js";
+
+/**
+ * Canonical provider key used for calibration lookups and updates. Wrapper
+ * providers (e.g. OpenRouter routing `anthropic/*` traffic to the Messages
+ * API) set `tokenEstimationProvider` to the upstream provider name so the
+ * calibration key matches the one used when the provider actually produces
+ * the response. Falls back to `name` when the wrapper hint is unset.
+ *
+ * Every caller that records a sample or applies a correction must use this
+ * helper — otherwise wrapper-provider data is scattered across mismatched
+ * keys and the calibration becomes a no-op.
+ */
+export function getCalibrationProviderKey(provider: Provider): string {
+  return provider.tokenEstimationProvider ?? provider.name;
+}
 
 const CHARS_PER_TOKEN = 4;
 const MESSAGE_OVERHEAD_TOKENS = 4;

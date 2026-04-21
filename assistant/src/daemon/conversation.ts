@@ -520,6 +520,9 @@ export class Conversation {
       systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
       config: config.contextWindow,
       toolTokenBudget: this.agentLoop.getToolTokenBudget(),
+      // Resolve lazily so model-override updates (if ever added) flow
+      // through to calibration lookups without reconstructing the manager.
+      activeModel: () => resolveSystemPromptCallback([]).model,
     });
 
     void getHookManager().trigger("conversation-start", {

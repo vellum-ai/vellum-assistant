@@ -43,10 +43,28 @@ function key(provider: string, model: string): string {
   return `${provider}::${model}`;
 }
 
+/** Apply a single EWMA update at an exact (provider, model) key. */
+function applyEwmaUpdate(provider: string, model: string, ratio: number): void {
+  const k = key(provider, model);
+  const prev = CALIBRATIONS.get(k);
+  const next: CalibrationState = prev
+    ? {
+        ratio: prev.ratio + EWMA_ALPHA * (ratio - prev.ratio),
+        sampleCount: prev.sampleCount + 1,
+      }
+    : { ratio, sampleCount: 1 };
+  CALIBRATIONS.set(k, next);
+}
+
 /**
  * Fold a new (estimated, actual) observation into the EWMA ratio for this
  * (provider, model). No-op when either number is too small to be reliable,
  * or when the ratio is an outlier.
+ *
+ * When `model` is non-empty, the same observation is also folded into the
+ * per-provider aggregate key `(provider, "")` so callers that cannot resolve
+ * a specific model (early-init paths, provider-only estimate sites) still
+ * pick up a reasonable correction via {@link getCorrection}.
  */
 export function recordEstimate(
   provider: string,
@@ -58,15 +76,14 @@ export function recordEstimate(
   const ratio = actual / estimated;
   if (ratio < MIN_ACCEPTABLE_RATIO || ratio > MAX_ACCEPTABLE_RATIO) return;
 
-  const k = key(provider, model);
-  const prev = CALIBRATIONS.get(k);
-  const next: CalibrationState = prev
-    ? {
-        ratio: prev.ratio + EWMA_ALPHA * (ratio - prev.ratio),
-        sampleCount: prev.sampleCount + 1,
-      }
-    : { ratio, sampleCount: 1 };
-  CALIBRATIONS.set(k, next);
+  applyEwmaUpdate(provider, model, ratio);
+
+  // Also fold into the per-provider aggregate so callers without a modelId
+  // fall back to a meaningful rolling correction instead of the 1.0 default.
+  // Skip when the caller already passed an empty model (avoids double-counting).
+  if (model.length > 0) {
+    applyEwmaUpdate(provider, "", ratio);
+  }
 }
 
 /**

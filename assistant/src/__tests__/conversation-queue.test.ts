@@ -330,6 +330,9 @@ mock.module("../agent/loop.js", () => ({
     getToolTokenBudget() {
       return 0;
     }
+    getActiveModel() {
+      return undefined;
+    }
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void,
@@ -1309,18 +1312,18 @@ describe("Batched drain correctness fixes", () => {
       (m) => m.role === "user" && m.content.includes("surface action response"),
     );
     expect(surfaceUserRowsAfterRun2).toHaveLength(1);
-    expect(eventsSurface.filter((e) => e.type === "message_dequeued")).toHaveLength(
-      1,
-    );
+    expect(
+      eventsSurface.filter((e) => e.type === "message_dequeued"),
+    ).toHaveLength(1);
 
     // Complete the surface-action run; drain pulls the regular passthrough
     // as its own separate run.
     resolveRun(1);
     await waitForPendingRun(3);
     expect(pendingRuns.length).toBe(3);
-    expect(eventsRegular.filter((e) => e.type === "message_dequeued")).toHaveLength(
-      1,
-    );
+    expect(
+      eventsRegular.filter((e) => e.type === "message_dequeued"),
+    ).toHaveLength(1);
 
     // Total runs = 3: msg-1, surface-action, regular — NOT 2 (would mean
     // they were batched).
@@ -1390,9 +1393,9 @@ describe("Batched drain correctness fixes", () => {
     const contents = userRowsAfter.map((r) => r.content).join("||");
     expect(contents).toContain("msg-2");
     expect(contents).not.toContain("msg-4");
-    expect(
-      events4.filter((e) => e.type === "message_dequeued"),
-    ).toHaveLength(0);
+    expect(events4.filter((e) => e.type === "message_dequeued")).toHaveLength(
+      0,
+    );
   });
 
   test("failed tail persist uses last-successful requestId", async () => {
@@ -1452,7 +1455,8 @@ describe("Batched drain correctness fixes", () => {
     // (last SUCCESSFUL persist), not the mid's. We check via currentRequestId
     // on the conversation which drainBatch assigns after the loop.
     expect(
-      (conversation as unknown as { currentRequestId?: string }).currentRequestId,
+      (conversation as unknown as { currentRequestId?: string })
+        .currentRequestId,
     ).toBe("req-tail");
 
     // Cleanup: resolve the batched run.

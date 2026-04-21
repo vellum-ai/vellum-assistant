@@ -28,7 +28,10 @@ import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
 } from "../context/post-turn-tool-result-truncation.js";
-import { estimatePromptTokens } from "../context/token-estimator.js";
+import {
+  estimatePromptTokens,
+  getCalibrationProviderKey,
+} from "../context/token-estimator.js";
 import type { ContextWindowManager } from "../context/window-manager.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
@@ -946,10 +949,19 @@ export async function runAgentLoopImpl(
     let reducerState: ReducerState | undefined;
 
     const toolTokenBudget = ctx.agentLoop.getToolTokenBudget(runMessages);
+    // Canonical calibration key used at every `estimatePromptTokens` site in
+    // this function. Matches the key recorded by `handleUsage` for wrapper
+    // providers (OpenRouter routing to Anthropic → key is `"anthropic"`).
+    const estimationProviderName = getCalibrationProviderKey(ctx.provider);
+    const activeModelId = ctx.agentLoop.getActiveModel(runMessages);
     const preflightTokens = estimatePromptTokens(
       runMessages,
       ctx.systemPrompt,
-      { providerName: ctx.provider.name, toolTokenBudget },
+      {
+        providerName: estimationProviderName,
+        modelId: activeModelId,
+        toolTokenBudget,
+      },
     );
 
     if (overflowRecovery.enabled && preflightTokens > preflightBudget) {
@@ -979,7 +991,8 @@ export async function runAgentLoopImpl(
         const step = await reduceContextOverflow(
           ctx.messages,
           {
-            providerName: ctx.provider.name,
+            providerName: estimationProviderName,
+            modelId: activeModelId,
             systemPrompt: ctx.systemPrompt,
             contextWindow: config.contextWindow,
             targetTokens: preflightBudget,
@@ -1086,7 +1099,11 @@ export async function runAgentLoopImpl(
         const postInjectionTokens = estimatePromptTokens(
           runMessages,
           ctx.systemPrompt,
-          { providerName: ctx.provider.name, toolTokenBudget },
+          {
+            providerName: estimationProviderName,
+            modelId: activeModelId,
+            toolTokenBudget,
+          },
         );
 
         if (postInjectionTokens <= preflightBudget) break;
@@ -1152,7 +1169,11 @@ export async function runAgentLoopImpl(
         const estimated = estimatePromptTokens(
           checkpoint.history,
           ctx.systemPrompt,
-          { providerName: ctx.provider.name, toolTokenBudget },
+          {
+            providerName: estimationProviderName,
+            modelId: ctx.agentLoop.getActiveModel(checkpoint.history),
+            toolTokenBudget,
+          },
         );
         if (estimated > midLoopThreshold) {
           rlog.warn(
@@ -1388,7 +1409,11 @@ export async function runAgentLoopImpl(
       const estimatedTokensAtOverflow = estimatePromptTokens(
         ctx.messages,
         ctx.systemPrompt,
-        { providerName: ctx.provider.name, toolTokenBudget },
+        {
+          providerName: estimationProviderName,
+          modelId: activeModelId,
+          toolTokenBudget,
+        },
       );
       let correctedTarget = preflightBudget;
       if (actualTokens && estimatedTokensAtOverflow > 0) {
@@ -1436,7 +1461,8 @@ export async function runAgentLoopImpl(
         const step = await reduceContextOverflow(
           ctx.messages,
           {
-            providerName: ctx.provider.name,
+            providerName: estimationProviderName,
+            modelId: activeModelId,
             systemPrompt: ctx.systemPrompt,
             contextWindow: config.contextWindow,
             targetTokens: correctedTarget,
