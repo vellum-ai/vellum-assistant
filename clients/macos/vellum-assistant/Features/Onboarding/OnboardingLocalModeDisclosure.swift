@@ -47,8 +47,8 @@ internal struct OnboardingLocalModeDisclosure: View {
                 Spacer(minLength: 0)
 
                 VButton(
-                    label: isExpanded ? "Collapse" : "Expand",
-                    iconOnly: isExpanded ? VIcon.x.rawValue : VIcon.plus.rawValue,
+                    label: isExpanded ? "Collapse" : "Learn more",
+                    iconOnly: isExpanded ? VIcon.x.rawValue : VIcon.info.rawValue,
                     style: .outlined,
                     size: .pill,
                     iconColor: VColor.contentSecondary
