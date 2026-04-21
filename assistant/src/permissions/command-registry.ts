@@ -140,7 +140,6 @@ export const DEFAULT_COMMAND_REGISTRY = {
   },
   awk: {
     baseRisk: "medium",
-    sandboxAutoApprove: true,
     argSchema: {
       positionals: [{ role: "script" }, { role: "path", rest: true }],
     },
@@ -192,7 +191,6 @@ export const DEFAULT_COMMAND_REGISTRY = {
   // registry adds arg rules for -exec/-execdir/-delete which escalate to high.
   find: {
     baseRisk: "low",
-    sandboxAutoApprove: true,
     argSchema: {
       valueFlags: [
         "-name",

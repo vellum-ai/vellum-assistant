@@ -580,15 +580,14 @@ describe("command-registry", () => {
       "cut",
       "tr",
       "sed",
-      "awk",
+      // awk excluded: system() can execute arbitrary commands
       // System info / text output
       "echo",
       "printf",
       // Data processing
       "jq",
       "yq",
-      // Find
-      "find",
+      // find excluded: -exec/-execdir/-delete can execute arbitrary commands or delete files
       "fd",
       // Write commands
       "cp",
