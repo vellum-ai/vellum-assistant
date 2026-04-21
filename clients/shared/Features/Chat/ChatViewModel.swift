@@ -2123,11 +2123,17 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         // `.pending`, overwrite the local status — a missed `subagentStatusChanged`
         // event otherwise leaves the UI stuck forever (LUM-1062). History is the
         // daemon's authoritative record, so it's safe to trust over local state.
+        // Also backfill `conversationId` from history in any case — the live
+        // `subagentSpawned` path does not populate it, and `SubagentClient.fetchDetail`
+        // / the detail panel rely on it being present for lazy-loaded events.
         for info in reconstructedSubagents {
             if let index = activeSubagents.firstIndex(where: { $0.id == info.id }) {
                 if info.isTerminal && !activeSubagents[index].isTerminal {
                     activeSubagents[index].status = info.status
                     activeSubagents[index].error = info.error
+                }
+                if activeSubagents[index].conversationId == nil, let convId = info.conversationId {
+                    activeSubagents[index].conversationId = convId
                 }
             } else {
                 activeSubagents.append(info)

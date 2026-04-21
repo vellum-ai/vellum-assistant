@@ -1935,13 +1935,15 @@ final class ChatViewModelTests: XCTestCase {
                 textSegments: nil, thinkingSegments: nil, contentOrder: nil, surfaces: nil,
                 subagentNotification: HistoryResponseMessageSubagentNotification(
                     subagentId: "s-stuck", label: "Stuck", status: "completed",
-                    error: nil, conversationId: nil
+                    error: nil, conversationId: "sub-conv-1"
                 )
             ),
         ]
         viewModel.populateFromHistory(historyItems, hasMore: false)
         XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-stuck" })?.status, .completed,
                        "History's terminal status must overwrite a locally-stuck `.running` entry")
+        XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-stuck" })?.conversationId, "sub-conv-1",
+                       "History's conversationId must be propagated onto the reconciled entry so detail lazy-load works")
     }
 
     func testPopulateFromHistoryDoesNotOverwriteRunningWithRunning() {
@@ -1956,7 +1958,7 @@ final class ChatViewModelTests: XCTestCase {
                 textSegments: nil, thinkingSegments: nil, contentOrder: nil, surfaces: nil,
                 subagentNotification: HistoryResponseMessageSubagentNotification(
                     subagentId: "s-live", label: "Live", status: "running",
-                    error: nil, conversationId: nil
+                    error: nil, conversationId: "sub-conv-live"
                 )
             ),
         ]
@@ -1965,6 +1967,35 @@ final class ChatViewModelTests: XCTestCase {
         // (preserving `parentMessageId` and the live in-memory copy).
         XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-live" })?.status, .running)
         XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-live" })?.parentMessageId, originalParentId)
+        // conversationId must still be backfilled even though status was not changed —
+        // the live `.subagentSpawned` path does not populate it, so history is the
+        // only source for it and the detail panel's lazy-load depends on it.
+        XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-live" })?.conversationId, "sub-conv-live",
+                       "conversationId must be backfilled from history even when status is unchanged")
+    }
+
+    func testPopulateFromHistoryBackfillsConversationIdOnExistingEntry() {
+        // Seed with a locally-completed entry that has no conversationId —
+        // the live `.subagentSpawned` path never populates it, so any entry
+        // that was born from a live event has conversationId == nil.
+        viewModel.activeSubagents = [
+            SubagentInfo(id: "s-done", label: "Done", status: .completed)
+        ]
+        XCTAssertNil(viewModel.activeSubagents.first(where: { $0.id == "s-done" })?.conversationId)
+        let historyItems: [HistoryResponseMessage] = [
+            HistoryResponseMessage(
+                id: nil, role: "assistant", text: "", timestamp: 1000,
+                toolCalls: nil, toolCallsBeforeText: nil, attachments: nil,
+                textSegments: nil, thinkingSegments: nil, contentOrder: nil, surfaces: nil,
+                subagentNotification: HistoryResponseMessageSubagentNotification(
+                    subagentId: "s-done", label: "Done", status: "completed",
+                    error: nil, conversationId: "sub-conv-done"
+                )
+            ),
+        ]
+        viewModel.populateFromHistory(historyItems, hasMore: false)
+        XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-done" })?.conversationId, "sub-conv-done",
+                       "populateFromHistory must backfill conversationId onto an existing local entry")
     }
 
     // MARK: - Interleaved Text/Tool-Call Segments
