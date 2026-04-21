@@ -169,6 +169,16 @@ struct AssistantTransferSection: View {
             currentStep = "Uploading data to cloud..."
             try await importBundleToManaged(bundleData: bundleData)
 
+            // Step 3b — Inject client-resolvable vellum identity fields that
+            // Django's post-hatch provisioning doesn't cover (org id, user id).
+            // Normal local bootstrap sets these via `LocalAssistantBootstrapService`;
+            // the transfer flow has to do it here because it skips that bootstrap.
+            let organizationId = try await ManagedAssistantBootstrapService.shared.resolveOrganizationId()
+            await ManagedAssistantIdentityInjection.inject(
+                into: platformAssistant.id,
+                organizationId: organizationId
+            )
+
             // Step 4 — Switch to managed assistant
             currentStep = "Switching to cloud assistant..."
             guard let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.assistantId == platformAssistant.id && $0.isManaged }) else {
