@@ -99,24 +99,14 @@ const DEFAULT_MAX_BUNDLE_ENTRIES = 100_000;
 
 /**
  * Prefixes used for scratch dirs the streaming importer creates INSIDE the
- * workspace. Dot-prefixed to stay out of the way of real workspace content,
- * and marked so that any walker over the workspace top level can filter
- * them out via `isImportScratchEntry`.
+ * workspace. Dot-prefixed to stay out of the way of real workspace content.
+ * Phase 1 of `swapWorkspaceContents` skips the EXACT scratch basenames for
+ * this run (via a `Set<string>` built from the backupDir/tempWorkspaceDir
+ * basenames), so a user entry that happens to start with one of these
+ * prefixes is still swept into the swap.
  */
 const IMPORT_TEMP_PREFIX = ".import-";
 const IMPORT_BACKUP_PREFIX = ".pre-import-";
-
-/**
- * Returns true if `name` is a top-level scratch entry created by the
- * streaming importer (temp staging tree or pre-import backup). Callers
- * walking the workspace should skip these so the import's own bookkeeping
- * isn't swept into backups / swaps / carry-over plans.
- */
-function isImportScratchEntry(name: string): boolean {
-  return (
-    name.startsWith(IMPORT_TEMP_PREFIX) || name.startsWith(IMPORT_BACKUP_PREFIX)
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -189,20 +179,47 @@ export async function streamCommitImport(
 
   const realWorkspaceDir = resolve(workspaceDir);
 
-  // Replay recovery from any prior interrupted import BEFORE we stage new
-  // data. If a previous streamCommitImport was killed between carry-over
-  // and the atomic swap, the live workspace is missing preserved paths
-  // (they were moved to an `.import-<uuid>` temp tree). The marker
-  // persisted below is what recoverInterruptedImport reads to move them
-  // back. Failure to recover is logged but non-fatal — we want the new
-  // import to proceed so operators aren't stuck.
+  // Replay recovery from any prior interrupted import BEFORE we stage
+  // new data. If the previous import died mid-swap, the marker / temp /
+  // backup still sit in the workspace and recoverInterruptedImport rolls
+  // them back. If that rollback is INCOMPLETE (per-entry restore failed
+  // and we had to preserve the marker for retry), we must REFUSE to
+  // start a new import — this function is about to rewrite the marker
+  // at the same path, and a fresh write would orphan the unresolved
+  // backup/temp pointers, making the interrupted state unrecoverable.
+  //
+  // In that case, return write_failed so the caller retries later; an
+  // operator can investigate the leftover `.pre-import-*` / `.import-*`
+  // dirs in the workspace.
+  let recoveryResult: RecoveryResult;
   try {
-    await recoverInterruptedImport(realWorkspaceDir);
+    recoveryResult = await recoverInterruptedImport(realWorkspaceDir);
   } catch (err) {
-    log.warn(
+    log.error(
       { err, realWorkspaceDir },
-      "recoverInterruptedImport threw before streaming import; continuing",
+      "recoverInterruptedImport threw before streaming import",
     );
+    return {
+      ok: false,
+      reason: "write_failed",
+      message: `Pre-import recovery failed: ${errMessage(err)}`,
+    };
+  }
+  if (!recoveryResult.ok) {
+    log.error(
+      {
+        realWorkspaceDir,
+        failedCount: recoveryResult.failedCount,
+      },
+      "Previous import rollback is still unresolved; refusing to start a new import",
+    );
+    return {
+      ok: false,
+      reason: "write_failed",
+      message:
+        `Previous import rollback is still unresolved (${recoveryResult.failedCount} entries failed to restore). ` +
+        "Leftover backup/temp dirs are preserved in the workspace; manual intervention may be required before the next import.",
+    };
   }
 
   // Put scratch dirs (temp staging tree, backup dir) INSIDE the workspace
@@ -212,8 +229,9 @@ export async function streamCommitImport(
   // require a full cp+rm of the entire workspace. That defeats the
   // zero-disk fast path and risks ENOSPC on the overlay for large
   // teleports. Dot-prefixed names keep them out of the way of normal
-  // content; phase 1 of swapWorkspaceContents and any other workspace
-  // walker filter them out via `isImportScratchEntry`.
+  // content; phase 1 of swapWorkspaceContents filters them out by exact
+  // basename so user entries that happen to start with these prefixes
+  // are still swept through the swap.
   const tempWorkspaceDir = join(
     realWorkspaceDir,
     `${IMPORT_TEMP_PREFIX}${randomUUID()}`,
@@ -1399,15 +1417,20 @@ async function swapWorkspaceContents(
   await mkdir(backupDir, { recursive: true });
 
   // Phase 1: move every top-level entry out of real into backup. Skip
-  // the import-owned scratch dirs (`.import-<uuid>`, `.pre-import-<ts>`)
-  // that live in the workspace root — they're our own bookkeeping, not
-  // workspace content, and moving them into backup would either be a
-  // no-op (moving backup into itself) or would drag the temp staging
-  // tree inside backup where recovery can't find it.
+  // ONLY the exact scratch dirs this import owns (backupDir itself, and
+  // the tempWorkspaceDir passed in) — NOT everything that happens to
+  // start with the `.import-`/`.pre-import-` prefix. A user workspace
+  // that legitimately contains an entry with one of those prefixes
+  // would otherwise leak state across imports, and a bundle carrying
+  // the same name would collide on phase-2 rename-in.
+  const scratchBasenames = new Set<string>([
+    basename(backupDir),
+    basename(tempWorkspaceDir),
+  ]);
   let liveEntries: string[];
   try {
     liveEntries = (await readdir(realWorkspaceDir)).filter(
-      (name) => !isImportScratchEntry(name),
+      (name) => !scratchBasenames.has(name),
     );
   } catch (err) {
     if (isENOENT(err)) {
@@ -2090,6 +2113,23 @@ async function safelyDeleteMarker(markerPath: string): Promise<void> {
   }
 }
 
+export interface RecoveryResult {
+  /**
+   * `true` when there's no leftover rollback state blocking a new
+   * import: no marker, successful restore, or a recorded
+   * `swapCompleted` fast-path cleanup. Callers (`streamCommitImport`,
+   * daemon start-up) can proceed safely.
+   *
+   * `false` when the rollback is incomplete — the marker / backup /
+   * temp tree are intentionally preserved on disk for a future retry,
+   * so any caller about to rewrite the marker must refuse to proceed
+   * to avoid orphaning the unresolved state.
+   */
+  ok: boolean;
+  /** Number of entries that couldn't be restored in the partial case. */
+  failedCount: number;
+}
+
 /**
  * Replay any crash-interrupted import against `realWorkspaceDir`.
  *
@@ -2099,19 +2139,22 @@ async function safelyDeleteMarker(markerPath: string): Promise<void> {
  * `embedding-models` / `deprecated`.
  *
  * Best-effort: logs per-entry failures and keeps going rather than
- * throwing. If no marker exists this is a cheap no-op.
+ * throwing. If no marker exists this is a cheap no-op. Returns a
+ * `RecoveryResult` so callers can distinguish "nothing to recover /
+ * recovered cleanly" from "rollback still pending — don't start
+ * anything new."
  */
 export async function recoverInterruptedImport(
   realWorkspaceDir: string,
-): Promise<void> {
+): Promise<RecoveryResult> {
   const markerPath = importMarkerPathFor(resolve(realWorkspaceDir));
   let raw: string;
   try {
     raw = await readFile(markerPath, "utf8");
   } catch (err) {
-    if (isENOENT(err)) return;
+    if (isENOENT(err)) return { ok: true, failedCount: 0 };
     log.warn({ err, markerPath }, "Unable to read import-recovery marker");
-    return;
+    return { ok: true, failedCount: 0 };
   }
 
   let marker: ImportMarker;
@@ -2123,7 +2166,7 @@ export async function recoverInterruptedImport(
       "Import-recovery marker is malformed; deleting without acting on it",
     );
     await safelyDeleteMarker(markerPath);
-    return;
+    return { ok: true, failedCount: 0 };
   }
 
   if (
@@ -2135,7 +2178,7 @@ export async function recoverInterruptedImport(
       "Import-recovery marker has unexpected shape; deleting",
     );
     await safelyDeleteMarker(markerPath);
-    return;
+    return { ok: true, failedCount: 0 };
   }
 
   log.info(
@@ -2178,7 +2221,7 @@ export async function recoverInterruptedImport(
       },
     );
     await safelyDeleteMarker(markerPath);
-    return;
+    return { ok: true, failedCount: 0 };
   }
 
   // SLOW PATH: swap did not complete. Roll back to pre-import state.
@@ -2256,4 +2299,8 @@ export async function recoverInterruptedImport(
       "Preserving temp tree + marker for next-boot recovery retry",
     );
   }
+
+  return restoreResult.ok
+    ? { ok: true, failedCount: 0 }
+    : { ok: false, failedCount: restoreResult.failedCount };
 }
