@@ -72,31 +72,6 @@ extension MainWindowView {
 
     var sidebarOuterMargin: CGFloat { 16 }
 
-    /// Small notification-red dot overlaid on the Home sidebar row whenever
-    /// `HomeStore` has observed a background `relationshipStateUpdated` event
-    /// while the user was on some other surface. Hidden when:
-    ///
-    /// - The `home-tab` feature flag is off (Home page not live).
-    /// - `HomeStore.hasUnseenChanges` is false (nothing new, or user has seen it).
-    /// - The user is already sitting on the Home panel.
-    ///
-    /// `home-tab` is a macos-scope flag, resolved via
-    /// `MacOSClientFeatureFlagManager`, not the assistant-scope store.
-    @ViewBuilder
-    var homeUnseenChangesDot: some View {
-        if MacOSClientFeatureFlagManager.shared.isEnabled("home-tab")
-            && homeStore.hasUnseenChanges
-            && windowState.selection != .panel(.home) {
-            Circle()
-                .fill(VColor.systemNegativeStrong)
-                .frame(width: 8, height: 8)
-                .offset(x: 4, y: -4)
-                .transition(.scale.combined(with: .opacity))
-                .allowsHitTesting(false)
-                .accessibilityLabel(Text("Unseen changes"))
-        }
-    }
-
     @ViewBuilder
     var sidebarView: some View {
         VStack(spacing: 0) {
@@ -423,14 +398,7 @@ extension MainWindowView {
             }
 
             // MARK: Nav Items (fixed)
-            if MacOSClientFeatureFlagManager.shared.isEnabled("home-tab") {
-                SidebarNavRow(icon: VIcon.house.rawValue, label: "Home", isActive: windowState.selection == .panel(.home)) {
-                    windowState.showPanel(.home)
-                }
-                .overlay(alignment: .topTrailing) {
-                    homeUnseenChangesDot
-                }
-            }
+            // Home has moved to the top-menu bar (see MainWindowView.topBarView).
             SidebarNavRow(icon: VIcon.brain.rawValue, label: cachedAssistantName, isActive: windowState.selection == .panel(.intelligence)) {
                 windowState.showPanel(.intelligence)
             }
@@ -564,14 +532,7 @@ extension MainWindowView {
                 sidebarSectionDivider()
             }
 
-            if MacOSClientFeatureFlagManager.shared.isEnabled("home-tab") {
-                SidebarNavRow(icon: VIcon.house.rawValue, label: "Home", isActive: windowState.selection == .panel(.home), isExpanded: false) {
-                    windowState.showPanel(.home)
-                }
-                .overlay(alignment: .topTrailing) {
-                    homeUnseenChangesDot
-                }
-            }
+            // Home has moved to the top-menu bar (see MainWindowView.topBarView).
             SidebarNavRow(icon: VIcon.brain.rawValue, label: cachedAssistantName, isActive: windowState.selection == .panel(.intelligence), isExpanded: false) {
                 windowState.showPanel(.intelligence)
             }

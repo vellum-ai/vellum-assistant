@@ -453,6 +453,25 @@ struct MainWindowView: View {
                     }
                 }
 
+                if MacOSClientFeatureFlagManager.shared.isEnabled("home-tab") {
+                    VButton(label: "Home", iconOnly: VIcon.house.rawValue, style: .ghost, tooltip: "Home") {
+                        windowState.showPanel(.home)
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        // Red dot when the feed has any items and the user
+                        // isn't already looking at the Home panel. Covers
+                        // the "you have something waiting" affordance.
+                        if !feedStore.items.isEmpty && windowState.selection != .panel(.home) {
+                            Circle()
+                                .fill(VColor.systemNegativeStrong)
+                                .frame(width: 8, height: 8)
+                                .offset(x: 2, y: -2)
+                                .allowsHitTesting(false)
+                                .accessibilityLabel(Text("New items in feed"))
+                        }
+                    }
+                }
+
                 VButton(label: "Search", iconOnly: VIcon.search.rawValue, style: .ghost, tooltip: "Search (\u{2318}K)") {
                     AppDelegate.shared?.toggleCommandPalette()
                 }
