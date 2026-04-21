@@ -1348,7 +1348,12 @@ async function swapWorkspaceContents(
     throw err;
   }
 
-  // Phase 2: move every top-level entry from temp into real.
+  // Phase 2: move every top-level entry from temp into real. `rename`
+  // requires the destination's parent to exist, so ensure realWorkspaceDir
+  // exists even if phase 1 found no entries (first-ever import into a
+  // fresh workspace dir that hasn't been created yet).
+  await mkdir(realWorkspaceDir, { recursive: true });
+
   let tempEntries: string[];
   try {
     tempEntries = await readdir(tempWorkspaceDir);
