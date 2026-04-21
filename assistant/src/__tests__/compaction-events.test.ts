@@ -343,6 +343,10 @@ describe("forceCompact event emission", () => {
     expect(compactedEvent.summaryInputTokens).toBe(500);
     expect(compactedEvent.summaryOutputTokens).toBe(200);
     expect(compactedEvent.summaryModel).toBe("test-model");
+    // Quality signals derived from the summary text itself.
+    expect(compactedEvent.summaryCharCount).toBe("summary text".length);
+    expect(compactedEvent.summaryHeaderCount).toBe(0);
+    expect(compactedEvent.summaryHadMemoryEcho).toBe(false);
 
     const usageEvents = collected.filter((m) => m.type === "usage_update");
     expect(usageEvents.length).toBe(1);
@@ -429,5 +433,48 @@ describe("forceCompact event emission", () => {
       0,
     );
     expect(collected.filter((m) => m.type === "usage_update").length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeSummaryQualitySignals — imported lazily after mocks are installed so
+// the logger stub and other module replacements take effect first.
+// ---------------------------------------------------------------------------
+
+import { computeSummaryQualitySignals } from "../daemon/conversation-agent-loop.js";
+
+describe("computeSummaryQualitySignals", () => {
+  test("counts `## ` headers at the start of lines", () => {
+    const summary =
+      "Narrative opener.\n\n## What We're Working On\n- x\n\n## Open Threads\n- y";
+    const signals = computeSummaryQualitySignals(summary);
+    expect(signals.headerCount).toBe(2);
+    expect(signals.charCount).toBe(summary.length);
+    expect(signals.hadMemoryEcho).toBe(false);
+  });
+
+  test("reports empty signals for an empty summary", () => {
+    const signals = computeSummaryQualitySignals("");
+    expect(signals.charCount).toBe(0);
+    expect(signals.headerCount).toBe(0);
+    expect(signals.hadMemoryEcho).toBe(false);
+  });
+
+  test("flags summaries that leaked injection tags", () => {
+    const leaked =
+      "## Facts\nThe user had a `<memory __injected>` block in their history";
+    expect(computeSummaryQualitySignals(leaked).hadMemoryEcho).toBe(true);
+
+    const turnCtxLeak = "A <turn_context> fragment snuck through";
+    expect(computeSummaryQualitySignals(turnCtxLeak).hadMemoryEcho).toBe(true);
+
+    const nowLeak = "<NOW.md> scratchpad echo";
+    expect(computeSummaryQualitySignals(nowLeak).hadMemoryEcho).toBe(true);
+  });
+
+  test("does not flag ordinary mentions of the word 'memory'", () => {
+    const clean =
+      "## Facts\nThe user asked about their memory and remembered their dad's recipe.";
+    expect(computeSummaryQualitySignals(clean).hadMemoryEcho).toBe(false);
   });
 });

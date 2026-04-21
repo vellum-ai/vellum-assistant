@@ -31,6 +31,87 @@ const MIN_COMPACTABLE_PERSISTED_MESSAGES = 2;
 const INTERNAL_CONTEXT_SUMMARY_MESSAGES = new WeakSet<Message>();
 
 /**
+ * When the existing summary is this fraction or more of the per-summary
+ * token budget, inject a "compress older content aggressively" instruction
+ * so incremental-update passes don't let the summary grow unboundedly.
+ */
+const SUMMARY_COMPRESSION_PRESSURE_RATIO = 0.6;
+
+/**
+ * Text-block prefixes that persist in live history (for prefix-caching
+ * stability and model grounding) but pollute the summarizer's view of the
+ * actual conversation. These blocks are system-metadata attached to user
+ * turns — memory injections, turn context, workspace hints, etc. They are
+ * stripped ONLY from the messages fed to the summarization LLM call. Live
+ * history is never mutated, so prefix caching is preserved.
+ *
+ * This list intentionally overlaps with `RUNTIME_INJECTION_PREFIXES` in
+ * `conversation-runtime-assembly.ts`. That list governs in-flight turn
+ * assembly; this one governs compaction input only. Keep them in sync
+ * when new injection types are added.
+ */
+const COMPACTION_ONLY_STRIP_PREFIXES = [
+  "<memory __injected>",
+  "<memory>",
+  "<memory_image __injected>",
+  "</memory_image>",
+  "<memory_context __injected>",
+  "<memory_context>",
+  "<turn_context>",
+  "<channel_turn_context>",
+  "<guardian_context>",
+  "<inbound_actor_context>",
+  "<interface_turn_context>",
+  "<workspace>",
+  "<workspace_top_level>",
+  "<knowledge_base>",
+  "<pkb>",
+  "<system_reminder>",
+  "<now_scratchpad>",
+  "<NOW.md Always keep this up to date",
+  "<active_thread>",
+  "<active_subagents>",
+  "<active_workspace>",
+  "<active_dynamic_page>",
+  "<channel_capabilities>",
+  "<channel_command_context>",
+  "<voice_call_control>",
+  "<transport_hints>",
+  "<system_notice>",
+  "<non_interactive_context>",
+  "<temporal_context>",
+];
+
+/**
+ * Remove text blocks whose prefix matches any entry in
+ * `COMPACTION_ONLY_STRIP_PREFIXES`. Non-text blocks (images, tool_use,
+ * tool_result, etc.) are untouched. Empty messages (every block filtered
+ * out) are dropped from the output.
+ *
+ * Used only on the `compactableMessages` slice right before it is
+ * serialized for the summarization LLM — the caller's original message
+ * array is never mutated.
+ */
+export function stripCompactionOnlyInjections(messages: Message[]): Message[] {
+  return messages
+    .map((message) => {
+      if (message.role !== "user") return message;
+      const nextContent = message.content.filter((block) => {
+        if (block.type !== "text") return true;
+        return !COMPACTION_ONLY_STRIP_PREFIXES.some((p) =>
+          block.text.startsWith(p),
+        );
+      });
+      if (nextContent.length === message.content.length) return message;
+      if (nextContent.length === 0) return null;
+      return { ...message, content: nextContent };
+    })
+    .filter(
+      (message): message is NonNullable<typeof message> => message != null,
+    );
+}
+
+/**
  * Load the compaction summary system prompt from the bundled markdown asset.
  *
  * `resolveBundledDir` handles the compiled-binary case where the caller path
@@ -57,18 +138,27 @@ export function loadCompactPrompt(): string {
  * rather than failing module import at startup.
  */
 const SUMMARY_PROMPT_FALLBACK = [
-  "You compress long assistant conversations into durable working memory.",
-  "Focus on actionable state, not prose.",
-  "Preserve concrete facts: goals, constraints, decisions, pending questions, file paths, commands, errors, and TODOs.",
-  "Remove repetition and stale details that were superseded.",
-  'Thread anchors: when a "Retained Thread References" section is present, each listed reply cites its parent via `→ Mxxxxxx`. If that parent appears in the Transcript, preserve its text verbatim (reactions may be aggregated as "N users reacted"). Omit when the section is absent.',
-  "Return concise markdown using these section headers exactly:",
-  "## Goals",
-  "## Constraints",
-  "## Decisions",
-  "## Open Conversations",
-  "## Key Artifacts",
-  "## Recent Progress",
+  "You are summarizing a long conversation so that the assistant can keep working with it after older messages are dropped. Your summary will REPLACE those messages — the assistant's only access to what was said earlier will be what you write here.",
+  "",
+  "Be thorough. Capture what happened, why it mattered, what's unresolved, and what was felt. Do not compress away emotional tone, relationship context, or nuance. Keep specific details (names, numbers, file paths, commands, URLs, exact phrasings) when they might matter later.",
+  "",
+  "Target length: aim for 1500–4000 tokens. Use the upper end when the conversation is rich in decisions, relationships, emotional content, or threads that are still open. Use the lower end for short or simple task execution.",
+  "",
+  "Open with a 1–2 paragraph narrative describing what the conversation is about and where it currently stands. Then use `## ` section headers. Use these when they apply; skip sections that have nothing to say; add your own headers when something doesn't fit:",
+  "- `## What We're Working On`",
+  "- `## Decisions & Commitments`",
+  "- `## Facts Worth Remembering`",
+  "- `## Open Threads`",
+  "- `## Emotional Arc / Relationship Notes` (include when relevant)",
+  "- `## Artifacts & References`",
+  "",
+  "If an existing summary is provided, update it: merge new information in, prefer the most recent and explicit detail on conflicts, and preserve anything still unresolved or still true. Do not restart from scratch.",
+  "",
+  "Never include in the summary: content inside `<memory __injected>`, `<memory>`, `<turn_context>`, `<workspace>`, `<knowledge_base>`, `<system_reminder>`, `<now_scratchpad>`, `<NOW.md …>`, `<active_thread>`, `<channel_capabilities>`, `<transport_hints>`, `<system_notice>`, or any other angle-bracket-tagged system blocks. Tool-call boilerplate (retries, failed attempts the assistant recovered from, routine status updates) — summarize the outcome instead. Repetitive chit-chat that adds nothing.",
+  "",
+  'Thread anchors (Slack only): if the input includes a "Retained Thread References" section, each listed reply cites its parent via `→ Mxxxxxx`. If that parent appears in the Transcript, preserve its text verbatim. Omit when absent.',
+  "",
+  "Return only the summary itself in markdown — no preamble, no meta-commentary.",
 ].join("\n");
 
 /**
@@ -535,8 +625,14 @@ export class ContextWindowManager {
     const retainedThreadRefs = collectRetainedThreadReferences(
       messages.slice(keepPlan.keepFromIndex),
     );
+    // Strip runtime injections (memory, turn context, workspace hints, etc.)
+    // from the messages fed to the summarizer. These blocks are system
+    // metadata; leaving them in causes the summary to echo rotating memory
+    // content instead of the actual conversation. The caller's live message
+    // array is untouched so prefix caching stays intact.
+    const transcriptSource = stripCompactionOnlyInjections(compactableMessages);
     const transcriptBlocks = this.capTranscriptBlocksToTokenBudget(
-      serializeMessagesToContentBlocks(compactableMessages),
+      serializeMessagesToContentBlocks(transcriptSource),
       existingSummary ?? "No previous summary.",
       retainedThreadRefs,
     );
@@ -882,10 +978,18 @@ export class ContextWindowManager {
      */
     failed: boolean;
   }> {
+    // When the existing summary is already consuming most of its budget,
+    // nudge the model to compress older durable content aggressively so
+    // incremental-update passes don't let the summary grow unboundedly.
+    const existingSummaryTokens = estimateTextTokens(currentSummary);
+    const compressionPressure =
+      existingSummaryTokens >=
+      this.summaryMaxTokens * SUMMARY_COMPRESSION_PRESSURE_RATIO;
     const contentBlocks = buildSummaryContentBlocks(
       currentSummary,
       transcriptBlocks,
       retainedThreadRefs,
+      { compressionPressure },
     );
     const summaryMessage: Message = { role: "user", content: contentBlocks };
     let failed = false;
@@ -942,8 +1046,36 @@ export class ContextWindowManager {
     // Budget in tokens → approximate char limit (4 chars ≈ 1 token).
     const maxChars = this.summaryMaxTokens * 4;
     if (summary.length <= maxChars) return summary;
-    return `${safeStringSlice(summary, 0, maxChars)}...`;
+    return clampSummaryAtSectionBoundary(summary, maxChars);
   }
+}
+
+/**
+ * Truncate a markdown summary that exceeds `maxChars`, preferring a
+ * section boundary (`\n## `) so we never cut a heading mid-text. Falls
+ * back to a hard character slice when no boundary exists in the safe
+ * region (first half of the budget).
+ */
+export function clampSummaryAtSectionBoundary(
+  summary: string,
+  maxChars: number,
+): string {
+  if (summary.length <= maxChars) return summary;
+  const ELLIPSIS = "...";
+  // Hard limit we must stay under, leaving room for the ellipsis suffix.
+  const cutoff = maxChars - ELLIPSIS.length;
+  if (cutoff <= 0) return ELLIPSIS;
+  const head = safeStringSlice(summary, 0, cutoff);
+  // Find the last `## ` heading at a line start. Require it to be past the
+  // midpoint of the allowed region so we don't drop most of the summary
+  // just to hit a boundary — better to cut mid-section late than to keep
+  // almost nothing.
+  const halfway = Math.floor(cutoff / 2);
+  const boundary = head.lastIndexOf("\n## ");
+  if (boundary >= halfway) {
+    return `${head.slice(0, boundary).trimEnd()}\n${ELLIPSIS}`;
+  }
+  return `${head}${ELLIPSIS}`;
 }
 
 function collectUserTurnStartIndexes(messages: Message[]): number[] {
@@ -1092,17 +1224,25 @@ function buildSummaryContentBlocks(
   currentSummary: string,
   transcriptBlocks: ContentBlock[],
   retainedThreadRefs: string[],
+  options: { compressionPressure: boolean } = { compressionPressure: false },
 ): ContentBlock[] {
   const lines = [
     "Update the summary with new transcript data.",
     "If new information conflicts with older notes, keep the most recent and explicit detail.",
     "Keep all unresolved asks and next steps.",
     "For any images included below, describe their visual content in the summary so the information is preserved after compaction.",
+  ];
+  if (options.compressionPressure) {
+    lines.push(
+      "The existing summary is approaching its token budget. Compress older durable content aggressively (drop detail that is no longer load-bearing, merge bullets, tighten prose) while preserving the most recent turns' nuance.",
+    );
+  }
+  lines.push(
     "",
     "### Existing Summary",
     currentSummary.trim().length > 0 ? currentSummary.trim() : "None.",
     "",
-  ];
+  );
   if (retainedThreadRefs.length > 0) {
     lines.push(
       "### Retained Thread References",
