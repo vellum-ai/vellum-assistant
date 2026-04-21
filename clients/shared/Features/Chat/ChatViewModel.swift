@@ -2146,9 +2146,31 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         let chatMessages = result.messages
         let reconstructedSubagents = result.subagents
 
-        // Merge reconstructed subagents into activeSubagents (avoid duplicates)
-        for info in reconstructedSubagents where !activeSubagents.contains(where: { $0.id == info.id }) {
-            activeSubagents.append(info)
+        // Merge reconstructed subagents into activeSubagents. When history shows
+        // a terminal status for a subagent that is still locally `.running` or
+        // `.pending`, overwrite the local status — a missed `subagentStatusChanged`
+        // event otherwise leaves the UI stuck forever (LUM-1062). History is the
+        // daemon's authoritative record, so it's safe to trust over local state.
+        // Also backfill `conversationId` and `parentMessageId` from history when
+        // the local entry is missing them — the live `subagentSpawned` path does
+        // not populate `conversationId`, and either field can be missing if the
+        // initial spawn event was lost too. `SubagentClient.fetchDetail` and the
+        // detail panel's chip placement rely on these being present.
+        for info in reconstructedSubagents {
+            if let index = activeSubagents.firstIndex(where: { $0.id == info.id }) {
+                if info.isTerminal && !activeSubagents[index].isTerminal {
+                    activeSubagents[index].status = info.status
+                    activeSubagents[index].error = info.error
+                }
+                if activeSubagents[index].conversationId == nil, let convId = info.conversationId {
+                    activeSubagents[index].conversationId = convId
+                }
+                if activeSubagents[index].parentMessageId == nil, let parentId = info.parentMessageId {
+                    activeSubagents[index].parentMessageId = parentId
+                }
+            } else {
+                activeSubagents.append(info)
+            }
         }
 
         // Update daemon pagination cursor from the response metadata.

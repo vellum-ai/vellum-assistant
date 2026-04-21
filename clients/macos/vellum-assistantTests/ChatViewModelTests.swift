@@ -1975,6 +1975,138 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages.count, 0)
     }
 
+    func testPopulateFromHistoryReconcilesStaleRunningSubagentToTerminal() {
+        viewModel.activeSubagents = [
+            SubagentInfo(id: "s-stuck", label: "Stuck", status: .running)
+        ]
+        // Non-empty text required: HistoryReconstructionService.reconstructMessages
+        // skips items with empty text/no tool calls/no attachments/no surfaces/no
+        // thinking BEFORE reading `subagentNotification`, so an empty-text fixture
+        // never reaches the reconcile branch. Real subagent-notification messages
+        // from the daemon carry non-empty notification text.
+        let historyItems: [HistoryResponseMessage] = [
+            HistoryResponseMessage(
+                id: nil, role: "assistant", text: "subagent notification", timestamp: 1000,
+                toolCalls: nil, toolCallsBeforeText: nil, attachments: nil,
+                textSegments: nil, thinkingSegments: nil, contentOrder: nil, surfaces: nil,
+                subagentNotification: HistoryResponseMessageSubagentNotification(
+                    subagentId: "s-stuck", label: "Stuck", status: "completed",
+                    error: nil, conversationId: "sub-conv-1"
+                )
+            ),
+        ]
+        viewModel.populateFromHistory(historyItems, hasMore: false)
+        XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-stuck" })?.status, .completed,
+                       "History's terminal status must overwrite a locally-stuck `.running` entry")
+        XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-stuck" })?.conversationId, "sub-conv-1",
+                       "History's conversationId must be propagated onto the reconciled entry so detail lazy-load works")
+    }
+
+    func testPopulateFromHistoryDoesNotOverwriteRunningWithRunning() {
+        viewModel.activeSubagents = [
+            SubagentInfo(id: "s-live", label: "Live", status: .running, parentMessageId: UUID())
+        ]
+        let originalParentId = viewModel.activeSubagents[0].parentMessageId
+        // Non-empty text required: reconstructMessages skips empty-text entries
+        // before reading `subagentNotification`.
+        let historyItems: [HistoryResponseMessage] = [
+            HistoryResponseMessage(
+                id: nil, role: "assistant", text: "subagent notification", timestamp: 1000,
+                toolCalls: nil, toolCallsBeforeText: nil, attachments: nil,
+                textSegments: nil, thinkingSegments: nil, contentOrder: nil, surfaces: nil,
+                subagentNotification: HistoryResponseMessageSubagentNotification(
+                    subagentId: "s-live", label: "Live", status: "running",
+                    error: nil, conversationId: "sub-conv-live"
+                )
+            ),
+        ]
+        viewModel.populateFromHistory(historyItems, hasMore: false)
+        // Non-terminal history status must not replace the existing entry
+        // (preserving `parentMessageId` and the live in-memory copy).
+        XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-live" })?.status, .running)
+        XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-live" })?.parentMessageId, originalParentId)
+        // conversationId must still be backfilled even though status was not changed —
+        // the live `.subagentSpawned` path does not populate it, so history is the
+        // only source for it and the detail panel's lazy-load depends on it.
+        XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-live" })?.conversationId, "sub-conv-live",
+                       "conversationId must be backfilled from history even when status is unchanged")
+    }
+
+    func testPopulateFromHistoryBackfillsConversationIdOnExistingEntry() {
+        // Seed with a locally-completed entry that has no conversationId —
+        // the live `.subagentSpawned` path never populates it, so any entry
+        // that was born from a live event has conversationId == nil.
+        viewModel.activeSubagents = [
+            SubagentInfo(id: "s-done", label: "Done", status: .completed)
+        ]
+        XCTAssertNil(viewModel.activeSubagents.first(where: { $0.id == "s-done" })?.conversationId)
+        // Non-empty text required: reconstructMessages skips empty-text entries
+        // before reading `subagentNotification`.
+        let historyItems: [HistoryResponseMessage] = [
+            HistoryResponseMessage(
+                id: nil, role: "assistant", text: "subagent notification", timestamp: 1000,
+                toolCalls: nil, toolCallsBeforeText: nil, attachments: nil,
+                textSegments: nil, thinkingSegments: nil, contentOrder: nil, surfaces: nil,
+                subagentNotification: HistoryResponseMessageSubagentNotification(
+                    subagentId: "s-done", label: "Done", status: "completed",
+                    error: nil, conversationId: "sub-conv-done"
+                )
+            ),
+        ]
+        viewModel.populateFromHistory(historyItems, hasMore: false)
+        XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-done" })?.conversationId, "sub-conv-done",
+                       "populateFromHistory must backfill conversationId onto an existing local entry")
+    }
+
+    func testPopulateFromHistoryBackfillsParentMessageIdOnExistingEntry() {
+        // Seed a local entry that has no parentMessageId — simulates a live
+        // spawn event that was lost (or never populated that field), leaving
+        // the detail-panel chip with nowhere to anchor.
+        viewModel.activeSubagents = [
+            SubagentInfo(id: "s-orphan", label: "Orphan", status: .running)
+        ]
+        XCTAssertNil(viewModel.activeSubagents.first(where: { $0.id == "s-orphan" })?.parentMessageId)
+
+        // History must contain TWO messages:
+        //   1. An assistant message with a `subagent_spawn` tool call whose
+        //      result JSON includes `subagentId`. `HistoryReconstructionService`
+        //      records this message's UUID in `spawnParentMap[subagentId]`.
+        //   2. A subsequent assistant message with a matching
+        //      `subagentNotification`. The reconstructed `SubagentInfo` picks
+        //      up `parentMessageId` from `spawnParentMap`.
+        //
+        // The first message needs a stable UUID so the test can assert that
+        // the local entry's `parentMessageId` matches it post-reconcile.
+        let parentId = UUID()
+        let spawnToolCall = HistoryResponseToolCall(
+            name: "subagent_spawn",
+            input: ["task": AnyCodable("do a thing")],
+            result: "{\"subagentId\": \"s-orphan\"}",
+            isError: nil
+        )
+        let historyItems: [HistoryResponseMessage] = [
+            HistoryResponseMessage(
+                id: parentId.uuidString, role: "assistant", text: "spawning subagent",
+                timestamp: 1000, toolCalls: [spawnToolCall], toolCallsBeforeText: nil,
+                attachments: nil, textSegments: nil, thinkingSegments: nil,
+                contentOrder: nil, surfaces: nil, subagentNotification: nil
+            ),
+            HistoryResponseMessage(
+                id: nil, role: "assistant", text: "subagent notification",
+                timestamp: 1100, toolCalls: nil, toolCallsBeforeText: nil,
+                attachments: nil, textSegments: nil, thinkingSegments: nil,
+                contentOrder: nil, surfaces: nil,
+                subagentNotification: HistoryResponseMessageSubagentNotification(
+                    subagentId: "s-orphan", label: "Orphan", status: "running",
+                    error: nil, conversationId: "sub-conv-orphan"
+                )
+            ),
+        ]
+        viewModel.populateFromHistory(historyItems, hasMore: false)
+        XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-orphan" })?.parentMessageId, parentId,
+                       "populateFromHistory must backfill parentMessageId onto an existing local entry")
+    }
+
     // MARK: - Interleaved Text/Tool-Call Segments
 
     func testTextToolTextCreatesInterleavedSegments() {
