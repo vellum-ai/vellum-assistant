@@ -132,6 +132,12 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                     description: "Pure body content showing a document, image, or any file attachment preview in the Home detail panel. Optional right-aligned footer actions."
                 ),
                 GalleryComponent(
+                    "homePermissionChatPreview",
+                    "HomePermissionChatPreview",
+                    keywords: ["permission", "chat", "confirmation", "tool", "preview", "detail"],
+                    description: "Pure body content for the Home detail panel's permission-request variant — last user message, assistant preamble, and an inline tool confirmation bubble."
+                ),
+                GalleryComponent(
                     "homeSplitLayout",
                     "HomeSplitLayout",
                     keywords: ["home", "split", "side by side", "layout"],
