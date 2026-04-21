@@ -748,7 +748,7 @@ describe("Permission Checker", () => {
       // Low risk → auto-allowed via risk-based fallback
       const low = await check("bash", { command: "ls" }, "/tmp");
       expect(low.decision).toBe("allow");
-      expect(low.reason).toContain("low risk");
+      expect(low.reason).toContain("Low risk");
     });
 
     test("host_bash high risk → always prompt", async () => {
@@ -795,7 +795,7 @@ describe("Permission Checker", () => {
       addRule("bash", "rm *", "/tmp");
       const result = await check("bash", { command: "rm file.txt" }, "/tmp");
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("high risk");
+      expect(result.reason).toContain("High risk");
     });
 
     test("file_read → auto-allow", async () => {
@@ -1122,7 +1122,7 @@ describe("Permission Checker", () => {
       addRule("bash", "sudo *", "everywhere");
       const result = await check("bash", { command: "sudo rm -rf /" }, "/tmp");
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("high risk");
+      expect(result.reason).toContain("High risk");
     });
 
     // Deny rule tests
@@ -2681,7 +2681,7 @@ describe("Permission Checker", () => {
       addRule("bash", "sudo *", "everywhere", "allow");
       const result = await check("bash", { command: "sudo rm -rf /" }, "/tmp");
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("high risk");
+      expect(result.reason).toContain("High risk");
     });
   });
 
@@ -2692,7 +2692,7 @@ describe("Permission Checker", () => {
       addRule("bash", "kill *", "everywhere", "allow", 2000);
       const result = await check("bash", { command: "kill -9 1234" }, "/tmp");
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("high risk");
+      expect(result.reason).toContain("High risk");
     });
 
     test("high-risk bash with allow rule in containerized environment auto-allows", async () => {
@@ -2815,7 +2815,7 @@ describe("Permission Checker", () => {
       addRule("bash", "kill *", "everywhere", "allow", 2000);
       const result = await check("bash", { command: "kill -9 1234" }, "/tmp");
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("high risk");
+      expect(result.reason).toContain("High risk");
     });
 
     test("strict mode: medium-risk with matching allow rule auto-allows", async () => {
@@ -4830,7 +4830,7 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
     expect(result.decision).toBe("allow");
     // Not auto-allowed via workspace mode — bash falls through to risk-based policy
     expect(result.reason).not.toContain("Workspace mode");
-    expect(result.reason).toContain("low risk");
+    expect(result.reason).toContain("Low risk");
   });
 
   test("bash in workspace (medium risk) → prompt (not auto-allowed)", async () => {
