@@ -1,6 +1,7 @@
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import { getHookManager } from "../hooks/manager.js";
+import { resolveThreshold } from "../permissions/approval-policy.js";
 import {
   check,
   classifyRisk,
@@ -210,20 +211,36 @@ export class PermissionChecker {
         // Exception: inline-command skill loads (skill_load_dynamic:*) must
         // never be silently auto-approved — they execute embedded commands
         // and require explicit human review or a pinned trust rule.
-        // Exception: high-risk tools (e.g. destructive shell commands, writes
-        // to sensitive paths) are denied — unattended sessions must not
-        // auto-approve operations that could cause significant damage if
-        // triggered by prompt injection from untrusted content.
+        // Exception: tools above the configured background threshold are
+        // denied — unattended sessions must not auto-approve operations that
+        // could cause significant damage if triggered by prompt injection
+        // from untrusted content.
         const isDynamicSkillLoad =
           result.matchedRule?.pattern.startsWith("skill_load_dynamic:") ===
           true;
+        const bgThreshold = resolveThreshold(
+          cfg.permissions.autoApproveUpTo,
+          "background",
+        );
+        const thresholdOrdinal: Record<string, number> = {
+          none: -1,
+          low: 0,
+          medium: 1,
+        };
+        const riskOrdinal: Record<string, number> = {
+          [RiskLevel.Low]: 0,
+          [RiskLevel.Medium]: 1,
+          [RiskLevel.High]: 2,
+        };
+        const withinThreshold =
+          (riskOrdinal[riskLevel] ?? 2) <= (thresholdOrdinal[bgThreshold] ?? 0);
         if (
           context.isInteractive === false &&
           context.trustClass === "guardian" &&
           !context.requireFreshApproval &&
           !isDynamicSkillLoad &&
           !v2ForcePrompt &&
-          riskLevel !== RiskLevel.High
+          withinThreshold
         ) {
           log.info(
             { toolName: name, riskLevel },
