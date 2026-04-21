@@ -262,6 +262,10 @@ extension AppDelegate {
             NSEvent.removeMonitor(monitor)
             popOutLocalMonitor = nil
         }
+        if let monitor = homeShortcutLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            homeShortcutLocalMonitor = nil
+        }
         if let monitor = conversationNavLocalMonitor {
             NSEvent.removeMonitor(monitor)
             conversationNavLocalMonitor = nil
