@@ -31,13 +31,13 @@ describe("resolveOverflowAction", () => {
 
   // ── Interactive defaults ──
 
-  test("interactive session with default config asks for user approval", () => {
+  test("interactive session with default config auto-compresses", () => {
     expect(
       resolveOverflowAction({
         overflowRecovery: DEFAULTS,
         isInteractive: true,
       }),
-    ).toBe("request_user_approval");
+    ).toBe("auto_compress_latest_turn");
   });
 
   // ── Non-interactive defaults ──
@@ -53,7 +53,7 @@ describe("resolveOverflowAction", () => {
 
   // ── Interactive with explicit policies ──
 
-  test("interactive + truncate policy asks for user approval", () => {
+  test("interactive + truncate policy auto-compresses", () => {
     expect(
       resolveOverflowAction({
         overflowRecovery: {
@@ -62,10 +62,10 @@ describe("resolveOverflowAction", () => {
         },
         isInteractive: true,
       }),
-    ).toBe("request_user_approval");
+    ).toBe("auto_compress_latest_turn");
   });
 
-  test("interactive + summarize policy asks for user approval", () => {
+  test("interactive + summarize policy auto-compresses", () => {
     expect(
       resolveOverflowAction({
         overflowRecovery: {
@@ -74,7 +74,7 @@ describe("resolveOverflowAction", () => {
         },
         isInteractive: true,
       }),
-    ).toBe("request_user_approval");
+    ).toBe("auto_compress_latest_turn");
   });
 
   test("interactive + drop policy fails gracefully", () => {
@@ -139,7 +139,7 @@ describe("resolveOverflowAction", () => {
         },
         isInteractive: true,
       }),
-    ).toBe("request_user_approval");
+    ).toBe("auto_compress_latest_turn");
   });
 
   test("non-interactive policy is independent of interactive setting", () => {
