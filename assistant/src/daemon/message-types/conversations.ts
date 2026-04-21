@@ -421,8 +421,19 @@ export interface UsageResponse {
   model: string;
 }
 
+/**
+ * Emitted after a compaction turn completes (both auto-compaction and
+ * `/compact`). Carries the fresh `estimatedInputTokens` so clients can refresh
+ * the context-window indicator without waiting for the next `usage_update`.
+ *
+ * `conversationId` scopes the event so clients can ignore compactions from
+ * other conversations — `EventStreamClient` broadcasts every parsed server
+ * message to all subscribers, so without this field a compaction in one
+ * conversation would overwrite the indicator on every open `ChatViewModel`.
+ */
 export interface ContextCompacted {
   type: "context_compacted";
+  conversationId: string;
   previousEstimatedInputTokens: number;
   estimatedInputTokens: number;
   maxInputTokens: number;

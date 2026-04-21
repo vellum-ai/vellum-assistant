@@ -335,10 +335,12 @@ final class ChatActionHandler {
             }
 
         case .contextCompacted(let event):
-            // `ContextCompacted` has no conversationId field; SSE streams are
-            // per-conversation and the daemon only emits this for the active
-            // conversation, so we apply unconditionally (unlike `usageUpdate`,
-            // which carries a conversationId and must be gated).
+            // `EventStreamClient` broadcasts every parsed server message to all
+            // subscribers, so we must gate on `conversationId` to avoid
+            // overwriting the context-window indicator on unrelated
+            // `ChatViewModel`s when a compaction happens in another
+            // conversation.
+            guard belongsToConversation(event.conversationId) else { return }
             vm.contextWindowTokens = event.estimatedInputTokens
             vm.contextWindowMaxTokens = event.maxInputTokens
 

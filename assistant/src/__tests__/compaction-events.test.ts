@@ -333,6 +333,7 @@ describe("forceCompact event emission", () => {
       ServerMessage,
       { type: "context_compacted" }
     >;
+    expect(compactedEvent.conversationId).toBe("conv-compact-events");
     expect(compactedEvent.estimatedInputTokens).toBe(80_000);
     expect(compactedEvent.maxInputTokens).toBe(200_000);
     expect(compactedEvent.previousEstimatedInputTokens).toBe(150_000);
@@ -354,7 +355,7 @@ describe("forceCompact event emission", () => {
     expect(usageEvent.model).toBe("test-model");
   });
 
-  test("emits usage_update even when summary LLM was skipped (truncation-only path)", async () => {
+  test("emits context_compacted even when summary LLM was skipped (truncation-only path)", async () => {
     const collected: ServerMessage[] = [];
     mockCompactResult = {
       messages: [],
@@ -375,22 +376,27 @@ describe("forceCompact event emission", () => {
     const conversation = makeConversation(collected, "conv-compact-trunc");
     await conversation.forceCompact();
 
+    // The truncation-only path does not call the summary LLM, so
+    // `recordUsage` early-returns on 0/0 tokens and no `usage_update` is
+    // emitted. The client instead picks up the fresh context-window tokens
+    // from the `context_compacted` event, which carries the post-compaction
+    // `estimatedInputTokens` and `maxInputTokens` alongside `conversationId`.
     const compactedEvents = collected.filter(
       (m) => m.type === "context_compacted",
     );
     expect(compactedEvents.length).toBe(1);
-
-    const usageEvents = collected.filter((m) => m.type === "usage_update");
-    expect(usageEvents.length).toBe(1);
-    const usageEvent = usageEvents[0] as Extract<
+    const compactedEvent = compactedEvents[0] as Extract<
       ServerMessage,
-      { type: "usage_update" }
+      { type: "context_compacted" }
     >;
-    expect(usageEvent.contextWindowTokens).toBe(80_000);
-    expect(usageEvent.contextWindowMaxTokens).toBe(200_000);
-    expect(usageEvent.inputTokens).toBe(0);
-    expect(usageEvent.outputTokens).toBe(0);
-    expect(usageEvent.estimatedCost).toBe(0);
+    expect(compactedEvent.conversationId).toBe("conv-compact-trunc");
+    expect(compactedEvent.estimatedInputTokens).toBe(80_000);
+    expect(compactedEvent.maxInputTokens).toBe(200_000);
+
+    // No usage_update synthesis in the truncation-only path (the previous
+    // synthetic fallback was removed now that context_compacted carries
+    // conversationId and refreshes the indicator on the client).
+    expect(collected.filter((m) => m.type === "usage_update").length).toBe(0);
   });
 
   test("skips emission when compacted is false", async () => {
