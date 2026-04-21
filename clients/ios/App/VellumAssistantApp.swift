@@ -38,10 +38,11 @@ struct VellumAssistantApp: App {
         }
     }
 
-    /// Handle `vellum://send?message=...` deep links by buffering the message
-    /// in `DeepLinkManager` for the active `ChatViewModel` to consume.
+    /// Handle `vellum://send?message=...` (or legacy `vellum-assistant://send?message=...`) deep links
+    /// by buffering the message in `DeepLinkManager` for the active `ChatViewModel` to consume.
     private func handleDeepLink(_ url: URL) {
-        guard url.scheme == "vellum", url.host == "send" else { return }
+        guard url.scheme == "vellum" || url.scheme == "vellum-assistant",
+              url.host == "send" else { return }
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let messageItem = components.queryItems?.first(where: { $0.name == "message" }),
               let message = messageItem.value, !message.isEmpty else { return }
