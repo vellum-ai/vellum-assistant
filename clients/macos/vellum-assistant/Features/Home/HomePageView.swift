@@ -260,7 +260,10 @@ struct HomePageView<DetailPanel: View>: View {
             // Plan: Danger._500. Closest existing token.
             return VColor.systemNegativeStrong
         case .action:
-            return VColor.primaryBase
+            // Aligned with the Input filter chip — info/blue pair
+            // (#467CC8 glyph over #CEDAEC tint in light; #2A3A50 tint
+            // in dark) so Input rows and chip share one tint.
+            return VColor.systemInfoStrong
         case .digest:
             // Plan: Forest._500. Closest existing token.
             return VColor.systemPositiveStrong
@@ -278,10 +281,8 @@ struct HomePageView<DetailPanel: View>: View {
             // Plan: Danger._900. Closest existing weak-negative tint.
             return VColor.systemNegativeWeak
         case .action:
-            // Plan called for "a muted surface" paired with a blue/primary
-            // tint. `surfaceActive` is the muted surface token; the glyph
-            // picks up `primaryBase` for the blue/primary accent.
-            return VColor.surfaceActive
+            // Aligned with the Input filter chip — info/blue pair.
+            return VColor.systemInfoWeak
         case .digest:
             // Plan: Forest._900. Closest existing weak-positive tint.
             return VColor.systemPositiveWeak

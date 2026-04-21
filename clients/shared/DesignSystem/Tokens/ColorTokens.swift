@@ -82,6 +82,8 @@ public enum VSemanticColorToken: String, CaseIterable {
     case systemNegativeWeak
     case systemMidStrong
     case systemMidWeak
+    case systemInfoStrong
+    case systemInfoWeak
 
     case auxWhite
 }
@@ -169,6 +171,10 @@ private enum FigmaRawColor {
     static let systemDarkMidStrong = Color(hex: 0xF1B21E)
     static let systemLightMidWeak = Color(hex: 0xFCF3DD)
     static let systemDarkMidWeak = Color(hex: 0x4B3D1E)
+    static let systemLightInfoStrong = Color(hex: 0x467CC8)
+    static let systemDarkInfoStrong = Color(hex: 0x467CC8)
+    static let systemLightInfoWeak = Color(hex: 0xCEDAEC)
+    static let systemDarkInfoWeak = Color(hex: 0x2A3A50)
 }
 
 public enum VColor {
@@ -207,6 +213,8 @@ public enum VColor {
         .systemNegativeWeak: .init(lightHex: "#F7DAC9", darkHex: "#4E281D"),
         .systemMidStrong: .init(lightHex: "#F1B21E", darkHex: "#F1B21E"),
         .systemMidWeak: .init(lightHex: "#FCF3DD", darkHex: "#4B3D1E"),
+        .systemInfoStrong: .init(lightHex: "#467CC8", darkHex: "#467CC8"),
+        .systemInfoWeak: .init(lightHex: "#CEDAEC", darkHex: "#2A3A50"),
 
         .auxWhite: .init(lightHex: "#FFFFFF", darkHex: "#FFFFFF"),
     ]
@@ -250,6 +258,8 @@ public enum VColor {
     public static let systemNegativeWeak = adaptiveColor(light: FigmaRawColor.systemLightNegativeWeak, dark: FigmaRawColor.systemDarkNegativeWeak)
     public static let systemMidStrong = adaptiveColor(light: FigmaRawColor.systemLightMidStrong, dark: FigmaRawColor.systemDarkMidStrong)
     public static let systemMidWeak = adaptiveColor(light: FigmaRawColor.systemLightMidWeak, dark: FigmaRawColor.systemDarkMidWeak)
+    public static let systemInfoStrong = adaptiveColor(light: FigmaRawColor.systemLightInfoStrong, dark: FigmaRawColor.systemDarkInfoStrong)
+    public static let systemInfoWeak = adaptiveColor(light: FigmaRawColor.systemLightInfoWeak, dark: FigmaRawColor.systemDarkInfoWeak)
 
     // Pending / queued — warm amber for "held, waiting" affordances (queue drawer accent bar,
     // pending badge backgrounds). Opacity is baked in so the token sits softly over surface
