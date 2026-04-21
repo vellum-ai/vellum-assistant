@@ -318,10 +318,31 @@ export async function streamCommitImport(
         );
       }
 
+      // Reject tar entries whose declared size disagrees with the manifest.
+      // The bundle-size ceiling below trusts `expectedEntry.size`; if a
+      // crafted bundle declared a tiny size in `manifest.json` but carried a
+      // huge body in the tar header, the cap would pass and the oversized
+      // payload would still stream to disk. `createHashVerifier` already
+      // fails on size mismatch at stream end, but by then the bytes have
+      // already been written. Fail fast here so no oversized payload lands
+      // on disk.
+      if (entry.header.size !== expectedEntry.size) {
+        entry.body.destroy();
+        throw new StreamingValidationError(
+          "entry_size",
+          `Archive entry "${archivePath}" has tar-header size ${entry.header.size} but manifest declares ${expectedEntry.size}`,
+          archivePath,
+        );
+      }
+
       // Enforce the bundle-size ceiling BEFORE writing/consuming the entry.
       // Checking post-write would still let a single oversized file land on
-      // disk before we reject, defeating the cap as a resource guard.
-      if (totalBytesStreamed + expectedEntry.size > bundleByteCap) {
+      // disk before we reject, defeating the cap as a resource guard. We
+      // check both the manifest-declared size (what we just verified the
+      // tar agrees with) AND the tar-header size directly, using whichever
+      // is larger, so a future header/manifest desync can't slip through.
+      const declaredSize = Math.max(entry.header.size, expectedEntry.size);
+      if (totalBytesStreamed + declaredSize > bundleByteCap) {
         entry.body.destroy();
         throw new StreamingValidationError(
           "bundle_too_large",
@@ -329,7 +350,7 @@ export async function streamCommitImport(
           archivePath,
         );
       }
-      totalBytesStreamed += expectedEntry.size;
+      totalBytesStreamed += declaredSize;
 
       if (archivePath.startsWith("credentials/")) {
         // Credentials are hash-verified against the manifest but collected

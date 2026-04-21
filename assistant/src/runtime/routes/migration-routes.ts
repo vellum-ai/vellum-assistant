@@ -703,6 +703,12 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
   //     wrapper. "Premature" = close fired without end first.
   const taggedSource = new PassThrough();
   let upstreamEnded = false;
+  // True once the importer (or any local consumer) initiates a teardown of
+  // `taggedSource`. The subsequent `close` on `upstreamNodeStream` is then a
+  // cascaded effect of our own teardown, NOT a real upstream failure — so
+  // we must NOT tag it as a fetch-body error, or local validation /
+  // extraction errors would be masked as 502 fetch_failed.
+  let localTeardownInitiated = false;
   upstreamNodeStream.on("end", () => {
     upstreamEnded = true;
   });
@@ -714,6 +720,10 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
   });
   upstreamNodeStream.on("close", () => {
     if (upstreamEnded) return;
+    // A local teardown path closed us; don't treat this as an upstream
+    // failure. The real error (validation / extraction / hash mismatch) is
+    // already propagating through `streamCommitImport`'s result.
+    if (localTeardownInitiated) return;
     const err = new Error(
       "Upstream body stream closed before end",
     ) as NodeJS.ErrnoException;
@@ -730,9 +740,14 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
   // `Readable.fromWeb(fetchBody)` stream would stay alive and continue
   // buffering the remote response in the background until GC or the
   // 60-minute timeout — a socket/bandwidth leak for any non-upstream error
-  // (malformed bundle, hash mismatch, size cap, etc.).
+  // (malformed bundle, hash mismatch, size cap, etc.). We set
+  // `localTeardownInitiated` BEFORE destroying upstream so the resulting
+  // cascaded `close` on `upstreamNodeStream` isn't misclassified as a real
+  // upstream failure (which would return 502 fetch_failed and mask the
+  // actual validation error).
   taggedSource.on("close", () => {
     if (!upstreamNodeStream.destroyed) {
+      localTeardownInitiated = true;
       upstreamNodeStream.destroy();
     }
   });
