@@ -41,11 +41,11 @@ struct WakeUpStepView: View {
     var body: some View {
         // Title
         Text("Welcome to Vellum")
-            .font(VFont.titleLarge)
+            .font(VFont.titleMedium)
             .foregroundStyle(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
-            .padding(.bottom, VSpacing.md)
+            .padding(.bottom, VSpacing.xs)
 
         // Subtitle
         Text("The safest way to create your personal assistant.")
@@ -54,10 +54,10 @@ struct WakeUpStepView: View {
             .multilineTextAlignment(.center)
             .opacity(showSubtext ? 1 : 0)
             .offset(y: showSubtext ? 0 : 8)
-            .padding(.bottom, VSpacing.xl)
+            .padding(.bottom, VSpacing.md)
 
         // Setup-option cards (managed path) or single "Get Started" fallback.
-        VStack(spacing: VSpacing.sm) {
+        VStack(spacing: VSpacing.xs) {
             if managedSignInEnabled {
                 OnboardingVellumCloudCard(
                     isLoading: authManager?.isLoading == true,
@@ -110,21 +110,24 @@ struct WakeUpStepView: View {
             }
         }
 
-        Spacer(minLength: VSpacing.lg)
+        Spacer(minLength: VSpacing.xs)
 
         Text("2026 Vellum Inc.")
-            .font(VFont.bodySmallDefault)
+            .font(VFont.labelSmall)
             .foregroundStyle(VColor.borderElement)
-            .padding(.bottom, VSpacing.sm)
+            .padding(.bottom, VSpacing.xs)
 
         // Characters peeking up from the bottom — single composed image
         // exported from Figma, displayed edge-to-edge at the window bottom.
         // Clip bottom corners to match the macOS window corner radius.
+        // The image is capped to 64pt of height so the hero + cards +
+        // expanded Advanced state can still fit inside the 630pt window
+        // envelope without engaging the ScrollView.
         if let characters = Self.welcomeCharacters {
             Image(nsImage: characters)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: 64)
                 .clipShape(UnevenRoundedRectangle(
                     topLeadingRadius: 0,
                     bottomLeadingRadius: VRadius.window,

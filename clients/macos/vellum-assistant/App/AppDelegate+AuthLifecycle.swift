@@ -94,13 +94,14 @@ extension AppDelegate {
         let hostingController = NSHostingController(rootView: authView)
 
         // ReauthView is a compact sign-in surface; OnboardingFlowView hosts
-        // the full onboarding including the WakeUp cards, welcome hero,
-        // and the characters footer, which together require at least
-        // 440×980 per the view's `.frame(minWidth:minHeight:)`.
+        // the full onboarding including the WakeUp hero, setup-option cards,
+        // footer, and characters illustration. The view was retuned to fit
+        // inside a 440×630 window envelope even with the Advanced disclosure
+        // expanded — matching the pre-cards window size.
         let windowWidth: CGFloat = 460
-        let windowHeight: CGFloat = hasManagedAssistants ? 620 : 980
+        let windowHeight: CGFloat = hasManagedAssistants ? 620 : 630
         let minWidth: CGFloat = hasManagedAssistants ? 420 : 440
-        let minHeight: CGFloat = hasManagedAssistants ? 580 : 980
+        let minHeight: CGFloat = hasManagedAssistants ? 580 : 630
 
         let window: NSWindow
         if let existingWindow {

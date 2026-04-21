@@ -87,8 +87,12 @@ struct OnboardingFlowView: View {
                 ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
                     if state.currentStep == 0 {
-                        // Step 0 only: top inset + app icon
-                        Color.clear.frame(height: 80)
+                        // Step 0 only: compact top inset + app icon. Pre-cards
+                        // this was 80pt + 78pt below the icon; tightened here
+                        // so the WakeUp hero + setup-option cards + footer +
+                        // characters all fit in the 630pt window envelope
+                        // even when the Advanced disclosure is expanded.
+                        Color.clear.frame(height: VSpacing.md)
 
                         if let nsImage = Self.appIcon {
                             Image(nsImage: nsImage)
@@ -97,7 +101,7 @@ struct OnboardingFlowView: View {
                                 .frame(width: 80, height: 80)
                                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                                 .shadow(color: VColor.auxBlack.opacity(0.15), radius: 1, x: 0, y: 1)
-                                .padding(.bottom, 78)
+                                .padding(.bottom, VSpacing.sm)
                         }
                     } else {
                         // Steps 1–3: top inset only (no icon)
@@ -195,7 +199,7 @@ struct OnboardingFlowView: View {
             }
         }
         }
-        .frame(minWidth: 440, minHeight: 980)
+        .frame(minWidth: 440, minHeight: 630)
         .task {
             if !authManager.isAuthenticated {
                 await authManager.checkSession()
