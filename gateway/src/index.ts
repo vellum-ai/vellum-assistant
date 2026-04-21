@@ -59,6 +59,8 @@ import {
   createPrivacyConfigPatchHandler,
 } from "./http/routes/privacy-config.js";
 import {
+  createGlobalThresholdGetHandler,
+  createGlobalThresholdPutHandler,
   createConversationThresholdGetHandler,
   createConversationThresholdPutHandler,
   createConversationThresholdDeleteHandler,
@@ -358,6 +360,8 @@ async function main() {
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
   const handlePrivacyConfigGet = createPrivacyConfigGetHandler();
   const handlePrivacyConfigPatch = createPrivacyConfigPatchHandler();
+  const handleGlobalThresholdGet = createGlobalThresholdGetHandler();
+  const handleGlobalThresholdPut = createGlobalThresholdPutHandler();
   const handleConversationThresholdGet =
     createConversationThresholdGetHandler();
   const handleConversationThresholdPut =
@@ -1057,6 +1061,36 @@ async function main() {
       auth: "edge-scoped",
       scope: "settings.write",
       handler: (req) => handlePrivacyConfigPatch(req),
+    },
+
+    // ── Auto-approve thresholds (scope-protected) ──
+    {
+      path: "/v1/permissions/thresholds",
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleGlobalThresholdGet(req),
+    },
+    {
+      path: /^\/v1\/assistants\/([^/]+)\/permissions\/thresholds\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleGlobalThresholdGet(req),
+    },
+    {
+      path: "/v1/permissions/thresholds",
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleGlobalThresholdPut(req),
+    },
+    {
+      path: /^\/v1\/assistants\/([^/]+)\/permissions\/thresholds\/?$/,
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleGlobalThresholdPut(req),
     },
 
     // ── Per-conversation threshold overrides (scope-protected) ──
