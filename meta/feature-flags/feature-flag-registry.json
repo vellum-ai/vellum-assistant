@@ -384,6 +384,14 @@
       "label": "Auto-Approve Threshold UI",
       "description": "Enable user-configurable auto-approve thresholds stored in the gateway. When enabled, the assistant reads thresholds from the gateway instead of config.json, and the macOS client shows threshold controls in Settings and the chat composer.",
       "defaultEnabled": false
+    },
+    {
+      "id": "compaction-playground",
+      "scope": "assistant",
+      "key": "compaction-playground",
+      "label": "Compaction Playground",
+      "description": "Expose the developer-only Compaction Playground tab in macOS Settings and enable the /playground/* HTTP endpoints for exercising compaction conditions. Dev-only; default off.",
+      "defaultEnabled": false
     }
   ]
 }
