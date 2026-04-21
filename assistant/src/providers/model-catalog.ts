@@ -1,6 +1,18 @@
 export interface CatalogModel {
   id: string;
   displayName: string;
+  contextWindowTokens?: number;
+  maxOutputTokens?: number;
+  supportsThinking?: boolean;
+  supportsCaching?: boolean;
+  supportsVision?: boolean;
+  supportsToolUse?: boolean;
+  pricing?: {
+    inputPer1mTokens: number;
+    outputPer1mTokens: number;
+    cacheWritePer1mTokens?: number;
+    cacheReadPer1mTokens?: number;
+  };
 }
 
 export interface ProviderCatalogEntry {
@@ -10,6 +22,15 @@ export interface ProviderCatalogEntry {
   defaultModel: string;
   apiKeyUrl?: string;
   apiKeyPlaceholder?: string;
+  subtitle?: string;
+  setupMode?: "api-key" | "keyless";
+  setupHint?: string;
+  envVar?: string;
+  credentialsGuide?: {
+    description: string;
+    url: string;
+    linkLabel: string;
+  };
 }
 
 /** Single source of truth for all inference provider metadata and models. */
