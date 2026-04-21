@@ -95,8 +95,8 @@ extension AppDelegate {
                 onNeedsHostingPicker: { [weak self] in
                     self?.showAuthWindow(forceOnboarding: true)
                 },
-                onNeedsAssistantPicker: { [weak self] in
-                    self?.showAssistantPicker()
+                onNeedsAssistantPicker: { [weak self] landscape in
+                    self?.showAssistantPicker(landscape: landscape)
                 }
             ))
         } else {
@@ -178,13 +178,21 @@ extension AppDelegate {
         authWindow = window
     }
 
-    /// Show the assistant picker in the auth window. Builds the picker
-    /// items from the lockfile (current-environment entries only) and
-    /// swaps the auth window content in-place.
-    private func showAssistantPicker() {
-        let items = LockfileAssistant.loadAll()
-            .filter(\.isCurrentEnvironment)
+    /// Show the assistant picker in the auth window. Builds picker items
+    /// from both the lockfile and the platform list (via the landscape) so
+    /// platform-only assistants (hatched on another device) are included.
+    private func showAssistantPicker(landscape: ReturningUserRouter.AssistantLandscape) {
+        // Local lockfile entries (current-env only)
+        let localItems = landscape.currentEnvironmentLocalLockfileAssistants
             .map(AssistantPickerItem.from(lockfile:))
+
+        // Platform entries — exclude any already represented in the lockfile
+        let lockfileIds = Set(landscape.currentEnvironmentLockfileAssistants.map(\.assistantId))
+        let platformItems = landscape.platformAssistants
+            .filter { !lockfileIds.contains($0.id) }
+            .map(AssistantPickerItem.from(platform:))
+
+        let items = localItems + platformItems
 
         let pickerView = AssistantPickerView(
             assistants: items,
@@ -195,6 +203,7 @@ extension AppDelegate {
             onSignOut: { [weak self] in
                 Task {
                     await self?.authManager.logout()
+                    self?.showAuthWindow()
                 }
             }
         )

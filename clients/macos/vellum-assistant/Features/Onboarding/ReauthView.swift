@@ -14,7 +14,9 @@ struct ReauthView: View {
     var onNeedsHostingPicker: (() -> Void)?
     /// Invoked when `ReturningUserRouter` decides `.showAssistantPicker`
     /// (multiple assistants or multi-assistant flag enabled).
-    var onNeedsAssistantPicker: (() -> Void)?
+    /// Receives the landscape so the picker can show platform-only assistants
+    /// that aren't in the local lockfile.
+    var onNeedsAssistantPicker: ((ReturningUserRouter.AssistantLandscape) -> Void)?
 
     @State private var showContent = false
     @State private var didComplete = false
@@ -175,7 +177,8 @@ struct ReauthView: View {
         guard !didComplete else { return }
         let router = ReturningUserRouter()
         do {
-            let decision = try await router.route()
+            let landscape = try await router.fetchLandscape()
+            let decision = router.decide(for: landscape)
             guard !didComplete else { return }
             log.info("ReauthView router decision=\(String(describing: decision), privacy: .public)")
             switch decision {
@@ -194,7 +197,7 @@ struct ReauthView: View {
                 if let onNeedsAssistantPicker {
                     log.info("ReauthView → showAssistantPicker")
                     didComplete = true
-                    onNeedsAssistantPicker()
+                    onNeedsAssistantPicker(landscape)
                 } else {
                     log.info("ReauthView → showAssistantPicker but no callback — falling back to managed activation")
                     await completeManagedActivation()
