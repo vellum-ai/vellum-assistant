@@ -40,6 +40,8 @@
       "url": null,
       "license": "Custom (internal)",
       "logos": [
+        "apple-notes",
+        "excel",
         "other"
       ]
     }

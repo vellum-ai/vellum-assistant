@@ -9,7 +9,7 @@ import VellumAssistantShared
 @MainActor
 final class PreChatOnboardingState {
     /// Bump when the screen order changes so stale persisted indices are reset.
-    private static let currentFlowVersion = 1
+    private static let currentFlowVersion = 2
 
     var currentScreen: Int = 0 // 0 = tools, 1 = tasks/tone, 2 = names
     var selectedTools: Set<String> = []
