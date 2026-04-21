@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import SwiftUI
 
 extension ToolbarContent {
@@ -17,3 +18,4 @@ extension ToolbarContent {
         }
     }
 }
+#endif
