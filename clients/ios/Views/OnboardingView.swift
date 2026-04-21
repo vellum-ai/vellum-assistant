@@ -94,48 +94,27 @@ struct OnboardingView: View {
         .padding(VSpacing.xl)
     }
 
-    /// Persist the selected assistant's config, rebuild the daemon client,
-    /// and advance to the ready step.
-    private func finalizeAssistantSelection(_ assistant: PlatformAssistant) {
-        let platformBaseURL = VellumEnvironment.resolvedPlatformURL
-
-        // Persist managed assistant config so GatewayHTTPClient.resolveConnection()
-        // can build a ConnectionInfo for outbound requests.
-        UserDefaults.standard.set(assistant.id, forKey: UserDefaultsKeys.managedAssistantId)
-        UserDefaults.standard.set(platformBaseURL, forKey: UserDefaultsKeys.managedPlatformBaseURL)
-
-        // Rebuild the daemon client with managed transport config.
-        // ContentView.attemptInitialConnection() handles connecting with
-        // proper retries and timeout once onboarding completes.
-        clientProvider.rebuildClient()
-
-        isBootstrappingManaged = false
-        currentStep = .ready
-    }
-
     private func performManagedBootstrap() async {
         isBootstrappingManaged = true
         managedBootstrapError = nil
 
+        let reconciler = ManagedAssistantIOSReconciler(
+            rebuildClient: { [clientProvider] in
+                clientProvider.rebuildClient()
+            }
+        )
+
         do {
-            let orgId = try await AuthService.shared.resolveOrganizationId()
-            let activeResult = try await AuthService.shared.getActiveAssistant(organizationId: orgId)
-            if case .found(let existing) = activeResult {
-                finalizeAssistantSelection(existing)
-                return
-            }
-
-            let outcome = try await ManagedAssistantBootstrapService.shared.ensureManagedAssistant()
-
-            let assistant: PlatformAssistant
-            switch outcome {
-            case .reusedExisting(let existing):
-                assistant = existing
-            case .createdNew(let created):
-                assistant = created
-            }
-
-            finalizeAssistantSelection(assistant)
+            // `AuthManager.postAuthenticationHook` has already invoked the
+            // reconciler by the time we land here (LoginView → startWorkOSLogin
+            // → hook), so on the happy path this call short-circuits against
+            // the keys just written and advances to `.ready` immediately.
+            // On a hook failure (e.g. transient platform error) `managed_assistant_id`
+            // is still absent and this call retries the bootstrap with the
+            // visible "Setting up your assistant..." spinner.
+            _ = try await reconciler.reconcile()
+            isBootstrappingManaged = false
+            currentStep = .ready
         } catch {
             managedBootstrapError = error.localizedDescription
         }

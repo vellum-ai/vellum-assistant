@@ -169,6 +169,23 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         cm.reconfigure(conversationKey: conversationKey)
         self.clientProvider = ClientProvider(connectionManager: cm, client: cm)
         super.init()
+
+        // Restore the managed-connection identifiers after re-login — `AuthManager.logout()`
+        // clears `managed_assistant_id` / `managed_platform_base_url` from UserDefaults, and
+        // without this hook the shared `AuthManager` has no way to know it needs to re-run
+        // the bootstrap that `OnboardingView` runs on first launch. See LUM-1069.
+        let reconciler = ManagedAssistantIOSReconciler(
+            rebuildClient: { [weak clientProvider] in
+                clientProvider?.rebuildClient()
+            }
+        )
+        authManager.postAuthenticationHook = {
+            do {
+                _ = try await reconciler.reconcile()
+            } catch {
+                log.error("Managed assistant reconcile failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 
     func application(
