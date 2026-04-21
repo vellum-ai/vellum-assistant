@@ -7,6 +7,7 @@ import { ApiError as GeminiApiError } from "@google/genai";
 import OpenAI from "openai";
 
 import { detectAnthropicContextOverflow } from "../anthropic/client.js";
+import { detectGeminiContextOverflow } from "../gemini/client.js";
 import { detectOpenAICompatibleContextOverflow } from "../openai/chat-completions-provider.js";
 import { ContextOverflowError, isContextOverflowError } from "../types.js";
 
@@ -247,10 +248,9 @@ describe("detectOpenAICompatibleContextOverflow", () => {
   });
 });
 
-describe("Gemini ApiError shape", () => {
+describe("detectGeminiContextOverflow", () => {
   // Smoke-check that the Gemini SDK's ApiError still surfaces status+message
-  // the way the detector expects. We cannot import the detector directly
-  // because it's private to the Gemini client, but we exercise the shape.
+  // the way the detector expects.
   test("Gemini ApiError exposes status + message", () => {
     const err = new GeminiApiError({
       status: 400,
@@ -259,5 +259,70 @@ describe("Gemini ApiError shape", () => {
     });
     expect(err.status).toBe(400);
     expect(err.message).toContain("RESOURCE_EXHAUSTED");
+  });
+
+  test("429 quota-exceeded rate-limit returns null (NOT overflow)", () => {
+    // Vertex/Generative Language API returns 429 + RESOURCE_EXHAUSTED for
+    // rate-limit quota exhaustion. This must flow through ProviderError retry
+    // path, not be misclassified as context overflow.
+    const err = new GeminiApiError({
+      status: 429,
+      message:
+        "RESOURCE_EXHAUSTED: Quota exceeded for quota metric 'CustomClass' of service 'generativelanguage.googleapis.com'",
+    });
+    expect(detectGeminiContextOverflow(err)).toBeNull();
+  });
+
+  test("429 with token-count phrase returns overflow (Vertex path)", () => {
+    // Vertex surfaces context-overflow with 429 + RESOURCE_EXHAUSTED plus
+    // a token-count-specific phrase. This is the legitimate overflow path.
+    const err = new GeminiApiError({
+      status: 429,
+      message:
+        "RESOURCE_EXHAUSTED: The input token count 250000 exceeds the maximum number of tokens allowed",
+    });
+    const out = detectGeminiContextOverflow(err);
+    // Non-null signals that the overflow phrase matched; token counts are
+    // best-effort (this message uses "exceeds" prose, not "N > M" format).
+    expect(out).not.toBeNull();
+  });
+
+  test("400 with bare RESOURCE_EXHAUSTED returns overflow (preserves existing behavior)", () => {
+    // Generative Language API path: 400 INVALID_ARGUMENT with just the
+    // RESOURCE_EXHAUSTED phrase is an overflow signal on its own.
+    const err = new GeminiApiError({
+      status: 400,
+      message: "RESOURCE_EXHAUSTED",
+    });
+    expect(detectGeminiContextOverflow(err)).not.toBeNull();
+  });
+
+  test("429 with generic message (no token-specific phrase) returns null", () => {
+    // Any 429 without a token/context phrase should fall through to retry.
+    const err = new GeminiApiError({
+      status: 429,
+      message: "Too many requests — please try again later",
+    });
+    expect(detectGeminiContextOverflow(err)).toBeNull();
+  });
+
+  test("400 with token-count phrase extracts counts when using N > M format", () => {
+    const err = new GeminiApiError({
+      status: 400,
+      message:
+        "The input token count exceeds the maximum: 300000 tokens > 200000 maximum",
+    });
+    const out = detectGeminiContextOverflow(err);
+    expect(out).not.toBeNull();
+    expect(out?.actualTokens).toBe(300000);
+    expect(out?.maxTokens).toBe(200000);
+  });
+
+  test("non-4xx statuses return null", () => {
+    const err = new GeminiApiError({
+      status: 500,
+      message: "RESOURCE_EXHAUSTED: The input token count exceeds",
+    });
+    expect(detectGeminiContextOverflow(err)).toBeNull();
   });
 });
