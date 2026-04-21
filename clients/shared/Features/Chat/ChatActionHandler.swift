@@ -102,9 +102,22 @@ final class ChatActionHandler {
         case .userMessageEcho(let echo):
             guard belongsToConversation(echo.conversationId) else { return }
 
-            // Dedup: if this echo carries a messageId that matches an existing
-            // optimistic row (tagged by the HTTP 202 response), the
-            // originating client already has the row — skip the append.
+            // Primary dedup: client-generated correlation nonce. The client
+            // stamped this ID on the optimistic row BEFORE the POST fired,
+            // so the match works regardless of whether the echo or the 202
+            // arrives first. Also tag the optimistic row with the echo's
+            // messageId if present so downstream handlers can match by ID.
+            if let echoClientId = echo.clientMessageId,
+               let idx = vm.messages.firstIndex(where: { $0.clientMessageId == echoClientId }) {
+                if let echoId = echo.messageId, vm.messages[idx].daemonMessageId == nil {
+                    vm.messages[idx].daemonMessageId = echoId
+                }
+                break
+            }
+
+            // Secondary dedup (no clientMessageId on the echo — old server, or
+            // passive/cross-client echo): match by messageId against an
+            // optimistic row already tagged by the HTTP 202 response.
             if let echoId = echo.messageId,
                vm.messages.contains(where: { $0.daemonMessageId == echoId }) {
                 // Originating client — optimistic row already present.
@@ -113,12 +126,11 @@ final class ChatActionHandler {
                 break
             }
 
-            // Race-condition fallback: the echo may arrive before the HTTP 202
-            // response tags the optimistic row with daemonMessageId. Match by
-            // text against the oldest untagged optimistic user row (firstIndex
-            // matches userMessagePersisted's oldest-first order since both SSE
-            // echoes and 202 responses arrive in send order). Scoped to .sent
-            // status to avoid matching stale .sendFailed rows.
+            // Tertiary race-condition fallback (old server only): the echo
+            // arrived before the HTTP 202 tagged the optimistic row AND the
+            // server did not echo a clientMessageId. Match by text against
+            // the oldest untagged optimistic user row. Scoped to .sent to
+            // avoid matching stale .sendFailed rows.
             if let echoId = echo.messageId,
                let idx = vm.messages.firstIndex(where: {
                    $0.role == .user
@@ -353,17 +365,20 @@ final class ChatActionHandler {
             if let pending = vm.pendingUserMessage {
                 let attachments = vm.pendingUserAttachments
                 let automated = vm.pendingUserMessageAutomated
+                let pendingClientMessageId = vm.pendingUserMessageClientMessageId
                 vm.pendingUserMessage = nil
                 vm.pendingUserMessageDisplayText = nil
                 vm.pendingUserAttachments = nil
                 vm.pendingUserMessageAutomated = false
+                vm.pendingUserMessageClientMessageId = nil
                 vm.eventStreamClient.sendUserMessage(
                     content: pending,
                     conversationId: info.conversationId,
                     attachments: attachments,
                     conversationType: nil,
                     automated: automated ? true : nil,
-                    bypassSecretCheck: nil
+                    bypassSecretCheck: nil,
+                    clientMessageId: pendingClientMessageId
                 )
             } else {
                 // Message-less conversation create (e.g. private conversation

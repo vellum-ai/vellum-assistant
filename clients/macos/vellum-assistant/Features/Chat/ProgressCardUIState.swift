@@ -34,6 +34,15 @@ struct ProgressCardUIState: Equatable, Sendable {
     /// Persisted so the thinking row survives view recycling with correct timing.
     var thinkingDurations: [UUID: TimeInterval] = [:]
 
+    // MARK: - Card Completion Anchor Persistence
+
+    /// Per-card completion timestamp captured at the first `.complete` phase
+    /// transition. Persisted so the header total duration survives view
+    /// recycling — rehydrating from `model.latestCompletedAt` (the last tool's
+    /// end) loses any post-tool thinking/latency tail and re-introduces the
+    /// exact regression the anchor is meant to prevent.
+    var cardCompletedDates: [UUID: Date] = [:]
+
     // MARK: - Rehydration Tracking
 
     /// Set of group IDs (first tool call UUID) for which rehydration has already
@@ -69,6 +78,11 @@ struct ProgressCardUIState: Equatable, Sendable {
     /// Returns the persisted thinking duration for the given card, or nil if none.
     func thinkingDuration(for cardKey: UUID) -> TimeInterval? {
         thinkingDurations[cardKey]
+    }
+
+    /// Returns the persisted completion timestamp for the given card, or nil if none.
+    func cardCompletedAt(for cardKey: UUID) -> Date? {
+        cardCompletedDates[cardKey]
     }
 
     /// Whether rehydration has already been performed for the given group.
@@ -107,6 +121,18 @@ struct ProgressCardUIState: Equatable, Sendable {
         thinkingDurations[cardKey] = duration
     }
 
+    /// Stores the card's completion timestamp so it survives view recycling.
+    mutating func setCardCompletedAt(for cardKey: UUID, date: Date) {
+        cardCompletedDates[cardKey] = date
+    }
+
+    /// Clears the persisted completion timestamp for a card. Called when tools
+    /// resume after a transient `.complete` (multi-wave execution) so the next
+    /// completion captures a fresh anchor.
+    mutating func clearCardCompletedAt(for cardKey: UUID) {
+        cardCompletedDates.removeValue(forKey: cardKey)
+    }
+
     /// Marks a group as having been rehydrated.
     mutating func markRehydrated(groupId: UUID) {
         rehydratedGroupIds.insert(groupId)
@@ -117,6 +143,7 @@ struct ProgressCardUIState: Equatable, Sendable {
         expandedStepIds.removeAll()
         cardExpansionOverrides.removeAll()
         thinkingDurations.removeAll()
+        cardCompletedDates.removeAll()
         rehydratedGroupIds.removeAll()
     }
 }

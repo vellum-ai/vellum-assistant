@@ -97,7 +97,7 @@ function basePrompt(result: string): string {
     "## Configuration",
     "## Skills Catalog",
     "## External Communications Identity",
-    "## Connected Services",
+    "# Connected Services",
     "## Dynamic Skill Authoring Workflow",
   ]) {
     if (s.startsWith(heading)) {

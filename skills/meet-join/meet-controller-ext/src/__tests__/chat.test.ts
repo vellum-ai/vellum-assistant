@@ -42,6 +42,14 @@ interface InstalledDom {
     datetime?: string;
     isSelf?: boolean;
   }) => void;
+  /**
+   * Register a callback that fires synchronously after the toggle-click
+   * handler has mounted (or remounted) the panel elements (list,
+   * composer, send button). Tests use this to attach click listeners or
+   * stub `getBoundingClientRect` on elements that only exist after the
+   * panel opens.
+   */
+  onPanelOpen: (fn: () => void) => void;
 }
 
 /**
@@ -66,19 +74,42 @@ function installChatDom(): InstalledDom {
   }
 
   let toggleClicks = 0;
+  const onPanelOpenCallbacks: Array<() => void> = [];
   const attachToggleHandler = (): void => {
     const toggle = document.querySelector(chatSelectors.PANEL_BUTTON);
     if (!toggle) return;
     toggle.addEventListener("click", () => {
       toggleClicks += 1;
-      // If the message list has been removed, recreate it so a subsequent
-      // query succeeds.
+      const aside = document.querySelector("aside");
+      // Remount the whole chat surface (list + composer + send button)
+      // together. In production Meet, closing the panel tears all three
+      // down at once and reopening it mounts them together. Keeping the
+      // fixture in sync with that invariant is what lets
+      // `ensurePanelOpen`'s new composer-anchored short-circuit behave
+      // the same way in tests as it does against real Meet.
       if (!document.querySelector(chatSelectors.MESSAGE_LIST)) {
-        const aside = document.querySelector("aside");
         const list = document.createElement("div");
         list.setAttribute("role", "list");
         list.setAttribute("aria-label", "Chat messages");
         aside?.insertBefore(list, aside.firstChild);
+      }
+      if (!document.querySelector(chatSelectors.INPUT)) {
+        const input = document.createElement("textarea");
+        input.setAttribute("aria-label", "Send a message");
+        aside?.appendChild(input);
+      }
+      if (!document.querySelector(chatSelectors.SEND_BUTTON)) {
+        const sendButton = document.createElement("button");
+        sendButton.setAttribute("type", "button");
+        sendButton.setAttribute("aria-label", "Send a message");
+        sendButton.textContent = "Send";
+        aside?.appendChild(sendButton);
+      }
+      // Run any post-mount hooks the test registered. Tests use this to
+      // attach click listeners or stub geometry on the freshly-mounted
+      // composer / send button before `sendChat` queries them.
+      for (const fn of onPanelOpenCallbacks) {
+        fn();
       }
     });
   };
@@ -127,8 +158,14 @@ function installChatDom(): InstalledDom {
   };
 
   const closePanel: InstalledDom["closePanel"] = () => {
-    const list = document.querySelector(chatSelectors.MESSAGE_LIST);
-    list?.remove();
+    // Production Meet tears down the whole chat surface when the panel
+    // closes — list, composer, and send button all go away together.
+    // Removing only the list would leave `ensurePanelOpen`'s composer-
+    // anchored short-circuit incorrectly satisfied and skip the toggle
+    // click the callers are validating.
+    document.querySelector(chatSelectors.MESSAGE_LIST)?.remove();
+    document.querySelector(chatSelectors.INPUT)?.remove();
+    document.querySelector(chatSelectors.SEND_BUTTON)?.remove();
   };
 
   // Restore original globals on teardown. Stored on the JSDOM instance so
@@ -148,6 +185,9 @@ function installChatDom(): InstalledDom {
     panelToggleClicks: () => toggleClicks,
     closePanel,
     appendMessage,
+    onPanelOpen: (fn: () => void): void => {
+      onPanelOpenCallbacks.push(fn);
+    },
   };
 }
 
@@ -713,11 +753,16 @@ describe("postConsentMessage", () => {
 
     const doc = installed!.dom.window.document;
     let sendClicks = 0;
-    doc
-      .querySelector<HTMLButtonElement>(chatSelectors.SEND_BUTTON)!
-      .addEventListener("click", () => {
-        sendClicks += 1;
-      });
+    // The send button doesn't exist until the toggle-click handler
+    // remounts the chat surface, so attach the listener inside the
+    // post-mount hook.
+    installed!.onPanelOpen(() => {
+      doc
+        .querySelector<HTMLButtonElement>(chatSelectors.SEND_BUTTON)!
+        .addEventListener("click", () => {
+          sendClicks += 1;
+        });
+    });
 
     await postConsentMessage("consent please");
 
@@ -760,27 +805,30 @@ describe("postConsentMessage", () => {
         },
       }) as DOMRect;
 
-    // Pre-stub the send button geometry too. The send button lives on the
-    // chat fixture (mounted since fixture load), even though the MESSAGE_LIST
-    // was removed by `closePanel()` — only the list node is gone, not the
-    // composer.
-    const sendButton = doc.querySelector<HTMLButtonElement>(
-      chatSelectors.SEND_BUTTON,
-    )!;
-    sendButton.getBoundingClientRect = () =>
-      ({
-        left: 1300,
-        top: 700,
-        width: 60,
-        height: 40,
-        right: 1360,
-        bottom: 740,
-        x: 1300,
-        y: 700,
-        toJSON() {
-          return {};
-        },
-      }) as DOMRect;
+    // Stub the send button geometry via the post-mount hook — `closePanel`
+    // now tears down the entire chat surface (list + composer + send) to
+    // mirror production, so the send button doesn't exist until the
+    // toggle-click handler remounts it. Registering the stub here guarantees
+    // it runs right after remount and before `sendChat` reads the rect.
+    installed!.onPanelOpen(() => {
+      const sendButton = doc.querySelector<HTMLButtonElement>(
+        chatSelectors.SEND_BUTTON,
+      )!;
+      sendButton.getBoundingClientRect = () =>
+        ({
+          left: 1300,
+          top: 700,
+          width: 60,
+          height: 40,
+          right: 1360,
+          bottom: 740,
+          x: 1300,
+          y: 700,
+          toJSON() {
+            return {};
+          },
+        }) as DOMRect;
+    });
 
     const events: ExtensionToBotMessage[] = [];
     await postConsentMessage("hi", {
@@ -943,5 +991,37 @@ describe("postConsentMessage", () => {
     // And the list is mounted now, proving the async mount fired before
     // the chat post completed.
     expect(doc.querySelector(chatSelectors.MESSAGE_LIST)).not.toBeNull();
+  });
+
+  test("opens the panel when MESSAGE_LIST aria-label has drifted off the known value", async () => {
+    // Regression: Meet's "Continuous chat is turned off" mode renders the
+    // chat panel header as "In-call messages" and may rename the
+    // underlying list's aria-label off "Chat messages" — the selector
+    // `[role="list"][aria-label="Chat messages"]` then misses even though
+    // the composer is present and usable. Before the composer-anchored
+    // short-circuit, ensurePanelOpen would click the toggle (closing the
+    // panel!) and the subsequent sendChat query would race the panel
+    // remount and throw "chat input not found".
+    //
+    // We simulate that state by removing MESSAGE_LIST and mounting a
+    // drifted-aria-label list alongside a working composer + send
+    // button. `ensurePanelOpen` must see the composer, short-circuit,
+    // and leave the toggle alone.
+    const doc = installed!.dom.window.document;
+    doc.querySelector(chatSelectors.MESSAGE_LIST)?.remove();
+    const driftedList = doc.createElement("div");
+    driftedList.setAttribute("role", "list");
+    driftedList.setAttribute("aria-label", "In-call messages");
+    doc.body.appendChild(driftedList);
+    // Composer + send button are already in the fixture — leave them.
+
+    expect(installed!.panelToggleClicks()).toBe(0);
+    await postConsentMessage("hi");
+    // No toggle click: the composer was already visible, so the panel
+    // was deemed open without re-toggling. A regression would click
+    // once (or more, driving the panel closed) here.
+    expect(installed!.panelToggleClicks()).toBe(0);
+    const input = doc.querySelector<HTMLTextAreaElement>(chatSelectors.INPUT);
+    expect(input!.value).toBe("hi");
   });
 });

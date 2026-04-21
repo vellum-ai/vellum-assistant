@@ -1833,6 +1833,8 @@ describe("MeetSessionManager TTS lip-sync forwarder wiring", () => {
     // exercised by this test — the session manager only calls cancelAll
     // during leave.
     const ttsBridgeFactory = () => ({
+      meetingId: "m-lipsync-order",
+      botBaseUrl: "http://unused",
       speak: async () => ({
         streamId: "unused",
         completion: Promise.resolve(),
@@ -1842,6 +1844,7 @@ describe("MeetSessionManager TTS lip-sync forwarder wiring", () => {
         callOrder.push("ttsBridge.cancelAll");
       },
       activeStreamCount: () => 0,
+      onViseme: () => () => {},
     });
 
     const manager = _createMeetSessionManagerForTests({

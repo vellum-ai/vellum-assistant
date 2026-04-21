@@ -20,6 +20,10 @@ import type {
   ToolUseContent,
 } from "./types.js";
 
+// Re-export the typed context-overflow error so callsites that dispatch on
+// this category do not need to reach into `./types.js` directly.
+export { ContextOverflowError, isContextOverflowError } from "./types.js";
+
 export interface ConfiguredProviderResult {
   provider: Provider;
   configuredProviderName: string;

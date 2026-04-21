@@ -121,7 +121,7 @@ describe("classifyConversationError", () => {
 
     it("classifies Anthropic overloaded_error (no statusCode) as PROVIDER_OVERLOADED", () => {
       const err = new ProviderError(
-        'Anthropic API error (undefined): {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
+        'Anthropic API error: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
         "anthropic",
       );
       const result = classifyConversationError(err, baseCtx);
@@ -614,7 +614,7 @@ describe("classifyConversationError", () => {
     for (const kind of taggedKinds) {
       it(`treats ProviderError with abortReason kind="${kind}" as user cancellation`, () => {
         const wrapped = new ProviderError(
-          "Anthropic API error (undefined): Request was aborted.",
+          "Anthropic API error: Request was aborted.",
           "anthropic",
           undefined,
           { abortReason: createAbortReason(kind, `test:${kind}`) },
@@ -625,7 +625,7 @@ describe("classifyConversationError", () => {
 
     it("does NOT treat tagged ProviderError as cancellation when ctx.aborted is false", () => {
       const wrapped = new ProviderError(
-        "Anthropic API error (undefined): Request was aborted.",
+        "Anthropic API error: Request was aborted.",
         "anthropic",
         undefined,
         { abortReason: createAbortReason("user_cancel", "test") },
@@ -636,7 +636,7 @@ describe("classifyConversationError", () => {
 
     it("does NOT treat ProviderError without abortReason as cancellation", () => {
       const wrapped = new ProviderError(
-        "Anthropic API error (undefined): Request was aborted.",
+        "Anthropic API error: Request was aborted.",
         "anthropic",
         undefined,
       );
@@ -645,7 +645,7 @@ describe("classifyConversationError", () => {
 
     it("does NOT treat ProviderError with foreign reason as cancellation", () => {
       const wrapped = new ProviderError(
-        "Anthropic API error (undefined): Request was aborted.",
+        "Anthropic API error: Request was aborted.",
         "anthropic",
         undefined,
         { abortReason: { kind: "user_cancel", source: "spoofed" } },
@@ -655,7 +655,7 @@ describe("classifyConversationError", () => {
 
     it("falls through to CONVERSATION_ABORTED when wrapped ProviderError has no tagged reason", () => {
       const wrapped = new ProviderError(
-        "Anthropic API error (undefined): Request was aborted.",
+        "Anthropic API error: Request was aborted.",
         "anthropic",
         undefined,
       );

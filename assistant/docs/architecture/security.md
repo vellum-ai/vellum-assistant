@@ -20,18 +20,19 @@ graph TB
     FIND_RULE -->|"No match"| NO_MATCH{"Fallback logic"}
 
     RISK_CHECK -->|"Low / Medium"| AUTO_ALLOW["decision: allow<br/>Auto-allowed by rule"]
-    RISK_CHECK -->|"High"| HIGH_CHECK{"allowHighRisk<br/>on rule?"}
-    HIGH_CHECK -->|"true"| AUTO_ALLOW
-    HIGH_CHECK -->|"false / absent"| PROMPT_HIGH["decision: prompt<br/>High risk override"]
+    RISK_CHECK -->|"High"| HIGH_CHECK{"shouldAutoAllowHighRisk()<br/>(containerized bash?)"}
+    HIGH_CHECK -->|"yes"| AUTO_ALLOW
+    HIGH_CHECK -->|"no"| RISK_THRESHOLD{"Risk-based<br/>threshold fallback"}
 
     NO_MATCH -->|"tool.origin === 'skill'"| PROMPT_SKILL["decision: prompt<br/>Skill tools always ask"]
     NO_MATCH -->|"strict mode"| PROMPT_STRICT["decision: prompt<br/>No implicit auto-allow"]
-    NO_MATCH -->|"workspace mode (default)"| WS_CHECK{"Workspace-scoped<br/>invocation?"}
+    NO_MATCH -->|"workspace mode (default)"| WS_CHECK{"Workspace-scoped<br/>+ Low risk?"}
     WS_CHECK -->|"yes"| AUTO_WS["decision: allow<br/>Workspace-scoped auto-allow"]
-    WS_CHECK -->|"no"| RISK_FALLBACK_WS{"Risk level?"}
-    RISK_FALLBACK_WS -->|"Low"| AUTO_WS_LOW["decision: allow<br/>Low risk auto-allow"]
-    RISK_FALLBACK_WS -->|"Medium"| PROMPT_WS_MED["decision: prompt"]
-    RISK_FALLBACK_WS -->|"High"| PROMPT_WS_HIGH["decision: prompt"]
+    WS_CHECK -->|"no"| RISK_THRESHOLD
+
+    RISK_THRESHOLD{"risk ≤ autoApproveUpTo<br/>threshold?"}
+    RISK_THRESHOLD -->|"yes"| AUTO_THRESHOLD["decision: allow<br/>within auto-approve threshold"]
+    RISK_THRESHOLD -->|"no"| PROMPT_THRESHOLD["decision: prompt<br/>above auto-approve threshold"]
 ```
 
 ### Permission Modes: Workspace and Strict
@@ -49,7 +50,7 @@ The `permissions.mode` config option (`workspace` or `strict`) controls the defa
 | `browser_*` skill tools with system default rules  | Auto-allowed (priority 100 allow rules)       | Auto-allowed (priority 100 allow rules)       |
 | Skill-origin tools with no matching rule           | Prompted                                      | Prompted                                      |
 | Allow rules for non-high-risk tools                | Auto-allowed                                  | Auto-allowed                                  |
-| Allow rules with `allowHighRisk: true`             | Auto-allowed (even high risk)                 | Auto-allowed (even high risk)                 |
+| Allow rules + containerized bash (high risk)       | Auto-allowed (runtime check)                  | Auto-allowed (runtime check)                  |
 | Deny rules                                         | Blocked                                       | Blocked                                       |
 
 **Workspace mode** (default) auto-allows operations scoped to the workspace (file reads/writes/edits within the workspace directory, sandboxed bash) without prompting. Host operations, network requests, and operations outside the workspace still follow the normal approval flow. Explicit deny and ask rules override auto-allow.
@@ -71,7 +72,6 @@ Rules are stored in `~/.vellum/protected/trust.json` with version `3`. Each rule
 | `decision`        | `allow \| deny \| ask` | What to do when the rule matches                                         |
 | `priority`        | `number`               | Higher priority wins; deny wins ties at equal priority                   |
 | `executionTarget` | `string?`              | `sandbox` or `host` — restricts by execution context                     |
-| `allowHighRisk`   | `boolean?`             | When true, auto-allows even high-risk invocations                        |
 
 Missing optional fields act as wildcards. A rule with no `executionTarget` matches any target.
 
@@ -165,7 +165,7 @@ When a permission prompt is sent to the client (via `confirmation_request` SSE e
 | `allowlistOptions` | Suggested patterns for "always allow" rules         |
 | `scopeOptions`     | Suggested scopes for rule persistence               |
 
-The user can respond with: `allow` (one-time), `always_allow` (create allow rule), `always_allow_high_risk` (create allow rule with `allowHighRisk: true`), `deny` (one-time), or `always_deny` (create deny rule).
+The user can respond with: `allow` (one-time), `always_allow` (create allow rule), `deny` (one-time), or `always_deny` (create deny rule). High-risk operations with an allow rule in containerized environments are auto-allowed at runtime by `DefaultApprovalPolicy.shouldAutoAllowHighRisk()` without requiring persisted state. All other risk-based decisions use the `autoApproveUpTo` threshold (default: `"low"`) -- tools at or below the threshold are auto-allowed, those above are prompted.
 
 ### Canonical Paths
 
@@ -272,18 +272,18 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 
 ### Storage Layout
 
-| Component           | Location                                             | What it stores                                                                                                                                               |
-| ------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Component           | Location                                             | What it stores                                                                                                                                                   |
+| ------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Secret values       | CES credential store or encrypted file store         | Encrypted credential values keyed as `credential/{service}/{field}`. Stored via CES RPC (primary), CES HTTP (containerized), or encrypted file store (fallback). |
-| Credential metadata | `~/.vellum/workspace/data/credentials/metadata.json` | Service, field, label, policy (allowedTools, allowedDomains), timestamps                                                                                     |
-| Config              | `~/.vellum/workspace/config.*`                       | `secretDetection` settings: enabled, action, entropyThreshold, allowOneTimeSend                                                                              |
+| Credential metadata | `~/.vellum/workspace/data/credentials/metadata.json` | Service, field, label, policy (allowedTools, allowedDomains), timestamps                                                                                         |
+| Config              | `~/.vellum/workspace/config.*`                       | `secretDetection` settings: enabled, action, entropyThreshold, allowOneTimeSend                                                                                  |
 
 ### Key Files
 
 | File                                                 | Role                                                                  |
 | ---------------------------------------------------- | --------------------------------------------------------------------- |
 | `assistant/src/tools/credentials/vault.ts`           | `credential_store` tool — store, list, delete, prompt actions         |
-| `assistant/src/security/secure-keys.ts`              | Async secure key CRUD via CES and encrypted file store               |
+| `assistant/src/security/secure-keys.ts`              | Async secure key CRUD via CES and encrypted file store                |
 | `assistant/src/tools/credentials/metadata-store.ts`  | JSON file metadata CRUD for credential records                        |
 | `assistant/src/tools/credentials/broker.ts`          | Brokered credential access with policy enforcement and transient send |
 | `assistant/src/tools/credentials/policy-validate.ts` | Policy input validation (allowedTools, allowedDomains)                |

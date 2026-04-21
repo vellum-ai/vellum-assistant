@@ -1,6 +1,7 @@
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import { getHookManager } from "../hooks/manager.js";
+import { resolveThreshold } from "../permissions/approval-policy.js";
 import {
   check,
   classifyRisk,
@@ -100,7 +101,7 @@ export class PermissionChecker {
       }
     }
 
-    const risk = await classifyRisk(
+    const { level: risk, reason: riskReason } = await classifyRisk(
       name,
       input,
       context.workingDir,
@@ -168,6 +169,7 @@ export class PermissionChecker {
           conversationId: context.conversationId,
           requestId: context.requestId,
           riskLevel,
+          riskReason,
           decision: "deny",
           reason: result.reason,
           durationMs,
@@ -209,20 +211,36 @@ export class PermissionChecker {
         // Exception: inline-command skill loads (skill_load_dynamic:*) must
         // never be silently auto-approved — they execute embedded commands
         // and require explicit human review or a pinned trust rule.
-        // Exception: high-risk tools (e.g. destructive shell commands, writes
-        // to sensitive paths) are denied — unattended sessions must not
-        // auto-approve operations that could cause significant damage if
-        // triggered by prompt injection from untrusted content.
+        // Exception: tools above the configured background threshold are
+        // denied — unattended sessions must not auto-approve operations that
+        // could cause significant damage if triggered by prompt injection
+        // from untrusted content.
         const isDynamicSkillLoad =
           result.matchedRule?.pattern.startsWith("skill_load_dynamic:") ===
           true;
+        const bgThreshold = resolveThreshold(
+          cfg.permissions.autoApproveUpTo,
+          "background",
+        );
+        const thresholdOrdinal: Record<string, number> = {
+          none: -1,
+          low: 0,
+          medium: 1,
+        };
+        const riskOrdinal: Record<string, number> = {
+          [RiskLevel.Low]: 0,
+          [RiskLevel.Medium]: 1,
+          [RiskLevel.High]: 2,
+        };
+        const withinThreshold =
+          (riskOrdinal[riskLevel] ?? 2) <= (thresholdOrdinal[bgThreshold] ?? 0);
         if (
           context.isInteractive === false &&
           context.trustClass === "guardian" &&
           !context.requireFreshApproval &&
           !isDynamicSkillLoad &&
           !v2ForcePrompt &&
-          riskLevel !== RiskLevel.High
+          withinThreshold
         ) {
           log.info(
             { toolName: name, riskLevel },
@@ -252,6 +270,7 @@ export class PermissionChecker {
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
+            riskReason,
             decision: "deny",
             reason: "Non-interactive session: no client to approve prompt",
             durationMs,
@@ -326,6 +345,7 @@ export class PermissionChecker {
           conversationId: context.conversationId,
           requestId: context.requestId,
           riskLevel,
+          riskReason,
           reason: result.reason,
           allowlistOptions: promptOptions.allowlistOptions,
           scopeOptions: promptOptions.scopeOptions,
@@ -391,6 +411,7 @@ export class PermissionChecker {
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
+            riskReason,
             decision: "deny",
             reason: denialReason,
             durationMs,
@@ -439,6 +460,7 @@ export class PermissionChecker {
             conversationId: context.conversationId,
             requestId: context.requestId,
             riskLevel,
+            riskReason,
             decision: "always_deny",
             reason: denialReason,
             durationMs,
@@ -453,18 +475,12 @@ export class PermissionChecker {
 
         if (
           promptOptions.persistentDecisionsAllowed &&
-          (decision === "always_allow" ||
-            decision === "always_allow_high_risk") &&
+          decision === "always_allow" &&
           response.selectedPattern
         ) {
           const ruleOptions: {
-            allowHighRisk?: boolean;
             executionTarget?: string;
           } = {};
-
-          if (decision === "always_allow_high_risk") {
-            ruleOptions.allowHighRisk = true;
-          }
 
           if (policyContext?.executionTarget != null) {
             ruleOptions.executionTarget = policyContext.executionTarget;

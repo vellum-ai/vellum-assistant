@@ -64,7 +64,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../permissions/checker.js", () => ({
-  classifyRisk: async () => checkerRisk,
+  classifyRisk: async () => ({ level: checkerRisk }),
   check: async () => ({ decision: checkerDecision, reason: checkerReason }),
   generateAllowlistOptions: () => [
     { label: "exact", description: "exact", pattern: "exact" },

@@ -412,12 +412,11 @@ function mapDecisionToOptionId(
     decision === "allow_10m" ||
     decision === "allow_conversation" ||
     decision === "always_allow" ||
-    decision === "always_allow_high_risk" ||
     decision === "temporary_override";
 
   if (isAllow) {
     // Prefer allow_always for persistent decisions, fallback to allow_once
-    if (decision === "always_allow" || decision === "always_allow_high_risk") {
+    if (decision === "always_allow") {
       const alwaysOpt = options.find((o) => o.kind === "allow_always");
       if (alwaysOpt) return alwaysOpt.optionId;
     }

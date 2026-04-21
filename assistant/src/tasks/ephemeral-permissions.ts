@@ -1,4 +1,9 @@
+import { SCOPED_TOOLS } from "@vellumai/ces-contracts";
+
 import type { TrustRule } from "../permissions/types.js";
+
+/** O(1) lookup set for scoped tool names. */
+const SCOPED_TOOLS_SET: ReadonlySet<string> = new Set(SCOPED_TOOLS);
 
 // In-memory map: task_run_id -> ephemeral rules
 const activeTaskRules = new Map<string, TrustRule[]>();
@@ -29,9 +34,8 @@ export function clearTaskRunRules(taskRunId: string): void {
  * default rules (50) so pre-approved tools aren't shadowed by default
  * `ask` rules (which would trigger prompting and auto-deny in
  * non-interactive task runs), but below user rules (100) so user deny
- * rules still take precedence. `allowHighRisk` is intentionally omitted:
- * high-risk tool invocations still flow through the normal risk-classification
- * path rather than being blanket-approved.
+ * rules still take precedence. High-risk tool invocations still flow through
+ * the normal risk-classification path rather than being blanket-approved.
  */
 export function buildTaskRules(
   taskRunId: string,
@@ -42,7 +46,8 @@ export function buildTaskRules(
     id: `ephemeral:${taskRunId}:${tool}`,
     tool,
     pattern: "**",
-    scope: "everywhere",
+    // Only include scope for scoped tools — non-scoped tools don't carry scope.
+    ...(SCOPED_TOOLS_SET.has(tool) ? { scope: "everywhere" } : {}),
     decision: "allow" as const,
     priority: 75,
     createdAt: Date.now(),

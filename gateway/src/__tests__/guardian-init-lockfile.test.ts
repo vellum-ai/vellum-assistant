@@ -22,6 +22,7 @@ let lockFileExists = false;
 let writtenLockFiles: string[] = [];
 let consumedSecretsContent: string | null = null;
 let writtenConsumedFiles: string[] = [];
+let unlinkedFiles: string[] = [];
 
 mock.module("node:fs", () => ({
   ...actualFs,
@@ -59,6 +60,14 @@ mock.module("node:fs", () => ({
       return;
     }
     return actualFs.writeFileSync(p, data, options);
+  },
+  unlinkSync: (p: string) => {
+    if (typeof p === "string" && p.endsWith("guardian-init.lock")) {
+      unlinkedFiles.push(p);
+      lockFileExists = false;
+      return;
+    }
+    return actualFs.unlinkSync(p);
   },
 }));
 
@@ -99,6 +108,7 @@ afterEach(() => {
   writtenLockFiles = [];
   consumedSecretsContent = null;
   writtenConsumedFiles = [];
+  unlinkedFiles = [];
 });
 
 describe("guardian/init bootstrap secret", () => {
@@ -502,5 +512,136 @@ describe("guardian/init multi-secret consumption tracking", () => {
     } finally {
       delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
     }
+  });
+});
+
+describe("guardian/reset-bootstrap", () => {
+  test("removes lock file and allows re-init on bare-metal", async () => {
+    lockFileExists = true;
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+
+    const res = await handler.handleResetBootstrap("127.0.0.1");
+    expect(res.status).toBe(200);
+    expect(unlinkedFiles.length).toBe(1);
+    expect(unlinkedFiles[0]).toContain("guardian-init.lock");
+    expect(lockFileExists).toBe(false);
+  });
+
+  test("succeeds idempotently when lock file does not exist", async () => {
+    lockFileExists = false;
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+
+    const res = await handler.handleResetBootstrap("127.0.0.1");
+    expect(res.status).toBe(200);
+    expect(unlinkedFiles.length).toBe(0);
+  });
+
+  test("rejects non-loopback clients", async () => {
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+
+    const res = await handler.handleResetBootstrap("192.168.1.100");
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toBe("Loopback-only endpoint");
+  });
+
+  test("rejects in Docker mode (bootstrap secret set)", async () => {
+    process.env.GUARDIAN_BOOTSTRAP_SECRET = "docker-secret";
+    try {
+      const handler =
+        createChannelVerificationSessionProxyHandler(makeConfig());
+
+      const res = await handler.handleResetBootstrap("127.0.0.1");
+      expect(res.status).toBe(403);
+      const body = await res.json();
+      expect(body.error).toBe("Reset not available in containerized mode");
+    } finally {
+      delete process.env.GUARDIAN_BOOTSTRAP_SECRET;
+    }
+  });
+
+  test("rejects with 409 while init is awaiting upstream", async () => {
+    let resolveInit: (v: Response) => void;
+    fetchMock = mock(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveInit = resolve;
+        }),
+    );
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+
+    // Start an init that will hang until we resolve it
+    const initPromise = handler.handleGuardianInit(
+      new Request("http://localhost:7830/v1/guardian/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "cli", deviceId: "d" }),
+      }),
+      "127.0.0.1",
+    );
+
+    // Reset while init is pending
+    const resetRes = await handler.handleResetBootstrap("127.0.0.1");
+    expect(resetRes.status).toBe(409);
+    const body = await resetRes.json();
+    expect(body.error).toBe("Guardian init is in progress — try again shortly");
+
+    // Let the init finish so it doesn't leak
+    resolveInit!(
+      new Response(JSON.stringify({ accessToken: "t", refreshToken: "r" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    await initPromise;
+  });
+
+  test("resets in-flight flag so init can proceed", async () => {
+    lockFileExists = false;
+    fetchMock = mock(
+      async () =>
+        new Response(JSON.stringify({ accessToken: "t", refreshToken: "r" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const handler = createChannelVerificationSessionProxyHandler(makeConfig());
+
+    // First init succeeds and writes lock
+    await handler.handleGuardianInit(
+      new Request("http://localhost:7830/v1/guardian/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "cli", deviceId: "d" }),
+      }),
+      "127.0.0.1",
+    );
+    expect(lockFileExists).toBe(true);
+
+    // Second init is rejected
+    const blocked = await handler.handleGuardianInit(
+      new Request("http://localhost:7830/v1/guardian/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "cli", deviceId: "d" }),
+      }),
+      "127.0.0.1",
+    );
+    expect(blocked.status).toBe(403);
+
+    // Reset clears the lock
+    const resetRes = await handler.handleResetBootstrap("127.0.0.1");
+    expect(resetRes.status).toBe(200);
+
+    // Init works again
+    const retryRes = await handler.handleGuardianInit(
+      new Request("http://localhost:7830/v1/guardian/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: "cli", deviceId: "d" }),
+      }),
+      "127.0.0.1",
+    );
+    expect(retryRes.status).toBe(200);
   });
 });

@@ -9,12 +9,13 @@ import {
   isRetryableNetworkError,
   sleep,
 } from "../util/retry.js";
-import type {
-  Message,
-  Provider,
-  ProviderResponse,
-  SendMessageOptions,
-  ToolDefinition,
+import {
+  isContextOverflowError,
+  type Message,
+  type Provider,
+  type ProviderResponse,
+  type SendMessageOptions,
+  type ToolDefinition,
 } from "./types.js";
 
 const log = getLogger("retry");
@@ -62,6 +63,11 @@ function isRetryableProviderMessage(error: unknown): boolean {
 }
 
 function isRetryableError(error: unknown): boolean {
+  // Context overflow is deterministic — retrying the same oversized prompt
+  // will never succeed. Short-circuit before the generic 429/5xx check so
+  // ContextOverflowError (which extends ProviderError and may carry a 429
+  // statusCode on Gemini/Vertex) never triggers exponential backoff.
+  if (isContextOverflowError(error)) return false;
   // Daemon/user-initiated aborts are never retryable. The catch-site tags
   // these with `abortReason` exactly when `signal.aborted` was true at the
   // time of failure, so this short-circuits before any message-based pattern
@@ -212,6 +218,14 @@ function normalizeSendMessageOptions(
   };
 }
 
+/**
+ * `RetryProvider` sets `retriesExhausted = true` on the final thrown error
+ * when the retry loop burned through all attempts against a retryable error
+ * (transient network, 5xx, provider-overloaded, mid-stream corruption).
+ * Consumers can read it via `(err as { retriesExhausted?: boolean })` to
+ * suppress Sentry captures for user-network-flap noise — the retry loop
+ * already did its job, and no engineering action would change the outcome.
+ */
 export class RetryProvider implements Provider {
   public readonly name: string;
 
@@ -230,6 +244,7 @@ export class RetryProvider implements Provider {
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
     let lastError: unknown;
+    let didRetry = false;
 
     const normalizedOptions = normalizeSendMessageOptions(this.name, options);
 
@@ -277,14 +292,32 @@ export class RetryProvider implements Provider {
             },
             "Retrying after transient error",
           );
+          didRetry = true;
           await sleep(delay);
           continue;
+        }
+
+        // If we exhausted retries on a retryable error, tag the error so
+        // downstream consumers (Sentry capture, etc.) can recognize that the
+        // retry loop already tried its best. The catch-site logic above only
+        // stops retrying when either (a) retries are exhausted, or (b) the
+        // error isn't retryable — so we check the retryable predicate here to
+        // distinguish the two cases.
+        if (didRetry && isRetryableError(error) && error instanceof Error) {
+          (error as Error & { retriesExhausted?: boolean }).retriesExhausted =
+            true;
         }
 
         throw error;
       }
     }
 
+    // Unreachable in practice — the loop body always either returns or throws —
+    // but mark the last error in case execution somehow falls through.
+    if (lastError instanceof Error && isRetryableError(lastError)) {
+      (lastError as Error & { retriesExhausted?: boolean }).retriesExhausted =
+        true;
+    }
     throw lastError;
   }
 }

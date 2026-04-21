@@ -130,4 +130,36 @@ final class MainWindowStateNavigationHistoryTests: XCTestCase {
         XCTAssertNil(state.activeDynamicParsedSurface)
         XCTAssertNil(state.selection)
     }
+
+    // MARK: - Inspector overlay interaction
+
+    func testCanGoBackTrueWhenInspectorOpenEvenWithEmptyHistory() {
+        let state = MainWindowState()
+        XCTAssertFalse(state.canGoBack)
+
+        state.inspectorMessageId = "msg-1"
+
+        // Inspector open ⇒ back must stay enabled so Cmd+[ / top-bar
+        // Back route through navigateBack() and dismiss the overlay.
+        XCTAssertTrue(state.canGoBack)
+        XCTAssertTrue(state.navigationHistory.backStack.isEmpty)
+    }
+
+    func testNavigateBackClosesInspectorAndKeepsConversation() {
+        let state = MainWindowState()
+        let convId = UUID()
+        state.selection = .conversation(convId)
+        // nil → .conversation(convId) records one chat-default entry.
+        let backStackBefore = state.navigationHistory.backStack
+
+        state.inspectorMessageId = "msg-1"
+        state.navigateBack()
+
+        // Inspector is dismissed, selection is untouched, and the back
+        // stack is unchanged — navigateBack short-circuited instead of
+        // popping the prior entry.
+        XCTAssertNil(state.inspectorMessageId)
+        XCTAssertEqual(state.selection, .conversation(convId))
+        XCTAssertEqual(state.navigationHistory.backStack, backStackBefore)
+    }
 }

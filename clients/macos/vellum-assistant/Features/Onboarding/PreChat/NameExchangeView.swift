@@ -5,12 +5,12 @@ import VellumAssistantShared
 struct NameExchangeView: View {
     // MARK: - Configuration
 
-    /// Contextual sentence synthesizing prior selections. When empty, a generic
-    /// fallback is displayed.
-    var contextSummary: String
-
     @Binding var userName: String
     @Binding var assistantName: String
+
+    /// Stable subset of the name pool to display as quick-tap pills. The caller
+    /// is responsible for sampling so the pills don't reshuffle across re-renders.
+    let displayedAssistantNames: [String]
 
     var onBack: (() -> Void)?
     var onComplete: () -> Void
@@ -22,8 +22,24 @@ struct NameExchangeView: View {
     @State private var showContent = false
     @State private var hoveredSuggestion: String?
 
-    /// Quick-tap suggestion pills for the assistant name.
-    static let assistantNameSuggestions = ["Pax", "Atlas", "Sage", "Nova", "Kit"]
+    /// Curated pool of short, evocative names for the assistant. The quick-tap
+    /// suggestion pills show a random sample of `suggestionCount` names drawn
+    /// from this pool per onboarding session.
+    static let assistantNamePool = [
+        "Pax", "Atlas", "Sage", "Nova", "Kit",
+        "Echo", "Luna", "Juno", "Ada", "Iris",
+        "Milo", "Remy", "Wren", "Lark", "Vesper",
+        "Onyx", "Vela", "Cleo", "Quill", "Rune",
+        "Orion", "Ember", "Ziggy", "Bodhi", "Pip",
+    ]
+
+    /// Number of suggestion pills shown at a time.
+    static let suggestionCount = 5
+
+    /// Returns `suggestionCount` unique random names drawn from the pool.
+    static func sampleAssistantNames() -> [String] {
+        Array(assistantNamePool.shuffled().prefix(suggestionCount))
+    }
 
     /// Usernames that are clearly not real names and should not be pre-filled.
     private static let usernameBlacklist: Set<String> = ["admin", "user", "root", "guest"]
@@ -34,7 +50,7 @@ struct NameExchangeView: View {
         VStack(spacing: 0) {
             // Header
             ZStack(alignment: .leading) {
-                Text(headerText)
+                Text("Let's get to know each other.")
                     .font(VFont.titleLarge)
                     .foregroundStyle(VColor.contentDefault)
                     .multilineTextAlignment(.center)
@@ -77,7 +93,7 @@ struct NameExchangeView: View {
 
                     // Suggestion pills
                     HStack(spacing: VSpacing.xs) {
-                        ForEach(Self.assistantNameSuggestions, id: \.self) { suggestion in
+                        ForEach(displayedAssistantNames, id: \.self) { suggestion in
                             suggestionPill(suggestion)
                         }
                     }
@@ -152,13 +168,6 @@ struct NameExchangeView: View {
     }
 
     // MARK: - Helpers
-
-    private var headerText: String {
-        if !contextSummary.isEmpty {
-            return contextSummary
-        }
-        return "Let's get to know each other."
-    }
 
     /// Determines a suitable pre-fill value for the user name field based on
     /// macOS system user information.

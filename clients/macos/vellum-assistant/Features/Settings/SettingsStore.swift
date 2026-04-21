@@ -47,7 +47,7 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Model Selection
 
-    @Published var selectedModel: String = "claude-opus-4-7"
+    @Published var selectedModel: String = LLMProviderRegistry.defaultProvider?.defaultModel ?? ""
     @Published var configuredProviders: Set<String> = ["ollama"]
     @Published var selectedImageGenModel: String = "gemini-3.1-flash-image-preview"
 
@@ -91,6 +91,8 @@ public final class SettingsStore: ObservableObject {
     @Published var currentConversationShortcut: String
     @Published var markConversationUnreadShortcut: String
     @Published var popOutShortcut: String
+    @Published var previousConversationShortcut: String
+    @Published var nextConversationShortcut: String
     @Published var cmdEnterToSend: Bool
 
     // MARK: - Media Embed Settings
@@ -505,6 +507,16 @@ public final class SettingsStore: ObservableObject {
         } else {
             self.popOutShortcut = UserDefaults.standard.string(forKey: "popOutShortcut") ?? ""
         }
+        if UserDefaults.standard.object(forKey: "previousConversationShortcut") == nil {
+            self.previousConversationShortcut = "cmd+up"
+        } else {
+            self.previousConversationShortcut = UserDefaults.standard.string(forKey: "previousConversationShortcut") ?? ""
+        }
+        if UserDefaults.standard.object(forKey: "nextConversationShortcut") == nil {
+            self.nextConversationShortcut = "cmd+down"
+        } else {
+            self.nextConversationShortcut = UserDefaults.standard.string(forKey: "nextConversationShortcut") ?? ""
+        }
 
         // Use defaults for config-dependent properties; the daemon will
         // provide authoritative values once reachable via loadConfigFromDaemon().
@@ -520,9 +532,9 @@ public final class SettingsStore: ObservableObject {
         // Service modes use defaults until daemon provides config
         loadServiceModes(config: emptyConfig)
 
-        // Seed provider catalog with shared defaults so the UI has data before
-        // the first daemon fetch completes.
-        providerCatalog = ProviderCatalogEntry.defaultCatalog
+        // Seed provider catalog from `LLMProviderRegistry` so the UI has data
+        // before the first daemon fetch completes.
+        providerCatalog = LLMProviderRegistry.providers.map(ProviderCatalogEntry.init(registryEntry:))
 
         // Resolve lockfile-derived state (gateway URL, assistant topology)
         // on a background thread so that synchronous Data(contentsOf:)
@@ -601,6 +613,16 @@ public final class SettingsStore: ObservableObject {
         $popOutShortcut
             .dropFirst()
             .sink { value in UserDefaults.standard.set(value, forKey: "popOutShortcut") }
+            .store(in: &cancellables)
+
+        $previousConversationShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "previousConversationShortcut") }
+            .store(in: &cancellables)
+
+        $nextConversationShortcut
+            .dropFirst()
+            .sink { value in UserDefaults.standard.set(value, forKey: "nextConversationShortcut") }
             .store(in: &cancellables)
 
         // Re-resolve lockfile-derived state whenever the connected assistant changes

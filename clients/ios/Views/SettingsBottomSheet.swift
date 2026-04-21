@@ -16,13 +16,11 @@ import VellumAssistantShared
 /// - [`presentationDragIndicator(_:)`](https://developer.apple.com/documentation/swiftui/view/presentationdragindicator(_:))
 struct SettingsBottomSheet: View {
     @Bindable var authManager: AuthManager
-    @Binding var navigateToConnect: Bool
     var conversationStore: IOSConversationStore
 
     var body: some View {
         SettingsView(
             authManager: authManager,
-            navigateToConnect: $navigateToConnect,
             conversationStore: conversationStore
         )
         .presentationDetents([.large])

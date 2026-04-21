@@ -173,7 +173,7 @@ Examples:
         let messageText =
           opts.text ??
           (positionalParts.length > 0 ? positionalParts.join(" ") : "");
-        if (!messageText) {
+        if (!messageText && !process.stdin.isTTY) {
           try {
             messageText = readFileSync("/dev/stdin", "utf-8").trim();
           } catch {
@@ -217,7 +217,7 @@ Examples:
             err.code === "TTS_PROVIDER_NOT_CONFIGURED"
           ) {
             emitError(
-              `No TTS provider configured or registered. Run 'assistant config set services.tts.provider <provider>' to select one (e.g. ${listCatalogProviderIds().join(", ")}), then 'assistant keys set <provider>' to add the API key.`,
+              `No TTS provider configured or registered. Run 'assistant config set services.tts.provider <provider>' to select one (e.g. ${listCatalogProviderIds().join(", ")}), then 'assistant keys set <provider> <key>' to add the API key.`,
             );
             process.exitCode = 1;
             return;

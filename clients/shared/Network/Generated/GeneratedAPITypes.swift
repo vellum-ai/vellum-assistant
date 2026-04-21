@@ -37,18 +37,15 @@ public struct AddTrustRule: Codable, Sendable {
     public let pattern: String
     public let scope: String
     public let decision: String
-    /// When true, the rule also covers high-risk invocations.
-    public let allowHighRisk: Bool?
     /// Execution target override for this rule.
     public let executionTarget: String?
 
-    public init(type: String, toolName: String, pattern: String, scope: String, decision: String, allowHighRisk: Bool? = nil, executionTarget: String? = nil) {
+    public init(type: String, toolName: String, pattern: String, scope: String, decision: String, executionTarget: String? = nil) {
         self.type = type
         self.toolName = toolName
         self.pattern = pattern
         self.scope = scope
         self.decision = decision
-        self.allowHighRisk = allowHighRisk
         self.executionTarget = executionTarget
     }
 }
@@ -5248,13 +5245,15 @@ public struct UserMessageEcho: Codable, Sendable {
     public let conversationId: String?
     public let messageId: String?
     public let requestId: String?
+    public let clientMessageId: String?
 
-    public init(type: String, text: String, conversationId: String? = nil, messageId: String? = nil, requestId: String? = nil) {
+    public init(type: String, text: String, conversationId: String? = nil, messageId: String? = nil, requestId: String? = nil, clientMessageId: String? = nil) {
         self.type = type
         self.text = text
         self.conversationId = conversationId
         self.messageId = messageId
         self.requestId = requestId
+        self.clientMessageId = clientMessageId
     }
 }
 

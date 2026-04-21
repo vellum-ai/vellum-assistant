@@ -87,7 +87,6 @@ function mapUserDecisionToCesDecision(
         userDecision: decision,
       };
     case "always_allow":
-    case "always_allow_high_risk":
       // Persistent grant — no expiry. CES stores it with expiresAt: null.
       return {
         grantDecision: "approved",

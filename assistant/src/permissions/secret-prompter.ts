@@ -14,6 +14,8 @@ export type SecretDelivery = "store" | "transient_send";
 export interface SecretPromptResult {
   value: string | null;
   delivery: SecretDelivery;
+  /** When set, the prompt could not be delivered and the value is null due to a delivery failure (not user cancellation). */
+  error?: "unsupported_channel";
 }
 
 interface PendingSecretPrompt {
@@ -22,20 +24,47 @@ interface PendingSecretPrompt {
   timer: ReturnType<typeof setTimeout>;
 }
 
+export interface SecretPrompterChannelContext {
+  /** The channel the conversation was initiated from (e.g. "slack", "macos"). */
+  channel?: string;
+  /** Whether the channel supports rendering dynamic UI (secure prompt dialogs). */
+  supportsDynamicUi?: boolean;
+}
+
 export class SecretPrompter {
   private pending = new Map<string, PendingSecretPrompt>();
   private sendToClient: (msg: ServerMessage) => void;
+  private broadcastToAllClients?: (msg: ServerMessage) => void;
+  private channelContext?: SecretPrompterChannelContext;
 
-  constructor(sendToClient: (msg: ServerMessage) => void) {
+  constructor(
+    sendToClient: (msg: ServerMessage) => void,
+    broadcastToAllClients?: (msg: ServerMessage) => void,
+  ) {
     this.sendToClient = sendToClient;
+    this.broadcastToAllClients = broadcastToAllClients;
   }
 
   updateSender(sendToClient: (msg: ServerMessage) => void): void {
     this.sendToClient = sendToClient;
   }
 
+  updateBroadcast(broadcastToAllClients?: (msg: ServerMessage) => void): void {
+    this.broadcastToAllClients = broadcastToAllClients;
+  }
+
+  setChannelContext(ctx: SecretPrompterChannelContext | undefined): void {
+    this.channelContext = ctx;
+  }
+
   /**
    * Send a secret_request to the client and wait for the response.
+   *
+   * When the conversation originates from a channel that cannot render secure
+   * prompts (e.g. Slack), the request is broadcast to all connected clients
+   * via the SSE hub so the desktop app can display it. If no broadcast path
+   * is available and the channel doesn't support dynamic UI, the method
+   * fails fast with an error result rather than hanging until timeout.
    *
    * SECURITY: Logs only metadata (requestId, service, field) — never the
    * returned secret value. The timeout path also returns a null value
@@ -52,6 +81,20 @@ export class SecretPrompter {
     allowedTools?: string[],
     allowedDomains?: string[],
   ): Promise<SecretPromptResult> {
+    // Determine whether the originating channel can render secure prompts.
+    const channelSupportsPrompt =
+      this.channelContext?.supportsDynamicUi !== false;
+
+    // If the channel cannot render the prompt and there's no broadcast path
+    // to reach a desktop client, fail fast instead of hanging for 5 minutes.
+    if (!channelSupportsPrompt && !this.broadcastToAllClients) {
+      log.warn(
+        { service, field, channel: this.channelContext?.channel },
+        "Secret prompt requested from a channel that cannot render it and no broadcast path is available",
+      );
+      return { value: null, delivery: "store", error: "unsupported_channel" };
+    }
+
     const requestId = uuid();
 
     return new Promise((resolve, reject) => {
@@ -79,7 +122,15 @@ export class SecretPrompter {
         allowedDomains,
         allowOneTimeSend: config.secretDetection.allowOneTimeSend,
       };
-      this.sendToClient(msg);
+
+      // Use broadcastToAllClients when the originating channel cannot render
+      // secure prompts — this routes the request to the SSE hub where a
+      // connected desktop client can pick it up.
+      if (!channelSupportsPrompt && this.broadcastToAllClients) {
+        this.broadcastToAllClients(msg);
+      } else {
+        this.sendToClient(msg);
+      }
     });
   }
 

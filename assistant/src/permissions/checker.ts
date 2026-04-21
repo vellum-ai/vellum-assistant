@@ -1,17 +1,13 @@
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { loadSkillCatalog, resolveSkillSelector } from "../config/skills.js";
 import { indexCatalogById } from "../skills/include-graph.js";
-import {
-  isSkillSourcePath,
-  normalizeDirPath,
-  normalizeFilePath,
-} from "../skills/path-classifier.js";
+import { normalizeFilePath } from "../skills/path-classifier.js";
 import { computeTransitiveSkillVersionHash } from "../skills/transitive-version-hash.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import type { ManifestOverride } from "../tools/execution-target.js";
@@ -21,16 +17,20 @@ import {
 } from "../tools/network/url-safety.js";
 import { getTool } from "../tools/registry.js";
 import {
-  getDeprecatedDir,
-  getProtectedDir,
-  getWorkspaceHooksDir,
-} from "../util/platform.js";
+  type ApprovalContext,
+  DefaultApprovalPolicy,
+  resolveThreshold,
+} from "./approval-policy.js";
+import { bashRiskClassifier } from "./bash-risk-classifier.js";
+import { fileRiskClassifier } from "./file-risk-classifier.js";
+import { type RiskAssessment, riskToRiskLevel } from "./risk-types.js";
 import {
   buildShellAllowlistOptions,
   buildShellCommandCandidates,
   cachedParse,
   type ParsedCommand,
 } from "./shell-identity.js";
+import { skillLoadRiskClassifier } from "./skill-risk-classifier.js";
 import { findHighestPriorityRule, onRulesChanged } from "./trust-store.js";
 import {
   type AllowlistOption,
@@ -39,6 +39,7 @@ import {
   RiskLevel,
   type ScopeOption,
 } from "./types.js";
+import { webRiskClassifier } from "./web-risk-classifier.js";
 import { isWorkspaceScopedInvocation } from "./workspace-policy.js";
 
 // ── Risk classification cache ────────────────────────────────────────────────
@@ -48,9 +49,34 @@ import { isWorkspaceScopedInvocation } from "./workspace-policy.js";
 // Invalidated when trust rules change since risk classification for file tools
 // depends on skill source path checks which reference config, but the core
 // risk logic is input-deterministic.
+/** The result of classifyRisk(): a risk level with an optional human-readable reason. */
+export interface RiskClassification {
+  level: RiskLevel;
+  /** Human-readable explanation of why this risk level was assigned. */
+  reason?: string;
+}
+
 const RISK_CACHE_MAX = 256;
-const riskCache = new Map<string, RiskLevel>();
+const riskCache = new Map<string, RiskClassification>();
 let riskCacheInvalidationHookRegistered = false;
+
+// ── Assessment cache ─────────────────────────────────────────────────────────
+// Stores the full RiskAssessment from classifier-backed tools so that
+// generateAllowlistOptions() can read classifier-produced allowlistOptions
+// without re-classifying. Keyed on (toolName, inputHash) — a simpler key
+// than the full risk cache since generateAllowlistOptions() does not receive
+// workingDir or manifestOverride. Cleared alongside the risk cache.
+const assessmentCache = new Map<string, RiskAssessment>();
+
+function assessmentCacheKey(
+  toolName: string,
+  input: Record<string, unknown>,
+): string {
+  const { reason: _reason, activity: _activity, ...cacheableInput } = input;
+  const inputJson = JSON.stringify(cacheableInput);
+  const hash = createHash("sha256").update(inputJson).digest("hex");
+  return `${toolName}\0${hash}`;
+}
 
 function riskCacheKey(
   toolName: string,
@@ -76,6 +102,7 @@ function riskCacheKey(
 /** Clear the risk classification cache. Called when trust rules change. */
 function clearRiskCache(): void {
   riskCache.clear();
+  assessmentCache.clear();
 }
 
 function ensureRiskCacheInvalidationHook(): void {
@@ -86,319 +113,8 @@ function ensureRiskCacheInvalidationHook(): void {
   onRulesChanged(clearRiskCache);
 }
 
-// Low-risk shell programs that are read-only / informational
-const LOW_RISK_PROGRAMS = new Set([
-  "ls",
-  "cat",
-  "head",
-  "tail",
-  "less",
-  "more",
-  "wc",
-  "file",
-  "stat",
-  "grep",
-  "rg",
-  "ag",
-  "ack",
-  "find",
-  "fd",
-  "which",
-  "where",
-  "whereis",
-  "type",
-  "echo",
-  "printf",
-  "date",
-  "cal",
-  "uptime",
-  "whoami",
-  "hostname",
-  "uname",
-  "pwd",
-  "realpath",
-  "dirname",
-  "basename",
-  "git",
-  "node",
-  "bun",
-  "deno",
-  "npm",
-  "npx",
-  "yarn",
-  "pnpm",
-  "python",
-  "python3",
-  "pip",
-  "pip3",
-  "man",
-  "help",
-  "info",
-  "env",
-  "printenv",
-  "set",
-  "diff",
-  "sort",
-  "uniq",
-  "cut",
-  "tr",
-  "tee",
-  "xargs",
-  "jq",
-  "yq",
-  "http",
-  "dig",
-  "nslookup",
-  "ping",
-  "tree",
-  "du",
-  "df",
-]);
-
-// High-risk shell programs / patterns
-const HIGH_RISK_PROGRAMS = new Set([
-  "sudo",
-  "su",
-  "doas",
-  "dd",
-  "mkfs",
-  "fdisk",
-  "parted",
-  "mount",
-  "umount",
-  "systemctl",
-  "service",
-  "launchctl",
-  "useradd",
-  "userdel",
-  "usermod",
-  "groupadd",
-  "groupdel",
-  "iptables",
-  "ufw",
-  "firewall-cmd",
-  "reboot",
-  "shutdown",
-  "halt",
-  "poweroff",
-  "kill",
-  "killall",
-  "pkill",
-]);
-
-// Git subcommands that are low-risk (read-only)
-const LOW_RISK_GIT_SUBCOMMANDS = new Set([
-  "status",
-  "log",
-  "diff",
-  "show",
-  "branch",
-  "tag",
-  "remote",
-  "stash",
-  "blame",
-  "shortlog",
-  "describe",
-  "rev-parse",
-  "ls-files",
-  "ls-tree",
-  "cat-file",
-  "reflog",
-]);
-
-/**
- * Classify risk for `assistant` CLI subcommands. Multi-word subcommands
- * (e.g. `assistant oauth token`) are matched by walking the positional args.
- */
-function classifyAssistantSubcommand(args: string[]): RiskLevel {
-  const sub = firstPositionalArg(args);
-  if (!sub) return RiskLevel.Low;
-
-  if (sub === "oauth") {
-    const oauthSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
-    if (oauthSub === "token") return RiskLevel.High;
-    if (oauthSub === "mode") {
-      // `oauth mode --set` is high risk; bare `oauth mode` (read) is low.
-      // Match both `--set value` (two tokens) and `--set=value` (one token).
-      if (args.some((a) => a === "--set" || a.startsWith("--set=")))
-        return RiskLevel.High;
-      return RiskLevel.Low;
-    }
-    if (oauthSub === "request") return RiskLevel.Medium;
-    if (oauthSub === "connect" || oauthSub === "disconnect")
-      return RiskLevel.Medium;
-    return RiskLevel.Low;
-  }
-
-  if (sub === "credentials") {
-    const credSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
-    if (credSub === "reveal") return RiskLevel.High;
-    if (credSub === "set" || credSub === "delete") return RiskLevel.High;
-    return RiskLevel.Low;
-  }
-
-  if (sub === "keys") {
-    const keysSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
-    if (keysSub === "set" || keysSub === "delete") return RiskLevel.High;
-    return RiskLevel.Low;
-  }
-
-  if (sub === "trust") {
-    const trustSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
-    if (trustSub === "remove" || trustSub === "clear") return RiskLevel.High;
-    return RiskLevel.Low;
-  }
-
-  return RiskLevel.Low;
-}
-
-// Commands that wrap another program — the real program appears as the first
-// non-flag argument.  When one of these is the segment program we look through
-// its args to find the effective program (e.g. `env curl …` → curl).
-const WRAPPER_PROGRAMS = new Set([
-  "env",
-  "nice",
-  "nohup",
-  "time",
-  "command",
-  "exec",
-  "strace",
-  "ltrace",
-  "ionice",
-  "taskset",
-  "timeout",
-]);
-
-// `env` flags that consume the next positional argument as their value.
-// Without this, `env -u curl echo` would incorrectly identify `curl` (the
-// value of -u) as the wrapped program instead of `echo`.
-const ENV_VALUE_FLAGS = new Set(["-u", "--unset", "-C", "--chdir"]);
-
-// `timeout` flags that consume the next positional argument as their value.
-const TIMEOUT_VALUE_FLAGS = new Set(["-s", "--signal", "-k", "--kill-after"]);
-
-// Wrapper programs where the first non-flag positional argument is a
-// configuration value (duration, CPU mask), not the wrapped program name.
-// For these wrappers, the second non-flag positional is the real program.
-const WRAPPER_SKIP_FIRST_POSITIONAL = new Set(["timeout", "taskset"]);
-
-// `git` global flags that consume the next positional argument as their value.
-// Without this, `git -C status commit` would incorrectly identify `status`
-// (the directory path) as the subcommand instead of `commit`.
-const GIT_VALUE_FLAGS = new Set([
-  "-C",
-  "-c",
-  "--git-dir",
-  "--work-tree",
-  "--namespace",
-  "--super-prefix",
-  "--config-env",
-]);
-
-/**
- * Return the first non-flag argument from an argument list, optionally
- * skipping value-taking flags.  Flags are arguments that start with `-`.
- * This is used to skip global options (e.g. `--verbose`, `-h`, `-C <path>`)
- * when extracting the subcommand from CLIs like `git`, `vellum`, and
- * `assistant`.
- *
- * When `valueFlags` is provided, any flag in that set causes the next
- * argument to be skipped as well (it is the flag's value, not a positional).
- */
-function firstPositionalArg(
-  args: string[],
-  valueFlags?: Set<string>,
-): string | undefined {
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg.startsWith("-")) {
-      if (valueFlags?.has(arg)) i++; // skip the next arg (the flag's value)
-      continue;
-    }
-    return arg;
-  }
-  return undefined;
-}
-
-// Bare filenames that `rm` is allowed to delete at Medium risk (instead of
-// High) so workspace-scoped allow rules can approve them without the
-// dangerous `allowHighRisk` flag. Only matches when the args contain no
-// flags and exactly one of these filenames.
-const RM_SAFE_BARE_FILES = new Set(["BOOTSTRAP.md", "UPDATES.md"]);
-
-function isRmOfKnownSafeFile(args: string[]): boolean {
-  if (args.length !== 1) return false;
-  const target = args[0];
-  if (target.startsWith("-") || target.includes("/")) return false;
-  return RM_SAFE_BARE_FILES.has(target);
-}
-
-/**
- * Given a segment whose program is a known wrapper, return the first
- * non-flag argument (i.e. the wrapped program name).  Returns `undefined`
- * when no suitable argument is found.
- *
- * Handles `env` specially: skips `VAR=value` pairs and value-taking flags
- * like `-u NAME` and `-C DIR`.
- *
- * Handles `timeout` and `taskset` specially: their first non-flag positional
- * argument is a duration or CPU mask, not the wrapped program. The second
- * non-flag positional is the real program.
- */
-function getWrappedProgram(seg: {
-  program: string;
-  args: string[];
-}): string | undefined {
-  const isEnv = seg.program === "env";
-  const isTimeout = seg.program === "timeout";
-  const skipFirst = WRAPPER_SKIP_FIRST_POSITIONAL.has(seg.program);
-  let skippedFirstPositional = false;
-  for (let i = 0; i < seg.args.length; i++) {
-    const arg = seg.args[i];
-    if (arg.startsWith("-")) {
-      if (isEnv && ENV_VALUE_FLAGS.has(arg)) i++; // skip the value argument
-      if (isTimeout && TIMEOUT_VALUE_FLAGS.has(arg)) i++; // skip the value argument
-      continue;
-    }
-    if (isEnv && arg.includes("=")) continue; // skip env VAR=value pairs
-    if (skipFirst && !skippedFirstPositional) {
-      skippedFirstPositional = true;
-      continue; // skip the duration/CPU mask
-    }
-    return arg;
-  }
-  return undefined;
-}
-
-/**
- * Like `getWrappedProgram`, but also returns the remaining args after the
- * wrapped program name. This allows callers to propagate subcommand-aware
- * classification (e.g. `env assistant oauth token` → classify `oauth token`).
- */
-function getWrappedProgramWithArgs(seg: {
-  program: string;
-  args: string[];
-}): { program: string; args: string[] } | undefined {
-  const isEnv = seg.program === "env";
-  const isTimeout = seg.program === "timeout";
-  const skipFirst = WRAPPER_SKIP_FIRST_POSITIONAL.has(seg.program);
-  let skippedFirstPositional = false;
-  for (let i = 0; i < seg.args.length; i++) {
-    const arg = seg.args[i];
-    if (arg.startsWith("-")) {
-      if (isEnv && ENV_VALUE_FLAGS.has(arg)) i++;
-      if (isTimeout && TIMEOUT_VALUE_FLAGS.has(arg)) i++;
-      continue;
-    }
-    if (isEnv && arg.includes("=")) continue;
-    if (skipFirst && !skippedFirstPositional) {
-      skippedFirstPositional = true;
-      continue; // skip the duration/CPU mask
-    }
-    return { program: arg, args: seg.args.slice(i + 1) };
-  }
-  return undefined;
-}
+// ── Approval policy singleton ────────────────────────────────────────────────
+const defaultApprovalPolicy = new DefaultApprovalPolicy();
 
 function getStringField(
   input: Record<string, unknown>,
@@ -659,7 +375,7 @@ export async function classifyRisk(
   preParsed?: ParsedCommand,
   manifestOverride?: ManifestOverride,
   signal?: AbortSignal,
-): Promise<RiskLevel> {
+): Promise<RiskClassification> {
   signal?.throwIfAborted();
   ensureRiskCacheInvalidationHook();
 
@@ -678,13 +394,98 @@ export async function classifyRisk(
     }
   }
 
-  let result = await classifyRiskUncached(
-    toolName,
-    input,
-    workingDir,
-    preParsed,
-    manifestOverride,
-  );
+  // ── Bash/host_bash: delegate to the registry-driven BashRiskClassifier ────
+  let result: RiskClassification;
+  let classifierAssessment: RiskAssessment | undefined;
+  if (toolName === "bash" || toolName === "host_bash") {
+    const command = ((input.command as string) ?? "").trim();
+    if (!command) {
+      result = { level: RiskLevel.Low };
+    } else {
+      const assessment = await bashRiskClassifier.classify({
+        command,
+        toolName: toolName as "bash" | "host_bash",
+      });
+      classifierAssessment = assessment;
+      result = {
+        level: riskToRiskLevel(assessment.riskLevel),
+        reason: assessment.reason,
+      };
+    }
+  }
+  // ── File tools: delegate to FileRiskClassifier ──────────────────────────
+  else if (
+    [
+      "file_read",
+      "file_write",
+      "file_edit",
+      "host_file_read",
+      "host_file_write",
+      "host_file_edit",
+    ].includes(toolName)
+  ) {
+    const filePath = getStringField(input, "path", "file_path");
+    const isHostTool = toolName.startsWith("host_");
+    const assessment = await fileRiskClassifier.classify({
+      toolName: toolName as
+        | "file_read"
+        | "file_write"
+        | "file_edit"
+        | "host_file_read"
+        | "host_file_write"
+        | "host_file_edit",
+      filePath,
+      workingDir: isHostTool ? "/" : (workingDir ?? process.cwd()),
+    });
+    classifierAssessment = assessment;
+    result = {
+      level: riskToRiskLevel(assessment.riskLevel),
+      reason: assessment.reason,
+    };
+  }
+  // ── Web tools: delegate to WebRiskClassifier ────────────────────────────
+  else if (["web_fetch", "network_request", "web_search"].includes(toolName)) {
+    const assessment = await webRiskClassifier.classify({
+      toolName: toolName as "web_fetch" | "network_request" | "web_search",
+      url: getStringField(input, "url"),
+      allowPrivateNetwork: input.allow_private_network === true,
+    });
+    classifierAssessment = assessment;
+    result = {
+      level: riskToRiskLevel(assessment.riskLevel),
+      reason: assessment.reason,
+    };
+  }
+  // ── Skill tools: delegate to SkillLoadRiskClassifier ────────────────────
+  else if (
+    ["skill_load", "scaffold_managed_skill", "delete_managed_skill"].includes(
+      toolName,
+    )
+  ) {
+    const assessment = await skillLoadRiskClassifier.classify({
+      toolName: toolName as
+        | "skill_load"
+        | "scaffold_managed_skill"
+        | "delete_managed_skill",
+      skillSelector: getStringField(input, "skill", "skill_id").trim(),
+    });
+    classifierAssessment = assessment;
+    result = {
+      level: riskToRiskLevel(assessment.riskLevel),
+      reason: assessment.reason,
+    };
+  }
+  // ── Remaining tools: fall through to registry-based classification ──────
+  else {
+    result = {
+      level: await classifyRiskFromRegistry(
+        toolName,
+        input,
+        workingDir,
+        manifestOverride,
+      ),
+    };
+  }
 
   // Proxied bash commands route through the credential proxy which handles
   // per-request approval separately. Cap the bash tool's own risk at Medium
@@ -692,9 +493,9 @@ export async function classifyRisk(
   if (
     toolName === "bash" &&
     input.network_mode === "proxied" &&
-    result === RiskLevel.High
+    result.level === RiskLevel.High
   ) {
-    result = RiskLevel.Medium;
+    result = { level: RiskLevel.Medium, reason: result.reason };
   }
 
   if (cacheKey) {
@@ -705,230 +506,26 @@ export async function classifyRisk(
     riskCache.set(cacheKey, result);
   }
 
+  // Store the full assessment in a separate cache keyed on (toolName, input)
+  // so generateAllowlistOptions() can retrieve classifier-produced options.
+  if (classifierAssessment) {
+    const aKey = assessmentCacheKey(toolName, input);
+    if (assessmentCache.size >= RISK_CACHE_MAX) {
+      const oldest = assessmentCache.keys().next().value;
+      if (oldest !== undefined) assessmentCache.delete(oldest);
+    }
+    assessmentCache.set(aKey, classifierAssessment);
+  }
+
   return result;
 }
 
-async function classifyRiskUncached(
+async function classifyRiskFromRegistry(
   toolName: string,
-  input: Record<string, unknown>,
-  workingDir?: string,
-  preParsed?: ParsedCommand,
+  _input: Record<string, unknown>,
+  _workingDir?: string,
   manifestOverride?: ManifestOverride,
 ): Promise<RiskLevel> {
-  if (toolName === "file_read") {
-    const filePath = getStringField(input, "path", "file_path");
-    if (isActorTokenSigningKeyPath(filePath, workingDir)) {
-      return RiskLevel.High;
-    }
-    return RiskLevel.Low;
-  }
-  if (toolName === "file_write" || toolName === "file_edit") {
-    const filePath = getStringField(input, "path", "file_path");
-    if (
-      filePath &&
-      isSkillSourcePath(
-        resolve(workingDir ?? process.cwd(), filePath),
-        getConfig().skills.load.extraDirs,
-      )
-    ) {
-      return RiskLevel.High;
-    }
-    if (filePath) {
-      const normalizedHooksDir = normalizeDirPath(getWorkspaceHooksDir());
-      const normalizedPath = normalizeFilePath(
-        resolve(workingDir ?? process.cwd(), filePath),
-      );
-      const hooksDirNoTrailingSlash = normalizedHooksDir.slice(0, -1);
-      if (
-        normalizedPath === hooksDirNoTrailingSlash ||
-        normalizedPath.startsWith(normalizedHooksDir)
-      ) {
-        return RiskLevel.High;
-      }
-    }
-    return RiskLevel.Low;
-  }
-  if (toolName === "web_search") return RiskLevel.Low;
-  if (toolName === "web_fetch") {
-    // Private-network fetches are High risk so that blanket allow rules
-    // (including the starter bundle) cannot silently bypass the prompt.
-    return input.allow_private_network === true
-      ? RiskLevel.High
-      : RiskLevel.Low;
-  }
-  // Proxy-authenticated network requests are Medium risk — they carry injected
-  // credentials and the user should approve the target host/origin.
-  if (toolName === "network_request") return RiskLevel.Medium;
-  if (toolName === "skill_load") return RiskLevel.Low;
-
-  // Skill mutation tools are always High risk — they write or delete persistent
-  // skill source code. These tools moved from core tool registry to bundled
-  // skills, but their security classification must remain High regardless of
-  // whether they appear in the tool registry.
-  if (
-    toolName === "scaffold_managed_skill" ||
-    toolName === "delete_managed_skill"
-  ) {
-    return RiskLevel.High;
-  }
-
-  // Escalate host file mutations targeting skill source paths to High risk.
-  // The host variants fall through to the tool registry (Medium) by default,
-  // but writing to skill source code is a privilege-escalation vector.
-  if (toolName === "host_file_write" || toolName === "host_file_edit") {
-    const filePath = getStringField(input, "path", "file_path");
-    if (
-      filePath &&
-      isSkillSourcePath(resolve(filePath), getConfig().skills.load.extraDirs)
-    ) {
-      return RiskLevel.High;
-    }
-    if (filePath) {
-      const normalizedHooksDir = normalizeDirPath(getWorkspaceHooksDir());
-      const normalizedPath = normalizeFilePath(resolve(filePath));
-      const hooksDirNoTrailingSlash = normalizedHooksDir.slice(0, -1);
-      if (
-        normalizedPath === hooksDirNoTrailingSlash ||
-        normalizedPath.startsWith(normalizedHooksDir)
-      ) {
-        return RiskLevel.High;
-      }
-    }
-    // Fall through to the tool registry default (Medium) below.
-  }
-
-  if (toolName === "bash" || toolName === "host_bash") {
-    const command = (input.command as string) ?? "";
-    if (!command.trim()) return RiskLevel.Low;
-
-    const parsed = preParsed ?? (await cachedParse(command));
-
-    // Dangerous patterns → High
-    if (parsed.dangerousPatterns.length > 0) return RiskLevel.High;
-
-    // Opaque constructs → at least Medium (never Low)
-    if (parsed.hasOpaqueConstructs) return RiskLevel.Medium;
-
-    // Check each segment
-    let maxRisk = RiskLevel.Low;
-
-    for (const seg of parsed.segments) {
-      const prog = seg.program;
-
-      if (HIGH_RISK_PROGRAMS.has(prog)) return RiskLevel.High;
-
-      if (prog === "rm") {
-        // Only downgrade rm of known safe workspace files for sandboxed bash.
-        // host_bash has a global ask rule that would prompt Medium-risk
-        // commands, so rm on the host must always require explicit approval.
-        if (toolName === "bash" && isRmOfKnownSafeFile(seg.args)) {
-          maxRisk = RiskLevel.Medium;
-          continue;
-        }
-        return RiskLevel.High;
-      }
-
-      if (
-        prog === "chmod" ||
-        prog === "chown" ||
-        prog === "chgrp" ||
-        prog === "sed" ||
-        prog === "awk"
-      ) {
-        maxRisk = RiskLevel.Medium;
-        continue;
-      }
-
-      // curl/wget can download and execute arbitrary code from the internet.
-      // Also catch wrapped invocations like `env curl …` or `nice wget …`.
-      if (prog === "curl" || prog === "wget") {
-        maxRisk = RiskLevel.Medium;
-        continue;
-      }
-
-      if (WRAPPER_PROGRAMS.has(prog)) {
-        // `command -v` and `command -V` are read-only lookups (print where
-        // a command lives) — don't escalate to high risk for those.
-        if (
-          prog === "command" &&
-          seg.args.length > 0 &&
-          (seg.args[0] === "-v" || seg.args[0] === "-V")
-        ) {
-          continue;
-        }
-        const wrapped = getWrappedProgram(seg);
-        if (wrapped === "rm") return RiskLevel.High;
-        if (wrapped && HIGH_RISK_PROGRAMS.has(wrapped)) return RiskLevel.High;
-        if (wrapped === "curl" || wrapped === "wget") {
-          maxRisk = RiskLevel.Medium;
-          continue;
-        }
-        // Propagate subcommand-aware classification for wrapped git/assistant
-        if (wrapped === "git") {
-          const wrappedWithArgs = getWrappedProgramWithArgs(seg);
-          if (wrappedWithArgs) {
-            const subcommand = firstPositionalArg(
-              wrappedWithArgs.args,
-              GIT_VALUE_FLAGS,
-            );
-            if (subcommand && LOW_RISK_GIT_SUBCOMMANDS.has(subcommand)) {
-              continue;
-            }
-            maxRisk = RiskLevel.Medium;
-            continue;
-          }
-        }
-        if (wrapped === "assistant") {
-          const wrappedWithArgs = getWrappedProgramWithArgs(seg);
-          if (wrappedWithArgs) {
-            const assistantRisk = classifyAssistantSubcommand(
-              wrappedWithArgs.args,
-            );
-            if (assistantRisk === RiskLevel.High) return RiskLevel.High;
-            if (assistantRisk === RiskLevel.Medium) {
-              maxRisk = RiskLevel.Medium;
-            }
-            continue;
-          }
-        }
-      }
-
-      if (prog === "git") {
-        const subcommand = firstPositionalArg(seg.args, GIT_VALUE_FLAGS);
-        if (subcommand && LOW_RISK_GIT_SUBCOMMANDS.has(subcommand)) {
-          // Stay at current risk
-          continue;
-        }
-        // Non-read-only git commands are medium
-        maxRisk = RiskLevel.Medium;
-        continue;
-      }
-
-      if (prog === "assistant") {
-        const assistantRisk = classifyAssistantSubcommand(seg.args);
-        if (assistantRisk === RiskLevel.High) return RiskLevel.High;
-        if (assistantRisk === RiskLevel.Medium) {
-          maxRisk = RiskLevel.Medium;
-        }
-        continue;
-      }
-
-      if (!LOW_RISK_PROGRAMS.has(prog)) {
-        // Unknown program → medium
-        if (maxRisk === RiskLevel.Low) {
-          maxRisk = RiskLevel.Medium;
-        }
-      }
-    }
-
-    // If no segments could be extracted, treat as opaque
-    if (parsed.segments.length === 0) {
-      return RiskLevel.Medium;
-    }
-
-    return maxRisk;
-  }
-
   // Check the tool registry for a declared default risk level
   const tool = getTool(toolName);
   if (tool) return tool.defaultRiskLevel;
@@ -946,27 +543,6 @@ async function classifyRiskUncached(
 
   // Unknown tool → Medium
   return RiskLevel.Medium;
-}
-
-function isActorTokenSigningKeyPath(
-  filePath: string | undefined,
-  workingDir?: string,
-): boolean {
-  if (!filePath) return false;
-  const cwd = workingDir ?? process.cwd();
-  const resolvedPath = resolve(cwd, filePath);
-  // Include both the per-instance protected dir AND the legacy global
-  // ~/.vellum/protected path so upgraded machines with a host-wide signing
-  // key still classify reads as High risk.
-  const signingKeyPaths = Array.from(
-    new Set([
-      join(homedir(), ".vellum", "protected", "actor-token-signing-key"),
-      join(getProtectedDir(), "actor-token-signing-key"),
-      join(getDeprecatedDir(), "actor-token-signing-key"),
-      resolve(cwd, "deprecated", "actor-token-signing-key"),
-    ]),
-  );
-  return signingKeyPaths.includes(resolvedPath);
 }
 
 export async function check(
@@ -988,7 +564,7 @@ export async function check(
     }
   }
 
-  const risk = await classifyRisk(
+  const { level: risk, reason: riskReason } = await classifyRisk(
     toolName,
     input,
     workingDir,
@@ -1013,127 +589,55 @@ export async function check(
     policyContext,
   );
 
-  // Deny rules apply at ALL risk levels — including proxied network mode.
-  // Evaluate them first so hard blocks are never downgraded to a prompt.
-  if (matchedRule && matchedRule.decision === "deny") {
-    return {
-      decision: "deny",
-      reason: `Blocked by deny rule: ${matchedRule.pattern}`,
-      matchedRule,
-    };
-  }
+  // Build approval context from local variables
+  const tool = getTool(toolName);
+  const config = getConfig();
+  const resolvedThreshold = resolveThreshold(
+    config.permissions.autoApproveUpTo,
+    policyContext?.executionContext,
+  );
+  const approvalContext: ApprovalContext = {
+    riskLevel: risk,
+    toolName,
+    matchedRule: matchedRule ?? undefined,
+    permissionsMode: config.permissions.mode,
+    isContainerized: getIsContainerized(),
+    isWorkspaceScoped:
+      risk === RiskLevel.Low
+        ? isWorkspaceScopedInvocation(toolName, input, workingDir)
+        : false,
+    toolOrigin:
+      tool?.origin === "skill" ? "skill" : tool ? "builtin" : undefined,
+    isSkillBundled: tool?.ownerSkillBundled ?? false,
+    hasManifestOverride: !!manifestOverride,
+    autoApproveUpTo: resolvedThreshold,
+  };
 
-  if (matchedRule) {
-    if (matchedRule.decision === "ask") {
-      // Ask rules always prompt — never auto-allow or auto-deny
-      return {
-        decision: "prompt",
-        reason: `Matched ask rule: ${matchedRule.pattern}`,
-        matchedRule,
-      };
-    }
+  // Delegate the allow/prompt/deny decision to the approval policy
+  const approvalDecision = defaultApprovalPolicy.evaluate(approvalContext);
 
-    // Allow rule: auto-allow for non-High risk
-    if (risk !== RiskLevel.High) {
-      return {
-        decision: "allow",
-        reason: `Matched trust rule: ${matchedRule.pattern}`,
-        matchedRule,
-      };
-    }
-    // High risk with allow rule that explicitly permits high-risk → auto-allow
-    if (matchedRule.allowHighRisk === true) {
-      return {
-        decision: "allow",
-        reason: `Matched high-risk trust rule: ${matchedRule.pattern}`,
-        matchedRule,
-      };
-    }
-    // High risk with allow rule (without allowHighRisk) → fall through to prompt
-  }
-
-  // No matching rule (or High risk with allow rule) → risk-based fallback
-
-  // Third-party skill-origin tools default to prompting when no trust rule
-  // matches, regardless of risk level. Bundled skill tools are first-party
-  // and trusted, so they fall through to the normal risk-based policy.
-  // When manifestOverride is present, the tool comes from a skill manifest
-  // but isn't registered — treat it as a third-party skill tool.
-  if (!matchedRule) {
-    const tool = getTool(toolName);
-    if (tool?.origin === "skill" && !tool.ownerSkillBundled) {
-      return {
-        decision: "prompt",
-        reason: "Skill tool: requires approval by default",
-      };
-    }
-    if (!tool && manifestOverride) {
-      return {
-        decision: "prompt",
-        reason: "Skill tool: requires approval by default",
-      };
+  // Enrich the reason with the classifier's explanation when available.
+  // For risk-based fallback decisions (prompt/deny from High/Medium risk),
+  // incorporate the classifier reason so the user sees *why* the command
+  // was classified at that level (e.g. "High risk (Recursive force delete): requires approval").
+  let enrichedReason = approvalDecision.reason;
+  if (riskReason && !approvalDecision.matchedRule) {
+    const riskLabelMatch = enrichedReason.match(
+      /^(High|Medium|Low|high|medium|low) risk(.*)/i,
+    );
+    if (riskLabelMatch) {
+      const capitalizedLabel =
+        riskLabelMatch[1].charAt(0).toUpperCase() +
+        riskLabelMatch[1].slice(1).toLowerCase();
+      enrichedReason = `${capitalizedLabel} risk (${riskReason})${riskLabelMatch[2]}`;
     }
   }
 
-  // In strict mode, every tool without an explicit matching rule must be
-  // prompted — there is no implicit auto-allow for any risk level.
-  // This explicitly covers skill_load: activating a skill can grant the
-  // agent new capabilities, so in strict mode users must approve each
-  // skill load via an exact-version or wildcard trust rule.
-  const permissionsMode = getConfig().permissions.mode;
-
-  if (permissionsMode === "strict" && !matchedRule) {
-    return {
-      decision: "prompt",
-      reason: `Strict mode: no matching rule, requires approval`,
-    };
-  }
-
-  // Workspace mode: auto-allow workspace-scoped operations that don't have
-  // an explicit rule, but only when risk is Low. Medium and High risk operations
-  // fall through to risk-based policy and always require approval.
-  if (
-    permissionsMode === "workspace" &&
-    !matchedRule &&
-    risk === RiskLevel.Low
-  ) {
-    // Outside a container, bash runs on the host — don't auto-allow
-    if (toolName === "bash" && !getIsContainerized()) {
-      // Fall through to risk-based policy below
-    } else if (isWorkspaceScopedInvocation(toolName, input, workingDir)) {
-      return {
-        decision: "allow",
-        reason: "Workspace mode: workspace-scoped operation auto-allowed",
-      };
-    }
-  }
-
-  // Auto-allow low-risk bundled skill tools even without explicit trust rules.
-  // These are first-party tools with a vetted risk declaration.
-  // This block must come AFTER the strict mode check so that strict mode
-  // still prompts for bundled skill tools without explicit rules.
-  if (!matchedRule && risk === RiskLevel.Low) {
-    const tool = getTool(toolName);
-    if (tool?.origin === "skill" && tool.ownerSkillBundled) {
-      return {
-        decision: "allow",
-        reason: "Bundled skill tool: low risk, auto-allowed",
-      };
-    }
-  }
-
-  if (risk === RiskLevel.High) {
-    return {
-      decision: "prompt",
-      reason: `High risk: always requires approval`,
-    };
-  }
-
-  if (risk === RiskLevel.Low) {
-    return { decision: "allow", reason: "Low risk: auto-allowed" };
-  }
-
-  return { decision: "prompt", reason: `${risk} risk: requires approval` };
+  return {
+    decision: approvalDecision.decision,
+    reason: enrichedReason,
+    matchedRule: approvalDecision.matchedRule,
+  };
 }
 
 const TOOL_DISPLAY_NAMES: Record<string, string> = {
@@ -1171,6 +675,10 @@ function shellAllowlistStrategy(
   input: Record<string, unknown>,
 ): Promise<AllowlistOption[]> {
   const command = ((input.command as string) ?? "").trim();
+  // TODO(phase-3): Wire RiskAssessment.scopeOptions into permission prompts
+  // and retire buildShellAllowlistOptions + buildShellCommandCandidates from
+  // shell-identity.ts. The classifier's generateScopeOptions produces the
+  // canonical scope ladder; this legacy path should not diverge further.
   return buildShellAllowlistOptions(command);
 }
 
@@ -1365,6 +873,22 @@ export async function generateAllowlistOptions(
 ): Promise<AllowlistOption[]> {
   signal?.throwIfAborted();
 
+  // Check if a classifier already produced allowlist options during
+  // classifyRisk(). If so, return those directly — avoids duplicate
+  // computation and keeps scope option generation unified with risk
+  // classification.
+  const aKey = assessmentCacheKey(toolName, input);
+  const cachedAssessment = assessmentCache.get(aKey);
+  if (
+    cachedAssessment?.allowlistOptions &&
+    cachedAssessment.allowlistOptions.length > 0
+  ) {
+    return cachedAssessment.allowlistOptions;
+  }
+
+  // Fall back to the per-tool strategy function for tools that don't have
+  // classifier-produced options (e.g. bash tools use the shell identity
+  // strategy, or when the cache was missed).
   if (Object.hasOwn(ALLOWLIST_STRATEGIES, toolName)) {
     return ALLOWLIST_STRATEGIES[toolName](toolName, input);
   }

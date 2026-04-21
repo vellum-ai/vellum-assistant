@@ -53,16 +53,13 @@ export function getSkillsIndexPath(): string {
 
 /**
  * Resolve the directory containing a `catalog.json` and first-party skill
- * sources — either bundled next to a compiled binary or in the dev repo.
+ * sources — either bundled next to a compiled binary (e.g. `Vellum.app`) or
+ * in the dev repo.
  *
- * Catalog asymmetry note: when this returns a path, `getCatalog()` in
- * `catalog-cache.ts` reads that local catalog exclusively and does not merge
- * with remote. This means a compiled-binary install sees a catalog frozen at
- * build time for listing and file-preview flows. `resolveCatalog()` below is
- * smarter — it falls back to remote when a specific skill id is missing —
- * so `autoInstallFromCatalog()` can still discover platform-only skills.
- * This asymmetry is intentional: listings should be fast and work offline,
- * while install-on-demand paths are allowed to pay the network cost.
+ * Both `getCatalog()` in `catalog-cache.ts` and `resolveCatalog()` below
+ * merge the local catalog with the remote one so skills published after a
+ * release still show up; the local catalog is used as an offline fallback
+ * when the remote fetch fails.
  */
 export function getRepoSkillsDir(): string | undefined {
   const importDir = import.meta.dir;

@@ -28,6 +28,7 @@ protocol MessageSendCoordinatorDelegate: AnyObject {
     var pendingUserMessage: String? { get set }
     var pendingUserMessageDisplayText: String? { get set }
     var pendingUserMessageAutomated: Bool { get set }
+    var pendingUserMessageClientMessageId: String? { get set }
     var pendingUserAttachments: [UserMessageAttachment]? { get set }
     var pendingVoiceMessage: Bool { get set }
     var lastFailedMessageText: String? { get set }
@@ -201,6 +202,12 @@ final class MessageSendCoordinator {
         // Notify ConversationManager so the conversation rises to the top of the list
         delegate.onUserMessageSent?()
 
+        // Generate a client-side correlation nonce for echo dedup. The echo
+        // carries this value back so the originating client can match it to
+        // the optimistic row regardless of whether the SSE echo or HTTP 202
+        // response arrives first.
+        let clientMessageId = UUID().uuidString
+
         // Block rapid-fire only when bootstrapping with a queued message.
         // When a message-less bootstrap is in flight (e.g. private conversation
         // pre-allocation), adopt the user's message as the pending message
@@ -213,12 +220,14 @@ final class MessageSendCoordinator {
                 delegate.pendingUserMessage = text
                 delegate.pendingUserMessageDisplayText = rawText
                 delegate.pendingUserMessageAutomated = hidden
+                delegate.pendingUserMessageClientMessageId = clientMessageId
                 delegate.pendingUserAttachments = attachments.isEmpty ? nil : attachments.map {
                     UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil, filePath: $0.filePath, rawData: $0.rawData)
                 }
                 messageManager.isThinking = true
                 var userMsg = ChatMessage(role: .user, text: rawText, status: .sent, skillInvocation: messageManager.pendingSkillInvocation, attachments: attachments)
                 userMsg.isHidden = hidden
+                userMsg.clientMessageId = clientMessageId
                 messageManager.batchUpdateMessages { $0.append(userMsg) }
                 messageManager.pendingSkillInvocation = nil
                 messageManager.inputText = ""
@@ -265,6 +274,7 @@ final class MessageSendCoordinator {
             let status: ChatMessageStatus = willBeQueued ? .queued(position: 0) : .sent
             var userMessage = ChatMessage(role: .user, text: rawText, status: status, skillInvocation: messageManager.pendingSkillInvocation, attachments: attachments)
             userMessage.isHidden = hidden
+            userMessage.clientMessageId = clientMessageId
             messageManager.batchUpdateMessages { $0.append(userMessage) }
             if willBeQueued {
                 delegate.pendingMessageIds.append(userMessage.id)
@@ -314,10 +324,11 @@ final class MessageSendCoordinator {
             // First message: need to bootstrap conversation
             delegate.pendingUserMessageDisplayText = rawText
             delegate.pendingUserMessageAutomated = hidden
+            delegate.pendingUserMessageClientMessageId = clientMessageId
             bootstrapConversation(userMessage: text, attachments: messageAttachments)
         } else {
             // Subsequent messages: send directly (daemon queues if busy)
-            sendUserMessage(text, displayText: rawText, attachments: messageAttachments, queuedMessageId: queuedMessageId, automated: hidden)
+            sendUserMessage(text, displayText: rawText, attachments: messageAttachments, queuedMessageId: queuedMessageId, automated: hidden, clientMessageId: clientMessageId)
         }
     }
 
@@ -364,6 +375,7 @@ final class MessageSendCoordinator {
                     delegate.pendingUserMessageDisplayText = nil
                     delegate.pendingUserAttachments = nil
                     delegate.pendingUserMessageAutomated = false
+                    delegate.pendingUserMessageClientMessageId = nil
                     self.errorManager.errorText = delegate.lastFailedSendError
                     return
                 }
@@ -391,11 +403,13 @@ final class MessageSendCoordinator {
             if let pending = delegate.pendingUserMessage {
                 let pendingAttachments = delegate.pendingUserAttachments
                 let automated = delegate.pendingUserMessageAutomated
+                let pendingClientMessageId = delegate.pendingUserMessageClientMessageId
                 delegate.pendingUserMessage = nil
                 delegate.pendingUserMessageDisplayText = nil
                 delegate.pendingUserAttachments = nil
                 delegate.pendingUserMessageAutomated = false
-                self.sendUserMessage(pending, attachments: pendingAttachments, automated: automated)
+                delegate.pendingUserMessageClientMessageId = nil
+                self.sendUserMessage(pending, attachments: pendingAttachments, automated: automated, clientMessageId: pendingClientMessageId)
             } else {
                 self.messageManager.isSending = false
                 self.messageManager.isThinking = false
@@ -405,9 +419,19 @@ final class MessageSendCoordinator {
 
     // MARK: - Send User Message
 
-    func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [UserMessageAttachment]? = nil, queuedMessageId: UUID? = nil, automated: Bool = false, bypassSecretCheck: Bool = false) {
+    func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [UserMessageAttachment]? = nil, queuedMessageId: UUID? = nil, automated: Bool = false, bypassSecretCheck: Bool = false, clientMessageId: String? = nil) {
         guard let delegate else { return }
         guard let conversationId = delegate.conversationId else { return }
+
+        // LUM-1062: The compaction indicator is cleared by a non-`aux` messageComplete
+        // or by a later `assistantActivityState` with a non-compacting reason. If both
+        // of those events are lost (reconnect race, replay gap), the indicator is
+        // stranded — but a user actively typing a new message is ground truth that
+        // compaction is no longer in progress, so clear it here defensively. This must
+        // fire before the offline-queue early-return below so the self-heal also runs
+        // when the daemon is disconnected (otherwise the very stuck-compaction case
+        // this targets is unrecoverable while offline).
+        messageManager.isCompacting = false
 
         // Check connectivity before entering sending state so the UI
         // doesn't get stuck with isSending/isThinking = true when the
@@ -484,7 +508,8 @@ final class MessageSendCoordinator {
             conversationType: nil,
             automated: automated ? true : nil,
             bypassSecretCheck: bypassSecretCheck ? true : nil,
-            onboarding: onboarding
+            onboarding: onboarding,
+            clientMessageId: clientMessageId
         )
     }
 
@@ -498,6 +523,7 @@ final class MessageSendCoordinator {
         delegate.pendingUserMessageDisplayText = nil
         delegate.pendingUserAttachments = nil
         delegate.pendingUserMessageAutomated = false
+        delegate.pendingUserMessageClientMessageId = nil
         messageManager.isWorkspaceRefinementInFlight = false
         messageManager.refinementMessagePreview = nil
         messageManager.refinementStreamingText = nil
@@ -539,6 +565,7 @@ final class MessageSendCoordinator {
             delegate.pendingUserMessageDisplayText = nil
             delegate.pendingUserAttachments = nil
             delegate.pendingUserMessageAutomated = false
+            delegate.pendingUserMessageClientMessageId = nil
             delegate.bootstrapCorrelationId = nil
             messageManager.isWorkspaceRefinementInFlight = false
             messageManager.refinementMessagePreview = nil

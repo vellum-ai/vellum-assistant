@@ -86,8 +86,8 @@ final class OnboardingState {
     var sshUser: String = ""
     var sshPrivateKey: String = ""
     var customQRCodeImageData: Data = Data()
-    var selectedModel: String = "claude-opus-4-7"
-    var selectedProvider: String = "anthropic"
+    var selectedModel: String = LLMProviderRegistry.defaultProvider?.defaultModel ?? ""
+    var selectedProvider: String = LLMProviderRegistry.defaultProvider?.id ?? "anthropic"
     /// When true, the onboarding flow was launched from the developer tab's
     /// "Hatch New Assistant" button. This prevents auto-completing when the user
     /// already has a managed assistant, forcing the hosting selector to appear so
@@ -231,8 +231,8 @@ final class OnboardingState {
             await APIKeyManager.deleteKey(for: "anthropic")
         }
 
-        selectedProvider = "anthropic"
-        selectedModel = "claude-opus-4-7"
+        selectedProvider = LLMProviderRegistry.defaultProvider?.id ?? "anthropic"
+        selectedModel = LLMProviderRegistry.defaultProvider?.defaultModel ?? ""
 
         // Reset hosting selection and cloud credentials
         selectedHostingMode = .vellumCloud

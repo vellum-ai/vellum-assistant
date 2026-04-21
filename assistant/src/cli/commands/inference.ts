@@ -70,7 +70,7 @@ Examples:
         // Determine user message: positional args or stdin.
         let messageText = messageParts.length > 0 ? messageParts.join(" ") : "";
 
-        if (!messageText) {
+        if (!messageText && !process.stdin.isTTY) {
           try {
             messageText = readFileSync("/dev/stdin", "utf-8").trim();
           } catch {

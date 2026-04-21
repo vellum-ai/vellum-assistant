@@ -7,16 +7,16 @@ struct ToolItem: Identifiable {
 
     static let allTools: [ToolItem] = [
         ToolItem(id: "gmail", label: "Gmail", logoKey: "gmail"),
-        ToolItem(id: "google-calendar", label: "Google Calendar", logoKey: "google-calendar"),
         ToolItem(id: "outlook", label: "Outlook", logoKey: "outlook"),
+        ToolItem(id: "google-calendar", label: "Google Calendar", logoKey: "google-calendar"),
         ToolItem(id: "slack", label: "Slack", logoKey: "slack"),
         ToolItem(id: "notion", label: "Notion", logoKey: "notion"),
         ToolItem(id: "linear", label: "Linear", logoKey: "linear"),
-        ToolItem(id: "figma", label: "Figma", logoKey: "figma"),
-        ToolItem(id: "github", label: "GitHub", logoKey: "github"),
-        ToolItem(id: "google-docs", label: "Google Docs", logoKey: "google-docs"),
-        ToolItem(id: "google-sheets", label: "Google Sheets", logoKey: "google-sheets"),
-        ToolItem(id: "google-drive", label: "Google Drive", logoKey: "google-drive"),
         ToolItem(id: "jira", label: "Jira", logoKey: "jira"),
+        ToolItem(id: "github", label: "GitHub", logoKey: "github"),
+        ToolItem(id: "figma", label: "Figma", logoKey: "figma"),
+        ToolItem(id: "google-drive", label: "Google Drive", logoKey: "google-drive"),
+        ToolItem(id: "excel", label: "Excel", logoKey: "excel"),
+        ToolItem(id: "apple-notes", label: "Apple Notes", logoKey: "apple-notes"),
     ]
 }

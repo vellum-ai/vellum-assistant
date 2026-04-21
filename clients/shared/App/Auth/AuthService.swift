@@ -755,6 +755,14 @@ public final class AuthService {
         let response: URLResponse
         do {
             (data, response) = try await URLSession.shared.data(for: urlRequest)
+        } catch is CancellationError {
+            // Rethrow cancellation directly so callers can distinguish
+            // task cancellation from genuine network failure.
+            throw CancellationError()
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            // URLSession surfaces task cancellation as URLError.cancelled.
+            // Normalize to CancellationError so a single catch handles both.
+            throw CancellationError()
         } catch {
             log.error("Auth request \(requestConfig.method, privacy: .public) \(urlString, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             throw AuthServiceError.networkError(error)

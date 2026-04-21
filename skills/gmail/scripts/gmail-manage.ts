@@ -27,6 +27,11 @@ import {
   type GmailMessage,
   type GmailMessagePart,
 } from "./lib/gmail-client.js";
+import {
+  generateRunId,
+  writeStaged,
+  type OpType,
+} from "./lib/op-log.js";
 
 // ---------------------------------------------------------------------------
 // label
@@ -40,6 +45,9 @@ async function handleLabel(
   const messageIdsStr = optionalArg(args, "message-ids");
   const addLabelsStr = optionalArg(args, "add-labels");
   const removeLabelsStr = optionalArg(args, "remove-labels");
+  const dryRun = args["dry-run"] === true;
+  const runId = optionalArg(args, "run-id");
+  const phase = optionalArg(args, "phase");
 
   const addLabelIds = addLabelsStr ? parseCsv(addLabelsStr) : undefined;
   const removeLabelIds = removeLabelsStr
@@ -48,6 +56,23 @@ async function handleLabel(
 
   if (messageIdsStr) {
     const ids = parseCsv(messageIdsStr);
+
+    if (dryRun) {
+      const rid = runId ?? generateRunId();
+      const opType: OpType = addLabelIds?.length ? "label_add" : "label_remove";
+      const labelIds = addLabelIds?.length ? addLabelIds : (removeLabelIds ?? []);
+      writeStaged({
+        run_id: rid,
+        phase,
+        op: opType,
+        chunk_index: 0,
+        message_ids: ids,
+        reason: `label:${addLabelIds?.length ? "add" : "remove"}:${labelIds.join(",")}`,
+      });
+      ok({ dry_run: true, run_id: rid, would_update: ids.length });
+      return;
+    }
+
     const res = await gmailPost(
       "/messages/batchModify",
       {
@@ -65,6 +90,22 @@ async function handleLabel(
   }
 
   if (messageId) {
+    if (dryRun) {
+      const rid = runId ?? generateRunId();
+      const opType: OpType = addLabelIds?.length ? "label_add" : "label_remove";
+      const labelIds = addLabelIds?.length ? addLabelIds : (removeLabelIds ?? []);
+      writeStaged({
+        run_id: rid,
+        phase,
+        op: opType,
+        chunk_index: 0,
+        message_ids: [messageId],
+        reason: `label:${addLabelIds?.length ? "add" : "remove"}:${labelIds.join(",")}`,
+      });
+      ok({ dry_run: true, run_id: rid, would_update: 1 });
+      return;
+    }
+
     const res = await gmailPost(
       `/messages/${messageId}/modify`,
       {
@@ -334,6 +375,9 @@ async function handleFilters(
 ): Promise<void> {
   const action = requireArg(args, "action");
   const account = optionalArg(args, "account");
+  const dryRun = args["dry-run"] === true;
+  const runId = optionalArg(args, "run-id");
+  const phase = optionalArg(args, "phase");
 
   switch (action) {
     case "list": {
@@ -377,6 +421,20 @@ async function handleFilters(
       if (removeLabelsStr)
         filterAction.removeLabelIds = parseCsv(removeLabelsStr);
       if (forward) filterAction.forward = forward;
+
+      if (dryRun) {
+        const rid = runId ?? generateRunId();
+        writeStaged({
+          run_id: rid,
+          phase,
+          op: "filter_create",
+          chunk_index: 0,
+          message_ids: [],
+          reason: JSON.stringify({ criteria, action: filterAction }),
+        });
+        ok({ dry_run: true, run_id: rid, would_create_filter: criteria });
+        break;
+      }
 
       const res = await gmailPost<GmailFilter>(
         "/settings/filters",

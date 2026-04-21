@@ -1731,6 +1731,11 @@ public struct ChatMessage: Identifiable, Equatable {
     /// Nil for freshly streamed messages that haven't been loaded from history.
     /// Used for fork-from-message, inspect LLM context, TTS, and other daemon-anchored actions.
     public var daemonMessageId: String?
+    /// Client-generated correlation nonce stamped on the optimistic row at
+    /// send time. Matched against `user_message_echo.clientMessageId` so the
+    /// originating client can dedupe its echo even when the SSE event beats
+    /// the HTTP 202 (which is what tags `daemonMessageId`).
+    public var clientMessageId: String?
     /// When true, this message is a subagent notification (e.g. running/completed/failed/aborted)
     /// reconstructed from history. It should be hidden from the chat UI since the
     /// corresponding subagent chip conveys the same information.

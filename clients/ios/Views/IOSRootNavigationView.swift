@@ -76,7 +76,6 @@ struct IOSRootNavigationView: View {
         }) {
             SettingsBottomSheet(
                 authManager: authManager,
-                navigateToConnect: $navigateToConnect,
                 conversationStore: store
             )
         }

@@ -108,7 +108,8 @@ async function runReadWithFallback<T>(
   if (connection) return call(connection);
   const auth = getReadAuth(undefined);
   const usingUserToken =
-    _cachedSlackWriteAuth !== null && _cachedSlackReadAuth !== _cachedSlackWriteAuth;
+    _cachedSlackWriteAuth !== null &&
+    _cachedSlackReadAuth !== _cachedSlackWriteAuth;
   try {
     return await call(auth);
   } catch (err) {
@@ -203,6 +204,11 @@ function mapMessage(
   channelId: string,
   senderName: string,
 ): Message {
+  // Bot-authored when Slack sets `subtype: "bot_message"` or attributes the
+  // row to a `bot_id` with no user. Backfill callers rely on this flag to
+  // avoid rehydrating assistant/bot replies as user turns.
+  const isBot =
+    msg.subtype === "bot_message" || (msg.bot_id != null && !msg.user);
   return {
     id: msg.ts,
     conversationId: channelId,
@@ -214,6 +220,7 @@ function mapMessage(
     platform: "slack",
     reactions: msg.reactions?.map((r) => ({ name: r.name, count: r.count })),
     hasAttachments: (msg.files?.length ?? 0) > 0,
+    ...(isBot ? { metadata: { isBot: true } } : {}),
   };
 }
 
@@ -234,7 +241,12 @@ export const slackProvider: MessagingProvider = {
   id: "slack",
   displayName: "Slack",
   credentialService: "slack",
-  capabilities: new Set(["reactions", "threads", "join_channel", "leave_channel"]),
+  capabilities: new Set([
+    "reactions",
+    "threads",
+    "join_channel",
+    "leave_channel",
+  ]),
 
   async isConnected(): Promise<boolean> {
     // Socket Mode: check for bot token directly in credential store.

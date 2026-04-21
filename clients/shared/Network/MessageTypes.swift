@@ -1986,7 +1986,6 @@ extension AddTrustRule {
         pattern: String,
         scope: String,
         decision: String,
-        allowHighRisk: Bool? = nil,
         executionTarget: String? = nil
     ) {
         self.init(
@@ -1995,7 +1994,6 @@ extension AddTrustRule {
             pattern: pattern,
             scope: scope,
             decision: decision,
-            allowHighRisk: allowHighRisk,
             executionTarget: executionTarget
         )
     }

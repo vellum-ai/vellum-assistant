@@ -48,7 +48,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("POST /v1/trust-rules — canonicalization", () => {
-  test("strips executionTarget from URL-family tool rules", async () => {
+  test("strips executionTarget and allowHighRisk from URL-family tool rules", async () => {
     const handler = createTrustRulesAddHandler();
     const req = new Request("http://localhost/v1/trust-rules", {
       method: "POST",
@@ -69,12 +69,12 @@ describe("POST /v1/trust-rules — canonicalization", () => {
     const body = (await res.json()) as { rule: Record<string, unknown> };
     expect(body.rule.tool).toBe("web_fetch");
     // URL rules should NOT have executionTarget after canonicalization.
-    // allowHighRisk is preserved for backward compatibility.
+    // allowHighRisk is stripped (replaced by runtime determination).
     expect("executionTarget" in body.rule).toBe(false);
-    expect(body.rule.allowHighRisk).toBe(true);
+    expect("allowHighRisk" in body.rule).toBe(false);
   });
 
-  test("preserves executionTarget and allowHighRisk for scoped tool rules", async () => {
+  test("preserves executionTarget but strips allowHighRisk for scoped tool rules", async () => {
     const handler = createTrustRulesAddHandler();
     const req = new Request("http://localhost/v1/trust-rules", {
       method: "POST",
@@ -95,7 +95,8 @@ describe("POST /v1/trust-rules — canonicalization", () => {
     const body = (await res.json()) as { rule: Record<string, unknown> };
     expect(body.rule.tool).toBe("bash");
     expect(body.rule.executionTarget).toBe("host");
-    expect(body.rule.allowHighRisk).toBe(true);
+    // allowHighRisk is stripped during normalization
+    expect("allowHighRisk" in body.rule).toBe(false);
   });
 
   test("strips executionTarget from managed-skill tool rules", async () => {
@@ -142,7 +143,7 @@ describe("POST /v1/trust-rules — canonicalization", () => {
     expect("executionTarget" in body.rule).toBe(false);
   });
 
-  test("preserves executionTarget and allowHighRisk for generic (unknown) tool rules", async () => {
+  test("preserves executionTarget but strips allowHighRisk for generic (unknown) tool rules", async () => {
     const handler = createTrustRulesAddHandler();
     const req = new Request("http://localhost/v1/trust-rules", {
       method: "POST",
@@ -163,12 +164,13 @@ describe("POST /v1/trust-rules — canonicalization", () => {
     const body = (await res.json()) as { rule: Record<string, unknown> };
     expect(body.rule.tool).toBe("some_future_tool");
     expect(body.rule.executionTarget).toBe("container");
-    expect(body.rule.allowHighRisk).toBe(false);
+    // allowHighRisk is stripped during normalization
+    expect("allowHighRisk" in body.rule).toBe(false);
   });
 
-  test("accepts legacy payloads with invalid-for-family fields without 4xx", async () => {
+  test("accepts legacy payloads with allowHighRisk without 4xx (silently ignored)", async () => {
     const handler = createTrustRulesAddHandler();
-    // Send a legacy payload with executionTarget on a URL tool — should succeed
+    // Send a legacy payload with allowHighRisk — should succeed without error
     const req = new Request("http://localhost/v1/trust-rules", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -188,10 +190,10 @@ describe("POST /v1/trust-rules — canonicalization", () => {
     expect(res.status).toBe(201);
 
     const body = (await res.json()) as { rule: Record<string, unknown> };
-    // The persisted rule should strip invalid executionTarget but keep
-    // allowHighRisk for compatibility with existing high-risk trust rules.
+    // The persisted rule should strip both executionTarget (invalid for URL tool)
+    // and allowHighRisk (no longer supported).
     expect("executionTarget" in body.rule).toBe(false);
-    expect(body.rule.allowHighRisk).toBe(true);
+    expect("allowHighRisk" in body.rule).toBe(false);
   });
 });
 
@@ -200,8 +202,8 @@ describe("POST /v1/trust-rules — canonicalization", () => {
 // ---------------------------------------------------------------------------
 
 describe("GET /v1/trust-rules — list", () => {
-  test("returns canonicalized rules", async () => {
-    // Write a rule with fields that should be stripped on load
+  test("returns canonicalized rules (allowHighRisk stripped)", async () => {
+    // Write rules with allowHighRisk fields that should be stripped on load
     writeTrustFile({
       version: 3,
       rules: [
@@ -242,15 +244,15 @@ describe("GET /v1/trust-rules — list", () => {
     };
     expect(body.rules).toHaveLength(2);
 
-    // URL rule should have been normalized: executionTarget stripped.
+    // URL rule should have been normalized: executionTarget and allowHighRisk stripped.
     const urlRule = body.rules.find((r) => r.id === "r-url")!;
     expect("executionTarget" in urlRule).toBe(false);
-    expect(urlRule.allowHighRisk).toBe(true);
+    expect("allowHighRisk" in urlRule).toBe(false);
 
-    // Scoped rule should preserve fields
+    // Scoped rule should preserve executionTarget but strip allowHighRisk
     const bashRule = body.rules.find((r) => r.id === "r-bash")!;
     expect(bashRule.executionTarget).toBe("host");
-    expect(bashRule.allowHighRisk).toBe(true);
+    expect("allowHighRisk" in bashRule).toBe(false);
   });
 });
 

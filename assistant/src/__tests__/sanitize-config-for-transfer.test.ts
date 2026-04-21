@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { sanitizeConfigForTransfer } from "../config/sanitize-for-transfer.js";
 
 describe("sanitizeConfigForTransfer", () => {
-  test("strips all four field groups", () => {
+  test("strips every host-specific field group in one pass", () => {
     const input = {
       ingress: {
         publicBaseUrl: "https://example.com",
@@ -17,6 +17,13 @@ describe("sanitizeConfigForTransfer", () => {
           builtIn: true,
         },
       },
+      hostBrowser: {
+        cdpInspect: {
+          enabled: false,
+          desktopAuto: { enabled: true, cooldownMs: 30000 },
+          host: "127.0.0.1",
+        },
+      },
       name: "my-assistant",
     };
 
@@ -26,6 +33,76 @@ describe("sanitizeConfigForTransfer", () => {
     expect(result.ingress.enabled).toBeUndefined();
     expect(result.daemon).toBeUndefined();
     expect(result.skills.load.extraDirs).toEqual([]);
+    expect(result.hostBrowser).toEqual({
+      cdpInspect: { enabled: false, host: "127.0.0.1" },
+    });
+  });
+
+  test("deletes desktopAuto when the source relies on the schema default (enabled: true)", () => {
+    /**
+     * hostBrowser.cdpInspect.desktopAuto is macOS-host-only behavior.
+     * Preserving a source-host-derived `enabled: true` inside a Linux
+     * managed pod's config is misleading; the schema default restores
+     * the correct per-platform value when the subobject is absent.
+     */
+    const input = {
+      hostBrowser: {
+        cdpInspect: {
+          enabled: false,
+          desktopAuto: { enabled: true, cooldownMs: 30000 },
+          host: "127.0.0.1",
+        },
+      },
+    };
+
+    const result = JSON.parse(sanitizeConfigForTransfer(JSON.stringify(input)));
+
+    expect(result.hostBrowser).toEqual({
+      cdpInspect: { enabled: false, host: "127.0.0.1" },
+    });
+  });
+
+  test("preserves desktopAuto when the source explicitly opted out (enabled: false)", () => {
+    /**
+     * The schema default for `desktopAuto.enabled` is `true`, so
+     * unconditionally stripping the subobject would silently re-enable
+     * auto-attach after a platform→local teleport for users who
+     * deliberately turned it off. Preserve explicit opt-outs.
+     */
+    const input = {
+      hostBrowser: {
+        cdpInspect: {
+          desktopAuto: { enabled: false, cooldownMs: 60000 },
+        },
+      },
+    };
+
+    const result = JSON.parse(sanitizeConfigForTransfer(JSON.stringify(input)));
+
+    expect(result.hostBrowser).toEqual({
+      cdpInspect: { desktopAuto: { enabled: false, cooldownMs: 60000 } },
+    });
+  });
+
+  test("deletes desktopAuto when enabled is unspecified (also relies on default)", () => {
+    const input = {
+      hostBrowser: {
+        cdpInspect: {
+          desktopAuto: { cooldownMs: 45000 },
+        },
+      },
+    };
+
+    const result = JSON.parse(sanitizeConfigForTransfer(JSON.stringify(input)));
+
+    expect(result.hostBrowser).toEqual({ cdpInspect: {} });
+  });
+
+  test("is a no-op when hostBrowser has no cdpInspect subtree", () => {
+    const result = JSON.parse(
+      sanitizeConfigForTransfer(JSON.stringify({ hostBrowser: {} })),
+    );
+    expect(result.hostBrowser).toEqual({});
   });
 
   test("preserves non-target fields unchanged", () => {

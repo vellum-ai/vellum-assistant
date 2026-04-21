@@ -77,6 +77,7 @@ import { resolveTtsConfig } from "../../../assistant/src/tts/tts-config-resolver
 import type { TtsProvider } from "../../../assistant/src/tts/types.js";
 import { getLogger } from "../../../assistant/src/util/logger.js";
 import { getWorkspaceDir } from "../../../assistant/src/util/platform.js";
+import { trustedTypeHttpTimeoutMs } from "../contracts/native-messaging.js";
 import { getMeetConfig } from "../meet-config.js";
 import { MeetAudioIngest } from "./audio-ingest.js";
 import {
@@ -141,7 +142,13 @@ export const MEET_BOT_HOST_IP = "127.0.0.1";
 /** Timeout for the best-effort bot `/leave` HTTP call before falling back to stop. */
 export const BOT_LEAVE_HTTP_TIMEOUT_MS = 10_000;
 
-/** Timeout for the bot `/send_chat` HTTP call before giving up. */
+/**
+ * Floor for the bot `/send_chat` HTTP timeout. The per-request ceiling
+ * scales with text length via {@link trustedTypeHttpTimeoutMs} — xdotool
+ * types at 25ms/char inside the bot, so a 2000-char chat takes ~50s to
+ * land before the extension can reply. The actual timeout applied per
+ * request is `max(FLOOR, trustedTypeHttpTimeoutMs(text.length))`.
+ */
 export const BOT_SEND_CHAT_HTTP_TIMEOUT_MS = 10_000;
 
 /**
@@ -781,18 +788,33 @@ class MeetSessionManagerImpl {
       return this.pendingBotTokens.get(meetingId) ?? null;
     });
 
-    // One-shot startup orphan sweep. On a fresh boot no sessions exist, so
-    // the active-id set is empty — any `vellum.meet.bot`-labeled container
+    // One-shot startup orphan sweep. Any `vellum.meet.bot`-labeled container
     // still running came from a crashed prior daemon run and must be
     // reaped. Fire-and-forget so construction stays synchronous; the
     // reaper logs its own outcome and catches per-container errors so a
     // transient docker-engine hiccup never tears down the session-manager
     // singleton. Tests opt out via {@link MeetSessionManagerDeps.disableStartupOrphanReaper}.
+    //
+    // Two guards make the sweep race-safe with concurrent joins:
+    //   1. `createdBefore` — Docker's `Created` timestamp for every
+    //      container the reaper considers must predate this moment, so any
+    //      container spawned by a join that races the sweep is skipped.
+    //   2. `activeMeetingIds` — passed as a live getter that reads
+    //      `this.sessions` (and `pendingBotTokens` for the brief window
+    //      before the session lands in the map) per-container, so a join
+    //      that lands mid-sweep is observed before its meeting ID is
+    //      evaluated.
     if (!this.deps.disableStartupOrphanReaper) {
       const reaperDocker = this.deps.dockerRunnerFactory();
+      const daemonStartEpochSeconds = Math.floor(Date.now() / 1000);
       void reapOrphanedMeetBots({
         docker: reaperDocker,
-        activeMeetingIds: new Set<string>(),
+        activeMeetingIds: () => {
+          const ids = new Set<string>(this.sessions.keys());
+          for (const id of this.pendingBotTokens.keys()) ids.add(id);
+          return ids;
+        },
+        createdBefore: daemonStartEpochSeconds,
         logger: log,
       }).catch((err: unknown) => {
         log.warn({ err }, "Startup orphan-reaper sweep threw — continuing");
@@ -2397,6 +2419,16 @@ async function defaultBotSendChatFetch(
   text: string,
   meetingId: string,
 ): Promise<void> {
+  // xdotool types at 25ms/char inside the bot container, so the bot's
+  // reply genuinely cannot arrive before `text.length * 25ms` — a fixed
+  // 10s ceiling times out valid sub-2000-char chats above ~390 chars
+  // even when the extension eventually completes them successfully.
+  // Scale per request via the shared helper; floor at the legacy fixed
+  // budget so short messages keep the same (already-tight) ceiling.
+  const timeoutMs = Math.max(
+    BOT_SEND_CHAT_HTTP_TIMEOUT_MS,
+    trustedTypeHttpTimeoutMs(text.length),
+  );
   let response: Response;
   try {
     response = await fetch(url, {
@@ -2406,7 +2438,7 @@ async function defaultBotSendChatFetch(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ type: "send_chat", text }),
-      signal: AbortSignal.timeout(BOT_SEND_CHAT_HTTP_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);

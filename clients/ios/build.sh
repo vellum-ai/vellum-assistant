@@ -66,6 +66,7 @@ case "$CMD" in
         echo "Cleaning..."
         rm -rf "$DIST_DIR" "$CLIENTS_DIR/.build"
         rm -f "$SCRIPT_DIR/Resources/tts-provider-catalog.json"
+        rm -f "$SCRIPT_DIR/Resources/llm-provider-catalog.json"
         echo "Done."
         exit 0
         ;;
@@ -86,6 +87,10 @@ esac
 TTS_PROVIDER_CATALOG="$SCRIPT_DIR/../../meta/tts-provider-catalog.json"
 if [ -f "$TTS_PROVIDER_CATALOG" ]; then
     cp "$TTS_PROVIDER_CATALOG" "$SCRIPT_DIR/Resources/tts-provider-catalog.json"
+fi
+LLM_PROVIDER_CATALOG="$SCRIPT_DIR/../../meta/llm-provider-catalog.json"
+if [ -f "$LLM_PROVIDER_CATALOG" ]; then
+    cp "$LLM_PROVIDER_CATALOG" "$SCRIPT_DIR/Resources/llm-provider-catalog.json"
 fi
 
 # ── Generate xcodeproj ────────────────────────────────────────────────

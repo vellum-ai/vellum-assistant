@@ -22,6 +22,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 let mockRepoSkillsDir: string | undefined = undefined;
+let mockLocalCatalog: CatalogSkill[] = [];
 let mockFetchCatalogResult: CatalogSkill[] = [];
 let mockFetchCatalogError: Error | null = null;
 let fetchCatalogCallCount = 0;
@@ -31,7 +32,7 @@ mock.module("../skills/catalog-install.js", () => ({
   getRepoSkillsDir: () => mockRepoSkillsDir,
   readLocalCatalog: (_dir: string) => {
     readLocalCatalogCallCount++;
-    return mockFetchCatalogResult;
+    return mockLocalCatalog;
   },
   fetchCatalog: async () => {
     fetchCatalogCallCount++;
@@ -64,6 +65,7 @@ const updatedCatalog: CatalogSkill[] = [
 function resetState(): void {
   invalidateCatalogCache();
   mockRepoSkillsDir = undefined;
+  mockLocalCatalog = [];
   mockFetchCatalogResult = [];
   mockFetchCatalogError = null;
   fetchCatalogCallCount = 0;
@@ -152,13 +154,34 @@ describe("getCatalog", () => {
     expect(fetchCatalogCallCount).toBe(2);
   });
 
-  test("uses local catalog when repoSkillsDir is set", async () => {
+  test("merges local and remote catalogs when repoSkillsDir is set", async () => {
     mockRepoSkillsDir = "/mock/repo/skills";
-    mockFetchCatalogResult = sampleCatalog;
+    mockLocalCatalog = [
+      { id: "web-search", name: "Local Web Search", description: "Local" },
+    ];
+    mockFetchCatalogResult = [
+      { id: "web-search", name: "Remote Web Search", description: "Remote" },
+      { id: "remote-only", name: "Remote Only", description: "Remote only" },
+    ];
+
+    const result = await getCatalog();
+    expect(readLocalCatalogCallCount).toBe(1);
+    expect(fetchCatalogCallCount).toBe(1); // still merges with remote
+    // Local entry takes precedence for overlapping id
+    expect(result).toEqual([
+      { id: "web-search", name: "Local Web Search", description: "Local" },
+      { id: "remote-only", name: "Remote Only", description: "Remote only" },
+    ]);
+  });
+
+  test("falls back to local bundled catalog when remote fetch fails", async () => {
+    mockRepoSkillsDir = "/mock/repo/skills";
+    mockLocalCatalog = sampleCatalog;
+    mockFetchCatalogError = new Error("Network timeout");
 
     const result = await getCatalog();
     expect(result).toEqual(sampleCatalog);
     expect(readLocalCatalogCallCount).toBe(1);
-    expect(fetchCatalogCallCount).toBe(0); // no remote fetch
+    expect(fetchCatalogCallCount).toBe(1); // attempted remote fetch
   });
 });

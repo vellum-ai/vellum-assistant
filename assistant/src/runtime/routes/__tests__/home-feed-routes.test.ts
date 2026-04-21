@@ -33,7 +33,10 @@ const addedMessages: Array<{
 }> = [];
 let createConversationShouldThrow = false;
 
+const realConversationCrud =
+  await import("../../../memory/conversation-crud.js");
 mock.module("../../../memory/conversation-crud.js", () => ({
+  ...realConversationCrud,
   createConversation: (opts: unknown) => {
     if (createConversationShouldThrow) {
       throw new Error("synthetic createConversation failure");
@@ -51,6 +54,13 @@ mock.module("../../../memory/conversation-crud.js", () => ({
     addedMessages.push({ conversationId, role, content });
     return { id: `msg-${addedMessages.length}` };
   },
+  // Stub the message reader surface transitively required by other
+  // modules that route through conversation-crud. The home-feed route
+  // paths don't consult it directly, but Bun's ESM mock needs the named
+  // export to exist so transitive `import { getMessages }` resolves.
+  getMessages: () => [],
+  getMessagesPaginated: () => ({ messages: [], hasMore: false }),
+  getMessageById: () => null,
 }));
 
 // Stub the rollup producer so the on-visit refresh trigger inside

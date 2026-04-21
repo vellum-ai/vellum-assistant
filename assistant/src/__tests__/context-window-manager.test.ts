@@ -37,9 +37,10 @@ function makeConfig(
 
 function createProvider(
   fn: (messages: Message[]) => ProviderResponse | Promise<ProviderResponse>,
+  name: string = "mock",
 ): Provider {
   return {
-    name: "mock",
+    name,
     async sendMessage(messages: Message[]): Promise<ProviderResponse> {
       return fn(messages);
     },
@@ -241,6 +242,63 @@ describe("ContextWindowManager", () => {
     expect(result.summaryOutputTokens).toBe(0);
     expect(result.summaryModel).toBe("");
     expect(result.summaryText).toContain("## Recent Progress");
+  });
+
+  test("marks summaryFailed when the provider throws and fallback runs", async () => {
+    // The agent-loop circuit breaker distinguishes "LLM call failed but
+    // fallback rescued us" from "compaction succeeded end-to-end". The
+    // fallback path must set summaryFailed:true so callers can count
+    // consecutive failures without losing the compacted messages.
+    const provider = createProvider(async () => {
+      throw new Error("provider unavailable");
+    });
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({
+        maxInputTokens: 260,
+        targetBudgetRatio: 0.59,
+      }),
+    });
+    const long = "z".repeat(220);
+    const history = [
+      message("user", `task ${long}`),
+      message("assistant", `result ${long}`),
+      message("user", `followup ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+    expect(result.compacted).toBe(true);
+    expect(result.summaryFailed).toBe(true);
+  });
+
+  test("does not mark summaryFailed on a successful provider call", async () => {
+    const provider = createProvider(() => ({
+      content: [
+        { type: "text", text: "## Goals\n- summary produced by provider" },
+      ],
+      model: "mock-model",
+      usage: { inputTokens: 60, outputTokens: 12 },
+      stopReason: "end_turn",
+    }));
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({
+        maxInputTokens: 260,
+        targetBudgetRatio: 0.59,
+      }),
+    });
+    const long = "z".repeat(220);
+    const history = [
+      message("user", `task ${long}`),
+      message("assistant", `result ${long}`),
+      message("user", `followup ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+    expect(result.compacted).toBe(true);
+    expect(result.summaryFailed).toBe(false);
   });
 
   test("serializes file blocks for summary chunks", async () => {
@@ -836,6 +894,66 @@ describe("ContextWindowManager", () => {
     );
   });
 
+  test("force compaction with loose target override still summarizes persisted messages", async () => {
+    // `pickKeepBoundary` clamps `targetInputTokensOverride` to
+    // `config.targetInputTokens`, so a loose override cannot
+    // short-circuit summarization into the truncate-only early-exit.
+
+    let summaryCalls = 0;
+    const provider = createProvider(() => {
+      summaryCalls += 1;
+      return {
+        content: [{ type: "text", text: "## Goals\n- real summary" }],
+        model: "mock-model",
+        usage: { inputTokens: 80, outputTokens: 20 },
+        stopReason: "end_turn",
+      };
+    });
+
+    // Scaled from prod (max 200k → 1000) preserving key ratios: the
+    // loose override (~0.85×max) is ~17× the post-compaction target
+    // (~0.05×max), so history between the two exercises the clamp.
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({
+        maxInputTokens: 1000,
+        targetBudgetRatio: 0.1,
+        summaryBudgetRatio: 0.05,
+        compactThreshold: 0.3,
+      }),
+    });
+
+    // History in the "no-op zone": above threshold (300), below override (850).
+    const long = "x".repeat(180);
+    const history: Message[] = [
+      message("user", `u1 ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+      message("user", `u3 ${long}`),
+      message("assistant", `a3 ${long}`),
+      message("user", `u4 ${long}`),
+      message("assistant", `a4 ${long}`),
+      message("user", `u5 ${long}`),
+    ];
+
+    const preflightBudgetAnalog = Math.floor(1000 * 0.85);
+    const result = await manager.maybeCompact(history, undefined, {
+      force: true,
+      targetInputTokensOverride: preflightBudgetAnalog,
+    });
+
+    // Guard: we're actually above the compact threshold.
+    expect(result.previousEstimatedInputTokens).toBeGreaterThan(
+      result.thresholdTokens,
+    );
+
+    // A real summarization happened (not the truncate-only no-op).
+    expect(result.compactedPersistedMessages).toBeGreaterThan(0);
+    expect(summaryCalls).toBeGreaterThan(0);
+  });
+
   test("force=true compacts below minFloor when a kept turn exceeds target", async () => {
     // A giant paste in the last user turn means minFloor=1 alone exceeds target.
     // Under force, pickKeepBoundary should walk keepTurns below minFloor (down to
@@ -1273,6 +1391,55 @@ describe("ContextWindowManager", () => {
       .join("\n");
     expect(userPromptText).toContain("### Retained Thread References");
     expect(userPromptText).toContain("→ M1a2b3c");
+  });
+
+  test("summary prompt lists retained-tail thread-reply references for edited replies", async () => {
+    const capturedMessages: Message[][] = [];
+    const provider: Provider = {
+      name: "mock",
+      async sendMessage(messages: Message[]): Promise<ProviderResponse> {
+        capturedMessages.push(messages);
+        return {
+          content: [{ type: "text", text: "## Goals\n- ok" }],
+          model: "mock-model",
+          usage: { inputTokens: 60, outputTokens: 12 },
+          stopReason: "end_turn",
+        };
+      },
+    };
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({ maxInputTokens: 600 }),
+    });
+    const long = "x".repeat(240);
+    // An edited reply renders with `, edited …` between the parent alias and
+    // the closing bracket: `→ Mxxxxxx, edited MM/DD/YY HH:MM]`. The regex
+    // must still flag these lines so retention works for edited replies.
+    const history: Message[] = [
+      message("user", `[11/14/23 14:25 @alice]: parent kickoff ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+      message(
+        "user",
+        `[11/14/23 14:28 @bob → M1a2b3c, edited 11/14/23 14:32]: reply ${long}`,
+      ),
+      message("assistant", `a3 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+    expect(result.compacted).toBe(true);
+    expect(capturedMessages.length).toBeGreaterThan(0);
+    const userPromptText = capturedMessages[0]
+      .flatMap((m) => m.content)
+      .filter(
+        (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text",
+      )
+      .map((b) => b.text)
+      .join("\n");
+    expect(userPromptText).toContain("### Retained Thread References");
+    expect(userPromptText).toContain("→ M1a2b3c, edited 11/14/23 14:32");
   });
 
   test("summary prompt omits retained references when retained tail has no thread markers", async () => {

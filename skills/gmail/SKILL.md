@@ -18,28 +18,37 @@ All operations use CLI scripts that return JSON:
 - **Success**: `{ "ok": true, "data": ... }`
 - **Failure**: `{ "ok": false, "error": "..." }`
 
-| Script             | Operation          | Description                                                                  |
-| ------------------ | ------------------ | ---------------------------------------------------------------------------- |
-| `gmail-email.ts`   | `draft`            | Create email drafts in the Drafts folder (including reply drafts)            |
-| `gmail-email.ts`   | `send-draft`       | Send an existing draft (**requires explicit user confirmation**)             |
-| `gmail-email.ts`   | `forward`          | Create forward drafts, preserving attachments                                |
-| `gmail-email.ts`   | `trash`            | Move messages to Trash                                                       |
-| `gmail-manage.ts`  | `label`            | Add or remove labels on messages                                             |
-| `gmail-manage.ts`  | `follow-up`        | Track/untrack messages for follow-up using a dedicated "Follow-up" label     |
-| `gmail-manage.ts`  | `attachments`      | List and download email attachments                                          |
-| `gmail-manage.ts`  | `filters`          | Create, list, and delete Gmail filters                                       |
-| `gmail-manage.ts`  | `vacation`         | Get, enable, or disable the vacation auto-responder                          |
-| `gmail-manage.ts`  | `unsubscribe`      | Unsubscribe from mailing lists (**requires explicit user confirmation**)     |
-| `gmail-scan.ts`    | `sender-digest`    | Scan inbox and group messages by sender for declutter workflows              |
-| `gmail-scan.ts`    | `outreach-scan`    | Identify cold outreach senders (no List-Unsubscribe header)                  |
-| `gmail-archive.ts` | `archive`          | Archive messages (single, batch message_ids, cache_key+sender-emails, query) |
-| `gmail-prefs.ts`   | `list`             | List blocklist and safelist preferences                                      |
-| `gmail-prefs.ts`   | `add-blocklist`    | Add sender emails to the blocklist                                           |
-| `gmail-prefs.ts`   | `add-safelist`     | Add sender emails to the safelist                                            |
-| `gmail-prefs.ts`   | `remove-blocklist` | Remove sender emails from the blocklist                                      |
-| `gmail-prefs.ts`   | `remove-safelist`  | Remove sender emails from the safelist                                       |
-| `gmail-prefs.ts`   | `get-management-config` | Get inbox management config (stage, interrupt threshold, last run)      |
-| `gmail-prefs.ts`   | `set-management-config` | Update inbox management config (--stage, --interrupt-threshold, --last-run) |
+| Script             | Operation               | Description                                                                  |
+| ------------------ | ----------------------- | ---------------------------------------------------------------------------- |
+| `gmail-email.ts`   | `draft`                 | Create email drafts in the Drafts folder (including reply drafts)            |
+| `gmail-email.ts`   | `send-draft`            | Send an existing draft (**requires explicit user confirmation**)             |
+| `gmail-email.ts`   | `forward`               | Create forward drafts, preserving attachments                                |
+| `gmail-email.ts`   | `trash`                 | Move messages to Trash                                                       |
+| `gmail-manage.ts`  | `label`                 | Add or remove labels on messages                                             |
+| `gmail-manage.ts`  | `follow-up`             | Track/untrack messages for follow-up using a dedicated "Follow-up" label     |
+| `gmail-manage.ts`  | `attachments`           | List and download email attachments                                          |
+| `gmail-manage.ts`  | `filters`               | Create, list, and delete Gmail filters                                       |
+| `gmail-manage.ts`  | `vacation`              | Get, enable, or disable the vacation auto-responder                          |
+| `gmail-manage.ts`  | `unsubscribe`           | Unsubscribe from mailing lists (**requires explicit user confirmation**)     |
+| `gmail-scan.ts`    | `sender-digest`         | Scan inbox and group messages by sender for declutter workflows              |
+| `gmail-scan.ts`    | `outreach-scan`         | Identify cold outreach senders (no List-Unsubscribe header)                  |
+| `gmail-archive.ts` | `archive`               | Archive messages (single, batch message_ids, cache_key+sender-emails, query) |
+| `gmail-archive.ts` | `archive --dry-run`     | Preview what would be archived without executing (writes staged ops to log)  |
+| `gmail-archive.ts` | `archive --resume`      | Resume an interrupted archive run from its last checkpoint                    |
+| `gmail-commit.ts`  | `commit`                | Execute all staged ops from a dry-run                                        |
+| `gmail-commit.ts`  | `cancel`                | Delete a run log without executing anything                                  |
+| `gmail-runs.ts`    | `list`                  | List recent operation runs with status summaries                             |
+| `gmail-runs.ts`    | `inspect`               | Show detailed log entries for a specific run                                 |
+| `gmail-runs.ts`    | `prune`                 | Delete operation logs older than 30 days                                     |
+| `gmail-reverse.ts` | `--run-id`              | Reverse all committed ops in a run (un-archive, un-label, un-trash)          |
+| `gmail-reverse.ts` | `--run-id --thread`     | Reverse a specific message within a committed run                            |
+| `gmail-prefs.ts`   | `list`                  | List blocklist and safelist preferences                                      |
+| `gmail-prefs.ts`   | `add-blocklist`         | Add sender emails to the blocklist                                           |
+| `gmail-prefs.ts`   | `add-safelist`          | Add sender emails to the safelist                                            |
+| `gmail-prefs.ts`   | `remove-blocklist`      | Remove sender emails from the blocklist                                      |
+| `gmail-prefs.ts`   | `remove-safelist`       | Remove sender emails from the safelist                                       |
+| `gmail-prefs.ts`   | `get-management-config` | Get inbox management config (stage, interrupt threshold, last run)           |
+| `gmail-prefs.ts`   | `set-management-config` | Update inbox management config (--stage, --interrupt-threshold, --last-run)  |
 
 ### Email Operations
 
@@ -117,6 +126,78 @@ bun run scripts/gmail-archive.ts archive --message-id "18f..."
 # Archive by query
 bun run scripts/gmail-archive.ts archive --query "from:newsletter@example.com in:inbox"
 ```
+
+### Operation Runs
+
+All destructive archive operations are logged to a JSONL operation log for resumability and auditing. Each batch of archives is tracked as a "run" with a unique ID.
+
+```bash
+# List recent runs with status summaries
+bun run scripts/gmail-runs.ts list [--limit 20]
+
+# Show detailed log entries for a specific run
+bun run scripts/gmail-runs.ts inspect --run-id "run_20260420_a1b2c3d4"
+
+# Delete logs older than 30 days
+bun run scripts/gmail-runs.ts prune
+```
+
+#### Dry-Run Mode
+
+Dry-run mode runs the full pipeline (scanning, collecting message IDs) but skips all destructive API calls. Staged entries are written to the op log for review.
+
+```bash
+# Preview what would be archived
+bun run scripts/gmail-archive.ts archive --query "..." --dry-run
+
+# Review the staged operations
+bun run scripts/gmail-runs.ts inspect --run-id "<run-id>"
+
+# Commit the staged operations (executes the archive)
+bun run scripts/gmail-commit.ts commit --run-id "<run-id>"
+
+# Cancel (delete the log, nothing executed)
+bun run scripts/gmail-commit.ts cancel --run-id "<run-id>"
+```
+
+Label and filter operations also support `--dry-run`:
+```bash
+bun run scripts/gmail-manage.ts label --message-ids "..." --add-labels "..." --dry-run
+bun run scripts/gmail-manage.ts filters --action create --from "..." --remove-labels "INBOX" --dry-run
+```
+
+Archive operations now return a `run_id` in their output. Use this to resume interrupted runs:
+
+```bash
+# Resume an interrupted run (e.g. after daily quota hit)
+bun run scripts/gmail-archive.ts archive --resume "run_20260420_a1b2c3d4"
+
+# Pass --run-id to group multiple archive calls under one run
+bun run scripts/gmail-archive.ts archive --query "..." --run-id "run_20260420_a1b2c3d4" --phase "noise_archive"
+```
+
+When a run is interrupted (e.g. Gmail daily quota exceeded), the operation log records the interruption with a resume hint. The assistant should detect interrupted runs and offer to resume them rather than starting fresh.
+
+#### Reversing a Run
+
+If a committed run archived messages incorrectly, reverse it:
+
+```bash
+# Reverse all committed operations in a run (requires confirmation)
+bun run scripts/gmail-reverse.ts --run-id "run_20260420_a1b2c3d4"
+
+# Reverse a specific message within a run (no confirmation needed)
+bun run scripts/gmail-reverse.ts --run-id "run_20260420_a1b2c3d4" --thread "18f..."
+```
+
+Reversal semantics:
+- **archive** → adds INBOX label back (un-archives)
+- **label_add** → removes the labels that were added
+- **label_remove** → adds back the labels that were removed
+- **trash** → removes TRASH label and adds INBOX (un-trashes, within Gmail's 30-day window)
+- **filter_create** → not auto-reversible; delete manually via `gmail-manage.ts filters --action delete`
+
+Reversals are themselves logged as runs (auditable, resumable). The reversal only touches labels/state that the original run modified — it does not touch user-applied labels.
 
 ### Preferences Operations
 

@@ -207,6 +207,9 @@ mock.module("../agent/loop.js", () => ({
     getToolTokenBudget() {
       return 0;
     }
+    getActiveModel() {
+      return undefined;
+    }
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void,
@@ -293,9 +296,10 @@ function makeConversation(): Conversation {
   // Bypass real workspace git init: with "/tmp" as the workspace dir, a real
   // ensureInitialized() walks all of /tmp and can exceed the 2s waitForPendingRun
   // budget on CI where parallel tests churn /tmp subdirectories.
-  (conversation as ConversationWithWorkspaceDeps).getWorkspaceGitService = () => ({
-    ensureInitialized: async () => {},
-  });
+  (conversation as ConversationWithWorkspaceDeps).getWorkspaceGitService =
+    () => ({
+      ensureInitialized: async () => {},
+    });
   return conversation;
 }
 

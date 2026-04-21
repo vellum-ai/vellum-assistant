@@ -377,8 +377,6 @@ final class ToolPermissionTesterModel: ObservableObject {
             return
         }
 
-        let isHighRisk = snapshot.riskLevel.lowercased() == "high"
-
         Task {
             do {
                 try await trustRuleClient.addTrustRule(
@@ -386,7 +384,6 @@ final class ToolPermissionTesterModel: ObservableObject {
                     pattern: pattern,
                     scope: scope,
                     decision: "allow",
-                    allowHighRisk: isHighRisk ? true : nil,
                     executionTarget: snapshot.snapshotExecutionTarget
                 )
                 // Re-simulate to show the updated outcome with the new rule in effect.

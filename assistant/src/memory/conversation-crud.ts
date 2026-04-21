@@ -10,6 +10,7 @@ import {
   gte,
   inArray,
   isNull,
+  like,
   lt,
   lte,
   sql,
@@ -103,6 +104,9 @@ export const messageMetadataSchema = z
     forkSourceMessageId: z.string().optional(),
     /** Image source paths from desktop attachments, keyed by filename. */
     imageSourcePaths: z.record(z.string(), z.string()).optional(),
+    memoryInjectedBlock: z.string().optional(),
+    turnContextBlock: z.string().optional(),
+    pkbSystemReminderBlock: z.string().optional(),
   })
   .passthrough();
 
@@ -1044,6 +1048,33 @@ export function getMessages(conversationId: string): MessageRow[] {
 }
 
 /**
+ * Count messages whose metadata JSON contains a `slackMeta` envelope, capped
+ * at `limit`. Pushes the cap into SQL (`LIKE` + `LIMIT`) so warm Slack DM
+ * conversations don't require a full-table scan + JSON parse on every
+ * inbound message to confirm the cold-start threshold has been cleared.
+ * Returns the number of matching rows up to `limit`; callers compare against
+ * the cold-start threshold to decide whether to backfill.
+ */
+export function countMessagesWithSlackMeta(
+  conversationId: string,
+  limit: number,
+): number {
+  const db = getDb();
+  const rows = db
+    .select({ one: sql`1` })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        like(messages.metadata, '%"slackMeta"%'),
+      ),
+    )
+    .limit(limit)
+    .all();
+  return rows.length;
+}
+
+/**
  * Efficient existence check — returns true if the conversation has at least
  * one message row. Uses `LIMIT 1` + `select({ 1 })` to avoid loading and
  * parsing any message content.
@@ -1469,6 +1500,27 @@ export function updateMessageMetadata(
     .set({ metadata: JSON.stringify({ ...existing, ...updates }) })
     .where(eq(messages.id, messageId))
     .run();
+}
+
+/**
+ * Bulk-remove the `pkbSystemReminderBlock` field from every user-message
+ * metadata row in a conversation. Called from compaction-strip sites so
+ * post-restart rehydration stays consistent with the in-memory state
+ * produced by `stripInjectionsForCompaction` (which removes
+ * `<system_reminder>` from live messages but cannot touch the DB).
+ */
+export function clearPkbSystemReminderMetadataForConversation(
+  conversationId: string,
+): void {
+  rawRun(
+    `UPDATE messages
+        SET metadata = json_remove(metadata, '$.pkbSystemReminderBlock')
+      WHERE conversation_id = ?
+        AND role = 'user'
+        AND metadata IS NOT NULL
+        AND json_extract(metadata, '$.pkbSystemReminderBlock') IS NOT NULL`,
+    conversationId,
+  );
 }
 
 /**

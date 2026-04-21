@@ -8,8 +8,9 @@ entirely — without hunting down scattered references across the monorepo.
 ## The isolation rule
 
 The `assistant/` module must **never** import from `skills/meet-join/` via
-relative paths. The Docker build copies `assistant/` and `packages/` but not
-`skills/`, so any such import breaks at runtime.
+relative paths. The Docker build context only exposes a curated subset of
+`skills/` — whitelisted by the repo-root `.dockerignore` — so an import
+reaching into an unlisted skill path breaks at runtime.
 
 There is one narrow exception:
 `assistant/src/daemon/external-skills-bootstrap.ts` may do a single

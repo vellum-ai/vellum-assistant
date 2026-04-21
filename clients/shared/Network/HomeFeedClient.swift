@@ -7,16 +7,35 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "HomeF
 ///
 /// Mirrors the JSON shape emitted by
 /// `assistant/src/runtime/routes/home-feed-routes.ts::handleGetHomeFeed`:
-/// `{ items, updatedAt, contextBanner }`.
+/// `{ items, updatedAt, contextBanner, suggestedPrompts }`.
 public struct HomeFeedResponse: Codable, Sendable, Hashable {
     public let items: [FeedItem]
     public let updatedAt: Date
     public let contextBanner: ContextBanner
+    public let suggestedPrompts: [SuggestedPrompt]
+    public let lowPriorityCollapsed: LowPriorityCollapsed
 
-    public init(items: [FeedItem], updatedAt: Date, contextBanner: ContextBanner) {
+    public init(
+        items: [FeedItem],
+        updatedAt: Date,
+        contextBanner: ContextBanner,
+        suggestedPrompts: [SuggestedPrompt] = [],
+        lowPriorityCollapsed: LowPriorityCollapsed = LowPriorityCollapsed(count: 0, itemIds: [])
+    ) {
         self.items = items
         self.updatedAt = updatedAt
         self.contextBanner = contextBanner
+        self.suggestedPrompts = suggestedPrompts
+        self.lowPriorityCollapsed = lowPriorityCollapsed
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        items = try container.decode([FeedItem].self, forKey: .items)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        contextBanner = try container.decode(ContextBanner.self, forKey: .contextBanner)
+        suggestedPrompts = try container.decodeIfPresent([SuggestedPrompt].self, forKey: .suggestedPrompts) ?? []
+        lowPriorityCollapsed = try container.decodeIfPresent(LowPriorityCollapsed.self, forKey: .lowPriorityCollapsed) ?? LowPriorityCollapsed(count: 0, itemIds: [])
     }
 }
 

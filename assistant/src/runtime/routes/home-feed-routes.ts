@@ -26,9 +26,12 @@ import {
   type FeedItem,
   feedItemSchema,
   type FeedItemStatus,
+  lowPriorityCollapsedSchema,
+  suggestedPromptSchema,
 } from "../../home/feed-types.js";
 import { patchFeedItemStatus, readHomeFeed } from "../../home/feed-writer.js";
 import { runRollupProducer } from "../../home/rollup-producer.js";
+import { getSuggestedPrompts } from "../../home/suggested-prompts.js";
 import {
   addMessage,
   createConversation,
@@ -73,6 +76,8 @@ const getHomeFeedResponseSchema = z.object({
   items: z.array(feedItemSchema),
   updatedAt: z.string(),
   contextBanner: contextBannerSchema,
+  suggestedPrompts: z.array(suggestedPromptSchema),
+  lowPriorityCollapsed: lowPriorityCollapsedSchema,
 });
 
 const patchFeedItemRequestSchema = z.object({
@@ -169,6 +174,14 @@ export async function handleGetHomeFeed(req: Request): Promise<Response> {
     return item.minTimeAway <= timeAwaySeconds;
   });
 
+  // Compute low-priority metadata the client can use to decide how
+  // to render collapsed sections. All items stay in the response —
+  // the client handles collapsing in the UI layer.
+  const LOW_PRIORITY_THRESHOLD = 30;
+  const lowPriorityItems = filtered.filter(
+    (item) => item.priority < LOW_PRIORITY_THRESHOLD,
+  );
+
   const now = new Date();
   const contextBanner = {
     greeting: computeGreeting(now),
@@ -176,12 +189,21 @@ export async function handleGetHomeFeed(req: Request): Promise<Response> {
     newCount: filtered.filter((i) => i.status === "new").length,
   };
 
+  const lowPriorityCollapsed = {
+    count: lowPriorityItems.length,
+    itemIds: lowPriorityItems.map((item) => item.id),
+  };
+
+  const suggestedPrompts = await getSuggestedPrompts();
+
   log.debug(
     {
       timeAwayBucket: timeAwayBucket(timeAwaySeconds),
       totalItems: feed.items.length,
       filteredItems: filtered.length,
+      lowPriorityCount: lowPriorityItems.length,
       newCount: contextBanner.newCount,
+      suggestedPromptsCount: suggestedPrompts.length,
     },
     "GET /v1/home/feed",
   );
@@ -196,6 +218,8 @@ export async function handleGetHomeFeed(req: Request): Promise<Response> {
     items: filtered,
     updatedAt: feed.updatedAt,
     contextBanner,
+    suggestedPrompts,
+    lowPriorityCollapsed,
   });
 }
 

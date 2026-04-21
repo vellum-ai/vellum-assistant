@@ -461,8 +461,8 @@ struct MainWindowView: View {
                     VButton(label: "Back", iconOnly: VIcon.chevronLeft.rawValue, style: .ghost, tooltip: "Back (\u{2318}[)") {
                         windowState.navigateBack()
                     }
-                    .disabled(!windowState.navigationHistory.canGoBack)
-                    .opacity(windowState.navigationHistory.canGoBack ? 1 : 0.35)
+                    .disabled(!windowState.canGoBack)
+                    .opacity(windowState.canGoBack ? 1 : 0.35)
 
                     VButton(label: "Forward", iconOnly: VIcon.chevronRight.rawValue, style: .ghost, tooltip: "Forward (\u{2318}])") {
                         windowState.navigateForward()

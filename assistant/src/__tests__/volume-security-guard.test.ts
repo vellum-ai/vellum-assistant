@@ -39,6 +39,8 @@ const ALLOWED_FILES = new Set([
   "assistant/src/runtime/auth/middleware.ts",
   // Permission checker: classifies file_read of signing key as High risk
   "assistant/src/permissions/checker.ts",
+  // File risk classifier: replicates signing key path check for file_read
+  "assistant/src/permissions/file-risk-classifier.ts",
 ]);
 
 // ---------------------------------------------------------------------------

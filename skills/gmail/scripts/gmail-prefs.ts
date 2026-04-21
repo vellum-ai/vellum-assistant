@@ -42,10 +42,14 @@ export function loadPreferences(): GmailPreferences {
   try {
     const raw = readFileSync(PREFS_PATH, "utf-8");
     const parsed = JSON.parse(raw) as Partial<GmailPreferences>;
-    return {
+    const prefs: GmailPreferences = {
       blocklist: Array.isArray(parsed.blocklist) ? parsed.blocklist : [],
       safelist: Array.isArray(parsed.safelist) ? parsed.safelist : [],
     };
+    if (parsed["inbox-management"]) {
+      prefs["inbox-management"] = parsed["inbox-management"];
+    }
+    return prefs;
   } catch {
     return { blocklist: [], safelist: [] };
   }
@@ -127,7 +131,10 @@ function getManagementConfig(): InboxManagementConfig {
 
 function setManagementConfig(updates: Partial<InboxManagementConfig>): void {
   const prefs = loadPreferences();
-  const current = { ...DEFAULT_MANAGEMENT_CONFIG, ...prefs["inbox-management"] };
+  const current = {
+    ...DEFAULT_MANAGEMENT_CONFIG,
+    ...prefs["inbox-management"],
+  };
   prefs["inbox-management"] = { ...current, ...updates };
   savePreferences(prefs);
 }
@@ -238,10 +245,19 @@ function main(): void {
       }
       if (args["interrupt-threshold"] != null) {
         const threshold = args["interrupt-threshold"] as string;
-        if (threshold !== "default" && threshold !== "high" && threshold !== "low") {
-          printError('--interrupt-threshold must be "default", "high", or "low"');
+        if (
+          threshold !== "default" &&
+          threshold !== "high" &&
+          threshold !== "low"
+        ) {
+          printError(
+            '--interrupt-threshold must be "default", "high", or "low"',
+          );
         }
-        updates["interrupt-threshold"] = threshold as "default" | "high" | "low";
+        updates["interrupt-threshold"] = threshold as
+          | "default"
+          | "high"
+          | "low";
       }
       if (args["last-run"] != null) {
         updates["last-run"] = args["last-run"] as string;

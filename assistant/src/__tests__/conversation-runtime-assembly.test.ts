@@ -3,7 +3,11 @@ import { describe, expect, mock, test } from "bun:test";
 // PKB search is mocked so the reminder-hints tests can assert behavior
 // without standing up Qdrant. The mock returns whatever is staged in
 // `pkbSearchResults` / `pkbSearchThrows` for the enclosing test.
-let pkbSearchResults: Array<{ path: string; score: number }> = [];
+let pkbSearchResults: Array<{
+  path: string;
+  denseScore: number;
+  hybridScore?: number;
+}> = [];
 let pkbSearchThrows: Error | null = null;
 mock.module("../memory/pkb/pkb-search.js", () => ({
   searchPkbFiles: async () => {
@@ -392,9 +396,9 @@ describe("isSlackChannelConversation", () => {
   });
 
   test("returns false for Slack DMs regardless of chatType shape", () => {
-    // Gateway omits chatType entirely for DM message events — the prior
-    // `chatType !== "im"` check misclassified these (undefined !== "im")
-    // as channels and leaked thread-only behaviour into DMs.
+    // Gateway omits chatType entirely for DM message events, so
+    // `isSlackChannelConversation` must return false for both the
+    // `chatType === undefined` and `chatType === "im"` shapes.
     expect(isSlackChannelConversation({ channel: "slack", ...base })).toBe(
       false,
     );
@@ -505,7 +509,7 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
       supportsVoiceInput: false,
     };
 
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       channelCapabilities: caps,
     });
 
@@ -518,7 +522,7 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
   });
 
   test("does not inject when channelCapabilities is null", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       channelCapabilities: null,
     });
 
@@ -527,7 +531,7 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
   });
 
   test("does not inject when channelCapabilities is omitted", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {});
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
 
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(1);
@@ -541,7 +545,7 @@ describe("applyRuntimeInjections with channelCapabilities", () => {
       supportsVoiceInput: false,
     };
 
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       channelCapabilities: caps,
     });
 
@@ -688,7 +692,10 @@ describe("applyRuntimeInjections — injection mode", () => {
   };
 
   test("full mode (default) includes all injections", async () => {
-    const result = await applyRuntimeInjections(baseMessages, fullOptions);
+    const { messages: result } = await applyRuntimeInjections(
+      baseMessages,
+      fullOptions,
+    );
     const allText = result[0].content
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
       .map((b) => b.text)
@@ -702,11 +709,11 @@ describe("applyRuntimeInjections — injection mode", () => {
     expect(allText).toContain("<non_interactive_context>");
     expect(allText).toContain("<NOW.md");
     expect(allText).toContain("<system_reminder>");
-    expect(allText).toContain("<pkb>");
+    expect(allText).toContain("<knowledge_base>");
   });
 
   test("explicit mode: 'full' behaves the same as default", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       ...fullOptions,
       mode: "full",
     });
@@ -722,7 +729,7 @@ describe("applyRuntimeInjections — injection mode", () => {
   });
 
   test("minimal mode skips high-token optional blocks", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       ...fullOptions,
       mode: "minimal",
     });
@@ -737,11 +744,11 @@ describe("applyRuntimeInjections — injection mode", () => {
     expect(allText).not.toContain("<active_workspace>");
     expect(allText).not.toContain("<NOW.md");
     expect(allText).not.toContain("<system_reminder>");
-    expect(allText).not.toContain("<pkb>");
+    expect(allText).not.toContain("<knowledge_base>");
   });
 
   test("minimal mode preserves safety-critical blocks", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       ...fullOptions,
       mode: "minimal",
     });
@@ -757,14 +764,20 @@ describe("applyRuntimeInjections — injection mode", () => {
   });
 
   test("minimal mode produces strictly fewer content blocks than full mode", async () => {
-    const fullResult = await applyRuntimeInjections(baseMessages, {
-      ...fullOptions,
-      mode: "full",
-    });
-    const minimalResult = await applyRuntimeInjections(baseMessages, {
-      ...fullOptions,
-      mode: "minimal",
-    });
+    const { messages: fullResult } = await applyRuntimeInjections(
+      baseMessages,
+      {
+        ...fullOptions,
+        mode: "full",
+      },
+    );
+    const { messages: minimalResult } = await applyRuntimeInjections(
+      baseMessages,
+      {
+        ...fullOptions,
+        mode: "minimal",
+      },
+    );
 
     expect(minimalResult[0].content.length).toBeLessThan(
       fullResult[0].content.length,
@@ -772,7 +785,7 @@ describe("applyRuntimeInjections — injection mode", () => {
   });
 
   test("minimal mode still preserves the original user message text", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       ...fullOptions,
       mode: "minimal",
     });
@@ -1091,7 +1104,7 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
   ];
 
   test("injects NOW.md block when provided", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       nowScratchpad: "Current focus: fix the bug",
     });
 
@@ -1104,7 +1117,7 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
   });
 
   test("scratchpad appears before user's original text content", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       nowScratchpad: "scratchpad notes",
     });
 
@@ -1119,7 +1132,7 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
   });
 
   test("does not inject when nowScratchpad is null", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       nowScratchpad: null,
     });
 
@@ -1128,14 +1141,14 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
   });
 
   test("does not inject when nowScratchpad is omitted", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {});
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
 
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(1);
   });
 
   test("skipped in minimal mode", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       nowScratchpad: "Current focus: fix the bug",
       mode: "minimal",
     });
@@ -1539,7 +1552,7 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
     "<turn_context>\ncurrent_time: 2026-04-02T12:00:00Z\ninterface: macos\n</turn_context>";
 
   test("injects unifiedTurnContext when provided", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       unifiedTurnContext: sampleBlock,
     });
 
@@ -1555,7 +1568,7 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
   });
 
   test("does not inject when unifiedTurnContext is null", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       unifiedTurnContext: null,
     });
 
@@ -1564,14 +1577,14 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
   });
 
   test("does not inject when unifiedTurnContext is omitted", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {});
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {});
 
     expect(result).toHaveLength(1);
     expect(result[0].content).toHaveLength(1);
   });
 
   test("injected in full mode", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       unifiedTurnContext: sampleBlock,
       mode: "full",
     });
@@ -1585,7 +1598,7 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
   });
 
   test("injected in minimal mode (no mode guard)", async () => {
-    const result = await applyRuntimeInjections(baseMessages, {
+    const { messages: result } = await applyRuntimeInjections(baseMessages, {
       unifiedTurnContext: sampleBlock,
       mode: "minimal",
     });
@@ -1596,6 +1609,55 @@ describe("applyRuntimeInjections with unifiedTurnContext", () => {
       .join("\n");
 
     expect(allText).toContain("<turn_context>");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyRuntimeInjections blocks.unifiedTurnContext
+// ---------------------------------------------------------------------------
+
+describe("applyRuntimeInjections blocks.unifiedTurnContext", () => {
+  const userTailMessages: Message[] = [
+    {
+      role: "user",
+      content: [{ type: "text", text: "Hello there" }],
+    },
+  ];
+
+  const sampleBlock =
+    "<turn_context>\ncurrent_time: 2026-04-02T12:00:00Z\ninterface: macos\n</turn_context>";
+
+  test("captures unifiedTurnContext when tail is a user message", async () => {
+    const result = await applyRuntimeInjections(userTailMessages, {
+      unifiedTurnContext: sampleBlock,
+    });
+
+    expect(result.blocks.unifiedTurnContext).toBe(sampleBlock);
+  });
+
+  test("does not capture when tail is not a user message", async () => {
+    const assistantTailMessages: Message[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Hello" }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Hi back" }],
+      },
+    ];
+
+    const result = await applyRuntimeInjections(assistantTailMessages, {
+      unifiedTurnContext: sampleBlock,
+    });
+
+    expect(result.blocks.unifiedTurnContext).toBeUndefined();
+  });
+
+  test("does not capture when unifiedTurnContext option is absent", async () => {
+    const result = await applyRuntimeInjections(userTailMessages, {});
+
+    expect(result.blocks.unifiedTurnContext).toBeUndefined();
   });
 });
 
@@ -1799,7 +1861,7 @@ describe("applyRuntimeInjections — subagent status", () => {
   };
 
   test("includes subagent status in full mode", async () => {
-    const result = await applyRuntimeInjections([userMsg], {
+    const { messages: result } = await applyRuntimeInjections([userMsg], {
       subagentStatusBlock:
         "<active_subagents>\n- [running] test\n</active_subagents>",
       mode: "full",
@@ -1812,7 +1874,7 @@ describe("applyRuntimeInjections — subagent status", () => {
   });
 
   test("skips subagent status in minimal mode", async () => {
-    const result = await applyRuntimeInjections([userMsg], {
+    const { messages: result } = await applyRuntimeInjections([userMsg], {
       subagentStatusBlock:
         "<active_subagents>\n- [running] test\n</active_subagents>",
       mode: "minimal",
@@ -1890,13 +1952,16 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 
   test("three uninvolved hits → reminder contains all three bullets", async () => {
     pkbSearchResults = [
-      { path: "topics/alpha.md", score: 0.9 },
-      { path: "topics/beta.md", score: 0.8 },
-      { path: "topics/gamma.md", score: 0.7 },
+      { path: "topics/alpha.md", denseScore: 0.9 },
+      { path: "topics/beta.md", denseScore: 0.8 },
+      { path: "topics/gamma.md", denseScore: 0.7 },
     ];
     pkbSearchThrows = null;
 
-    const result = await applyRuntimeInjections(baseMessages, makePkbOptions());
+    const { messages: result } = await applyRuntimeInjections(
+      baseMessages,
+      makePkbOptions(),
+    );
     const texts = extractTexts(result);
     const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
     expect(reminder).toBeDefined();
@@ -1914,12 +1979,12 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     // are already injected. The agent-loop passes the effective auto-inject
     // list (via `getPkbAutoInjectList`) to `applyRuntimeInjections`.
     pkbSearchResults = [
-      { path: "essentials.md", score: 0.95 },
-      { path: "topics/alpha.md", score: 0.9 },
+      { path: "essentials.md", denseScore: 0.95 },
+      { path: "topics/alpha.md", denseScore: 0.9 },
     ];
     pkbSearchThrows = null;
 
-    const result = await applyRuntimeInjections(
+    const { messages: result } = await applyRuntimeInjections(
       baseMessages,
       makePkbOptions({
         // Simulate the fallback the agent-loop now threads through:
@@ -1942,11 +2007,31 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     expect(reminder).toContain("- topics/alpha.md");
   });
 
+  test("<system_reminder> is injected immediately before the user's typed text (above, not below)", async () => {
+    pkbSearchResults = [];
+    pkbSearchThrows = null;
+
+    const { messages: result } = await applyRuntimeInjections(
+      baseMessages,
+      makePkbOptions(),
+    );
+    const texts = extractTexts(result);
+    const reminderIdx = texts.findIndex((t) =>
+      t.startsWith("<system_reminder>"),
+    );
+    const userTextIdx = texts.findIndex(
+      (t) => t === "Tell me about project foo",
+    );
+    expect(reminderIdx).toBeGreaterThanOrEqual(0);
+    expect(userTextIdx).toBeGreaterThanOrEqual(0);
+    expect(reminderIdx).toBeLessThan(userTextIdx);
+  });
+
   test("in-context paths are filtered out of hints", async () => {
     pkbSearchResults = [
-      { path: "topics/alpha.md", score: 0.9 },
-      { path: "topics/beta.md", score: 0.8 },
-      { path: "topics/gamma.md", score: 0.7 },
+      { path: "topics/alpha.md", denseScore: 0.9 },
+      { path: "topics/beta.md", denseScore: 0.8 },
+      { path: "topics/gamma.md", denseScore: 0.7 },
     ];
     pkbSearchThrows = null;
 
@@ -1968,7 +2053,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
       ],
     };
 
-    const result = await applyRuntimeInjections(
+    const { messages: result } = await applyRuntimeInjections(
       baseMessages,
       makePkbOptions({ pkbConversation: conversationWithRead }),
     );
@@ -1984,7 +2069,10 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     pkbSearchResults = [];
     pkbSearchThrows = null;
 
-    const result = await applyRuntimeInjections(baseMessages, makePkbOptions());
+    const { messages: result } = await applyRuntimeInjections(
+      baseMessages,
+      makePkbOptions(),
+    );
     const texts = extractTexts(result);
     const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
     expect(reminder).toBe(FLAT_REMINDER);
@@ -1994,7 +2082,10 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     pkbSearchResults = [];
     pkbSearchThrows = new Error("qdrant exploded");
 
-    const result = await applyRuntimeInjections(baseMessages, makePkbOptions());
+    const { messages: result } = await applyRuntimeInjections(
+      baseMessages,
+      makePkbOptions(),
+    );
     const texts = extractTexts(result);
     const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
     expect(reminder).toBe(FLAT_REMINDER);
@@ -2003,13 +2094,80 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
   test("missing query vector → flat fallback, search is not attempted", async () => {
     pkbSearchThrows = new Error("should not be called");
 
-    const result = await applyRuntimeInjections(
+    const { messages: result } = await applyRuntimeInjections(
       baseMessages,
       makePkbOptions({ pkbQueryVector: undefined }),
     );
     const texts = extractTexts(result);
     const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
     expect(reminder).toBe(FLAT_REMINDER);
+  });
+
+  test("gate uses denseScore — hybridScore alone cannot pass the threshold", async () => {
+    // Simulates the situation where sparse-only matches (which surface via
+    // hybrid's prefetch beyond the dense prefetch limit) pick up RRF hits
+    // but fail the absolute cosine quality bar.
+    pkbSearchResults = [
+      { path: "topics/alpha.md", denseScore: 0.9, hybridScore: 0.02 },
+      { path: "topics/noise.md", denseScore: 0.3, hybridScore: 0.03 },
+    ];
+    pkbSearchThrows = null;
+
+    const { messages: result } = await applyRuntimeInjections(
+      baseMessages,
+      makePkbOptions(),
+    );
+    const texts = extractTexts(result);
+    const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
+    expect(reminder).toBeDefined();
+    expect(reminder).toContain("- topics/alpha.md");
+    // Below-threshold dense score is filtered even though its hybrid score
+    // is higher than alpha's.
+    expect(reminder).not.toContain("- topics/noise.md");
+  });
+
+  test("ranking follows hybridScore when present — lexical winner surfaces first", async () => {
+    // Sparse re-ranks alpha ahead of beta even though beta's dense cosine is
+    // higher. Both pass the dense threshold, so both survive filtering; the
+    // hybrid score drives ordering among survivors.
+    pkbSearchResults = [
+      { path: "topics/beta.md", denseScore: 0.9, hybridScore: 0.02 },
+      { path: "topics/alpha.md", denseScore: 0.75, hybridScore: 0.04 },
+    ];
+    pkbSearchThrows = null;
+
+    const { messages: result } = await applyRuntimeInjections(
+      baseMessages,
+      makePkbOptions(),
+    );
+    const texts = extractTexts(result);
+    const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
+    expect(reminder).toBeDefined();
+    const alphaIdx = reminder!.indexOf("- topics/alpha.md");
+    const betaIdx = reminder!.indexOf("- topics/beta.md");
+    expect(alphaIdx).toBeGreaterThanOrEqual(0);
+    expect(betaIdx).toBeGreaterThanOrEqual(0);
+    expect(alphaIdx).toBeLessThan(betaIdx);
+  });
+
+  test("archive/ threshold is stricter (0.7) and applies to denseScore", async () => {
+    pkbSearchResults = [
+      { path: "topics/alpha.md", denseScore: 0.55 }, // passes 0.5
+      { path: "archive/old.md", denseScore: 0.55 }, // fails 0.7
+      { path: "archive/solid.md", denseScore: 0.75 }, // passes 0.7
+    ];
+    pkbSearchThrows = null;
+
+    const { messages: result } = await applyRuntimeInjections(
+      baseMessages,
+      makePkbOptions(),
+    );
+    const texts = extractTexts(result);
+    const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
+    expect(reminder).toBeDefined();
+    expect(reminder).toContain("- topics/alpha.md");
+    expect(reminder).not.toContain("- archive/old.md");
+    expect(reminder).toContain("- archive/solid.md");
   });
 
   test("stripInjectionsForCompaction removes the PKB reminder (flat and hinted)", () => {
@@ -2046,9 +2204,9 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 
   test("after simulated compaction (strip + rebuild), fresh hints are emitted from post-compaction tool_use blocks", async () => {
     pkbSearchResults = [
-      { path: "topics/alpha.md", score: 0.9 },
-      { path: "topics/beta.md", score: 0.8 },
-      { path: "topics/gamma.md", score: 0.7 },
+      { path: "topics/alpha.md", denseScore: 0.9 },
+      { path: "topics/beta.md", denseScore: 0.8 },
+      { path: "topics/gamma.md", denseScore: 0.7 },
     ];
     pkbSearchThrows = null;
 
@@ -2072,15 +2230,18 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 
     // 1. Initial injection sees the pre-compaction state — beta should be
     // filtered out.
-    const initialResult = await applyRuntimeInjections(baseMessages, {
-      pkbActive: true,
-      pkbQueryVector: [0.1, 0.2],
-      pkbScopeId: "scope-1",
-      pkbConversation: preCompactionConversation,
-      pkbRoot,
-      pkbWorkingDir,
-      pkbAutoInjectList: [],
-    });
+    const { messages: initialResult } = await applyRuntimeInjections(
+      baseMessages,
+      {
+        pkbActive: true,
+        pkbQueryVector: [0.1, 0.2],
+        pkbScopeId: "scope-1",
+        pkbConversation: preCompactionConversation,
+        pkbRoot,
+        pkbWorkingDir,
+        pkbAutoInjectList: [],
+      },
+    );
     // Unwrap the injected reminder from the last user message.
     const initialTexts = extractTexts(initialResult);
     const initialReminder = initialTexts.find(
@@ -2115,15 +2276,18 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 
     // 3. Re-inject with the new conversation — gamma (now in context)
     // should be filtered, and beta (no longer "in context") should appear.
-    const rebuiltResult = await applyRuntimeInjections(postCompactionMessages, {
-      pkbActive: true,
-      pkbQueryVector: [0.1, 0.2],
-      pkbScopeId: "scope-1",
-      pkbConversation: postCompactionConversation,
-      pkbRoot,
-      pkbWorkingDir,
-      pkbAutoInjectList: [],
-    });
+    const { messages: rebuiltResult } = await applyRuntimeInjections(
+      postCompactionMessages,
+      {
+        pkbActive: true,
+        pkbQueryVector: [0.1, 0.2],
+        pkbScopeId: "scope-1",
+        pkbConversation: postCompactionConversation,
+        pkbRoot,
+        pkbWorkingDir,
+        pkbAutoInjectList: [],
+      },
+    );
     const rebuiltTexts = extractTexts(rebuiltResult);
     const rebuiltReminder = rebuiltTexts.find(
       (t) =>
@@ -2228,10 +2392,11 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       role: "user",
       content: [{ type: "text", text: "current turn" }],
     };
-    return applyRuntimeInjections([lastUserMessage], {
+    const { messages } = await applyRuntimeInjections([lastUserMessage], {
       channelCapabilities: slackChannelCaps,
       slackChronologicalMessages,
     });
+    return messages;
   }
 
   // Extract the rendered text content from a chronological transcript
@@ -2477,22 +2642,25 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       role: "user",
       content: [{ type: "text", text: "vellum question" }],
     };
-    const result = await applyRuntimeInjections([lastUserMessage], {
-      channelCapabilities: {
-        channel: "vellum",
-        dashboardCapable: true,
-        supportsDynamicUi: true,
-        supportsVoiceInput: true,
-      },
-      // Even if we accidentally pass a chronological transcript, the
-      // branch must be a no-op for non-slack channels.
-      slackChronologicalMessages: [
-        {
-          role: "user",
-          content: [{ type: "text", text: "should not appear" }],
+    const { messages: result } = await applyRuntimeInjections(
+      [lastUserMessage],
+      {
+        channelCapabilities: {
+          channel: "vellum",
+          dashboardCapable: true,
+          supportsDynamicUi: true,
+          supportsVoiceInput: true,
         },
-      ],
-    });
+        // Even if we accidentally pass a chronological transcript, the
+        // branch must be a no-op for non-slack channels.
+        slackChronologicalMessages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "should not appear" }],
+          },
+        ],
+      },
+    );
     expect(result.length).toBe(1);
     const allText = result[0].content
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
@@ -2512,27 +2680,33 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       role: "user",
       content: [{ type: "text", text: "DM question" }],
     };
-    const result = await applyRuntimeInjections([lastUserMessage], {
-      channelCapabilities: {
-        channel: "slack",
-        dashboardCapable: false,
-        supportsDynamicUi: false,
-        supportsVoiceInput: false,
-        chatType: "im",
+    const { messages: result } = await applyRuntimeInjections(
+      [lastUserMessage],
+      {
+        channelCapabilities: {
+          channel: "slack",
+          dashboardCapable: false,
+          supportsDynamicUi: false,
+          supportsVoiceInput: false,
+          chatType: "im",
+        },
+        slackChronologicalMessages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "[11/14/23 14:25 @alice]: earlier DM line",
+              },
+            ],
+          },
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "[11/14/23 14:26]: prior reply" }],
+          },
+        ],
       },
-      slackChronologicalMessages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "[11/14/23 14:25 @alice]: earlier DM line" },
-          ],
-        },
-        {
-          role: "assistant",
-          content: [{ type: "text", text: "[11/14/23 14:26]: prior reply" }],
-        },
-      ],
-    });
+    );
     // The chronological transcript REPLACES the default runMessages, so
     // the inbound `DM question` text does not appear — only the rendered
     // transcript lines do (plus any non-Slack injections).
@@ -2574,15 +2748,18 @@ describe("Slack channel chronological rendering — multi-thread", () => {
         ],
       },
     ];
-    const result = await applyRuntimeInjections(runMessagesWithMemory, {
-      channelCapabilities: slackCaps,
-      slackChronologicalMessages: [
-        {
-          role: "user",
-          content: [{ type: "text", text: "[19:55 alice]: hello there" }],
-        },
-      ],
-    });
+    const { messages: result } = await applyRuntimeInjections(
+      runMessagesWithMemory,
+      {
+        channelCapabilities: slackCaps,
+        slackChronologicalMessages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "[19:55 alice]: hello there" }],
+          },
+        ],
+      },
+    );
     const tail = result[result.length - 1];
     expect(tail.role).toBe("user");
     const allText = tail.content
@@ -2635,15 +2812,18 @@ describe("Slack channel chronological rendering — multi-thread", () => {
         ],
       },
     ];
-    const result = await applyRuntimeInjections(runMessagesWithMemory, {
-      channelCapabilities: slackCaps,
-      slackChronologicalMessages: [
-        {
-          role: "user",
-          content: [{ type: "text", text: "[19:55 alice]: transcript line" }],
-        },
-      ],
-    });
+    const { messages: result } = await applyRuntimeInjections(
+      runMessagesWithMemory,
+      {
+        channelCapabilities: slackCaps,
+        slackChronologicalMessages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "[19:55 alice]: transcript line" }],
+          },
+        ],
+      },
+    );
     const tail = result[result.length - 1];
     expect(tail.role).toBe("user");
     // The memory-image block is carried through as an `image` content
@@ -2671,7 +2851,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       supportsVoiceInput: false,
       chatType: "im",
     };
-    const result = await applyRuntimeInjections(
+    const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "inbound" }] }],
       {
         channelCapabilities: slackCaps,
@@ -2715,7 +2895,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       { loader: () => rows, trustClass: "guardian" },
     );
 
-    const result = await applyRuntimeInjections(
+    const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "current turn" }] }],
       {
         channelCapabilities: slackChannelCaps,
@@ -2745,7 +2925,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       chatType: "im",
     };
 
-    const result = await applyRuntimeInjections(
+    const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "hi DM" }] }],
       {
         channelCapabilities: slackDmCaps,
@@ -2764,7 +2944,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
 
   // ── transport_hints kept for non-slack channels ───────────────────────
   test("non-slack conversations still receive <transport_hints>", async () => {
-    const result = await applyRuntimeInjections(
+    const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "hi" }] }],
       {
         channelCapabilities: {
@@ -2787,8 +2967,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
   });
 
   // ── trust-filter regression for loadSlackChronologicalMessages ───────
-  // PR 26628 originally bypassed the trust filter by calling `getMessages`
-  // directly. For untrusted actors, guardian-scoped rows must be excluded
+  // For untrusted actors, guardian-scoped rows must be excluded
   // from the chronological transcript the same way `loadFromDb` filters
   // them out of the default history.
   test("loadSlackChronologicalMessages filters guardian-scoped rows for untrusted actors", () => {
@@ -2887,7 +3066,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       role: "user",
       content: [{ type: "text", text: "current turn" }],
     };
-    const messages = await applyRuntimeInjections([lastUserMessage], {
+    const { messages } = await applyRuntimeInjections([lastUserMessage], {
       channelCapabilities: slackChannelCaps,
       slackChronologicalMessages,
       slackActiveThreadFocusBlock: focusBlock,
@@ -3158,7 +3337,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       chatType: "channel",
     };
     const newFocus = "<active_thread>\nnewly built\n</active_thread>";
-    const reInjected = await applyRuntimeInjections(stripped, {
+    const { messages: reInjected } = await applyRuntimeInjections(stripped, {
       channelCapabilities: slackChannelCaps,
       slackActiveThreadFocusBlock: newFocus,
     });
@@ -3179,7 +3358,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     // Defensive: the focus injection is gated on `slackChannel` (i.e.
     // `isSlackChannelConversation`). Even if a caller mistakenly forwards
     // a focus block on a non-Slack channel, it must NOT be appended.
-    const result = await applyRuntimeInjections(
+    const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "vellum question" }] }],
       {
         channelCapabilities: {
@@ -3204,7 +3383,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
     // Same as above but for Slack DMs (chatType === "im"). The focus
     // injection is keyed on `isSlackChannelConversation` which excludes
     // DMs, so the block must not appear.
-    const result = await applyRuntimeInjections(
+    const { messages: result } = await applyRuntimeInjections(
       [{ role: "user", content: [{ type: "text", text: "DM question" }] }],
       {
         channelCapabilities: {
@@ -4228,5 +4407,48 @@ describe("assembleSlackChronologicalMessages", () => {
       role: "user",
       content: [{ type: "text", text: "[11/14/23 23:03 @alice]: follow-up" }],
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyRuntimeInjections blocks.pkbSystemReminder
+// ---------------------------------------------------------------------------
+
+describe("applyRuntimeInjections blocks.pkbSystemReminder", () => {
+  const baseMessages: Message[] = [
+    {
+      role: "user",
+      content: [{ type: "text", text: "Hello" }],
+    },
+  ];
+
+  test("captures exact reminder bytes when full mode and PKB active", async () => {
+    pkbSearchResults = [];
+    pkbSearchThrows = null;
+    const { blocks } = await applyRuntimeInjections(baseMessages, {
+      pkbActive: true,
+      mode: "full",
+    });
+
+    const expected = buildPkbReminder([]);
+    expect(blocks.pkbSystemReminder).toBe(expected);
+  });
+
+  test("not captured in minimal mode", async () => {
+    const { blocks } = await applyRuntimeInjections(baseMessages, {
+      pkbActive: true,
+      mode: "minimal",
+    });
+
+    expect(blocks.pkbSystemReminder).toBeUndefined();
+  });
+
+  test("not captured when PKB inactive", async () => {
+    const { blocks } = await applyRuntimeInjections(baseMessages, {
+      pkbActive: false,
+      mode: "full",
+    });
+
+    expect(blocks.pkbSystemReminder).toBeUndefined();
   });
 });

@@ -36,6 +36,9 @@ export interface QueuedMessage {
   displayContent?: string;
   /** Wall-clock time (ms since epoch) when the message was enqueued, used as the display timestamp. */
   sentAt: number;
+  /** Client-generated correlation nonce. Echoed back on `user_message_echo`
+   *  so the originating client can dedupe its optimistic row. */
+  clientMessageId?: string;
 }
 
 /**

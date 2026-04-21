@@ -430,6 +430,27 @@ struct OnboardingFlowView: View {
                 ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
                 if response.isSuccess {
                     log.info("Managed assistant \(assistantId, privacy: .public) is ready")
+
+                    // Inject client-resolvable vellum identity fields that
+                    // Django's post-hatch provisioning doesn't cover (org
+                    // id, user id). Local assistants get these via
+                    // `LocalAssistantBootstrapService`; the managed hatch
+                    // path skips that bootstrap, so onboarding has to
+                    // inject them directly. Best-effort: skip when the
+                    // org id isn't cached rather than blocking onboarding
+                    // on a fresh lookup. `ensureManagedAssistant()`
+                    // already resolved and persisted the org id earlier
+                    // in the bootstrap.
+                    if let organizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId"),
+                       !organizationId.isEmpty {
+                        await ManagedAssistantIdentityInjection.inject(
+                            into: assistantId,
+                            organizationId: organizationId
+                        )
+                    } else {
+                        log.warning("Skipping vellum identity injection — no cached organization id for \(assistantId, privacy: .public)")
+                    }
+
                     state.hatchCurrentStep = 3
                     state.hatchStepLabel = "Ready"
                     state.hatchProgressTarget = 1.0

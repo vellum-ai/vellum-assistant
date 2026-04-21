@@ -107,6 +107,30 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.errorText)
     }
 
+    func testSendUserMessageClearsStuckCompactingFlag() {
+        viewModel.conversationId = "conv-1"
+        viewModel.isCompacting = true
+        viewModel.inputText = "hello"
+        viewModel.sendMessage()
+        XCTAssertFalse(viewModel.isCompacting,
+                       "Sending a user message must clear a stranded compaction indicator (LUM-1062)")
+    }
+
+    func testSendUserMessageClearsStuckCompactingFlagWhenOffline() {
+        // Regression: the LUM-1062 self-heal must fire even when the daemon is
+        // disconnected. The offline-queue branch returns before the final send,
+        // but isCompacting is a stale-UI self-heal — clearing it does not depend
+        // on the send actually reaching the daemon. A user typing a new message
+        // is ground truth that compaction is over, connectivity notwithstanding.
+        viewModel.conversationId = "conv-1"
+        viewModel.isCompacting = true
+        connectionManager.isConnected = false
+        viewModel.inputText = "hello"
+        viewModel.sendMessage()
+        XCTAssertFalse(viewModel.isCompacting,
+                       "Sending a user message while offline must still clear a stranded compaction indicator (LUM-1062)")
+    }
+
     func testClearingInputRestoresExistingSuggestion() {
         viewModel.suggestion = "Summarize the last response"
 
@@ -1874,6 +1898,48 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.messages.count, 0)
     }
 
+    // MARK: - Subagent Abort
+
+    func testAbortSubagentMarksLocalAsAbortedOn404() async throws {
+        viewModel.activeSubagents = [
+            SubagentInfo(id: "s1", label: "Test", status: .running)
+        ]
+        let client = FakeSubagentClient(abortResult: .alreadyTerminal) // simulates 404 / already-terminal
+        await viewModel.abortSubagent("s1", client: client)
+        XCTAssertEqual(viewModel.activeSubagents.first?.status, .aborted)
+    }
+
+    func testAbortSubagentMarksLocalAsAbortedOnSuccess() async throws {
+        viewModel.activeSubagents = [
+            SubagentInfo(id: "s1", label: "Test", status: .running)
+        ]
+        let client = FakeSubagentClient(abortResult: .success)
+        await viewModel.abortSubagent("s1", client: client)
+        XCTAssertEqual(viewModel.activeSubagents.first?.status, .aborted)
+    }
+
+    func testAbortSubagentDoesNotDowngradeTerminalStatus() async throws {
+        viewModel.activeSubagents = [
+            SubagentInfo(id: "s1", label: "Test", status: .completed)
+        ]
+        let client = FakeSubagentClient(abortResult: .alreadyTerminal)
+        await viewModel.abortSubagent("s1", client: client)
+        // If the daemon already sent `completed`, don't clobber it to `aborted`.
+        XCTAssertEqual(viewModel.activeSubagents.first?.status, .completed)
+    }
+
+    func testAbortSubagentLeavesRunningOnNetworkFailure() async throws {
+        viewModel.activeSubagents = [
+            SubagentInfo(id: "s1", label: "Test", status: .running)
+        ]
+        let client = FakeSubagentClient(abortResult: .failed)
+        await viewModel.abortSubagent("s1", client: client)
+        // On a genuine failure (network, timeout, 5xx, non-404 client error)
+        // the subagent is possibly still running — do NOT flip the local entry
+        // to `.aborted`, otherwise the UI hides the Abort button and blocks retry.
+        XCTAssertEqual(viewModel.activeSubagents.first?.status, .running)
+    }
+
     // MARK: - History Attachment Hydration
 
     func testPopulateFromHistoryHydratesAssistantAttachments() {
@@ -1922,6 +1988,138 @@ final class ChatViewModelTests: XCTestCase {
 
         // Empty message with no text, no tool calls, no attachments should be skipped
         XCTAssertEqual(viewModel.messages.count, 0)
+    }
+
+    func testPopulateFromHistoryReconcilesStaleRunningSubagentToTerminal() {
+        viewModel.activeSubagents = [
+            SubagentInfo(id: "s-stuck", label: "Stuck", status: .running)
+        ]
+        // Non-empty text required: HistoryReconstructionService.reconstructMessages
+        // skips items with empty text/no tool calls/no attachments/no surfaces/no
+        // thinking BEFORE reading `subagentNotification`, so an empty-text fixture
+        // never reaches the reconcile branch. Real subagent-notification messages
+        // from the daemon carry non-empty notification text.
+        let historyItems: [HistoryResponseMessage] = [
+            HistoryResponseMessage(
+                id: nil, role: "assistant", text: "subagent notification", timestamp: 1000,
+                toolCalls: nil, toolCallsBeforeText: nil, attachments: nil,
+                textSegments: nil, thinkingSegments: nil, contentOrder: nil, surfaces: nil,
+                subagentNotification: HistoryResponseMessageSubagentNotification(
+                    subagentId: "s-stuck", label: "Stuck", status: "completed",
+                    error: nil, conversationId: "sub-conv-1"
+                )
+            ),
+        ]
+        viewModel.populateFromHistory(historyItems, hasMore: false)
+        XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-stuck" })?.status, .completed,
+                       "History's terminal status must overwrite a locally-stuck `.running` entry")
+        XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-stuck" })?.conversationId, "sub-conv-1",
+                       "History's conversationId must be propagated onto the reconciled entry so detail lazy-load works")
+    }
+
+    func testPopulateFromHistoryDoesNotOverwriteRunningWithRunning() {
+        viewModel.activeSubagents = [
+            SubagentInfo(id: "s-live", label: "Live", status: .running, parentMessageId: UUID())
+        ]
+        let originalParentId = viewModel.activeSubagents[0].parentMessageId
+        // Non-empty text required: reconstructMessages skips empty-text entries
+        // before reading `subagentNotification`.
+        let historyItems: [HistoryResponseMessage] = [
+            HistoryResponseMessage(
+                id: nil, role: "assistant", text: "subagent notification", timestamp: 1000,
+                toolCalls: nil, toolCallsBeforeText: nil, attachments: nil,
+                textSegments: nil, thinkingSegments: nil, contentOrder: nil, surfaces: nil,
+                subagentNotification: HistoryResponseMessageSubagentNotification(
+                    subagentId: "s-live", label: "Live", status: "running",
+                    error: nil, conversationId: "sub-conv-live"
+                )
+            ),
+        ]
+        viewModel.populateFromHistory(historyItems, hasMore: false)
+        // Non-terminal history status must not replace the existing entry
+        // (preserving `parentMessageId` and the live in-memory copy).
+        XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-live" })?.status, .running)
+        XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-live" })?.parentMessageId, originalParentId)
+        // conversationId must still be backfilled even though status was not changed —
+        // the live `.subagentSpawned` path does not populate it, so history is the
+        // only source for it and the detail panel's lazy-load depends on it.
+        XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-live" })?.conversationId, "sub-conv-live",
+                       "conversationId must be backfilled from history even when status is unchanged")
+    }
+
+    func testPopulateFromHistoryBackfillsConversationIdOnExistingEntry() {
+        // Seed with a locally-completed entry that has no conversationId —
+        // the live `.subagentSpawned` path never populates it, so any entry
+        // that was born from a live event has conversationId == nil.
+        viewModel.activeSubagents = [
+            SubagentInfo(id: "s-done", label: "Done", status: .completed)
+        ]
+        XCTAssertNil(viewModel.activeSubagents.first(where: { $0.id == "s-done" })?.conversationId)
+        // Non-empty text required: reconstructMessages skips empty-text entries
+        // before reading `subagentNotification`.
+        let historyItems: [HistoryResponseMessage] = [
+            HistoryResponseMessage(
+                id: nil, role: "assistant", text: "subagent notification", timestamp: 1000,
+                toolCalls: nil, toolCallsBeforeText: nil, attachments: nil,
+                textSegments: nil, thinkingSegments: nil, contentOrder: nil, surfaces: nil,
+                subagentNotification: HistoryResponseMessageSubagentNotification(
+                    subagentId: "s-done", label: "Done", status: "completed",
+                    error: nil, conversationId: "sub-conv-done"
+                )
+            ),
+        ]
+        viewModel.populateFromHistory(historyItems, hasMore: false)
+        XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-done" })?.conversationId, "sub-conv-done",
+                       "populateFromHistory must backfill conversationId onto an existing local entry")
+    }
+
+    func testPopulateFromHistoryBackfillsParentMessageIdOnExistingEntry() {
+        // Seed a local entry that has no parentMessageId — simulates a live
+        // spawn event that was lost (or never populated that field), leaving
+        // the detail-panel chip with nowhere to anchor.
+        viewModel.activeSubagents = [
+            SubagentInfo(id: "s-orphan", label: "Orphan", status: .running)
+        ]
+        XCTAssertNil(viewModel.activeSubagents.first(where: { $0.id == "s-orphan" })?.parentMessageId)
+
+        // History must contain TWO messages:
+        //   1. An assistant message with a `subagent_spawn` tool call whose
+        //      result JSON includes `subagentId`. `HistoryReconstructionService`
+        //      records this message's UUID in `spawnParentMap[subagentId]`.
+        //   2. A subsequent assistant message with a matching
+        //      `subagentNotification`. The reconstructed `SubagentInfo` picks
+        //      up `parentMessageId` from `spawnParentMap`.
+        //
+        // The first message needs a stable UUID so the test can assert that
+        // the local entry's `parentMessageId` matches it post-reconcile.
+        let parentId = UUID()
+        let spawnToolCall = HistoryResponseToolCall(
+            name: "subagent_spawn",
+            input: ["task": AnyCodable("do a thing")],
+            result: "{\"subagentId\": \"s-orphan\"}",
+            isError: nil
+        )
+        let historyItems: [HistoryResponseMessage] = [
+            HistoryResponseMessage(
+                id: parentId.uuidString, role: "assistant", text: "spawning subagent",
+                timestamp: 1000, toolCalls: [spawnToolCall], toolCallsBeforeText: nil,
+                attachments: nil, textSegments: nil, thinkingSegments: nil,
+                contentOrder: nil, surfaces: nil, subagentNotification: nil
+            ),
+            HistoryResponseMessage(
+                id: nil, role: "assistant", text: "subagent notification",
+                timestamp: 1100, toolCalls: nil, toolCallsBeforeText: nil,
+                attachments: nil, textSegments: nil, thinkingSegments: nil,
+                contentOrder: nil, surfaces: nil,
+                subagentNotification: HistoryResponseMessageSubagentNotification(
+                    subagentId: "s-orphan", label: "Orphan", status: "running",
+                    error: nil, conversationId: "sub-conv-orphan"
+                )
+            ),
+        ]
+        viewModel.populateFromHistory(historyItems, hasMore: false)
+        XCTAssertEqual(viewModel.activeSubagents.first(where: { $0.id == "s-orphan" })?.parentMessageId, parentId,
+                       "populateFromHistory must backfill parentMessageId onto an existing local entry")
     }
 
     // MARK: - Interleaved Text/Tool-Call Segments
@@ -3377,4 +3575,11 @@ final class MockConversationQueueClient: ConversationQueueClientProtocol, @unche
         }
         return deleteResult
     }
+}
+
+private struct FakeSubagentClient: SubagentClientProtocol {
+    let abortResult: SubagentAbortResult
+    func abort(subagentId: String, conversationId: String?) async -> SubagentAbortResult { abortResult }
+    func fetchDetail(subagentId: String, conversationId: String) async -> SubagentDetailResponse? { nil }
+    func sendMessage(subagentId: String, content: String, conversationId: String?) async -> Bool { true }
 }
