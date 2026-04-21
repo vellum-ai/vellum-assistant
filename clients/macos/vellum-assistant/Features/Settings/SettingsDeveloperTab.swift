@@ -116,17 +116,6 @@ struct SettingsDeveloperTab: View {
                 ToolPermissionTesterView(model: model)
             }
 
-            // Browser backend (cdp-inspect host Chrome) — gated behind
-            // `devModeManager.isDevMode` to match the other developer-only
-            // sections (`platformUrlSection`, `revokeAssistantApiKeySection`).
-            // The Developer tab itself is flagged behind `developer`, but this
-            // card bypasses the managed browser sandbox so we require the
-            // additional dev-mode gate to keep regular developer-tab users
-            // from stumbling into it.
-            if devModeManager.isDevMode {
-                browserBackendSection
-            }
-
             // Feature Flags
             featureFlagSection
             // Environment Variables
@@ -873,17 +862,6 @@ struct SettingsDeveloperTab: View {
             withAnimation {
                 if revokeApiKeyStatus == message { revokeApiKeyStatus = nil }
             }
-        }
-    }
-
-    // MARK: - Browser Backend (cdp-inspect)
-
-    private var browserBackendSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Browser backend")
-                .font(VFont.titleSmall)
-                .foregroundStyle(VColor.contentEmphasized)
-            BrowserBackendCard(store: store)
         }
     }
 
