@@ -14,11 +14,13 @@ import VellumAssistantShared
 /// `onTap` — SwiftUI resolves the innermost tappable first.
 struct HomeRecapRow: View {
     let icon: VIcon
-    /// Foreground color for the icon glyph. Callers pass semantic tokens
-    /// (e.g. `VColor.systemNegativeStrong`, `VColor.systemInfoStrong`).
+    /// Foreground color for the icon glyph. Callers pass one of the
+    /// feed identifier tokens (e.g. `VColor.feedNudgeStrong`,
+    /// `VColor.feedDigestStrong`, `VColor.feedThreadStrong`, or
+    /// `VColor.systemInfoStrong` for `.action` items).
     let iconForeground: Color
-    /// Tinted background fill for the icon circle (e.g.
-    /// `VColor.systemNegativeWeak`, `VColor.systemInfoWeak`).
+    /// Tinted background fill for the icon circle (paired weak variant
+    /// of the foreground token — e.g. `VColor.feedNudgeWeak`).
     let iconBackground: Color
     let title: String
     let onDismiss: () -> Void

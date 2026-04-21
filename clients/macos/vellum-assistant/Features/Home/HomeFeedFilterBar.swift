@@ -93,15 +93,15 @@ private struct HomeFeedFilterChip: View {
         }
     }
 
-    /// Glyph color. The plan referenced raw Danger/Forest 500-scale
-    /// colors that don't exist in this codebase — these semantic
-    /// tokens are the closest equivalents (see ColorTokens.swift).
+    /// Glyph color. `.action` uses the info/blue pair; the other three
+    /// use the dedicated feed-type pairs (pink / teal / amber per Figma).
+    /// See `ColorTokens.swift`.
     private var foreground: Color {
         switch type {
-        case .nudge:   return VColor.systemNegativeStrong
+        case .nudge:   return VColor.feedNudgeStrong
         case .action:  return VColor.systemInfoStrong
-        case .digest:  return VColor.systemPositiveStrong
-        case .thread:  return VColor.systemMidStrong
+        case .digest:  return VColor.feedDigestStrong
+        case .thread:  return VColor.feedThreadStrong
         }
     }
 
@@ -109,10 +109,10 @@ private struct HomeFeedFilterChip: View {
     /// the Figma chip-by-chip color mapping.
     private var background: Color {
         switch type {
-        case .nudge:   return VColor.systemNegativeWeak
+        case .nudge:   return VColor.feedNudgeWeak
         case .action:  return VColor.systemInfoWeak
-        case .digest:  return VColor.systemPositiveWeak
-        case .thread:  return VColor.systemMidWeak
+        case .digest:  return VColor.feedDigestWeak
+        case .thread:  return VColor.feedThreadWeak
         }
     }
 
