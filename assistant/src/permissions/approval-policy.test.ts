@@ -920,14 +920,29 @@ describe("guardian threshold-based auto-approve (ordinal comparison)", () => {
     });
   });
 
-  describe("default scalar (undefined) resolves to low for background", () => {
-    test("undefined config → low threshold for background", () => {
+  describe("default (undefined) resolves per-context defaults", () => {
+    test("undefined config → medium threshold for background", () => {
       const bgThreshold = resolveThreshold(undefined, "background");
-      expect(bgThreshold).toBe("low");
-      // Low risk is within threshold, Medium and High are not
+      expect(bgThreshold).toBe("medium");
+      // Low and Medium risk are within threshold, High is not
       expect(isWithinThreshold(RiskLevel.Low, bgThreshold)).toBe(true);
-      expect(isWithinThreshold(RiskLevel.Medium, bgThreshold)).toBe(false);
+      expect(isWithinThreshold(RiskLevel.Medium, bgThreshold)).toBe(true);
       expect(isWithinThreshold(RiskLevel.High, bgThreshold)).toBe(false);
+    });
+
+    test("undefined config → low threshold for conversation", () => {
+      const convThreshold = resolveThreshold(undefined, "conversation");
+      expect(convThreshold).toBe("low");
+    });
+
+    test("undefined config → none threshold for headless", () => {
+      const hlThreshold = resolveThreshold(undefined, "headless");
+      expect(hlThreshold).toBe("none");
+    });
+
+    test("undefined config + no context → low (conversation default)", () => {
+      const threshold = resolveThreshold(undefined);
+      expect(threshold).toBe("low");
     });
   });
 });
