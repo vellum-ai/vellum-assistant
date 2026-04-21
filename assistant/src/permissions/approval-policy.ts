@@ -42,11 +42,11 @@ export interface ApprovalContext {
  * When `executionContext` is omitted, defaults to `"conversation"`.
  */
 export function resolveThreshold(
-  configValue: PermissionsConfig["autoApproveUpTo"],
+  configValue: PermissionsConfig["autoApproveUpTo"] | undefined,
   executionContext?: ExecutionContext,
 ): "none" | "low" | "medium" {
-  if (typeof configValue === "string") {
-    return configValue;
+  if (configValue == null || typeof configValue === "string") {
+    return configValue ?? "low";
   }
   const ctx = executionContext ?? "conversation";
   return configValue[ctx];
