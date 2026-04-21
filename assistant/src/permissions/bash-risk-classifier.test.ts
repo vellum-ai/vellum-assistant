@@ -444,6 +444,48 @@ describe("subcommand resolution", () => {
     });
     expect(result.riskLevel).toBe("low");
   });
+
+  // ── argSchema.valueFlags migration tests ─────────────────────────────────
+
+  test("git -C /path push → medium (resolves past -C value flag via argSchema.valueFlags)", async () => {
+    const result = await classifier.classify({
+      command: "git -C /path push",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
+  test("docker --host unix:///var/run/docker.sock ps → low (resolves past --host value flag via argSchema.valueFlags)", async () => {
+    const result = await classifier.classify({
+      command: "docker --host unix:///var/run/docker.sock ps",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("git -C /some/path status → low (resolves past -C to read-only subcommand via argSchema.valueFlags)", async () => {
+    const result = await classifier.classify({
+      command: "git -C /some/path status",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("npm --cache /tmp/cache list → low (resolves past --cache value flag via argSchema.valueFlags)", async () => {
+    const result = await classifier.classify({
+      command: "npm --cache /tmp/cache list",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("gh -R owner/repo issue list → low (resolves past -R value flag via argSchema.valueFlags)", async () => {
+    const result = await classifier.classify({
+      command: "gh -R owner/repo issue list",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
 });
 
 // ── Wrapper unwrapping ───────────────────────────────────────────────────────

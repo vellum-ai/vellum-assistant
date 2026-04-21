@@ -226,9 +226,8 @@ function resolveSubcommand(
     return { spec, remainingArgs: args };
   }
 
-  const valueFlags = spec.globalValueFlags
-    ? new Set(spec.globalValueFlags)
-    : undefined;
+  const valueFlagsList = spec.argSchema?.valueFlags ?? spec.globalValueFlags;
+  const valueFlags = valueFlagsList ? new Set(valueFlagsList) : undefined;
   const subcommandName = firstPositionalArg(args, valueFlags);
 
   if (!subcommandName || !spec.subcommands[subcommandName]) {
