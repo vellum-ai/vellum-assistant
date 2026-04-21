@@ -2910,6 +2910,37 @@ paths:
           required: true
           schema:
             type: string
+  /v1/conversations/{id}/playground/inject-compaction-failures:
+    post:
+      operationId: conversations_by_id_playground_injectcompactionfailures_post
+      summary: Directly mutate compaction circuit-breaker state (dev-only playground)
+      tags:
+        - playground
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                consecutiveFailures:
+                  type: integer
+                  minimum: 0
+                  maximum: 10
+                circuitOpenForMs:
+                  type: integer
+                  minimum: 0
+                  maximum: 86400000
+              additionalProperties: false
   /v1/conversations/{id}/playground/reset-compaction-circuit:
     post:
       operationId: conversations_by_id_playground_resetcompactioncircuit_post

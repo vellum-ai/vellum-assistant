@@ -44,4 +44,16 @@ describe("playgroundRouteDefinitions", () => {
       0,
     );
   });
+
+  test("registers the inject-failures playground route", () => {
+    const routes = playgroundRouteDefinitions(makeDeps(true));
+    expect(
+      routes.some(
+        (r) =>
+          r.endpoint ===
+            "conversations/:id/playground/inject-compaction-failures" &&
+          r.method === "POST",
+      ),
+    ).toBe(true);
+  });
 });
