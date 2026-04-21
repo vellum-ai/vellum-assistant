@@ -11,9 +11,10 @@ on:
       - 'scripts/skills/**'
       - 'meta/feature-flags/**'
       - '.github/workflows/pr-assistant.yaml'
+  workflow_dispatch:
 
 concurrency:
-  group: pr-assistant-${{ github.event.pull_request.number }}
+  group: pr-assistant-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
 jobs:

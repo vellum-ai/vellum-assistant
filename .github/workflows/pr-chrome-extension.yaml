@@ -6,9 +6,10 @@ on:
     paths:
       - 'clients/chrome-extension/**'
       - '.github/workflows/pr-chrome-extension.yaml'
+  workflow_dispatch:
 
 concurrency:
-  group: pr-chrome-extension-${{ github.event.pull_request.number }}
+  group: pr-chrome-extension-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
 jobs:

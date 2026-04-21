@@ -15,9 +15,10 @@ on:
       - 'credential-executor/**'
       - 'packages/**'
       - '.github/workflows/pr-macos.yaml'
+  workflow_dispatch:
 
 concurrency:
-  group: pr-macos-${{ github.event.pull_request.number }}
+  group: pr-macos-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
 jobs:

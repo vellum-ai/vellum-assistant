@@ -7,9 +7,10 @@ on:
       - 'gateway/**'
       - 'meta/feature-flags/**'
       - '.github/workflows/pr-gateway.yaml'
+  workflow_dispatch:
 
 concurrency:
-  group: pr-gateway-${{ github.event.pull_request.number }}
+  group: pr-gateway-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
 jobs:

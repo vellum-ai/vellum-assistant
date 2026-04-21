@@ -7,9 +7,10 @@ on:
       - 'skills/**'
       - 'scripts/skills/**'
       - '.github/workflows/pr-skills.yaml'
+  workflow_dispatch:
 
 concurrency:
-  group: pr-skills-${{ github.event.pull_request.number }}
+  group: pr-skills-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -27,8 +28,9 @@ jobs:
       - name: Detect changed skill directories
         id: changed
         run: |
-          BASE_SHA=${{ github.event.pull_request.base.sha }}
-          HEAD_SHA=${{ github.event.pull_request.head.sha }}
+          # For pull_request events, use the PR base/head. For workflow_dispatch, diff against main.
+          BASE_SHA=${{ github.event.pull_request.base.sha || 'origin/main' }}
+          HEAD_SHA=${{ github.event.pull_request.head.sha || 'HEAD' }}
           SKILLS_DIR="skills"
 
           CHANGED_FILES=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- "$SKILLS_DIR")

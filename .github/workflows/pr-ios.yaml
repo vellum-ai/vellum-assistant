@@ -8,9 +8,10 @@ on:
       - 'clients/shared/**'
       - 'clients/Package.swift'
       - '.github/workflows/pr-ios.yaml'
+  workflow_dispatch:
 
 concurrency:
-  group: pr-ios-${{ github.event.pull_request.number }}
+  group: pr-ios-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
