@@ -455,7 +455,8 @@ struct HomeGallerySection: View {
                     icon: .file,
                     title: "Porsche-preview-2.4S.png",
                     onGoToThread: {},
-                    onDismiss: {}
+                    onDismiss: {},
+                    scrollable: false
                 ) {
                     HomeDocumentPreview(
                         image: nil,
@@ -784,7 +785,8 @@ private struct HomeSplitLayoutDemo: View {
                 icon: .file,
                 title: "Porsche-preview-2.4S.png",
                 onGoToThread: {},
-                onDismiss: {}
+                onDismiss: {},
+                scrollable: false
             ) {
                 HomeDocumentPreview(
                     image: nil,
