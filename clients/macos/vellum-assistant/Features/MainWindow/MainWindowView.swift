@@ -458,16 +458,18 @@ struct MainWindowView: View {
                         windowState.showPanel(.home)
                     }
                     .overlay(alignment: .topTrailing) {
-                        // Red dot when the feed has any items and the user
-                        // isn't already looking at the Home panel. Covers
-                        // the "you have something waiting" affordance.
-                        if !feedStore.items.isEmpty && windowState.selection != .panel(.home) {
+                        // Red dot whenever HomeStore has observed a background
+                        // `relationshipStateUpdated` SSE event while the user
+                        // was off the Home panel. Cleared by PanelCoordinator
+                        // via `homeStore.markSeen()` when Home becomes active.
+                        if homeStore.hasUnseenChanges && windowState.selection != .panel(.home) {
                             Circle()
                                 .fill(VColor.systemNegativeStrong)
                                 .frame(width: 8, height: 8)
                                 .offset(x: 2, y: -2)
+                                .transition(.scale.combined(with: .opacity))
                                 .allowsHitTesting(false)
-                                .accessibilityLabel(Text("New items in feed"))
+                                .accessibilityLabel(Text("Unseen changes"))
                         }
                     }
                 }
