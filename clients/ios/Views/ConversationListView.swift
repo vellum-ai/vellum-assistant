@@ -768,6 +768,8 @@ struct ConversationChatView: View {
                     Button(action: onOpenDrawer) {
                         VIconView(.panelLeft, size: 20)
                     }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.circle)
                     .accessibilityLabel("Chats")
                     .accessibilityHint("Opens the conversation menu")
                 }
@@ -777,6 +779,8 @@ struct ConversationChatView: View {
                     Button(action: onShowSettings) {
                         VIconView(.settings, size: 20)
                     }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.circle)
                     .accessibilityLabel("Settings")
                     .accessibilityHint("Opens the Settings sheet")
                 }
@@ -786,6 +790,8 @@ struct ConversationChatView: View {
                     Button(action: onComposeNew) {
                         VIconView(.squarePen, size: 20)
                     }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.circle)
                     .accessibilityLabel("New chat")
                 }
             }
