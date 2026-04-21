@@ -86,10 +86,10 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
 
   // When running inside a container (IS_CONTAINERIZED=true), bash commands
   // with sandboxAutoApprove tags auto-allow via the approval policy's
-  // sandbox auto-approve check. Non-allowlisted commands (network tools,
-  // runtimes, package managers) go through the user's autoApproveUpTo
-  // threshold. The default allow rule below lets trust rules match
-  // containerized bash; the sandbox auto-approve check handles the rest.
+  // sandbox auto-approve check. Non-allowlisted commands matched by the
+  // default allow rule below are still auto-allowed at low/medium risk;
+  // only high-risk non-allowlisted commands (runtimes, privilege escalation)
+  // fall through to be prompted.
   const bashShellRule: DefaultRuleTemplate | null = getIsContainerized()
     ? {
         id: "default:allow-bash-global",

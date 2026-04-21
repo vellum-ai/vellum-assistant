@@ -1177,9 +1177,9 @@ describe("Permission Checker", () => {
     });
 
     test("web_fetch private-network fetch with allow rule still prompts (high risk, non-bash tool)", async () => {
-      // allowHighRisk is no longer a persisted field — high-risk tools with
-      // allow rules always prompt. Sandbox auto-approve only covers bash
-      // commands on the allowlist in containerized environments.
+      // High-risk tools with allow rules always prompt. Sandbox
+      // auto-approve only covers allowlisted bash commands in
+      // containerized environments.
       addRule(
         "web_fetch",
         "web_fetch:http://localhost:3000/*",

