@@ -36,6 +36,7 @@ import {
   handleVoiceWebhook,
 } from "../calls/twilio-routes.js";
 import { parseChannelId } from "../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   getGatewayInternalBaseUrl,
   hasUngatedHttpAuthDisabled,
@@ -206,6 +207,7 @@ import {
   handlePairingStatus,
   pairingRouteDefinitions,
 } from "./routes/pairing-routes.js";
+import { playgroundRouteDefinitions } from "./routes/playground/index.js";
 import { profilerRouteDefinitions } from "./routes/profiler-routes.js";
 import { recordingRouteDefinitions } from "./routes/recording-routes.js";
 import { scheduleRouteDefinitions } from "./routes/schedule-routes.js";
@@ -1994,6 +1996,15 @@ export class RuntimeHttpServer {
         suggestionCache: this.suggestionCache,
         suggestionInFlight: this.suggestionInFlight,
         getHeartbeatService: this.getHeartbeatService,
+      }),
+      ...playgroundRouteDefinitions({
+        getConversationById: (id) => {
+          const s = this.findConversation?.(id);
+          if (!s || !("abort" in s)) return undefined;
+          return s as import("../daemon/conversation.js").Conversation;
+        },
+        isPlaygroundEnabled: () =>
+          isAssistantFeatureFlagEnabled("compaction-playground", getConfig()),
       }),
       ...globalSearchRouteDefinitions(),
       ...approvalRouteDefinitions(),
