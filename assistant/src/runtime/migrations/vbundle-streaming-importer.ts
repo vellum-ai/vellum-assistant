@@ -778,8 +778,15 @@ export async function streamCommitImport(
   // user data (SQLite DB, Qdrant store, embedding-models cache,
   // deprecated/ quarantine) whenever the bundle omits those paths —
   // e.g. partial bundles carrying only prompts/config.
+  //
+  // carryOverPreservedPaths uses rename (not cp) to keep the carry-over
+  // zero-disk, which is critical on instances with multi-GB Qdrant stores
+  // or SQLite DBs and limited free space. We track every moved entry in
+  // `carried` so we can restore it to the live workspace if the atomic
+  // swap below fails.
+  let carried: CarriedPath[];
   try {
-    await carryOverPreservedPaths(realWorkspaceDir, tempWorkspaceDir);
+    carried = await carryOverPreservedPaths(realWorkspaceDir, tempWorkspaceDir);
   } catch (err) {
     await cleanupTempDir();
     return {
@@ -798,6 +805,10 @@ export async function streamCommitImport(
     } catch (err) {
       // Real workspace didn't exist. Proceed straight to the second rename.
       if (!isENOENT(err)) {
+        // `rename(real → backup)` failed, so the live workspace still
+        // exists — but carried preserved paths are now in the temp tree,
+        // about to be deleted. Restore them to live before bailing out.
+        await restoreCarriedPaths(carried);
         await cleanupTempDir();
         return {
           ok: false,
@@ -821,6 +832,12 @@ export async function streamCommitImport(
           );
         }
       }
+      // The backup we just restored (if we did) was captured AFTER the
+      // carry-over already moved preserved paths into temp, so it's
+      // missing SQLite/Qdrant/embedding-models/deprecated. Move them back
+      // from temp to the (now restored) live workspace before temp gets
+      // deleted.
+      await restoreCarriedPaths(carried);
       await cleanupTempDir();
       return {
         ok: false,
@@ -999,7 +1016,8 @@ function buildReport(
 async function carryOverPreservedPaths(
   realWorkspaceDir: string,
   tempWorkspaceDir: string,
-): Promise<void> {
+): Promise<CarriedPath[]> {
+  const carried: CarriedPath[] = [];
   for (const rel of WORKSPACE_PRESERVE_PATHS) {
     const livePath = join(realWorkspaceDir, rel);
     const tempPath = join(tempWorkspaceDir, rel);
@@ -1020,6 +1038,7 @@ async function carryOverPreservedPaths(
       if (existsSync(tempPath)) continue;
       await mkdir(dirname(tempPath), { recursive: true });
       await carryOverEntry(livePath, tempPath);
+      carried.push({ liveChild: livePath, tempChild: tempPath });
       log.debug(
         { rel, size: liveStat.size, isDir: false },
         "Preserved live workspace file across streaming import swap",
@@ -1033,12 +1052,13 @@ async function carryOverPreservedPaths(
     // if the bundle didn't write any entries under this preserved dir)
     // and then recursively fill gaps.
     await mkdir(tempPath, { recursive: true });
-    await mergeLiveIntoTempDir(livePath, tempPath);
+    await mergeLiveIntoTempDir(livePath, tempPath, carried);
     log.debug(
       { rel, isDir: true },
       "Merged live preserved directory into streaming import swap tree",
     );
   }
+  return carried;
 }
 
 /**
@@ -1050,6 +1070,7 @@ async function carryOverPreservedPaths(
 async function mergeLiveIntoTempDir(
   liveDir: string,
   tempDir: string,
+  carried: CarriedPath[],
 ): Promise<void> {
   let entries;
   try {
@@ -1071,12 +1092,13 @@ async function mergeLiveIntoTempDir(
         // walk when the directory is a large cache (qdrant segments,
         // embedding-models shards).
         await carryOverEntry(liveChild, tempChild);
+        carried.push({ liveChild, tempChild });
         continue;
       }
       // Bundle wrote SOMETHING under here. Recurse to preserve any live
       // files the bundle didn't write while leaving bundle-written files
       // in place.
-      await mergeLiveIntoTempDir(liveChild, tempChild);
+      await mergeLiveIntoTempDir(liveChild, tempChild, carried);
       continue;
     }
 
@@ -1084,26 +1106,95 @@ async function mergeLiveIntoTempDir(
     // at this exact path.
     if (existsInTemp) continue;
     await carryOverEntry(liveChild, tempChild);
+    carried.push({ liveChild, tempChild });
   }
 }
 
 /**
  * Move a single live workspace entry (file or directory) into the temp
- * workspace. Always copy (never move) so the live workspace retains the
- * originals until the atomic swap pair completes. If either rename in the
- * swap fails, the backup directory restored in recovery still contains the
- * preserved paths. The stale live copies under the backup dir are cleaned
- * up after a successful swap by the existing backup-dir cleanup path.
+ * workspace. Uses `rename` for the fast path (same-filesystem, zero copy)
+ * so we don't duplicate potentially multi-GB preserved trees like
+ * `data/qdrant` or `data/db`. Falls back to `cp` + `rm` on EXDEV (different
+ * filesystems) — rare in practice since live and temp share a parent dir.
+ *
+ * Live data is moved, not copied, so the atomic swap must restore it on
+ * failure. `streamCommitImport` tracks every carry-over via `CarriedPath`
+ * and calls `restoreCarriedPaths` on any swap-pair error so the live
+ * workspace ends up whole even if the import aborts.
  */
 async function carryOverEntry(
   liveChild: string,
   tempChild: string,
 ): Promise<void> {
-  await cp(liveChild, tempChild, {
-    recursive: true,
-    preserveTimestamps: true,
-    // Dereference is false by default — symlinks stay symlinks.
-  });
+  try {
+    await rename(liveChild, tempChild);
+  } catch (err) {
+    if (isEXDEV(err)) {
+      await cp(liveChild, tempChild, {
+        recursive: true,
+        preserveTimestamps: true,
+      });
+      await rm(liveChild, { recursive: true, force: true });
+    } else {
+      throw err;
+    }
+  }
+}
+
+/**
+ * Every preserved entry that was moved out of the live workspace during
+ * carry-over. Used to undo the move if the atomic swap fails, so we never
+ * leave the daemon with SQLite/Qdrant/embedding-model data stranded in a
+ * temp tree that's about to be deleted.
+ */
+interface CarriedPath {
+  /** Original location inside the live workspace (real path before swap). */
+  liveChild: string;
+  /** Landing location inside the temp workspace. */
+  tempChild: string;
+}
+
+/**
+ * Undo a set of carry-over moves by renaming each carried path back to its
+ * original live location. Best-effort: logs and continues on per-entry
+ * failures rather than throwing, since the caller is already handling a
+ * swap-pair failure and needs to restore as much state as possible.
+ */
+async function restoreCarriedPaths(
+  carried: readonly CarriedPath[],
+): Promise<void> {
+  for (const { liveChild, tempChild } of carried) {
+    try {
+      await mkdir(dirname(liveChild), { recursive: true });
+      await rename(tempChild, liveChild);
+    } catch (err) {
+      if (isEXDEV(err)) {
+        try {
+          await cp(tempChild, liveChild, {
+            recursive: true,
+            preserveTimestamps: true,
+          });
+          await rm(tempChild, { recursive: true, force: true });
+          continue;
+        } catch (cpErr) {
+          log.error(
+            { err: cpErr, liveChild, tempChild },
+            "Failed to restore carried preserved path via cp fallback; manual recovery may be required",
+          );
+          continue;
+        }
+      }
+      if (isENOENT(err)) {
+        // The entry may have already moved (rename-pair partially succeeded)
+        // or never existed. Nothing to restore.
+        continue;
+      }
+      log.error(
+        { err, liveChild, tempChild },
+        "Failed to restore carried preserved path; manual recovery may be required",
+      );
+    }
+  }
 }
 
 /**
