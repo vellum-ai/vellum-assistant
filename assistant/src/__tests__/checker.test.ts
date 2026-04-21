@@ -3037,6 +3037,18 @@ describe("Permission Checker", () => {
           expect(result.reason).toContain("sandbox auto-approve");
         }),
       );
+
+      test(
+        "rm -rf / → falls through to threshold (path outside workspace)",
+        withNonContainerized(async () => {
+          const result = await check(
+            "bash",
+            { command: "rm -rf /" },
+            join(MOCK_WORKSPACE, "project"),
+          );
+          expect(result.reason).not.toContain("sandbox auto-approve");
+        }),
+      );
     });
   });
 

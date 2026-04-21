@@ -136,4 +136,26 @@ describe("parseArgs", () => {
     expect(result.positionals).toEqual(["src.c"]);
     expect(result.pathArgs).toEqual(["/include1", "/include2", "src.c"]);
   });
+
+  test("--flag=value syntax with path flag", () => {
+    const result = parseArgs(["--target-directory=/tmp/dir", "file.txt"], {
+      valueFlags: ["--target-directory"],
+      pathFlags: { "--target-directory": true },
+    });
+    expect(result.flags.get("--target-directory")).toBe("/tmp/dir");
+    expect(result.positionals).toEqual(["file.txt"]);
+    // /tmp/dir from pathFlag + file.txt from default positional "paths" mode.
+    expect(result.pathArgs).toEqual(["/tmp/dir", "file.txt"]);
+  });
+
+  test("--flag=value syntax with non-path value flag", () => {
+    const result = parseArgs(["--output=out.txt", "in.txt"], {
+      valueFlags: ["--output"],
+    });
+    expect(result.flags.get("--output")).toBe("out.txt");
+    expect(result.positionals).toEqual(["in.txt"]);
+    // --output is not in pathFlags, so out.txt is not a path arg.
+    // in.txt is a positional with default "paths" mode → path.
+    expect(result.pathArgs).toEqual(["in.txt"]);
+  });
 });

@@ -55,6 +55,24 @@ export function parseArgs(args: string[], schema: ArgSchema): ParsedArgs {
       continue;
     }
 
+    // --flag=value form: split on the first `=` and check if the flag
+    // name is a value-consuming flag. This handles e.g.
+    // `--target-directory=/tmp/` or `--output=out.txt`.
+    if (token.startsWith("-") && token.includes("=")) {
+      const eqIndex = token.indexOf("=");
+      const flagName = token.slice(0, eqIndex);
+      const flagValue = token.slice(eqIndex + 1);
+
+      if (valueFlagSet.has(flagName)) {
+        flags.set(flagName, flagValue);
+        if (pathFlagSet.has(flagName)) {
+          pathArgs.push(flagValue);
+        }
+        i++;
+        continue;
+      }
+    }
+
     // Boolean flag (starts with `-` but not a value-consuming flag).
     if (token.startsWith("-")) {
       flags.set(token, true);
