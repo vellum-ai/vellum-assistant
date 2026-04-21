@@ -121,7 +121,9 @@ export const ContextWindowConfigSchema = z
       .int("contextWindow.maxInputTokens must be an integer")
       .positive("contextWindow.maxInputTokens must be a positive integer")
       .default(200000)
-      .describe("Maximum number of input tokens allowed in the context window"),
+      .describe(
+        "Conservative cap on input tokens allowed in the context window. Acts as an override that further constrains the model's catalog `contextWindow`; the effective budget is `min(catalog.contextWindow, maxInputTokens)`. Leave at the default to use the model's full native window.",
+      ),
     targetBudgetRatio: z
       .number({ error: "contextWindow.targetBudgetRatio must be a number" })
       .finite("contextWindow.targetBudgetRatio must be finite")

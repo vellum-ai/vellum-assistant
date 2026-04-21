@@ -62,7 +62,10 @@ import {
 } from "../permissions/v2-consent-policy.js";
 import { resolvePersonaContext } from "../prompts/persona-resolver.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
-import { resolveModelIntent } from "../providers/model-intents.js";
+import {
+  getProviderDefaultModel,
+  resolveModelIntent,
+} from "../providers/model-intents.js";
 import type { Message, ModelIntent } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
@@ -191,6 +194,15 @@ export class Conversation {
   };
   /** @internal */ readonly systemPrompt: string;
   /** @internal */ contextWindowManager: ContextWindowManager;
+  /**
+   * Effective per-model max input tokens for this conversation's active
+   * model. Delegates to the underlying `ContextWindowManager` so callers
+   * reading the token budget (slash commands, usage emission) see the
+   * same catalog-resolved value the compaction logic measures against.
+   */
+  get effectiveMaxInputTokens(): number {
+    return this.contextWindowManager.effectiveMaxInputTokens;
+  }
   /** @internal */ contextCompactedMessageCount = 0;
   /** @internal */ contextCompactedAt: number | null = null;
   /**
@@ -520,6 +532,32 @@ export class Conversation {
       systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
       config: config.contextWindow,
       toolTokenBudget: this.agentLoop.getToolTokenBudget(),
+      // Pass the active model so the manager can resolve `contextWindow`
+      // from the per-model catalog.
+      //
+      // Resolution order (matches `providers/registry.ts#resolveModel`):
+      //   1. `modelOverride` (explicit per-turn override)
+      //   2. `resolveModelIntent(...)` (intent-based resolution; `resolvedModel`
+      //      above already captures 1 & 2).
+      //   3. `config.services.inference.model` — the user's explicit per-
+      //      instance configuration. This is the actual runtime model the
+      //      provider is instantiated with when the active provider matches
+      //      the configured inference provider (the common case), so the
+      //      context-window manager must see the same model to compute
+      //      capabilities correctly (e.g. OpenRouter custom models whose
+      //      `contextWindow` differs from the provider catalog default).
+      //   4. `getProviderDefaultModel(provider.name)` — final fallback when
+      //      the active provider doesn't match the configured inference
+      //      provider, so we still get a catalog hit instead of falling
+      //      through to `config.maxInputTokens` alone.
+      activeModel: () => {
+        if (resolvedModel !== undefined) return resolvedModel;
+        const currentConfig = getConfig();
+        if (currentConfig.services.inference.provider === provider.name) {
+          return currentConfig.services.inference.model;
+        }
+        return getProviderDefaultModel(provider.name);
+      },
     });
 
     void getHookManager().trigger("conversation-start", {

@@ -36,9 +36,10 @@ function makeConfig(
 
 function createProvider(
   fn: (messages: Message[]) => ProviderResponse | Promise<ProviderResponse>,
+  name: string = "mock",
 ): Provider {
   return {
-    name: "mock",
+    name,
     async sendMessage(messages: Message[]): Promise<ProviderResponse> {
       return fn(messages);
     },
@@ -1196,5 +1197,123 @@ describe("ContextWindowManager", () => {
     // compactedPersistedMessages by 1 (to 3).
     expect(result.compactedPersistedMessages).toBe(2);
     expect(manager.nonPersistedPrefixCount).toBe(0);
+  });
+
+  describe("effectiveMaxInputTokens resolution", () => {
+    test("falls back to config.maxInputTokens when no activeModel is supplied", () => {
+      const provider = createProvider(() => {
+        throw new Error("not called");
+      });
+      const manager = new ContextWindowManager({
+        provider,
+        systemPrompt: "p",
+        config: makeConfig({ maxInputTokens: 123_456 }),
+      });
+      expect(manager.effectiveMaxInputTokens).toBe(123_456);
+    });
+
+    test("falls back to config.maxInputTokens for an unknown provider/model pair", () => {
+      const provider = createProvider(() => {
+        throw new Error("not called");
+      }, "mock-does-not-exist");
+      const manager = new ContextWindowManager({
+        provider,
+        systemPrompt: "p",
+        config: makeConfig({ maxInputTokens: 80_000 }),
+        activeModel: "totally-unknown-model",
+      });
+      expect(manager.effectiveMaxInputTokens).toBe(80_000);
+    });
+
+    test("uses the catalog contextWindow when it is tighter than the config override", () => {
+      // Anthropic models have a 200k context window in the catalog; a
+      // generous 10M config override should be clamped down to 200k.
+      const provider = createProvider(() => {
+        throw new Error("not called");
+      }, "anthropic");
+      const manager = new ContextWindowManager({
+        provider,
+        systemPrompt: "p",
+        config: makeConfig({ maxInputTokens: 10_000_000 }),
+        activeModel: "claude-opus-4-7",
+      });
+      expect(manager.effectiveMaxInputTokens).toBe(200_000);
+    });
+
+    test("uses the config override when it is tighter than the catalog contextWindow", () => {
+      // User explicitly caps to 50k to keep latency predictable; effective
+      // max should be the user's cap even though Anthropic allows 200k.
+      const provider = createProvider(() => {
+        throw new Error("not called");
+      }, "anthropic");
+      const manager = new ContextWindowManager({
+        provider,
+        systemPrompt: "p",
+        config: makeConfig({ maxInputTokens: 50_000 }),
+        activeModel: "claude-opus-4-7",
+      });
+      expect(manager.effectiveMaxInputTokens).toBe(50_000);
+    });
+
+    test("unlocks Gemini's 1M window when catalog capability exceeds default 200k config", () => {
+      // Regression test for the core PR intent: with the default
+      // `maxInputTokens: 200_000`, a Gemini conversation would previously
+      // be artificially throttled. Raising the config cap past 1M lets the
+      // catalog's 1M context window surface.
+      const provider = createProvider(() => {
+        throw new Error("not called");
+      }, "gemini");
+      const manager = new ContextWindowManager({
+        provider,
+        systemPrompt: "p",
+        config: makeConfig({ maxInputTokens: 2_000_000 }),
+        activeModel: "gemini-3-flash",
+      });
+      expect(manager.effectiveMaxInputTokens).toBe(1_048_576);
+    });
+
+    test("resolves activeModel via callback on every access", () => {
+      let current = "claude-opus-4-7";
+      const provider = createProvider(() => {
+        throw new Error("not called");
+      }, "anthropic");
+      const manager = new ContextWindowManager({
+        provider,
+        systemPrompt: "p",
+        config: makeConfig({ maxInputTokens: 10_000_000 }),
+        activeModel: () => current,
+      });
+      expect(manager.effectiveMaxInputTokens).toBe(200_000);
+      current = "totally-unknown-model";
+      // Unknown model → fall back to config cap.
+      expect(manager.effectiveMaxInputTokens).toBe(10_000_000);
+    });
+
+    test("shouldCompact uses catalog-resolved budget for the threshold", async () => {
+      // Set config.maxInputTokens very high so the catalog's 200k window is
+      // what gates compaction. With compactThreshold 0.6 and catalog
+      // contextWindow 200k, threshold is 120k — a ~1k-token conversation
+      // should stay well below it regardless of the inflated config cap.
+      const provider = createProvider(() => {
+        throw new Error("not called");
+      }, "anthropic");
+      const manager = new ContextWindowManager({
+        provider,
+        systemPrompt: "p",
+        config: makeConfig({
+          maxInputTokens: 10_000_000,
+          compactThreshold: 0.6,
+        }),
+        activeModel: "claude-opus-4-7",
+      });
+      const history = [
+        message("user", "hello world"),
+        message("assistant", "hi there"),
+      ];
+      const result = manager.shouldCompact(history);
+      expect(result.needed).toBe(false);
+      // The short conversation is comfortably below any realistic threshold.
+      expect(result.estimatedTokens).toBeLessThan(1_000);
+    });
   });
 });
