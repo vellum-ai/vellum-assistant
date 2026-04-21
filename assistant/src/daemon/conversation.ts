@@ -831,6 +831,7 @@ export class Conversation {
     options?: { isInteractive?: boolean },
     displayContent?: string,
     transport?: ConversationTransportMetadata,
+    clientMessageId?: string,
   ): { queued: boolean; requestId: string; rejected?: boolean } {
     return enqueueMessageImpl(
       this,
@@ -844,6 +845,7 @@ export class Conversation {
       options,
       displayContent,
       transport,
+      clientMessageId,
     );
   }
 

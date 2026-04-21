@@ -261,10 +261,12 @@ final class MessageSendCoordinator {
 
         let willBeQueued = messageManager.isSending && delegate.conversationId != nil
         var queuedMessageId: UUID?
+        let clientMessageId = UUID().uuidString
         if !isWorkspaceRefinement {
             let status: ChatMessageStatus = willBeQueued ? .queued(position: 0) : .sent
             var userMessage = ChatMessage(role: .user, text: rawText, status: status, skillInvocation: messageManager.pendingSkillInvocation, attachments: attachments)
             userMessage.isHidden = hidden
+            userMessage.clientMessageId = clientMessageId
             messageManager.batchUpdateMessages { $0.append(userMessage) }
             if willBeQueued {
                 delegate.pendingMessageIds.append(userMessage.id)
@@ -314,10 +316,11 @@ final class MessageSendCoordinator {
             // First message: need to bootstrap conversation
             delegate.pendingUserMessageDisplayText = rawText
             delegate.pendingUserMessageAutomated = hidden
+            delegate.pendingUserMessageClientId = clientMessageId
             bootstrapConversation(userMessage: text, attachments: messageAttachments)
         } else {
             // Subsequent messages: send directly (daemon queues if busy)
-            sendUserMessage(text, displayText: rawText, attachments: messageAttachments, queuedMessageId: queuedMessageId, automated: hidden)
+            sendUserMessage(text, displayText: rawText, attachments: messageAttachments, queuedMessageId: queuedMessageId, automated: hidden, clientMessageId: clientMessageId)
         }
     }
 
@@ -364,6 +367,7 @@ final class MessageSendCoordinator {
                     delegate.pendingUserMessageDisplayText = nil
                     delegate.pendingUserAttachments = nil
                     delegate.pendingUserMessageAutomated = false
+                    delegate.pendingUserMessageClientId = nil
                     self.errorManager.errorText = delegate.lastFailedSendError
                     return
                 }
@@ -391,11 +395,13 @@ final class MessageSendCoordinator {
             if let pending = delegate.pendingUserMessage {
                 let pendingAttachments = delegate.pendingUserAttachments
                 let automated = delegate.pendingUserMessageAutomated
+                let pendingClientId = delegate.pendingUserMessageClientId
                 delegate.pendingUserMessage = nil
                 delegate.pendingUserMessageDisplayText = nil
                 delegate.pendingUserAttachments = nil
                 delegate.pendingUserMessageAutomated = false
-                self.sendUserMessage(pending, attachments: pendingAttachments, automated: automated)
+                delegate.pendingUserMessageClientId = nil
+                self.sendUserMessage(pending, attachments: pendingAttachments, automated: automated, clientMessageId: pendingClientId)
             } else {
                 self.messageManager.isSending = false
                 self.messageManager.isThinking = false
@@ -405,7 +411,7 @@ final class MessageSendCoordinator {
 
     // MARK: - Send User Message
 
-    func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [UserMessageAttachment]? = nil, queuedMessageId: UUID? = nil, automated: Bool = false, bypassSecretCheck: Bool = false) {
+    func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [UserMessageAttachment]? = nil, queuedMessageId: UUID? = nil, automated: Bool = false, bypassSecretCheck: Bool = false, clientMessageId: String? = nil) {
         guard let delegate else { return }
         guard let conversationId = delegate.conversationId else { return }
 
@@ -484,7 +490,8 @@ final class MessageSendCoordinator {
             conversationType: nil,
             automated: automated ? true : nil,
             bypassSecretCheck: bypassSecretCheck ? true : nil,
-            onboarding: onboarding
+            onboarding: onboarding,
+            clientMessageId: clientMessageId
         )
     }
 
@@ -498,6 +505,7 @@ final class MessageSendCoordinator {
         delegate.pendingUserMessageDisplayText = nil
         delegate.pendingUserAttachments = nil
         delegate.pendingUserMessageAutomated = false
+        delegate.pendingUserMessageClientId = nil
         messageManager.isWorkspaceRefinementInFlight = false
         messageManager.refinementMessagePreview = nil
         messageManager.refinementStreamingText = nil
@@ -539,6 +547,7 @@ final class MessageSendCoordinator {
             delegate.pendingUserMessageDisplayText = nil
             delegate.pendingUserAttachments = nil
             delegate.pendingUserMessageAutomated = false
+            delegate.pendingUserMessageClientId = nil
             delegate.bootstrapCorrelationId = nil
             messageManager.isWorkspaceRefinementInFlight = false
             messageManager.refinementMessagePreview = nil
@@ -712,7 +721,10 @@ final class MessageSendCoordinator {
             if multipartCount > 0 {
                 log.info("Offline flush: \(multipartCount) attachment(s) have rawData for multipart upload")
             }
-            sendUserMessage(queued.text, displayText: queued.displayText, attachments: attachments, automated: queued.automated)
+            let matchText = queued.displayText ?? queued.text
+            let existingClientId = messageManager.messages
+                .last(where: { $0.role == .user && $0.text == matchText })?.clientMessageId
+            sendUserMessage(queued.text, displayText: queued.displayText, attachments: attachments, automated: queued.automated, clientMessageId: existingClientId)
         }
     }
 
@@ -811,19 +823,22 @@ final class MessageSendCoordinator {
             // pendingMessageIds so subsequent messageQueued/messageDequeued
             // events can update the user message's status correctly.
             var queuedMessageId: UUID?
-            if messageManager.isSending {
-                // Find the user message that corresponds to the failed text
-                // (it was already appended to messages[] during the original
-                // sendMessage() call). Use the last user message with matching
-                // text as the queue entry.
-                let matchText = displayText ?? text
-                if let idx = messageManager.messages.lastIndex(where: { $0.role == .user && $0.text == matchText }) {
+            var retryClientMessageId: String?
+            let matchText = displayText ?? text
+            if let idx = messageManager.messages.lastIndex(where: { $0.role == .user && $0.text == matchText }) {
+                retryClientMessageId = messageManager.messages[idx].clientMessageId
+                if messageManager.isSending {
+                    // Found the user message that corresponds to the failed text
+                    // (it was already appended to messages[] during the original
+                    // sendMessage() call). Track it as a queue entry so the
+                    // subsequent messageQueued/messageDequeued events can update
+                    // its status.
                     delegate.pendingMessageIds.append(messageManager.messages[idx].id)
                     queuedMessageId = messageManager.messages[idx].id
                     messageManager.messages[idx].status = .queued(position: 0)
                 }
             }
-            sendUserMessage(text, displayText: displayText, attachments: attachments, queuedMessageId: queuedMessageId, automated: automated, bypassSecretCheck: bypassSecretCheck)
+            sendUserMessage(text, displayText: displayText, attachments: attachments, queuedMessageId: queuedMessageId, automated: automated, bypassSecretCheck: bypassSecretCheck, clientMessageId: retryClientMessageId)
         }
     }
 

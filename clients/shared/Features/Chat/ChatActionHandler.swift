@@ -102,58 +102,26 @@ final class ChatActionHandler {
         case .userMessageEcho(let echo):
             guard belongsToConversation(echo.conversationId) else { return }
 
-            // Dedup: if this echo carries a messageId that matches an existing
-            // optimistic row (tagged by the HTTP 202 response), the
-            // originating client already has the row — skip the append.
+            // Originating client: match by client-generated nonce. This is
+            // race-free because the nonce is bound to the optimistic row before
+            // the POST fires, so the SSE echo can always find it regardless of
+            // whether the HTTP 202 response has landed yet.
+            if let clientId = echo.clientMessageId,
+               let idx = vm.messages.firstIndex(where: { $0.clientMessageId == clientId }) {
+                vm.messages[idx].daemonMessageId = echo.messageId
+                break
+            }
+
+            // Secondary dedup: if the echo's daemonMessageId already exists on
+            // a row (e.g. tagged by the 202 handler on an older client build),
+            // skip the append.
             if let echoId = echo.messageId,
                vm.messages.contains(where: { $0.daemonMessageId == echoId }) {
-                // Originating client — optimistic row already present.
-                // Skip isSending/isThinking toggles too; they were set
-                // locally by MessageSendCoordinator before the POST fired.
                 break
             }
 
-            // Race-condition fallback: the echo may arrive before the HTTP 202
-            // response tags the optimistic row with daemonMessageId. Match by
-            // text against the oldest untagged optimistic user row (firstIndex
-            // matches userMessagePersisted's oldest-first order since both SSE
-            // echoes and 202 responses arrive in send order). Scoped to .sent
-            // status to avoid matching stale .sendFailed rows.
-            if let echoId = echo.messageId,
-               let idx = vm.messages.firstIndex(where: {
-                   $0.role == .user
-                       && $0.text == echo.text
-                       && $0.daemonMessageId == nil
-                       && $0.status == .sent
-               }) {
-                // Tag the optimistic row so the 202 handler (userMessagePersisted)
-                // and future echoes can match by ID.
-                vm.messages[idx].daemonMessageId = echoId
-                break
-            }
-
-            // History-loaded dedup: surface-action echoes (from
-            // conversation-surfaces.ts) can arrive with a nil messageId. For
-            // channel conversations, if an existing user row already has
-            // matching text and a daemonMessageId (loaded from history), treat
-            // the echo as a redundant notification and do not append.
-            // Channel-inbound echoes always carry a messageId, so check 1 above
-            // handles them correctly by exact-id match — scoping this branch to
-            // nil messageId avoids suppressing legitimate repeat sends (e.g. a
-            // user sending "hello" twice on Slack would otherwise collapse into
-            // a single visible bubble).
-            if echo.messageId == nil,
-               vm.isChannelConversation,
-               vm.messages.contains(where: {
-                   $0.role == .user
-                       && $0.text == echo.text
-                       && $0.daemonMessageId != nil
-               }) {
-                break
-            }
-
-            // Passive client (or nil messageId for back-compat surface-action
-            // echoes): append a new user row and enter "reply incoming" state.
+            // Passive client or back-compat echo (no clientMessageId match):
+            // append a new user row and enter "reply incoming" state.
             var userMsg = ChatMessage(role: .user, text: echo.text, status: .sent)
             userMsg.daemonMessageId = echo.messageId
             vm.messages.append(userMsg)
@@ -353,17 +321,20 @@ final class ChatActionHandler {
             if let pending = vm.pendingUserMessage {
                 let attachments = vm.pendingUserAttachments
                 let automated = vm.pendingUserMessageAutomated
+                let pendingClientId = vm.pendingUserMessageClientId
                 vm.pendingUserMessage = nil
                 vm.pendingUserMessageDisplayText = nil
                 vm.pendingUserAttachments = nil
                 vm.pendingUserMessageAutomated = false
+                vm.pendingUserMessageClientId = nil
                 vm.eventStreamClient.sendUserMessage(
                     content: pending,
                     conversationId: info.conversationId,
                     attachments: attachments,
                     conversationType: nil,
                     automated: automated ? true : nil,
-                    bypassSecretCheck: nil
+                    bypassSecretCheck: nil,
+                    clientMessageId: pendingClientId
                 )
             } else {
                 // Message-less conversation create (e.g. private conversation

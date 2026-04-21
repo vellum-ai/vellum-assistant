@@ -66,6 +66,11 @@ export interface UserMessageEcho {
   /** Server-generated request ID for the send. Allows correlation with
    *  `message_queued` / `message_dequeued` events for the same turn. */
   requestId?: string;
+  /** Client-generated UUID nonce supplied on the POST that triggered this
+   *  echo. The originating client matches echoes to its optimistic row by
+   *  this nonce, eliminating the race where the echo arrives before the
+   *  HTTP 202 response tags the row with `messageId`. */
+  clientMessageId?: string;
 }
 
 export interface AssistantTextDelta {
