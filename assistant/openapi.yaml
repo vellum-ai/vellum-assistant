@@ -2880,6 +2880,21 @@ paths:
               required:
                 - name
               additionalProperties: false
+  /v1/conversations/{id}/playground/compact:
+    post:
+      operationId: conversations_by_id_playground_compact_post
+      summary: Force compaction on a conversation (dev-only playground)
+      tags:
+        - playground
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/conversations/{id}/regenerate:
     post:
       operationId: conversations_by_id_regenerate_post
