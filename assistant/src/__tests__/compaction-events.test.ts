@@ -1,10 +1,12 @@
 /**
  * Tests for compaction event emission.
  *
- * Verifies that forceCompact() emits a `context_compacted` event and a
- * `usage_update` event with `contextWindowTokens` / `contextWindowMaxTokens`
- * after a successful compaction, so the UI indicator refreshes without
- * waiting for the next full turn.
+ * Verifies that forceCompact() emits a `context_compacted` event (carrying
+ * the fresh `estimatedInputTokens` / `maxInputTokens`) after a successful
+ * compaction, so the UI indicator refreshes without waiting for the next full
+ * turn. The `context_compacted` event is the single source of truth for the
+ * indicator — the paired `usage_update` intentionally omits
+ * `contextWindowTokens` to avoid a redundant SwiftUI invalidation.
  */
 import { describe, expect, mock, test } from "bun:test";
 
@@ -304,7 +306,7 @@ function makeConversation(
 // ---------------------------------------------------------------------------
 
 describe("forceCompact event emission", () => {
-  test("emits context_compacted and usage_update with contextWindow when compacted", async () => {
+  test("emits context_compacted and a usage_update without contextWindow when compacted", async () => {
     const collected: ServerMessage[] = [];
     mockCompactResult = {
       messages: [],
@@ -348,8 +350,11 @@ describe("forceCompact event emission", () => {
       ServerMessage,
       { type: "usage_update" }
     >;
-    expect(usageEvent.contextWindowTokens).toBe(80_000);
-    expect(usageEvent.contextWindowMaxTokens).toBe(200_000);
+    // `context_compacted` is now the single source of truth for the UI
+    // indicator after compaction; the paired `usage_update` intentionally
+    // omits contextWindow to avoid a redundant SwiftUI invalidation.
+    expect(usageEvent.contextWindowTokens).toBeUndefined();
+    expect(usageEvent.contextWindowMaxTokens).toBeUndefined();
     expect(usageEvent.inputTokens).toBe(500);
     expect(usageEvent.outputTokens).toBe(200);
     expect(usageEvent.model).toBe("test-model");

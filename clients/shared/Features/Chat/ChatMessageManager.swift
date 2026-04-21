@@ -208,11 +208,6 @@ public final class ChatMessageManager {
     public var isCompacting: Bool = false
     public var contextWindowTokens: Int? = nil
     public var contextWindowMaxTokens: Int? = nil
-    /// Timestamp when auto-compaction will resume after the assistant's circuit
-    /// breaker opened (3 consecutive summary-LLM failures). `nil` when the
-    /// breaker is closed. UI surfaces a banner while this is non-nil and in
-    /// the future.
-    public var compactionCircuitOpenUntil: Date? = nil
     public var pendingQueuedCount: Int = 0
     /// Monotonic counter incremented once per successful main-turn completion
     /// (daemon `message_complete` event that isn't an auxiliary or cancel-ack).

@@ -426,10 +426,7 @@ export interface UsageResponse {
  * `/compact`). Carries the fresh `estimatedInputTokens` so clients can refresh
  * the context-window indicator without waiting for the next `usage_update`.
  *
- * `conversationId` scopes the event so clients can ignore compactions from
- * other conversations — `EventStreamClient` broadcasts every parsed server
- * message to all subscribers, so without this field a compaction in one
- * conversation would overwrite the indicator on every open `ChatViewModel`.
+ * Scoped per-conversation — see `CompactionCircuitOpen` doc for why.
  */
 export interface ContextCompacted {
   type: "context_compacted";
@@ -475,9 +472,7 @@ export interface CompactionCircuitOpen {
  * Only fires on the open→closed transition — successful compactions while
  * the breaker was already closed would be noise.
  *
- * `conversationId` scopes the event so clients can ignore transitions from
- * other conversations via `belongsToConversation()`, mirroring the rest of
- * the broadcast-aware events.
+ * Scoped per-conversation — see `CompactionCircuitOpen` doc for why.
  */
 export interface CompactionCircuitClosed {
   type: "compaction_circuit_closed";
