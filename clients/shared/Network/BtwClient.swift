@@ -39,10 +39,18 @@ public struct BtwClient: BtwClientProtocol {
         ]
         let bodyData = try JSONSerialization.data(withJSONObject: body)
 
+        // Dedicated per-call session so `invalidateAndCancel()` can tear down
+        // the underlying data task on its own terms when the stream ends or
+        // the consumer cancels — avoids a use-after-free race between
+        // `Task.cancel()` and the `AsyncBytes` iterator on `URLSession.shared`.
+        let session = URLSession(configuration: .default)
+        defer { session.invalidateAndCancel() }
+
         let (bytes, response) = try await GatewayHTTPClient.streamPostWithRetry(
             path: "assistants/{assistantId}/btw",
             body: bodyData,
-            timeout: 120
+            timeout: 120,
+            session: session
         )
 
         guard let http = response as? HTTPURLResponse else {
