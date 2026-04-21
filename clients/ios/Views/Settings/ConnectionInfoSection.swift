@@ -6,11 +6,23 @@ import VellumAssistantShared
 ///
 /// Rendered directly inside `SettingsView`'s `Form` — composed rather than
 /// pushed — so users can see their connection status alongside their account
-/// information without drilling into a subscreen. `resolvedConnection` mirrors
-/// the priority order in `GatewayHTTPClient.resolveConnection()` so the label
-/// displayed here always matches the URL the network layer will actually use.
+/// information without drilling into a subscreen. The `@AppStorage`-backed
+/// keys mirror the priority order in `GatewayHTTPClient.resolveConnection()`
+/// so the label displayed here always matches the URL the network layer will
+/// actually use, and SwiftUI re-renders the section immediately when those
+/// keys are cleared (e.g. on logout) instead of waiting for the underlying
+/// connection client to notice.
 struct ConnectionInfoSection: View {
     @EnvironmentObject var clientProvider: ClientProvider
+
+    // `@AppStorage` participates in SwiftUI's dependency tracking, so writes
+    // from `AuthManager.logout()` invalidate this view on the same run-loop
+    // pass that clears the keys. Reading UserDefaults directly would require
+    // waiting for some other piece of observed state (e.g. the gateway client
+    // finally noticing its session is dead) to re-render the row.
+    @AppStorage(UserDefaultsKeys.managedAssistantId) private var managedAssistantId: String = ""
+    @AppStorage(UserDefaultsKeys.managedPlatformBaseURL) private var managedPlatformBaseURL: String = ""
+    @AppStorage(UserDefaultsKeys.gatewayBaseURL) private var gatewayBaseURL: String = ""
 
     /// Describes which UserDefaults key populated the current connection, so
     /// the status row can label the URL appropriately. Mirrors the branches of
@@ -24,16 +36,11 @@ struct ConnectionInfoSection: View {
     /// same priority order as `GatewayHTTPClient.resolveConnection()`:
     /// managed platform first, then legacy `gateway_base_url` as a fallback.
     private var resolvedConnection: (url: String, source: ConnectionSource)? {
-        let defaults = UserDefaults.standard
-        if let managedId = defaults.string(forKey: UserDefaultsKeys.managedAssistantId),
-           !managedId.isEmpty,
-           let platformURL = defaults.string(forKey: UserDefaultsKeys.managedPlatformBaseURL),
-           !platformURL.isEmpty {
-            return (platformURL, .managedPlatform)
+        if !managedAssistantId.isEmpty, !managedPlatformBaseURL.isEmpty {
+            return (managedPlatformBaseURL, .managedPlatform)
         }
-        if let gatewayURL = defaults.string(forKey: UserDefaultsKeys.gatewayBaseURL),
-           !gatewayURL.isEmpty {
-            return (gatewayURL, .gateway)
+        if !gatewayBaseURL.isEmpty {
+            return (gatewayBaseURL, .gateway)
         }
         return nil
     }
