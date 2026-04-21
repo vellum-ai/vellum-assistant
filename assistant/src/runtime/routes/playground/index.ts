@@ -2,6 +2,7 @@ import type { RouteDefinition } from "../../http-router.js";
 import type { PlaygroundRouteDeps } from "./deps.js";
 import { forceCompactRouteDefinitions } from "./force-compact.js";
 import { resetCircuitRouteDefinitions } from "./reset-circuit.js";
+import { stateRouteDefinitions } from "./state.js";
 
 export type { PlaygroundRouteDeps };
 export { assertPlaygroundEnabled } from "./guard.js";
@@ -15,5 +16,6 @@ export function playgroundRouteDefinitions(
   return [
     ...forceCompactRouteDefinitions(deps),
     ...resetCircuitRouteDefinitions(deps),
+    ...stateRouteDefinitions(deps),
   ];
 }
