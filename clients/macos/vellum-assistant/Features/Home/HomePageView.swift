@@ -143,8 +143,7 @@ struct HomePageView<DetailPanel: View>: View {
                                     iconForeground: iconForeground(for: item),
                                     iconBackground: iconBackground(for: item),
                                     title: item.title,
-                                    actionLabel: actionLabel(for: item),
-                                    onAction: actionLabel(for: item) == nil ? nil : { openItem(item) },
+                                    onDismiss: { dismissItem(item) },
                                     onTap: { openItem(item) }
                                 )
                             }
@@ -292,15 +291,6 @@ struct HomePageView<DetailPanel: View>: View {
         }
     }
 
-    /// Trailing Action button label for a recap row, or nil to hide the
-    /// button entirely. Currently always `nil` — rows are tap-to-open
-    /// across every type. The inline Action affordance is intentionally
-    /// withheld until product signs off on which item shapes should
-    /// surface one; until then the entire row is the hit target.
-    private func actionLabel(for item: FeedItem) -> String? {
-        return nil
-    }
-
     // MARK: - Actions
 
     /// Opens the feed item in a new conversation. The daemon interprets
@@ -315,6 +305,15 @@ struct HomePageView<DetailPanel: View>: View {
             ) {
                 onFeedConversationOpened(conversationId)
             }
+        }
+    }
+
+    /// Dismisses the feed item — store optimistically removes it from
+    /// `items` and PATCHes the daemon with status `.dismissed`. The
+    /// row disappears from the feed without any further UI.
+    private func dismissItem(_ item: FeedItem) {
+        Task {
+            await feedStore.dismiss(itemId: item.id)
         }
     }
 

@@ -3,49 +3,28 @@ import VellumAssistantShared
 
 /// Compact row used in the time-bucketed Home feed.
 ///
-/// Layout: a 26pt tinted icon circle + a single-line title + an optional
-/// trailing Action button + a whole-row tap target. The row itself is
-/// intentionally slim (icon pill drives the height) so a list of recaps
-/// reads as a dense time-feed rather than a stack of cards.
+/// Layout: a 26pt tinted icon circle + a single-line title + a trailing
+/// hover-only Dismiss affordance + a whole-row tap target. The row
+/// itself is intentionally slim (icon pill drives the height) so a list
+/// of recaps reads as a dense time-feed rather than a stack of cards.
 ///
-/// The inner Action button is isolated from the outer row Button so its
-/// tap never bubbles up to `onTap` — pressing "Resolve" (or whatever the
-/// caller labels it) only fires `onAction`, not the row's `onTap`.
+/// The Dismiss affordance appears only while the pointer is over the
+/// row (Figma `3596:79329` — hover state). Its tap is isolated from the
+/// outer row Button so clicking "Dismiss" never fires the row's
+/// `onTap` — SwiftUI resolves the innermost tappable first.
 struct HomeRecapRow: View {
     let icon: VIcon
     /// Foreground color for the icon glyph. Callers pass semantic tokens
-    /// (e.g. `VColor.systemNegativeStrong`, `VColor.systemPositiveStrong`).
-    /// The plan referenced raw Danger/Forest 500-scale colors, which do
-    /// not exist in this codebase — semantic tokens are the closest
-    /// equivalent (see `ColorTokens.swift`).
+    /// (e.g. `VColor.systemNegativeStrong`, `VColor.systemInfoStrong`).
     let iconForeground: Color
     /// Tinted background fill for the icon circle (e.g.
-    /// `VColor.systemNegativeWeak`, `VColor.systemPositiveWeak`).
+    /// `VColor.systemNegativeWeak`, `VColor.systemInfoWeak`).
     let iconBackground: Color
     let title: String
-    /// When `nil` (or paired with a nil `onAction`) the trailing button
-    /// is not rendered and the row is still fully tappable.
-    let actionLabel: String?
-    let onAction: (() -> Void)?
+    let onDismiss: () -> Void
     let onTap: () -> Void
 
-    init(
-        icon: VIcon,
-        iconForeground: Color,
-        iconBackground: Color,
-        title: String,
-        actionLabel: String? = nil,
-        onAction: (() -> Void)? = nil,
-        onTap: @escaping () -> Void
-    ) {
-        self.icon = icon
-        self.iconForeground = iconForeground
-        self.iconBackground = iconBackground
-        self.title = title
-        self.actionLabel = actionLabel
-        self.onAction = onAction
-        self.onTap = onTap
-    }
+    @State private var isHovering: Bool = false
 
     var body: some View {
         Button(action: onTap) {
@@ -68,16 +47,23 @@ struct HomeRecapRow: View {
 
                 Spacer(minLength: VSpacing.sm)
 
-                if let actionLabel, let onAction {
-                    // Wrapping the inner button in its own view keeps its
-                    // tap from bubbling to the outer row `Button` —
-                    // SwiftUI resolves the innermost tappable first.
-                    VButton(
-                        label: actionLabel,
-                        style: .outlined,
-                        size: .pillRegular,
-                        action: onAction
-                    )
+                if isHovering {
+                    // Wrapping the dismiss in its own Button keeps the tap
+                    // from bubbling to the outer row Button — SwiftUI
+                    // resolves the innermost tappable first.
+                    Button(action: onDismiss) {
+                        HStack(spacing: VSpacing.xs) {
+                            VIconView(.x, size: 7)
+                                .foregroundStyle(VColor.contentDisabled)
+                            Text("Dismiss")
+                                .font(VFont.bodySmallDefault)
+                                .foregroundStyle(VColor.contentDisabled)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .pointerCursor()
+                    .accessibilityLabel(Text("Dismiss"))
                 }
             }
             .contentShape(Rectangle())
@@ -89,28 +75,9 @@ struct HomeRecapRow: View {
             RoundedRectangle(cornerRadius: VRadius.md, style: .continuous)
                 .fill(VColor.surfaceOverlay)
         )
+        .onHover { isHovering = $0 }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(title))
-        .modifier(OptionalRecapActionAccessibility(
-            actionLabel: actionLabel,
-            onAction: onAction
-        ))
-    }
-}
-
-/// Adds an `.accessibilityAction(named:)` only when the row has a
-/// non-nil action, so VoiceOver users can fire the inner Action button
-/// without navigating to it.
-private struct OptionalRecapActionAccessibility: ViewModifier {
-    let actionLabel: String?
-    let onAction: (() -> Void)?
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if let actionLabel, let onAction {
-            content.accessibilityAction(named: Text(actionLabel), onAction)
-        } else {
-            content
-        }
+        .accessibilityAction(named: Text("Dismiss"), onDismiss)
     }
 }

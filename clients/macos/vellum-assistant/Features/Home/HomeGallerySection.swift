@@ -357,53 +357,43 @@ struct HomeGallerySection: View {
 
                 VCard(background: VColor.surfaceBase) {
                     VStack(spacing: VSpacing.xs) {
-                        // Heartbeat: danger tint, no action.
-                        // Note: plan referenced `Danger._500` / `Danger._900`, which do
-                        // not exist in this codebase; using the closest semantic pair
-                        // `systemNegativeStrong` / `systemNegativeWeak` (see
-                        // HomeRecapRow docs + ColorTokens.swift).
+                        // Heartbeat (nudge): danger/red tint.
                         HomeRecapRow(
                             icon: .heart,
                             iconForeground: VColor.systemNegativeStrong,
                             iconBackground: VColor.systemNegativeWeak,
                             title: "Heartbeat – all systems healthy",
+                            onDismiss: {},
                             onTap: {}
                         )
 
-                        // Permission: blue/primary tint, with action.
-                        // Note: plan referenced a blue/primary scale; the codebase
-                        // has no semantic blue pair, so using `funBlue` for the
-                        // glyph and `surfaceLift` for the subtle tinted background.
+                        // Permission (action): info/blue tint.
                         HomeRecapRow(
                             icon: .arrowLeft,
-                            iconForeground: VColor.funBlue,
-                            iconBackground: VColor.surfaceLift,
+                            iconForeground: VColor.systemInfoStrong,
+                            iconBackground: VColor.systemInfoWeak,
                             title: "I need your permission on authorising a transaction to NBA",
-                            actionLabel: "Action",
-                            onAction: {},
+                            onDismiss: {},
                             onTap: {}
                         )
 
-                        // Digest: emerald tint, with action.
-                        // Note: plan referenced `Forest._500` / `Forest._900`, which
-                        // do not exist; using the closest semantic pair
-                        // `systemPositiveStrong` / `systemPositiveWeak`.
+                        // Digest: emerald/positive tint.
                         HomeRecapRow(
                             icon: .bell,
                             iconForeground: VColor.systemPositiveStrong,
                             iconBackground: VColor.systemPositiveWeak,
                             title: "Last, while you were away, I ran the email clean job and deleted 26 emails…",
-                            actionLabel: "Action",
-                            onAction: {},
+                            onDismiss: {},
                             onTap: {}
                         )
 
-                        // Passive digest: emerald tint, no action.
+                        // Thread (schedule): amber/mid tint.
                         HomeRecapRow(
-                            icon: .bell,
-                            iconForeground: VColor.systemPositiveStrong,
-                            iconBackground: VColor.systemPositiveWeak,
+                            icon: .calendar,
+                            iconForeground: VColor.systemMidStrong,
+                            iconBackground: VColor.systemMidWeak,
                             title: "There's also 4 low priority updates if you want to have a look.",
+                            onDismiss: {},
                             onTap: {}
                         )
                     }
