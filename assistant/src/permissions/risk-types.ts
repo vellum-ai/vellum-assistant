@@ -158,6 +158,11 @@ export interface CommandRiskSpec {
    * first positional arg (the subcommand name).
    */
   globalValueFlags?: string[];
+  /**
+   * When true, this command auto-approves in the assistant's workspace
+   * without consulting the user's autoApproveUpTo threshold.
+   */
+  sandboxAutoApprove?: boolean;
 }
 
 // ── User rule types ──────────────────────────────────────────────────────────
