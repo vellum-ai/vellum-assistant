@@ -73,6 +73,7 @@ import { createUpgradeBroadcastProxyHandler } from "./http/routes/upgrade-broadc
 import {
   createMigrationExportProxyHandler,
   createMigrationImportProxyHandler,
+  createMigrationImportStatusProxyHandler,
 } from "./http/routes/migration-proxy.js";
 import { createMigrationRollbackProxyHandler } from "./http/routes/migration-rollback-proxy.js";
 import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
@@ -342,6 +343,8 @@ async function main() {
   const upgradeBroadcastProxy = createUpgradeBroadcastProxyHandler(config);
   const migrationExportProxy = createMigrationExportProxyHandler(config);
   const migrationImportProxy = createMigrationImportProxyHandler(config);
+  const migrationImportStatusProxy =
+    createMigrationImportStatusProxyHandler(config);
   const migrationRollbackProxy = createMigrationRollbackProxyHandler(config);
   const workspaceCommitProxy = createWorkspaceCommitProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
@@ -873,6 +876,18 @@ async function main() {
       auth: "edge-scoped",
       scope: "settings.write",
       handler: (req) => migrationImportProxy(req),
+    },
+    {
+      // Async-job status endpoint for URL-based imports. The gateway keeps
+      // an in-memory job map keyed by the jobId it handed back in the
+      // 202 response; this lets callers poll for progress without holding
+      // an HTTP connection open for the full import duration.
+      path: /^\/v1\/migrations\/import\/([^/]+)\/status$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) =>
+        migrationImportStatusProxy(req, params[0] ?? ""),
     },
 
     // ── Workspace commit ──
