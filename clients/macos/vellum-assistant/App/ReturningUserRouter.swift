@@ -100,7 +100,7 @@ final class ReturningUserRouter {
     }
 
     /// Fetch the assistant landscape from both sources.
-    func fetchLandscape() async -> AssistantLandscape {
+    func fetchLandscape() async throws -> AssistantLandscape {
         let lockfile = lockfileLoader()
 
         guard let orgId = organizationIdProvider(),
