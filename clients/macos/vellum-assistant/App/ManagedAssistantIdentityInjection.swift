@@ -6,18 +6,23 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Manag
 
 /// Client-resolved vellum:* identity fields that must be POSTed to a
 /// newly-hatched managed assistant's `/v1/secrets` after hatch. Django's
-/// post-hatch provisioning covers the assistant_api_key / platform_base_url /
-/// platform_assistant_id / webhook_secret quartet, but the organization id
-/// and user id are only known to the signed-in client — they never appear in
-/// Django's provisioning payload. Normal local bootstrap covers these via
-/// `LocalAssistantBootstrapService.bootstrap()`; teleport-to-platform and the
-/// local→managed transfer flow skip that bootstrap, so they must inject
-/// these fields directly.
+/// post-hatch provisioning covers the assistant_api_key / platform_assistant_id /
+/// webhook_secret trio, but the platform base URL, organization id, and user id
+/// are only known to the signed-in client — they never appear in Django's
+/// provisioning payload. Normal local bootstrap covers these via
+/// `LocalAssistantBootstrapService.bootstrap()`; teleport-to-platform, the
+/// local→managed transfer flow, and onboarding skip that bootstrap, so they
+/// must inject these fields directly. Without this step the managed
+/// assistant's CES has no `vellum:platform_base_url` entry — the in-memory
+/// override in `providers-setup.ts`'s rehydrate step stays unset, and
+/// `platform status` reports `connected: false` because its lookup is
+/// CES-only (no env fallback).
 @MainActor
 enum ManagedAssistantIdentityInjection {
-    /// Inject the client-resolvable `vellum:platform_organization_id` and
-    /// `vellum:platform_user_id` into a managed assistant's secret store via
-    /// the platform-routed `assistants/<id>/secrets` endpoint.
+    /// Inject the client-resolvable `vellum:platform_base_url`,
+    /// `vellum:platform_organization_id`, and `vellum:platform_user_id`
+    /// into a managed assistant's secret store via the platform-routed
+    /// `assistants/<id>/secrets` endpoint.
     ///
     /// The request is routed through `GatewayHTTPClient.withAssistant(_:)` so
     /// it resolves the platform base URL + session token for `assistantId`
@@ -27,9 +32,10 @@ enum ManagedAssistantIdentityInjection {
     ///
     /// Failures are logged and swallowed: a missing user id is non-fatal
     /// (`platform_user_id` is only used for telemetry / Sentry tagging), and
-    /// the org id injection is best-effort since the managed assistant will
-    /// still function if the injection misses — it just won't see the
-    /// signed-in user's org / user id until the next explicit set.
+    /// every other field's injection is best-effort since the managed
+    /// assistant will still function if any single write misses — callers
+    /// can still reach the platform via the env-var-provided
+    /// `VELLUM_PLATFORM_URL` fallback until the next explicit set.
     static func inject(
         into assistantId: String,
         organizationId: String
@@ -44,6 +50,11 @@ enum ManagedAssistantIdentityInjection {
         }
 
         await GatewayHTTPClient.withAssistant(assistantId) {
+            await postSecret(
+                assistantId: assistantId,
+                name: "vellum:platform_base_url",
+                value: VellumEnvironment.resolvedPlatformURL
+            )
             await postSecret(
                 assistantId: assistantId,
                 name: "vellum:platform_organization_id",
