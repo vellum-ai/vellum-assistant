@@ -748,11 +748,11 @@ describe("AssistantConfigSchema", () => {
     expect(result.permissions.autoApproveUpTo).toBe("medium");
   });
 
-  test("rejects autoApproveUpTo high", () => {
-    const result = AssistantConfigSchema.safeParse({
+  test("accepts autoApproveUpTo high", () => {
+    const result = AssistantConfigSchema.parse({
       permissions: { autoApproveUpTo: "high" },
     });
-    expect(result.success).toBe(false);
+    expect(result.permissions.autoApproveUpTo).toBe("high");
   });
 
   test("rejects invalid autoApproveUpTo string", () => {
@@ -804,10 +804,23 @@ describe("AssistantConfigSchema", () => {
   test("per-context object rejects invalid enum values", () => {
     const result = AssistantConfigSchema.safeParse({
       permissions: {
-        autoApproveUpTo: { conversation: "high" },
+        autoApproveUpTo: { conversation: "extreme" },
       },
     });
     expect(result.success).toBe(false);
+  });
+
+  test("per-context object accepts high enum value", () => {
+    const result = AssistantConfigSchema.parse({
+      permissions: {
+        autoApproveUpTo: { conversation: "high" },
+      },
+    });
+    expect(result.permissions.autoApproveUpTo).toEqual({
+      conversation: "high",
+      background: "medium",
+      headless: "none",
+    });
   });
 
   test("per-context object round-trips through JSON serialization", () => {
