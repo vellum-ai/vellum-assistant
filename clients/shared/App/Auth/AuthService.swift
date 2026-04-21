@@ -280,6 +280,17 @@ public final class AuthService {
         return try decodeAssistantResult(response)
     }
 
+    /// Tell the platform this is the user's active assistant. Updates
+    /// `membership.active_assistant` so ID-less flows (e.g. `GET
+    /// /v1/assistants/active/`) resolve to the right assistant.
+    public func activateAssistant(id: String, organizationId: String) async throws {
+        _ = try await performPlatformRequest(
+            path: "v1/assistants/\(id)/activate/",
+            method: "POST",
+            organizationId: organizationId
+        )
+    }
+
     /// List managed assistants visible to the caller in the given organization.
     ///
     /// The backend already scopes the response to platform (cloud-hosted)

@@ -209,6 +209,21 @@ extension AppDelegate {
             assistants: items,
             onConnect: { [weak self] assistantId in
                 LockfileAssistant.setActiveAssistantId(assistantId)
+                // Fire-and-forget: tell the platform this is the active
+                // assistant. Failure is non-fatal — the local lockfile is
+                // the source of truth for which assistant to connect to.
+                if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
+                    Task {
+                        do {
+                            try await AuthService.shared.activateAssistant(
+                                id: assistantId,
+                                organizationId: orgId
+                            )
+                        } catch {
+                            log.warning("Failed to activate assistant on platform: \(error.localizedDescription)")
+                        }
+                    }
+                }
                 self?.proceedToApp()
             },
             onSignOut: { [weak self] in
