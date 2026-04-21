@@ -19,7 +19,7 @@ const log = getLogger("suggested-prompts");
 /**
  * Map of provider keys to their suggested-prompt metadata. Only providers
  * listed here produce deterministic "Connect X" prompts when disconnected.
- * The icon values are SF Symbol names rendered by the macOS client.
+ * The icon values are VIcon case names rendered by the macOS client.
  */
 const CONNECT_PROMPT_META: Record<
   string,
@@ -33,27 +33,22 @@ const CONNECT_PROMPT_META: Record<
   slack: {
     label: "Connect Slack",
     prompt: "Help me connect my Slack workspace",
-    icon: "number",
-  },
-  calendar: {
-    label: "Connect Calendar",
-    prompt: "Help me connect my Google Calendar",
-    icon: "calendar",
+    icon: "hash",
   },
   notion: {
     label: "Connect Notion",
     prompt: "Help me connect my Notion workspace",
-    icon: "doc.text",
+    icon: "fileText",
   },
   linear: {
     label: "Connect Linear",
     prompt: "Help me connect my Linear workspace",
-    icon: "list.bullet",
+    icon: "clipboardList",
   },
   github: {
     label: "Connect GitHub",
     prompt: "Help me connect my GitHub account",
-    icon: "chevron.left.forwardslash.chevron.right",
+    icon: "terminal",
   },
 };
 

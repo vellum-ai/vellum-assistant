@@ -7,7 +7,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "HomeF
 ///
 /// Mirrors the JSON shape emitted by
 /// `assistant/src/runtime/routes/home-feed-routes.ts::handleGetHomeFeed`:
-/// `{ items, updatedAt, contextBanner }`.
+/// `{ items, updatedAt, contextBanner, suggestedPrompts }`.
 public struct HomeFeedResponse: Codable, Sendable, Hashable {
     public let items: [FeedItem]
     public let updatedAt: Date
@@ -24,6 +24,14 @@ public struct HomeFeedResponse: Codable, Sendable, Hashable {
         self.updatedAt = updatedAt
         self.contextBanner = contextBanner
         self.suggestedPrompts = suggestedPrompts
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        items = try container.decode([FeedItem].self, forKey: .items)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        contextBanner = try container.decode(ContextBanner.self, forKey: .contextBanner)
+        suggestedPrompts = try container.decodeIfPresent([SuggestedPrompt].self, forKey: .suggestedPrompts) ?? []
     }
 }
 
