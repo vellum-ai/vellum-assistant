@@ -64,7 +64,8 @@ struct APIKeyEntryStepView: View {
                     apiKeyField
                 }
 
-                if let apiKeyUrl = currentProviderEntry?.credentialsGuide?.url,
+                if providerRequiresKey,
+                   let apiKeyUrl = currentProviderEntry?.credentialsGuide?.url,
                    let url = URL(string: apiKeyUrl) {
                     HStack(spacing: VSpacing.sm) {
                         Text("Don't have it?")

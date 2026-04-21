@@ -87,7 +87,7 @@ final class OnboardingState {
     var sshPrivateKey: String = ""
     var customQRCodeImageData: Data = Data()
     var selectedModel: String = LLMProviderRegistry.defaultProvider?.defaultModel ?? ""
-    var selectedProvider: String = "anthropic"
+    var selectedProvider: String = LLMProviderRegistry.defaultProvider?.id ?? "anthropic"
     /// When true, the onboarding flow was launched from the developer tab's
     /// "Hatch New Assistant" button. This prevents auto-completing when the user
     /// already has a managed assistant, forcing the hosting selector to appear so
@@ -231,7 +231,7 @@ final class OnboardingState {
             await APIKeyManager.deleteKey(for: "anthropic")
         }
 
-        selectedProvider = "anthropic"
+        selectedProvider = LLMProviderRegistry.defaultProvider?.id ?? "anthropic"
         selectedModel = LLMProviderRegistry.defaultProvider?.defaultModel ?? ""
 
         // Reset hosting selection and cloud credentials
