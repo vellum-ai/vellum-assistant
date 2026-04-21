@@ -376,6 +376,14 @@
       "label": "Message Height Cache",
       "description": "Swap the transcript's LazyVStack for a plain VStack so scrollContentHeight is the true sum of row heights (no LazyVStack estimator drift). Row frames are not pinned — the earlier frame-pinning approach was removed because it caused overlap when rows grew past their first measurement (streaming, expanding thinking blocks). Tradeoff: eager layout — every row measures up-front, which can stall for many seconds to minutes on very long conversations.",
       "defaultEnabled": true
+    },
+    {
+      "id": "auto-approve-threshold-ui",
+      "scope": "assistant",
+      "key": "auto-approve-threshold-ui",
+      "label": "Auto-Approve Threshold UI",
+      "description": "Enable user-configurable auto-approve thresholds stored in the gateway. When enabled, the assistant reads thresholds from the gateway instead of config.json, and the macOS client shows threshold controls in Settings and the chat composer.",
+      "defaultEnabled": false
     }
   ]
 }
