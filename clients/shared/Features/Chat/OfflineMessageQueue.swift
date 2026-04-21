@@ -18,14 +18,19 @@ struct OfflineQueuedMessage: Codable, Identifiable {
     /// Whether this message was originally sent as automated (e.g. wake-up greeting).
     /// Preserved so that resending after reconnect doesn't trigger memory extraction.
     let automated: Bool
+    /// Client-generated correlation ID bound to the optimistic ChatMessage at enqueue
+    /// time. Preserving it across persistence ensures the SSE echo on reconnect dedupes
+    /// against the same row rather than by text (which collides for duplicate sends).
+    let clientMessageId: String?
     let enqueuedAt: Date
 
-    init(conversationId: String?, text: String, displayText: String? = nil, attachments: [UserMessageAttachment]?, automated: Bool = false) {
+    init(conversationId: String?, text: String, displayText: String? = nil, attachments: [UserMessageAttachment]?, automated: Bool = false, clientMessageId: String? = nil) {
         self.id = UUID()
         self.conversationId = conversationId
         self.text = text
         self.displayText = displayText
         self.automated = automated
+        self.clientMessageId = clientMessageId
         self.enqueuedAt = Date()
         self.attachments = (attachments ?? []).map {
             OfflineQueuedAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: $0.extractedText, filePath: $0.filePath)
@@ -51,6 +56,7 @@ struct OfflineQueuedMessage: Codable, Identifiable {
         displayText = try container.decodeIfPresent(String.self, forKey: .displayText)
         attachments = try container.decode([OfflineQueuedAttachment].self, forKey: .attachments)
         automated = try container.decodeIfPresent(Bool.self, forKey: .automated) ?? false
+        clientMessageId = try container.decodeIfPresent(String.self, forKey: .clientMessageId)
         enqueuedAt = try container.decode(Date.self, forKey: .enqueuedAt)
     }
 
@@ -113,8 +119,8 @@ final class OfflineMessageQueue {
     // MARK: - Enqueue
 
     /// Append a message to the end of the offline queue and persist it.
-    func enqueue(conversationId: String?, text: String, displayText: String? = nil, attachments: [UserMessageAttachment]?, automated: Bool = false) {
-        let message = OfflineQueuedMessage(conversationId: conversationId, text: text, displayText: displayText, attachments: attachments, automated: automated)
+    func enqueue(conversationId: String?, text: String, displayText: String? = nil, attachments: [UserMessageAttachment]?, automated: Bool = false, clientMessageId: String? = nil) {
+        let message = OfflineQueuedMessage(conversationId: conversationId, text: text, displayText: displayText, attachments: attachments, automated: automated, clientMessageId: clientMessageId)
         queue.append(message)
         save()
         log.info("OfflineMessageQueue: enqueued message (queue depth: \(self.queue.count))")

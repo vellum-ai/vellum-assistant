@@ -426,7 +426,7 @@ final class MessageSendCoordinator {
             // "pending" indicator and is flushed automatically on reconnect.
             if queuedMessageId == nil {
                 log.info("Buffering message in offline queue (conversation: \(conversationId))")
-                OfflineMessageQueue.shared.enqueue(conversationId: conversationId, text: text, displayText: displayText, attachments: attachments, automated: automated)
+                OfflineMessageQueue.shared.enqueue(conversationId: conversationId, text: text, displayText: displayText, attachments: attachments, automated: automated, clientMessageId: clientMessageId)
                 // Mark the corresponding chat message as offline-pending so the UI
                 // can show a visual indicator. Find the last user message with this
                 // text — it is the one just appended by sendMessage().
@@ -721,10 +721,7 @@ final class MessageSendCoordinator {
             if multipartCount > 0 {
                 log.info("Offline flush: \(multipartCount) attachment(s) have rawData for multipart upload")
             }
-            let matchText = queued.displayText ?? queued.text
-            let existingClientId = messageManager.messages
-                .last(where: { $0.role == .user && $0.text == matchText })?.clientMessageId
-            sendUserMessage(queued.text, displayText: queued.displayText, attachments: attachments, automated: queued.automated, clientMessageId: existingClientId)
+            sendUserMessage(queued.text, displayText: queued.displayText, attachments: attachments, automated: queued.automated, clientMessageId: queued.clientMessageId)
         }
     }
 
