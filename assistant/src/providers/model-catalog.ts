@@ -482,6 +482,17 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       },
       // Moonshot
       {
+        id: "moonshotai/kimi-k2.6",
+        displayName: "Kimi K2.6",
+        contextWindowTokens: 262144,
+        maxOutputTokens: 32768,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: { inputPer1mTokens: 0.6, outputPer1mTokens: 2.8 },
+      },
+      {
         id: "moonshotai/kimi-k2.5",
         displayName: "Kimi K2.5",
         contextWindowTokens: 256000,
