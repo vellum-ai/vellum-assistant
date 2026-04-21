@@ -409,6 +409,26 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
       dataToWrite = new TextEncoder().encode(sanitized);
     }
 
+    // If we're about to replace a SQLite main database file, remove any
+    // pre-existing `.db-wal`/`.db-shm`/`.db-journal` siblings at the
+    // target. Those auxiliary files are only valid as a pair with the
+    // exact `.db` that wrote them; leaving them alongside a replacement
+    // DB causes SQLite to replay incompatible WAL frames on the first
+    // open and report "database disk image is malformed". The exporter
+    // already checkpointed the source WAL into the main DB before the
+    // bundle was built, so dropping the sibling aux files doesn't lose
+    // data from the source workspace.
+    if (diskPath.endsWith(".db")) {
+      for (const suffix of [".db-wal", ".db-shm", ".db-journal"]) {
+        const auxPath = `${diskPath.slice(0, -".db".length)}${suffix}`;
+        try {
+          rmSync(auxPath, { force: true });
+        } catch {
+          /* best effort — if the aux file doesn't exist we're fine */
+        }
+      }
+    }
+
     // Write the file
     try {
       writeFileSync(diskPath, dataToWrite);

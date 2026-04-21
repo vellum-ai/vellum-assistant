@@ -1143,6 +1143,21 @@ async function promoteLegacyStagedFiles(
 
     await mkdir(dirname(entry.livePath), { recursive: true });
 
+    // If we're replacing a SQLite main database file, remove any sibling
+    // `.db-wal`/`.db-shm`/`.db-journal` from live first. Those
+    // auxiliary files are only valid with the exact `.db` that wrote
+    // them — leaving them alongside the replacement DB causes SQLite to
+    // replay incompatible WAL frames on the first open and report
+    // "database disk image is malformed".
+    if (entry.livePath.endsWith(".db")) {
+      for (const suffix of [".db-wal", ".db-shm", ".db-journal"]) {
+        const auxPath = `${entry.livePath.slice(0, -".db".length)}${suffix}`;
+        await rm(auxPath, { force: true }).catch(() => {
+          /* best effort */
+        });
+      }
+    }
+
     try {
       await rename(entry.tempPath, entry.livePath);
     } catch (err) {
@@ -1286,8 +1301,53 @@ async function planMergeLiveIntoTempDir(
     }
 
     if (existsInTemp) continue;
+
+    // SQLite auxiliary files (WAL / SHM / journal) are only valid as a
+    // pair with the exact `.db` they were written by. If the bundle
+    // replaced the sibling `.db` in this dir, carrying the live `.db-wal`
+    // forward pairs stale WAL frames with a different DB and SQLite
+    // reports "database disk image is malformed" on first open. Drop
+    // them — SQLite recreates a fresh WAL lazily on next connection,
+    // and the export already checkpointed the source WAL into the main
+    // DB before the bundle was built.
+    //
+    // When the bundle does NOT carry a replacement DB (bundle is
+    // config-only etc.), the live `.db` is preserved and the live WAL
+    // stays paired with it.
+    if (
+      isSqliteAuxiliaryFile(entry.name) &&
+      hasSiblingDbInTemp(tempDir, entry.name)
+    ) {
+      continue;
+    }
+
     plan.push({ liveChild, tempChild });
   }
+}
+
+/**
+ * SQLite writes `<name>.db-wal`, `<name>.db-shm`, `<name>.db-journal`
+ * alongside its main `<name>.db` file. These are only consistent with
+ * the exact `.db` they were created for.
+ */
+function isSqliteAuxiliaryFile(name: string): boolean {
+  return (
+    name.endsWith(".db-wal") ||
+    name.endsWith(".db-shm") ||
+    name.endsWith(".db-journal")
+  );
+}
+
+/**
+ * Does the temp dir contain the main `.db` file that owns this auxiliary
+ * file? Given e.g. `assistant.db-wal`, checks for `tempDir/assistant.db`.
+ */
+function hasSiblingDbInTemp(tempDir: string, auxName: string): boolean {
+  const dbName = auxName
+    .replace(/\.db-wal$/, ".db")
+    .replace(/\.db-shm$/, ".db")
+    .replace(/\.db-journal$/, ".db");
+  return existsSync(join(tempDir, dbName));
 }
 
 /**
