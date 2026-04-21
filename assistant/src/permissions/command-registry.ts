@@ -639,11 +639,16 @@ export const DEFAULT_COMMAND_REGISTRY = {
   env: { baseRisk: "low", isWrapper: true },
   nice: { baseRisk: "low", isWrapper: true },
   nohup: { baseRisk: "low", isWrapper: true },
-  timeout: { baseRisk: "low", isWrapper: true },
+  timeout: {
+    baseRisk: "low",
+    isWrapper: true,
+    nonExecFlags: ["--help", "--version"],
+  },
   time: { baseRisk: "low", isWrapper: true },
   command: {
     baseRisk: "low",
     isWrapper: true,
+    nonExecFlags: ["-v", "-V"],
     argRules: [
       {
         id: "command:lookup",
