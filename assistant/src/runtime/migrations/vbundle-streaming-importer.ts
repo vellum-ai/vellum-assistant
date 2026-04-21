@@ -31,12 +31,15 @@ import { createWriteStream, existsSync } from "node:fs";
 import {
   copyFile,
   cp,
+  lstat,
   mkdir,
   readdir,
   readFile,
+  readlink,
   rename,
   rm,
   stat,
+  symlink,
   unlink,
   writeFile,
 } from "node:fs/promises";
@@ -93,6 +96,17 @@ const DEFAULT_MAX_BUNDLE_BYTES = 16 * 1024 * 1024 * 1024;
  * a corrupted archive.
  */
 const DEFAULT_MAX_BUNDLE_ENTRIES = 100_000;
+
+/**
+ * Prefixes used for scratch dirs the streaming importer creates INSIDE the
+ * workspace. Dot-prefixed to stay out of the way of real workspace content.
+ * Phase 1 of `swapWorkspaceContents` skips the EXACT scratch basenames for
+ * this run (via a `Set<string>` built from the backupDir/tempWorkspaceDir
+ * basenames), so a user entry that happens to start with one of these
+ * prefixes is still swept into the swap.
+ */
+const IMPORT_TEMP_PREFIX = ".import-";
+const IMPORT_BACKUP_PREFIX = ".pre-import-";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -165,23 +179,63 @@ export async function streamCommitImport(
 
   const realWorkspaceDir = resolve(workspaceDir);
 
-  // Replay recovery from any prior interrupted import BEFORE we stage new
-  // data. If a previous streamCommitImport was killed between carry-over
-  // and the atomic swap, the live workspace is missing preserved paths
-  // (they were moved to an `.import-<uuid>` temp tree). The marker
-  // persisted below is what recoverInterruptedImport reads to move them
-  // back. Failure to recover is logged but non-fatal — we want the new
-  // import to proceed so operators aren't stuck.
+  // Replay recovery from any prior interrupted import BEFORE we stage
+  // new data. If the previous import died mid-swap, the marker / temp /
+  // backup still sit in the workspace and recoverInterruptedImport rolls
+  // them back. If that rollback is INCOMPLETE (per-entry restore failed
+  // and we had to preserve the marker for retry), we must REFUSE to
+  // start a new import — this function is about to rewrite the marker
+  // at the same path, and a fresh write would orphan the unresolved
+  // backup/temp pointers, making the interrupted state unrecoverable.
+  //
+  // In that case, return write_failed so the caller retries later; an
+  // operator can investigate the leftover `.pre-import-*` / `.import-*`
+  // dirs in the workspace.
+  let recoveryResult: RecoveryResult;
   try {
-    await recoverInterruptedImport(realWorkspaceDir);
+    recoveryResult = await recoverInterruptedImport(realWorkspaceDir);
   } catch (err) {
-    log.warn(
+    log.error(
       { err, realWorkspaceDir },
-      "recoverInterruptedImport threw before streaming import; continuing",
+      "recoverInterruptedImport threw before streaming import",
     );
+    return {
+      ok: false,
+      reason: "write_failed",
+      message: `Pre-import recovery failed: ${errMessage(err)}`,
+    };
+  }
+  if (!recoveryResult.ok) {
+    log.error(
+      {
+        realWorkspaceDir,
+        failedCount: recoveryResult.failedCount,
+      },
+      "Previous import rollback is still unresolved; refusing to start a new import",
+    );
+    return {
+      ok: false,
+      reason: "write_failed",
+      message:
+        `Previous import rollback is still unresolved (${recoveryResult.failedCount} entries failed to restore). ` +
+        "Leftover backup/temp dirs are preserved in the workspace; manual intervention may be required before the next import.",
+    };
   }
 
-  const tempWorkspaceDir = `${realWorkspaceDir}.import-${randomUUID()}`;
+  // Put scratch dirs (temp staging tree, backup dir) INSIDE the workspace
+  // mount so every move during the content-level swap stays on the same
+  // filesystem. If they lived as siblings (on the container overlay),
+  // every rename in swapWorkspaceContents would cross filesystems and
+  // require a full cp+rm of the entire workspace. That defeats the
+  // zero-disk fast path and risks ENOSPC on the overlay for large
+  // teleports. Dot-prefixed names keep them out of the way of normal
+  // content; phase 1 of swapWorkspaceContents filters them out by exact
+  // basename so user entries that happen to start with these prefixes
+  // are still swept through the swap.
+  const tempWorkspaceDir = join(
+    realWorkspaceDir,
+    `${IMPORT_TEMP_PREFIX}${randomUUID()}`,
+  );
 
   let manifest: ManifestType | null = null;
   const importedFiles: ImportedFileReport[] = [];
@@ -836,6 +890,12 @@ export async function streamCommitImport(
     };
   }
 
+  // Ensure the workspace dir exists so writeImportMarker (which writes
+  // at `<realWorkspaceDir>/.import-marker.json`) can land the file on
+  // first-ever imports where the workspace has never been created.
+  // mkdir is idempotent via { recursive: true }.
+  await mkdir(realWorkspaceDir, { recursive: true });
+
   const markerPath = importMarkerPathFor(realWorkspaceDir);
   try {
     await writeImportMarker(markerPath, {
@@ -874,69 +934,123 @@ export async function streamCommitImport(
     };
   }
 
-  const backupDir = `${realWorkspaceDir}.pre-import-${Date.now()}`;
-  let realDirRenamedToBackup = false;
+  // Workspace swap: content-level, not directory-level.
+  //
+  // We do NOT `rename(realWorkspaceDir, backupDir)` because in the
+  // production platform deployment `realWorkspaceDir` is a mounted volume
+  // (and the daemon's cwd / open subsystems pin it), so the kernel returns
+  // EBUSY on the parent-directory rename. Instead we swap the DIRECTORY'S
+  // CONTENTS: move every top-level entry from `realWorkspaceDir` into a
+  // peer `${realWorkspaceDir}.pre-import-<ts>/` backup dir, then move every
+  // top-level entry from the temp tree into the (now empty)
+  // `realWorkspaceDir`. `realWorkspaceDir` itself is never renamed, so
+  // mount-point / cwd pinning doesn't matter.
+  //
+  // Update the marker to record the backup dir BEFORE any move runs, so
+  // `recoverInterruptedImport` on a future boot can restore from backup
+  // even if the process is killed mid-swap.
+  // backupDir also lives INSIDE the workspace mount — same rationale as
+  // tempWorkspaceDir (keep all moves on the same filesystem, dot-prefix
+  // so workspace walkers skip it). Suffix with a UUID (not just a
+  // timestamp) so a malicious bundle can't guess the name and ship a
+  // top-level entry that collides with our active backup dir during
+  // phase 2 — phase 2 also rejects any such collision defensively.
+  const backupDir = join(
+    realWorkspaceDir,
+    `${IMPORT_BACKUP_PREFIX}${Date.now()}-${randomUUID()}`,
+  );
   try {
-    try {
-      await rename(realWorkspaceDir, backupDir);
-      realDirRenamedToBackup = true;
-    } catch (err) {
-      // Real workspace didn't exist. Proceed straight to the second rename.
-      if (!isENOENT(err)) {
-        // `rename(real → backup)` failed, so the live workspace still
-        // exists — but carried preserved paths are now in the temp tree,
-        // about to be deleted. Restore them to live before bailing out.
-        await restoreCarriedPaths(carried);
-        await cleanupTempDir();
-        await safelyDeleteMarker(markerPath);
-        return {
-          ok: false,
-          reason: "write_failed",
-          message: `Failed to move real workspace out of the way: ${errMessage(err)}`,
-        };
-      }
-    }
-
-    try {
-      await rename(tempWorkspaceDir, realWorkspaceDir);
-    } catch (err) {
-      // Try to put the original workspace back.
-      if (realDirRenamedToBackup) {
-        try {
-          await rename(backupDir, realWorkspaceDir);
-        } catch (restoreErr) {
-          log.error(
-            { restoreErr, backupDir, realWorkspaceDir },
-            "Failed to restore real workspace from backup after import swap failed — manual recovery may be required",
-          );
-        }
-      }
-      // The backup we just restored (if we did) was captured AFTER the
-      // carry-over already moved preserved paths into temp, so it's
-      // missing SQLite/Qdrant/embedding-models/deprecated. Move them back
-      // from temp to the (now restored) live workspace before temp gets
-      // deleted.
-      await restoreCarriedPaths(carried);
-      await cleanupTempDir();
-      await safelyDeleteMarker(markerPath);
-      return {
-        ok: false,
-        reason: "write_failed",
-        message: `Failed to swap temp workspace into place: ${errMessage(err)}`,
-      };
-    }
-
-    // Rename pair completed successfully. Clear the recovery marker so a
-    // subsequent `recoverInterruptedImport` call on a future start-up
-    // doesn't see a stale entry.
-    await safelyDeleteMarker(markerPath);
+    await writeImportMarker(markerPath, {
+      tempWorkspaceDir,
+      carried: carried.map((c) => ({
+        liveChild: c.liveChild,
+        tempChild: c.tempChild,
+      })),
+      backupDir,
+    });
   } catch (err) {
+    await restoreCarriedPaths(carried);
     await cleanupTempDir();
     await safelyDeleteMarker(markerPath);
     return {
       ok: false,
       reason: "write_failed",
-      message: `Workspace swap failed: ${errMessage(err)}`,
+      message: `Failed to persist pre-swap recovery marker: ${errMessage(err)}`,
+    };
+  }
+
+  try {
+    await swapWorkspaceContents(realWorkspaceDir, tempWorkspaceDir, backupDir);
+
+    // Swap succeeded. Record that fact in the marker BEFORE deleting it —
+    // otherwise a crash between `swapWorkspaceContents` returning and
+    // `safelyDeleteMarker` completing would leave a marker with
+    // `backupDir` populated, and `recoverInterruptedImport` on the next
+    // boot would silently roll back the successful import by restoring
+    // from backup. With `swapCompleted: true` the recovery path knows to
+    // skip the backup restore and just clean up residual artifacts.
+    try {
+      await writeImportMarker(markerPath, {
+        tempWorkspaceDir,
+        carried: carried.map((c) => ({
+          liveChild: c.liveChild,
+          tempChild: c.tempChild,
+        })),
+        backupDir,
+        swapCompleted: true,
+      });
+    } catch (err) {
+      // Very unlikely (we wrote it a moment ago) and not worth failing
+      // the whole import. A crash here would roll back via recovery, but
+      // the import itself is already applied.
+      log.warn(
+        { err, markerPath },
+        "Failed to mark import recovery marker as swapCompleted; crash window remains until safelyDeleteMarker",
+      );
+    }
+    await safelyDeleteMarker(markerPath);
+  } catch (err) {
+    // Content-level swap either rolled back its own renames (best effort)
+    // or left the workspace in an ambiguous state. Do a final restore pass
+    // from backupDir into realWorkspaceDir so any entries that didn't
+    // make it back end up whole again — the backup restore runs FIRST so
+    // it doesn't later clobber preserved paths that restoreCarriedPaths
+    // just put back. Pass the carried plan so restoreFromBackupDir can
+    // avoid clobbering descendants (e.g. `data/db` already restored
+    // under `data/`) when it replaces a top-level backup entry.
+    const restoreResult = await restoreFromBackupDir(
+      backupDir,
+      realWorkspaceDir,
+      carried,
+    );
+    await restoreCarriedPaths(carried);
+    if (restoreResult.ok) {
+      await cleanupTempDir();
+      await rm(backupDir, { recursive: true, force: true }).catch(() => {
+        /* best effort */
+      });
+      await safelyDeleteMarker(markerPath);
+    } else {
+      // Partial restore — preserve the backup dir, the temp tree, and the
+      // marker so an operator (or the next boot-time
+      // recoverInterruptedImport) can retry. The marker's `carried` plan
+      // references tempChild paths; deleting the temp tree here would
+      // break that plan. A backup dir with unresolved content is the last
+      // recoverable copy of the pre-import state.
+      log.error(
+        {
+          backupDir,
+          tempWorkspaceDir,
+          markerPath,
+          failedCount: restoreResult.failedCount,
+        },
+        "Pre-import backup restore incomplete; leaving backup dir, temp tree, and marker on disk for manual/boot-time recovery",
+      );
+    }
+    return {
+      ok: false,
+      reason: "write_failed",
+      message: `Failed to swap workspace contents: ${errMessage(err)}`,
     };
   }
 
@@ -973,12 +1087,12 @@ export async function streamCommitImport(
   }
 
   // Attempt to remove the backup dir (best-effort). Leaving it around is not
-  // a correctness issue, only a disk-space one, so we swallow errors.
-  if (realDirRenamedToBackup) {
-    rm(backupDir, { recursive: true, force: true }).catch((err) => {
-      log.warn({ err, backupDir }, "Failed to remove pre-import backup dir");
-    });
-  }
+  // a correctness issue, only a disk-space one, so we swallow errors. The
+  // backup dir now always exists once swap succeeds — we created it during
+  // swapWorkspaceContents to hold the pre-import live entries.
+  rm(backupDir, { recursive: true, force: true }).catch((err) => {
+    log.warn({ err, backupDir }, "Failed to remove pre-import backup dir");
+  });
 
   const report = buildReport(manifest, importedFiles, warnings);
   return { ok: true, report };
@@ -1212,10 +1326,7 @@ async function carryOverEntry(
     await rename(liveChild, tempChild);
   } catch (err) {
     if (isEXDEV(err)) {
-      await cp(liveChild, tempChild, {
-        recursive: true,
-        preserveTimestamps: true,
-      });
+      await copyTreeSkippingTransient(liveChild, tempChild);
       await rm(liveChild, { recursive: true, force: true });
     } else {
       throw err;
@@ -1252,10 +1363,7 @@ async function restoreCarriedPaths(
     } catch (err) {
       if (isEXDEV(err)) {
         try {
-          await cp(tempChild, liveChild, {
-            recursive: true,
-            preserveTimestamps: true,
-          });
+          await copyTreeSkippingTransient(tempChild, liveChild);
           await rm(tempChild, { recursive: true, force: true });
           continue;
         } catch (cpErr) {
@@ -1275,6 +1383,520 @@ async function restoreCarriedPaths(
         { err, liveChild, tempChild },
         "Failed to restore carried preserved path; manual recovery may be required",
       );
+    }
+  }
+}
+
+/**
+ * Swap the CONTENTS of the workspace without ever renaming `realWorkspaceDir`
+ * itself. The production platform pod has `realWorkspaceDir` as a mounted
+ * volume (and the daemon's subsystems pin file handles inside it), so the
+ * kernel returns `EBUSY` if we `rename()` the directory. Moving individual
+ * top-level entries sidesteps that: a mount point's children usually aren't
+ * themselves mount points, and individual-file EBUSY is much rarer than
+ * directory-rename EBUSY.
+ *
+ * Semantics:
+ *
+ *   1. Create `backupDir` (peer of `realWorkspaceDir`, different parent entry).
+ *   2. For each top-level entry currently in `realWorkspaceDir`, `rename()`
+ *      it into `backupDir`.
+ *   3. For each top-level entry in `tempWorkspaceDir`, `rename()` it into
+ *      `realWorkspaceDir`.
+ *   4. Remove the (now empty) temp dir.
+ *
+ * On a per-entry rename failure during phase 2, move what was already moved
+ * back into `realWorkspaceDir` and throw. On a failure during phase 3, move
+ * the already-moved temp entries back to `tempWorkspaceDir`, then move
+ * backup entries back into `realWorkspaceDir`, and throw.
+ *
+ * This function is NOT atomic — a reader that opens `realWorkspaceDir`
+ * mid-swap will see a half-emptied state. The daemon's SQLite connection is
+ * already closed (`resetDb()` ran before this), and the async import is
+ * running in a background job from the external caller's perspective, so
+ * transient readers aren't expected. `recoverInterruptedImport` uses the
+ * `backupDir` recorded in the marker to finish the rollback if a crash hits
+ * mid-swap.
+ */
+async function swapWorkspaceContents(
+  realWorkspaceDir: string,
+  tempWorkspaceDir: string,
+  backupDir: string,
+): Promise<void> {
+  await mkdir(backupDir, { recursive: true });
+
+  // Phase 1: move every top-level entry out of real into backup. Skip
+  // ONLY the exact scratch dirs this import owns (backupDir itself, and
+  // the tempWorkspaceDir passed in) — NOT everything that happens to
+  // start with the `.import-`/`.pre-import-` prefix. A user workspace
+  // that legitimately contains an entry with one of those prefixes
+  // would otherwise leak state across imports, and a bundle carrying
+  // the same name would collide on phase-2 rename-in.
+  //
+  // The recovery marker (`.import-marker.json`) is also reserved — it
+  // lives inside the workspace, must stay put across the swap so
+  // recovery can read it if the process dies mid-swap, and must not be
+  // overwritten by a bundle entry of the same name.
+  const scratchBasenames = new Set<string>([
+    basename(backupDir),
+    basename(tempWorkspaceDir),
+    IMPORT_MARKER_BASENAME,
+  ]);
+  let liveEntries: string[];
+  try {
+    liveEntries = (await readdir(realWorkspaceDir)).filter(
+      (name) => !scratchBasenames.has(name),
+    );
+  } catch (err) {
+    if (isENOENT(err)) {
+      liveEntries = [];
+    } else {
+      throw err;
+    }
+  }
+
+  const movedToBackup: string[] = [];
+  try {
+    for (const name of liveEntries) {
+      await moveEntryWithExdevFallback(
+        join(realWorkspaceDir, name),
+        join(backupDir, name),
+      );
+      movedToBackup.push(name);
+    }
+  } catch (err) {
+    // Partial move-out. Reverse what we moved so realWorkspaceDir ends up
+    // back to its original content before we throw.
+    for (const name of movedToBackup.reverse()) {
+      try {
+        await moveEntryWithExdevFallback(
+          join(backupDir, name),
+          join(realWorkspaceDir, name),
+        );
+      } catch (restoreErr) {
+        log.error(
+          { err: restoreErr, name, realWorkspaceDir, backupDir },
+          "Failed to restore entry from backup during swap-out rollback",
+        );
+      }
+    }
+    throw err;
+  }
+
+  // Phase 2: move every top-level entry from temp into real. `rename`
+  // requires the destination's parent to exist, so ensure realWorkspaceDir
+  // exists even if phase 1 found no entries (first-ever import into a
+  // fresh workspace dir that hasn't been created yet).
+  await mkdir(realWorkspaceDir, { recursive: true });
+
+  let tempEntries: string[];
+  try {
+    tempEntries = await readdir(tempWorkspaceDir);
+  } catch (err) {
+    // A missing temp tree here is a hard failure — phase 1 has already
+    // emptied realWorkspaceDir into backup, so treating temp as an empty
+    // import would commit an empty workspace and the backup would be
+    // deleted in the success path. That's silent data loss. Throw so the
+    // caller's rollback restores backup → real.
+    if (isENOENT(err)) {
+      throw new Error(
+        `Temp workspace dir disappeared before swap-in (${tempWorkspaceDir})`,
+      );
+    }
+    throw err;
+  }
+
+  // Defend against a bundle whose top-level entries collide with this
+  // swap's scratch basenames. The UUID suffix on `backupDir` makes an
+  // accidental collision astronomically unlikely, but a malicious or
+  // corrupted bundle carrying e.g. `.pre-import-<exact-match>` could
+  // otherwise replace the (empty) active backup dir via rename on an
+  // empty live workspace, and the success-path `rm(backupDir)` would
+  // then silently delete the imported content. Fail fast before any
+  // rename so real ends up rolled back to pre-import state.
+  const collidingName = tempEntries.find((name) => scratchBasenames.has(name));
+  if (collidingName !== undefined) {
+    throw new Error(
+      `Bundle top-level entry "${collidingName}" collides with an import scratch dir basename — refusing to swap to avoid accidental deletion of imported content`,
+    );
+  }
+
+  const movedToReal: string[] = [];
+  try {
+    for (const name of tempEntries) {
+      await moveEntryWithExdevFallback(
+        join(tempWorkspaceDir, name),
+        join(realWorkspaceDir, name),
+      );
+      movedToReal.push(name);
+    }
+  } catch (err) {
+    // Partial move-in. Reverse the partial fill-in first (real → temp),
+    // then restore from backup (backup → real), so real ends up back at
+    // its pre-swap state.
+    for (const name of movedToReal.reverse()) {
+      try {
+        await moveEntryWithExdevFallback(
+          join(realWorkspaceDir, name),
+          join(tempWorkspaceDir, name),
+        );
+      } catch (restoreErr) {
+        log.error(
+          { err: restoreErr, name, realWorkspaceDir, tempWorkspaceDir },
+          "Failed to undo partial swap-in during rollback",
+        );
+      }
+    }
+    for (const name of movedToBackup.reverse()) {
+      try {
+        await moveEntryWithExdevFallback(
+          join(backupDir, name),
+          join(realWorkspaceDir, name),
+        );
+      } catch (restoreErr) {
+        log.error(
+          { err: restoreErr, name, realWorkspaceDir, backupDir },
+          "Failed to restore entry from backup during swap-in rollback",
+        );
+      }
+    }
+    throw err;
+  }
+
+  // Phase 3: remove the now-empty temp dir. If it still has stragglers
+  // (pax headers, etc. we didn't move) take them down too.
+  await rm(tempWorkspaceDir, { recursive: true, force: true }).catch(() => {
+    /* best effort — caller will log if it matters */
+  });
+}
+
+/**
+ * Move a single filesystem entry from `src` to `dst`, falling back to
+ * `cp` + `rm` when `rename` returns EXDEV (cross-filesystem move).
+ *
+ * In the production container, `realWorkspaceDir` is typically a mounted
+ * volume on a separate filesystem from the backup / temp dirs that live on
+ * the overlay root — so every move in `swapWorkspaceContents` crosses a
+ * filesystem boundary and would fail with EXDEV without this fallback.
+ * Every other move helper in this file (`carryOverEntry`,
+ * `restoreCarriedPaths`, `restoreFromBackupDir`, `mergeBackupIntoLive`)
+ * already handles EXDEV the same way; this helper centralises that
+ * behaviour for the swap path.
+ */
+async function moveEntryWithExdevFallback(
+  src: string,
+  dst: string,
+): Promise<void> {
+  try {
+    await rename(src, dst);
+  } catch (err) {
+    if (isEXDEV(err)) {
+      try {
+        await copyTreeSkippingTransient(src, dst);
+      } catch (cpErr) {
+        // Partial cp could leave incomplete content at `dst`. Remove it so
+        // `restoreFromBackupDir` (running on a later error path) doesn't
+        // mistake half-a-tree for a valid backup entry and clobber the
+        // still-intact source with it. Leave `src` alone — we never got
+        // to the rm step, so it's whole.
+        await rm(dst, { recursive: true, force: true }).catch((rmErr) => {
+          log.warn(
+            { err: rmErr, dst },
+            "Failed to clean up partial cp destination after EXDEV fallback failure",
+          );
+        });
+        throw cpErr;
+      }
+      await rm(src, { recursive: true, force: true });
+      return;
+    }
+    throw err;
+  }
+}
+
+/**
+ * `fs.cp(..., { recursive: true })` throws `ERR_FS_CP_SOCKET` (and
+ * similar for FIFOs / other special files) in newer Node versions, which
+ * breaks imports in real deployments — most concretely, the meet-join
+ * skill creates unix sockets under `meets/<id>/sockets/` that end up
+ * inside the workspace. Special files are session-scoped, always safe to
+ * drop across an import. This wrapper asks `fs.cp` to skip anything that
+ * isn't a regular file / directory / symlink, and falls back to a manual
+ * walk if `fs.cp` still trips over something we couldn't filter ahead of
+ * time.
+ */
+async function copyTreeSkippingTransient(
+  src: string,
+  dst: string,
+): Promise<void> {
+  try {
+    await cp(src, dst, {
+      recursive: true,
+      preserveTimestamps: true,
+      filter: async (source) => {
+        try {
+          const info = await lstat(source);
+          // Keep regular files, directories, and symlinks. Skip sockets,
+          // FIFOs, block/char devices — transient / non-portable content
+          // that `fs.cp` refuses to replicate anyway.
+          return info.isFile() || info.isDirectory() || info.isSymbolicLink();
+        } catch {
+          // If we can't stat, let `fs.cp` try and surface the real error.
+          return true;
+        }
+      },
+    });
+  } catch (err) {
+    if (!isCpUnsupportedFileType(err)) throw err;
+    // Fall back to a manual walk that skips anything that isn't a file,
+    // dir, or symlink. `fs.cp` on Node can still occasionally surface
+    // ERR_FS_CP_SOCKET despite the filter (races where the socket
+    // appears between filter call and read), so the manual walk is the
+    // last-resort path.
+    log.warn(
+      { err, src, dst },
+      "cp filter still surfaced unsupported file type; falling back to manual walk",
+    );
+    await manualCopyTreeSkippingTransient(src, dst);
+  }
+}
+
+function isCpUnsupportedFileType(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const code = (err as { code?: string }).code;
+  return (
+    code === "ERR_FS_CP_SOCKET" ||
+    code === "ERR_FS_CP_FIFO_PIPE" ||
+    code === "ERR_FS_CP_UNKNOWN"
+  );
+}
+
+async function manualCopyTreeSkippingTransient(
+  src: string,
+  dst: string,
+): Promise<void> {
+  const info = await lstat(src);
+  if (info.isSymbolicLink()) {
+    const target = await readlink(src);
+    await mkdir(dirname(dst), { recursive: true });
+    // `symlink` throws EEXIST if `dst` already exists. We may be running
+    // as a fallback after `fs.cp` partially populated `dst` (including
+    // creating this symlink itself), so clear it first — unlike
+    // `copyFile` / recursive `mkdir`, `symlink` has no replace-mode.
+    await rm(dst, { force: true }).catch(() => {
+      /* best effort — a subsequent symlink error will surface any real issue */
+    });
+    await symlink(target, dst);
+    return;
+  }
+  if (info.isFile()) {
+    await mkdir(dirname(dst), { recursive: true });
+    await copyFile(src, dst);
+    return;
+  }
+  if (info.isDirectory()) {
+    await mkdir(dst, { recursive: true });
+    for (const name of await readdir(src)) {
+      await manualCopyTreeSkippingTransient(join(src, name), join(dst, name));
+    }
+    return;
+  }
+  // Anything else (socket, FIFO, device) — intentionally skip.
+  log.debug(
+    { src },
+    "Skipping transient/special filesystem entry during cross-fs copy",
+  );
+}
+
+interface RestoreFromBackupResult {
+  ok: boolean;
+  /** Entries that could not be restored; backup must be preserved if non-zero. */
+  failedCount: number;
+}
+
+/**
+ * Move every top-level entry from `backupDir` back into `realWorkspaceDir`,
+ * overwriting partial swap-in leftovers from a crashed import.
+ *
+ * `carried` is the carry-over plan. Any entry in `carried` whose
+ * `liveChild` is a descendant of a backup entry protects that subtree from
+ * being rm'd — if the backup captured only part of a directory (because
+ * carry-over already moved `data/db` out before the swap started), we must
+ * not clobber a `data/db` that recovery already restored into
+ * `realWorkspaceDir/data/`. In that case we merge the backup's `data/`
+ * into `realWorkspaceDir/data/` per-entry instead of replacing it.
+ *
+ * Used by the in-process rollback path (failed `swapWorkspaceContents`)
+ * and by `recoverInterruptedImport` at boot.
+ *
+ * Best-effort per-entry: logs failures and continues rather than
+ * throwing, and returns a status with `failedCount` so callers can decide
+ * whether to preserve the backup dir for manual recovery. A missing
+ * backup dir is a clean no-op (`{ ok: true, failedCount: 0 }`).
+ */
+async function restoreFromBackupDir(
+  backupDir: string,
+  realWorkspaceDir: string,
+  carried: readonly CarriedPath[],
+): Promise<RestoreFromBackupResult> {
+  let backupEntries: string[];
+  try {
+    backupEntries = await readdir(backupDir);
+  } catch (err) {
+    if (isENOENT(err)) return { ok: true, failedCount: 0 };
+    log.error(
+      { err, backupDir },
+      "Failed to read backup dir during restore; skipping backup restoration",
+    );
+    return { ok: false, failedCount: 1 };
+  }
+
+  const carriedLivePaths = carried.map((c) => resolve(c.liveChild));
+
+  let failedCount = 0;
+
+  for (const name of backupEntries) {
+    const src = join(backupDir, name);
+    const dst = join(realWorkspaceDir, name);
+    const dstAbs = resolve(dst);
+
+    // If any carried path lives strictly inside `dst` (e.g., dst is
+    // `real/data/` and a carried path is `real/data/db`), we can't
+    // wholesale `rm(dst) + rename(src)` — that would destroy the carried
+    // content that recovery has already put back. Merge instead.
+    const hasProtectedDescendant = carriedLivePaths.some((carriedAbs) => {
+      if (carriedAbs === dstAbs) return false;
+      return carriedAbs.startsWith(dstAbs + sep);
+    });
+
+    if (hasProtectedDescendant) {
+      try {
+        await mergeBackupIntoLive(src, dst, carriedLivePaths);
+      } catch (err) {
+        failedCount += 1;
+        log.error(
+          { err, src, dst },
+          "Failed to merge backup subtree into live workspace during restore",
+        );
+      }
+      continue;
+    }
+
+    // No carried descendants — safe to replace wholesale. If real already
+    // has this entry (partial swap-in), remove it first.
+    try {
+      await rm(dst, { recursive: true, force: true });
+    } catch (err) {
+      log.warn(
+        { err, dst },
+        "Failed to clear partial-swap entry before restoring from backup",
+      );
+    }
+    try {
+      await rename(src, dst);
+    } catch (err) {
+      if (isEXDEV(err)) {
+        try {
+          await copyTreeSkippingTransient(src, dst);
+          await rm(src, { recursive: true, force: true });
+          continue;
+        } catch (cpErr) {
+          failedCount += 1;
+          log.error(
+            { err: cpErr, src, dst },
+            "Failed to restore backup entry via cp fallback; manual recovery may be required",
+          );
+          continue;
+        }
+      }
+      failedCount += 1;
+      log.error(
+        { err, src, dst },
+        "Failed to restore backup entry; manual recovery may be required",
+      );
+    }
+  }
+
+  return { ok: failedCount === 0, failedCount };
+}
+
+/**
+ * Copy `src` (a backup subtree) into `dst` (the live-workspace subtree,
+ * which already exists and may already contain carried descendants we
+ * must not clobber). Each child in `src` that doesn't collide with an
+ * existing entry in `dst` is moved in; children that DO collide recurse
+ * so carried files deeper in the tree survive.
+ */
+async function mergeBackupIntoLive(
+  src: string,
+  dst: string,
+  carriedLivePaths: readonly string[],
+): Promise<void> {
+  await mkdir(dst, { recursive: true });
+
+  let children: string[];
+  try {
+    children = await readdir(src);
+  } catch (err) {
+    if (isENOENT(err)) return;
+    throw err;
+  }
+
+  for (const childName of children) {
+    const childSrc = join(src, childName);
+    const childDst = join(dst, childName);
+    const childDstAbs = resolve(childDst);
+
+    let dstExists = false;
+    try {
+      await stat(childDst);
+      dstExists = true;
+    } catch (err) {
+      if (!isENOENT(err)) throw err;
+    }
+
+    if (!dstExists) {
+      try {
+        await rename(childSrc, childDst);
+      } catch (err) {
+        if (isEXDEV(err)) {
+          await copyTreeSkippingTransient(childSrc, childDst);
+          await rm(childSrc, { recursive: true, force: true });
+        } else {
+          throw err;
+        }
+      }
+      continue;
+    }
+
+    // dst child exists — check whether it IS a carried entry or CONTAINS
+    // one. If it IS carried, backup's version is stale (carried is
+    // canonical). If it CONTAINS carried, recurse.
+    const isCarriedLeaf = carriedLivePaths.includes(childDstAbs);
+    if (isCarriedLeaf) {
+      // Skip — keep carried version that was already restored.
+      continue;
+    }
+    const containsCarried = carriedLivePaths.some(
+      (c) => c !== childDstAbs && c.startsWith(childDstAbs + sep),
+    );
+    if (containsCarried) {
+      await mergeBackupIntoLive(childSrc, childDst, carriedLivePaths);
+      continue;
+    }
+
+    // No carried conflict — backup's version should win over whatever
+    // the partial-swap-in put here.
+    await rm(childDst, { recursive: true, force: true });
+    try {
+      await rename(childSrc, childDst);
+    } catch (err) {
+      if (isEXDEV(err)) {
+        await copyTreeSkippingTransient(childSrc, childDst);
+        await rm(childSrc, { recursive: true, force: true });
+      } else {
+        throw err;
+      }
     }
   }
 }
@@ -1470,18 +2092,46 @@ interface ImportMarker {
   tempWorkspaceDir: string;
   /** Preserved paths moved out of the live workspace pre-swap. */
   carried: Array<{ liveChild: string; tempChild: string }>;
+  /**
+   * Absolute path of the `${realWorkspaceDir}.pre-import-<ts>` backup dir
+   * (optional — only present once the content-level swap phase has started).
+   * `recoverInterruptedImport` moves entries from here back into
+   * `realWorkspaceDir` if it's populated, reversing any partial swap.
+   */
+  backupDir?: string;
+  /**
+   * `true` once `swapWorkspaceContents` has returned successfully.
+   * `recoverInterruptedImport` checks this before restoring from
+   * `backupDir`: if the swap already completed, the backup is the OLD
+   * pre-import state and restoring it would silently undo the successful
+   * import. Instead, recovery just cleans up residual backup / temp
+   * artifacts.
+   */
+  swapCompleted?: boolean;
 }
 
+/** Basename of the recovery marker inside `realWorkspaceDir`. */
+const IMPORT_MARKER_BASENAME = ".import-marker.json";
+
 /**
- * Deterministic marker location next to (but not inside) the workspace dir.
- * Putting it outside the workspace means the marker is not swept away by
- * the atomic rename of the workspace itself.
+ * Deterministic marker location INSIDE `realWorkspaceDir`.
+ *
+ * The marker must live on the same persistent volume as the scratch
+ * dirs (`.pre-import-<ts-uuid>`, `.import-<uuid>`). In Docker/Kubernetes
+ * the workspace is typically a mounted persistent volume while the
+ * container rootfs is ephemeral — a pod restart can drop files on
+ * rootfs while preserving the workspace, so a marker stored at
+ * `dirname(realWorkspaceDir)` could vanish across restart while the
+ * scratch dirs survive, leaving `recoverInterruptedImport` with
+ * nothing to act on and orphaning the interrupted state.
+ *
+ * The dot-prefix keeps it out of the way of normal content; phase 1 of
+ * `swapWorkspaceContents` filters it out via `scratchBasenames`, and
+ * the swap's content move also skips it so the marker stays in place
+ * across the workspace swap itself.
  */
 function importMarkerPathFor(realWorkspaceDir: string): string {
-  return join(
-    dirname(realWorkspaceDir),
-    `${basename(realWorkspaceDir)}.import-marker.json`,
-  );
+  return join(realWorkspaceDir, IMPORT_MARKER_BASENAME);
 }
 
 async function writeImportMarker(
@@ -1505,6 +2155,23 @@ async function safelyDeleteMarker(markerPath: string): Promise<void> {
   }
 }
 
+export interface RecoveryResult {
+  /**
+   * `true` when there's no leftover rollback state blocking a new
+   * import: no marker, successful restore, or a recorded
+   * `swapCompleted` fast-path cleanup. Callers (`streamCommitImport`,
+   * daemon start-up) can proceed safely.
+   *
+   * `false` when the rollback is incomplete — the marker / backup /
+   * temp tree are intentionally preserved on disk for a future retry,
+   * so any caller about to rewrite the marker must refuse to proceed
+   * to avoid orphaning the unresolved state.
+   */
+  ok: boolean;
+  /** Number of entries that couldn't be restored in the partial case. */
+  failedCount: number;
+}
+
 /**
  * Replay any crash-interrupted import against `realWorkspaceDir`.
  *
@@ -1514,19 +2181,22 @@ async function safelyDeleteMarker(markerPath: string): Promise<void> {
  * `embedding-models` / `deprecated`.
  *
  * Best-effort: logs per-entry failures and keeps going rather than
- * throwing. If no marker exists this is a cheap no-op.
+ * throwing. If no marker exists this is a cheap no-op. Returns a
+ * `RecoveryResult` so callers can distinguish "nothing to recover /
+ * recovered cleanly" from "rollback still pending — don't start
+ * anything new."
  */
 export async function recoverInterruptedImport(
   realWorkspaceDir: string,
-): Promise<void> {
+): Promise<RecoveryResult> {
   const markerPath = importMarkerPathFor(resolve(realWorkspaceDir));
   let raw: string;
   try {
     raw = await readFile(markerPath, "utf8");
   } catch (err) {
-    if (isENOENT(err)) return;
+    if (isENOENT(err)) return { ok: true, failedCount: 0 };
     log.warn({ err, markerPath }, "Unable to read import-recovery marker");
-    return;
+    return { ok: true, failedCount: 0 };
   }
 
   let marker: ImportMarker;
@@ -1538,7 +2208,7 @@ export async function recoverInterruptedImport(
       "Import-recovery marker is malformed; deleting without acting on it",
     );
     await safelyDeleteMarker(markerPath);
-    return;
+    return { ok: true, failedCount: 0 };
   }
 
   if (
@@ -1550,7 +2220,7 @@ export async function recoverInterruptedImport(
       "Import-recovery marker has unexpected shape; deleting",
     );
     await safelyDeleteMarker(markerPath);
-    return;
+    return { ok: true, failedCount: 0 };
   }
 
   log.info(
@@ -1558,27 +2228,121 @@ export async function recoverInterruptedImport(
       markerPath,
       tempWorkspaceDir: marker.tempWorkspaceDir,
       carriedCount: marker.carried.length,
+      swapCompleted: marker.swapCompleted === true,
     },
-    "Recovering from interrupted import: restoring preserved paths",
+    "Recovering from interrupted import",
   );
 
-  await restoreCarriedPaths(
-    marker.carried.map((c) => ({
-      liveChild: c.liveChild,
-      tempChild: c.tempChild,
-    })),
-  );
+  const carriedEntries = marker.carried.map((c) => ({
+    liveChild: c.liveChild,
+    tempChild: c.tempChild,
+  }));
 
-  // Clean up the temp tree (best-effort — partial writes there are fine to
-  // drop now that preserved paths are back in the live workspace).
-  try {
-    await rm(marker.tempWorkspaceDir, { recursive: true, force: true });
-  } catch (err) {
-    log.warn(
-      { err, tempWorkspaceDir: marker.tempWorkspaceDir },
-      "Failed to clean up temp workspace during import recovery",
+  // FAST PATH: the previous process completed the swap but crashed before
+  // deleting the marker. Backup is the OLD pre-import state — restoring it
+  // would silently undo the successful import. Skip backup restore, skip
+  // carried restore (everything is already in live), just clean up
+  // artifacts.
+  if (marker.swapCompleted === true) {
+    if (typeof marker.backupDir === "string" && marker.backupDir.length > 0) {
+      await rm(marker.backupDir, { recursive: true, force: true }).catch(
+        (err) => {
+          log.warn(
+            { err, backupDir: marker.backupDir },
+            "Failed to clean up backup dir after completed import",
+          );
+        },
+      );
+    }
+    await rm(marker.tempWorkspaceDir, { recursive: true, force: true }).catch(
+      (err) => {
+        log.warn(
+          { err, tempWorkspaceDir: marker.tempWorkspaceDir },
+          "Failed to clean up temp workspace after completed import",
+        );
+      },
+    );
+    await safelyDeleteMarker(markerPath);
+    return { ok: true, failedCount: 0 };
+  }
+
+  // SLOW PATH: swap did not complete. Roll back to pre-import state.
+  //
+  // Order matters: restore from backup FIRST, then restore carried
+  // entries. If carried ran first, a subsequent `restoreFromBackupDir`
+  // call that owns a parent dir (`data/`) would clobber the just-restored
+  // carried entries (`data/db`, `data/qdrant`). Backup-first + carrier-
+  // aware merge in `restoreFromBackupDir` preserves both.
+  let restoreResult: RestoreFromBackupResult = { ok: true, failedCount: 0 };
+  if (typeof marker.backupDir === "string" && marker.backupDir.length > 0) {
+    try {
+      restoreResult = await restoreFromBackupDir(
+        marker.backupDir,
+        resolve(realWorkspaceDir),
+        carriedEntries,
+      );
+    } catch (err) {
+      log.error(
+        { err, backupDir: marker.backupDir },
+        "Failed to restore from backup dir during import recovery; manual intervention may be required",
+      );
+      restoreResult = { ok: false, failedCount: 1 };
+    }
+  }
+
+  await restoreCarriedPaths(carriedEntries);
+
+  // Only drop the backup dir if the restore completed cleanly. A partial
+  // restore means there's still content in `backupDir` that no other
+  // state holds — keep it for manual / next-boot recovery.
+  if (
+    restoreResult.ok &&
+    typeof marker.backupDir === "string" &&
+    marker.backupDir.length > 0
+  ) {
+    await rm(marker.backupDir, { recursive: true, force: true }).catch(
+      (err) => {
+        log.warn(
+          { err, backupDir: marker.backupDir },
+          "Failed to clean up backup dir during import recovery",
+        );
+      },
+    );
+  } else if (!restoreResult.ok) {
+    log.error(
+      {
+        backupDir: marker.backupDir,
+        failedCount: restoreResult.failedCount,
+      },
+      "Backup restore had failures; preserving backup dir and marker for next-boot retry",
     );
   }
 
-  await safelyDeleteMarker(markerPath);
+  // Only clean up the temp tree + marker when the restore completed
+  // cleanly. On a partial restore the marker's `carried` plan still
+  // references tempChild paths, so deleting the temp tree would break
+  // the next boot's recovery attempt — leave both in place for retry.
+  if (restoreResult.ok) {
+    try {
+      await rm(marker.tempWorkspaceDir, { recursive: true, force: true });
+    } catch (err) {
+      log.warn(
+        { err, tempWorkspaceDir: marker.tempWorkspaceDir },
+        "Failed to clean up temp workspace during import recovery",
+      );
+    }
+    await safelyDeleteMarker(markerPath);
+  } else {
+    log.warn(
+      {
+        tempWorkspaceDir: marker.tempWorkspaceDir,
+        markerPath,
+      },
+      "Preserving temp tree + marker for next-boot recovery retry",
+    );
+  }
+
+  return restoreResult.ok
+    ? { ok: true, failedCount: 0 }
+    : { ok: false, failedCount: restoreResult.failedCount };
 }
