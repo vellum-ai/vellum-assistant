@@ -114,7 +114,7 @@ export const PermissionsConfigSchema = z
             ),
         }),
       ])
-      .default("low")
+      .default({ conversation: "low", background: "medium", headless: "none" })
       .describe(
         "Auto-approve tools at or below this risk level without prompting. " +
           "Accepts a scalar ('none', 'low', 'medium') applied to all contexts, " +

@@ -675,7 +675,11 @@ describe("AssistantConfigSchema", () => {
     expect(result.permissions).toEqual({
       mode: "workspace",
       hostAccess: false,
-      autoApproveUpTo: "low",
+      autoApproveUpTo: {
+        conversation: "low",
+        background: "medium",
+        headless: "none",
+      },
     });
   });
 
@@ -712,11 +716,15 @@ describe("AssistantConfigSchema", () => {
     }
   });
 
-  test("defaults autoApproveUpTo to low when not specified", () => {
+  test("defaults autoApproveUpTo to per-context object when not specified", () => {
     const result = AssistantConfigSchema.parse({
       permissions: { mode: "workspace" },
     });
-    expect(result.permissions.autoApproveUpTo).toBe("low");
+    expect(result.permissions.autoApproveUpTo).toEqual({
+      conversation: "low",
+      background: "medium",
+      headless: "none",
+    });
   });
 
   test("accepts autoApproveUpTo none", () => {
@@ -2365,7 +2373,11 @@ describe("loadConfig with schema validation", () => {
     expect(config.permissions).toEqual({
       mode: "workspace",
       hostAccess: false,
-      autoApproveUpTo: "low",
+      autoApproveUpTo: {
+        conversation: "low",
+        background: "medium",
+        headless: "none",
+      },
     });
   });
 
