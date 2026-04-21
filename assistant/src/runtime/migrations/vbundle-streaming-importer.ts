@@ -737,11 +737,20 @@ export async function streamCommitImport(
     try {
       await promoteLegacyStagedFiles(legacyStaged, importedFiles);
     } catch (err) {
+      // Legacy promotion mutates live files one at a time, so a mid-loop
+      // failure leaves an observable partial import: every entry in
+      // `importedFiles` whose `action` has flipped from "created" (the
+      // temp-staged state) to "overwritten" or that now carries a
+      // `backup_path` has landed on live disk. Report that back so callers
+      // can tell what changed, matching commitImport's partial_report
+      // contract for its in-place path.
+      const partialReport = buildReport(manifest, importedFiles, warnings);
       await cleanupTempDir();
       return {
         ok: false,
         reason: "write_failed",
         message: `Failed to promote legacy-format import into workspace: ${errMessage(err)}`,
+        partial_report: partialReport,
       };
     }
 

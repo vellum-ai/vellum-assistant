@@ -90,6 +90,7 @@ import {
 } from "../runtime/capability-tokens.js";
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
+import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import {
   onCesClientChanged,
@@ -278,6 +279,24 @@ export async function runDaemon(): Promise<void> {
     initSentry();
 
     ensureDataDir();
+
+    // Recover from any streaming `.vbundle` import that was interrupted by a
+    // crash or SIGKILL. If the previous process died between
+    // `carryOverPreservedPaths` and the atomic workspace swap, the live
+    // workspace may be missing `data/db` / `data/qdrant` / etc. The marker
+    // at `<workspaceDir>.import-marker.json` (persisted before any rename
+    // runs) tells us where the orphaned preserved paths landed; the
+    // recovery helper moves them back into the live workspace and cleans
+    // up the temp tree. Running this BEFORE `initializeDb()` ensures the
+    // DB singleton opens against the fully-restored `assistant.db`.
+    try {
+      await recoverInterruptedImport(getWorkspaceDir());
+    } catch (err) {
+      log.warn(
+        { err },
+        "recoverInterruptedImport threw during daemon startup; continuing",
+      );
+    }
 
     // Load (or generate + persist) the auth signing key so tokens survive
     // daemon restarts.
@@ -644,7 +663,9 @@ export async function runDaemon(): Promise<void> {
               ...(startupProxyCtx.assistantApiKey
                 ? { assistantApiKey: startupProxyCtx.assistantApiKey }
                 : {}),
-              ...(startupAssistantId ? { assistantId: startupAssistantId } : {}),
+              ...(startupAssistantId
+                ? { assistantId: startupAssistantId }
+                : {}),
             });
             if (accepted) {
               log.info("CES reconnection handshake accepted");
@@ -790,12 +811,10 @@ export async function runDaemon(): Promise<void> {
         // stays unaffected.
         void (async () => {
           try {
-            const { reconcilePkbIndex } = await import(
-              "../memory/pkb/pkb-reconcile.js"
-            );
-            const { PKB_WORKSPACE_SCOPE } = await import(
-              "../memory/pkb/types.js"
-            );
+            const { reconcilePkbIndex } =
+              await import("../memory/pkb/pkb-reconcile.js");
+            const { PKB_WORKSPACE_SCOPE } =
+              await import("../memory/pkb/types.js");
             const pkbRoot = join(getWorkspaceDir(), "pkb");
             await reconcilePkbIndex(pkbRoot, PKB_WORKSPACE_SCOPE);
           } catch (err) {
@@ -853,7 +872,6 @@ export async function runDaemon(): Promise<void> {
       } catch (err) {
         log.warn({ err }, "Graph bootstrap check failed — continuing");
       }
-
     }
 
     registerWatcherProviders();
