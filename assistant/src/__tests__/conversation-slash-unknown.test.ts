@@ -30,7 +30,7 @@ mock.module("../providers/registry.js", () => ({
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-    
+
     llm: {
       default: {
         provider: "mock-provider",
@@ -204,6 +204,24 @@ mock.module("../config/skill-state.js", () => ({
       summary: s,
       state: "enabled",
     })),
+}));
+
+// Avoid real workspace-git initialization on /tmp — on CI runners,
+// `git add -A` under /tmp hits permission errors on systemd-private dirs,
+// which blocks `runAgentLoopImpl` for long enough to trip the test's
+// 5s timeout before `AgentLoop.run` is invoked.
+mock.module("../workspace/git-service.js", () => ({
+  getWorkspaceGitService: () => ({
+    ensureInitialized: async () => {},
+  }),
+}));
+
+mock.module("../workspace/turn-commit.js", () => ({
+  commitTurnChanges: async () => {},
+}));
+
+mock.module("../memory/app-git-service.js", () => ({
+  commitAppTurnChanges: async () => {},
 }));
 
 // ---------------------------------------------------------------------------
