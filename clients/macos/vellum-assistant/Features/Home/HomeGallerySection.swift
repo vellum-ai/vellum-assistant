@@ -469,6 +469,44 @@ struct HomeGallerySection: View {
                 .frame(height: 520)
             }
 
+            // MARK: - HomePermissionChatPreview
+
+            if filter == nil || filter == "homePermissionChatPreview" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "HomePermissionChatPreview",
+                    description: "Pure body content for the Home detail panel's permission-request variant — last user message, assistant preamble, and an inline tool confirmation bubble."
+                )
+
+                HomeDetailPanel(
+                    icon: nil,
+                    title: "Permission to access something",
+                    onGoToThread: {},
+                    onDismiss: {}
+                ) {
+                    HomePermissionChatPreview(
+                        userMessage: "Can you send $5,000 to NBA Merchandising for the annual subscription?",
+                        assistantResponse: "Sure — I've drafted the transfer on Stripe. Before I release it, I need your permission to authorize the payment.",
+                        confirmation: ToolConfirmationData(
+                            requestId: "preview-nba-txn",
+                            toolName: "stripe_transfer",
+                            input: [
+                                "amount_usd": .init(5000),
+                                "recipient": .init("NBA Merchandising")
+                            ],
+                            riskLevel: "medium"
+                        ),
+                        onAllow: {},
+                        onDeny: {},
+                        onAlwaysAllow: { _, _, _, _ in }
+                    )
+                }
+                .frame(height: 520)
+            }
+
             // MARK: - HomeSplitLayout
 
             if filter == nil || filter == "homeSplitLayout" {
@@ -667,12 +705,13 @@ private struct HomeEmailEditorDemo: View {
 /// the two columns, not to exercise the real home page.
 private struct HomeSplitLayoutDemo: View {
     private enum Variant: String, CaseIterable, Identifiable {
-        case email, invoice
+        case email, document, permissionChat
         var id: String { rawValue }
         var label: String {
             switch self {
             case .email: return "Email editor"
-            case .invoice: return "Invoice preview"
+            case .document: return "Document preview"
+            case .permissionChat: return "Permission chat"
             }
         }
     }
@@ -740,7 +779,7 @@ private struct HomeSplitLayoutDemo: View {
                     onSend: {}
                 )
             }
-        case .invoice:
+        case .document:
             HomeDetailPanel(
                 icon: .file,
                 title: "Porsche-preview-2.4S.png",
@@ -754,6 +793,30 @@ private struct HomeSplitLayoutDemo: View {
                         .init(label: "Action", style: .outlined, action: {}),
                         .init(label: "Action", style: .primary, action: {})
                     ]
+                )
+            }
+        case .permissionChat:
+            HomeDetailPanel(
+                icon: nil,
+                title: "Permission to access something",
+                onGoToThread: {},
+                onDismiss: {}
+            ) {
+                HomePermissionChatPreview(
+                    userMessage: "Can you send $5,000 to NBA Merchandising for the annual subscription?",
+                    assistantResponse: "Sure — I've drafted the transfer on Stripe. Before I release it, I need your permission to authorize the payment.",
+                    confirmation: ToolConfirmationData(
+                        requestId: "preview-nba-txn",
+                        toolName: "stripe_transfer",
+                        input: [
+                            "amount_usd": .init(5000),
+                            "recipient": .init("NBA Merchandising")
+                        ],
+                        riskLevel: "medium"
+                    ),
+                    onAllow: {},
+                    onDeny: {},
+                    onAlwaysAllow: { _, _, _, _ in }
                 )
             }
         }
@@ -781,6 +844,7 @@ extension HomeGallerySection {
         case "homeDetailPanel": HomeGallerySection(filter: "homeDetailPanel")
         case "homeEmailEditor": HomeGallerySection(filter: "homeEmailEditor")
         case "homeDocumentPreview": HomeGallerySection(filter: "homeDocumentPreview")
+        case "homePermissionChatPreview": HomeGallerySection(filter: "homePermissionChatPreview")
         case "homeSplitLayout": HomeGallerySection(filter: "homeSplitLayout")
         case "homeSuggestionPillBar": HomeGallerySection(filter: "homeSuggestionPillBar")
         case "homeFeedFilterBar": HomeGallerySection(filter: "homeFeedFilterBar")
