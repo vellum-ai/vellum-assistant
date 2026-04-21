@@ -34,7 +34,43 @@ import { validateVBundle } from "./vbundle-validator.js";
 const log = getLogger("vbundle-importer");
 
 /** Archive path for the legacy guardian user persona file. */
-const LEGACY_USER_MD_ARCHIVE_PATH = "prompts/USER.md";
+export const LEGACY_USER_MD_ARCHIVE_PATH = "prompts/USER.md";
+
+/**
+ * Archive paths recognized as JSON config files that must be run through
+ * `sanitizeConfigForTransfer` before writing to disk. Exported so the
+ * streaming importer can apply the same defense-in-depth treatment.
+ */
+export const CONFIG_ARCHIVE_PATHS: ReadonlySet<string> = new Set([
+  "workspace/config.json",
+  "config/settings.json",
+]);
+
+/**
+ * Paths inside the workspace directory that must be preserved across an
+ * import when the bundle does not carry entries for them.
+ *
+ * Each entry is a path RELATIVE to the workspace root. Two kinds of live
+ * data warrant carry-over:
+ *
+ * - `embedding-models` / `deprecated`: large local caches / quarantine
+ *   directories that are never shipped inside bundles but are expensive
+ *   or impossible to reconstruct from an import.
+ * - `data/db` / `data/qdrant`: user-critical state (SQLite assistant DB;
+ *   Qdrant vector store). If the bundle omits them — e.g. a partial
+ *   bundle covering only prompts/config — the live copies must survive.
+ *
+ * Both the buffer-based `commitImport` (which selectively clears the
+ * workspace in place) and the streaming importer (which swaps the
+ * workspace with a freshly-populated temp tree) consult this list so
+ * their behavior stays in sync.
+ */
+export const WORKSPACE_PRESERVE_PATHS: readonly string[] = [
+  "embedding-models",
+  "deprecated",
+  "data/db",
+  "data/qdrant",
+];
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -171,10 +207,19 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     entryMap = validation.entries;
   }
 
-  // Directories to preserve when clearing the workspace.
-  const WORKSPACE_SKIP_DIRS = new Set(["embedding-models", "deprecated"]);
-  // data/qdrant and data/db are nested — we skip them inside "data/"
-  const DATA_SKIP_DIRS = new Set(["qdrant", "db"]);
+  // Directories to preserve when clearing the workspace. Derived from the
+  // shared WORKSPACE_PRESERVE_PATHS list so the streaming importer's
+  // carry-over logic and this in-place clear stay in sync.
+  const WORKSPACE_SKIP_DIRS = new Set<string>();
+  const DATA_SKIP_DIRS = new Set<string>();
+  for (const rel of WORKSPACE_PRESERVE_PATHS) {
+    const parts = rel.split("/");
+    if (parts.length === 1) {
+      WORKSPACE_SKIP_DIRS.add(parts[0]);
+    } else if (parts.length === 2 && parts[0] === "data") {
+      DATA_SKIP_DIRS.add(parts[1]);
+    }
+  }
 
   // Step 1b: Clear the workspace directory before restore if the bundle
   // contains new-format workspace/ entries. This ensures an exact-match
@@ -358,10 +403,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
 
     // Sanitize config files to strip environment-specific fields (defense-in-depth)
     let dataToWrite: Uint8Array = archiveEntry.data;
-    if (
-      fileEntry.path === "workspace/config.json" ||
-      fileEntry.path === "config/settings.json"
-    ) {
+    if (CONFIG_ARCHIVE_PATHS.has(fileEntry.path)) {
       const configJson = new TextDecoder().decode(archiveEntry.data);
       const sanitized = sanitizeConfigForTransfer(configJson);
       dataToWrite = new TextEncoder().encode(sanitized);
