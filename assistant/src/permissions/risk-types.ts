@@ -156,6 +156,8 @@ export interface CommandRiskSpec {
    * Global flags that consume the next token as a value (e.g. git -C <path>).
    * Used by resolveSubcommand to skip past flag-value pairs when locating the
    * first positional arg (the subcommand name).
+   *
+   * @deprecated Use argSchema.valueFlags instead. Kept for backward compatibility during migration.
    */
   globalValueFlags?: string[];
   /**
@@ -163,6 +165,64 @@ export interface CommandRiskSpec {
    * without consulting the user's autoApproveUpTo threshold.
    */
   sandboxAutoApprove?: boolean;
+  /**
+   * Arg-parsing schema for extracting structured argument information.
+   * Used by `parseArgs()` to classify args into flags, positionals, and
+   * path arguments for downstream path-based policy checks.
+   */
+  argSchema?: ArgSchema;
+}
+
+// ── Arg schema types ─────────────────────────────────────────────────────────
+
+/** Describes the role of a positional argument in a command. */
+export interface PositionalDesc {
+  /** The semantic role of this positional argument. */
+  role: "path" | "pattern" | "script" | "value" | "command";
+  /**
+   * When true, this descriptor applies to all subsequent positionals too
+   * (i.e. the remaining args are all of this role).
+   */
+  rest?: boolean;
+}
+
+/**
+ * Schema for parsing a command's arguments into structured data.
+ *
+ * Drives the `parseArgs()` utility to classify each token as a flag,
+ * positional, or path argument.
+ */
+export interface ArgSchema {
+  /** Flags that consume the next token as a value (e.g. `-o`, `--output`). */
+  valueFlags?: string[];
+  /**
+   * Describes how positional arguments should be interpreted:
+   * - `"paths"` (or omitted): all positionals are filesystem paths
+   * - `"none"`: no positionals are filesystem paths
+   * - `PositionalDesc[]`: per-index role descriptors
+   */
+  positionals?: "paths" | "none" | PositionalDesc[];
+  /** Flag names whose consumed values are filesystem paths (e.g. `{ "-t": true }`). */
+  pathFlags?: Record<string, true>;
+  /**
+   * Whether `--` ends flag parsing (everything after is positional).
+   * Defaults to `true` when omitted.
+   */
+  respectsDoubleDash?: boolean;
+}
+
+/**
+ * The result of parsing a command's arguments via `parseArgs()`.
+ */
+export interface ParsedArgs {
+  /** Flag name to value (`true` for boolean flags, string for value-consuming flags). */
+  flags: Map<string, string | true>;
+  /** All positional arguments in order. */
+  positionals: string[];
+  /** Subset of positionals and flag values that are filesystem paths. */
+  pathArgs: string[];
+  /** Whether a `--` double-dash terminator was encountered. */
+  sawDoubleDash: boolean;
 }
 
 // ── User rule types ──────────────────────────────────────────────────────────

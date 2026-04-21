@@ -31,10 +31,11 @@ const TMP_PATHS = String.raw`^(?:/tmp|/var/tmp|\./|\.\.\/)`;
 
 export const DEFAULT_COMMAND_REGISTRY = {
   // ── Read-only filesystem commands ──────────────────────────────────────────
-  ls: { baseRisk: "low", sandboxAutoApprove: true },
+  ls: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
   cat: {
     baseRisk: "low",
     sandboxAutoApprove: true,
+    argSchema: {},
     argRules: [
       {
         id: "cat:sensitive",
@@ -44,35 +45,77 @@ export const DEFAULT_COMMAND_REGISTRY = {
       },
     ],
   },
-  head: { baseRisk: "low", sandboxAutoApprove: true },
-  tail: { baseRisk: "low", sandboxAutoApprove: true },
-  less: { baseRisk: "low", sandboxAutoApprove: true },
-  more: { baseRisk: "low", sandboxAutoApprove: true },
-  wc: { baseRisk: "low", sandboxAutoApprove: true },
-  file: { baseRisk: "low", sandboxAutoApprove: true },
-  stat: { baseRisk: "low", sandboxAutoApprove: true },
-  du: { baseRisk: "low", sandboxAutoApprove: true },
-  df: { baseRisk: "low", sandboxAutoApprove: true },
-  diff: { baseRisk: "low", sandboxAutoApprove: true },
-  tree: { baseRisk: "low", sandboxAutoApprove: true },
-  pwd: { baseRisk: "low", sandboxAutoApprove: true },
-  realpath: { baseRisk: "low", sandboxAutoApprove: true },
-  basename: { baseRisk: "low", sandboxAutoApprove: true },
-  dirname: { baseRisk: "low", sandboxAutoApprove: true },
-  readlink: { baseRisk: "low", sandboxAutoApprove: true },
+  head: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
+  tail: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
+  less: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
+  more: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
+  wc: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
+  file: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
+  stat: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
+  du: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
+  df: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
+  diff: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
+  tree: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
+  pwd: {
+    baseRisk: "low",
+    sandboxAutoApprove: true,
+    argSchema: { positionals: "none" },
+  },
+  realpath: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
+  basename: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
+  dirname: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
+  readlink: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
 
   // ── Search / filter / text processing ──────────────────────────────────────
-  grep: { baseRisk: "low", sandboxAutoApprove: true },
-  rg: { baseRisk: "low", sandboxAutoApprove: true },
-  ag: { baseRisk: "low", sandboxAutoApprove: true },
-  ack: { baseRisk: "low", sandboxAutoApprove: true },
-  sort: { baseRisk: "low", sandboxAutoApprove: true },
-  uniq: { baseRisk: "low", sandboxAutoApprove: true },
-  cut: { baseRisk: "low", sandboxAutoApprove: true },
-  tr: { baseRisk: "low", sandboxAutoApprove: true },
+  grep: {
+    baseRisk: "low",
+    sandboxAutoApprove: true,
+    argSchema: {
+      positionals: [{ role: "pattern" }, { role: "path", rest: true }],
+    },
+  },
+  rg: {
+    baseRisk: "low",
+    sandboxAutoApprove: true,
+    argSchema: {
+      positionals: [{ role: "pattern" }, { role: "path", rest: true }],
+    },
+  },
+  ag: {
+    baseRisk: "low",
+    sandboxAutoApprove: true,
+    argSchema: {
+      positionals: [{ role: "pattern" }, { role: "path", rest: true }],
+    },
+  },
+  ack: {
+    baseRisk: "low",
+    sandboxAutoApprove: true,
+    argSchema: {
+      positionals: [{ role: "pattern" }, { role: "path", rest: true }],
+    },
+  },
+  sort: {
+    baseRisk: "low",
+    sandboxAutoApprove: true,
+    argSchema: {
+      valueFlags: ["-o", "--output"],
+      pathFlags: { "-o": true, "--output": true },
+    },
+  },
+  uniq: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
+  cut: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
+  tr: {
+    baseRisk: "low",
+    sandboxAutoApprove: true,
+    argSchema: { positionals: "none" },
+  },
   sed: {
     baseRisk: "low",
     sandboxAutoApprove: true,
+    argSchema: {
+      positionals: [{ role: "script" }, { role: "path", rest: true }],
+    },
     argRules: [
       {
         id: "sed:inplace",
@@ -84,14 +127,24 @@ export const DEFAULT_COMMAND_REGISTRY = {
   },
   awk: {
     baseRisk: "medium",
-    sandboxAutoApprove: true,
+    argSchema: {
+      positionals: [{ role: "script" }, { role: "path", rest: true }],
+    },
     complexSyntax: true,
     reason: "Can execute shell commands via system()",
   },
 
   // ── System information (read-only) ─────────────────────────────────────────
-  echo: { baseRisk: "low", sandboxAutoApprove: true },
-  printf: { baseRisk: "low", sandboxAutoApprove: true },
+  echo: {
+    baseRisk: "low",
+    sandboxAutoApprove: true,
+    argSchema: { positionals: "none" },
+  },
+  printf: {
+    baseRisk: "low",
+    sandboxAutoApprove: true,
+    argSchema: { positionals: "none" },
+  },
   whoami: { baseRisk: "low" },
   uname: { baseRisk: "low" },
   uptime: { baseRisk: "low" },
@@ -117,15 +170,31 @@ export const DEFAULT_COMMAND_REGISTRY = {
   hexdump: { baseRisk: "low" },
 
   // ── Data processing ────────────────────────────────────────────────────────
-  jq: { baseRisk: "low", sandboxAutoApprove: true },
-  yq: { baseRisk: "low", sandboxAutoApprove: true },
+  jq: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
+  yq: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
 
   // ── Find ───────────────────────────────────────────────────────────────────
   // DIVERGENCE: checker.ts lists `find` as LOW_RISK unconditionally. Our
   // registry adds arg rules for -exec/-execdir/-delete which escalate to high.
   find: {
     baseRisk: "low",
-    sandboxAutoApprove: true,
+    argSchema: {
+      valueFlags: [
+        "-name",
+        "-iname",
+        "-path",
+        "-ipath",
+        "-regex",
+        "-iregex",
+        "-maxdepth",
+        "-mindepth",
+        "-newer",
+        "-user",
+        "-group",
+        "-printf",
+        "-fprintf",
+      ],
+    },
     complexSyntax: true,
     argRules: [
       {
@@ -142,12 +211,16 @@ export const DEFAULT_COMMAND_REGISTRY = {
       },
     ],
   },
-  fd: { baseRisk: "low", sandboxAutoApprove: true },
+  fd: { baseRisk: "low", sandboxAutoApprove: true, argSchema: {} },
 
   // ── Write commands ─────────────────────────────────────────────────────────
   cp: {
     baseRisk: "medium",
     sandboxAutoApprove: true,
+    argSchema: {
+      valueFlags: ["-t", "--target-directory"],
+      pathFlags: { "-t": true, "--target-directory": true },
+    },
     argRules: [
       {
         id: "cp:system",
@@ -160,6 +233,7 @@ export const DEFAULT_COMMAND_REGISTRY = {
   mv: {
     baseRisk: "medium",
     sandboxAutoApprove: true,
+    argSchema: {},
     argRules: [
       {
         id: "mv:system",
@@ -169,17 +243,25 @@ export const DEFAULT_COMMAND_REGISTRY = {
       },
     ],
   },
-  mkdir: { baseRisk: "medium", sandboxAutoApprove: true },
-  touch: { baseRisk: "medium", sandboxAutoApprove: true },
-  ln: { baseRisk: "medium", sandboxAutoApprove: true },
+  mkdir: { baseRisk: "medium", sandboxAutoApprove: true, argSchema: {} },
+  touch: { baseRisk: "medium", sandboxAutoApprove: true, argSchema: {} },
+  ln: {
+    baseRisk: "medium",
+    sandboxAutoApprove: true,
+    argSchema: {
+      valueFlags: ["-t", "--target-directory"],
+      pathFlags: { "-t": true, "--target-directory": true },
+    },
+  },
   // DIVERGENCE: checker.ts lists `tee` as LOW_RISK. Our registry classifies
   // it as medium because it writes to files.
-  tee: { baseRisk: "medium", sandboxAutoApprove: true },
+  tee: { baseRisk: "medium", sandboxAutoApprove: true, argSchema: {} },
 
   // ── Delete commands ────────────────────────────────────────────────────────
   rm: {
     baseRisk: "high",
     sandboxAutoApprove: true,
+    argSchema: {},
     argRules: [
       {
         id: "rm:recursive-force",
@@ -213,7 +295,7 @@ export const DEFAULT_COMMAND_REGISTRY = {
       },
     ],
   },
-  rmdir: { baseRisk: "high", sandboxAutoApprove: true },
+  rmdir: { baseRisk: "high", sandboxAutoApprove: true, argSchema: {} },
 
   // ── Network commands ───────────────────────────────────────────────────────
   curl: {
@@ -263,15 +345,17 @@ export const DEFAULT_COMMAND_REGISTRY = {
   // Divergences are noted inline.
   git: {
     baseRisk: "medium",
-    globalValueFlags: [
-      "-C",
-      "-c",
-      "--git-dir",
-      "--work-tree",
-      "--namespace",
-      "--super-prefix",
-      "--config-env",
-    ],
+    argSchema: {
+      valueFlags: [
+        "-C",
+        "-c",
+        "--git-dir",
+        "--work-tree",
+        "--namespace",
+        "--super-prefix",
+        "--config-env",
+      ],
+    },
     subcommands: {
       // LOW_RISK_GIT_SUBCOMMANDS from checker.ts:
       status: { baseRisk: "low" },
@@ -366,7 +450,9 @@ export const DEFAULT_COMMAND_REGISTRY = {
   // they download and execute code, with subcommand-level overrides.
   npm: {
     baseRisk: "medium",
-    globalValueFlags: ["--prefix", "--userconfig", "--globalconfig", "--cache"],
+    argSchema: {
+      valueFlags: ["--prefix", "--userconfig", "--globalconfig", "--cache"],
+    },
     subcommands: {
       ls: { baseRisk: "low" },
       list: { baseRisk: "low" },
@@ -540,7 +626,9 @@ export const DEFAULT_COMMAND_REGISTRY = {
   // ── Docker ─────────────────────────────────────────────────────────────────
   docker: {
     baseRisk: "medium",
-    globalValueFlags: ["--host", "-H", "--config", "--context", "--log-level"],
+    argSchema: {
+      valueFlags: ["--host", "-H", "--config", "--context", "--log-level"],
+    },
     subcommands: {
       ps: { baseRisk: "low" },
       images: { baseRisk: "low" },
@@ -596,16 +684,19 @@ export const DEFAULT_COMMAND_REGISTRY = {
   chmod: {
     baseRisk: "high",
     sandboxAutoApprove: true,
+    argSchema: {},
     reason: "Changes file permissions",
   },
   chown: {
     baseRisk: "high",
     sandboxAutoApprove: true,
+    argSchema: {},
     reason: "Changes file ownership",
   },
   chgrp: {
     baseRisk: "high",
     sandboxAutoApprove: true,
+    argSchema: {},
     reason: "Changes file group",
   },
   mount: { baseRisk: "high", reason: "Mounts filesystem" },
@@ -744,20 +835,32 @@ export const DEFAULT_COMMAND_REGISTRY = {
   // it as medium because it executes commands with piped arguments.
   xargs: {
     baseRisk: "medium",
-    sandboxAutoApprove: true,
     complexSyntax: true,
     reason: "Executes command with piped arguments",
   },
-  tar: { baseRisk: "medium", sandboxAutoApprove: true, complexSyntax: true },
-  zip: { baseRisk: "medium", sandboxAutoApprove: true },
-  unzip: { baseRisk: "medium", sandboxAutoApprove: true },
-  gzip: { baseRisk: "medium", sandboxAutoApprove: true },
-  gunzip: { baseRisk: "medium", sandboxAutoApprove: true },
+  tar: {
+    baseRisk: "medium",
+    sandboxAutoApprove: true,
+    argSchema: {
+      valueFlags: ["-C", "--directory", "-f", "--file"],
+      pathFlags: {
+        "-C": true,
+        "--directory": true,
+        "-f": true,
+        "--file": true,
+      },
+    },
+    complexSyntax: true,
+  },
+  zip: { baseRisk: "medium", sandboxAutoApprove: true, argSchema: {} },
+  unzip: { baseRisk: "medium", sandboxAutoApprove: true, argSchema: {} },
+  gzip: { baseRisk: "medium", sandboxAutoApprove: true, argSchema: {} },
+  gunzip: { baseRisk: "medium", sandboxAutoApprove: true, argSchema: {} },
 
   // ── Version control tools ──────────────────────────────────────────────────
   gh: {
     baseRisk: "low",
-    globalValueFlags: ["--repo", "-R"],
+    argSchema: { valueFlags: ["--repo", "-R"] },
     subcommands: {
       pr: {
         baseRisk: "low",

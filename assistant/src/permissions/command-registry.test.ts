@@ -580,15 +580,14 @@ describe("command-registry", () => {
       "cut",
       "tr",
       "sed",
-      "awk",
+      // awk excluded: system() can execute arbitrary commands
       // System info / text output
       "echo",
       "printf",
       // Data processing
       "jq",
       "yq",
-      // Find
-      "find",
+      // find excluded: -exec/-execdir/-delete can execute arbitrary commands or delete files
       "fd",
       // Write commands
       "cp",
@@ -604,8 +603,6 @@ describe("command-registry", () => {
       "chgrp",
       "chmod",
       "chown",
-      // Misc tools
-      "xargs",
       // Archives
       "tar",
       "zip",
@@ -685,6 +682,26 @@ describe("command-registry", () => {
         expect(spec).toBeDefined();
         expect(spec.sandboxAutoApprove).not.toBe(true);
       }
+    });
+
+    test("every sandboxAutoApprove command must have argSchema defined", () => {
+      const missing: string[] = [];
+      for (const [name, spec] of Object.entries(DEFAULT_COMMAND_REGISTRY)) {
+        if (
+          (spec as CommandRiskSpec).sandboxAutoApprove === true &&
+          (spec as CommandRiskSpec).argSchema === undefined
+        ) {
+          missing.push(name);
+        }
+      }
+      expect(missing).toEqual([]);
+    });
+
+    test("xargs is NOT tagged with sandboxAutoApprove", () => {
+      const spec = (DEFAULT_COMMAND_REGISTRY as Record<string, CommandRiskSpec>)
+        .xargs;
+      expect(spec).toBeDefined();
+      expect(spec.sandboxAutoApprove).not.toBe(true);
     });
 
     test("system/privilege commands are NOT tagged with sandboxAutoApprove", () => {
