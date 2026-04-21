@@ -193,6 +193,22 @@ function normalizeSendMessageOptions(
     delete nextConfig.thinking;
   }
 
+  // Anthropic (and OpenRouter fronting Anthropic) rejects requests that
+  // combine extended thinking with forced tool use (`tool_choice.type` of
+  // `"tool"` or `"any"`).  Strip thinking when both are present so the
+  // request doesn't fail with a 400 "Thinking may not be enabled when
+  // tool_choice forces tool use."  `tool_choice: { type: "auto" }` is
+  // compatible with thinking and left untouched.
+  if (
+    THINKING_AWARE_PROVIDERS.has(providerName) &&
+    nextConfig.thinking != null
+  ) {
+    const tc = nextConfig.tool_choice as Record<string, unknown> | undefined;
+    if (tc != null && (tc.type === "tool" || tc.type === "any")) {
+      delete nextConfig.thinking;
+    }
+  }
+
   // effort is supported by Anthropic, OpenAI, and OpenAI-compatible providers; strip for others
   if (
     !EFFORT_SUPPORTED_PROVIDERS.has(providerName) &&
