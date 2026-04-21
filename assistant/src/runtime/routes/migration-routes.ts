@@ -724,6 +724,18 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
     taggedSource.destroy(err);
   });
   upstreamNodeStream.pipe(taggedSource);
+  // Propagate wrapper teardown back to the upstream fetch body. When the
+  // streaming importer hits a validation/extraction error, it destroys
+  // `source` (which is `taggedSource`). Without this listener the
+  // `Readable.fromWeb(fetchBody)` stream would stay alive and continue
+  // buffering the remote response in the background until GC or the
+  // 60-minute timeout — a socket/bandwidth leak for any non-upstream error
+  // (malformed bundle, hash mismatch, size cap, etc.).
+  taggedSource.on("close", () => {
+    if (!upstreamNodeStream.destroyed) {
+      upstreamNodeStream.destroy();
+    }
+  });
 
   const pathResolver = new DefaultPathResolver(
     getWorkspaceDir(),

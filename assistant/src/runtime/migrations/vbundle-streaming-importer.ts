@@ -190,8 +190,9 @@ export async function streamCommitImport(
     archivePath: string;
     importedFileIndex: number;
   }> = [];
-  // Total bytes written through the verifier so far — used to abort early
-  // if the bundle exceeds `bundleByteCap`. We count manifest-declared
+  // Cumulative manifest-declared byte total, accumulated BEFORE each entry
+  // is read/written. Checked against `bundleByteCap` pre-write so an
+  // oversized entry never lands on disk. We count manifest-declared
   // `expectedEntry.size` (the raw archive bytes) rather than on-disk size
   // so a sanitized config still counts against the cap as originally
   // declared.
@@ -317,6 +318,19 @@ export async function streamCommitImport(
         );
       }
 
+      // Enforce the bundle-size ceiling BEFORE writing/consuming the entry.
+      // Checking post-write would still let a single oversized file land on
+      // disk before we reject, defeating the cap as a resource guard.
+      if (totalBytesStreamed + expectedEntry.size > bundleByteCap) {
+        entry.body.destroy();
+        throw new StreamingValidationError(
+          "bundle_too_large",
+          `bundle exceeds ${bundleByteCap}-byte ceiling`,
+          archivePath,
+        );
+      }
+      totalBytesStreamed += expectedEntry.size;
+
       if (archivePath.startsWith("credentials/")) {
         // Credentials are hash-verified against the manifest but collected
         // in memory rather than written to disk. DefaultPathResolver
@@ -332,14 +346,6 @@ export async function streamCommitImport(
             account,
             value: new TextDecoder().decode(buffered),
           });
-        }
-        totalBytesStreamed += expectedEntry.size;
-        if (totalBytesStreamed > bundleByteCap) {
-          throw new StreamingValidationError(
-            "bundle_too_large",
-            `bundle exceeds ${bundleByteCap}-byte ceiling`,
-            archivePath,
-          );
         }
         seen.add(archivePath);
         onProgress?.({
@@ -373,14 +379,6 @@ export async function streamCommitImport(
         warnings.push(
           `Skipped "${archivePath}": no known disk target for this archive path`,
         );
-        totalBytesStreamed += expectedEntry.size;
-        if (totalBytesStreamed > bundleByteCap) {
-          throw new StreamingValidationError(
-            "bundle_too_large",
-            `bundle exceeds ${bundleByteCap}-byte ceiling`,
-            archivePath,
-          );
-        }
         seen.add(archivePath);
         onProgress?.({
           archivePath,
@@ -421,14 +419,6 @@ export async function streamCommitImport(
         warnings.push(
           `Skipped "${archivePath}": guardian persona at "${diskPath}" is already customized`,
         );
-        totalBytesStreamed += expectedEntry.size;
-        if (totalBytesStreamed > bundleByteCap) {
-          throw new StreamingValidationError(
-            "bundle_too_large",
-            `bundle exceeds ${bundleByteCap}-byte ceiling`,
-            archivePath,
-          );
-        }
         seen.add(archivePath);
         onProgress?.({
           archivePath,
@@ -465,14 +455,6 @@ export async function streamCommitImport(
         warnings.push(
           `Skipped "${archivePath}": disk target "${diskPath}" falls outside the workspace directory`,
         );
-        totalBytesStreamed += expectedEntry.size;
-        if (totalBytesStreamed > bundleByteCap) {
-          throw new StreamingValidationError(
-            "bundle_too_large",
-            `bundle exceeds ${bundleByteCap}-byte ceiling`,
-            archivePath,
-          );
-        }
         seen.add(archivePath);
         onProgress?.({
           archivePath,
@@ -543,14 +525,6 @@ export async function streamCommitImport(
             importedFileIndex,
           });
         }
-        totalBytesStreamed += expectedEntry.size;
-        if (totalBytesStreamed > bundleByteCap) {
-          throw new StreamingValidationError(
-            "bundle_too_large",
-            `bundle exceeds ${bundleByteCap}-byte ceiling`,
-            archivePath,
-          );
-        }
         seen.add(archivePath);
         onProgress?.({
           archivePath,
@@ -602,14 +576,6 @@ export async function streamCommitImport(
           archivePath,
           importedFileIndex,
         });
-      }
-      totalBytesStreamed += expectedEntry.size;
-      if (totalBytesStreamed > bundleByteCap) {
-        throw new StreamingValidationError(
-          "bundle_too_large",
-          `bundle exceeds ${bundleByteCap}-byte ceiling`,
-          archivePath,
-        );
       }
       seen.add(archivePath);
       onProgress?.({
@@ -693,6 +659,21 @@ export async function streamCommitImport(
   // removed when done — it only served as a landing zone for the verified
   // hash stream.
   if (!hasWorkspaceNamespacedEntry) {
+    // Close the live SQLite connection before promoting staged files. A
+    // legacy bundle may carry `data/db/assistant.db`, and replacing the file
+    // with an open connection leaves the daemon pinned to the old inode —
+    // subsequent reads/writes would go against stale pre-import data until
+    // the process reset the connection. The singleton lazily reopens on next
+    // use, so closing here is safe even if no DB entry is in the bundle.
+    try {
+      resetDb();
+    } catch (err) {
+      log.warn(
+        { err },
+        "resetDb threw before legacy-format import promotion; continuing",
+      );
+    }
+
     try {
       await promoteLegacyStagedFiles(legacyStaged, importedFiles);
     } catch (err) {
@@ -1067,28 +1048,21 @@ async function mergeLiveIntoTempDir(
 
 /**
  * Move a single live workspace entry (file or directory) into the temp
- * workspace. Rename-first for POSIX atomicity on the same filesystem;
- * fall back to a recursive copy on EXDEV (different mount point) and
- * then remove the live copy so the post-swap state is clean.
+ * workspace. Always copy (never move) so the live workspace retains the
+ * originals until the atomic swap pair completes. If either rename in the
+ * swap fails, the backup directory restored in recovery still contains the
+ * preserved paths. The stale live copies under the backup dir are cleaned
+ * up after a successful swap by the existing backup-dir cleanup path.
  */
 async function carryOverEntry(
   liveChild: string,
   tempChild: string,
 ): Promise<void> {
-  try {
-    await rename(liveChild, tempChild);
-  } catch (err) {
-    if (isEXDEV(err)) {
-      await cp(liveChild, tempChild, {
-        recursive: true,
-        preserveTimestamps: true,
-        // Dereference is false by default — symlinks stay symlinks.
-      });
-      await rm(liveChild, { recursive: true, force: true });
-    } else {
-      throw err;
-    }
-  }
+  await cp(liveChild, tempChild, {
+    recursive: true,
+    preserveTimestamps: true,
+    // Dereference is false by default — symlinks stay symlinks.
+  });
 }
 
 /**
