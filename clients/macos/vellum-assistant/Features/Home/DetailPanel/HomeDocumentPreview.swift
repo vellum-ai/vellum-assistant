@@ -39,8 +39,12 @@ struct HomeDocumentPreview: View {
     var body: some View {
         VStack(spacing: 0) {
             preview
-                .frame(maxWidth: .infinity, alignment: .top)
                 .padding(VSpacing.lg)
+                // Flex to fill the full remaining vertical space between the
+                // panel chrome and the footer so the preview fits naturally
+                // without a scroll view. Pair with `HomeDetailPanel(scrollable: false, …)`.
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                .layoutPriority(1)
 
             if !actions.isEmpty {
                 VColor.borderBase
@@ -67,10 +71,13 @@ struct HomeDocumentPreview: View {
     @ViewBuilder
     private var preview: some View {
         if let image {
+            // `.aspectRatio(contentMode: .fit)` respects BOTH dimensions of
+            // the enclosing frame — the image scales down to whichever is
+            // the tighter constraint so it never overflows.
             Image(nsImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: .infinity, alignment: .top)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             VStack(spacing: VSpacing.sm) {
                 VIconView(.file, size: 32)
@@ -80,7 +87,7 @@ struct HomeDocumentPreview: View {
                     .foregroundStyle(VColor.contentTertiary)
                     .multilineTextAlignment(.center)
             }
-            .frame(maxWidth: .infinity, minHeight: 400, alignment: .center)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
                     .fill(VColor.surfaceOverlay)
