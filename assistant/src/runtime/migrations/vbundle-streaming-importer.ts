@@ -945,10 +945,13 @@ export async function streamCommitImport(
   // even if the process is killed mid-swap.
   // backupDir also lives INSIDE the workspace mount — same rationale as
   // tempWorkspaceDir (keep all moves on the same filesystem, dot-prefix
-  // so workspace walkers skip it).
+  // so workspace walkers skip it). Suffix with a UUID (not just a
+  // timestamp) so a malicious bundle can't guess the name and ship a
+  // top-level entry that collides with our active backup dir during
+  // phase 2 — phase 2 also rejects any such collision defensively.
   const backupDir = join(
     realWorkspaceDir,
-    `${IMPORT_BACKUP_PREFIX}${Date.now()}`,
+    `${IMPORT_BACKUP_PREFIX}${Date.now()}-${randomUUID()}`,
   );
   try {
     await writeImportMarker(markerPath, {
@@ -1489,6 +1492,21 @@ async function swapWorkspaceContents(
       );
     }
     throw err;
+  }
+
+  // Defend against a bundle whose top-level entries collide with this
+  // swap's scratch basenames. The UUID suffix on `backupDir` makes an
+  // accidental collision astronomically unlikely, but a malicious or
+  // corrupted bundle carrying e.g. `.pre-import-<exact-match>` could
+  // otherwise replace the (empty) active backup dir via rename on an
+  // empty live workspace, and the success-path `rm(backupDir)` would
+  // then silently delete the imported content. Fail fast before any
+  // rename so real ends up rolled back to pre-import state.
+  const collidingName = tempEntries.find((name) => scratchBasenames.has(name));
+  if (collidingName !== undefined) {
+    throw new Error(
+      `Bundle top-level entry "${collidingName}" collides with an import scratch dir basename — refusing to swap to avoid accidental deletion of imported content`,
+    );
   }
 
   const movedToReal: string[] = [];
