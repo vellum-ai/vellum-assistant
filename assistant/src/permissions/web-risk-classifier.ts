@@ -41,8 +41,23 @@ function friendlyHostname(url: URL): string {
 }
 
 /**
- * Normalize a URL for allowlist purposes. Mirrors the canonicalization
- * logic in checker.ts `normalizeWebFetchUrl()`.
+ * Normalize a URL for allowlist purposes. Simplified version of the
+ * canonical `normalizeWebFetchUrl()` in checker.ts.
+ *
+ * **Divergence**: This function omits two edge-case guards present in the
+ * canonical implementation:
+ * - `looksLikeHostPortShorthand()` — bare `host:port` inputs are not
+ *   specifically detected, so they fall into the generic `https://` prefix
+ *   path which may parse differently for ambiguous inputs.
+ * - `looksLikePathOnlyInput()` — bare paths like `/foo/bar` are not
+ *   rejected; they'll get an `https://` prefix and likely fail URL parsing.
+ * - Non-http(s) scheme rejection (`ftp:`, `file:`, etc.) — the canonical
+ *   version explicitly rejects unknown schemes after the initial parse.
+ *
+ * Importing `normalizeWebFetchUrl` directly would create a circular import
+ * (checker.ts → web-risk-classifier.ts → checker.ts). These edge cases are
+ * low-severity since they only affect allowlist option rendering, not risk
+ * classification.
  */
 function normalizeUrl(rawUrl: string): URL | null {
   const trimmed = rawUrl.trim();
