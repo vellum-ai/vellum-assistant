@@ -58,7 +58,8 @@ struct SettingsCompactionPlaygroundTab: View {
                     client: client
                 )
                 EventLogSection(
-                    conversationId: activeConversationId
+                    conversationId: activeConversationId,
+                    conversationManager: conversationManager
                 )
             }
             .frame(maxWidth: .infinity, alignment: .leading)

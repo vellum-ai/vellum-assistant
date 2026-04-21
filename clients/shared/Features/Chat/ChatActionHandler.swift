@@ -339,6 +339,15 @@ final class ChatActionHandler {
             guard belongsToConversation(event.conversationId) else { return }
             vm.contextWindowTokens = event.estimatedInputTokens
             vm.contextWindowMaxTokens = event.maxInputTokens
+            let callWord = event.summaryCalls == 1 ? "call" : "calls"
+            let summary =
+                "\(Self.formatTokens(event.previousEstimatedInputTokens)) → \(Self.formatTokens(event.estimatedInputTokens)) tokens, "
+                + "\(event.compactedMessages) messages (summary: \(event.summaryCalls) \(callWord))"
+            vm.appendCompactionEvent(CompactionEventLogEntry(
+                timestamp: Date(),
+                kind: "compacted",
+                summary: summary
+            ))
 
         case .compactionCircuitOpen(let event):
             // `openUntil` is milliseconds-since-epoch; convert to Date.
@@ -346,6 +355,14 @@ final class ChatActionHandler {
             let until = Date(timeIntervalSince1970: event.openUntil / 1000.0)
             vm.compactionCircuitOpenUntil = until
             log.warning("Auto-compaction paused until \(until, privacy: .public) — reason: \(event.reason, privacy: .public)")
+            let timeFormatter = DateFormatter()
+            timeFormatter.dateStyle = .none
+            timeFormatter.timeStyle = .short
+            vm.appendCompactionEvent(CompactionEventLogEntry(
+                timestamp: Date(),
+                kind: "circuit_open",
+                summary: "Circuit open until \(timeFormatter.string(from: until))"
+            ))
 
         case .compactionCircuitClosed(let event):
             guard belongsToConversation(event.conversationId) else { return }
@@ -355,6 +372,11 @@ final class ChatActionHandler {
             guard vm.compactionCircuitOpenUntil != nil else { return }
             vm.compactionCircuitOpenUntil = nil
             log.info("Auto-compaction resumed (circuit breaker closed)")
+            vm.appendCompactionEvent(CompactionEventLogEntry(
+                timestamp: Date(),
+                kind: "circuit_closed",
+                summary: "Circuit closed"
+            ))
 
         default:
             break
@@ -1414,6 +1436,13 @@ final class ChatActionHandler {
         vm.assistantActivityReason = msg.reason
         vm.assistantStatusText = msg.statusText
         vm.isCompacting = msg.reason == "context_compacting"
+        if msg.reason == "context_compacting" {
+            vm.appendCompactionEvent(CompactionEventLogEntry(
+                timestamp: Date(),
+                kind: "compacting",
+                summary: "Compacting…"
+            ))
+        }
         switch msg.phase {
         case "thinking":
             vm.isThinking = true
@@ -1428,5 +1457,18 @@ final class ChatActionHandler {
         default:
             break
         }
+    }
+
+    // MARK: - Event-Log Formatting
+
+    /// Format a raw token count as a compact string (e.g. `148000 → "148k"`,
+    /// `500 → "500"`). Used by the compaction event-log summary — mirrors the
+    /// compaction formatter on `VContextWindowIndicator` without exporting
+    /// that private helper.
+    fileprivate static func formatTokens(_ count: Int) -> String {
+        if count >= 1000 {
+            return "\(count / 1000)k"
+        }
+        return "\(count)"
     }
 }

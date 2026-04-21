@@ -115,6 +115,27 @@ public struct SurfaceClient: SurfaceClientProtocol {
     }
 }
 
+/// Single entry in `ChatViewModel.compactionEventLog`. Populated from the
+/// SSE handlers for `context_compacting`, `context_compacted`,
+/// `compaction_circuit_open`, and `compaction_circuit_closed`, and rendered
+/// by the Compaction Playground's Event Log section.
+public struct CompactionEventLogEntry: Identifiable, Equatable, Sendable {
+    public let id: UUID
+    public let timestamp: Date
+    /// One of `"compacting"`, `"compacted"`, `"circuit_open"`,
+    /// `"circuit_closed"`. Kept as a plain string so future kinds emitted by
+    /// the daemon surface without a type migration in the client.
+    public let kind: String
+    public let summary: String
+
+    public init(timestamp: Date, kind: String, summary: String) {
+        self.id = UUID()
+        self.timestamp = timestamp
+        self.kind = kind
+        self.summary = summary
+    }
+}
+
 /// Facade that owns the three focused sub-managers and forwards all property
 /// accesses to them via computed properties.  Existing call sites require no
 /// changes because the public API surface is identical to the previous monolith.
@@ -345,6 +366,22 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// timestamp is still in the future; the banner auto-dismisses once the
     /// cooldown elapses.
     public var compactionCircuitOpenUntil: Date? = nil
+
+    /// Rolling log of recent compaction lifecycle events, rendered by the
+    /// Compaction Playground's Event Log section. Capped at 50 entries by
+    /// `appendCompactionEvent(_:)`; writes drop the oldest entries first.
+    public var compactionEventLog: [CompactionEventLogEntry] = []
+
+    /// Append a compaction event to `compactionEventLog`, trimming from the
+    /// front to keep the buffer at most 50 entries. Centralizing the trim
+    /// here lets the Playground UI read the array directly without
+    /// re-implementing the cap.
+    public func appendCompactionEvent(_ entry: CompactionEventLogEntry) {
+        compactionEventLog.append(entry)
+        if compactionEventLog.count > 50 {
+            compactionEventLog.removeFirst(compactionEventLog.count - 50)
+        }
+    }
     public var contextWindowFillRatio: Double? {
         guard let tokens = contextWindowTokens,
               let max = contextWindowMaxTokens,
