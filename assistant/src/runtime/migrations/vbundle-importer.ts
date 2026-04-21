@@ -273,6 +273,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     }
   }
 
+  let workspaceWasCleared = false;
   if (hasWorkspaceEntries && workspaceDir && existsSync(workspaceDir)) {
     try {
       // Clear workspace contents selectively, preserving skip dirs
@@ -296,6 +297,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
           rmSync(entryPath, { recursive: true, force: true });
         }
       }
+      workspaceWasCleared = true;
     } catch (err) {
       return {
         ok: false,
@@ -526,15 +528,19 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     });
   }
 
-  // If the bundle did not carry a metadata.json entry but the target had
-  // `vellum:*` entries before Step 1b cleared them, write a minimal
-  // metadata file with just those preserved entries so the gateway can
-  // still locate the platform API key.
+  // If Step 1b actually cleared the workspace AND the bundle did not
+  // carry a metadata.json entry, the target's vellum:* entries were
+  // wiped along with the `data/credentials/` directory. Restore them by
+  // writing a minimal file containing just the preserved entries so the
+  // gateway can still locate the platform API key. When Step 1b did NOT
+  // run (e.g. workspaceDir unset) the live metadata.json is still on
+  // disk untouched — we must not rewrite it here or we would drop the
+  // non-vellum entries the caller chose to keep.
   const bundleHadMetadata = manifest.files.some(
     (f) => f.path === CREDENTIAL_METADATA_ARCHIVE_PATH,
   );
   if (
-    hasWorkspaceEntries &&
+    workspaceWasCleared &&
     !bundleHadMetadata &&
     liveCredentialMetadataJson &&
     credentialMetadataDiskPath
