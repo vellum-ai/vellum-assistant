@@ -700,6 +700,36 @@ describe("variable expansion", () => {
     });
     expect(result.riskLevel).toBe("medium");
   });
+
+  test("sed -i $VAR → arg rule raises to medium, $VAR escalates to high", async () => {
+    const result = await classifier.classify({
+      command: "sed -i $PATTERN file.txt",
+      toolName: "bash",
+    });
+    // sed baseRisk is low, -i flag raises to medium via sed:inplace rule,
+    // then $PATTERN escalateOne(medium) = high
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("echo $VAR → low with no arg rule match, $VAR escalates to medium (unchanged behavior)", async () => {
+    const result = await classifier.classify({
+      command: "echo $SOMETHING",
+      toolName: "bash",
+    });
+    // echo baseRisk is low, no arg rules match, escalateOne(low) = medium
+    expect(result.riskLevel).toBe("medium");
+  });
+
+  test("curl http://localhost:$PORT → high (baseRisk=medium is floor for escalation after de-escalation)", async () => {
+    const result = await classifier.classify({
+      command: "curl http://localhost:$PORT",
+      toolName: "bash",
+    });
+    // curl baseRisk=medium, curl:localhost arg rule de-escalates to low,
+    // but variable expansion uses max(computedRisk=low, baseRisk=medium)=medium
+    // as the floor, so escalateOne(medium) = high
+    expect(result.riskLevel).toBe("high");
+  });
 });
 
 // ── Assistant subcommand classification ──────────────────────────────────────

@@ -434,8 +434,13 @@ export function classifySegment(
   }
 
   // 6. Check for variable expansion in args (conservative escalation)
+  // Use max(computedRisk, baseRisk) as the floor for escalation so that
+  // de-escalated commands still escalate from at least baseRisk.
+  // Example: `curl http://localhost:$PORT` — arg rule de-escalates to low,
+  // but baseRisk=medium is the floor, so escalateOne(medium) → high.
   if (segment.args.some((a) => a.includes("$"))) {
-    const escalated = escalateOne(resolvedSpec.baseRisk);
+    const escalationBase = maxRisk(risk, resolvedSpec.baseRisk);
+    const escalated = escalateOne(escalationBase);
     if (riskOrd(escalated) > riskOrd(risk)) {
       risk = escalated;
       reason = `${segment.program} with variable expansion`;
