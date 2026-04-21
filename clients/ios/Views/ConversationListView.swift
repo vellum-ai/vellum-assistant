@@ -779,10 +779,13 @@ struct ConversationChatView: View {
                         iconOnly: VIcon.panelLeft.rawValue,
                         style: .ghost,
                         size: .pillRegular,
+                        isActive: true,
                         tooltip: "Opens the conversation menu",
+                        iconColor: VColor.contentDefault,
                         action: onOpenDrawer
                     )
                 }
+                .hideSharedToolbarBackgroundIfAvailable()
             }
             if horizontalSizeClass == .compact, let onShowSettings {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -791,10 +794,13 @@ struct ConversationChatView: View {
                         iconOnly: VIcon.settings.rawValue,
                         style: .ghost,
                         size: .pillRegular,
+                        isActive: true,
                         tooltip: "Opens the Settings sheet",
+                        iconColor: VColor.contentDefault,
                         action: onShowSettings
                     )
                 }
+                .hideSharedToolbarBackgroundIfAvailable()
             }
             if horizontalSizeClass == .compact, let onComposeNew {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -803,9 +809,12 @@ struct ConversationChatView: View {
                         iconOnly: VIcon.squarePen.rawValue,
                         style: .ghost,
                         size: .pillRegular,
+                        isActive: true,
+                        iconColor: VColor.contentDefault,
                         action: onComposeNew
                     )
                 }
+                .hideSharedToolbarBackgroundIfAvailable()
             }
         }
     }
