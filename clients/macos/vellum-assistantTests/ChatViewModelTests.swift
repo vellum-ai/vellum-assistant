@@ -107,6 +107,15 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.errorText)
     }
 
+    func testSendUserMessageClearsStuckCompactingFlag() {
+        viewModel.conversationId = "conv-1"
+        viewModel.isCompacting = true
+        viewModel.inputText = "hello"
+        viewModel.sendMessage()
+        XCTAssertFalse(viewModel.isCompacting,
+                       "Sending a user message must clear a stranded compaction indicator (LUM-1062)")
+    }
+
     func testClearingInputRestoresExistingSuggestion() {
         viewModel.suggestion = "Summarize the last response"
 

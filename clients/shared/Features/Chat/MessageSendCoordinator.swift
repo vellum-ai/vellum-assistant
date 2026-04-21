@@ -457,6 +457,12 @@ final class MessageSendCoordinator {
             return
         }
 
+        // LUM-1062: The compaction indicator is cleared by a non-`aux` messageComplete
+        // or by a later `assistantActivityState` with a non-compacting reason. If both
+        // of those events are lost (reconnect race, replay gap), the indicator is
+        // stranded — but a user actively typing a new message is ground truth that
+        // compaction is no longer in progress, so clear it here defensively.
+        messageManager.isCompacting = false
         messageManager.isSending = true
         // Only show "Thinking" for the primary send. Queued messages will
         // set isThinking = true when they are dequeued for processing.
