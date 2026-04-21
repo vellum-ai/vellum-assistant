@@ -301,10 +301,30 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
   {
     id: "fireworks",
     displayName: "Fireworks",
+    subtitle:
+      "Open-source models served by Fireworks. Requires a Fireworks API key.",
+    setupMode: "api-key",
+    setupHint: "Enter your Fireworks API key to enable open-source models.",
+    envVar: "FIREWORKS_API_KEY",
+    credentialsGuide: {
+      description: "Sign in to the Fireworks dashboard and create an API key.",
+      url: "https://fireworks.ai/account/api-keys",
+      linkLabel: "Open Fireworks Dashboard",
+    },
     models: [
       {
         id: "accounts/fireworks/models/kimi-k2p5",
         displayName: "Kimi K2.5",
+        contextWindowTokens: 256000,
+        maxOutputTokens: 32768,
+        supportsThinking: false,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 0.6,
+          outputPer1mTokens: 2.5,
+        },
       },
     ],
     defaultModel: "accounts/fireworks/models/kimi-k2p5",
