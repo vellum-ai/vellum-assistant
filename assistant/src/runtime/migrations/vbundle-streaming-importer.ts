@@ -97,6 +97,27 @@ const DEFAULT_MAX_BUNDLE_BYTES = 16 * 1024 * 1024 * 1024;
  */
 const DEFAULT_MAX_BUNDLE_ENTRIES = 100_000;
 
+/**
+ * Prefixes used for scratch dirs the streaming importer creates INSIDE the
+ * workspace. Dot-prefixed to stay out of the way of real workspace content,
+ * and marked so that any walker over the workspace top level can filter
+ * them out via `isImportScratchEntry`.
+ */
+const IMPORT_TEMP_PREFIX = ".import-";
+const IMPORT_BACKUP_PREFIX = ".pre-import-";
+
+/**
+ * Returns true if `name` is a top-level scratch entry created by the
+ * streaming importer (temp staging tree or pre-import backup). Callers
+ * walking the workspace should skip these so the import's own bookkeeping
+ * isn't swept into backups / swaps / carry-over plans.
+ */
+function isImportScratchEntry(name: string): boolean {
+  return (
+    name.startsWith(IMPORT_TEMP_PREFIX) || name.startsWith(IMPORT_BACKUP_PREFIX)
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -184,7 +205,19 @@ export async function streamCommitImport(
     );
   }
 
-  const tempWorkspaceDir = `${realWorkspaceDir}.import-${randomUUID()}`;
+  // Put scratch dirs (temp staging tree, backup dir) INSIDE the workspace
+  // mount so every move during the content-level swap stays on the same
+  // filesystem. If they lived as siblings (on the container overlay),
+  // every rename in swapWorkspaceContents would cross filesystems and
+  // require a full cp+rm of the entire workspace. That defeats the
+  // zero-disk fast path and risks ENOSPC on the overlay for large
+  // teleports. Dot-prefixed names keep them out of the way of normal
+  // content; phase 1 of swapWorkspaceContents and any other workspace
+  // walker filter them out via `isImportScratchEntry`.
+  const tempWorkspaceDir = join(
+    realWorkspaceDir,
+    `${IMPORT_TEMP_PREFIX}${randomUUID()}`,
+  );
 
   let manifest: ManifestType | null = null;
   const importedFiles: ImportedFileReport[] = [];
@@ -892,7 +925,13 @@ export async function streamCommitImport(
   // Update the marker to record the backup dir BEFORE any move runs, so
   // `recoverInterruptedImport` on a future boot can restore from backup
   // even if the process is killed mid-swap.
-  const backupDir = `${realWorkspaceDir}.pre-import-${Date.now()}`;
+  // backupDir also lives INSIDE the workspace mount — same rationale as
+  // tempWorkspaceDir (keep all moves on the same filesystem, dot-prefix
+  // so workspace walkers skip it).
+  const backupDir = join(
+    realWorkspaceDir,
+    `${IMPORT_BACKUP_PREFIX}${Date.now()}`,
+  );
   try {
     await writeImportMarker(markerPath, {
       tempWorkspaceDir,
@@ -1359,10 +1398,17 @@ async function swapWorkspaceContents(
 ): Promise<void> {
   await mkdir(backupDir, { recursive: true });
 
-  // Phase 1: move every top-level entry out of real into backup.
+  // Phase 1: move every top-level entry out of real into backup. Skip
+  // the import-owned scratch dirs (`.import-<uuid>`, `.pre-import-<ts>`)
+  // that live in the workspace root — they're our own bookkeeping, not
+  // workspace content, and moving them into backup would either be a
+  // no-op (moving backup into itself) or would drag the temp staging
+  // tree inside backup where recovery can't find it.
   let liveEntries: string[];
   try {
-    liveEntries = await readdir(realWorkspaceDir);
+    liveEntries = (await readdir(realWorkspaceDir)).filter(
+      (name) => !isImportScratchEntry(name),
+    );
   } catch (err) {
     if (isENOENT(err)) {
       liveEntries = [];
@@ -1580,6 +1626,13 @@ async function manualCopyTreeSkippingTransient(
   if (info.isSymbolicLink()) {
     const target = await readlink(src);
     await mkdir(dirname(dst), { recursive: true });
+    // `symlink` throws EEXIST if `dst` already exists. We may be running
+    // as a fallback after `fs.cp` partially populated `dst` (including
+    // creating this symlink itself), so clear it first — unlike
+    // `copyFile` / recursive `mkdir`, `symlink` has no replace-mode.
+    await rm(dst, { force: true }).catch(() => {
+      /* best effort — a subsequent symlink error will surface any real issue */
+    });
     await symlink(target, dst);
     return;
   }
