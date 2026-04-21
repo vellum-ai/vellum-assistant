@@ -20,7 +20,7 @@ graph TB
     FIND_RULE -->|"No match"| NO_MATCH{"Fallback logic"}
 
     RISK_CHECK -->|"Low / Medium"| AUTO_ALLOW["decision: allow<br/>Auto-allowed by rule"]
-    RISK_CHECK -->|"High"| HIGH_CHECK{"shouldAutoAllowHighRisk()<br/>(containerized bash?)"}
+    RISK_CHECK -->|"High"| HIGH_CHECK{"sandboxAutoApprove?<br/>(tagged filesystem cmd<br/>in container)"}
     HIGH_CHECK -->|"yes"| AUTO_ALLOW
     HIGH_CHECK -->|"no"| RISK_THRESHOLD{"Risk-based<br/>threshold fallback"}
 
@@ -165,7 +165,7 @@ When a permission prompt is sent to the client (via `confirmation_request` SSE e
 | `allowlistOptions` | Suggested patterns for "always allow" rules         |
 | `scopeOptions`     | Suggested scopes for rule persistence               |
 
-The user can respond with: `allow` (one-time), `always_allow` (create allow rule), `deny` (one-time), or `always_deny` (create deny rule). High-risk operations with an allow rule in containerized environments are auto-allowed at runtime by `DefaultApprovalPolicy.shouldAutoAllowHighRisk()` without requiring persisted state. All other risk-based decisions use the `autoApproveUpTo` threshold (default: `"low"`) -- tools at or below the threshold are auto-allowed, those above are prompted.
+The user can respond with: `allow` (one-time), `always_allow` (create allow rule), `deny` (one-time), or `always_deny` (create deny rule). In containerized environments, commands tagged with `sandboxAutoApprove` in their risk spec are auto-allowed via the approval policy's sandbox auto-approve check; non-allowlisted commands (network tools, runtimes, package managers) use the user's `autoApproveUpTo` threshold. All other risk-based decisions use the `autoApproveUpTo` threshold (default: `"low"`) -- tools at or below the threshold are auto-allowed, those above are prompted.
 
 ### Canonical Paths
 
