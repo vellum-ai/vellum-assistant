@@ -260,7 +260,7 @@ app_refresh(app_id)
 - Preact for UI (not React) - `import { render } from 'preact'`
 - TypeScript encouraged for all `.tsx`/`.ts` files
 - No external fonts, images, or resources - use system fonts and CSS/SVG for visuals
-- Design for 400-600px width with graceful resizing
+- Design responsively — apps fill the available workspace width (commonly 600-1400px+). Use fluid layouts (flexbox, grid with `minmax`, `%` widths) rather than fixed pixel widths. Only cap width when content semantics require it (e.g., long-form prose) using a container class.
 - The WebView blocks all navigation - links and form `action` attributes won't work
 <!-- feature:app-builder-multifile:end -->
 
@@ -275,7 +275,7 @@ Write a complete, self-contained HTML document.
 - Single HTML string - no external files, CDNs, or imports
 - All CSS in `<style>` in `<head>`, all JavaScript in `<script>` before `</body>`
 - No external fonts, images, or resources - use system fonts and CSS/SVG for visuals
-- Design for 400-600px width with graceful resizing
+- Design responsively — apps fill the available workspace width (commonly 600-1400px+). Use fluid layouts (flexbox, grid with `minmax`, `%` widths) rather than fixed pixel widths. Only cap width when content semantics require it (e.g., long-form prose) using a container class.
 - The WebView blocks all navigation - links and form `action` attributes won't work
 
 <!-- feature:app-builder-multifile:alt:end -->
