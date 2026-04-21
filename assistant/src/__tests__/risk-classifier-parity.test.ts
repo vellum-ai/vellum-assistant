@@ -146,7 +146,7 @@ describe("risk-classifier-parity", () => {
       const label = command || "(empty)";
       test(`"${label}" → ${expectedRisk}`, async () => {
         const result = await classifyRisk("bash", { command });
-        expect(result).toBe(expectedRisk);
+        expect(result.level).toBe(expectedRisk);
       });
     }
   });

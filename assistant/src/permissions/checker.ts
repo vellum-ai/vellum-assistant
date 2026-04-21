@@ -54,8 +54,15 @@ import { isWorkspaceScopedInvocation } from "./workspace-policy.js";
 // Invalidated when trust rules change since risk classification for file tools
 // depends on skill source path checks which reference config, but the core
 // risk logic is input-deterministic.
+/** The result of classifyRisk(): a risk level with an optional human-readable reason. */
+export interface RiskClassification {
+  level: RiskLevel;
+  /** Human-readable explanation of why this risk level was assigned (bash/host_bash only). */
+  reason?: string;
+}
+
 const RISK_CACHE_MAX = 256;
-const riskCache = new Map<string, RiskLevel>();
+const riskCache = new Map<string, RiskClassification>();
 let riskCacheInvalidationHookRegistered = false;
 
 function riskCacheKey(
@@ -354,7 +361,7 @@ export async function classifyRisk(
   preParsed?: ParsedCommand,
   manifestOverride?: ManifestOverride,
   signal?: AbortSignal,
-): Promise<RiskLevel> {
+): Promise<RiskClassification> {
   signal?.throwIfAborted();
   ensureRiskCacheInvalidationHook();
 
@@ -374,25 +381,30 @@ export async function classifyRisk(
   }
 
   // ── Bash/host_bash: delegate to the registry-driven BashRiskClassifier ────
-  let result: RiskLevel;
+  let result: RiskClassification;
   if (toolName === "bash" || toolName === "host_bash") {
     const command = ((input.command as string) ?? "").trim();
     if (!command) {
-      result = RiskLevel.Low;
+      result = { level: RiskLevel.Low };
     } else {
       const assessment = await bashRiskClassifier.classify({
         command,
         toolName: toolName as "bash" | "host_bash",
       });
-      result = riskToRiskLevel(assessment.riskLevel);
+      result = {
+        level: riskToRiskLevel(assessment.riskLevel),
+        reason: assessment.reason,
+      };
     }
   } else {
-    result = await classifyRiskUncached(
-      toolName,
-      input,
-      workingDir,
-      manifestOverride,
-    );
+    result = {
+      level: await classifyRiskUncached(
+        toolName,
+        input,
+        workingDir,
+        manifestOverride,
+      ),
+    };
   }
 
   // Proxied bash commands route through the credential proxy which handles
@@ -401,9 +413,9 @@ export async function classifyRisk(
   if (
     toolName === "bash" &&
     input.network_mode === "proxied" &&
-    result === RiskLevel.High
+    result.level === RiskLevel.High
   ) {
-    result = RiskLevel.Medium;
+    result = { level: RiskLevel.Medium, reason: result.reason };
   }
 
   if (cacheKey) {
@@ -564,7 +576,7 @@ export async function check(
     }
   }
 
-  const risk = await classifyRisk(
+  const { level: risk, reason: riskReason } = await classifyRisk(
     toolName,
     input,
     workingDir,
@@ -612,9 +624,26 @@ export async function check(
   // Delegate the allow/prompt/deny decision to the approval policy
   const approvalDecision = defaultApprovalPolicy.evaluate(approvalContext);
 
+  // Enrich the reason with the classifier's explanation when available.
+  // For risk-based fallback decisions (prompt/deny from High/Medium risk),
+  // incorporate the classifier reason so the user sees *why* the command
+  // was classified at that level (e.g. "High risk (Recursive force delete): requires approval").
+  let enrichedReason = approvalDecision.reason;
+  if (riskReason && !approvalDecision.matchedRule) {
+    const riskLabelMatch = enrichedReason.match(
+      /^(High|Medium|Low|high|medium|low) risk(.*)/i,
+    );
+    if (riskLabelMatch) {
+      const capitalizedLabel =
+        riskLabelMatch[1].charAt(0).toUpperCase() +
+        riskLabelMatch[1].slice(1).toLowerCase();
+      enrichedReason = `${capitalizedLabel} risk (${riskReason})${riskLabelMatch[2]}`;
+    }
+  }
+
   return {
     decision: approvalDecision.decision,
-    reason: approvalDecision.reason,
+    reason: enrichedReason,
     matchedRule: approvalDecision.matchedRule,
   };
 }

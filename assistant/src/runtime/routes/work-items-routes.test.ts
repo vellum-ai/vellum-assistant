@@ -16,7 +16,7 @@ mock.module("../../util/logger.js", () => ({
 
 mock.module("../../permissions/checker.js", () => ({
   check: async () => ({ decision: "prompt" }),
-  classifyRisk: async () => "high",
+  classifyRisk: async () => ({ level: "high" }),
 }));
 
 import { initializeDb } from "../../memory/db.js";

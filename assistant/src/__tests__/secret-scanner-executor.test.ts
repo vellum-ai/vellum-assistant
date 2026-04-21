@@ -50,7 +50,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../permissions/checker.js", () => ({
-  classifyRisk: () => "low",
+  classifyRisk: () => ({ level: "low" }),
   check: () => ({ decision: "allow" }),
   generateAllowlistOptions: () => [],
   generateScopeOptions: () => [],

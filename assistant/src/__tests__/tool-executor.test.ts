@@ -109,7 +109,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../permissions/checker.js", () => ({
-  classifyRisk: async () => "low",
+  classifyRisk: async () => ({ level: "low" }),
   check: async (
     toolName: string,
     input: Record<string, unknown>,
