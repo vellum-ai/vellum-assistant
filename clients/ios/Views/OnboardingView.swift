@@ -13,12 +13,17 @@ struct OnboardingView: View {
     @Binding var isCompleted: Bool
     @Bindable var authManager: AuthManager
     @EnvironmentObject var clientProvider: ClientProvider
+    /// When true, the flow is being re-shown from Developer settings for visual
+    /// review. The login step advances without re-running WorkOS auth and a
+    /// Cancel button is exposed so the dev can exit mid-flow. No persisted
+    /// state (tokens, assistant config, onboarding_completed) is touched.
+    var isReplay: Bool = false
     @State private var currentStep: OnboardingStep = .login
     @State private var isBootstrappingManaged = false
     @State private var managedBootstrapError: String?
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .topLeading) {
             if isBootstrappingManaged {
                 managedBootstrapView
                     .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
@@ -27,8 +32,15 @@ struct OnboardingView: View {
                 case .login:
                     LoginView(
                         authManager: authManager,
+                        isReplay: isReplay,
                         onContinue: {
-                            Task { await performManagedBootstrap() }
+                            if isReplay {
+                                // Skip bootstrap in replay — the user is already
+                                // authenticated and we must not mutate state.
+                                currentStep = .ready
+                            } else {
+                                Task { await performManagedBootstrap() }
+                            }
                         }
                     )
                     .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
@@ -36,6 +48,16 @@ struct OnboardingView: View {
                     ReadyStep(isCompleted: $isCompleted)
                         .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
                 }
+            }
+
+            if isReplay {
+                Button("Cancel") {
+                    isCompleted = true
+                }
+                .font(VFont.bodyLargeDefault)
+                .foregroundStyle(VColor.contentSecondary)
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.top, VSpacing.sm)
             }
         }
         .animation(.easeInOut, value: currentStep)
