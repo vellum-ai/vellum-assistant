@@ -12,7 +12,7 @@ struct LoginView: View {
     var onContinue: (() -> Void)?
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .bottom) {
             VColor.surfaceOverlay.ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -80,7 +80,7 @@ struct LoginView: View {
                                 ProgressView()
                                     .tint(VColor.contentInset)
                             } else {
-                                Text(isReplay ? "Continue" : "Log In")
+                                Text("Log In")
                                     .font(VFont.bodyLargeEmphasised)
                                     .foregroundStyle(VColor.contentInset)
                             }
@@ -99,8 +99,14 @@ struct LoginView: View {
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentDisabled)
                     .padding(.top, VSpacing.xl)
-                    .padding(.bottom, VSpacing.xxl)
+                    .padding(.bottom, VSpacing.md)
             }
+            // Reserve space so the footer clears the decorative strip layered
+            // below. Matches OnboardingBottomStrip's 88pt intrinsic height.
+            .padding(.bottom, 88)
+
+            OnboardingBottomStrip()
+                .ignoresSafeArea(.container, edges: .bottom)
         }
     }
 }
