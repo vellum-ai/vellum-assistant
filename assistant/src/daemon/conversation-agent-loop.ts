@@ -197,6 +197,79 @@ type GitServiceInitializer = {
   ensureInitialized(): Promise<void>;
 };
 
+// ── Compaction circuit-breaker constants ────────────────────────────
+//
+// The circuit opens after `COMPACTION_CIRCUIT_FAILURE_THRESHOLD` consecutive
+// summary-LLM failures and stays open for `COMPACTION_CIRCUIT_COOLDOWN_MS`
+// before auto-compaction is allowed to retry. User-initiated compaction
+// (`force: true`) bypasses the breaker regardless of its state.
+const COMPACTION_CIRCUIT_FAILURE_THRESHOLD = 3;
+const COMPACTION_CIRCUIT_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+
+/**
+ * Check whether the compaction circuit breaker is currently open for the
+ * given context. The breaker auto-closes once `compactionCircuitOpenUntil`
+ * has elapsed.
+ */
+export function isCompactionCircuitOpen(ctx: {
+  compactionCircuitOpenUntil: number | null;
+}): boolean {
+  return (
+    ctx.compactionCircuitOpenUntil !== null &&
+    Date.now() < ctx.compactionCircuitOpenUntil
+  );
+}
+
+/**
+ * Track the outcome of a `maybeCompact()` call against the circuit breaker.
+ *
+ * - When the summary LLM call failed (local fallback covered the result),
+ *   increment the consecutive-failure counter. If the counter reaches the
+ *   threshold, open the circuit for the cooldown window and emit
+ *   `compaction_circuit_open` so clients can surface a notice.
+ * - When the call did not fail, reset the counter and clear any open circuit.
+ *
+ * This is called by every `maybeCompact()` site (including forced ones),
+ * because a run of three failures is a provider-health signal regardless of
+ * whether the caller bypassed the breaker.
+ */
+export function trackCompactionOutcome(
+  ctx: {
+    consecutiveCompactionFailures: number;
+    compactionCircuitOpenUntil: number | null;
+  },
+  summaryFailed: boolean | undefined,
+  onEvent: (msg: ServerMessage) => void,
+): void {
+  if (summaryFailed) {
+    ctx.consecutiveCompactionFailures += 1;
+    // Treat a stale/expired open-until timestamp the same as null so a new
+    // 3-strike window can re-open the circuit after the prior cooldown
+    // elapses. Without this the second trip would no-op because
+    // `compactionCircuitOpenUntil` remains set to a past timestamp even
+    // though `isCompactionCircuitOpen()` correctly reports closed.
+    const circuitDormant =
+      ctx.compactionCircuitOpenUntil === null ||
+      Date.now() >= ctx.compactionCircuitOpenUntil;
+    if (
+      ctx.consecutiveCompactionFailures >=
+        COMPACTION_CIRCUIT_FAILURE_THRESHOLD &&
+      circuitDormant
+    ) {
+      const openUntil = Date.now() + COMPACTION_CIRCUIT_COOLDOWN_MS;
+      ctx.compactionCircuitOpenUntil = openUntil;
+      onEvent({
+        type: "compaction_circuit_open",
+        reason: "3_consecutive_failures",
+        openUntil,
+      });
+    }
+  } else {
+    ctx.consecutiveCompactionFailures = 0;
+    ctx.compactionCircuitOpenUntil = null;
+  }
+}
+
 // ── Context Interface ────────────────────────────────────────────────
 
 export interface AgentLoopConversationContext {
@@ -213,6 +286,10 @@ export interface AgentLoopConversationContext {
   readonly contextWindowManager: ContextWindowManager;
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
+  /** Tracks consecutive compaction failures (summary LLM call threw). */
+  consecutiveCompactionFailures: number;
+  /** Timestamp (ms since epoch) until which the circuit breaker is open. */
+  compactionCircuitOpenUntil: number | null;
 
   readonly memoryPolicy: { scopeId: string; includeDefaultFallback: boolean };
   readonly graphMemory: ConversationGraphMemory;
@@ -532,15 +609,28 @@ export async function runAgentLoopImpl(
         reqId,
       );
     }
-    const compacted = await ctx.contextWindowManager.maybeCompact(
-      ctx.messages,
-      abortController.signal,
-      {
-        lastCompactedAt: ctx.contextCompactedAt ?? undefined,
-        precomputedEstimate: compactCheck.estimatedTokens,
-      },
-    );
-    if (compacted.compacted) {
+    // Skip auto-compaction while the circuit breaker is open. Force paths
+    // and user-initiated /compact bypass this check.
+    const autoCompactAllowed = !isCompactionCircuitOpen(ctx);
+    const compacted = autoCompactAllowed
+      ? await ctx.contextWindowManager.maybeCompact(
+          ctx.messages,
+          abortController.signal,
+          {
+            lastCompactedAt: ctx.contextCompactedAt ?? undefined,
+            precomputedEstimate: compactCheck.estimatedTokens,
+          },
+        )
+      : null;
+    // Only track circuit-breaker state when a summary LLM call actually ran.
+    // `summaryFailed` is `undefined` on early returns (compaction disabled,
+    // below threshold, cooldown active, no eligible messages, truncation-only
+    // path) — treating those as "successful" compactions would silently reset
+    // the 3-strike counter and break the invariant.
+    if (compacted && compacted.summaryFailed !== undefined) {
+      trackCompactionOutcome(ctx, compacted.summaryFailed, onEvent);
+    }
+    if (compacted?.compacted) {
       ctx.messages = compacted.messages;
       ctx.contextCompactedMessageCount += compacted.compactedPersistedMessages;
       ctx.contextCompactedAt = Date.now();
@@ -938,6 +1028,24 @@ export async function runAgentLoopImpl(
         ctx.messages = step.messages;
         currentInjectionMode = step.state.injectionMode;
 
+        // Track circuit-breaker state whenever the reducer invoked compaction.
+        // The reducer's forced_compaction tier uses force:true, so it bypasses
+        // the open-circuit check, but we still want failure tracking to detect
+        // a run of broken summaries and clear the counter on success. Only
+        // track when the summary LLM actually ran — `summaryFailed === undefined`
+        // indicates an early return (no eligible messages, truncation-only
+        // path, etc.) that shouldn't influence the breaker.
+        if (
+          step.compactionResult &&
+          step.compactionResult.summaryFailed !== undefined
+        ) {
+          trackCompactionOutcome(
+            ctx,
+            step.compactionResult.summaryFailed,
+            onEvent,
+          );
+        }
+
         if (step.compactionResult?.compacted) {
           ctx.contextCompactedMessageCount +=
             step.compactionResult.compactedPersistedMessages;
@@ -1146,6 +1254,12 @@ export async function runAgentLoopImpl(
           targetInputTokensOverride: preflightBudget,
         },
       );
+      // `force: true` bypasses the cooldown/threshold gates but early returns
+      // for "no eligible messages" / "insufficient messages" still leave
+      // `summaryFailed` undefined. Only track when the summary LLM actually ran.
+      if (midLoopCompact.summaryFailed !== undefined) {
+        trackCompactionOutcome(ctx, midLoopCompact.summaryFailed, onEvent);
+      }
       if (midLoopCompact.compacted) {
         ctx.messages = midLoopCompact.messages;
         ctx.contextCompactedMessageCount +=
@@ -1369,6 +1483,21 @@ export async function runAgentLoopImpl(
         ctx.messages = step.messages;
         currentInjectionMode = step.state.injectionMode;
 
+        // See the preflight reducer call above for rationale. Only track when
+        // the summary LLM actually ran — `summaryFailed === undefined`
+        // indicates the reducer's forced compaction took an early-return path
+        // without calling the summary LLM.
+        if (
+          step.compactionResult &&
+          step.compactionResult.summaryFailed !== undefined
+        ) {
+          trackCompactionOutcome(
+            ctx,
+            step.compactionResult.summaryFailed,
+            onEvent,
+          );
+        }
+
         if (step.compactionResult?.compacted) {
           ctx.contextCompactedMessageCount +=
             step.compactionResult.compactedPersistedMessages;
@@ -1496,6 +1625,15 @@ export async function runAgentLoopImpl(
                   targetInputTokensOverride: correctedTarget,
                 },
               );
+            // Only track when the summary LLM actually ran; `force: true`
+            // bypasses the cooldown but not the early-return paths.
+            if (emergencyCompact.summaryFailed !== undefined) {
+              trackCompactionOutcome(
+                ctx,
+                emergencyCompact.summaryFailed,
+                onEvent,
+              );
+            }
             if (emergencyCompact.compacted) {
               ctx.messages = emergencyCompact.messages;
               ctx.contextCompactedMessageCount +=
@@ -1619,6 +1757,15 @@ export async function runAgentLoopImpl(
               targetInputTokensOverride: correctedTarget,
             },
           );
+          // Only track when the summary LLM actually ran; `force: true`
+          // bypasses the cooldown but not the early-return paths.
+          if (emergencyCompact.summaryFailed !== undefined) {
+            trackCompactionOutcome(
+              ctx,
+              emergencyCompact.summaryFailed,
+              onEvent,
+            );
+          }
           if (emergencyCompact.compacted) {
             ctx.messages = emergencyCompact.messages;
             ctx.contextCompactedMessageCount +=

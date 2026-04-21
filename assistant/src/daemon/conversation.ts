@@ -74,7 +74,10 @@ import type { OnboardingContext } from "../types/onboarding-context.js";
 import type { AbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
-import { runAgentLoopImpl } from "./conversation-agent-loop.js";
+import {
+  runAgentLoopImpl,
+  trackCompactionOutcome,
+} from "./conversation-agent-loop.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
 import {
   regenerate as regenerateImpl,
@@ -190,6 +193,19 @@ export class Conversation {
   /** @internal */ contextWindowManager: ContextWindowManager;
   /** @internal */ contextCompactedMessageCount = 0;
   /** @internal */ contextCompactedAt: number | null = null;
+  /**
+   * Tracks consecutive compaction failures (summary LLM call threw). In-memory
+   * only — resets to 0 on process restart, which is the intended "one free
+   * retry after restart" behavior. Reset to 0 on any successful compaction.
+   */
+  /** @internal */ consecutiveCompactionFailures = 0;
+  /**
+   * When the circuit breaker is open, this timestamp (ms since epoch) marks
+   * when auto-compaction is allowed to resume. Set to `Date.now() + 1h` after
+   * 3 consecutive failures; cleared on a successful compaction. User-initiated
+   * compaction (`force: true`) bypasses the breaker regardless.
+   */
+  /** @internal */ compactionCircuitOpenUntil: number | null = null;
   /** @internal */ currentRequestId?: string;
   /** @internal */ hasNoClient = false;
   /** @internal */ isSubagent = false;
@@ -447,7 +463,9 @@ export class Conversation {
     // through to `providerConfig.model` on every turn.
     const resolvedModel: string | undefined =
       modelOverride ??
-      (modelIntent ? resolveModelIntent(provider.name, modelIntent) : undefined);
+      (modelIntent
+        ? resolveModelIntent(provider.name, modelIntent)
+        : undefined);
 
     const resolveSystemPromptCallback = (
       _history: import("../providers/types.js").Message[],
@@ -1172,6 +1190,14 @@ export class Conversation {
       this.abortController?.signal ?? undefined,
       { force: true, lastCompactedAt: this.contextCompactedAt ?? undefined },
     );
+    // Track circuit-breaker state for user-initiated `/compact` and other
+    // forced paths so a successful forced compaction clears a stuck counter
+    // and a run of forced failures still trips the breaker. `summaryFailed`
+    // is `undefined` on early-return paths (no eligible messages, disabled,
+    // etc.) — skip those so they don't silently reset the counter.
+    if (result.summaryFailed !== undefined) {
+      trackCompactionOutcome(this, result.summaryFailed, this.sendToClient);
+    }
     if (result.compacted) {
       this.messages = result.messages;
       this.contextCompactedMessageCount += result.compactedPersistedMessages;
