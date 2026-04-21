@@ -64,6 +64,16 @@ final class ReturningUserRouterTests: XCTestCase {
         XCTAssertEqual(router.decideFast(), .autoConnect)
     }
 
+    func testDecideFastShowsPickerForMultipleLockfileEntries() {
+        let router = makeRouter(lockfile: [makeLocalAssistant(), makeManagedAssistant()])
+        XCTAssertEqual(router.decideFast(), .showAssistantPicker)
+    }
+
+    func testDecideFastShowsPickerForSingleEntryWithMultiFlag() {
+        let router = makeRouter(lockfile: [makeLocalAssistant()], multiAssistantFlag: true)
+        XCTAssertEqual(router.decideFast(), .showAssistantPicker)
+    }
+
     // MARK: - decide(for:)
 
     func testDecideShowsHostingPickerWhenZeroAssistants() {

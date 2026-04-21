@@ -104,6 +104,10 @@ final class ReturningUserRouter {
         let all = lockfileLoader()
         let current = all.filter(\.isCurrentEnvironment)
         guard !current.isEmpty else { return nil }
+        if current.count > 1 || (current.count == 1 && multiAssistantFlagProvider()) {
+            log.info("decideFast: \(current.count) current-env entries + multiFlag — showAssistantPicker")
+            return .showAssistantPicker
+        }
         log.info("decideFast: \(current.count) current-env lockfile entries — autoConnect")
         return .autoConnect
     }
