@@ -874,69 +874,66 @@ export async function streamCommitImport(
     };
   }
 
+  // Workspace swap: content-level, not directory-level.
+  //
+  // We do NOT `rename(realWorkspaceDir, backupDir)` because in the
+  // production platform deployment `realWorkspaceDir` is a mounted volume
+  // (and the daemon's cwd / open subsystems pin it), so the kernel returns
+  // EBUSY on the parent-directory rename. Instead we swap the DIRECTORY'S
+  // CONTENTS: move every top-level entry from `realWorkspaceDir` into a
+  // peer `${realWorkspaceDir}.pre-import-<ts>/` backup dir, then move every
+  // top-level entry from the temp tree into the (now empty)
+  // `realWorkspaceDir`. `realWorkspaceDir` itself is never renamed, so
+  // mount-point / cwd pinning doesn't matter.
+  //
+  // Update the marker to record the backup dir BEFORE any move runs, so
+  // `recoverInterruptedImport` on a future boot can restore from backup
+  // even if the process is killed mid-swap.
   const backupDir = `${realWorkspaceDir}.pre-import-${Date.now()}`;
-  let realDirRenamedToBackup = false;
   try {
-    try {
-      await rename(realWorkspaceDir, backupDir);
-      realDirRenamedToBackup = true;
-    } catch (err) {
-      // Real workspace didn't exist. Proceed straight to the second rename.
-      if (!isENOENT(err)) {
-        // `rename(real → backup)` failed, so the live workspace still
-        // exists — but carried preserved paths are now in the temp tree,
-        // about to be deleted. Restore them to live before bailing out.
-        await restoreCarriedPaths(carried);
-        await cleanupTempDir();
-        await safelyDeleteMarker(markerPath);
-        return {
-          ok: false,
-          reason: "write_failed",
-          message: `Failed to move real workspace out of the way: ${errMessage(err)}`,
-        };
-      }
-    }
-
-    try {
-      await rename(tempWorkspaceDir, realWorkspaceDir);
-    } catch (err) {
-      // Try to put the original workspace back.
-      if (realDirRenamedToBackup) {
-        try {
-          await rename(backupDir, realWorkspaceDir);
-        } catch (restoreErr) {
-          log.error(
-            { restoreErr, backupDir, realWorkspaceDir },
-            "Failed to restore real workspace from backup after import swap failed — manual recovery may be required",
-          );
-        }
-      }
-      // The backup we just restored (if we did) was captured AFTER the
-      // carry-over already moved preserved paths into temp, so it's
-      // missing SQLite/Qdrant/embedding-models/deprecated. Move them back
-      // from temp to the (now restored) live workspace before temp gets
-      // deleted.
-      await restoreCarriedPaths(carried);
-      await cleanupTempDir();
-      await safelyDeleteMarker(markerPath);
-      return {
-        ok: false,
-        reason: "write_failed",
-        message: `Failed to swap temp workspace into place: ${errMessage(err)}`,
-      };
-    }
-
-    // Rename pair completed successfully. Clear the recovery marker so a
-    // subsequent `recoverInterruptedImport` call on a future start-up
-    // doesn't see a stale entry.
-    await safelyDeleteMarker(markerPath);
+    await writeImportMarker(markerPath, {
+      tempWorkspaceDir,
+      carried: carried.map((c) => ({
+        liveChild: c.liveChild,
+        tempChild: c.tempChild,
+      })),
+      backupDir,
+    });
   } catch (err) {
+    await restoreCarriedPaths(carried);
     await cleanupTempDir();
     await safelyDeleteMarker(markerPath);
     return {
       ok: false,
       reason: "write_failed",
-      message: `Workspace swap failed: ${errMessage(err)}`,
+      message: `Failed to persist pre-swap recovery marker: ${errMessage(err)}`,
+    };
+  }
+
+  try {
+    await swapWorkspaceContents(realWorkspaceDir, tempWorkspaceDir, backupDir);
+
+    // Swap succeeded. Clear the recovery marker so a subsequent
+    // `recoverInterruptedImport` call on a future start-up doesn't see a
+    // stale entry pointing at paths we're about to delete.
+    await safelyDeleteMarker(markerPath);
+  } catch (err) {
+    // Content-level swap either rolled back its own renames (best effort)
+    // or left the workspace in an ambiguous state. Do a final restore pass
+    // from backupDir into realWorkspaceDir so any entries that didn't make
+    // it back end up whole again. restoreCarriedPaths for preserved
+    // entries handles anything stranded in the temp tree.
+    await restoreFromBackupDir(backupDir, realWorkspaceDir);
+    await restoreCarriedPaths(carried);
+    await cleanupTempDir();
+    await rm(backupDir, { recursive: true, force: true }).catch(() => {
+      /* best effort */
+    });
+    await safelyDeleteMarker(markerPath);
+    return {
+      ok: false,
+      reason: "write_failed",
+      message: `Failed to swap workspace contents: ${errMessage(err)}`,
     };
   }
 
@@ -973,12 +970,12 @@ export async function streamCommitImport(
   }
 
   // Attempt to remove the backup dir (best-effort). Leaving it around is not
-  // a correctness issue, only a disk-space one, so we swallow errors.
-  if (realDirRenamedToBackup) {
-    rm(backupDir, { recursive: true, force: true }).catch((err) => {
-      log.warn({ err, backupDir }, "Failed to remove pre-import backup dir");
-    });
-  }
+  // a correctness issue, only a disk-space one, so we swallow errors. The
+  // backup dir now always exists once swap succeeds — we created it during
+  // swapWorkspaceContents to hold the pre-import live entries.
+  rm(backupDir, { recursive: true, force: true }).catch((err) => {
+    log.warn({ err, backupDir }, "Failed to remove pre-import backup dir");
+  });
 
   const report = buildReport(manifest, importedFiles, warnings);
   return { ok: true, report };
@@ -1280,6 +1277,195 @@ async function restoreCarriedPaths(
 }
 
 /**
+ * Swap the CONTENTS of the workspace without ever renaming `realWorkspaceDir`
+ * itself. The production platform pod has `realWorkspaceDir` as a mounted
+ * volume (and the daemon's subsystems pin file handles inside it), so the
+ * kernel returns `EBUSY` if we `rename()` the directory. Moving individual
+ * top-level entries sidesteps that: a mount point's children usually aren't
+ * themselves mount points, and individual-file EBUSY is much rarer than
+ * directory-rename EBUSY.
+ *
+ * Semantics:
+ *
+ *   1. Create `backupDir` (peer of `realWorkspaceDir`, different parent entry).
+ *   2. For each top-level entry currently in `realWorkspaceDir`, `rename()`
+ *      it into `backupDir`.
+ *   3. For each top-level entry in `tempWorkspaceDir`, `rename()` it into
+ *      `realWorkspaceDir`.
+ *   4. Remove the (now empty) temp dir.
+ *
+ * On a per-entry rename failure during phase 2, move what was already moved
+ * back into `realWorkspaceDir` and throw. On a failure during phase 3, move
+ * the already-moved temp entries back to `tempWorkspaceDir`, then move
+ * backup entries back into `realWorkspaceDir`, and throw.
+ *
+ * This function is NOT atomic — a reader that opens `realWorkspaceDir`
+ * mid-swap will see a half-emptied state. The daemon's SQLite connection is
+ * already closed (`resetDb()` ran before this), and the async import is
+ * running in a background job from the external caller's perspective, so
+ * transient readers aren't expected. `recoverInterruptedImport` uses the
+ * `backupDir` recorded in the marker to finish the rollback if a crash hits
+ * mid-swap.
+ */
+async function swapWorkspaceContents(
+  realWorkspaceDir: string,
+  tempWorkspaceDir: string,
+  backupDir: string,
+): Promise<void> {
+  await mkdir(backupDir, { recursive: true });
+
+  // Phase 1: move every top-level entry out of real into backup.
+  let liveEntries: string[];
+  try {
+    liveEntries = await readdir(realWorkspaceDir);
+  } catch (err) {
+    if (isENOENT(err)) {
+      liveEntries = [];
+    } else {
+      throw err;
+    }
+  }
+
+  const movedToBackup: string[] = [];
+  try {
+    for (const name of liveEntries) {
+      await rename(join(realWorkspaceDir, name), join(backupDir, name));
+      movedToBackup.push(name);
+    }
+  } catch (err) {
+    // Partial move-out. Reverse what we moved so realWorkspaceDir ends up
+    // back to its original content before we throw.
+    for (const name of movedToBackup.reverse()) {
+      try {
+        await rename(join(backupDir, name), join(realWorkspaceDir, name));
+      } catch (restoreErr) {
+        log.error(
+          { err: restoreErr, name, realWorkspaceDir, backupDir },
+          "Failed to restore entry from backup during swap-out rollback",
+        );
+      }
+    }
+    throw err;
+  }
+
+  // Phase 2: move every top-level entry from temp into real.
+  let tempEntries: string[];
+  try {
+    tempEntries = await readdir(tempWorkspaceDir);
+  } catch (err) {
+    if (isENOENT(err)) {
+      tempEntries = [];
+    } else {
+      throw err;
+    }
+  }
+
+  const movedToReal: string[] = [];
+  try {
+    for (const name of tempEntries) {
+      await rename(join(tempWorkspaceDir, name), join(realWorkspaceDir, name));
+      movedToReal.push(name);
+    }
+  } catch (err) {
+    // Partial move-in. Reverse the partial fill-in first (real → temp),
+    // then restore from backup (backup → real), so real ends up back at
+    // its pre-swap state.
+    for (const name of movedToReal.reverse()) {
+      try {
+        await rename(
+          join(realWorkspaceDir, name),
+          join(tempWorkspaceDir, name),
+        );
+      } catch (restoreErr) {
+        log.error(
+          { err: restoreErr, name, realWorkspaceDir, tempWorkspaceDir },
+          "Failed to undo partial swap-in during rollback",
+        );
+      }
+    }
+    for (const name of movedToBackup.reverse()) {
+      try {
+        await rename(join(backupDir, name), join(realWorkspaceDir, name));
+      } catch (restoreErr) {
+        log.error(
+          { err: restoreErr, name, realWorkspaceDir, backupDir },
+          "Failed to restore entry from backup during swap-in rollback",
+        );
+      }
+    }
+    throw err;
+  }
+
+  // Phase 3: remove the now-empty temp dir. If it still has stragglers
+  // (pax headers, etc. we didn't move) take them down too.
+  await rm(tempWorkspaceDir, { recursive: true, force: true }).catch(() => {
+    /* best effort — caller will log if it matters */
+  });
+}
+
+/**
+ * Move every top-level entry from `backupDir` back into `realWorkspaceDir`,
+ * overwriting any entry that already exists in `realWorkspaceDir` (those
+ * are partial swap-in leftovers from a crashed import and must not win over
+ * the pre-import state).
+ *
+ * Used by the in-process rollback path (failed `swapWorkspaceContents`) and
+ * by `recoverInterruptedImport` at boot when a marker with a `backupDir` is
+ * found on disk.
+ *
+ * Best-effort per-entry: logs and continues on individual failures rather
+ * than throwing, since the caller is already on a recovery path.
+ */
+async function restoreFromBackupDir(
+  backupDir: string,
+  realWorkspaceDir: string,
+): Promise<void> {
+  let backupEntries: string[];
+  try {
+    backupEntries = await readdir(backupDir);
+  } catch (err) {
+    if (isENOENT(err)) return;
+    throw err;
+  }
+
+  for (const name of backupEntries) {
+    const src = join(backupDir, name);
+    const dst = join(realWorkspaceDir, name);
+    // If real already has this entry (partial swap-in), remove it first —
+    // the backup copy is canonical.
+    try {
+      await rm(dst, { recursive: true, force: true });
+    } catch (err) {
+      log.warn(
+        { err, dst },
+        "Failed to clear partial-swap entry before restoring from backup",
+      );
+    }
+    try {
+      await rename(src, dst);
+    } catch (err) {
+      if (isEXDEV(err)) {
+        try {
+          await cp(src, dst, { recursive: true, preserveTimestamps: true });
+          await rm(src, { recursive: true, force: true });
+          continue;
+        } catch (cpErr) {
+          log.error(
+            { err: cpErr, src, dst },
+            "Failed to restore backup entry via cp fallback; manual recovery may be required",
+          );
+          continue;
+        }
+      }
+      log.error(
+        { err, src, dst },
+        "Failed to restore backup entry; manual recovery may be required",
+      );
+    }
+  }
+}
+
+/**
  * Resolve an archive path through the caller's resolver, then rebase the
  * returned disk path onto the temp workspace. Returns `null` when the path
  * cannot be resolved or lands outside `realWorkspaceDir`.
@@ -1470,6 +1656,13 @@ interface ImportMarker {
   tempWorkspaceDir: string;
   /** Preserved paths moved out of the live workspace pre-swap. */
   carried: Array<{ liveChild: string; tempChild: string }>;
+  /**
+   * Absolute path of the `${realWorkspaceDir}.pre-import-<ts>` backup dir
+   * (optional — only present once the content-level swap phase has started).
+   * `recoverInterruptedImport` moves entries from here back into
+   * `realWorkspaceDir` if it's populated, reversing any partial swap.
+   */
+  backupDir?: string;
 }
 
 /**
@@ -1568,6 +1761,30 @@ export async function recoverInterruptedImport(
       tempChild: c.tempChild,
     })),
   );
+
+  // If a backup dir exists, the content-level swap had started when the
+  // previous process died. Roll back: restore every entry from backup into
+  // the live workspace (overwriting any partial swap-in from the temp
+  // tree, which would otherwise be an inconsistent view of the import).
+  if (typeof marker.backupDir === "string" && marker.backupDir.length > 0) {
+    try {
+      await restoreFromBackupDir(marker.backupDir, resolve(realWorkspaceDir));
+    } catch (err) {
+      log.error(
+        { err, backupDir: marker.backupDir },
+        "Failed to restore from backup dir during import recovery; manual intervention may be required",
+      );
+    }
+    // Backup should now be empty (or nearly so). Remove it best-effort.
+    await rm(marker.backupDir, { recursive: true, force: true }).catch(
+      (err) => {
+        log.warn(
+          { err, backupDir: marker.backupDir },
+          "Failed to clean up backup dir during import recovery",
+        );
+      },
+    );
+  }
 
   // Clean up the temp tree (best-effort — partial writes there are fine to
   // drop now that preserved paths are back in the live workspace).
