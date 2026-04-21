@@ -74,7 +74,10 @@ import type { OnboardingContext } from "../types/onboarding-context.js";
 import type { AbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
-import { runAgentLoopImpl } from "./conversation-agent-loop.js";
+import {
+  runAgentLoopImpl,
+  trackCompactionOutcome,
+} from "./conversation-agent-loop.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
 import {
   regenerate as regenerateImpl,
@@ -1187,6 +1190,14 @@ export class Conversation {
       this.abortController?.signal ?? undefined,
       { force: true, lastCompactedAt: this.contextCompactedAt ?? undefined },
     );
+    // Track circuit-breaker state for user-initiated `/compact` and other
+    // forced paths so a successful forced compaction clears a stuck counter
+    // and a run of forced failures still trips the breaker. `summaryFailed`
+    // is `undefined` on early-return paths (no eligible messages, disabled,
+    // etc.) — skip those so they don't silently reset the counter.
+    if (result.summaryFailed !== undefined) {
+      trackCompactionOutcome(this, result.summaryFailed, this.sendToClient);
+    }
     if (result.compacted) {
       this.messages = result.messages;
       this.contextCompactedMessageCount += result.compactedPersistedMessages;

@@ -7,11 +7,16 @@
  * full `Conversation` — keeps the test fast and isolates the breaker logic
  * from the rest of the loop, which is where bugs actually hide.
  *
- * Acceptance criteria (per plan PR 2):
+ * Acceptance criteria:
  *   (a) counter increments on `summaryFailed`
  *   (b) circuit opens after exactly 3 failures
  *   (c) successful compaction resets counter and circuit
  *   (d) open circuit skips auto-compaction but admits `force: true`
+ *   (e) circuit re-opens after cooldown expiry when 3 more failures accumulate
+ *   (f) call sites guard `undefined summaryFailed` so early returns do not
+ *       reset the counter
+ *   (g) forceCompact-style tracking: resets counter on success, increments on
+ *       failure, preserves state on early returns
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
@@ -115,8 +120,11 @@ describe("compaction circuit breaker", () => {
     expect(state.consecutiveCompactionFailures).toBe(0);
     expect(state.compactionCircuitOpenUntil).toBeNull();
 
-    // `summaryFailed` undefined (never attempted the LLM call) also counts
-    // as "not failed" — don't count a compaction that never ran.
+    // `summaryFailed` undefined (never attempted the LLM call) currently
+    // takes the "not failed" branch, which is why callers must guard the
+    // helper with `summaryFailed !== undefined` — otherwise an early-return
+    // `maybeCompact()` would silently reset the counter. The regression test
+    // below documents that invariant from the caller's perspective.
     trackCompactionOutcome(state, undefined, onEvent);
     expect(state.consecutiveCompactionFailures).toBe(0);
     expect(state.compactionCircuitOpenUntil).toBeNull();
@@ -189,5 +197,140 @@ describe("compaction circuit breaker", () => {
     const autoRetry = runCompactionIfAllowed({});
     expect(autoRetry.ran).toBe(true);
     expect(compactionCalls).toBe(2);
+  });
+
+  test("(e) circuit re-opens after cooldown expiry when 3 more failures accumulate", () => {
+    // Regression: before the fix, `trackCompactionOutcome` required
+    // `compactionCircuitOpenUntil === null` to open the circuit. Once a
+    // cooldown expired, `isCompactionCircuitOpen()` correctly reported
+    // "closed" but the stale past-timestamp stayed on the state, so the
+    // next 3-strike window could never trip a new cooldown. The fix
+    // treats any expired timestamp the same as null.
+    const t0 = 1_700_000_000_000;
+    Date.now = () => t0;
+
+    const state = makeState();
+    const { onEvent, events } = collectEvents();
+
+    // Trip the breaker the first time.
+    trackCompactionOutcome(state, true, onEvent);
+    trackCompactionOutcome(state, true, onEvent);
+    trackCompactionOutcome(state, true, onEvent);
+    expect(state.compactionCircuitOpenUntil).toBe(t0 + 60 * 60 * 1000);
+    expect(events).toHaveLength(1);
+
+    // Advance past the cooldown window. Manually reset the counter — in
+    // production this happens when a subsequent `maybeCompact()` call
+    // succeeds (`summaryFailed: false`) after the cooldown elapses, but
+    // the bug manifests even when the counter is reset: the stale
+    // `compactionCircuitOpenUntil` is what breaks re-opening.
+    const t1 = t0 + 60 * 60 * 1000 + 1;
+    Date.now = () => t1;
+    expect(isCompactionCircuitOpen(state)).toBe(false);
+    state.consecutiveCompactionFailures = 0;
+    // `compactionCircuitOpenUntil` is deliberately left as the old
+    // timestamp to reproduce the bug condition — in practice the null
+    // reset only happens on `summaryFailed: false`.
+    expect(state.compactionCircuitOpenUntil).toBe(t0 + 60 * 60 * 1000);
+
+    // Three more failures must trip a fresh cooldown even though the
+    // old timestamp is still set.
+    trackCompactionOutcome(state, true, onEvent);
+    trackCompactionOutcome(state, true, onEvent);
+    trackCompactionOutcome(state, true, onEvent);
+    expect(state.consecutiveCompactionFailures).toBe(3);
+    expect(state.compactionCircuitOpenUntil).toBe(t1 + 60 * 60 * 1000);
+    expect(events).toHaveLength(2);
+    expect(events[1]).toEqual({
+      type: "compaction_circuit_open",
+      reason: "3_consecutive_failures",
+      openUntil: t1 + 60 * 60 * 1000,
+    });
+  });
+
+  test("(f) call sites guard undefined summaryFailed so early returns don't reset the counter", () => {
+    // Regression: `maybeCompact()` returns `summaryFailed: undefined` on
+    // early-return paths (no eligible messages, below threshold, cooldown
+    // active, truncation-only). Before the fix, the agent loop called
+    // `trackCompactionOutcome(ctx, compacted.summaryFailed, onEvent)`
+    // unconditionally — `undefined` took the else branch and silently
+    // reset the 3-strike counter. Callers must now guard with
+    // `summaryFailed !== undefined` at every call site.
+    const state = makeState();
+    const { onEvent } = collectEvents();
+
+    // Accumulate two failures, close to tripping the breaker.
+    trackCompactionOutcome(state, true, onEvent);
+    trackCompactionOutcome(state, true, onEvent);
+    expect(state.consecutiveCompactionFailures).toBe(2);
+
+    // Simulate an early-return result from maybeCompact() (e.g. below
+    // threshold) — callers must skip the tracking call entirely.
+    const earlyReturn = {
+      compacted: false,
+      summaryFailed: undefined as boolean | undefined,
+    };
+    if (earlyReturn.summaryFailed !== undefined) {
+      trackCompactionOutcome(state, earlyReturn.summaryFailed, onEvent);
+    }
+    // Counter preserved — the early return did not reset progress toward
+    // tripping the breaker.
+    expect(state.consecutiveCompactionFailures).toBe(2);
+
+    // A third real failure then trips the breaker as expected.
+    trackCompactionOutcome(state, true, onEvent);
+    expect(state.consecutiveCompactionFailures).toBe(3);
+    expect(state.compactionCircuitOpenUntil).not.toBeNull();
+  });
+
+  test("(g) forceCompact-style tracking resets counter on success, increments on failure", () => {
+    // Regression: `Conversation.forceCompact()` previously didn't track
+    // circuit-breaker outcomes. A successful user `/compact` wouldn't clear
+    // an accumulating counter and a failed forced compaction wouldn't
+    // contribute to tripping the breaker. The fix calls
+    // `trackCompactionOutcome(this, result.summaryFailed, this.sendToClient)`
+    // after `maybeCompact` — guarded by `summaryFailed !== undefined` so
+    // early-return paths don't reset the counter.
+    const state = makeState();
+    const { onEvent } = collectEvents();
+
+    // Simulate forceCompact: call maybeCompact with force:true, then
+    // track the outcome the same way forceCompact now does.
+    const trackForceCompact = (result: {
+      summaryFailed?: boolean;
+      compacted: boolean;
+    }): void => {
+      if (result.summaryFailed !== undefined) {
+        trackCompactionOutcome(state, result.summaryFailed, onEvent);
+      }
+    };
+
+    // Two failures via the auto path …
+    trackCompactionOutcome(state, true, onEvent);
+    trackCompactionOutcome(state, true, onEvent);
+    expect(state.consecutiveCompactionFailures).toBe(2);
+
+    // … then the user hits /compact and the forced call succeeds. This
+    // must clear the stuck counter so the conversation isn't one
+    // auto-failure away from a cooldown.
+    trackForceCompact({ summaryFailed: false, compacted: true });
+    expect(state.consecutiveCompactionFailures).toBe(0);
+    expect(state.compactionCircuitOpenUntil).toBeNull();
+
+    // Conversely, three forced failures must trip the breaker too — a
+    // run of broken summaries is a provider-health signal regardless of
+    // whether the caller bypassed the breaker.
+    trackForceCompact({ summaryFailed: true, compacted: true });
+    trackForceCompact({ summaryFailed: true, compacted: true });
+    trackForceCompact({ summaryFailed: true, compacted: true });
+    expect(state.consecutiveCompactionFailures).toBe(3);
+    expect(state.compactionCircuitOpenUntil).not.toBeNull();
+
+    // An early-return forceCompact (e.g. no eligible messages) must not
+    // reset the counter — the breaker should stay open.
+    const wasOpenUntil = state.compactionCircuitOpenUntil;
+    trackForceCompact({ summaryFailed: undefined, compacted: false });
+    expect(state.consecutiveCompactionFailures).toBe(3);
+    expect(state.compactionCircuitOpenUntil).toBe(wasOpenUntil);
   });
 });

@@ -243,10 +243,18 @@ export function trackCompactionOutcome(
 ): void {
   if (summaryFailed) {
     ctx.consecutiveCompactionFailures += 1;
+    // Treat a stale/expired open-until timestamp the same as null so a new
+    // 3-strike window can re-open the circuit after the prior cooldown
+    // elapses. Without this the second trip would no-op because
+    // `compactionCircuitOpenUntil` remains set to a past timestamp even
+    // though `isCompactionCircuitOpen()` correctly reports closed.
+    const circuitDormant =
+      ctx.compactionCircuitOpenUntil === null ||
+      Date.now() >= ctx.compactionCircuitOpenUntil;
     if (
       ctx.consecutiveCompactionFailures >=
         COMPACTION_CIRCUIT_FAILURE_THRESHOLD &&
-      ctx.compactionCircuitOpenUntil === null
+      circuitDormant
     ) {
       const openUntil = Date.now() + COMPACTION_CIRCUIT_COOLDOWN_MS;
       ctx.compactionCircuitOpenUntil = openUntil;
@@ -614,7 +622,12 @@ export async function runAgentLoopImpl(
           },
         )
       : null;
-    if (compacted) {
+    // Only track circuit-breaker state when a summary LLM call actually ran.
+    // `summaryFailed` is `undefined` on early returns (compaction disabled,
+    // below threshold, cooldown active, no eligible messages, truncation-only
+    // path) — treating those as "successful" compactions would silently reset
+    // the 3-strike counter and break the invariant.
+    if (compacted && compacted.summaryFailed !== undefined) {
       trackCompactionOutcome(ctx, compacted.summaryFailed, onEvent);
     }
     if (compacted?.compacted) {
@@ -1018,8 +1031,14 @@ export async function runAgentLoopImpl(
         // Track circuit-breaker state whenever the reducer invoked compaction.
         // The reducer's forced_compaction tier uses force:true, so it bypasses
         // the open-circuit check, but we still want failure tracking to detect
-        // a run of broken summaries and clear the counter on success.
-        if (step.compactionResult) {
+        // a run of broken summaries and clear the counter on success. Only
+        // track when the summary LLM actually ran — `summaryFailed === undefined`
+        // indicates an early return (no eligible messages, truncation-only
+        // path, etc.) that shouldn't influence the breaker.
+        if (
+          step.compactionResult &&
+          step.compactionResult.summaryFailed !== undefined
+        ) {
           trackCompactionOutcome(
             ctx,
             step.compactionResult.summaryFailed,
@@ -1235,7 +1254,12 @@ export async function runAgentLoopImpl(
           targetInputTokensOverride: preflightBudget,
         },
       );
-      trackCompactionOutcome(ctx, midLoopCompact.summaryFailed, onEvent);
+      // `force: true` bypasses the cooldown/threshold gates but early returns
+      // for "no eligible messages" / "insufficient messages" still leave
+      // `summaryFailed` undefined. Only track when the summary LLM actually ran.
+      if (midLoopCompact.summaryFailed !== undefined) {
+        trackCompactionOutcome(ctx, midLoopCompact.summaryFailed, onEvent);
+      }
       if (midLoopCompact.compacted) {
         ctx.messages = midLoopCompact.messages;
         ctx.contextCompactedMessageCount +=
@@ -1459,8 +1483,14 @@ export async function runAgentLoopImpl(
         ctx.messages = step.messages;
         currentInjectionMode = step.state.injectionMode;
 
-        // See the preflight reducer call above for rationale.
-        if (step.compactionResult) {
+        // See the preflight reducer call above for rationale. Only track when
+        // the summary LLM actually ran — `summaryFailed === undefined`
+        // indicates the reducer's forced compaction took an early-return path
+        // without calling the summary LLM.
+        if (
+          step.compactionResult &&
+          step.compactionResult.summaryFailed !== undefined
+        ) {
           trackCompactionOutcome(
             ctx,
             step.compactionResult.summaryFailed,
@@ -1595,11 +1625,15 @@ export async function runAgentLoopImpl(
                   targetInputTokensOverride: correctedTarget,
                 },
               );
-            trackCompactionOutcome(
-              ctx,
-              emergencyCompact.summaryFailed,
-              onEvent,
-            );
+            // Only track when the summary LLM actually ran; `force: true`
+            // bypasses the cooldown but not the early-return paths.
+            if (emergencyCompact.summaryFailed !== undefined) {
+              trackCompactionOutcome(
+                ctx,
+                emergencyCompact.summaryFailed,
+                onEvent,
+              );
+            }
             if (emergencyCompact.compacted) {
               ctx.messages = emergencyCompact.messages;
               ctx.contextCompactedMessageCount +=
@@ -1723,7 +1757,15 @@ export async function runAgentLoopImpl(
               targetInputTokensOverride: correctedTarget,
             },
           );
-          trackCompactionOutcome(ctx, emergencyCompact.summaryFailed, onEvent);
+          // Only track when the summary LLM actually ran; `force: true`
+          // bypasses the cooldown but not the early-return paths.
+          if (emergencyCompact.summaryFailed !== undefined) {
+            trackCompactionOutcome(
+              ctx,
+              emergencyCompact.summaryFailed,
+              onEvent,
+            );
+          }
           if (emergencyCompact.compacted) {
             ctx.messages = emergencyCompact.messages;
             ctx.contextCompactedMessageCount +=
