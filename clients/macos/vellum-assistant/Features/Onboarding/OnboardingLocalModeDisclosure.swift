@@ -13,7 +13,6 @@ internal struct OnboardingLocalModeDisclosure: View {
 
     var kicker: String = "LOCAL MODE"
     var title: String = "Continue without an account"
-    var tradeoffsKicker: String = "HOW IT WORKS"
     var tradeoffs: [String] = [
         "No account — install and start chatting",
         "Your data stays on your Mac",
@@ -60,29 +59,17 @@ internal struct OnboardingLocalModeDisclosure: View {
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: 0) {
-                    Spacer().frame(height: VSpacing.sm)
+                    Spacer().frame(height: VSpacing.md)
 
-                    VColor.borderBase
-                        .frame(height: 1)
-                        .accessibilityHidden(true)
-
-                    Spacer().frame(height: VSpacing.sm)
-
-                    Text(tradeoffsKicker)
-                        .font(VFont.labelSmall)
-                        .foregroundStyle(VColor.contentTertiary)
-                        .textCase(.uppercase)
-                        .tracking(0.6)
-
-                    Spacer().frame(height: VSpacing.xs)
-
-                    VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
                         ForEach(tradeoffs, id: \.self) { item in
                             tradeoffRow(item)
                         }
                     }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel(Text("Local Mode details"))
 
-                    Spacer().frame(height: VSpacing.sm)
+                    Spacer().frame(height: VSpacing.md)
 
                     VButton(
                         label: secondaryCTA,
@@ -117,15 +104,15 @@ internal struct OnboardingLocalModeDisclosure: View {
     @ViewBuilder
     private func tradeoffRow(_ text: String) -> some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
-            Circle()
-                .fill(VColor.contentTertiary)
-                .frame(width: 3, height: 3)
-                .padding(.top, 6)
+            VIconView(.circleCheck, size: 14)
+                .foregroundStyle(VColor.systemPositiveStrong)
                 .accessibilityHidden(true)
             Text(text)
                 .font(VFont.bodySmallDefault)
                 .foregroundStyle(VColor.contentDefault)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(text))
     }
 }
