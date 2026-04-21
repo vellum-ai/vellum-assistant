@@ -41,7 +41,6 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
     id: "schedule.notify",
     description: "Scheduled notification triggered (one-shot or recurring)",
   },
-  { id: "schedule.complete", description: "Scheduled task finished running" },
   {
     id: "guardian.question",
     description: "Guardian approval question requiring response",
@@ -191,7 +190,7 @@ export interface NotificationSignal<TEventName extends string = string> {
   createdAt: number; // epoch ms
   sourceChannel: NotificationSourceChannel; // see NOTIFICATION_SOURCE_CHANNELS registry
   sourceContextId: string;
-  sourceEventName: TEventName; // free-form: 'reminder_fired', 'schedule_complete', 'guardian_question', etc.
+  sourceEventName: TEventName; // free-form: 'reminder_fired', 'guardian_question', etc.
   contextPayload: NotificationContextPayload<TEventName>;
   attentionHints: AttentionHints;
   /** Routing intent from the source (e.g. reminder). Controls post-decision channel enforcement. */

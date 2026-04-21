@@ -103,11 +103,7 @@ describe("scheduler conversation reuse", () => {
       processedMessages.push({ conversationId, message });
     };
 
-    const scheduler1 = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler1 = startScheduler(processMessage, () => {});
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler1.stop();
 
@@ -126,11 +122,7 @@ describe("scheduler conversation reuse", () => {
     forceScheduleDue(schedule.id);
     processedMessages.length = 0;
 
-    const scheduler2 = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler2 = startScheduler(processMessage, () => {});
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler2.stop();
 
@@ -168,11 +160,7 @@ describe("scheduler conversation reuse", () => {
       processedMessages.push({ conversationId, message });
     };
 
-    const scheduler1 = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler1 = startScheduler(processMessage, () => {});
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler1.stop();
 
@@ -183,11 +171,7 @@ describe("scheduler conversation reuse", () => {
     forceScheduleDue(schedule.id);
     processedMessages.length = 0;
 
-    const scheduler2 = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler2 = startScheduler(processMessage, () => {});
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler2.stop();
 
@@ -220,11 +204,7 @@ describe("scheduler conversation reuse", () => {
       processedMessages.push({ conversationId, message });
     };
 
-    const scheduler1 = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler1 = startScheduler(processMessage, () => {});
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler1.stop();
 
@@ -238,11 +218,7 @@ describe("scheduler conversation reuse", () => {
     forceScheduleDue(schedule.id);
     processedMessages.length = 0;
 
-    const scheduler2 = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler2 = startScheduler(processMessage, () => {});
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler2.stop();
 
@@ -273,11 +249,7 @@ describe("scheduler conversation reuse", () => {
       processedMessages.push({ conversationId, message });
     };
 
-    const scheduler = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler = startScheduler(processMessage, () => {});
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
 
@@ -318,11 +290,7 @@ describe("scheduler conversation reuse", () => {
       if (shouldFail) throw new Error("Simulated failure");
     };
 
-    const scheduler1 = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler1 = startScheduler(processMessage, () => {});
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler1.stop();
 
@@ -334,11 +302,7 @@ describe("scheduler conversation reuse", () => {
     processedMessages.length = 0;
     shouldFail = true;
 
-    const scheduler2 = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler2 = startScheduler(processMessage, () => {});
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler2.stop();
 
@@ -352,11 +316,7 @@ describe("scheduler conversation reuse", () => {
     processedMessages.length = 0;
     shouldFail = false;
 
-    const scheduler3 = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler3 = startScheduler(processMessage, () => {});
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler3.stop();
 

@@ -141,11 +141,7 @@ describe("scheduler run_task detection", () => {
       directCalls.push({ conversationId, message, options });
     };
 
-    const scheduler = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler = startScheduler(processMessage, () => {});
 
     // Wait for the initial tick to complete
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -190,11 +186,7 @@ describe("scheduler run_task detection", () => {
       processedMessages.push({ conversationId, message, options });
     };
 
-    const scheduler = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler = startScheduler(processMessage, () => {});
 
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
@@ -229,11 +221,7 @@ describe("scheduler run_task detection", () => {
       _message: string,
     ) => {};
 
-    const scheduler = startScheduler(
-      processMessage,
-      () => {},
-      () => {},
-    );
+    const scheduler = startScheduler(processMessage, () => {});
 
     await new Promise((resolve) => setTimeout(resolve, 500));
     scheduler.stop();
