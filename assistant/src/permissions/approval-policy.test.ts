@@ -136,7 +136,7 @@ describe("allow rule", () => {
     expect(result.matchedRule).toBeUndefined();
   });
 
-  test("allow at High risk — containerized bash → prompt (no more shouldAutoAllowHighRisk)", () => {
+  test("allow at High risk — containerized bash without sandboxAutoApprove flag → prompt", () => {
     const result = evaluate({
       riskLevel: RiskLevel.High,
       toolName: "bash",

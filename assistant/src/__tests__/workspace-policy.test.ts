@@ -1,8 +1,9 @@
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 
+import * as envRegistry from "../config/env-registry.js";
 import {
   isPathWithinWorkspaceRoot,
   isWorkspaceScopedInvocation,
@@ -198,14 +199,31 @@ describe("isWorkspaceScopedInvocation", () => {
   // ── Bash ───────────────────────────────────────────────────────────
 
   describe("bash", () => {
-    test("returns true (container handles isolation)", () => {
+    test("returns false when not containerized", () => {
       expect(
         isWorkspaceScopedInvocation(
           "bash",
           { command: "ls -la" },
           workspaceRoot,
         ),
-      ).toBe(true);
+      ).toBe(false);
+    });
+
+    test("returns true when containerized", () => {
+      const spy = spyOn(envRegistry, "getIsContainerized").mockReturnValue(
+        true,
+      );
+      try {
+        expect(
+          isWorkspaceScopedInvocation(
+            "bash",
+            { command: "ls -la" },
+            workspaceRoot,
+          ),
+        ).toBe(true);
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 

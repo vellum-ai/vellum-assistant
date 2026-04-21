@@ -603,7 +603,11 @@ export const DEFAULT_COMMAND_REGISTRY = {
     sandboxAutoApprove: true,
     reason: "Changes file ownership",
   },
-  chgrp: { baseRisk: "high", reason: "Changes file group" },
+  chgrp: {
+    baseRisk: "high",
+    sandboxAutoApprove: true,
+    reason: "Changes file group",
+  },
   mount: { baseRisk: "high", reason: "Mounts filesystem" },
   umount: { baseRisk: "high", reason: "Unmounts filesystem" },
   systemctl: { baseRisk: "high", reason: "Controls system services" },
