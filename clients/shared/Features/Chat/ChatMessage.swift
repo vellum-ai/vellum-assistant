@@ -605,7 +605,7 @@ public func confirmationHumanDescription(
     isConversationHostAccessPrompt: Bool = false
 ) -> String {
     // Use activity (or legacy reason), falling back to description/message for
-    // tools that provide context via other fields (e.g. context_overflow_compression uses description)
+    // tools that provide context via other fields.
     let rawReason = (input["activity"]?.value as? String)
         ?? (input["reason"]?.value as? String)
         ?? ""
