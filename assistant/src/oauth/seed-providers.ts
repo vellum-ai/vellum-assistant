@@ -237,6 +237,8 @@ export const PROVIDER_SEED_DATA: Record<
       "tweet.read",
       "tweet.write",
       "users.read",
+      "like.read",
+      "bookmark.read",
       "offline.access",
     ],
     scopePolicy: {

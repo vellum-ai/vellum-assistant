@@ -75,7 +75,10 @@ import type { OnboardingContext } from "../types/onboarding-context.js";
 import type { AbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
-import { runAgentLoopImpl } from "./conversation-agent-loop.js";
+import {
+  runAgentLoopImpl,
+  trackCompactionOutcome,
+} from "./conversation-agent-loop.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
 import {
   regenerate as regenerateImpl,
@@ -191,6 +194,19 @@ export class Conversation {
   /** @internal */ contextWindowManager: ContextWindowManager;
   /** @internal */ contextCompactedMessageCount = 0;
   /** @internal */ contextCompactedAt: number | null = null;
+  /**
+   * Tracks consecutive compaction failures (summary LLM call threw). In-memory
+   * only — resets to 0 on process restart, which is the intended "one free
+   * retry after restart" behavior. Reset to 0 on any successful compaction.
+   */
+  /** @internal */ consecutiveCompactionFailures = 0;
+  /**
+   * When the circuit breaker is open, this timestamp (ms since epoch) marks
+   * when auto-compaction is allowed to resume. Set to `Date.now() + 1h` after
+   * 3 consecutive failures; cleared on a successful compaction. User-initiated
+   * compaction (`force: true`) bypasses the breaker regardless.
+   */
+  /** @internal */ compactionCircuitOpenUntil: number | null = null;
   /** @internal */ currentRequestId?: string;
   /** @internal */ hasNoClient = false;
   /** @internal */ isSubagent = false;
@@ -409,7 +425,10 @@ export class Conversation {
         );
       }
     });
-    this.secretPrompter = new SecretPrompter(sendToClient);
+    this.secretPrompter = new SecretPrompter(
+      sendToClient,
+      broadcastToAllClients,
+    );
 
     // Register watch/call notifiers (reads ctx properties lazily)
     registerConversationNotifiers(conversationId, this);
@@ -812,6 +831,7 @@ export class Conversation {
     options?: { isInteractive?: boolean },
     displayContent?: string,
     transport?: ConversationTransportMetadata,
+    clientMessageId?: string,
   ): { queued: boolean; requestId: string; rejected?: boolean } {
     return enqueueMessageImpl(
       this,
@@ -825,6 +845,7 @@ export class Conversation {
       options,
       displayContent,
       transport,
+      clientMessageId,
     );
   }
 
@@ -1222,6 +1243,14 @@ export class Conversation {
           getConversationOriginChannel(this.conversationId) ?? undefined,
       },
     );
+    // Track circuit-breaker state for user-initiated `/compact` and other
+    // forced paths so a successful forced compaction clears a stuck counter
+    // and a run of forced failures still trips the breaker. `summaryFailed`
+    // is `undefined` on early-return paths (no eligible messages, disabled,
+    // etc.) — skip those so they don't silently reset the counter.
+    if (result.summaryFailed !== undefined) {
+      trackCompactionOutcome(this, result.summaryFailed, this.sendToClient);
+    }
     if (result.compacted) {
       this.messages = result.messages;
       this.contextCompactedMessageCount += result.compactedPersistedMessages;
@@ -1244,6 +1273,14 @@ export class Conversation {
 
   setChannelCapabilities(caps: ChannelCapabilities | null): void {
     this.channelCapabilities = caps ?? undefined;
+    this.secretPrompter.setChannelContext(
+      caps
+        ? {
+            channel: caps.channel,
+            supportsDynamicUi: caps.supportsDynamicUi,
+          }
+        : undefined,
+    );
   }
 
   setTrustContext(ctx: TrustContext | null): void {

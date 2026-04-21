@@ -429,6 +429,8 @@ build_binaries() {
     cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" "$SCRIPT_DIR/daemon-bin/templates"
     rm -rf "$SCRIPT_DIR/daemon-bin/hook-templates"
     cp -R "$ASSISTANT_SRC_DIR/hook-templates" "$SCRIPT_DIR/daemon-bin/hook-templates"
+    rm -rf "$SCRIPT_DIR/daemon-bin/compact-prompts"
+    cp -R "$ASSISTANT_SRC_DIR/src/context/prompts" "$SCRIPT_DIR/daemon-bin/compact-prompts"
     rm -rf "$SCRIPT_DIR/daemon-bin/brain-graph"
     mkdir -p "$SCRIPT_DIR/daemon-bin/brain-graph"
     cp "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" "$SCRIPT_DIR/daemon-bin/brain-graph/"
@@ -763,6 +765,10 @@ if [ -d "$ASSISTANT_SRC_DIR/hook-templates" ]; then
     rm -rf "$SCRIPT_DIR/daemon-bin/hook-templates"
     cp -R "$ASSISTANT_SRC_DIR/hook-templates" "$SCRIPT_DIR/daemon-bin/hook-templates"
 fi
+if [ -d "$ASSISTANT_SRC_DIR/src/context/prompts" ]; then
+    rm -rf "$SCRIPT_DIR/daemon-bin/compact-prompts"
+    cp -R "$ASSISTANT_SRC_DIR/src/context/prompts" "$SCRIPT_DIR/daemon-bin/compact-prompts"
+fi
 if [ -f "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" ]; then
     rm -rf "$SCRIPT_DIR/daemon-bin/brain-graph"
     mkdir -p "$SCRIPT_DIR/daemon-bin/brain-graph"
@@ -1036,6 +1042,10 @@ if [ -d "$SCRIPT_DIR/daemon-bin/hook-templates" ]; then
     rm -rf "$RESOURCES_DIR/hook-templates"
     cp -R "$SCRIPT_DIR/daemon-bin/hook-templates" "$RESOURCES_DIR/hook-templates"
 fi
+if [ -d "$SCRIPT_DIR/daemon-bin/compact-prompts" ]; then
+    rm -rf "$RESOURCES_DIR/compact-prompts"
+    cp -R "$SCRIPT_DIR/daemon-bin/compact-prompts" "$RESOURCES_DIR/compact-prompts"
+fi
 if [ -d "$SCRIPT_DIR/daemon-bin/brain-graph" ]; then
     rm -rf "$RESOURCES_DIR/brain-graph"
     cp -R "$SCRIPT_DIR/daemon-bin/brain-graph" "$RESOURCES_DIR/brain-graph"
@@ -1057,6 +1067,10 @@ fi
 STT_PROVIDER_CATALOG="$SCRIPT_DIR/../../meta/stt-provider-catalog.json"
 if [ -f "$STT_PROVIDER_CATALOG" ]; then
     cp "$STT_PROVIDER_CATALOG" "$RESOURCES_DIR/stt-provider-catalog.json"
+fi
+LLM_PROVIDER_CATALOG="$SCRIPT_DIR/../../meta/llm-provider-catalog.json"
+if [ -f "$LLM_PROVIDER_CATALOG" ]; then
+    cp "$LLM_PROVIDER_CATALOG" "$RESOURCES_DIR/llm-provider-catalog.json"
 fi
 # Bundle Dockerfiles into Contents/Resources/dockerfiles/ for debug builds
 # so that the CLI's findRepoRoot() can locate them when running from a
@@ -1323,9 +1337,17 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 PLIST
 
 # Always compile asset catalog (fast, ensures AppIcon changes are picked up)
+# AppIcon.icon is a Xcode-26 Icon Composer bundle — actool reads it alongside
+# the xcassets and emits both the layered Liquid Glass iconstack for macOS Tahoe
+# and backward-compatible raster fallbacks for macOS 15 into Assets.car.
 XCASSETS="$SCRIPT_DIR/vellum-assistant/Resources/Assets.xcassets"
+APP_ICON="$SCRIPT_DIR/vellum-assistant/Resources/AppIcon.icon"
 if [ -d "$XCASSETS" ]; then
-    xcrun actool "$XCASSETS" \
+    ACTOOL_INPUTS=("$XCASSETS")
+    if [ -d "$APP_ICON" ]; then
+        ACTOOL_INPUTS+=("$APP_ICON")
+    fi
+    xcrun actool "${ACTOOL_INPUTS[@]}" \
         --compile "$RESOURCES_DIR" \
         --platform macosx \
         --minimum-deployment-target 14.0 \

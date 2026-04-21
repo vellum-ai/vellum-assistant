@@ -189,33 +189,6 @@ final class ConversationForkIOSTests: XCTestCase {
         XCTAssertEqual(store.selectionRequest?.conversationLocalId, store.conversations.first?.id)
     }
 
-    func testSelectionRequestTargetsCompactAndRegularNavigationState() {
-        let conversationId = UUID()
-        let request = ConversationSelectionRequest(conversationLocalId: conversationId)
-
-        var compactPath: [UUID] = []
-        var compactSelection: UUID?
-        applyConversationSelectionRequest(
-            request,
-            horizontalSizeClass: .compact,
-            navigationPath: &compactPath,
-            selectedConversationId: &compactSelection
-        )
-        XCTAssertEqual(compactPath, [conversationId])
-        XCTAssertNil(compactSelection)
-
-        var regularPath: [UUID] = []
-        var regularSelection: UUID?
-        applyConversationSelectionRequest(
-            request,
-            horizontalSizeClass: .regular,
-            navigationPath: &regularPath,
-            selectedConversationId: &regularSelection
-        )
-        XCTAssertTrue(regularPath.isEmpty)
-        XCTAssertEqual(regularSelection, conversationId)
-    }
-
     private func makeUserDefaults() -> (UserDefaults, String) {
         let suiteName = "ConversationForkIOSTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

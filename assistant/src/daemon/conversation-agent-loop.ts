@@ -31,7 +31,10 @@ import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
 } from "../context/post-turn-tool-result-truncation.js";
-import { estimatePromptTokens } from "../context/token-estimator.js";
+import {
+  estimatePromptTokens,
+  getCalibrationProviderKey,
+} from "../context/token-estimator.js";
 import type { ContextWindowManager } from "../context/window-manager.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
@@ -45,6 +48,7 @@ import { getApp, listAppFiles, resolveAppDir } from "../memory/app-store.js";
 import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
 import {
   addMessage,
+  clearPkbSystemReminderMetadataForConversation,
   deleteMessageById,
   getConversation,
   getConversationOriginChannel,
@@ -143,44 +147,11 @@ import type {
   UsageStats,
 } from "./message-protocol.js";
 import type { MemoryRecalled } from "./message-types/memory.js";
+import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");
-
-/**
- * Parse the actual token count reported by the provider in a context-too-large
- * error message. Providers typically include the prompt size, e.g.:
- *   "prompt is too long: 242201 tokens > 200000 maximum"
- *   "too many input tokens: 242201 > 200000"
- *
- * Returns the actual token count or null if it cannot be parsed.
- */
-export function parseActualTokensFromError(
-  errorMessage: string | null,
-): number | null {
-  if (!errorMessage) return null;
-
-  // Match patterns like "242201 tokens > 200000" or "242201 > 200000 maximum"
-  const match = errorMessage.match(
-    /(\d[\d,]*)\s*tokens?\s*[>≥]|:\s*(\d[\d,]*)\s*[>≥]/i,
-  );
-  if (match) {
-    const raw = (match[1] || match[2]).replace(/,/g, "");
-    const parsed = parseInt(raw, 10);
-    if (!isNaN(parsed) && parsed > 0) return parsed;
-  }
-
-  // Fallback: match "too many input tokens: N > M"
-  const fallback = errorMessage.match(/(\d[\d,]*)\s*[>≥]\s*\d/);
-  if (fallback) {
-    const raw = fallback[1].replace(/,/g, "");
-    const parsed = parseInt(raw, 10);
-    if (!isNaN(parsed) && parsed > 0) return parsed;
-  }
-
-  return null;
-}
 
 /** Title-cased friendly labels for tool names, used in confirmation chips. */
 const TOOL_FRIENDLY_LABEL: Record<string, string> = {
@@ -200,6 +171,79 @@ type GitServiceInitializer = {
   ensureInitialized(): Promise<void>;
 };
 
+// ── Compaction circuit-breaker constants ────────────────────────────
+//
+// The circuit opens after `COMPACTION_CIRCUIT_FAILURE_THRESHOLD` consecutive
+// summary-LLM failures and stays open for `COMPACTION_CIRCUIT_COOLDOWN_MS`
+// before auto-compaction is allowed to retry. User-initiated compaction
+// (`force: true`) bypasses the breaker regardless of its state.
+const COMPACTION_CIRCUIT_FAILURE_THRESHOLD = 3;
+const COMPACTION_CIRCUIT_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+
+/**
+ * Check whether the compaction circuit breaker is currently open for the
+ * given context. The breaker auto-closes once `compactionCircuitOpenUntil`
+ * has elapsed.
+ */
+export function isCompactionCircuitOpen(ctx: {
+  compactionCircuitOpenUntil: number | null;
+}): boolean {
+  return (
+    ctx.compactionCircuitOpenUntil !== null &&
+    Date.now() < ctx.compactionCircuitOpenUntil
+  );
+}
+
+/**
+ * Track the outcome of a `maybeCompact()` call against the circuit breaker.
+ *
+ * - When the summary LLM call failed (local fallback covered the result),
+ *   increment the consecutive-failure counter. If the counter reaches the
+ *   threshold, open the circuit for the cooldown window and emit
+ *   `compaction_circuit_open` so clients can surface a notice.
+ * - When the call did not fail, reset the counter and clear any open circuit.
+ *
+ * This is called by every `maybeCompact()` site (including forced ones),
+ * because a run of three failures is a provider-health signal regardless of
+ * whether the caller bypassed the breaker.
+ */
+export function trackCompactionOutcome(
+  ctx: {
+    consecutiveCompactionFailures: number;
+    compactionCircuitOpenUntil: number | null;
+  },
+  summaryFailed: boolean | undefined,
+  onEvent: (msg: ServerMessage) => void,
+): void {
+  if (summaryFailed) {
+    ctx.consecutiveCompactionFailures += 1;
+    // Treat a stale/expired open-until timestamp the same as null so a new
+    // 3-strike window can re-open the circuit after the prior cooldown
+    // elapses. Without this the second trip would no-op because
+    // `compactionCircuitOpenUntil` remains set to a past timestamp even
+    // though `isCompactionCircuitOpen()` correctly reports closed.
+    const circuitDormant =
+      ctx.compactionCircuitOpenUntil === null ||
+      Date.now() >= ctx.compactionCircuitOpenUntil;
+    if (
+      ctx.consecutiveCompactionFailures >=
+        COMPACTION_CIRCUIT_FAILURE_THRESHOLD &&
+      circuitDormant
+    ) {
+      const openUntil = Date.now() + COMPACTION_CIRCUIT_COOLDOWN_MS;
+      ctx.compactionCircuitOpenUntil = openUntil;
+      onEvent({
+        type: "compaction_circuit_open",
+        reason: "3_consecutive_failures",
+        openUntil,
+      });
+    }
+  } else {
+    ctx.consecutiveCompactionFailures = 0;
+    ctx.compactionCircuitOpenUntil = null;
+  }
+}
+
 // ── Context Interface ────────────────────────────────────────────────
 
 export interface AgentLoopConversationContext {
@@ -216,6 +260,10 @@ export interface AgentLoopConversationContext {
   readonly contextWindowManager: ContextWindowManager;
   contextCompactedMessageCount: number;
   contextCompactedAt: number | null;
+  /** Tracks consecutive compaction failures (summary LLM call threw). */
+  consecutiveCompactionFailures: number;
+  /** Timestamp (ms since epoch) until which the circuit breaker is open. */
+  compactionCircuitOpenUntil: number | null;
 
   readonly memoryPolicy: { scopeId: string; includeDefaultFallback: boolean };
   readonly graphMemory: ConversationGraphMemory;
@@ -542,7 +590,10 @@ export async function runAgentLoopImpl(
     let compactedThisTurn = false;
 
     const compactCheck = ctx.contextWindowManager.shouldCompact(ctx.messages);
-    if (compactCheck.needed) {
+    // Skip auto-compaction while the circuit breaker is open. Force paths
+    // and user-initiated /compact bypass this check.
+    const autoCompactAllowed = !isCompactionCircuitOpen(ctx);
+    if (compactCheck.needed && autoCompactAllowed) {
       ctx.emitActivityState(
         "thinking",
         "context_compacting",
@@ -550,17 +601,27 @@ export async function runAgentLoopImpl(
         reqId,
       );
     }
-    const compacted = await ctx.contextWindowManager.maybeCompact(
-      ctx.messages,
-      abortController.signal,
-      {
-        lastCompactedAt: ctx.contextCompactedAt ?? undefined,
-        precomputedEstimate: compactCheck.estimatedTokens,
-        conversationOriginChannel:
-          getConversationOriginChannel(ctx.conversationId) ?? undefined,
-      },
-    );
-    if (compacted.compacted) {
+    const compacted = autoCompactAllowed
+      ? await ctx.contextWindowManager.maybeCompact(
+          ctx.messages,
+          abortController.signal,
+          {
+            lastCompactedAt: ctx.contextCompactedAt ?? undefined,
+            precomputedEstimate: compactCheck.estimatedTokens,
+            conversationOriginChannel:
+              getConversationOriginChannel(ctx.conversationId) ?? undefined,
+          },
+        )
+      : null;
+    // Only track circuit-breaker state when a summary LLM call actually ran.
+    // `summaryFailed` is `undefined` on early returns (compaction disabled,
+    // below threshold, cooldown active, no eligible messages, truncation-only
+    // path) — treating those as "successful" compactions would silently reset
+    // the 3-strike counter and break the invariant.
+    if (compacted && compacted.summaryFailed !== undefined) {
+      trackCompactionOutcome(ctx, compacted.summaryFailed, onEvent);
+    }
+    if (compacted?.compacted) {
       ctx.messages = compacted.messages;
       ctx.contextCompactedMessageCount += compacted.compactedPersistedMessages;
       ctx.contextCompactedAt = Date.now();
@@ -666,13 +727,22 @@ export async function runAgentLoopImpl(
         onEvent,
       );
       runMessages = graphResult.runMessages;
-      pkbQueryVector = graphResult.userQueryVector ?? graphResult.queryVector;
-      // Reset sparse vector when the dense vector came from `userQueryVector` —
-      // there is no matching user-query sparse vector today, and pairing a
-      // user-query dense with a summary-aligned sparse is incorrect.
-      pkbSparseVector = graphResult.userQueryVector
-        ? undefined
-        : graphResult.sparseVector;
+      // Select dense+sparse as a matched pair so RRF fusion combines two
+      // signals aligned to the same query text:
+      //   1. Context-load with a user query: user-query dense + user-query
+      //      sparse — the cleanest pairing.
+      //   2. Otherwise (context-load without a user query, or per-turn):
+      //      whatever `queryVector` / `sparseVector` the retriever produced,
+      //      which are themselves co-aligned (both summary-derived in
+      //      context-load, both user-last-message-derived in per-turn).
+      // Never pair a user-query dense with a summary-aligned sparse.
+      if (graphResult.userQueryVector) {
+        pkbQueryVector = graphResult.userQueryVector;
+        pkbSparseVector = graphResult.userQuerySparseVector;
+      } else {
+        pkbQueryVector = graphResult.queryVector;
+        pkbSparseVector = graphResult.sparseVector;
+      }
 
       // Persist the injected block text in message metadata so it survives
       // conversation reloads (eviction, restart, fork). loadFromDb re-injects
@@ -962,9 +1032,38 @@ export async function runAgentLoopImpl(
 
     const injection = await applyRuntimeInjections(runMessages, {
       ...injectionOpts,
+      slackChronologicalMessages: reducerCompacted
+        ? null
+        : injectionOpts.slackChronologicalMessages,
       mode: currentInjectionMode,
     });
     runMessages = injection.messages;
+
+    // Persist injected blocks in message metadata so they survive conversation
+    // reloads (eviction, restart, fork). loadFromDb re-injects from metadata.
+    // Only the first call site persists — the overflow-recovery re-entry sites
+    // send identical bytes and the tail row may not correspond to
+    // `userMessageId`. Both blocks are written in a single call to avoid
+    // doubling SQLite SELECT+UPDATE work on every turn.
+    if (
+      injection.blocks.unifiedTurnContext ||
+      injection.blocks.pkbSystemReminder
+    ) {
+      try {
+        const metadataUpdates: Record<string, unknown> = {};
+        if (injection.blocks.unifiedTurnContext) {
+          metadataUpdates.turnContextBlock =
+            injection.blocks.unifiedTurnContext;
+        }
+        if (injection.blocks.pkbSystemReminder) {
+          metadataUpdates.pkbSystemReminderBlock =
+            injection.blocks.pkbSystemReminder;
+        }
+        updateMessageMetadata(userMessageId, metadataUpdates);
+      } catch (err) {
+        rlog.warn({ err }, "Failed to persist injection metadata (non-fatal)");
+      }
+    }
 
     // ── Preflight budget evaluation ──────────────────────────────
     // After runtime injections are applied, estimate the prompt token count
@@ -983,10 +1082,17 @@ export async function runAgentLoopImpl(
     let reducerState: ReducerState | undefined;
 
     const toolTokenBudget = ctx.agentLoop.getToolTokenBudget(runMessages);
+    // Canonical calibration key used at every `estimatePromptTokens` site in
+    // this function. Matches the key recorded by `handleUsage` for wrapper
+    // providers (OpenRouter routing to Anthropic → key is `"anthropic"`).
+    const estimationProviderName = getCalibrationProviderKey(ctx.provider);
     const preflightTokens = estimatePromptTokens(
       runMessages,
       ctx.systemPrompt,
-      { providerName: ctx.provider.name, toolTokenBudget },
+      {
+        providerName: estimationProviderName,
+        toolTokenBudget,
+      },
     );
 
     if (overflowRecovery.enabled && preflightTokens > preflightBudget) {
@@ -1016,7 +1122,7 @@ export async function runAgentLoopImpl(
         const step = await reduceContextOverflow(
           ctx.messages,
           {
-            providerName: ctx.provider.name,
+            providerName: estimationProviderName,
             systemPrompt: ctx.systemPrompt,
             contextWindow: config.llm.default.contextWindow,
             targetTokens: preflightBudget,
@@ -1031,6 +1137,24 @@ export async function runAgentLoopImpl(
         reducerState = step.state;
         ctx.messages = step.messages;
         currentInjectionMode = step.state.injectionMode;
+
+        // Track circuit-breaker state whenever the reducer invoked compaction.
+        // The reducer's forced_compaction tier uses force:true, so it bypasses
+        // the open-circuit check, but we still want failure tracking to detect
+        // a run of broken summaries and clear the counter on success. Only
+        // track when the summary LLM actually ran — `summaryFailed === undefined`
+        // indicates an early return (no eligible messages, truncation-only
+        // path, etc.) that shouldn't influence the breaker.
+        if (
+          step.compactionResult &&
+          step.compactionResult.summaryFailed !== undefined
+        ) {
+          trackCompactionOutcome(
+            ctx,
+            step.compactionResult.summaryFailed,
+            onEvent,
+          );
+        }
 
         if (step.compactionResult?.compacted) {
           ctx.contextCompactedMessageCount +=
@@ -1114,7 +1238,10 @@ export async function runAgentLoopImpl(
         const postInjectionTokens = estimatePromptTokens(
           runMessages,
           ctx.systemPrompt,
-          { providerName: ctx.provider.name, toolTokenBudget },
+          {
+            providerName: estimationProviderName,
+            toolTokenBudget,
+          },
         );
 
         if (postInjectionTokens <= preflightBudget) break;
@@ -1188,7 +1315,10 @@ export async function runAgentLoopImpl(
         const estimated = estimatePromptTokens(
           checkpoint.history,
           ctx.systemPrompt,
-          { providerName: ctx.provider.name, toolTokenBudget },
+          {
+            providerName: estimationProviderName,
+            toolTokenBudget,
+          },
         );
         if (estimated > midLoopThreshold) {
           rlog.warn(
@@ -1248,6 +1378,14 @@ export async function runAgentLoopImpl(
       // so we compact the "raw" persistent messages.
       const rawHistory = stripInjectionsForCompaction(updatedHistory);
       ctx.messages = rawHistory;
+      try {
+        clearPkbSystemReminderMetadataForConversation(ctx.conversationId);
+      } catch (err) {
+        rlog.warn(
+          { err },
+          "Failed to clear pkbSystemReminderBlock metadata after compaction strip (non-fatal)",
+        );
+      }
 
       ctx.emitActivityState(
         "thinking",
@@ -1267,6 +1405,12 @@ export async function runAgentLoopImpl(
             getConversationOriginChannel(ctx.conversationId) ?? undefined,
         },
       );
+      // `force: true` bypasses the cooldown/threshold gates but early returns
+      // for "no eligible messages" / "insufficient messages" still leave
+      // `summaryFailed` undefined. Only track when the summary LLM actually ran.
+      if (midLoopCompact.summaryFailed !== undefined) {
+        trackCompactionOutcome(ctx, midLoopCompact.summaryFailed, onEvent);
+      }
       if (midLoopCompact.compacted) {
         ctx.messages = midLoopCompact.messages;
         reducerCompacted = true;
@@ -1334,6 +1478,14 @@ export async function runAgentLoopImpl(
       runMessages = injection.messages;
       if (isTrustedActor && currentInjectionMode !== "minimal") {
         ctx.graphMemory.retrackCachedNodes();
+      }
+      const midLoopCompactStrip = stripHistoricalWebSearchResults(runMessages);
+      if (midLoopCompactStrip.stats.blocksStripped > 0) {
+        rlog.info(
+          { phase: "mid-loop-compact", ...midLoopCompactStrip.stats },
+          "Converted historical web_search_tool_result blocks to text summaries",
+        );
+        runMessages = midLoopCompactStrip.messages;
       }
       preRepairMessages = runMessages;
       preRunHistoryLength = runMessages.length;
@@ -1419,6 +1571,14 @@ export async function runAgentLoopImpl(
 
       if (updatedHistory.length > preRunHistoryLength) {
         ctx.messages = stripInjectionsForCompaction(updatedHistory);
+        try {
+          clearPkbSystemReminderMetadataForConversation(ctx.conversationId);
+        } catch (err) {
+          rlog.warn(
+            { err },
+            "Failed to clear pkbSystemReminderBlock metadata after compaction strip (non-fatal)",
+          );
+        }
         convergenceStripped = true;
         preRepairMessages = updatedHistory;
         preRunHistoryLength = updatedHistory.length;
@@ -1431,14 +1591,19 @@ export async function runAgentLoopImpl(
       // message (e.g. "242201 tokens > 200000"), use it to correct the
       // compaction target. The estimator may significantly underestimate
       // (e.g. estimated 185k but actual was 242k), so using the
-      // uncorrected preflightBudget would still be too high.
+      // uncorrected preflightBudget would still be too high. Passes the raw
+      // error so ContextOverflowError.actualTokens can short-circuit the
+      // string-regex path for proxy-rewrapped untyped errors.
       const actualTokens = parseActualTokensFromError(
-        state.contextTooLargeErrorMessage,
+        state.contextTooLargeError,
       );
       const estimatedTokensAtOverflow = estimatePromptTokens(
         ctx.messages,
         ctx.systemPrompt,
-        { providerName: ctx.provider.name, toolTokenBudget },
+        {
+          providerName: estimationProviderName,
+          toolTokenBudget,
+        },
       );
       let correctedTarget = preflightBudget;
       if (actualTokens && estimatedTokensAtOverflow > 0) {
@@ -1486,7 +1651,7 @@ export async function runAgentLoopImpl(
         const step = await reduceContextOverflow(
           ctx.messages,
           {
-            providerName: ctx.provider.name,
+            providerName: estimationProviderName,
             systemPrompt: ctx.systemPrompt,
             contextWindow: config.llm.default.contextWindow,
             targetTokens: correctedTarget,
@@ -1501,6 +1666,21 @@ export async function runAgentLoopImpl(
         reducerState = step.state;
         ctx.messages = step.messages;
         currentInjectionMode = step.state.injectionMode;
+
+        // See the preflight reducer call above for rationale. Only track when
+        // the summary LLM actually ran — `summaryFailed === undefined`
+        // indicates the reducer's forced compaction took an early-return path
+        // without calling the summary LLM.
+        if (
+          step.compactionResult &&
+          step.compactionResult.summaryFailed !== undefined
+        ) {
+          trackCompactionOutcome(
+            ctx,
+            step.compactionResult.summaryFailed,
+            onEvent,
+          );
+        }
 
         if (step.compactionResult?.compacted) {
           ctx.contextCompactedMessageCount +=
@@ -1608,6 +1788,14 @@ export async function runAgentLoopImpl(
           // pre-rerun messages.
           if (updatedHistory.length > preRunHistoryLength) {
             ctx.messages = stripInjectionsForCompaction(updatedHistory);
+            try {
+              clearPkbSystemReminderMetadataForConversation(ctx.conversationId);
+            } catch (err) {
+              rlog.warn(
+                { err },
+                "Failed to clear pkbSystemReminderBlock metadata after compaction strip (non-fatal)",
+              );
+            }
             convergenceStripped = true;
             preRepairMessages = updatedHistory;
             preRunHistoryLength = updatedHistory.length;
@@ -1643,6 +1831,15 @@ export async function runAgentLoopImpl(
                   targetInputTokensOverride: correctedTarget,
                 },
               );
+            // Only track when the summary LLM actually ran; `force: true`
+            // bypasses the cooldown but not the early-return paths.
+            if (emergencyCompact.summaryFailed !== undefined) {
+              trackCompactionOutcome(
+                ctx,
+                emergencyCompact.summaryFailed,
+                onEvent,
+              );
+            }
             if (emergencyCompact.compacted) {
               ctx.messages = emergencyCompact.messages;
               reducerCompacted = true;
@@ -1780,6 +1977,15 @@ export async function runAgentLoopImpl(
               targetInputTokensOverride: correctedTarget,
             },
           );
+          // Only track when the summary LLM actually ran; `force: true`
+          // bypasses the cooldown but not the early-return paths.
+          if (emergencyCompact.summaryFailed !== undefined) {
+            trackCompactionOutcome(
+              ctx,
+              emergencyCompact.summaryFailed,
+              onEvent,
+            );
+          }
           if (emergencyCompact.compacted) {
             ctx.messages = emergencyCompact.messages;
             reducerCompacted = true;

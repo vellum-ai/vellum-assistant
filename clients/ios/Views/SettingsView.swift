@@ -4,7 +4,6 @@ import VellumAssistantShared
 
 struct SettingsView: View {
     @Bindable var authManager: AuthManager
-    @Binding var navigateToConnect: Bool
     /// Shared conversation store — forwarded to DeveloperSettingsSection so its diagnostics
     /// (last fetch error, etc.) reflect the same store the Chats view reads from.
     var conversationStore: IOSConversationStore
@@ -12,20 +11,8 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                // Account section hidden until platform.vellum.ai is deployed.
-                // Only show if the user is already authenticated (e.g. from a
-                // previous session) so they can see their info and log out.
-                if authManager.isAuthenticated {
-                    AccountSection(authManager: authManager)
-                }
-
-                Section {
-                    NavigationLink {
-                        DaemonConnectionSection(authManager: authManager)
-                    } label: {
-                        Label { Text("Connect") } icon: { VIconView(.monitor, size: 14) }
-                    }
-                }
+                AccountSection(authManager: authManager)
+                ConnectionInfoSection()
 
                 Section("About") {
                     LabeledContent("Version", value: Bundle.main.appVersion)
@@ -40,9 +27,6 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
-            .navigationDestination(isPresented: $navigateToConnect) {
-                DaemonConnectionSection(authManager: authManager)
-            }
         }
     }
 }
@@ -71,6 +55,15 @@ struct AccountSection: View {
                     Task {
                         await authManager.logout()
                     }
+                }
+            } else if authManager.isValidationFailed {
+                HStack {
+                    Text("Reconnecting to Vellum...")
+                    Spacer()
+                    ProgressView()
+                }
+                Button("Retry") {
+                    Task { await authManager.checkSession() }
                 }
             } else {
                 Button {

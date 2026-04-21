@@ -9,10 +9,19 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AuthManager")
 
+/// The four authoritative auth states.
+///
+/// `.validationFailed` distinguishes a transient session-validation failure
+/// (network unreachable, server 5xx) from `.unauthenticated` (server
+/// authoritatively rejected the session, or no session token on disk).
+/// UI must treat `.validationFailed` as "reconnecting" — not as "logged out"
+/// — because the token on disk may still be valid and the next successful
+/// validation can restore `.authenticated` without a new login.
 public enum AuthState {
     case loading
     case unauthenticated
     case authenticated(AllauthUser)
+    case validationFailed(lastError: Error)
 }
 
 @Observable
@@ -25,6 +34,24 @@ public final class AuthManager {
     private let authService = AuthService.shared
     private static let callbackScheme = "vellum-assistant"
     private var webAuthSession: ASWebAuthenticationSession?
+
+    /// Optional hook invoked after a successful authentication (both the fresh
+    /// login flow and background session re-validation) once `state` has
+    /// transitioned to `.authenticated` and `resolveOrganizationIdAfterAuth()`
+    /// has completed.
+    ///
+    /// Platform shells set this to reconcile any platform-specific connection
+    /// state that `logout()` may have cleared. On iOS this is used to restore
+    /// the managed assistant identifiers in `UserDefaults` (`managed_assistant_id`,
+    /// `managed_platform_base_url`) so `GatewayHTTPClient.resolveConnection()`
+    /// can build a `ConnectionInfo` after logout → re-login. macOS does not set
+    /// the hook because its reconciliation lives in
+    /// `ManagedAssistantConnectionCoordinator` / `LockfileAssistant`.
+    ///
+    /// Hook failures are owned by the hook — the auth state transition is
+    /// already committed by the time the hook runs.
+    @ObservationIgnored
+    public var postAuthenticationHook: (@MainActor @Sendable () async -> Void)?
 
     public init() {}
 
@@ -43,7 +70,26 @@ public final class AuthManager {
         return nil
     }
 
+    /// True when validation failed transiently despite a session token on
+    /// disk. The user is still (probably) logged in — UI should show a
+    /// "reconnecting" state, not a login button.
+    public var isValidationFailed: Bool {
+        if case .validationFailed = state { return true }
+        return false
+    }
+
+    /// Last error recorded when validation failed transiently, for logging
+    /// or optional user-facing display.
+    public var lastValidationError: Error? {
+        if case .validationFailed(let error) = state { return error }
+        return nil
+    }
+
     public func checkSession() async {
+        // Snapshot the prior state so cancellation can restore it instead
+        // of leaving the manager stuck in `.loading` — which would suppress
+        // both login and logout UI until another successful check ran.
+        let priorState = state
         state = .loading
         errorMessage = nil
 
@@ -54,37 +100,39 @@ public final class AuthManager {
 
         var lastError: Error?
         for attempt in 1...3 {
-            guard !Task.isCancelled else { state = .unauthenticated; return }
+            if Task.isCancelled { state = priorState; return }
             do {
                 let response = try await authService.getSession(timeout: 10)
                 if response.status == 200, response.meta?.is_authenticated != false, let user = response.data?.user {
                     state = .authenticated(user)
                     await resolveOrganizationIdAfterAuth()
+                    await postAuthenticationHook?()
                     return
                 } else {
-                    // Server responded but session is invalid — no retry needed
+                    // Server authoritatively rejected the session —
+                    // no retry, drop straight to unauthenticated.
                     state = .unauthenticated
                     return
                 }
             } catch is CancellationError {
-                state = .unauthenticated
+                // Task was cancelled (app backgrounded, view dismissed, etc).
+                // Restore prior state so cancellation is invisible to UI.
+                state = priorState
                 return
             } catch {
-                if Task.isCancelled {
-                    state = .unauthenticated
-                    return
-                }
                 lastError = error
                 log.warning("Session check attempt \(attempt)/3 failed: \(error.localizedDescription, privacy: .public)")
                 if attempt < 3 {
                     try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds between retries
-                    guard !Task.isCancelled else { state = .unauthenticated; return }
+                    if Task.isCancelled { state = priorState; return }
                 }
             }
         }
-        // All retries exhausted — network likely still unavailable
+        // All retries exhausted with a session token on disk: treat as
+        // transient validation failure, NOT as unauthenticated. The token
+        // may still be valid; the next re-validation can recover.
         log.error("Session check failed after 3 attempts: baseURL=\(VellumEnvironment.resolvedPlatformURL, privacy: .public) error=\(lastError?.localizedDescription ?? "unknown", privacy: .public)")
-        state = .unauthenticated
+        state = .validationFailed(lastError: lastError ?? AuthServiceError.networkError(URLError(.unknown)))
     }
 
     public func startWorkOSLogin() async {
@@ -125,6 +173,7 @@ public final class AuthManager {
                 state = .authenticated(user)
                 log.info("Login completed via Django auth flow for user \(user.id ?? user.email ?? "unknown", privacy: .public)")
                 await resolveOrganizationIdAfterAuth()
+                await postAuthenticationHook?()
             } else {
                 log.error("Session validation after Django auth flow did not return authenticated user. status=\(session.status, privacy: .public)")
                 errorMessage = "Authentication was not completed. Please try again."

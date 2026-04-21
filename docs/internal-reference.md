@@ -187,7 +187,7 @@ User approval decisions are persisted as trust rules in `~/.vellum/protected/tru
 
 - **Pattern matching**: Minimatch glob patterns for tool commands and file paths.
 - **Execution target binding**: Rules can be scoped to `sandbox` or `host` execution contexts.
-- **Runtime high-risk auto-allow**: High-risk bash commands in containerized environments are auto-allowed at runtime by `shouldAutoAllowHighRisk()` without requiring persisted state.
+- **Sandbox auto-approve**: In containerized environments, commands tagged with `sandboxAutoApprove` in their risk spec are auto-allowed via the approval policy's sandbox auto-approve check. Non-allowlisted commands (network tools, runtimes, package managers) use the user's `autoApproveUpTo` threshold (default: `"low"`).
 
 #### Shell command allowlist options
 

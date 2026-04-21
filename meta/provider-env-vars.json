@@ -1,11 +1,6 @@
 {
-  "version": 1,
+  "version": 2,
   "providers": {
-    "anthropic": "ANTHROPIC_API_KEY",
-    "openai": "OPENAI_API_KEY",
-    "gemini": "GEMINI_API_KEY",
-    "fireworks": "FIREWORKS_API_KEY",
-    "openrouter": "OPENROUTER_API_KEY",
     "brave": "BRAVE_API_KEY",
     "perplexity": "PERPLEXITY_API_KEY"
   }

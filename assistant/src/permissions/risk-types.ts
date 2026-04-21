@@ -9,6 +9,8 @@
  * @see /docs/bash-risk-classifier-design.md
  */
 
+import { type AllowlistOption, RiskLevel } from "./types.js";
+
 // ── Risk levels ──────────────────────────────────────────────────────────────
 
 /**
@@ -50,6 +52,13 @@ export interface RiskAssessment {
   scopeOptions: ScopeOption[];
   /** How the risk was determined. */
   matchType: "user_rule" | "registry" | "unknown";
+  /**
+   * Allowlist options for the permission prompt "always allow" scope ladder.
+   * Populated by classifiers that unify risk classification and scope option
+   * generation. When present, `generateAllowlistOptions()` returns these
+   * directly instead of calling the per-tool strategy function.
+   */
+  allowlistOptions?: AllowlistOption[];
 }
 
 // ── Classifier interface ─────────────────────────────────────────────────────
@@ -130,6 +139,12 @@ export interface CommandRiskSpec {
    */
   isWrapper?: boolean;
   /**
+   * Flags that put a wrapper into a non-exec mode (e.g. command -v, env -0).
+   * When the first arg matches a non-exec flag, skip unwrapping and classify
+   * the wrapper standalone against its own arg rules.
+   */
+  nonExecFlags?: string[];
+  /**
    * Does this command have non-standard syntax where intermediate scope
    * options would be confusing? (find, xargs, awk, etc.)
    * When true, the scope ladder only offers exact match and command-level wildcard.
@@ -137,6 +152,17 @@ export interface CommandRiskSpec {
   complexSyntax?: boolean;
   /** Human-readable reason for the base risk (shown when no arg rule matches). */
   reason?: string;
+  /**
+   * Global flags that consume the next token as a value (e.g. git -C <path>).
+   * Used by resolveSubcommand to skip past flag-value pairs when locating the
+   * first positional arg (the subcommand name).
+   */
+  globalValueFlags?: string[];
+  /**
+   * When true, this command auto-approves in the assistant's workspace
+   * without consulting the user's autoApproveUpTo threshold.
+   */
+  sandboxAutoApprove?: boolean;
 }
 
 // ── User rule types ──────────────────────────────────────────────────────────
@@ -160,4 +186,25 @@ export interface UserRule {
   createdAt: string;
   /** How the rule was created. */
   source: "scope_ladder" | "manual";
+}
+
+// ── Risk → RiskLevel mapping ─────────────────────────────────────────────────
+
+/**
+ * Map a classifier `Risk` value to the permission system's `RiskLevel` enum.
+ *
+ * `"unknown"` maps to `RiskLevel.Medium` — matching the existing checker.ts
+ * behavior where unrecognized commands are treated as medium-risk.
+ */
+export function riskToRiskLevel(risk: Risk): RiskLevel {
+  switch (risk) {
+    case "low":
+      return RiskLevel.Low;
+    case "medium":
+      return RiskLevel.Medium;
+    case "high":
+      return RiskLevel.High;
+    case "unknown":
+      return RiskLevel.Medium;
+  }
 }

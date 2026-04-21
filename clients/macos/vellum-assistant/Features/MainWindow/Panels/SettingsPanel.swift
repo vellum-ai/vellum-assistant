@@ -522,6 +522,12 @@ struct SettingsPanel: View {
                 )
             }
 
+            // TEXT-TO-SPEECH
+            TTSServiceCard(store: store)
+
+            // SPEECH-TO-TEXT
+            STTServiceCard(store: store)
+
             // EMAIL (feature-flagged)
             if isEmailChannelEnabled {
                 EmailServiceCard(store: store)
@@ -635,7 +641,7 @@ struct SettingsPanel: View {
             }
 
             // PRIVACY section
-            SettingsPrivacyTab(store: store)
+            SettingsPrivacyTab(store: store, assistantFeatureFlagStore: assistantFeatureFlagStore)
 
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -106,18 +106,6 @@ final class ConversationForkMessageActionIOSTests: XCTestCase {
         let forkedLocalId = try XCTUnwrap(store.selectionRequest?.conversationLocalId)
         XCTAssertEqual(store.conversations.first?.id, forkedLocalId)
         XCTAssertEqual(store.conversations.first?.conversationId, "conv-forked")
-
-        let request = try XCTUnwrap(store.selectionRequest)
-        var compactPath: [UUID] = []
-        var compactSelection: UUID?
-        applyConversationSelectionRequest(
-            request,
-            horizontalSizeClass: .compact,
-            navigationPath: &compactPath,
-            selectedConversationId: &compactSelection
-        )
-        XCTAssertEqual(compactPath, [forkedLocalId])
-        XCTAssertNil(compactSelection)
     }
 
     private func makeUserDefaults() -> (UserDefaults, String) {

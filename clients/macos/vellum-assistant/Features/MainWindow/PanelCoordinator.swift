@@ -493,7 +493,7 @@ extension MainWindowView {
                         viewModel: viewModel,
                         detailStore: viewModel.subagentDetailStore,
                         showInspectButton: assistantFeatureFlagStore.isEnabled("settings-developer-nav"),
-                        onAbort: { Task { await SubagentClient().abort(subagentId: subagentId, conversationId: viewModel.conversationId) } },
+                        onAbort: { Task { await viewModel.abortSubagent(subagentId) } },
                         onRequestDetail: {
                             if let conversationId = viewModel.activeSubagents.first(where: { $0.id == subagentId })?.conversationId {
                                 Task {
@@ -537,11 +537,15 @@ extension MainWindowView {
             let showsConversationHostAccessControl = assistantFeatureFlagStore.isEnabled(
                 "permission-controls-v2"
             )
+            let showThresholdPicker = assistantFeatureFlagStore.isEnabled(
+                "auto-approve-threshold-ui"
+            )
             ActiveChatViewWrapper(
                 viewModel: viewModel,
                 windowState: windowState,
                 conversationStartersEnabled: conversationStartersEnabled,
                 showsConversationHostAccessControl: showsConversationHostAccessControl,
+                showThresholdPicker: showThresholdPicker,
                 showInspectButton: showInspectButton,
                 isTTSEnabled: isTTSEnabled,
                 ambientAgent: ambientAgent,
@@ -727,6 +731,7 @@ struct ActiveChatViewWrapper: View {
     var windowState: MainWindowState
     let conversationStartersEnabled: Bool
     let showsConversationHostAccessControl: Bool
+    var showThresholdPicker: Bool = false
     var showInspectButton: Bool = false
     var isTTSEnabled: Bool = false
     var ambientAgent: AmbientAgent
@@ -808,7 +813,8 @@ struct ActiveChatViewWrapper: View {
                 onVoiceModeToggle: onVoiceModeToggle,
                 watchSession: ambientAgent.activeWatchSession,
                 conversationManager: conversationManager,
-                showsConversationHostAccessControl: showsConversationHostAccessControl
+                showsConversationHostAccessControl: showsConversationHostAccessControl,
+                showThresholdPicker: showThresholdPicker
             )
             .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
             .disabled(windowState.inspectorMessageId != nil)

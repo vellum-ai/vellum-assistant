@@ -1,0 +1,47 @@
+{
+  "fill" : {
+    "solid" : "display-p3:0.12941,0.42353,0.21569,1.00000"
+  },
+  "groups" : [
+    {
+      "blend-mode" : "normal",
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "appearance" : "dark",
+              "value" : "none"
+            }
+          ],
+          "glass" : false,
+          "image-name" : "white-V.svg",
+          "name" : "white-V",
+          "position" : {
+            "scale" : 6,
+            "translation-in-points" : [
+              0,
+              25
+            ]
+          }
+        }
+      ],
+      "lighting" : "individual",
+      "name" : "Group",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}

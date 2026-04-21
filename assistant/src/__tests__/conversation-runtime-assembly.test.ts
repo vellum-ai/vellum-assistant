@@ -3,7 +3,11 @@ import { describe, expect, mock, test } from "bun:test";
 // PKB search is mocked so the reminder-hints tests can assert behavior
 // without standing up Qdrant. The mock returns whatever is staged in
 // `pkbSearchResults` / `pkbSearchThrows` for the enclosing test.
-let pkbSearchResults: Array<{ path: string; score: number }> = [];
+let pkbSearchResults: Array<{
+  path: string;
+  denseScore: number;
+  hybridScore?: number;
+}> = [];
 let pkbSearchThrows: Error | null = null;
 mock.module("../memory/pkb/pkb-search.js", () => ({
   searchPkbFiles: async () => {
@@ -392,9 +396,9 @@ describe("isSlackChannelConversation", () => {
   });
 
   test("returns false for Slack DMs regardless of chatType shape", () => {
-    // Gateway omits chatType entirely for DM message events — the prior
-    // `chatType !== "im"` check misclassified these (undefined !== "im")
-    // as channels and leaked thread-only behaviour into DMs.
+    // Gateway omits chatType entirely for DM message events, so
+    // `isSlackChannelConversation` must return false for both the
+    // `chatType === undefined` and `chatType === "im"` shapes.
     expect(isSlackChannelConversation({ channel: "slack", ...base })).toBe(
       false,
     );
@@ -1948,9 +1952,9 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 
   test("three uninvolved hits → reminder contains all three bullets", async () => {
     pkbSearchResults = [
-      { path: "topics/alpha.md", score: 0.9 },
-      { path: "topics/beta.md", score: 0.8 },
-      { path: "topics/gamma.md", score: 0.7 },
+      { path: "topics/alpha.md", denseScore: 0.9 },
+      { path: "topics/beta.md", denseScore: 0.8 },
+      { path: "topics/gamma.md", denseScore: 0.7 },
     ];
     pkbSearchThrows = null;
 
@@ -1975,8 +1979,8 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     // are already injected. The agent-loop passes the effective auto-inject
     // list (via `getPkbAutoInjectList`) to `applyRuntimeInjections`.
     pkbSearchResults = [
-      { path: "essentials.md", score: 0.95 },
-      { path: "topics/alpha.md", score: 0.9 },
+      { path: "essentials.md", denseScore: 0.95 },
+      { path: "topics/alpha.md", denseScore: 0.9 },
     ];
     pkbSearchThrows = null;
 
@@ -2003,11 +2007,31 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     expect(reminder).toContain("- topics/alpha.md");
   });
 
+  test("<system_reminder> is injected immediately before the user's typed text (above, not below)", async () => {
+    pkbSearchResults = [];
+    pkbSearchThrows = null;
+
+    const { messages: result } = await applyRuntimeInjections(
+      baseMessages,
+      makePkbOptions(),
+    );
+    const texts = extractTexts(result);
+    const reminderIdx = texts.findIndex((t) =>
+      t.startsWith("<system_reminder>"),
+    );
+    const userTextIdx = texts.findIndex(
+      (t) => t === "Tell me about project foo",
+    );
+    expect(reminderIdx).toBeGreaterThanOrEqual(0);
+    expect(userTextIdx).toBeGreaterThanOrEqual(0);
+    expect(reminderIdx).toBeLessThan(userTextIdx);
+  });
+
   test("in-context paths are filtered out of hints", async () => {
     pkbSearchResults = [
-      { path: "topics/alpha.md", score: 0.9 },
-      { path: "topics/beta.md", score: 0.8 },
-      { path: "topics/gamma.md", score: 0.7 },
+      { path: "topics/alpha.md", denseScore: 0.9 },
+      { path: "topics/beta.md", denseScore: 0.8 },
+      { path: "topics/gamma.md", denseScore: 0.7 },
     ];
     pkbSearchThrows = null;
 
@@ -2079,6 +2103,73 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
     expect(reminder).toBe(FLAT_REMINDER);
   });
 
+  test("gate uses denseScore — hybridScore alone cannot pass the threshold", async () => {
+    // Simulates the situation where sparse-only matches (which surface via
+    // hybrid's prefetch beyond the dense prefetch limit) pick up RRF hits
+    // but fail the absolute cosine quality bar.
+    pkbSearchResults = [
+      { path: "topics/alpha.md", denseScore: 0.9, hybridScore: 0.02 },
+      { path: "topics/noise.md", denseScore: 0.3, hybridScore: 0.03 },
+    ];
+    pkbSearchThrows = null;
+
+    const { messages: result } = await applyRuntimeInjections(
+      baseMessages,
+      makePkbOptions(),
+    );
+    const texts = extractTexts(result);
+    const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
+    expect(reminder).toBeDefined();
+    expect(reminder).toContain("- topics/alpha.md");
+    // Below-threshold dense score is filtered even though its hybrid score
+    // is higher than alpha's.
+    expect(reminder).not.toContain("- topics/noise.md");
+  });
+
+  test("ranking follows hybridScore when present — lexical winner surfaces first", async () => {
+    // Sparse re-ranks alpha ahead of beta even though beta's dense cosine is
+    // higher. Both pass the dense threshold, so both survive filtering; the
+    // hybrid score drives ordering among survivors.
+    pkbSearchResults = [
+      { path: "topics/beta.md", denseScore: 0.9, hybridScore: 0.02 },
+      { path: "topics/alpha.md", denseScore: 0.75, hybridScore: 0.04 },
+    ];
+    pkbSearchThrows = null;
+
+    const { messages: result } = await applyRuntimeInjections(
+      baseMessages,
+      makePkbOptions(),
+    );
+    const texts = extractTexts(result);
+    const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
+    expect(reminder).toBeDefined();
+    const alphaIdx = reminder!.indexOf("- topics/alpha.md");
+    const betaIdx = reminder!.indexOf("- topics/beta.md");
+    expect(alphaIdx).toBeGreaterThanOrEqual(0);
+    expect(betaIdx).toBeGreaterThanOrEqual(0);
+    expect(alphaIdx).toBeLessThan(betaIdx);
+  });
+
+  test("archive/ threshold is stricter (0.7) and applies to denseScore", async () => {
+    pkbSearchResults = [
+      { path: "topics/alpha.md", denseScore: 0.55 }, // passes 0.5
+      { path: "archive/old.md", denseScore: 0.55 }, // fails 0.7
+      { path: "archive/solid.md", denseScore: 0.75 }, // passes 0.7
+    ];
+    pkbSearchThrows = null;
+
+    const { messages: result } = await applyRuntimeInjections(
+      baseMessages,
+      makePkbOptions(),
+    );
+    const texts = extractTexts(result);
+    const reminder = texts.find((t) => t.startsWith("<system_reminder>"));
+    expect(reminder).toBeDefined();
+    expect(reminder).toContain("- topics/alpha.md");
+    expect(reminder).not.toContain("- archive/old.md");
+    expect(reminder).toContain("- archive/solid.md");
+  });
+
   test("stripInjectionsForCompaction removes the PKB reminder (flat and hinted)", () => {
     // Verifies the existing strip pipeline still catches the new reminder
     // text — it still opens with `<system_reminder>`, which is already in
@@ -2113,9 +2204,9 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
 
   test("after simulated compaction (strip + rebuild), fresh hints are emitted from post-compaction tool_use blocks", async () => {
     pkbSearchResults = [
-      { path: "topics/alpha.md", score: 0.9 },
-      { path: "topics/beta.md", score: 0.8 },
-      { path: "topics/gamma.md", score: 0.7 },
+      { path: "topics/alpha.md", denseScore: 0.9 },
+      { path: "topics/beta.md", denseScore: 0.8 },
+      { path: "topics/gamma.md", denseScore: 0.7 },
     ];
     pkbSearchThrows = null;
 
@@ -2876,8 +2967,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
   });
 
   // ── trust-filter regression for loadSlackChronologicalMessages ───────
-  // PR 26628 originally bypassed the trust filter by calling `getMessages`
-  // directly. For untrusted actors, guardian-scoped rows must be excluded
+  // For untrusted actors, guardian-scoped rows must be excluded
   // from the chronological transcript the same way `loadFromDb` filters
   // them out of the default history.
   test("loadSlackChronologicalMessages filters guardian-scoped rows for untrusted actors", () => {
@@ -4317,5 +4407,48 @@ describe("assembleSlackChronologicalMessages", () => {
       role: "user",
       content: [{ type: "text", text: "[11/14/23 23:03 @alice]: follow-up" }],
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyRuntimeInjections blocks.pkbSystemReminder
+// ---------------------------------------------------------------------------
+
+describe("applyRuntimeInjections blocks.pkbSystemReminder", () => {
+  const baseMessages: Message[] = [
+    {
+      role: "user",
+      content: [{ type: "text", text: "Hello" }],
+    },
+  ];
+
+  test("captures exact reminder bytes when full mode and PKB active", async () => {
+    pkbSearchResults = [];
+    pkbSearchThrows = null;
+    const { blocks } = await applyRuntimeInjections(baseMessages, {
+      pkbActive: true,
+      mode: "full",
+    });
+
+    const expected = buildPkbReminder([]);
+    expect(blocks.pkbSystemReminder).toBe(expected);
+  });
+
+  test("not captured in minimal mode", async () => {
+    const { blocks } = await applyRuntimeInjections(baseMessages, {
+      pkbActive: true,
+      mode: "minimal",
+    });
+
+    expect(blocks.pkbSystemReminder).toBeUndefined();
+  });
+
+  test("not captured when PKB inactive", async () => {
+    const { blocks } = await applyRuntimeInjections(baseMessages, {
+      pkbActive: false,
+      mode: "full",
+    });
+
+    expect(blocks.pkbSystemReminder).toBeUndefined();
   });
 });

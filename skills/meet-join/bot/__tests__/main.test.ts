@@ -271,6 +271,7 @@ function makeDeps(opts: MakeDepsOpts = {}): {
         text: typeOpts.text,
         delayMs: typeOpts.delayMs,
         display: typeOpts.display,
+        timeoutMs: typeOpts.timeoutMs,
       });
       if (opts.xdotoolTypeError) throw opts.xdotoolTypeError;
     },
@@ -643,12 +644,37 @@ describe("runBot — extension message routing", () => {
     expect(typeCall!.text).toBe("hello world");
     expect(typeCall!.delayMs).toBe(25);
     expect(typeCall!.display).toBe(":99");
+    // timeoutMs must scale with text length — the legacy fixed 15s
+    // default killed xdotool mid-type for messages above ~590 chars.
+    // 11 chars * 25ms/char + 250ms overhead + 5000ms safety slack.
+    expect(typeCall!.timeoutMs).toBe(11 * 25 + 250 + 5_000);
     // Success should surface via logInfo with the character count.
     expect(
       handles.infos.some((m) =>
         m.includes("trusted_type dispatched (11 chars)"),
       ),
     ).toBe(true);
+  });
+
+  test("trusted_type scales xdotool kill timeout for long messages", async () => {
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps();
+    await bootHappyPath(deps, handles);
+
+    // 2000-char Meet-chat maximum — the case where the legacy fixed 15s
+    // xdotool timeout truncated the message mid-type.
+    const longText = "x".repeat(2000);
+    handles.fireExtensionMessage({
+      type: "trusted_type",
+      text: longText,
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const typeCall = handles.calls.find((c) => c.kind === "xdotool.type");
+    expect(typeCall).toBeDefined();
+    // 2000 chars * 25ms (default delay) + 250ms overhead + 5000ms slack.
+    expect(typeCall!.timeoutMs).toBe(2000 * 25 + 250 + 5_000);
+    expect(typeCall!.timeoutMs).toBeGreaterThan(15_000);
   });
 
   test("trusted_type xdotool failures surface via logError but don't shut down", async () => {

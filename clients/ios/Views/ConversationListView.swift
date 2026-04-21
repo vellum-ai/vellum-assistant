@@ -29,19 +29,6 @@ func sortConversationsForDisplay(
     }
 }
 
-func applyConversationSelectionRequest(
-    _ request: ConversationSelectionRequest,
-    horizontalSizeClass: UserInterfaceSizeClass?,
-    navigationPath: inout [UUID],
-    selectedConversationId: inout UUID?
-) {
-    if horizontalSizeClass == .regular {
-        selectedConversationId = request.conversationLocalId
-    } else {
-        navigationPath = [request.conversationLocalId]
-    }
-}
-
 @MainActor
 func makeConversationForkFromMessageAction(
     store: IOSConversationStore,
@@ -72,83 +59,43 @@ func makeOpenForkParentAction(
     }
 }
 
-// MARK: - Tab Entry Point
-
-/// The tab-level Chats entry point. Switches between connected and disconnected
-/// states so ConversationListView only mounts when a live GatewayConnectionManager is available.
-/// When the user has a platform assistant configured, shows the conversation list
-/// (with its loading state) instead of the disconnected view while connecting.
-struct ChatsTabView: View {
-    @EnvironmentObject var clientProvider: ClientProvider
-    @ObservedObject var store: IOSConversationStore
-    var onConnectTapped: (() -> Void)?
-
-    /// Whether the user has previously saved daemon connection settings.
-    /// When true, the app is either connected or actively attempting to connect,
-    /// so the conversation list (with loading state) is shown instead of the
-    /// disconnected placeholder.
-    private var hasSavedConnectionSettings: Bool {
-        if let id = UserDefaults.standard.string(forKey: UserDefaultsKeys.managedAssistantId), !id.isEmpty,
-           let url = UserDefaults.standard.string(forKey: UserDefaultsKeys.managedPlatformBaseURL), !url.isEmpty {
-            return true
-        }
-        if let url = UserDefaults.standard.string(forKey: UserDefaultsKeys.gatewayBaseURL), !url.isEmpty {
-            return true
-        }
-        return false
-    }
-
-    var body: some View {
-        if clientProvider.isConnected || hasSavedConnectionSettings {
-            ConversationListView(store: store)
-        } else {
-            ChatsDisconnectedView(onConnectTapped: onConnectTapped)
-        }
-    }
-}
-
-// MARK: - Disconnected State
-
-struct ChatsDisconnectedView: View {
-    var onConnectTapped: (() -> Void)?
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: VSpacing.lg) {
-                VIconView(.messageSquare, size: 48)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .accessibilityHidden(true)
-                Text("Chats Require Connection")
-                    .font(VFont.titleMedium)
-                    .foregroundStyle(VColor.contentDefault)
-                Text("Connect to your Assistant to start a conversation.")
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentSecondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, VSpacing.xl)
-                if onConnectTapped != nil {
-                    Button {
-                        onConnectTapped?()
-                    } label: {
-                        Text("Go to Settings")
-                    }
-                    .buttonStyle(.bordered)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle("Chats")
-        }
-    }
-}
-
 // MARK: - ConversationListView
 
 struct ConversationListView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @EnvironmentObject var clientProvider: ClientProvider
     @ObservedObject var store: IOSConversationStore
-    @State private var navigationPath: [UUID] = []
-    @State private var selectedConversationId: UUID?
+
+    /// Drawer-mode callback: when non-nil, the view renders only its list content
+    /// (no NavigationSplitView / NavigationStack wrapper) and row taps fire this
+    /// instead of pushing a NavigationLink. Used by `ConversationDrawerView` on
+    /// compact size classes where `IOSRootNavigationView` owns the NavigationStack.
+    var onSelectConversation: ((UUID) -> Void)?
+
+    /// Invoked when the user taps the Settings entry point in the iPad sidebar
+    /// toolbar. The bottom sheet itself is owned by `IOSRootNavigationView`.
+    /// Nil on compact, where the chat header hosts the Settings gear instead.
+    var onShowSettings: (() -> Void)?
+
+    /// Invoked when the user archives the currently active conversation.
+    /// The parent is responsible for (a) choosing a replacement conversation
+    /// and (b) marking it as *seeded* (not an explicit open), so the
+    /// replacement's `.task(id:)` does not silently clear its unread badge.
+    /// The binding alone cannot communicate seed state, so this callback
+    /// replaces the fallback `selectedConversationId = activeConversations.first?.id`
+    /// when provided.
+    var onArchiveActiveConversation: (() -> Void)?
+
+    /// Single source of truth for the active conversation, owned by
+    /// `IOSRootNavigationView.activeConversationId`. The binding keeps the
+    /// iPad `NavigationSplitView` detail pane and the iPhone `compactRoot`
+    /// chat in sync across size-class transitions (iPad Split View, rotation),
+    /// so rotating from regular to compact continues to show the conversation
+    /// the user was viewing rather than a stale seed.
+    @Binding var selectedConversationId: UUID?
+
+    private var isDrawerMode: Bool { onSelectConversation != nil }
+
     @State private var searchText: String = ""
     @State private var renamingConversationId: UUID?
     @State private var renameText: String = ""
@@ -230,41 +177,33 @@ struct ConversationListView: View {
 
     var body: some View {
         Group {
-            if store.isLoadingInitialConversations {
-                loadingView
-            } else if horizontalSizeClass == .regular {
-                NavigationSplitView {
+            if isDrawerMode {
+                // Compact: the drawer supplies its own chrome; render only the list content.
+                // `IOSRootNavigationView` owns navigation state and consumes selection requests.
+                // The drawer's `safeAreaInset` footer keeps Settings reachable even while the
+                // store is still loading its initial conversation list.
+                if store.isLoadingInitialConversations {
+                    loadingView
+                } else {
                     conversationList
+                }
+            } else {
+                // iPad: always mount the `NavigationSplitView` so the sidebar's
+                // navigation bar — and the Settings toolbar item attached to it —
+                // stays visible while the store is loading. Otherwise, first-run
+                // users with no saved connection would be stuck on a plain
+                // spinner with no way to reach Settings to configure a gateway.
+                NavigationSplitView {
+                    if store.isLoadingInitialConversations {
+                        loadingView
+                    } else {
+                        conversationList
+                    }
                 } detail: {
                     detailView
                 }
-            } else {
-                NavigationStack(path: $navigationPath) {
-                    conversationList
-                        .navigationDestination(for: UUID.self) { conversationLocalId in
-                            conversationDetailContent(for: conversationLocalId)
-                                .toolbar(.hidden, for: .tabBar)
-                        }
-                }
             }
         }
-        .onAppear {
-            applyPendingSelectionRequestIfNeeded()
-        }
-        .onChange(of: store.selectionRequest?.id) { _, _ in
-            applyPendingSelectionRequestIfNeeded()
-        }
-    }
-
-    private func applyPendingSelectionRequestIfNeeded() {
-        guard let request = store.selectionRequest else { return }
-        applyConversationSelectionRequest(
-            request,
-            horizontalSizeClass: horizontalSizeClass,
-            navigationPath: &navigationPath,
-            selectedConversationId: &selectedConversationId
-        )
-        store.consumeSelectionRequest(id: request.id)
     }
 
     private var loadingView: some View {
@@ -276,6 +215,20 @@ struct ConversationListView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("Chats")
+        .toolbar {
+            // Mirror the Settings entry from `conversationList.toolbar` so iPad
+            // first-run users can reach Settings even before the store's
+            // initial conversation load completes. Compact reaches Settings
+            // via the chat header gear and passes a nil callback here.
+            if let onShowSettings {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: onShowSettings) {
+                        VIconView(.settings, size: 20)
+                    }
+                    .accessibilityLabel("Settings")
+                }
+            }
+        }
     }
 
     // MARK: - Detail Views
@@ -324,7 +277,23 @@ struct ConversationListView: View {
 
     private func archiveActiveConversation(_ conversation: IOSConversation) {
         store.archiveConversation(conversation)
-        if horizontalSizeClass == .regular && selectedConversationId == conversation.id {
+        // Switch away from the archived conversation on both size classes.
+        // `archiveConversation` only flips `isArchived` without removing
+        // from `store.conversations`, so `IOSRootNavigationView.reconcileActiveConversation`'s
+        // `.onChange(of: store.conversations.map(\.id))` trigger never fires
+        // — the archived conversation would otherwise stay on-screen.
+        // `selectedConversationId` is bound to `activeConversationId` in both
+        // the iPad split view and the compact drawer, so assigning here
+        // updates whichever path is active.
+        guard selectedConversationId == conversation.id else { return }
+        if let onArchiveActiveConversation {
+            // Compact path: parent owns `activeConversationWasSeeded` and must
+            // mark the replacement as seeded to avoid silently clearing its
+            // unread badge via `compactRoot`'s `.task(id:)` auto-mark-seen.
+            onArchiveActiveConversation()
+        } else {
+            // iPad path: `conversationDetailContent(for:)` always marks seen
+            // on mount (no seeded gating), so a plain binding write is fine.
             selectedConversationId = activeConversations.first?.id
         }
     }
@@ -487,14 +456,29 @@ struct ConversationListView: View {
         }
     }
 
+    @ViewBuilder
+    private func conversationRowLink(_ conversation: IOSConversation) -> some View {
+        if let onSelect = onSelectConversation {
+            Button {
+                onSelect(conversation.id)
+            } label: {
+                conversationRow(conversation)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens this chat and closes the menu")
+        } else {
+            NavigationLink(value: conversation.id) {
+                conversationRow(conversation)
+            }
+        }
+    }
+
     private var conversationList: some View {
-        List(selection: horizontalSizeClass == .regular ? $selectedConversationId : nil) {
+        List(selection: isDrawerMode ? nil : $selectedConversationId) {
             // Regular (non-schedule) conversations
             ForEach(filteredRegularConversations) { conversation in
                 maybeConnectedContextMenu(conversation: conversation) {
-                    NavigationLink(value: conversation.id) {
-                        conversationRow(conversation)
-                    }
+                    conversationRowLink(conversation)
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
                             store.deleteConversation(conversation)
@@ -528,9 +512,7 @@ struct ConversationListView: View {
                 Section {
                     DisclosureGroup("Archived", isExpanded: $showArchived) {
                         ForEach(filteredArchivedConversations) { conversation in
-                            NavigationLink(value: conversation.id) {
-                                conversationRow(conversation)
-                            }
+                            conversationRowLink(conversation)
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) {
                                     store.deleteConversation(conversation)
@@ -580,17 +562,26 @@ struct ConversationListView: View {
             await store.refreshConversationList(daemon: clientProvider.client)
         }
         .toolbar {
+            if let onShowSettings {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: onShowSettings) {
+                        VIconView(.settings, size: 20)
+                    }
+                    .accessibilityLabel("Settings")
+                }
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     let conversation = store.newConversation()
-                    if horizontalSizeClass == .regular {
-                        selectedConversationId = conversation.id
+                    if let onSelect = onSelectConversation {
+                        onSelect(conversation.id)
                     } else {
-                        navigationPath = [conversation.id]
+                        selectedConversationId = conversation.id
                     }
                 } label: {
                     VIconView(.squarePen, size: 20)
-}
+                }
+                .accessibilityLabel("New chat")
             }
         }
         .alert("Rename Chat", isPresented: Binding(
@@ -625,9 +616,7 @@ struct ConversationListView: View {
         if group.conversations.count == 1, let conversation = group.conversations.first {
             // Single-conversation group: render inline
             maybeConnectedContextMenu(conversation: conversation) {
-                NavigationLink(value: conversation.id) {
-                    conversationRow(conversation)
-                }
+                conversationRowLink(conversation)
                 .swipeActions(edge: .trailing) {
                     Button(role: .destructive) {
                         store.deleteConversation(conversation)
@@ -657,9 +646,7 @@ struct ConversationListView: View {
             DisclosureGroup {
                 ForEach(group.conversations) { conversation in
                     maybeConnectedContextMenu(conversation: conversation) {
-                        NavigationLink(value: conversation.id) {
-                            conversationRow(conversation)
-                        }
+                        conversationRowLink(conversation)
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
                                 store.deleteConversation(conversation)
@@ -763,9 +750,19 @@ struct ConversationListView: View {
 
 /// Thin wrapper around ChatContentView for a conversation-owned ChatViewModel.
 struct ConversationChatView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     var viewModel: ChatViewModel
     @ObservedObject var store: IOSConversationStore
     let conversation: IOSConversation
+    /// Opens the conversation drawer. Non-nil only on compact size classes where
+    /// `IOSRootNavigationView` owns the drawer state; iPad uses its persistent
+    /// NavigationSplitView sidebar instead.
+    var onOpenDrawer: (() -> Void)?
+    /// Starts a new conversation. Non-nil only on compact size classes.
+    var onComposeNew: (() -> Void)?
+    /// Presents the Settings bottom sheet. Non-nil only on compact size classes;
+    /// iPad reaches Settings via the persistent sidebar toolbar instead.
+    var onShowSettings: (() -> Void)?
 
     var body: some View {
         let anchorRequest = store.pendingAnchorRequest(for: conversation.id)
@@ -788,8 +785,37 @@ struct ConversationChatView: View {
                 )
             )
         }
-            .navigationTitle("Chat")
-            .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(conversation.title.isEmpty ? "Chat" : conversation.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if horizontalSizeClass == .compact, let onOpenDrawer {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: onOpenDrawer) {
+                        VIconView(.panelLeft, size: 20)
+                    }
+                    .accessibilityLabel("Chats")
+                }
+                .hideSharedToolbarBackgroundIfAvailable()
+            }
+            if horizontalSizeClass == .compact, let onShowSettings {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: onShowSettings) {
+                        VIconView(.settings, size: 20)
+                    }
+                    .accessibilityLabel("Settings")
+                }
+                .hideSharedToolbarBackgroundIfAvailable()
+            }
+            if horizontalSizeClass == .compact, let onComposeNew {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: onComposeNew) {
+                        VIconView(.squarePen, size: 20)
+                    }
+                    .accessibilityLabel("New chat")
+                }
+                .hideSharedToolbarBackgroundIfAvailable()
+            }
+        }
     }
 
     @ViewBuilder

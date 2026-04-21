@@ -32,6 +32,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import { buildCliProgram } from "../cli/program.js";
+import type { RiskClassification } from "../permissions/checker.js";
 import { classifyRisk } from "../permissions/checker.js";
 import { RiskLevel } from "../permissions/types.js";
 
@@ -39,17 +40,17 @@ import { RiskLevel } from "../permissions/types.js";
  * Assert that a command classifies as Low risk, with a descriptive failure
  * message that guides developers toward the correct fix.
  */
-function expectLowRisk(command: string, actual: RiskLevel): void {
-  if (actual !== RiskLevel.Low) {
+function expectLowRisk(command: string, actual: RiskClassification): void {
+  if (actual.level !== RiskLevel.Low) {
     throw new Error(
-      `"${command}" classified as ${actual} instead of Low. ` +
+      `"${command}" classified as ${actual.level} instead of Low. ` +
         `assistant CLI commands must be Low risk by default — the assistant ` +
         `uses its own CLI during normal operation. If you need risk ` +
         `escalation for specific subcommands, add them to the elevated ` +
         `risk tests in this guard test with justification.`,
     );
   }
-  expect(actual).toBe(RiskLevel.Low);
+  expect(actual.level).toBe(RiskLevel.Low);
 }
 
 // Dynamically extract subcommand names from the CLI program definition.
@@ -101,56 +102,56 @@ describe("CLI command risk guard: elevated assistant subcommands", () => {
     const risk = await classifyRisk("bash", {
       command: "assistant oauth token",
     });
-    expect(risk).toBe(RiskLevel.High);
+    expect(risk.level).toBe(RiskLevel.High);
   });
 
   test("assistant oauth mode --set is High risk (changes auth mode)", async () => {
     const risk = await classifyRisk("bash", {
       command: "assistant oauth mode --set managed",
     });
-    expect(risk).toBe(RiskLevel.High);
+    expect(risk.level).toBe(RiskLevel.High);
   });
 
   test("assistant oauth mode --set=value is High risk (equals syntax)", async () => {
     const risk = await classifyRisk("bash", {
       command: "assistant oauth mode google --set=managed",
     });
-    expect(risk).toBe(RiskLevel.High);
+    expect(risk.level).toBe(RiskLevel.High);
   });
 
   test("assistant oauth mode without --set is Low risk (read-only)", async () => {
     const risk = await classifyRisk("bash", {
       command: "assistant oauth mode",
     });
-    expect(risk).toBe(RiskLevel.Low);
+    expect(risk.level).toBe(RiskLevel.Low);
   });
 
   test("assistant credentials reveal is High risk (exposes secrets)", async () => {
     const risk = await classifyRisk("bash", {
       command: "assistant credentials reveal",
     });
-    expect(risk).toBe(RiskLevel.High);
+    expect(risk.level).toBe(RiskLevel.High);
   });
 
   test("assistant oauth request is Medium risk (initiates OAuth flow)", async () => {
     const risk = await classifyRisk("bash", {
       command: "assistant oauth request",
     });
-    expect(risk).toBe(RiskLevel.Medium);
+    expect(risk.level).toBe(RiskLevel.Medium);
   });
 
   test("assistant oauth connect is Medium risk (modifies OAuth connections)", async () => {
     const risk = await classifyRisk("bash", {
       command: "assistant oauth connect",
     });
-    expect(risk).toBe(RiskLevel.Medium);
+    expect(risk.level).toBe(RiskLevel.Medium);
   });
 
   test("assistant oauth disconnect is Medium risk (removes OAuth connections)", async () => {
     const risk = await classifyRisk("bash", {
       command: "assistant oauth disconnect",
     });
-    expect(risk).toBe(RiskLevel.Medium);
+    expect(risk.level).toBe(RiskLevel.Medium);
   });
 
   test("--help on non-elevated subcommands remains Low risk", async () => {
@@ -195,12 +196,12 @@ describe("CLI command risk guard: elevated assistant subcommands", () => {
     // THEN --help does not bypass the elevated risk level
     for (const command of highRiskWithHelp) {
       const risk = await classifyRisk("bash", { command });
-      expect(risk).toBe(RiskLevel.High);
+      expect(risk.level).toBe(RiskLevel.High);
     }
 
     for (const command of mediumRiskWithHelp) {
       const risk = await classifyRisk("bash", { command });
-      expect(risk).toBe(RiskLevel.Medium);
+      expect(risk.level).toBe(RiskLevel.Medium);
     }
   });
 
@@ -208,14 +209,14 @@ describe("CLI command risk guard: elevated assistant subcommands", () => {
     const risk = await classifyRisk("bash", {
       command: "assistant credentials reveal 123 --service --help",
     });
-    expect(risk).toBe(RiskLevel.High);
+    expect(risk.level).toBe(RiskLevel.High);
   });
 
   test("-h used as option value does not downgrade oauth mode --set risk", async () => {
     const risk = await classifyRisk("bash", {
       command: "assistant oauth mode --set -h",
     });
-    expect(risk).toBe(RiskLevel.High);
+    expect(risk.level).toBe(RiskLevel.High);
   });
 
   test("non-sensitive oauth subcommands remain Low risk", async () => {
@@ -248,28 +249,28 @@ describe("CLI command risk guard: elevated assistant subcommands", () => {
     const risk = await classifyRisk("bash", {
       command: "assistant credentials set",
     });
-    expect(risk).toBe(RiskLevel.High);
+    expect(risk.level).toBe(RiskLevel.High);
   });
 
   test("assistant credentials delete is High risk (removes stored credentials)", async () => {
     const risk = await classifyRisk("bash", {
       command: "assistant credentials delete",
     });
-    expect(risk).toBe(RiskLevel.High);
+    expect(risk.level).toBe(RiskLevel.High);
   });
 
   test("assistant keys set is High risk (modifies API keys)", async () => {
     const risk = await classifyRisk("bash", {
       command: "assistant keys set anthropic sk-ant-xxx",
     });
-    expect(risk).toBe(RiskLevel.High);
+    expect(risk.level).toBe(RiskLevel.High);
   });
 
   test("assistant keys delete is High risk (removes API keys)", async () => {
     const risk = await classifyRisk("bash", {
       command: "assistant keys delete openai",
     });
-    expect(risk).toBe(RiskLevel.High);
+    expect(risk.level).toBe(RiskLevel.High);
   });
 
   test("non-sensitive keys subcommands remain Low risk", async () => {
@@ -285,14 +286,14 @@ describe("CLI command risk guard: elevated assistant subcommands", () => {
     const risk = await classifyRisk("bash", {
       command: "assistant trust remove abc123",
     });
-    expect(risk).toBe(RiskLevel.High);
+    expect(risk.level).toBe(RiskLevel.High);
   });
 
   test("assistant trust clear is High risk (clears all trust rules)", async () => {
     const risk = await classifyRisk("bash", {
       command: "assistant trust clear",
     });
-    expect(risk).toBe(RiskLevel.High);
+    expect(risk.level).toBe(RiskLevel.High);
   });
 
   test("non-sensitive trust subcommands remain Low risk", async () => {
@@ -310,35 +311,35 @@ describe("CLI command risk guard: wrapper program propagation", () => {
     const risk = await classifyRisk("bash", {
       command: "env assistant oauth token",
     });
-    expect(risk).toBe(RiskLevel.High);
+    expect(risk.level).toBe(RiskLevel.High);
   });
 
   test("nice assistant credentials reveal is High risk", async () => {
     const risk = await classifyRisk("bash", {
       command: "nice assistant credentials reveal",
     });
-    expect(risk).toBe(RiskLevel.High);
+    expect(risk.level).toBe(RiskLevel.High);
   });
 
   test("timeout 30 assistant oauth request is Medium risk", async () => {
     const risk = await classifyRisk("bash", {
       command: "timeout 30 assistant oauth request",
     });
-    expect(risk).toBe(RiskLevel.Medium);
+    expect(risk.level).toBe(RiskLevel.Medium);
   });
 
   test("timeout 30 assistant oauth token is High risk", async () => {
     const risk = await classifyRisk("bash", {
       command: "timeout 30 assistant oauth token",
     });
-    expect(risk).toBe(RiskLevel.High);
+    expect(risk.level).toBe(RiskLevel.High);
   });
 
   test("timeout 30 git push is Medium risk", async () => {
     const risk = await classifyRisk("bash", {
       command: "timeout 30 git push",
     });
-    expect(risk).toBe(RiskLevel.Medium);
+    expect(risk.level).toBe(RiskLevel.Medium);
   });
 
   test("timeout 30 git status is Low risk", async () => {
@@ -357,7 +358,7 @@ describe("CLI command risk guard: wrapper program propagation", () => {
 
   test("env git push is Medium risk (not Low)", async () => {
     const risk = await classifyRisk("bash", { command: "env git push" });
-    expect(risk).toBe(RiskLevel.Medium);
+    expect(risk.level).toBe(RiskLevel.Medium);
   });
 
   test("env git status is Low risk", async () => {

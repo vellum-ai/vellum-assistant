@@ -2316,7 +2316,7 @@ jobs:
   ci-assistant:
     needs: extract-version
     runs-on: ubuntu-latest-8-cores
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -2344,12 +2344,27 @@ jobs:
         run: bunx tsc --noEmit
         working-directory: assistant
 
+      - name: Restore test durations cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: assistant/.test-durations
+          key: test-durations-unused
+          restore-keys: test-durations-
+
       - name: Test
-        run: bun run test
+        run: bun run test:stable
         working-directory: assistant
         env:
-          EXCLUDE_EXPERIMENTAL: 'true'
-          TEST_WORKERS: '4'
+          TEST_WORKERS: '16'
+          TEST_DURATIONS_FILE: .test-durations
+          TEST_DURATIONS_OUTPUT: .test-durations
+
+      - name: Save test durations cache
+        if: always()
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: assistant/.test-durations
+          key: test-durations-${{ github.run_id }}
 
   ci-cli:
     needs: extract-version

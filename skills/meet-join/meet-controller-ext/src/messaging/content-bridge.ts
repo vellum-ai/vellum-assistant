@@ -119,7 +119,18 @@ async function fanOutToMeetTabs(msg: BotToExtensionMessage): Promise<void> {
     for (const tab of tabs) {
       if (typeof tab.id !== "number") continue;
       try {
-        await chrome.tabs.sendMessage(tab.id, msg);
+        const response = (await chrome.tabs.sendMessage(tab.id, msg)) as
+          | { ok?: boolean; reason?: string }
+          | undefined;
+        // A non-matching tab responds with `{ ok: false }` so we don't
+        // count it as delivery. Without this, a stray Meet tab in the
+        // same profile would silently consume a join command while the
+        // real tab's content script was still mounting, and the retry
+        // loop would exit before reaching the real tab.
+        if (response && response.ok === false) {
+          lastError = response.reason ?? "rejected by content script";
+          continue;
+        }
         anyDelivered = true;
       } catch (err) {
         lastError = err;

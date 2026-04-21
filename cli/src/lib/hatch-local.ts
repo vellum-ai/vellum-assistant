@@ -305,10 +305,26 @@ export async function hatchLocal(
   // IP which the daemon rejects as non-loopback.
   emitProgress(6, 7, "Securing connection...");
   const loopbackUrl = `http://127.0.0.1:${resources.gatewayPort}`;
-  try {
-    await leaseGuardianToken(loopbackUrl, instanceName);
-  } catch (err) {
-    console.error(`⚠️  Guardian token lease failed: ${err}`);
+  const maxLeaseAttempts = 3;
+  for (let attempt = 1; attempt <= maxLeaseAttempts; attempt++) {
+    try {
+      await leaseGuardianToken(loopbackUrl, instanceName);
+      break;
+    } catch (err) {
+      if (attempt < maxLeaseAttempts) {
+        const delayMs = 2000 * 2 ** (attempt - 1);
+        console.error(
+          `⚠️  Guardian token lease attempt ${attempt}/${maxLeaseAttempts} failed — retrying in ${delayMs / 1000}s: ${err}`,
+        );
+        await new Promise((r) => setTimeout(r, delayMs));
+      } else {
+        console.error(
+          `⚠️  Guardian token lease failed after ${maxLeaseAttempts} attempts: ${err}\n` +
+            `   The assistant is running but guardian-token.json was not written.\n` +
+            `   If the desktop app loses its stored credentials, re-hatch to recover.`,
+        );
+      }
+    }
   }
 
   // Auto-start ngrok if webhook integrations (e.g. Telegram, Twilio) are configured.

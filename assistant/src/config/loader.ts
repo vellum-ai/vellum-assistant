@@ -6,10 +6,14 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
-import { ensureDataDir, getWorkspaceConfigPath } from "../util/platform.js";
+import {
+  ensureDataDir,
+  getWorkspaceConfigPath,
+  getWorkspaceDir,
+} from "../util/platform.js";
 import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import { AssistantConfigSchema } from "./schema.js";
 import type { AssistantConfig } from "./types.js";
@@ -65,6 +69,11 @@ function filesystemSafeTimestamp(date: Date = new Date()): string {
  * The quarantine filename encodes a millisecond-precision timestamp and ends
  * in `.json` so editors syntax-highlight the preserved content:
  *   `<path>.corrupt-<ISO-timestamp>.json`
+ *
+ * On a successful rename, also appends a bulletin to `<workspace>/UPDATES.md`
+ * so the background update-bulletin job surfaces the event to the user
+ * proactively on their next interaction (log-level errors alone are invisible
+ * to users).
  */
 function quarantineCorruptConfig(configPath: string, err: unknown): string {
   const quarantinePath = `${configPath}.corrupt-${filesystemSafeTimestamp()}.json`;
@@ -75,6 +84,7 @@ function quarantineCorruptConfig(configPath: string, err: unknown): string {
         `quarantined to ${quarantinePath} and loaded defaults. ` +
         `Inspect the quarantined file to recover any hand-edited settings.`,
     );
+    appendQuarantineBulletin(configPath, quarantinePath);
   } catch (renameErr) {
     log.error(
       { renameErr },
@@ -83,6 +93,71 @@ function quarantineCorruptConfig(configPath: string, err: unknown): string {
     );
   }
   return quarantinePath;
+}
+
+/**
+ * Append a config-quarantine bulletin to `<workspace>/UPDATES.md`. On the
+ * next daemon boot the background update-bulletin job picks up UPDATES.md
+ * and processes it inside a background-only conversation (not the user's
+ * chat). The agent decides whether and when to surface the event — typical
+ * cases are the user asking why their settings changed or noticing missing
+ * API keys. The bulletin is agent-visible context, not a push notification.
+ *
+ * Idempotency: the appended block embeds a marker keyed on the quarantine
+ * filename's basename. If that marker is already present in UPDATES.md (a
+ * prior append succeeded but the process crashed before control returned, or
+ * the file was hand-edited), the function is a no-op. This mirrors the
+ * pattern release-notes workspace migrations use — see the "Release Update
+ * Hygiene" section in the root `AGENTS.md`.
+ *
+ * Best-effort: any write failure is logged at `warn` and swallowed. The
+ * quarantine path must never block startup, and the error log from
+ * `quarantineCorruptConfig` remains the authoritative record.
+ *
+ * Exported with an underscore-prefixed alias (`_appendQuarantineBulletin`) so
+ * tests can exercise the idempotent-skip branch directly with a deterministic
+ * quarantine basename. Non-test callers should never import the underscore
+ * alias — the wiring into `quarantineCorruptConfig` is the production entry
+ * point.
+ */
+function appendQuarantineBulletin(
+  originalPath: string,
+  quarantinePath: string,
+): void {
+  try {
+    const updatesPath = join(getWorkspaceDir(), "UPDATES.md");
+    const quarantineBasename = basename(quarantinePath);
+    const marker = `<!-- config-quarantine:${quarantineBasename} -->`;
+
+    const existing = existsSync(updatesPath)
+      ? readFileSync(updatesPath, "utf-8")
+      : "";
+    if (existing.includes(marker)) return;
+
+    const timestamp = new Date().toISOString();
+    const block =
+      `## Config was reset to defaults\n\n` +
+      `Your \`config.json\` was unreadable at ${timestamp} and couldn't be parsed ` +
+      `as JSON. The assistant preserved the original file at \`${quarantinePath}\` ` +
+      `and loaded defaults so the app stays working.\n\n` +
+      `If you had custom settings (API keys, model choices, voice preferences), ` +
+      `they are still in the quarantined file — \`cat ${quarantinePath}\` to ` +
+      `recover them, then re-enter through Settings or the CLI.\n\n` +
+      `${marker}\n`;
+
+    const toWrite = existing.length === 0 ? block : `${existing}\n${block}`;
+    writeFileSync(updatesPath, toWrite, "utf-8");
+    log.info(
+      `Appended config-quarantine bulletin to ${updatesPath} for ${originalPath} ` +
+        `(quarantined as ${quarantineBasename}).`,
+    );
+  } catch (bulletinErr) {
+    log.warn(
+      { bulletinErr },
+      `Failed to append config-quarantine bulletin to UPDATES.md; ` +
+        `the quarantine event is still recorded in the assistant logs.`,
+    );
+  }
 }
 
 /**
@@ -673,3 +748,10 @@ export function setNestedValue(
   }
   current[keys[keys.length - 1]] = value;
 }
+
+/**
+ * Test-only alias for `appendQuarantineBulletin`. Exists so the crash-mid-
+ * append idempotency branch can be exercised with a deterministic quarantine
+ * basename without widening the runtime surface. Not for production use.
+ */
+export const _appendQuarantineBulletin = appendQuarantineBulletin;

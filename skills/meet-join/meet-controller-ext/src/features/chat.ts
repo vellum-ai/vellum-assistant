@@ -40,6 +40,7 @@ import type {
   ExtensionInboundChatMessage,
   ExtensionToBotMessage,
 } from "../../../contracts/native-messaging.js";
+import { trustedTypeDurationMs } from "../../../contracts/native-messaging.js";
 import { chatSelectors } from "../dom/selectors.js";
 import { waitForSelector } from "../dom/wait.js";
 
@@ -65,22 +66,6 @@ const ENSURE_PANEL_OPEN_TIMEOUT_MS = 2000;
  * `skills/meet-join/bot/src/control/http-server.ts`.
  */
 export const MEET_CHAT_MAX_LENGTH = 2000;
-
-/**
- * Per-character wait (ms) after emitting `trusted_type` so xdotool's
- * X-server keystrokes finish landing in the composer before we dispatch
- * the send-button click. Must match `xdotool --delay` (25ms/char) inside
- * the bot — see `bot/src/browser/xdotool-type.ts`'s `DEFAULT_DELAY_MS`.
- */
-const TRUSTED_TYPE_PER_CHAR_MS = 25;
-
-/**
- * Fixed overhead added on top of the per-character scaling to cover
- * xdotool startup + the native-messaging round-trip from extension →
- * bot → X server. Sized from observed production latency (emit → first
- * keystroke dispatched) plus a small safety margin.
- */
-const TRUSTED_TYPE_OVERHEAD_MS = 250;
 
 /** Options passed to {@link startChatReader}. */
 export interface ChatReaderOptions {
@@ -233,11 +218,14 @@ export function startChatReader(opts: ChatReaderOptions): ChatReader {
  *    fallback only for the `onEvent`-less case (jsdom tests and any Meet
  *    build where synthetic input is accepted).
  *
- *    After emitting, we wait `text.length * TRUSTED_TYPE_PER_CHAR_MS +
- *    TRUSTED_TYPE_OVERHEAD_MS` so the (async) xdotool keystrokes have
- *    time to land before the send-button click is dispatched. A fixed
- *    250ms window was too short for messages longer than ~10 characters
- *    (xdotool's default per-keystroke delay is 25ms).
+ *    After emitting, we wait {@link trustedTypeDurationMs}(`text.length`)
+ *    so the (async) xdotool keystrokes have time to land before the send-
+ *    button click is dispatched. A fixed 250ms window was too short for
+ *    messages longer than ~10 characters (xdotool's default per-keystroke
+ *    delay is 25ms). The wait formula is the single source of truth for
+ *    the extension wait, the bot's xdotool kill timer, and the bot /
+ *    daemon `send_chat` reply timers — see the helper's definition in
+ *    `contracts/native-messaging.ts`.
  *
  * 2. Before the send-button `.click()`, a `trusted_click` is emitted for
  *    the button's screen coordinates. This mirrors the panel-toggle fix
@@ -296,8 +284,11 @@ export async function sendChat(
       // does not require focus to succeed.
     }
     opts.onEvent({ type: "trusted_type", text });
-    const waitMs =
-      text.length * TRUSTED_TYPE_PER_CHAR_MS + TRUSTED_TYPE_OVERHEAD_MS;
+    // Wait exactly as long as xdotool needs to type the text — the
+    // shared helper returns `text.length * 25ms + 250ms` by default and
+    // stays in sync with the bot's xdotool kill timer and the bot/daemon
+    // `send_chat` timeouts that scale off the same formula.
+    const waitMs = trustedTypeDurationMs(text.length);
     await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
   } else {
     // No `onEvent` sink — we can't drive xdotool, so fall back to the
@@ -456,16 +447,30 @@ export async function postConsentMessage(
  * isTrusted gate rejects the JS `.click()` fallback) the composer hasn't
  * mounted yet and `sendChat` throws immediately.
  *
- * To close the race we poll for {@link chatSelectors.MESSAGE_LIST} with a
- * short deadline ({@link ENSURE_PANEL_OPEN_TIMEOUT_MS}) via
- * {@link waitForSelector}. When the panel was already open on entry the
- * initial `document.querySelector` returns synchronously, so the poll is
- * a no-op on the fast path. If the deadline expires we fall through
- * silently — `sendChat` will surface its own "chat input not found"
- * diagnostic, which is what the join flow's `try/catch` already handles.
+ * To close the race we poll for {@link chatSelectors.INPUT} with a short
+ * deadline ({@link ENSURE_PANEL_OPEN_TIMEOUT_MS}) via
+ * {@link waitForSelector}. The composer is the thing `sendChat` actually
+ * needs, so anchoring the wait on it keeps this function correct even
+ * when Meet drifts the surrounding chrome (panel header renamed to
+ * "In-call messages", `MESSAGE_LIST` aria-label changed, etc.). When
+ * the panel was already open on entry the initial `document.querySelector`
+ * returns synchronously, so the poll is a no-op on the fast path. If the
+ * deadline expires we fall through silently — `sendChat` will surface
+ * its own "chat input not found" diagnostic, which the join flow's
+ * `try/catch` already handles.
  */
 async function ensurePanelOpen(opts?: EnsurePanelOpenOptions): Promise<void> {
-  if (document.querySelector(chatSelectors.MESSAGE_LIST)) return;
+  // Prefer the composer as the panel-open signal: if it's in the DOM,
+  // `sendChat` will succeed regardless of the surrounding chrome.
+  // `MESSAGE_LIST` is retained as a fallback so existing tests (which
+  // mount only the list, not the composer, to drive the panel-already-
+  // open branch) continue to work.
+  if (
+    document.querySelector(chatSelectors.INPUT) ||
+    document.querySelector(chatSelectors.MESSAGE_LIST)
+  ) {
+    return;
+  }
   const toggle = document.querySelector<HTMLButtonElement>(
     chatSelectors.PANEL_BUTTON,
   );
@@ -509,20 +514,25 @@ async function ensurePanelOpen(opts?: EnsurePanelOpenOptions): Promise<void> {
     // findable.
   }
 
-  // Wait for the message list to mount. In jsdom tests the JS `.click()`
-  // fallback mounts the list synchronously before we reach this line, so
+  // Wait for the composer to mount — the thing `sendChat` actually
+  // queries. In jsdom tests the JS `.click()` fallback mounts the
+  // composer synchronously before we reach this line, so
   // `waitForSelector`'s synchronous first check resolves without ever
   // attaching a MutationObserver. In production Meet the click is queued
-  // through xdotool and the list mounts a beat later; the observer catches
-  // that mutation and resolves before the deadline. If the list never
-  // appears (e.g. host-restricted chat), swallow the timeout — `sendChat`
-  // will surface its own "chat input not found" error through the join
-  // flow's diagnostic wrapper.
+  // through xdotool and the composer mounts a beat later; the observer
+  // catches that mutation and resolves before the deadline. If the
+  // composer never appears (e.g. host-restricted chat, or the panel
+  // failed to open) swallow the timeout — `sendChat` will surface its
+  // own "chat input not found" error through the join flow's diagnostic
+  // wrapper.
+  //
+  // Anchoring on the composer (not the message list) keeps this correct
+  // across Meet's "Continuous chat is turned off" / "In-call messages"
+  // DOM where the list's aria-label no longer matches the old selector.
+  // The composer's `aria-label^="Send a message"` has been stable across
+  // that transition.
   try {
-    await waitForSelector(
-      chatSelectors.MESSAGE_LIST,
-      ENSURE_PANEL_OPEN_TIMEOUT_MS,
-    );
+    await waitForSelector(chatSelectors.INPUT, ENSURE_PANEL_OPEN_TIMEOUT_MS);
   } catch {
     // timeout — handled by downstream sendChat
   }

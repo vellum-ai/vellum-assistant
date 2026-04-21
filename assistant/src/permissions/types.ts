@@ -62,4 +62,13 @@ export interface PolicyContext {
   executionTarget?: string;
   /** Ephemeral rules for task-scoped permissions — checked before persistent trust.json rules. */
   ephemeralRules?: TrustRule[];
+  /**
+   * Execution context for per-context threshold resolution.
+   * - "conversation": interactive client session (default)
+   * - "background": non-interactive guardian session (e.g. scheduled jobs)
+   * - "headless": non-interactive non-guardian session
+   */
+  executionContext?: "conversation" | "background" | "headless";
+  /** Conversation ID for per-conversation threshold overrides. */
+  conversationId?: string;
 }

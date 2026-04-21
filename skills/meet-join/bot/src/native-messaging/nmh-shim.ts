@@ -178,10 +178,12 @@ export async function runShim(opts: RunShimOptions): Promise<void> {
       settle(err instanceof Error ? err : new Error(msg));
     };
     const onSocketData = (chunk: Buffer): void => {
-      // Decode incrementally so a multibyte UTF-8 codepoint split across
-      // chunk boundaries is reassembled instead of corrupted into U+FFFDs.
-      socketBuffer += socketDecoder.write(chunk);
-      if (socketBuffer.length > MAX_SOCKET_BUFFER_BYTES) {
+      // Track cumulative UTF-8 bytes held in `socketBuffer`. The string-length
+      // view is UTF-16 code units, so a CJK/emoji stream (3–4 bytes per code
+      // unit) could otherwise grow several MB past the intended cap before
+      // the guard fires.
+      socketBufferBytes += chunk.byteLength;
+      if (socketBufferBytes > MAX_SOCKET_BUFFER_BYTES) {
         const err = new Error(
           `nmh-shim: socket buffer exceeded ${MAX_SOCKET_BUFFER_BYTES} bytes without a newline`,
         );
@@ -189,12 +191,16 @@ export async function runShim(opts: RunShimOptions): Promise<void> {
         settle(err);
         return;
       }
+      // Decode incrementally so a multibyte UTF-8 codepoint split across
+      // chunk boundaries is reassembled instead of corrupted into U+FFFDs.
+      socketBuffer += socketDecoder.write(chunk);
       // Drain complete newline-delimited JSON objects. The remainder (after
       // the last newline) stays in the buffer for the next read.
       let newlineIdx = socketBuffer.indexOf("\n");
       while (newlineIdx !== -1) {
         const line = socketBuffer.slice(0, newlineIdx);
         socketBuffer = socketBuffer.slice(newlineIdx + 1);
+        socketBufferBytes -= Buffer.byteLength(line, "utf8") + 1;
         if (line.length > 0) {
           try {
             const parsed: unknown = JSON.parse(line);
@@ -251,6 +257,7 @@ export async function runShim(opts: RunShimOptions): Promise<void> {
     // ----------------------- socket → Chrome stdout -----------------------
     const socketDecoder = new StringDecoder("utf8");
     let socketBuffer = "";
+    let socketBufferBytes = 0;
     socket.on("data", onSocketData);
     socket.on("error", onSocketError);
     socket.on("close", onSocketClose);
@@ -264,14 +271,16 @@ if (import.meta.main) {
   const socketPath = process.env.NMH_SOCKET_PATH ?? "/run/nmh.sock";
   runShim({ socketPath })
     .then(() => {
-      // Force exit on success so the process terminates even if some stdio
-      // handle still has a ref keeping the event loop alive.
-      process.exit(0);
+      // Drain stdout before exiting so the tail of bot→extension traffic
+      // isn't truncated when the pipe to Chrome is backpressured. Using
+      // `process.exit(0)` directly can drop buffered writes; `end(cb)`
+      // flushes the pending bytes and then fires the callback.
+      process.stdout.end(() => process.exit(0));
     })
     .catch((err) => {
       process.stderr.write(
         `nmh-shim: ${err instanceof Error ? err.message : String(err)}\n`,
       );
-      process.exit(1);
+      process.stdout.end(() => process.exit(1));
     });
 }

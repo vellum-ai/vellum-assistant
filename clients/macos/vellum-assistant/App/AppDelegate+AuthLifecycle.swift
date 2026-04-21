@@ -18,17 +18,29 @@ extension AppDelegate {
             let hasKey = APIKeyManager.hasAnyKey()
             log.info("[authFlow] isAuthenticated=\(isAuthed) hasAnyKey=\(hasKey)")
             if isAuthed || hasKey {
-                // Verify there is at least one assistant from the current
-                // platform environment before entering the app. After a
-                // retire the lockfile may only contain cross-environment
-                // entries that cannot be connected to — in that case fall
-                // through to onboarding so the user can hatch a new one.
-                let hasConnectable = LockfileAssistant.loadAll().contains { $0.isCurrentEnvironment }
-                if hasConnectable {
-                    log.info("[authFlow] → proceedToApp()")
-                    proceedToApp()
+                // Delegate the post-auth routing decision to
+                // ReturningUserRouter so this call site and ReauthView
+                // share one source of truth.
+                //
+                // The synchronous fast path is the only router call made
+                // here — when the lockfile has a current-environment
+                // entry it returns .autoConnect and the app proceeds
+                // without any network wait. When it returns nil, the
+                // lockfile has zero current-env entries, which means
+                // showAuthWindow will land on OnboardingFlowView
+                // regardless of what the platform says.
+                let router = ReturningUserRouter()
+                if let decision = router.decideFast() {
+                    switch decision {
+                    case .autoConnect:
+                        log.info("[authFlow] router → autoConnect → proceedToApp()")
+                        proceedToApp()
+                    case .showHostingPicker:
+                        log.info("[authFlow] router → showHostingPicker")
+                        showAuthWindow()
+                    }
                 } else {
-                    log.info("[authFlow] Authenticated but no current-environment assistant — showing onboarding")
+                    log.info("[authFlow] router → nil (no current-env entry) — showing auth window")
                     showAuthWindow()
                 }
             } else {
@@ -54,14 +66,18 @@ extension AppDelegate {
         }
     }
 
-    func showAuthWindow(reusingWindow existingWindow: NSWindow? = nil) {
-        if let existing = authWindow {
+    func showAuthWindow(
+        reusingWindow existingWindow: NSWindow? = nil,
+        forceOnboarding: Bool = false
+    ) {
+        if let existing = authWindow, !forceOnboarding {
             existing.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        let hasManagedAssistants = LockfileAssistant.loadAll().contains { $0.isManaged && $0.isCurrentEnvironment }
+        let hasManagedAssistants = !forceOnboarding
+            && LockfileAssistant.loadAll().contains { $0.isManaged && $0.isCurrentEnvironment }
         let authView: AnyView
 
         if hasManagedAssistants {
@@ -70,6 +86,9 @@ extension AppDelegate {
                 authManager: authManager,
                 onComplete: { [weak self] in
                     self?.proceedToApp()
+                },
+                onNeedsHostingPicker: { [weak self] in
+                    self?.showAuthWindow(forceOnboarding: true)
                 }
             ))
         } else {
@@ -103,9 +122,14 @@ extension AppDelegate {
         let minWidth: CGFloat = hasManagedAssistants ? 420 : 440
         let minHeight: CGFloat = hasManagedAssistants ? 580 : 630
 
+        // When forcing the onboarding picker after re-auth, reuse the
+        // current authWindow so the view swaps in-place rather than
+        // closing and re-opening a window.
+        let windowToReuse = existingWindow ?? (forceOnboarding ? authWindow : nil)
+
         let window: NSWindow
-        if let existingWindow {
-            window = existingWindow
+        if let windowToReuse {
+            window = windowToReuse
             window.contentViewController = hostingController
             window.isMovableByWindowBackground = true
             window.backgroundColor = NSColor(VColor.surfaceOverlay)

@@ -508,6 +508,8 @@ extension AppDelegate {
 
         let (prevModifiers, prevKey) = ShortcutHelper.parseShortcut(prevShortcut)
         let (nextModifiers, nextKey) = ShortcutHelper.parseShortcut(nextShortcut)
+        let prevMods = prevModifiers.subtracting(.function)
+        let nextMods = nextModifiers.subtracting(.function)
 
         let handler: (NSEvent) -> NSEvent? = { [weak self] event in
             guard self?.isBootstrapping != true,
@@ -521,13 +523,13 @@ extension AppDelegate {
                 .subtracting([.numericPad, .function])
 
             if !prevShortcut.isEmpty,
-               mods == prevModifiers,
+               mods == prevMods,
                event.charactersIgnoringModifiers?.lowercased() == prevKey.lowercased() {
                 Task { @MainActor in self?.selectPreviousConversation() }
                 return nil
             }
             if !nextShortcut.isEmpty,
-               mods == nextModifiers,
+               mods == nextMods,
                event.charactersIgnoringModifiers?.lowercased() == nextKey.lowercased() {
                 Task { @MainActor in self?.selectNextConversation() }
                 return nil

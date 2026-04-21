@@ -481,6 +481,34 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         get { messageManager.activeSubagents }
         set { messageManager.activeSubagents = newValue }
     }
+    /// Invoke the daemon's abort endpoint for a subagent and optimistically
+    /// mark the local entry as `.aborted` when the daemon confirms the
+    /// subagent is no longer running.
+    ///
+    /// Rationale: LUM-1062. The daemon pushes terminal status via SSE, but
+    /// that event can be lost on reconnect, leaving the UI stuck showing a
+    /// running subagent that cannot actually be aborted. When the abort HTTP
+    /// call returns 2xx or 404, we know the daemon has no live subagent for
+    /// this id, so local reconciliation unsticks the UI immediately; if the
+    /// subagent is in fact still running, the next `subagentStatusChanged`
+    /// from the daemon re-asserts the real status in place.
+    ///
+    /// On genuine failure (network error, timeout, 5xx, non-404 client
+    /// error) we do NOT mutate the local status — the subagent is possibly
+    /// still running and the Abort button must remain available for retry.
+    public func abortSubagent(_ subagentId: String, client: SubagentClientProtocol = SubagentClient()) async {
+        let result = await client.abort(subagentId: subagentId, conversationId: conversationId)
+        switch result {
+        case .success, .alreadyTerminal:
+            if let index = activeSubagents.firstIndex(where: { $0.id == subagentId }),
+               !activeSubagents[index].status.isTerminal {
+                activeSubagents[index].status = .aborted
+            }
+        case .failed:
+            // Leave the entry as-is so the Abort button stays available for retry.
+            break
+        }
+    }
     /// Widget IDs dismissed by the user, persisted across view recreation.
     public var dismissedDocumentSurfaceIds: Set<String> {
         get { messageManager.dismissedDocumentSurfaceIds }
@@ -614,6 +642,11 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     @ObservationIgnored var pendingUserMessageDisplayText: String?
     /// Whether the pending message is automated (e.g. wake-up greeting).
     @ObservationIgnored var pendingUserMessageAutomated: Bool = false
+    /// Client-generated correlation nonce for the pending bootstrap message.
+    /// Preserved across the async gap between optimistic-row creation and the
+    /// actual POST, so the echo dedup in ChatActionHandler can match even when
+    /// the conversation was not yet created at send-intent time.
+    @ObservationIgnored var pendingUserMessageClientMessageId: String?
     /// Optional callback for sending notifications when tool-use messages complete
     @ObservationIgnored public var onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)?
     /// Whether the current assistant response was triggered by a voice message.
@@ -2118,9 +2151,31 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         let chatMessages = result.messages
         let reconstructedSubagents = result.subagents
 
-        // Merge reconstructed subagents into activeSubagents (avoid duplicates)
-        for info in reconstructedSubagents where !activeSubagents.contains(where: { $0.id == info.id }) {
-            activeSubagents.append(info)
+        // Merge reconstructed subagents into activeSubagents. When history shows
+        // a terminal status for a subagent that is still locally `.running` or
+        // `.pending`, overwrite the local status — a missed `subagentStatusChanged`
+        // event otherwise leaves the UI stuck forever (LUM-1062). History is the
+        // daemon's authoritative record, so it's safe to trust over local state.
+        // Also backfill `conversationId` and `parentMessageId` from history when
+        // the local entry is missing them — the live `subagentSpawned` path does
+        // not populate `conversationId`, and either field can be missing if the
+        // initial spawn event was lost too. `SubagentClient.fetchDetail` and the
+        // detail panel's chip placement rely on these being present.
+        for info in reconstructedSubagents {
+            if let index = activeSubagents.firstIndex(where: { $0.id == info.id }) {
+                if info.isTerminal && !activeSubagents[index].isTerminal {
+                    activeSubagents[index].status = info.status
+                    activeSubagents[index].error = info.error
+                }
+                if activeSubagents[index].conversationId == nil, let convId = info.conversationId {
+                    activeSubagents[index].conversationId = convId
+                }
+                if activeSubagents[index].parentMessageId == nil, let parentId = info.parentMessageId {
+                    activeSubagents[index].parentMessageId = parentId
+                }
+            } else {
+                activeSubagents.append(info)
+            }
         }
 
         // Update daemon pagination cursor from the response metadata.

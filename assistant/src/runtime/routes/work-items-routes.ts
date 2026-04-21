@@ -354,10 +354,11 @@ export async function preflightWorkItem(
   }
 
   const workingDir = process.cwd();
+  const policyContext = { executionContext: "headless" as const };
   const permissions = await Promise.all(
     requiredTools.map(async (tool) => {
-      const risk = await classifyRisk(tool, {}, workingDir);
-      const result = await check(tool, {}, workingDir);
+      const { level: risk } = await classifyRisk(tool, {}, workingDir);
+      const result = await check(tool, {}, workingDir, policyContext);
       return {
         tool,
         description: getToolDescription(tool),

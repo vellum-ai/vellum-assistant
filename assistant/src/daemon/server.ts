@@ -1523,11 +1523,13 @@ export class DaemonServer {
     };
     const slashResult = await resolveSlash(content, slashContext);
 
-    // Slack inbound metadata is materialized once here so every persistence
-    // branch below (slash-command bypass paths and the agent-loop path) writes
-    // the same `slackMeta` envelope. Without this, unknown-slash and /compact
-    // rows land without the envelope and the chronological renderer sees
-    // inconsistent metadata across a single conversation.
+    // Slack inbound metadata is materialized once here for the slash-command
+    // bypass paths (unknown-slash and /compact), which persist the user row
+    // directly via `addMessage` and would otherwise drop the envelope. The
+    // agent-loop path does not consume this variable — it forwards
+    // `options.slackInbound` through `persistMetadata` and the envelope is
+    // built internally by `buildSlackMetaForPersistence` inside
+    // `persistQueuedMessageBody`.
     const slackMeta = buildSlackMetaForPersistence({
       slackInbound: options?.slackInbound,
       turnChannel: conversation.getTurnChannelContext()?.userMessageChannel,

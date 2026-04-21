@@ -192,6 +192,34 @@ describe("audio-playback module", () => {
     await flushSilence(10); // no active handle
     // No throw = pass.
   });
+
+  test("resetPlaybackClock rewinds the utterance-relative clock back to 0 so the next write starts from 0 again", async () => {
+    const shim = makePacatShim();
+    const handle = startAudioPlayback({ spawn: () => shim.proc });
+
+    const observed: number[] = [];
+    handle.onPlaybackTimestamp((ts) => {
+      observed.push(ts);
+    });
+
+    // Utterance 1: 10ms of audio. At 48kHz mono s16le that's
+    // 10 * 96 = 960 bytes; the handle should emit ts = 10ms.
+    await handle.write(new Uint8Array(10 * DEFAULT_BYTES_PER_MS));
+    expect(observed).toEqual([10]);
+
+    // Reset the clock — simulates the HTTP server at the start of a
+    // second POST /play_audio. No emission; the clock is silently
+    // rewound to 0.
+    handle.resetPlaybackClock();
+    expect(observed).toEqual([10]);
+
+    // Utterance 2: 5ms of audio. Without the reset the next emission
+    // would have been 15ms (10 + 5). With the reset the handle must
+    // emit ts = 5ms — the start of the new utterance's coordinate
+    // system, matching how the daemon stamps VisemeEvent.timestamp.
+    await handle.write(new Uint8Array(5 * DEFAULT_BYTES_PER_MS));
+    expect(observed).toEqual([10, 5]);
+  });
 });
 
 /** ---------------------- HTTP endpoint tests ----------------------- */

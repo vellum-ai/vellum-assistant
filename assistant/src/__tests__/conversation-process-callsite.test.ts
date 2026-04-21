@@ -105,6 +105,22 @@ mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
+// Stub workspace-git so the test doesn't run real `git init` / `git add -A`
+// against the workingDir. On GitHub-hosted runners /tmp contains
+// root-owned systemd-private-* directories that return EACCES, and the
+// resulting retry/backoff path takes several seconds — enough to time
+// out this test even though the callSite-threading assertion is unrelated.
+mock.module("../workspace/turn-commit.js", () => ({
+  commitTurnChanges: async () => {},
+}));
+
+mock.module("../workspace/git-service.js", () => ({
+  getWorkspaceGitService: () => ({
+    ensureInitialized: async () => {},
+    commitIfDirty: async () => ({ committed: false }),
+  }),
+}));
+
 let mockDbMessages: Array<{ id: string; role: string; content: string }> = [];
 let mockConversation: Record<string, unknown> | null = null;
 

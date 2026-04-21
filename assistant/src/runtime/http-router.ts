@@ -49,6 +49,29 @@ export interface RouteQueryParam {
 export type RouteBodySchema = z.ZodType;
 
 /**
+ * Description for a non-200 response variant. Used when an endpoint has
+ * meaningful alternate response shapes that clients should handle (e.g.
+ * 502 `fetch_failed` on POST /v1/migrations/import when the URL body path
+ * can't reach the upstream bundle host).
+ */
+export interface RouteAdditionalResponse {
+  description: string;
+  /** Zod schema or plain JSON Schema fragment. */
+  schema?: RouteBodySchema | Record<string, unknown>;
+}
+
+/**
+ * Request-body variant keyed by Content-Type. Use this when an endpoint
+ * accepts multiple body shapes (e.g. `application/octet-stream` OR
+ * `application/json`). For the common single-JSON case, use `requestBody`.
+ */
+export interface RouteRequestBodyVariant {
+  contentType: string;
+  /** Zod schema or plain JSON Schema fragment. Plain objects are embedded verbatim. */
+  schema: RouteBodySchema | Record<string, unknown>;
+}
+
+/**
  * A single route entry in the declarative table.
  *
  * - `endpoint`: The endpoint pattern after `/v1/`. Use `:paramName` for
@@ -76,8 +99,17 @@ export interface RouteDefinition {
   queryParams?: RouteQueryParam[];
   /** Zod schema for the request body (POST/PUT/PATCH/DELETE). */
   requestBody?: RouteBodySchema;
+  /**
+   * Alternate request-body variants keyed by Content-Type. When set,
+   * overrides `requestBody` in the generated OpenAPI spec — use this for
+   * endpoints that accept multiple body shapes on the same URL (e.g.
+   * raw bytes OR JSON URL).
+   */
+  requestBodies?: RouteRequestBodyVariant[];
   /** Zod schema for the 200 response body. */
   responseBody?: RouteBodySchema;
+  /** Additional non-200 responses documented in the generated OpenAPI spec. */
+  additionalResponses?: Record<string, RouteAdditionalResponse>;
 }
 
 // ---------------------------------------------------------------------------

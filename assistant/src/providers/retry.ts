@@ -9,12 +9,13 @@ import {
   isRetryableNetworkError,
   sleep,
 } from "../util/retry.js";
-import type {
-  Message,
-  Provider,
-  ProviderResponse,
-  SendMessageOptions,
-  ToolDefinition,
+import {
+  isContextOverflowError,
+  type Message,
+  type Provider,
+  type ProviderResponse,
+  type SendMessageOptions,
+  type ToolDefinition,
 } from "./types.js";
 
 const log = getLogger("retry");
@@ -62,6 +63,11 @@ function isRetryableProviderMessage(error: unknown): boolean {
 }
 
 function isRetryableError(error: unknown): boolean {
+  // Context overflow is deterministic — retrying the same oversized prompt
+  // will never succeed. Short-circuit before the generic 429/5xx check so
+  // ContextOverflowError (which extends ProviderError and may carry a 429
+  // statusCode on Gemini/Vertex) never triggers exponential backoff.
+  if (isContextOverflowError(error)) return false;
   // Daemon/user-initiated aborts are never retryable. The catch-site tags
   // these with `abortReason` exactly when `signal.aborted` was true at the
   // time of failure, so this short-circuits before any message-based pattern

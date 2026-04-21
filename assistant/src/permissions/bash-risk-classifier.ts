@@ -2,14 +2,17 @@
  * Bash risk classifier — data-driven command risk classification.
  *
  * Implements RiskClassifier<BashClassifierInput> using the default command
- * registry and user rules. Runs alongside (not replacing) the existing
- * checker.ts logic in Phase 1 — it logs assessments but doesn't drive
- * permission decisions yet.
+ * registry and user rules. This is the primary classifier for bash/host_bash
+ * tools — checker.ts delegates to `bashRiskClassifier.classify()` and maps
+ * the result to the permission system's RiskLevel enum.
  *
  * @see /docs/bash-risk-classifier-design.md
  */
 
-import type { CommandSegment, ParsedCommand } from "../tools/terminal/parser.js";
+import type {
+  CommandSegment,
+  ParsedCommand,
+} from "../tools/terminal/parser.js";
 import { getLogger } from "../util/logger.js";
 import { DEFAULT_COMMAND_REGISTRY } from "./command-registry.js";
 import type {
@@ -44,7 +47,7 @@ const RISK_ORD: Record<Risk, number> = {
  * known-medium one, but not as definitive as a known-high one.
  */
 export function riskOrd(risk: Risk): number {
-  return RISK_ORD[risk] ?? 2; // default to unknown
+  return RISK_ORD[risk];
 }
 
 /** Return the higher of two risk levels. */
@@ -79,6 +82,11 @@ function getCompiledPattern(pattern: string): RegExp {
     compiledPatterns.set(pattern, re);
   }
   return re;
+}
+
+/** Clear the compiled regex cache. Exposed for tests and hot-swap scenarios. */
+export function clearCompiledPatterns(): void {
+  compiledPatterns.clear();
 }
 
 // ── Arg rule matching ────────────────────────────────────────────────────────
@@ -132,8 +140,6 @@ export function matchesArgRule(rule: ArgRule, arg: string): boolean {
 }
 
 // ── Wrapper unwrapping ───────────────────────────────────────────────────────
-// Reuses the same logic as checker.ts for wrapper unwrapping. We inline the
-// relevant constants and algorithm here to avoid needing to export from checker.ts.
 
 const WRAPPER_SKIP_FIRST_POSITIONAL = new Set(["timeout", "taskset"]);
 const ENV_VALUE_FLAGS = new Set(["-u", "--unset", "-C", "--chdir"]);
@@ -142,8 +148,6 @@ const TIMEOUT_VALUE_FLAGS = new Set(["-s", "--signal", "-k", "--kill-after"]);
 /**
  * Given a wrapper segment, extract the wrapped program and its args.
  * Returns undefined when no suitable argument is found.
- *
- * Replicates getWrappedProgramWithArgs from checker.ts.
  */
 function getWrappedProgramWithArgs(seg: {
   program: string;
@@ -170,12 +174,6 @@ function getWrappedProgramWithArgs(seg: {
   return undefined;
 }
 
-// ── Git value flags (for subcommand extraction) ──────────────────────────────
-const GIT_VALUE_FLAGS = new Set([
-  "-C", "-c", "--git-dir", "--work-tree",
-  "--namespace", "--super-prefix", "--config-env",
-]);
-
 /**
  * Extract the first positional (non-flag) arg, skipping value-consuming flags.
  */
@@ -194,6 +192,22 @@ function firstPositionalArg(
   return undefined;
 }
 
+// ── Safe-file downgrade for rm ────────────────────────────────────────────────
+// Bare filenames that `rm` is allowed to delete at Medium risk (instead of
+// High) in sandboxed bash.
+const RM_SAFE_BARE_FILES = new Set(["BOOTSTRAP.md", "UPDATES.md"]);
+
+// Flags that don't affect rm safety — they don't enable recursive deletion or
+// change which files are targeted.
+const RM_BENIGN_FLAGS = new Set([
+  "-f",
+  "-i",
+  "-v",
+  "--force",
+  "--interactive",
+  "--verbose",
+]);
+
 // ── Segment classification ───────────────────────────────────────────────────
 
 /**
@@ -207,14 +221,14 @@ function firstPositionalArg(
 function resolveSubcommand(
   spec: CommandRiskSpec,
   args: string[],
-  program: string,
 ): { spec: CommandRiskSpec; remainingArgs: string[] } {
   if (!spec.subcommands || args.length === 0) {
     return { spec, remainingArgs: args };
   }
 
-  // For git, skip global flags that consume a value
-  const valueFlags = program === "git" ? GIT_VALUE_FLAGS : undefined;
+  const valueFlags = spec.globalValueFlags
+    ? new Set(spec.globalValueFlags)
+    : undefined;
   const subcommandName = firstPositionalArg(args, valueFlags);
 
   if (!subcommandName || !spec.subcommands[subcommandName]) {
@@ -226,19 +240,24 @@ function resolveSubcommand(
   const remainingArgs = args.slice(subIdx + 1);
 
   // Recurse for nested subcommands (e.g., git stash drop, gh pr view)
-  return resolveSubcommand(subSpec, remainingArgs, subcommandName);
+  return resolveSubcommand(subSpec, remainingArgs);
 }
 
 /**
  * Classify a single command segment against user rules and the registry.
+ *
+ * @param toolName - Which tool is being invoked. Used for sandbox-specific
+ *   downgrades (e.g. rm safe-file downgrade only applies in sandboxed "bash",
+ *   not "host_bash").
  */
 export function classifySegment(
   segment: CommandSegment,
   userRules: UserRule[],
   registry: Record<string, CommandRiskSpec>,
+  toolName: "bash" | "host_bash" = "bash",
 ): { risk: Risk; reason: string; matchType: RiskAssessment["matchType"] } {
   // 1. Check user rules first (highest priority)
-  // TODO: Phase 2 — implement user rule matching with specificity ordering.
+  // TODO: implement user rule matching with specificity ordering.
   // For now, userRules is always empty so this is a no-op.
   for (const rule of userRules) {
     const re = getCompiledPattern(rule.pattern);
@@ -248,15 +267,22 @@ export function classifySegment(
   }
 
   // 2. Look up command in default registry
+  //    Use Object.hasOwn to avoid prototype pollution — program names like
+  //    "toString" or "hasOwnProperty" exist on Object.prototype and would
+  //    return truthy for `registry[name]` even though they're not real entries.
   let programName = segment.program;
-  let spec = registry[programName];
+  let spec = Object.hasOwn(registry, programName)
+    ? registry[programName]
+    : undefined;
 
   if (!spec) {
     // Strip path prefix: /usr/bin/rm → rm
     const bare = programName.split("/").pop();
     if (bare) {
       programName = bare;
-      spec = registry[programName];
+      spec = Object.hasOwn(registry, programName)
+        ? registry[programName]
+        : undefined;
     }
   }
 
@@ -269,35 +295,54 @@ export function classifySegment(
   }
 
   // 3. Handle wrappers — unwrap and classify inner command (recursive)
+  //    When a wrapper's first arg matches a nonExecFlags entry, the wrapper is
+  //    in a non-exec mode (e.g. `command -v`, `env -0`). Skip unwrapping and
+  //    fall through to arg/base risk evaluation.
   if (spec.isWrapper) {
-    const inner = getWrappedProgramWithArgs(segment);
-    if (inner) {
-      // Build a synthetic segment for the inner command
-      const innerSegment: CommandSegment = {
-        command: [inner.program, ...inner.args].join(" "),
-        program: inner.program,
-        args: inner.args,
-        operator: segment.operator,
-      };
-      const innerResult = classifySegment(innerSegment, userRules, registry);
+    // nonExecFlags only checks args[0] — a flag in a later position won't
+    // suppress unwrapping.  This is intentional: wrappers place their mode
+    // flag first (e.g. `command -v`, `timeout --help`).
+    const isNonExecMode =
+      spec.nonExecFlags &&
+      segment.args.length > 0 &&
+      spec.nonExecFlags.includes(segment.args[0]);
+
+    if (!isNonExecMode) {
+      const inner = getWrappedProgramWithArgs(segment);
+      if (inner) {
+        // Build a synthetic segment for the inner command
+        const innerSegment: CommandSegment = {
+          command: [inner.program, ...inner.args].join(" "),
+          program: inner.program,
+          args: inner.args,
+          operator: segment.operator,
+        };
+        const innerResult = classifySegment(
+          innerSegment,
+          userRules,
+          registry,
+          toolName,
+        );
+        return {
+          risk: maxRisk(spec.baseRisk as Risk, innerResult.risk),
+          reason:
+            innerResult.reason || `${programName} wrapping ${inner.program}`,
+          matchType: innerResult.matchType,
+        };
+      }
+      // Wrapper with no inner command (bare `sudo`, `env`)
       return {
-        risk: maxRisk(spec.baseRisk as Risk, innerResult.risk),
-        reason: innerResult.reason || `${programName} wrapping ${inner.program}`,
-        matchType: innerResult.matchType,
+        risk: spec.baseRisk,
+        reason: spec.reason || programName,
+        matchType: "registry",
       };
     }
-    // Wrapper with no inner command (bare `sudo`, `env`)
-    return {
-      risk: spec.baseRisk,
-      reason: spec.reason || programName,
-      matchType: "registry",
-    };
+    // Non-exec mode: fall through to subcommand/arg rule evaluation
   }
 
   // 4. Subcommand resolution
-  const { spec: resolvedSpec, remainingArgs: _remainingArgs } = resolveSubcommand(
-    spec, segment.args, programName,
-  );
+  const { spec: resolvedSpec, remainingArgs: _remainingArgs } =
+    resolveSubcommand(spec, segment.args);
 
   // 5. Evaluate arg rules
   //
@@ -328,7 +373,10 @@ export function classifySegment(
       for (const rule of argRules) {
         // Standard match: flag or positional against this arg
         if (matchesArgRule(rule, arg)) {
-          if (!anyArgRuleMatched || riskOrd(rule.risk) > riskOrd(argRuleMaxRisk)) {
+          if (
+            !anyArgRuleMatched ||
+            riskOrd(rule.risk) > riskOrd(argRuleMaxRisk)
+          ) {
             argRuleMaxRisk = rule.risk;
             argRuleReason = rule.reason;
           }
@@ -348,7 +396,10 @@ export function classifySegment(
         ) {
           const nextArg = allArgs[i + 1];
           if (getCompiledPattern(rule.valuePattern).test(nextArg)) {
-            if (!anyArgRuleMatched || riskOrd(rule.risk) > riskOrd(argRuleMaxRisk)) {
+            if (
+              !anyArgRuleMatched ||
+              riskOrd(rule.risk) > riskOrd(argRuleMaxRisk)
+            ) {
               argRuleMaxRisk = rule.risk;
               argRuleReason = rule.reason;
             }
@@ -382,11 +433,37 @@ export function classifySegment(
   }
 
   // 6. Check for variable expansion in args (conservative escalation)
+  // Use max(computedRisk, baseRisk) as the floor for escalation so that
+  // de-escalated commands still escalate from at least baseRisk.
+  // Example: `curl http://localhost:$PORT` — arg rule de-escalates to low,
+  // but baseRisk=medium is the floor, so escalateOne(medium) → high.
   if (segment.args.some((a) => a.includes("$"))) {
-    const escalated = escalateOne(resolvedSpec.baseRisk);
+    const escalationBase = maxRisk(risk, resolvedSpec.baseRisk);
+    const escalated = escalateOne(escalationBase);
     if (riskOrd(escalated) > riskOrd(risk)) {
       risk = escalated;
       reason = `${segment.program} with variable expansion`;
+    }
+  }
+
+  // 7. rm safe-file downgrade (sandbox only)
+  // When rm targets a single known safe bare file (with only benign flags),
+  // downgrade to medium in sandboxed bash. host_bash keeps high because it has a
+  // global ask rule that would prompt medium-risk commands.
+  if (programName === "rm" && toolName === "bash" && risk === "high") {
+    // Strip benign flags (-f, -i, -v) and check if exactly one bare filename remains
+    const positionalArgs = segment.args.filter((a) => !a.startsWith("-"));
+    const flagArgs = segment.args.filter((a) => a.startsWith("-"));
+    const allFlagsBenign = flagArgs.every((f) => RM_BENIGN_FLAGS.has(f));
+
+    if (
+      positionalArgs.length === 1 &&
+      allFlagsBenign &&
+      !positionalArgs[0].includes("/") &&
+      RM_SAFE_BARE_FILES.has(positionalArgs[0])
+    ) {
+      risk = "medium";
+      reason = `rm of known safe file: ${positionalArgs[0]}`;
     }
   }
 
@@ -427,10 +504,7 @@ export function generateScopeOptions(
   // and individual segment programs for broader options
   if (parsed.segments.length > 1) {
     const fullCommand = parsed.segments.map((s) => s.command).join(" | ");
-    addOption(
-      `^${escapeRegex(fullCommand)}$`,
-      fullCommand,
-    );
+    addOption(`^${escapeRegex(fullCommand)}$`, fullCommand);
     // Add command-level wildcards for each unique program
     const programs = new Set(parsed.segments.map((s) => s.program));
     for (const prog of programs) {
@@ -448,10 +522,7 @@ export function generateScopeOptions(
   const isComplex = spec?.complexSyntax === true;
 
   // 1. Exact match
-  addOption(
-    `^${escapeRegex(seg.command)}$`,
-    seg.command,
-  );
+  addOption(`^${escapeRegex(seg.command)}$`, seg.command);
 
   if (isComplex) {
     // For complex syntax, skip intermediate options
@@ -492,9 +563,7 @@ export function generateScopeOptions(
 
   // 3. Drop flags (keep command + subcommand + wildcard)
   if (flags.length > 0) {
-    const parts = subcommand
-      ? [programName, subcommand]
-      : [programName];
+    const parts = subcommand ? [programName, subcommand] : [programName];
     addOption(
       `^${parts.map(escapeRegex).join("\\s+")}\\b`,
       [...parts, "*"].join(" "),
@@ -525,8 +594,9 @@ function escapeRegex(s: string): string {
 /**
  * Bash risk classifier implementation.
  *
- * Phase 1: runs alongside existing checker.ts logic, logs assessments.
- * Phase 2: replaces the imperative classification in classifyRiskUncached.
+ * Primary classifier for bash/host_bash tools. checker.ts delegates to
+ * the singleton `bashRiskClassifier` instance for all bash command
+ * risk classification.
  */
 export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
   private readonly registry: Record<string, CommandRiskSpec>;
@@ -541,7 +611,7 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
   }
 
   async classify(input: BashClassifierInput): Promise<RiskAssessment> {
-    const { command } = input;
+    const { command, toolName } = input;
 
     if (!command.trim()) {
       return {
@@ -560,7 +630,12 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
 
     // Classify each segment
     for (const segment of parsed.segments) {
-      const result = classifySegment(segment, this.userRules, this.registry);
+      const result = classifySegment(
+        segment,
+        this.userRules,
+        this.registry,
+        toolName,
+      );
       if (riskOrd(result.risk) > riskOrd(maxRiskLevel)) {
         maxRiskLevel = result.risk;
         maxReason = result.reason;
@@ -588,10 +663,14 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
       maxReason = parsed.dangerousPatterns[0].description;
     }
 
-    // Opaque constructs escalate to at least high
+    // Opaque constructs escalation:
+    // - With dangerous patterns present → escalate to high
+    // - Without dangerous patterns → escalate to medium only
     if (parsed.hasOpaqueConstructs) {
-      if (riskOrd("high") > riskOrd(maxRiskLevel)) {
-        maxRiskLevel = "high";
+      const opaqueTarget: Risk =
+        parsed.dangerousPatterns.length > 0 ? "high" : "medium";
+      if (riskOrd(opaqueTarget) > riskOrd(maxRiskLevel)) {
+        maxRiskLevel = opaqueTarget;
       }
       if (!maxReason) {
         maxReason = "Command contains opaque constructs";
@@ -607,46 +686,20 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
       matchType,
     };
 
-    // Log for Phase 1 analytics
+    // Risk assessment analytics
     const primaryProgram = parsed.segments[0]?.program ?? "(none)";
-    log.info({
-      command,
-      program: primaryProgram,
-      riskLevel: assessment.riskLevel,
-      reason: assessment.reason,
-      matchType: assessment.matchType,
-    }, "Risk assessment");
-
-    return assessment;
-  }
-
-  /**
-   * Convenience method for the Phase 1 parallel wiring in checker.ts.
-   * Classifies a command and logs the result alongside the existing
-   * classifier's risk level for comparison. Fire-and-forget — errors are
-   * swallowed by the caller.
-   */
-  static async classifyAndLog(
-    command: string,
-    toolName: "bash" | "host_bash",
-    existingRiskLevel: string,
-  ): Promise<void> {
-    const assessment = await bashRiskClassifier.classify({
-      command,
-      toolName,
-    });
     log.info(
       {
         command,
-        program: command.trim().split(/\s+/)[0] ?? "(none)",
-        newRiskLevel: assessment.riskLevel,
-        existingRiskLevel,
+        program: primaryProgram,
+        riskLevel: assessment.riskLevel,
         reason: assessment.reason,
         matchType: assessment.matchType,
-        match: assessment.riskLevel === existingRiskLevel,
       },
-      "Risk classifier comparison",
+      "Risk assessment",
     );
+
+    return assessment;
   }
 }
 

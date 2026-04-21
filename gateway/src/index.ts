@@ -58,6 +58,13 @@ import {
   createPrivacyConfigGetHandler,
   createPrivacyConfigPatchHandler,
 } from "./http/routes/privacy-config.js";
+import {
+  createGlobalThresholdGetHandler,
+  createGlobalThresholdPutHandler,
+  createConversationThresholdGetHandler,
+  createConversationThresholdPutHandler,
+  createConversationThresholdDeleteHandler,
+} from "./http/routes/auto-approve-thresholds.js";
 import { createChannelVerificationSessionProxyHandler } from "./http/routes/channel-verification-session-proxy.js";
 import { createCloudOAuthTokenHandler } from "./http/routes/cloud-oauth-token.js";
 import { createTelegramControlPlaneProxyHandler } from "./http/routes/telegram-control-plane-proxy.js";
@@ -73,6 +80,7 @@ import { createUpgradeBroadcastProxyHandler } from "./http/routes/upgrade-broadc
 import {
   createMigrationExportProxyHandler,
   createMigrationImportProxyHandler,
+  createMigrationImportStatusProxyHandler,
 } from "./http/routes/migration-proxy.js";
 import { createMigrationRollbackProxyHandler } from "./http/routes/migration-rollback-proxy.js";
 import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
@@ -342,6 +350,8 @@ async function main() {
   const upgradeBroadcastProxy = createUpgradeBroadcastProxyHandler(config);
   const migrationExportProxy = createMigrationExportProxyHandler(config);
   const migrationImportProxy = createMigrationImportProxyHandler(config);
+  const migrationImportStatusProxy =
+    createMigrationImportStatusProxyHandler(config);
   const migrationRollbackProxy = createMigrationRollbackProxyHandler(config);
   const workspaceCommitProxy = createWorkspaceCommitProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
@@ -350,6 +360,14 @@ async function main() {
   const handleFeatureFlagsPatch = createFeatureFlagsPatchHandler();
   const handlePrivacyConfigGet = createPrivacyConfigGetHandler();
   const handlePrivacyConfigPatch = createPrivacyConfigPatchHandler();
+  const handleGlobalThresholdGet = createGlobalThresholdGetHandler();
+  const handleGlobalThresholdPut = createGlobalThresholdPutHandler();
+  const handleConversationThresholdGet =
+    createConversationThresholdGetHandler();
+  const handleConversationThresholdPut =
+    createConversationThresholdPutHandler();
+  const handleConversationThresholdDelete =
+    createConversationThresholdDeleteHandler();
   const handleTrustRulesList = createTrustRulesListHandler();
   const handleTrustRulesAdd = createTrustRulesAddHandler();
   const handleTrustRulesUpdate = createTrustRulesUpdateHandler();
@@ -653,6 +671,13 @@ async function main() {
         channelVerificationSessionProxy.handleGuardianInit(req, getClientIp()),
     },
     {
+      path: "/v1/guardian/reset-bootstrap",
+      method: "POST",
+      auth: "none",
+      handler: (_req, _params, getClientIp) =>
+        channelVerificationSessionProxy.handleResetBootstrap(getClientIp()),
+    },
+    {
       path: "/v1/channel-verification-sessions",
       method: "POST",
       auth: "edge",
@@ -874,6 +899,30 @@ async function main() {
       scope: "settings.write",
       handler: (req) => migrationImportProxy(req),
     },
+    {
+      // Async-job status endpoint for URL-based imports. The gateway keeps
+      // an in-memory job map keyed by the jobId it handed back in the
+      // 202 response; this lets callers poll for progress without holding
+      // an HTTP connection open for the full import duration.
+      //
+      // Trailing slash is optional to preserve compatibility with existing
+      // pollers. PlatformMigrationClient.pollImportStatus (macOS) and
+      // cli/src/lib/platform-client.ts both hit `.../status/` against the
+      // platform API today; other callers may follow the bare-path
+      // convention (`.../status`). Regex routes in the gateway router are
+      // NOT trailing-slash-normalized, so the optionality is encoded here.
+      path: /^\/v1\/migrations\/import\/([^/]+)\/status\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      // Read-only polling endpoint — read scope, not write. Matches the
+      // convention used for other GET endpoints in this router (OAuth
+      // providers GET, OAuth apps GET, privacy config GET) so a token
+      // profile with `settings.read` only (e.g. the `ui_page_v1`
+      // profile) can still poll import progress.
+      scope: "settings.read",
+      handler: (req, params) =>
+        migrationImportStatusProxy(req, params[0] ?? ""),
+    },
 
     // ── Workspace commit ──
     {
@@ -1019,6 +1068,83 @@ async function main() {
       auth: "edge-scoped",
       scope: "settings.write",
       handler: (req) => handlePrivacyConfigPatch(req),
+    },
+
+    // ── Auto-approve thresholds (scope-protected) ──
+    {
+      path: "/v1/permissions/thresholds",
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleGlobalThresholdGet(req),
+    },
+    {
+      path: /^\/v1\/assistants\/([^/]+)\/permissions\/thresholds\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleGlobalThresholdGet(req),
+    },
+    {
+      path: "/v1/permissions/thresholds",
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleGlobalThresholdPut(req),
+    },
+    {
+      path: /^\/v1\/assistants\/([^/]+)\/permissions\/thresholds\/?$/,
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleGlobalThresholdPut(req),
+    },
+
+    // ── Per-conversation threshold overrides (scope-protected) ──
+    {
+      path: /^\/v1\/permissions\/thresholds\/conversations\/([^/]+)\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req, params) => handleConversationThresholdGet(req, params),
+    },
+    {
+      path: /^\/v1\/assistants\/([^/]+)\/permissions\/thresholds\/conversations\/([^/]+)\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req, params) =>
+        handleConversationThresholdGet(req, params.slice(1)),
+    },
+    {
+      path: /^\/v1\/permissions\/thresholds\/conversations\/([^/]+)\/?$/,
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) => handleConversationThresholdPut(req, params),
+    },
+    {
+      path: /^\/v1\/assistants\/([^/]+)\/permissions\/thresholds\/conversations\/([^/]+)\/?$/,
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) =>
+        handleConversationThresholdPut(req, params.slice(1)),
+    },
+    {
+      path: /^\/v1\/permissions\/thresholds\/conversations\/([^/]+)\/?$/,
+      method: "DELETE",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) => handleConversationThresholdDelete(req, params),
+    },
+    {
+      path: /^\/v1\/assistants\/([^/]+)\/permissions\/thresholds\/conversations\/([^/]+)\/?$/,
+      method: "DELETE",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req, params) =>
+        handleConversationThresholdDelete(req, params.slice(1)),
     },
 
     // ── Log export ──

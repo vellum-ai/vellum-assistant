@@ -8,6 +8,7 @@ public protocol GuardianClientProtocol {
     func fetchPendingActions(conversationId: String) async -> GuardianActionsPendingResponseMessage?
     func submitDecision(requestId: String, action: String, conversationId: String?) async -> GuardianActionDecisionResponseMessage?
     func bootstrapActorToken(platform: String, deviceId: String) async -> Bool
+    func resetBootstrap() async -> Bool
 }
 
 /// Gateway-backed implementation of ``GuardianClientProtocol``.
@@ -110,6 +111,29 @@ public struct GuardianClient: GuardianClientProtocol {
             return true
         } catch {
             log.error("Access token bootstrap error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    // MARK: - Bootstrap Reset
+
+    /// Calls `POST /v1/guardian/reset-bootstrap` to remove the guardian-init
+    /// lock file so that `/v1/guardian/init` can be called again. Bare-metal
+    /// only — returns `false` on containerized deployments or if the gateway
+    /// is unreachable.
+    public func resetBootstrap() async -> Bool {
+        do {
+            let response = try await GatewayHTTPClient.post(
+                path: "guardian/reset-bootstrap", json: [:], timeout: 5
+            )
+            guard response.isSuccess else {
+                log.error("Reset bootstrap failed (HTTP \(response.statusCode))")
+                return false
+            }
+            log.info("Guardian bootstrap lock cleared — re-init is now allowed")
+            return true
+        } catch {
+            log.error("Reset bootstrap error: \(error.localizedDescription)")
             return false
         }
     }

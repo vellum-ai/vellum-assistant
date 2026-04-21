@@ -53,35 +53,137 @@ function collectBaseRisks(spec: CommandRiskSpec): string[] {
 // Replicated here for test validation. Every program in this set must have an
 // entry in the registry.
 const LOW_RISK_PROGRAMS = new Set([
-  "ls", "cat", "head", "tail", "less", "more", "wc", "file", "stat",
-  "grep", "rg", "ag", "ack", "find", "fd", "which", "where", "whereis",
-  "type", "echo", "printf", "date", "cal", "uptime", "whoami", "hostname",
-  "uname", "pwd", "realpath", "dirname", "basename", "git", "node", "bun",
-  "deno", "npm", "npx", "yarn", "pnpm", "python", "python3", "pip", "pip3",
-  "man", "help", "info", "env", "printenv", "set", "diff", "sort", "uniq",
-  "cut", "tr", "tee", "xargs", "jq", "yq", "http", "dig", "nslookup",
-  "ping", "tree", "du", "df",
+  "ls",
+  "cat",
+  "head",
+  "tail",
+  "less",
+  "more",
+  "wc",
+  "file",
+  "stat",
+  "grep",
+  "rg",
+  "ag",
+  "ack",
+  "find",
+  "fd",
+  "which",
+  "where",
+  "whereis",
+  "type",
+  "echo",
+  "printf",
+  "date",
+  "cal",
+  "uptime",
+  "whoami",
+  "hostname",
+  "uname",
+  "pwd",
+  "realpath",
+  "dirname",
+  "basename",
+  "git",
+  "node",
+  "bun",
+  "deno",
+  "npm",
+  "npx",
+  "yarn",
+  "pnpm",
+  "python",
+  "python3",
+  "pip",
+  "pip3",
+  "man",
+  "help",
+  "info",
+  "env",
+  "printenv",
+  "set",
+  "diff",
+  "sort",
+  "uniq",
+  "cut",
+  "tr",
+  "tee",
+  "xargs",
+  "jq",
+  "yq",
+  "http",
+  "dig",
+  "nslookup",
+  "ping",
+  "tree",
+  "du",
+  "df",
 ]);
 
 // ── HIGH_RISK_PROGRAMS from checker.ts ───────────────────────────────────────
 const HIGH_RISK_PROGRAMS = new Set([
-  "sudo", "su", "doas", "dd", "mkfs", "fdisk", "parted", "mount", "umount",
-  "systemctl", "service", "launchctl", "useradd", "userdel", "usermod",
-  "groupadd", "groupdel", "iptables", "ufw", "firewall-cmd", "reboot",
-  "shutdown", "halt", "poweroff", "kill", "killall", "pkill",
+  "sudo",
+  "su",
+  "doas",
+  "dd",
+  "mkfs",
+  "fdisk",
+  "parted",
+  "mount",
+  "umount",
+  "systemctl",
+  "service",
+  "launchctl",
+  "useradd",
+  "userdel",
+  "usermod",
+  "groupadd",
+  "groupdel",
+  "iptables",
+  "ufw",
+  "firewall-cmd",
+  "reboot",
+  "shutdown",
+  "halt",
+  "poweroff",
+  "kill",
+  "killall",
+  "pkill",
 ]);
 
 // ── WRAPPER_PROGRAMS from checker.ts ─────────────────────────────────────────
 const WRAPPER_PROGRAMS = new Set([
-  "env", "nice", "nohup", "time", "command", "exec", "strace", "ltrace",
-  "ionice", "taskset", "timeout",
+  "env",
+  "nice",
+  "nohup",
+  "time",
+  "command",
+  "exec",
+  "strace",
+  "ltrace",
+  "ionice",
+  "taskset",
+  "timeout",
 ]);
 
 // ── LOW_RISK_GIT_SUBCOMMANDS from checker.ts ─────────────────────────────────
 const LOW_RISK_GIT_SUBCOMMANDS = new Set([
-  "status", "log", "diff", "show", "branch", "tag", "remote", "stash",
-  "blame", "shortlog", "describe", "rev-parse", "ls-files", "ls-tree",
-  "cat-file", "reflog",
+  "status",
+  "log",
+  "diff",
+  "show",
+  "branch",
+  "tag",
+  "remote",
+  "stash",
+  "blame",
+  "shortlog",
+  "describe",
+  "rev-parse",
+  "ls-files",
+  "ls-tree",
+  "cat-file",
+  "reflog",
 ]);
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -108,7 +210,9 @@ describe("command-registry", () => {
       const duplicates: string[] = [];
       for (const { id, path } of allIds) {
         if (seen.has(id)) {
-          duplicates.push(`"${id}" appears in both "${seen.get(id)}" and "${path}"`);
+          duplicates.push(
+            `"${id}" appears in both "${seen.get(id)}" and "${path}"`,
+          );
         }
         seen.set(id, path);
       }
@@ -168,7 +272,9 @@ describe("command-registry", () => {
     test("every program in WRAPPER_PROGRAMS has isWrapper: true", () => {
       const errors: string[] = [];
       for (const prog of WRAPPER_PROGRAMS) {
-        const spec = (DEFAULT_COMMAND_REGISTRY as Record<string, CommandRiskSpec>)[prog];
+        const spec = (
+          DEFAULT_COMMAND_REGISTRY as Record<string, CommandRiskSpec>
+        )[prog];
         if (!spec) {
           errors.push(`${prog}: missing from registry`);
         } else if (!spec.isWrapper) {
@@ -193,6 +299,23 @@ describe("command-registry", () => {
       expect(missing).toEqual([]);
     });
 
+    test("every program in HIGH_RISK_PROGRAMS has baseRisk high in the registry", () => {
+      const errors: string[] = [];
+      for (const prog of HIGH_RISK_PROGRAMS) {
+        const spec = (
+          DEFAULT_COMMAND_REGISTRY as Record<string, CommandRiskSpec>
+        )[prog];
+        if (!spec) {
+          errors.push(`${prog}: missing from registry`);
+        } else if (spec.baseRisk !== "high") {
+          errors.push(
+            `${prog}: expected baseRisk "high", got "${spec.baseRisk}"`,
+          );
+        }
+      }
+      expect(errors).toEqual([]);
+    });
+
     test("every LOW_RISK_GIT_SUBCOMMAND has baseRisk low in the registry", () => {
       const gitSpec = DEFAULT_COMMAND_REGISTRY.git;
       const errors: string[] = [];
@@ -206,7 +329,9 @@ describe("command-registry", () => {
           // args defaults to `git stash push`, and the checker treated the bare
           // command as low. Our registry has it as medium with low subcommands.
           if (sub === "stash") continue;
-          errors.push(`git ${sub}: expected baseRisk "low", got "${subSpec.baseRisk}"`);
+          errors.push(
+            `git ${sub}: expected baseRisk "low", got "${subSpec.baseRisk}"`,
+          );
         }
       }
 
@@ -214,10 +339,380 @@ describe("command-registry", () => {
     });
   });
 
+  describe("command and exec special cases", () => {
+    test("command has isWrapper: true and argRule for -v/-V lookup", () => {
+      const spec = DEFAULT_COMMAND_REGISTRY.command;
+      expect(spec.isWrapper).toBe(true);
+      expect(spec.baseRisk).toBe("low");
+      expect(spec.argRules).toBeDefined();
+
+      const lookupRule = spec.argRules!.find((r) => r.id === "command:lookup");
+      expect(lookupRule).toBeDefined();
+      expect(lookupRule!.flags).toContain("-v");
+      expect(lookupRule!.flags).toContain("-V");
+      expect(lookupRule!.risk).toBe("low");
+    });
+
+    test("exec is high risk wrapper (replaces current shell process)", () => {
+      const spec = DEFAULT_COMMAND_REGISTRY.exec;
+      expect(spec.baseRisk).toBe("high");
+      expect(spec.isWrapper).toBe(true);
+      expect(spec.reason).toBe("Replaces current shell process");
+    });
+  });
+
   describe("registry entry count", () => {
     test("has at least 90 entries (comprehensive coverage)", () => {
       const count = Object.keys(DEFAULT_COMMAND_REGISTRY).length;
       expect(count).toBeGreaterThanOrEqual(90);
+    });
+  });
+
+  // ── assistant subcommand risk levels ─────────────────────────────────────
+  // These tests verify the registry matches classifyAssistantSubcommand()
+  // from checker.ts, covering every branch of that function.
+  describe("assistant subcommand classifications match classifyAssistantSubcommand", () => {
+    const assistantSpec = DEFAULT_COMMAND_REGISTRY.assistant;
+
+    test("assistant (bare) is low risk", () => {
+      expect(assistantSpec.baseRisk).toBe("low");
+    });
+
+    // ── oauth subcommand ──────────────────────────────────────────────────
+    describe("oauth", () => {
+      const oauthSpec = assistantSpec.subcommands!.oauth;
+
+      test("assistant oauth (bare) is low risk", () => {
+        expect(oauthSpec.baseRisk).toBe("low");
+      });
+
+      test("assistant oauth token is high risk", () => {
+        expect(oauthSpec.subcommands!.token.baseRisk).toBe("high");
+      });
+
+      test("assistant oauth mode (bare) is low risk", () => {
+        expect(oauthSpec.subcommands!.mode.baseRisk).toBe("low");
+      });
+
+      test("assistant oauth mode has --set argRule escalating to high", () => {
+        const modeSpec = oauthSpec.subcommands!.mode;
+        expect(modeSpec.argRules).toBeDefined();
+        const setRule = modeSpec.argRules!.find((r) =>
+          r.flags?.includes("--set"),
+        );
+        expect(setRule).toBeDefined();
+        expect(setRule!.risk).toBe("high");
+      });
+
+      test("assistant oauth request is medium risk", () => {
+        expect(oauthSpec.subcommands!.request.baseRisk).toBe("medium");
+      });
+
+      test("assistant oauth connect is medium risk", () => {
+        expect(oauthSpec.subcommands!.connect.baseRisk).toBe("medium");
+      });
+
+      test("assistant oauth disconnect is medium risk", () => {
+        expect(oauthSpec.subcommands!.disconnect.baseRisk).toBe("medium");
+      });
+    });
+
+    // ── credentials subcommand ────────────────────────────────────────────
+    describe("credentials", () => {
+      const credSpec = assistantSpec.subcommands!.credentials;
+
+      test("assistant credentials (bare) is low risk", () => {
+        expect(credSpec.baseRisk).toBe("low");
+      });
+
+      test("assistant credentials reveal is high risk", () => {
+        expect(credSpec.subcommands!.reveal.baseRisk).toBe("high");
+      });
+
+      test("assistant credentials set is high risk", () => {
+        expect(credSpec.subcommands!.set.baseRisk).toBe("high");
+      });
+
+      test("assistant credentials delete is high risk", () => {
+        expect(credSpec.subcommands!.delete.baseRisk).toBe("high");
+      });
+    });
+
+    // ── keys subcommand ───────────────────────────────────────────────────
+    describe("keys", () => {
+      const keysSpec = assistantSpec.subcommands!.keys;
+
+      test("assistant keys (bare) is low risk", () => {
+        expect(keysSpec.baseRisk).toBe("low");
+      });
+
+      test("assistant keys set is high risk", () => {
+        expect(keysSpec.subcommands!.set.baseRisk).toBe("high");
+      });
+
+      test("assistant keys delete is high risk", () => {
+        expect(keysSpec.subcommands!.delete.baseRisk).toBe("high");
+      });
+    });
+
+    // ── trust subcommand ──────────────────────────────────────────────────
+    describe("trust", () => {
+      const trustSpec = assistantSpec.subcommands!.trust;
+
+      test("assistant trust (bare) is low risk", () => {
+        expect(trustSpec.baseRisk).toBe("low");
+      });
+
+      test("assistant trust remove is high risk", () => {
+        expect(trustSpec.subcommands!.remove.baseRisk).toBe("high");
+      });
+
+      test("assistant trust clear is high risk", () => {
+        expect(trustSpec.subcommands!.clear.baseRisk).toBe("high");
+      });
+    });
+
+    // ── low-risk subcommands (no further subcommands) ────────────────────
+    describe("simple low-risk subcommands", () => {
+      test("assistant platform is low risk", () => {
+        expect(assistantSpec.subcommands!.platform.baseRisk).toBe("low");
+      });
+
+      test("assistant backup is low risk", () => {
+        expect(assistantSpec.subcommands!.backup.baseRisk).toBe("low");
+      });
+
+      test("assistant help is low risk", () => {
+        expect(assistantSpec.subcommands!.help.baseRisk).toBe("low");
+      });
+    });
+
+    // ── completeness check ────────────────────────────────────────────────
+    test("all assistant subcommand groups from classifyAssistantSubcommand are present", () => {
+      const requiredSubcommands = ["oauth", "credentials", "keys", "trust"];
+      const actualSubcommands = Object.keys(assistantSpec.subcommands!);
+      for (const sub of requiredSubcommands) {
+        expect(actualSubcommands).toContain(sub);
+      }
+    });
+
+    test("oauth has all expected sub-subcommands", () => {
+      const oauthSubs = Object.keys(
+        assistantSpec.subcommands!.oauth.subcommands!,
+      );
+      expect(oauthSubs).toContain("token");
+      expect(oauthSubs).toContain("mode");
+      expect(oauthSubs).toContain("request");
+      expect(oauthSubs).toContain("connect");
+      expect(oauthSubs).toContain("disconnect");
+    });
+
+    test("credentials has all expected sub-subcommands", () => {
+      const credSubs = Object.keys(
+        assistantSpec.subcommands!.credentials.subcommands!,
+      );
+      expect(credSubs).toContain("reveal");
+      expect(credSubs).toContain("set");
+      expect(credSubs).toContain("delete");
+    });
+
+    test("keys has all expected sub-subcommands", () => {
+      const keysSubs = Object.keys(
+        assistantSpec.subcommands!.keys.subcommands!,
+      );
+      expect(keysSubs).toContain("set");
+      expect(keysSubs).toContain("delete");
+    });
+
+    test("trust has all expected sub-subcommands", () => {
+      const trustSubs = Object.keys(
+        assistantSpec.subcommands!.trust.subcommands!,
+      );
+      expect(trustSubs).toContain("remove");
+      expect(trustSubs).toContain("clear");
+    });
+  });
+
+  // ── sandboxAutoApprove allowlist guard ───────────────────────────────────
+  describe("sandboxAutoApprove allowlist", () => {
+    /** Collect all top-level commands tagged with sandboxAutoApprove: true. */
+    function getSandboxAutoApproveCommands(): string[] {
+      return Object.entries(DEFAULT_COMMAND_REGISTRY)
+        .filter(
+          ([, spec]) => (spec as CommandRiskSpec).sandboxAutoApprove === true,
+        )
+        .map(([name]) => name)
+        .sort();
+    }
+
+    /**
+     * The exact set of commands that should be tagged with sandboxAutoApprove.
+     * This acts as a guard — any addition or removal must be intentional and
+     * update this list.
+     */
+    const EXPECTED_SANDBOX_AUTO_APPROVE = [
+      // Core filesystem (read-only)
+      "ls",
+      "cat",
+      "head",
+      "tail",
+      "less",
+      "more",
+      "wc",
+      "file",
+      "stat",
+      "du",
+      "df",
+      "diff",
+      "tree",
+      "pwd",
+      "realpath",
+      "basename",
+      "dirname",
+      "readlink",
+      // Search / filter / text processing
+      "grep",
+      "rg",
+      "ag",
+      "ack",
+      "sort",
+      "uniq",
+      "cut",
+      "tr",
+      "sed",
+      "awk",
+      // System info / text output
+      "echo",
+      "printf",
+      // Data processing
+      "jq",
+      "yq",
+      // Find
+      "find",
+      "fd",
+      // Write commands
+      "cp",
+      "mv",
+      "mkdir",
+      "touch",
+      "ln",
+      "tee",
+      // Delete commands
+      "rm",
+      "rmdir",
+      // Permissions / ownership
+      "chgrp",
+      "chmod",
+      "chown",
+      // Misc tools
+      "xargs",
+      // Archives
+      "tar",
+      "zip",
+      "unzip",
+      "gzip",
+      "gunzip",
+    ].sort();
+
+    test("sandboxAutoApprove commands match the expected allowlist exactly", () => {
+      const actual = getSandboxAutoApproveCommands();
+      expect(actual).toEqual(EXPECTED_SANDBOX_AUTO_APPROVE);
+    });
+
+    test("network commands are NOT tagged with sandboxAutoApprove", () => {
+      const networkCommands = [
+        "curl",
+        "wget",
+        "http",
+        "ssh",
+        "scp",
+        "rsync",
+        "ping",
+        "dig",
+        "nslookup",
+      ];
+      for (const cmd of networkCommands) {
+        const spec = (
+          DEFAULT_COMMAND_REGISTRY as Record<string, CommandRiskSpec>
+        )[cmd];
+        expect(spec).toBeDefined();
+        expect(spec.sandboxAutoApprove).not.toBe(true);
+      }
+    });
+
+    test("runtime/language commands are NOT tagged with sandboxAutoApprove", () => {
+      const runtimeCommands = [
+        "node",
+        "deno",
+        "python",
+        "python3",
+        "ruby",
+        "bash",
+        "sh",
+        "zsh",
+      ];
+      for (const cmd of runtimeCommands) {
+        const spec = (
+          DEFAULT_COMMAND_REGISTRY as Record<string, CommandRiskSpec>
+        )[cmd];
+        expect(spec).toBeDefined();
+        expect(spec.sandboxAutoApprove).not.toBe(true);
+      }
+    });
+
+    test("package manager commands are NOT tagged with sandboxAutoApprove", () => {
+      const packageCommands = [
+        "npm",
+        "npx",
+        "yarn",
+        "pnpm",
+        "bun",
+        "pip",
+        "pip3",
+        "brew",
+        "cargo",
+        "apt-get",
+        "apt",
+        "dnf",
+        "yum",
+        "pacman",
+        "apk",
+      ];
+      for (const cmd of packageCommands) {
+        const spec = (
+          DEFAULT_COMMAND_REGISTRY as Record<string, CommandRiskSpec>
+        )[cmd];
+        expect(spec).toBeDefined();
+        expect(spec.sandboxAutoApprove).not.toBe(true);
+      }
+    });
+
+    test("system/privilege commands are NOT tagged with sandboxAutoApprove", () => {
+      const systemCommands = [
+        "sudo",
+        "su",
+        "doas",
+        "mount",
+        "umount",
+        "systemctl",
+        "service",
+        "launchctl",
+        "reboot",
+        "shutdown",
+        "kill",
+        "killall",
+        "pkill",
+        "dd",
+        "mkfs",
+        "fdisk",
+      ];
+      for (const cmd of systemCommands) {
+        const spec = (
+          DEFAULT_COMMAND_REGISTRY as Record<string, CommandRiskSpec>
+        )[cmd];
+        expect(spec).toBeDefined();
+        expect(spec.sandboxAutoApprove).not.toBe(true);
+      }
     });
   });
 });

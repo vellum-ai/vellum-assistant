@@ -1,7 +1,11 @@
 import * as Sentry from "@sentry/node";
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { estimateToolsTokens } from "../context/token-estimator.js";
+import {
+  estimatePromptTokensRaw,
+  estimateToolsTokens,
+  getCalibrationProviderKey,
+} from "../context/token-estimator.js";
 import { truncateOversizedToolResults } from "../context/tool-result-truncation.js";
 import { getHookManager } from "../hooks/manager.js";
 import type {
@@ -103,6 +107,13 @@ export type AgentEvent =
       providerDurationMs: number;
       rawRequest?: unknown;
       rawResponse?: unknown;
+      /**
+       * Pre-send token estimate for the same call. Used by the estimator
+       * calibrator to learn how off the heuristic is versus provider
+       * ground truth. Omitted only when estimation genuinely was not run
+       * for this call (e.g. legacy/stubbed code paths).
+       */
+      estimatedInputTokens?: number;
     };
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
@@ -371,6 +382,23 @@ export class AgentLoop {
         const providerStart = Date.now();
         lastLlmCallTime = providerStart;
 
+        // Compute the pre-send estimate against the full in-memory
+        // history — matching what upstream callers of
+        // `estimatePromptTokens` (preflight, mid-loop checkpoints, the
+        // window manager) see. We use the RAW estimate (before applying
+        // the existing correction) so the calibrator learns the true
+        // bias against provider ground truth instead of ratcheting a
+        // feedback loop against its own corrected output.
+        const toolTokenBudget =
+          currentTools.length > 0 ? estimateToolsTokens(currentTools) : 0;
+        const preSendEstimatedTokens = estimatePromptTokensRaw(
+          history,
+          turnSystemPrompt,
+          {
+            providerName: getCalibrationProviderKey(this.provider),
+            toolTokenBudget,
+          },
+        );
         rlog.info({ turn: toolUseTurns }, "LLM call start");
 
         // Strip image contentBlocks from older tool results to prevent
@@ -453,6 +481,7 @@ export class AgentLoop {
           providerDurationMs,
           rawRequest: response.rawRequest,
           rawResponse: response.rawResponse,
+          estimatedInputTokens: preSendEstimatedTokens,
         });
 
         void getHookManager().trigger("post-llm-call", {

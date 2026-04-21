@@ -1562,22 +1562,24 @@ graph TB
 
     FIND_RULE -->|"Deny rule"| DENY["decision: deny<br/>Blocked by rule"]
     FIND_RULE -->|"Ask rule"| PROMPT_ASK["decision: prompt<br/>Always ask user"]
-    FIND_RULE -->|"Allow rule"| RISK_CHECK{"Risk level?"}
-    FIND_RULE -->|"No match"| NO_MATCH{"Fallback logic"}
+    FIND_RULE -->|"Allow rule / No match"| SANDBOX_CHECK{"sandboxAutoApprove?<br/>(bash + allowlisted +<br/>containerized)"}
+
+    SANDBOX_CHECK -->|"yes"| AUTO_SANDBOX["decision: allow<br/>Sandbox auto-approve"]
+    SANDBOX_CHECK -->|"no, has Allow rule"| RISK_CHECK{"Risk level?"}
+    SANDBOX_CHECK -->|"no, no match"| NO_MATCH{"Fallback logic"}
 
     RISK_CHECK -->|"Low / Medium"| AUTO_ALLOW["decision: allow<br/>Auto-allowed by rule"]
-    RISK_CHECK -->|"High"| HIGH_CHECK{"shouldAutoAllowHighRisk()<br/>(containerized bash?)"}
-    HIGH_CHECK -->|"yes"| AUTO_ALLOW
-    HIGH_CHECK -->|"no"| PROMPT_HIGH["decision: prompt<br/>High risk requires approval"]
+    RISK_CHECK -->|"High"| RISK_THRESHOLD{"Risk-based<br/>threshold fallback"}
 
     NO_MATCH -->|"tool.origin === 'skill'"| PROMPT_SKILL["decision: prompt<br/>Skill tools always ask"]
     NO_MATCH -->|"strict mode"| PROMPT_STRICT["decision: prompt<br/>No implicit auto-allow"]
-    NO_MATCH -->|"workspace mode (default)"| WS_CHECK{"Workspace-scoped<br/>invocation?"}
+    NO_MATCH -->|"workspace mode (default)"| WS_CHECK{"Workspace-scoped<br/>+ Low risk?"}
     WS_CHECK -->|"yes"| AUTO_WS["decision: allow<br/>Workspace-scoped auto-allow"]
-    WS_CHECK -->|"no"| RISK_FALLBACK_WS{"Risk level?"}
-    RISK_FALLBACK_WS -->|"Low"| AUTO_WS_LOW["decision: allow<br/>Low risk auto-allow"]
-    RISK_FALLBACK_WS -->|"Medium"| PROMPT_WS_MED["decision: prompt"]
-    RISK_FALLBACK_WS -->|"High"| PROMPT_WS_HIGH["decision: prompt"]
+    WS_CHECK -->|"no"| RISK_THRESHOLD
+
+    RISK_THRESHOLD{"risk ≤ autoApproveUpTo<br/>threshold?"}
+    RISK_THRESHOLD -->|"yes"| AUTO_THRESHOLD["decision: allow<br/>within auto-approve threshold"]
+    RISK_THRESHOLD -->|"no"| PROMPT_THRESHOLD["decision: prompt<br/>above auto-approve threshold"]
 ```
 
 ### Permission Modes: Workspace and Strict
@@ -1710,7 +1712,7 @@ When a permission prompt is sent to the client (via `confirmation_request` SSE e
 | `allowlistOptions` | Suggested patterns for "always allow" rules         |
 | `scopeOptions`     | Suggested scopes for rule persistence               |
 
-The user can respond with: `allow` (one-time), `always_allow` (create allow rule), `deny` (one-time), or `always_deny` (create deny rule). High-risk operations in containerized environments are auto-allowed at runtime by `shouldAutoAllowHighRisk()` without requiring persisted state.
+The user can respond with: `allow` (one-time), `always_allow` (create allow rule), `deny` (one-time), or `always_deny` (create deny rule). In containerized environments, commands tagged with `sandboxAutoApprove` in their risk spec are auto-allowed via the approval policy's sandbox auto-approve check; non-allowlisted commands (network tools, runtimes, package managers) use the user's `autoApproveUpTo` threshold. All other risk-based decisions use the `autoApproveUpTo` threshold (default: `"low"`) -- tools at or below the threshold are auto-allowed, those above are prompted.
 
 ### Canonical Paths
 

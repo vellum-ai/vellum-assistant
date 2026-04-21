@@ -14,6 +14,46 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../types.js";
+import {
+  ContextOverflowError,
+  extractOverflowTokensFromMessage,
+} from "../types.js";
+
+/**
+ * Detect OpenAI-compatible context-overflow signals on an `OpenAI.APIError`.
+ *
+ * OpenAI proper returns HTTP 400 with body
+ *   `{ error: { code: "context_length_exceeded", message, ... } }`
+ * Other OpenAI-compatible providers (OpenRouter, Fireworks, Ollama, etc.)
+ * forward similar shapes; not all populate `code` so we also probe the
+ * message/param fields. Returns an object with any extractable token counts
+ * when the error matches, or `null` when it does not.
+ *
+ * Most OpenAI-compatible providers do not report `actualTokens`/`maxTokens`
+ * in the error body, but the typed wrapper is still valuable as a stable
+ * signal for the agent loop.
+ */
+export function detectOpenAICompatibleContextOverflow(
+  error: InstanceType<typeof OpenAI.APIError>,
+): { actualTokens?: number; maxTokens?: number } | null {
+  // OpenAI-compatible providers use 400 (most) or 413 (rarer payload-too-large).
+  const status = error.status;
+  if (status !== 400 && status !== 413) return null;
+  const code = error.code;
+  const codeMatches =
+    typeof code === "string" &&
+    /context_length_exceeded|context_window_exceeded|input_too_long|prompt_too_long/i.test(
+      code,
+    );
+  const message = error.message ?? "";
+  const messageMatches =
+    /context.?length.?exceeded|context.?window.?exceeded|prompt.?is.?too.?long|prompt_too_long|input.?too.?long|too.?many.?(?:input.?)?tokens|maximum.?context/i.test(
+      message,
+    );
+  if (!codeMatches && !messageMatches) return null;
+  // OpenAI-compatible providers rarely report usable token counts; best-effort extract.
+  return extractOverflowTokensFromMessage(message);
+}
 
 export interface OpenAIChatCompletionsProviderOptions {
   baseURL?: string;
@@ -259,6 +299,19 @@ export class OpenAIChatCompletionsProvider implements Provider {
           ? signal.reason
           : undefined;
       if (error instanceof OpenAI.APIError) {
+        const overflow = detectOpenAICompatibleContextOverflow(error);
+        if (overflow) {
+          throw new ContextOverflowError(
+            `${this.providerLabel} API error (${error.status}): ${error.message}`,
+            this.name,
+            {
+              actualTokens: overflow.actualTokens,
+              maxTokens: overflow.maxTokens,
+              statusCode: error.status,
+              cause: error,
+            },
+          );
+        }
         const retryAfterMs = extractRetryAfterMs(error.headers);
         const errorOptions: {
           retryAfterMs?: number;

@@ -14,7 +14,10 @@ import {
   getMessages as defaultGetMessages,
   type MessageRow,
 } from "../memory/conversation-crud.js";
-import { extractMemoryPrefixBlocks } from "../memory/graph/conversation-graph-memory.js";
+import {
+  countMemoryPrefixBlocks,
+  extractMemoryPrefixBlocks,
+} from "../memory/graph/conversation-graph-memory.js";
 import { searchPkbFiles } from "../memory/pkb/pkb-search.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
@@ -1206,9 +1209,9 @@ export function stripTransportHints(messages: Message[]): Message[] {
  * The gateway normalizer sets `chatType: "channel"` for every non-DM Slack
  * conversation (public, private, and mpim alike — see
  * `gateway/src/slack/normalize.ts`) and omits the field entirely for DMs.
- * We therefore accept on `chatType === "channel"` rather than negating
- * against `"im"` — the prior `!== "im"` check incorrectly classified DMs
- * (where the gateway-omitted field is `undefined`) as channels.
+ * We therefore accept only `chatType === "channel"` — when the gateway
+ * omits `chatType` (as it does for DMs), the check correctly returns
+ * `false`.
  *
  * The chronological-transcript override applies to ALL Slack
  * conversations (channels and DMs) — gate that on
@@ -1582,8 +1585,7 @@ export function assembleSlackActiveThreadFocusBlock(
   // DMs do not have threads, so the focus block is always a no-op.
   // The gateway sets `chatType: "channel"` for every non-DM Slack
   // conversation and omits the field for DMs, so gate the focus block
-  // on the positive match rather than negating against `"im"` (which
-  // leaks through when `chatType` is `undefined`).
+  // on the positive `"channel"` match.
   if (capabilities.chatType !== "channel") return null;
   const renderable = rows.map(rowToRenderable);
   const activeThreadTs = detectActiveThreadTs(renderable);
@@ -1814,6 +1816,7 @@ export async function applyRuntimeInjections(
   },
 ): Promise<RuntimeInjectionResult> {
   const mode = options.mode ?? "full";
+  let pkbSystemReminderCaptured: string | undefined;
   const slackChannel = isSlackChannelConversation(options.channelCapabilities);
   // Slack DMs and channels both assemble context from persisted message
   // rows, so suppress hint injection for any Slack conversation. Other
@@ -1926,6 +1929,12 @@ export async function applyRuntimeInjections(
             workingDir,
           );
           const pkbRoot = options.pkbRoot;
+          // Gate on `denseScore` (cosine, [0, 1]) so the quality bar is stable
+          // regardless of whether sparse was provided. Rank by `hybridScore`
+          // (RRF) when available — that captures the sparse signal for
+          // re-ordering eligible hits. hybridScore and denseScore live on
+          // different scales, so items with hybridScore are ordered together
+          // and placed ahead of items that only have denseScore.
           hints = results
             .filter((r) => {
               const abs = resolve(pkbRoot, r.path);
@@ -1935,7 +1944,17 @@ export async function applyRuntimeInjections(
                 .startsWith("archive/")
                 ? PKB_HINT_ARCHIVE_THRESHOLD
                 : PKB_HINT_THRESHOLD;
-              return r.score >= threshold;
+              return r.denseScore >= threshold;
+            })
+            .sort((a, b) => {
+              const aHasHybrid = a.hybridScore !== undefined;
+              const bHasHybrid = b.hybridScore !== undefined;
+              if (aHasHybrid && !bHasHybrid) return -1;
+              if (!aHasHybrid && bHasHybrid) return 1;
+              if (aHasHybrid && bHasHybrid) {
+                return b.hybridScore! - a.hybridScore!;
+              }
+              return b.denseScore - a.denseScore;
             })
             .slice(0, 3)
             .map((r) => r.path);
@@ -1949,13 +1968,20 @@ export async function applyRuntimeInjections(
       }
 
       const reminder = buildPkbReminder(hints);
+      pkbSystemReminderCaptured = reminder;
+      // Splice the reminder in right after the memory prefix blocks so it
+      // lands above the user's typed text, producing the tail shape
+      // `[<turn_context>, <memory __injected>, <system_reminder>, ...your_text, ...later_appends]`
+      // after `unifiedTurnContext` later prepends `<turn_context>` at index 0.
+      const memoryPrefixCount = countMemoryPrefixBlocks(userTail.content);
       result = [
         ...result.slice(0, -1),
         {
           ...userTail,
           content: [
-            ...userTail.content,
+            ...userTail.content.slice(0, memoryPrefixCount),
             { type: "text" as const, text: reminder },
+            ...userTail.content.slice(memoryPrefixCount),
           ],
         },
       ];
@@ -2098,6 +2124,9 @@ export async function applyRuntimeInjections(
 
   return {
     messages: result,
-    blocks: { unifiedTurnContext: turnContextCaptured },
+    blocks: {
+      unifiedTurnContext: turnContextCaptured,
+      pkbSystemReminder: pkbSystemReminderCaptured,
+    },
   };
 }

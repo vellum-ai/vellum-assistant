@@ -60,6 +60,7 @@ interface FakeChrome {
   queryCalls: Array<chrome.tabs.QueryInfo>;
   runtimeListeners: RuntimeOnMessageListener[];
   emitFromContent(msg: unknown): void;
+  tabResponses: Map<number, (msg: unknown) => unknown>;
   runtime: {
     onMessage: {
       addListener: (cb: RuntimeOnMessageListener) => void;
@@ -67,7 +68,7 @@ interface FakeChrome {
   };
   tabs: {
     query: (q: chrome.tabs.QueryInfo) => Promise<chrome.tabs.Tab[]>;
-    sendMessage: (tabId: number, msg: unknown) => Promise<void>;
+    sendMessage: (tabId: number, msg: unknown) => Promise<unknown>;
   };
 }
 
@@ -75,10 +76,12 @@ function installFakeChrome(): FakeChrome {
   const sendMessageCalls: FakeChrome["sendMessageCalls"] = [];
   const queryCalls: FakeChrome["queryCalls"] = [];
   const runtimeListeners: RuntimeOnMessageListener[] = [];
+  const tabResponses = new Map<number, (msg: unknown) => unknown>();
   const fake: FakeChrome = {
     sendMessageCalls,
     queryCalls,
     runtimeListeners,
+    tabResponses,
     emitFromContent(msg) {
       for (const cb of runtimeListeners.slice())
         cb(msg, undefined, () => {});
@@ -97,6 +100,9 @@ function installFakeChrome(): FakeChrome {
       },
       async sendMessage(tabId, msg) {
         sendMessageCalls.push({ tabId, msg });
+        const responder = tabResponses.get(tabId);
+        if (responder) return responder(msg);
+        return undefined;
       },
     },
   };
@@ -159,6 +165,33 @@ describe("startContentBridge bot→content fan-out", () => {
       msg: leave,
     });
   });
+
+  test(
+    "join retries when the only tab responds with {ok:false}",
+    async () => {
+      // Simulate a profile that has exactly one Meet tab open and that tab is
+      // not for the target meeting (e.g. a stray lobby tab). The content
+      // script rejects the join with {ok:false}. The bridge must NOT treat
+      // that as a successful delivery — otherwise a real tab that mounts a
+      // moment later never receives the join command.
+      fake.tabs.sendMessage = async (tabId, msg) => {
+        fake.sendMessageCalls.push({ tabId, msg });
+        return { ok: false, reason: "non-matching-tab" };
+      };
+      const join: BotToExtensionMessage = {
+        type: "join",
+        meetingUrl: "https://meet.google.com/abc-defg-hij",
+        displayName: "Bot",
+        consentMessage: "hello",
+      };
+      port.emitFromBot(join);
+      // Wait long enough for at least the first retry (100ms) to elapse.
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      expect(fake.queryCalls.length).toBeGreaterThanOrEqual(2);
+      expect(fake.sendMessageCalls.length).toBeGreaterThanOrEqual(2);
+    },
+    5_000,
+  );
 });
 
 describe("startContentBridge content→bot forwarding", () => {

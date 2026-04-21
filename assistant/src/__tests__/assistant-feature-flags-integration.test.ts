@@ -98,3 +98,32 @@ describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
     ).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// compaction-v2 flag (opt-in): ensures registry-declared defaultEnabled=false
+// is honored and that an explicit override can flip it on. Guards the rollout
+// gate for the boundary-message-based compaction pipeline introduced in
+// later PRs.
+// ---------------------------------------------------------------------------
+
+describe("compaction-v2 flag", () => {
+  test("defaults to false (disabled) when no override is set", () => {
+    const config = {} as any;
+
+    expect(isAssistantFeatureFlagEnabled("compaction-v2", config)).toBe(false);
+  });
+
+  test("returns true when explicitly overridden to true", () => {
+    _setOverridesForTesting({ "compaction-v2": true });
+    const config = {} as any;
+
+    expect(isAssistantFeatureFlagEnabled("compaction-v2", config)).toBe(true);
+  });
+
+  test("returns false when explicitly overridden to false", () => {
+    _setOverridesForTesting({ "compaction-v2": false });
+    const config = {} as any;
+
+    expect(isAssistantFeatureFlagEnabled("compaction-v2", config)).toBe(false);
+  });
+});

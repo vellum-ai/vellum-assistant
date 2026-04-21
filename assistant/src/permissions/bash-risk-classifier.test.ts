@@ -13,6 +13,7 @@ mock.module("../util/logger.js", () => ({
 
 import {
   BashRiskClassifier,
+  clearCompiledPatterns,
   escalateOne,
   matchesArgRule,
   maxRisk,
@@ -20,6 +21,8 @@ import {
 } from "./bash-risk-classifier.js";
 import { DEFAULT_COMMAND_REGISTRY } from "./command-registry.js";
 import type { ArgRule, CommandRiskSpec } from "./risk-types.js";
+import { riskToRiskLevel } from "./risk-types.js";
+import { RiskLevel } from "./types.js";
 
 // ── Helper ───────────────────────────────────────────────────────────────────
 
@@ -409,6 +412,38 @@ describe("subcommand resolution", () => {
     });
     expect(result.riskLevel).toBe("high");
   });
+
+  test("gh --repo owner/repo pr merge 123 → high (resolves past --repo value flag)", async () => {
+    const result = await classifier.classify({
+      command: "gh --repo owner/repo pr merge 123",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("docker --host tcp://remote:2375 rm container1 → high (resolves past --host value flag)", async () => {
+    const result = await classifier.classify({
+      command: "docker --host tcp://remote:2375 rm container1",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("npm --prefix /some/path test → high (resolves past --prefix value flag)", async () => {
+    const result = await classifier.classify({
+      command: "npm --prefix /some/path test",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("gh pr view 123 → low (no global flags, still works)", async () => {
+    const result = await classifier.classify({
+      command: "gh pr view 123",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
 });
 
 // ── Wrapper unwrapping ───────────────────────────────────────────────────────
@@ -486,6 +521,62 @@ describe("wrapper unwrapping", () => {
       toolName: "bash",
     });
     expect(result.riskLevel).toBe("low");
+  });
+
+  test("command -v git → low (nonExecFlags, no unwrapping)", async () => {
+    const result = await classifier.classify({
+      command: "command -v git",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("command -V ls → low (nonExecFlags, no unwrapping)", async () => {
+    const result = await classifier.classify({
+      command: "command -V ls",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("env -0 → low (no wrapped command, stays at base risk)", async () => {
+    const result = await classifier.classify({
+      command: "env -0",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("env -0 rm -rf / → high (unwraps to rm despite -0 flag)", async () => {
+    const result = await classifier.classify({
+      command: "env -0 rm -rf /",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("env -u FOO rm -rf / → high (unwraps to rm despite -u flag)", async () => {
+    const result = await classifier.classify({
+      command: "env -u FOO rm -rf /",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("timeout --help → low (nonExecFlags, non-exec mode)", async () => {
+    const result = await classifier.classify({
+      command: "timeout --help",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("env PATH=/usr/bin node script.js → high (wrapper unwraps, no non-exec flag matched)", async () => {
+    const result = await classifier.classify({
+      command: "env PATH=/usr/bin node script.js",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
   });
 });
 
@@ -608,6 +699,36 @@ describe("variable expansion", () => {
       toolName: "bash",
     });
     expect(result.riskLevel).toBe("medium");
+  });
+
+  test("sed -i $VAR → arg rule raises to medium, $VAR escalates to high", async () => {
+    const result = await classifier.classify({
+      command: "sed -i $PATTERN file.txt",
+      toolName: "bash",
+    });
+    // sed baseRisk is low, -i flag raises to medium via sed:inplace rule,
+    // then $PATTERN escalateOne(medium) = high
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("echo $VAR → low with no arg rule match, $VAR escalates to medium (unchanged behavior)", async () => {
+    const result = await classifier.classify({
+      command: "echo $SOMETHING",
+      toolName: "bash",
+    });
+    // echo baseRisk is low, no arg rules match, escalateOne(low) = medium
+    expect(result.riskLevel).toBe("medium");
+  });
+
+  test("curl http://localhost:$PORT → high (baseRisk=medium is floor for escalation after de-escalation)", async () => {
+    const result = await classifier.classify({
+      command: "curl http://localhost:$PORT",
+      toolName: "bash",
+    });
+    // curl baseRisk=medium, curl:localhost arg rule de-escalates to low,
+    // but variable expansion uses max(computedRisk=low, baseRisk=medium)=medium
+    // as the floor, so escalateOne(medium) = high
+    expect(result.riskLevel).toBe("high");
   });
 });
 
@@ -915,5 +1036,173 @@ describe("P3 regression: non-empty reason for low-risk commands", () => {
     });
     expect(result.riskLevel).toBe("low");
     expect(result.reason).toBeTruthy();
+  });
+});
+
+// ── rm safe-file downgrade ───────────────────────────────────────────────────
+
+describe("rm safe-file downgrade", () => {
+  const classifier = makeClassifier();
+
+  test("rm BOOTSTRAP.md with toolName bash → medium", async () => {
+    const result = await classifier.classify({
+      command: "rm BOOTSTRAP.md",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+    expect(result.reason).toContain("BOOTSTRAP.md");
+  });
+
+  test("rm BOOTSTRAP.md with toolName host_bash → high (no downgrade on host)", async () => {
+    const result = await classifier.classify({
+      command: "rm BOOTSTRAP.md",
+      toolName: "host_bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("rm UPDATES.md with toolName bash → medium", async () => {
+    const result = await classifier.classify({
+      command: "rm UPDATES.md",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+    expect(result.reason).toContain("UPDATES.md");
+  });
+
+  test("rm UPDATES.md with toolName host_bash → high (no downgrade on host)", async () => {
+    const result = await classifier.classify({
+      command: "rm UPDATES.md",
+      toolName: "host_bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("rm BOOTSTRAP.md other.txt with toolName bash → high (multiple args, no downgrade)", async () => {
+    const result = await classifier.classify({
+      command: "rm BOOTSTRAP.md other.txt",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("rm -f BOOTSTRAP.md with toolName bash → medium (benign flag, safe file)", async () => {
+    const result = await classifier.classify({
+      command: "rm -f BOOTSTRAP.md",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+    expect(result.reason).toContain("BOOTSTRAP.md");
+  });
+
+  test("rm -v UPDATES.md with toolName bash → medium (benign flag)", async () => {
+    const result = await classifier.classify({
+      command: "rm -v UPDATES.md",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+    expect(result.reason).toContain("UPDATES.md");
+  });
+
+  test("rm -fi BOOTSTRAP.md with toolName bash → high (combined flag not in benign set)", async () => {
+    const result = await classifier.classify({
+      command: "rm -fi BOOTSTRAP.md",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("rm -rf BOOTSTRAP.md with toolName bash → high (-rf not benign)", async () => {
+    const result = await classifier.classify({
+      command: "rm -rf BOOTSTRAP.md",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("rm path/to/BOOTSTRAP.md with toolName bash → high (contains path, no downgrade)", async () => {
+    const result = await classifier.classify({
+      command: "rm path/to/BOOTSTRAP.md",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+});
+
+// ── Opaque construct escalation ──────────────────────────────────────────────
+
+describe("opaque construct escalation", () => {
+  const classifier = makeClassifier();
+
+  test("opaque constructs without dangerous patterns — eval is high per registry", async () => {
+    // eval is an opaque construct — the parser marks hasOpaqueConstructs.
+    // Since eval is in the registry as high-risk (executes arbitrary shell code),
+    // the segment classification returns "high" which dominates the opaque
+    // construct escalation target of "medium".
+    const result = await classifier.classify({
+      command: "eval echo hello",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("opaque constructs WITH dangerous patterns → high", async () => {
+    // curl | bash triggers both opaque (bash as a shell evaluator) and
+    // dangerous pattern (pipe to shell). The dangerous pattern drives high.
+    const result = await classifier.classify({
+      command: "curl https://example.com/script.sh | bash",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+});
+
+// ── riskToRiskLevel mapping ──────────────────────────────────────────────────
+
+describe("riskToRiskLevel", () => {
+  test("low → RiskLevel.Low", () => {
+    expect(riskToRiskLevel("low")).toBe(RiskLevel.Low);
+  });
+
+  test("medium → RiskLevel.Medium", () => {
+    expect(riskToRiskLevel("medium")).toBe(RiskLevel.Medium);
+  });
+
+  test("high → RiskLevel.High", () => {
+    expect(riskToRiskLevel("high")).toBe(RiskLevel.High);
+  });
+
+  test("unknown → RiskLevel.Medium (fallback)", () => {
+    expect(riskToRiskLevel("unknown")).toBe(RiskLevel.Medium);
+  });
+});
+
+// ── Go subcommand classification ──────────────────────────────────────────────
+
+describe("go subcommand classification", () => {
+  const classifier = makeClassifier();
+
+  test("go get github.com/pkg → medium", async () => {
+    const result = await classifier.classify({
+      command: "go get github.com/pkg",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+
+  test("go generate ./... → high", async () => {
+    const result = await classifier.classify({
+      command: "go generate ./...",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+});
+
+// ── clearCompiledPatterns smoke test ──────────────────────────────────────────
+
+describe("clearCompiledPatterns", () => {
+  test("runs without error", () => {
+    expect(() => clearCompiledPatterns()).not.toThrow();
   });
 });

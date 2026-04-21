@@ -215,6 +215,21 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
           const meta = JSON.parse(m.metadata);
           const isTail = index === arr.length - 1;
 
+          // turn_context and system_reminder rehydrate for historical rows
+          // only; the tail gets fresh blocks via applyRuntimeInjections on
+          // the next turn. All three rehydration steps are prepends — the
+          // ordering below (system_reminder first, memory second,
+          // turn_context last) builds the documented shape right-to-left,
+          // since each prepend shifts previously-prepended blocks one slot
+          // right:
+          //   [<turn_context>, <memory __injected>, <system_reminder>, ...original]
+          if (!isTail && typeof meta.pkbSystemReminderBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.pkbSystemReminderBlock },
+              ...content,
+            ];
+          }
+
           // Memory remains rehydrated on all rows (existing behavior).
           if (typeof meta.memoryInjectedBlock === "string") {
             content = [
@@ -226,25 +241,11 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
             ];
           }
 
-          // turn_context and system_reminder rehydrate for historical rows
-          // only. The tail gets fresh blocks via applyRuntimeInjections on
-          // the next turn. Ordering: memory was prepended first above, so
-          // prepending turn_context here places it at index 0, matching the
-          // documented shape:
-          //   [<turn_context>, <memory __injected>, ...original, <system_reminder>]
-          if (!isTail) {
-            if (typeof meta.turnContextBlock === "string") {
-              content = [
-                { type: "text" as const, text: meta.turnContextBlock },
-                ...content,
-              ];
-            }
-            if (typeof meta.pkbSystemReminderBlock === "string") {
-              content = [
-                ...content,
-                { type: "text" as const, text: meta.pkbSystemReminderBlock },
-              ];
-            }
+          if (!isTail && typeof meta.turnContextBlock === "string") {
+            content = [
+              { type: "text" as const, text: meta.turnContextBlock },
+              ...content,
+            ];
           }
         } catch {
           /* ignore parse errors — metadata may be malformed */

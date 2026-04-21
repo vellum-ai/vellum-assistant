@@ -265,6 +265,43 @@ describe("startParticipantScraper", () => {
     expect(first.joined.map((p) => p.id)).toEqual(["p-alice"]);
   });
 
+  test("does not emit synthetic left/join churn when the panel is auto-collapsed mid-meeting", async () => {
+    // Regression: if a sibling feature (e.g. the chat reader) toggles its
+    // panel and Meet auto-collapses the participants panel, a subsequent
+    // poll sees `rows = []`. Without the panel-closed early return, the
+    // diff would emit `left` for every previously-known attendee, then
+    // `joined` again once the panel was reopened on the next tick.
+    installed = installPanelFixture([
+      { id: "p-alice", name: "Alice" },
+      { id: "p-bob", name: "Bob" },
+    ]);
+    const dom = installed.dom;
+    const handle = startParticipantScraper({
+      meetingId: "m-1",
+      pollMs: 30,
+      onEvent: (ev) => events.push(ev),
+    });
+    handles.push(handle);
+    await drainMicrotasks();
+    await sleep(10);
+
+    expect(events.length).toBe(1);
+
+    // Simulate Meet collapsing the participants panel: the list container
+    // disappears entirely.
+    const list = dom.window.document.querySelector(
+      '[role="list"][aria-label="Participants"]',
+    );
+    list?.remove();
+
+    // Let a couple of polls elapse with the panel closed.
+    await sleep(100);
+
+    // The scraper must not emit any event just because the panel is
+    // temporarily closed — the attendees are still in the meeting.
+    expect(events.length).toBe(1);
+  });
+
   test("does not re-click the toggle when the panel is already open", async () => {
     installed = installPanelFixture([{ id: "p-alice", name: "Alice" }]);
     let toggleClicks = 0;

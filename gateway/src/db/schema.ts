@@ -6,6 +6,7 @@
  * startup (see connection.ts). Drizzle provides typed query access.
  */
 
+import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 // ---------------------------------------------------------------------------
@@ -83,4 +84,29 @@ export const contactChannels = sqliteTable(
       table.externalChatId,
     ),
   ],
+);
+
+// ---------------------------------------------------------------------------
+// Auto-approve thresholds
+// ---------------------------------------------------------------------------
+
+export const autoApproveThresholds = sqliteTable("auto_approve_thresholds", {
+  id: integer("id").primaryKey().default(1),
+  interactive: text("interactive").notNull().default("low"),
+  background: text("background").notNull().default("medium"),
+  headless: text("headless").notNull().default("none"),
+  updatedAt: text("updated_at")
+    .notNull()
+    .default(sql`(datetime('now'))`),
+});
+
+export const conversationThresholdOverrides = sqliteTable(
+  "conversation_threshold_overrides",
+  {
+    conversationId: text("conversation_id").primaryKey(),
+    threshold: text("threshold").notNull(),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
 );
