@@ -76,7 +76,7 @@ const getHomeFeedResponseSchema = z.object({
 });
 
 const patchFeedItemRequestSchema = z.object({
-  status: z.enum(["new", "seen", "acted_on"]),
+  status: z.enum(["new", "seen", "acted_on", "dismissed"]),
 });
 
 // ---------------------------------------------------------------------------
@@ -269,7 +269,7 @@ function maybeTriggerOnVisitRollupRefresh(now: Date): void {
 /**
  * `PATCH /v1/home/feed/:id`.
  *
- * Body: `{ status: "new" | "seen" | "acted_on" }`. Returns the updated
+ * Body: `{ status: "new" | "seen" | "acted_on" | "dismissed" }`. Returns the updated
  * `FeedItem` on success.
  *
  * Disambiguates the writer's `null` return by looking up the item via

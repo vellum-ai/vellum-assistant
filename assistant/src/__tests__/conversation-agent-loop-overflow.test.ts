@@ -29,22 +29,33 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
-    provider: "mock-provider",
-    maxTokens: 4096,
-    thinking: false,
-    contextWindow: {
-      maxInputTokens: 200_000,
-      thresholdTokens: 160_000,
-      preserveRecentMessages: 6,
-      summaryModel: "mock-model",
-      maxSummaryTokens: 512,
-      overflowRecovery: {
-        enabled: true,
-        safetyMarginRatio: 0.05,
-        maxAttempts: 3,
-        interactiveLatestTurnCompression: "summarize",
-        nonInteractiveLatestTurnCompression: "truncate",
+    llm: {
+      default: {
+        provider: "mock-provider",
+        model: "mock-model",
+        maxTokens: 4096,
+        effort: "max" as const,
+        speed: "standard" as const,
+        temperature: null,
+        thinking: { enabled: false, streamThinking: true },
+        contextWindow: {
+          enabled: true,
+          maxInputTokens: 200_000,
+          targetBudgetRatio: 0.3,
+          compactThreshold: 0.8,
+          summaryBudgetRatio: 0.05,
+          overflowRecovery: {
+            enabled: true,
+            safetyMarginRatio: 0.05,
+            maxAttempts: 3,
+            interactiveLatestTurnCompression: "summarize",
+            nonInteractiveLatestTurnCompression: "truncate",
+          },
+        },
       },
+      profiles: {},
+      callSites: {},
+      pricingOverrides: [],
     },
     rateLimit: { maxRequestsPerMinute: 0 },
     workspaceGit: { turnCommitMaxWaitMs: 10 },
@@ -162,6 +173,8 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOriginChannel: () => null,
   getMessageById: () => null,
   updateMessageContent: () => {},
+  updateMessageMetadata: () => {},
+  clearPkbSystemReminderMetadataForConversation: () => {},
 }));
 
 mock.module("../memory/retriever.js", () => ({
@@ -212,10 +225,25 @@ mock.module("../daemon/conversation-memory.js", () => ({
 
 let mockApplyRuntimeInjections: (msgs: Message[]) => Message[] = (msgs) => msgs;
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
-  applyRuntimeInjections: (msgs: Message[]) => mockApplyRuntimeInjections(msgs),
+  applyRuntimeInjections: async (msgs: Message[]) => ({
+    messages: mockApplyRuntimeInjections(msgs),
+    blocks: {},
+  }),
   stripInjectionsForCompaction: (msgs: Message[]) => msgs,
   findLastInjectedNowContent: () => null,
   readNowScratchpad: () => null,
+  readPkbContext: () => null,
+  getPkbAutoInjectList: () => [
+    "INDEX.md",
+    "essentials.md",
+    "threads.md",
+    "buffer.md",
+  ],
+  isSlackChannelConversation: () => false,
+  loadSlackChronologicalMessages: () => null,
+  loadSlackActiveThreadFocusBlock: () => null,
+  assembleSlackChronologicalMessages: () => null,
+  assembleSlackActiveThreadFocusBlock: () => null,
 }));
 
 mock.module("../daemon/date-context.js", () => ({

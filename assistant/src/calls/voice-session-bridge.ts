@@ -522,6 +522,7 @@ export async function startVoiceTurn(
           // Note: tool_use_preview_start is intentionally not handled here.
           // Voice only reacts to the definitive tool_use_start event.
         },
+        { callSite: "callAgent" },
       );
       if (lastError) {
         log.error(

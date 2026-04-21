@@ -50,23 +50,6 @@ mock.module("../../../export/transcript-formatter.js", () => ({
   buildAnalysisTranscript: () => "user: hi",
 }));
 
-// Default config stub — individual tests can override via mockGetConfig.
-interface AnalysisConfigStub {
-  analysis: {
-    modelIntent?: string;
-    modelOverride?: string;
-  };
-}
-const mockGetConfig = mock(
-  (): AnalysisConfigStub => ({
-    analysis: {},
-  }),
-);
-
-mock.module("../../../config/loader.js", () => ({
-  getConfig: mockGetConfig,
-}));
-
 import { AssistantEventHub } from "../../assistant-event-hub.js";
 import type { SendMessageDeps } from "../../http-types.js";
 import { analyzeConversation } from "../analyze-conversation.js";
@@ -90,8 +73,6 @@ beforeEach(() => {
   mockFindAnalysisConversationFor.mockImplementation(() => null);
   mockGetConversationSource.mockReset();
   mockGetConversationSource.mockImplementation(() => null);
-  mockGetConfig.mockReset();
-  mockGetConfig.mockImplementation(() => ({ analysis: {} }));
 });
 
 function makeConversation() {
@@ -221,12 +202,17 @@ describe("analyzeConversation", () => {
     expect(allowedTools).toBeInstanceOf(Set);
     expect(allowedTools?.size).toBe(0);
 
-    // Fires the agent loop.
+    // Fires the agent loop with the analyzeConversation call-site so the
+    // per-call provider config flows through `resolveCallSiteConfig`.
     expect(conversation.runAgentLoop).toHaveBeenCalledWith(
       expect.any(String),
       "msg-1",
       expect.any(Function),
-      expect.objectContaining({ isInteractive: false, isUserMessage: true }),
+      expect.objectContaining({
+        isInteractive: false,
+        isUserMessage: true,
+        callSite: "analyzeConversation",
+      }),
     );
   });
 
@@ -405,40 +391,36 @@ describe("analyzeConversation", () => {
     expect(mockAddMessage).not.toHaveBeenCalled();
   });
 
-  test("auto: passes modelOverride through to getOrCreateConversation when set in config", async () => {
-    mockGetConfig.mockImplementation(() => ({
-      analysis: {
-        modelIntent: "quality-optimized",
-        modelOverride: "claude-opus-4-6",
-      },
-    }));
+  test("auto: routes the agent loop through callSite: 'analyzeConversation'", async () => {
     const conversation = makeConversation();
     const deps = makeDeps(conversation);
 
     await analyzeConversation("conv-1", deps, { trigger: "auto" });
 
-    expect(deps.getOrCreateConversation).toHaveBeenCalledWith(
-      "analysis-new",
-      expect.objectContaining({
-        modelIntent: "quality-optimized",
-        modelOverride: "claude-opus-4-6",
-      }),
+    expect(conversation.runAgentLoop).toHaveBeenCalledWith(
+      expect.any(String),
+      "msg-1",
+      expect.any(Function),
+      expect.objectContaining({ callSite: "analyzeConversation" }),
     );
   });
 
-  test("auto: does not pass modelOverride/modelIntent keys when config leaves them unset", async () => {
+  test("does not thread modelIntent/modelOverride into getOrCreateConversation", async () => {
+    // Per-call model selection now happens via the call-site resolver against
+    // `llm.callSites.analyzeConversation`, not via legacy modelIntent/
+    // modelOverride keys on the conversation create options.
     const conversation = makeConversation();
     const deps = makeDeps(conversation);
 
     await analyzeConversation("conv-1", deps, { trigger: "auto" });
 
-    const [, passedOpts] = (
-      deps.getOrCreateConversation.mock.calls as unknown as Array<
-        [string, Record<string, unknown>]
-      >
-    )[0] ?? ["", {}];
-    expect(passedOpts).toBeDefined();
-    expect("modelIntent" in (passedOpts ?? {})).toBe(false);
-    expect("modelOverride" in (passedOpts ?? {})).toBe(false);
+    const calls = deps.getOrCreateConversation.mock
+      .calls as unknown as Array<[string, Record<string, unknown> | undefined]>;
+    expect(calls.length).toBe(1);
+    const passedOpts = calls[0]?.[1];
+    if (passedOpts !== undefined) {
+      expect("modelIntent" in passedOpts).toBe(false);
+      expect("modelOverride" in passedOpts).toBe(false);
+    }
   });
 });

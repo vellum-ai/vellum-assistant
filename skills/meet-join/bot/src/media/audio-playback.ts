@@ -89,6 +89,19 @@ export interface StartAudioPlaybackOptions {
  * `write` returns once the bytes have been handed to pacat (its stdin may
  * apply backpressure via a promise resolution). `flushSilence` pushes a
  * block of zeroes — typically 50ms at shutdown to avoid a popping sound.
+ *
+ * `onPlaybackTimestamp` exposes an estimate of how many milliseconds
+ * into the current utterance the most recently queued PCM byte will
+ * play. The clock is **utterance-relative** — it starts at 0 on
+ * `startAudioPlayback` and advances by `byteCount / bytesPerMs` on
+ * every non-empty write, directly matching the coordinate system of
+ * `VisemeEvent.timestamp` (see `assistant/src/tts/types.ts`) so viseme-
+ * driven renderers can compare incoming timestamps against the stream
+ * without coordinate-system translation.
+ *
+ * There is no real-wall-clock component — an utterance-relative clock
+ * stalls while no audio is being written, which is what downstream
+ * renderers want: if playback pauses, viseme emission pauses too.
  */
 export interface AudioPlaybackHandle {
   /** Whether this handle is still usable. Flips to `false` on stop. */
@@ -101,6 +114,41 @@ export interface AudioPlaybackHandle {
   write(chunk: Uint8Array): Promise<void>;
   /** Write `ms` milliseconds of silence (zero bytes). */
   flushSilence(ms: number): Promise<void>;
+  /**
+   * Subscribe to playback-timestamp updates. The callback fires after
+   * every non-empty byte write (including silence flushes) with the
+   * utterance-relative offset (ms since `startAudioPlayback`) at which
+   * the most recently written PCM byte will play out of the sink. This
+   * is the same coordinate system the daemon stamps on outbound
+   * `VisemeEvent.timestamp` values, so subscribers can compare the two
+   * directly. Returns an unsubscribe function; calling it more than
+   * once is a no-op.
+   *
+   * Timestamps are strictly monotonic WITHIN a single utterance: each
+   * emission advances the clock by exactly `byteCount / bytesPerMs`
+   * past the previous emission. Callers that reuse the singleton handle
+   * across multiple utterances must call `resetPlaybackClock()` between
+   * them (see its docstring) — that resets the clock back to 0, which
+   * is a deliberate, caller-controlled monotonicity break.
+   */
+  onPlaybackTimestamp(cb: (ts: number) => void): () => void;
+  /**
+   * Reset the utterance-relative playback clock back to 0. Intended to
+   * be called by the HTTP server at the start of every new `/play_audio`
+   * stream: because `startAudioPlayback` is a module-level singleton,
+   * the same handle is handed back across utterances and without this
+   * reset the clock would accumulate across every POST — leaving
+   * subsequent utterances' visemes (which the daemon stamps as ms from
+   * the start of THEIR utterance, i.e. also restarting at 0) all
+   * satisfying `visemeTs < effectivePlaybackMs` and flushing immediately
+   * on arrival, which defeats the point of buffering.
+   *
+   * After the reset the next `write()` emits a timestamp measured from
+   * 0 again. Subscribers that maintain their own monotonic clock (e.g.
+   * the TalkingHead renderer) should reset in lockstep — see
+   * `AvatarRenderer.resetPlaybackTimestamp`.
+   */
+  resetPlaybackClock(): void;
 }
 
 /** Default spawn factory — wraps `Bun.spawn` with the pacat flags. */
@@ -182,6 +230,44 @@ export function startAudioPlayback(
     }
   });
 
+  // --- playback-timestamp state ---------------------------------------
+  //
+  // `effectivePlaybackMs` is an UTTERANCE-RELATIVE offset (ms since
+  // this playback handle was started) at which the most recently queued
+  // PCM byte is expected to play out. It is seeded to 0 and advances by
+  // exactly `byteCount / bytesPerMs` on every non-empty write. This is
+  // the same coordinate system `VisemeEvent.timestamp` uses (see
+  // `assistant/src/tts/types.ts`), so viseme-driven renderers can
+  // compare the two values directly.
+  //
+  // There is deliberately no `performance.now()` / wall-clock input —
+  // mixing process-uptime-relative time into an utterance-relative
+  // clock would make every comparison against `VisemeEvent.timestamp`
+  // nonsensical (uptime dwarfs any plausible utterance offset). If
+  // playback pauses between writes the clock simply doesn't advance,
+  // which matches what downstream renderers want: no audio → no viseme
+  // emission.
+  let effectivePlaybackMs = 0;
+  const timestampSubscribers: Array<(ts: number) => void> = [];
+
+  const emitTimestamp = (): void => {
+    // Copy the list so an unsubscribe during dispatch doesn't skip a
+    // neighbor.
+    for (const cb of timestampSubscribers.slice()) {
+      try {
+        cb(effectivePlaybackMs);
+      } catch {
+        // Subscriber threw; swallow so audio playback stays healthy.
+      }
+    }
+  };
+
+  const advanceAfterWrite = (byteCount: number): void => {
+    if (byteCount <= 0) return;
+    effectivePlaybackMs += byteCount / bytesPerMs;
+    emitTimestamp();
+  };
+
   const handle: AudioPlaybackHandle = {
     get active() {
       return alive;
@@ -197,6 +283,7 @@ export function startAudioPlayback(
       if (result && typeof (result as Promise<unknown>).then === "function") {
         await result;
       }
+      advanceAfterWrite(chunk.length);
     },
     async flushSilence(ms: number): Promise<void> {
       if (!alive) return;
@@ -207,6 +294,19 @@ export function startAudioPlayback(
       // 4800 bytes, comfortably small.
       const silence = new Uint8Array(total); // zero-filled by default
       await this.write(silence);
+    },
+    onPlaybackTimestamp(cb: (ts: number) => void): () => void {
+      timestampSubscribers.push(cb);
+      let unsubscribed = false;
+      return () => {
+        if (unsubscribed) return;
+        unsubscribed = true;
+        const idx = timestampSubscribers.indexOf(cb);
+        if (idx !== -1) timestampSubscribers.splice(idx, 1);
+      };
+    },
+    resetPlaybackClock(): void {
+      effectivePlaybackMs = 0;
     },
   };
 

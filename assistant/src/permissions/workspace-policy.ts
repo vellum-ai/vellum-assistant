@@ -54,22 +54,7 @@ export function isPathWithinWorkspaceRoot(
 const PATH_SCOPED_TOOLS = new Set(["file_read", "file_write", "file_edit"]);
 
 /** Network-accessing tools — never workspace-scoped. */
-const NETWORK_TOOLS = new Set([
-  "web_search",
-  "web_fetch",
-  "browser_navigate",
-  "browser_click",
-  "browser_type",
-  "browser_scroll",
-  "browser_select_option",
-  "browser_hover",
-  "browser_screenshot",
-  "browser_close",
-  "browser_attach",
-  "browser_detach",
-  "browser_status",
-  "network_request",
-]);
+const NETWORK_TOOLS = new Set(["web_search", "web_fetch", "network_request"]);
 
 /** Host-level tools — operate outside the sandbox, never workspace-scoped. */
 const HOST_TOOLS = new Set([

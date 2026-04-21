@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { AVATAR_DEVICE_PATH_DEFAULT } from "./shared/avatar-device-path.js";
+
 /**
  * Default keywords that signal an objection to the assistant's presence in a
  * meeting. When any of these (case-insensitive substring match) appear in
@@ -62,6 +64,217 @@ function normalizeJoinName(value: string | null): string | null {
   const trimmed = value.trim();
   return trimmed.length === 0 ? null : trimmed;
 }
+
+/**
+ * Open enum of avatar renderer identifiers. Concrete renderer PRs (PR 5a–d)
+ * register themselves against one of these ids and assert their required
+ * option shape at `start()` time. The set is kept small and explicit here so
+ * configuration mistakes (typos, wrong ids) surface at schema-validation time
+ * rather than at meeting-join time; adding a new renderer is a single schema
+ * change + a new factory registration.
+ */
+export const AVATAR_RENDERER_IDS = [
+  "noop",
+  "talking-head",
+  "simli",
+  "heygen",
+  "tavus",
+  "sadtalker",
+  "musetalk",
+] as const;
+
+/**
+ * Default v4l2loopback device node the renderer pushes frames into. Re-exports
+ * the single source of truth from
+ * {@link ./shared/avatar-device-path.js AVATAR_DEVICE_PATH_DEFAULT} so this
+ * value cannot drift from its peers in `bot/src/browser/chrome-launcher.ts`,
+ * `bot/src/media/video-device.ts`, and `cli/src/lib/docker.ts`.
+ */
+export const DEFAULT_AVATAR_DEVICE_PATH = AVATAR_DEVICE_PATH_DEFAULT;
+
+/**
+ * Per-renderer option block for TalkingHead.js (WebGL) renderer. All fields
+ * optional at the schema level — the renderer's `start()` asserts the shape
+ * it actually needs. Landed as a placeholder here so the config path exists
+ * before the concrete renderer merges.
+ */
+const TalkingHeadAvatarOptionsSchema = z
+  .object({
+    /** Absolute path (or bot-container path) to the GLB avatar model. */
+    modelPath: z
+      .string({
+        error: "services.meet.avatar.talkingHead.modelPath must be a string",
+      })
+      .optional()
+      .describe("Path to the GLB avatar model used by the WebGL renderer."),
+  })
+  .optional()
+  .describe("TalkingHead.js WebGL renderer options.");
+
+/**
+ * Per-renderer option block for the Simli hosted WebRTC renderer.
+ * Credentials resolve through the vault via `apiKeyCredentialId` — the
+ * schema never stores raw API keys.
+ */
+const SimliAvatarOptionsSchema = z
+  .object({
+    apiKeyCredentialId: z
+      .string({
+        error: "services.meet.avatar.simli.apiKeyCredentialId must be a string",
+      })
+      .optional()
+      .describe(
+        "Vault credential id that resolves to the Simli API key. Raw keys are never stored in config — always reference them through the credential vault.",
+      ),
+    avatarId: z
+      .string({
+        error: "services.meet.avatar.simli.avatarId must be a string",
+      })
+      .optional()
+      .describe("Simli avatar identifier used for frame generation."),
+  })
+  .optional()
+  .describe("Simli hosted WebRTC renderer options.");
+
+/** HeyGen hosted renderer options — credentials via the vault. */
+const HeygenAvatarOptionsSchema = z
+  .object({
+    apiKeyCredentialId: z
+      .string({
+        error:
+          "services.meet.avatar.heygen.apiKeyCredentialId must be a string",
+      })
+      .optional(),
+    avatarId: z
+      .string({
+        error: "services.meet.avatar.heygen.avatarId must be a string",
+      })
+      .optional(),
+  })
+  .optional()
+  .describe("HeyGen hosted renderer options.");
+
+/** Tavus hosted renderer options — credentials via the vault. */
+const TavusAvatarOptionsSchema = z
+  .object({
+    apiKeyCredentialId: z
+      .string({
+        error: "services.meet.avatar.tavus.apiKeyCredentialId must be a string",
+      })
+      .optional(),
+    replicaId: z
+      .string({
+        error: "services.meet.avatar.tavus.replicaId must be a string",
+      })
+      .optional(),
+  })
+  .optional()
+  .describe("Tavus hosted renderer options.");
+
+/** SadTalker GPU-sidecar options. */
+const SadtalkerAvatarOptionsSchema = z
+  .object({
+    endpoint: z
+      .string({
+        error: "services.meet.avatar.sadtalker.endpoint must be a string",
+      })
+      .optional()
+      .describe("HTTP endpoint for the SadTalker sidecar."),
+    referenceImagePath: z
+      .string({
+        error:
+          "services.meet.avatar.sadtalker.referenceImagePath must be a string",
+      })
+      .optional(),
+  })
+  .optional()
+  .describe("SadTalker GPU-sidecar renderer options.");
+
+/** MuseTalk GPU-sidecar options. */
+const MusetalkAvatarOptionsSchema = z
+  .object({
+    endpoint: z
+      .string({
+        error: "services.meet.avatar.musetalk.endpoint must be a string",
+      })
+      .optional()
+      .describe("HTTP endpoint for the MuseTalk sidecar."),
+    referenceImagePath: z
+      .string({
+        error:
+          "services.meet.avatar.musetalk.referenceImagePath must be a string",
+      })
+      .optional(),
+  })
+  .optional()
+  .describe("MuseTalk GPU-sidecar renderer options.");
+
+/**
+ * Avatar subsystem schema for the Meet bot.
+ *
+ * The avatar pipeline is intentionally pluggable: the daemon resolves one of
+ * several renderer backends (WebGL, hosted WebRTC, GPU sidecar) via the
+ * renderer registry and pipes Y4M frames into the bot's v4l2loopback device.
+ * When `enabled` is `false` or `renderer` is `"noop"`, the bot behaves like
+ * Phase 3 — no video track is published. The per-renderer option blocks are
+ * all optional at the schema level; each concrete renderer asserts its own
+ * required shape inside its factory at `start()` time, so a misconfigured
+ * renderer fails fast (and gracefully — callers catch
+ * `AvatarRendererUnavailableError` and degrade to the noop renderer).
+ *
+ * Credentials are referenced via `credentialId` fields rather than raw keys
+ * — the daemon resolves them through the vault before handing env vars to
+ * the bot container (the bot has no vault access).
+ */
+const MeetAvatarSchema = z
+  .object({
+    enabled: z
+      .boolean({
+        error: "services.meet.avatar.enabled must be a boolean",
+      })
+      .default(false)
+      .describe(
+        "Whether the Meet bot publishes a virtual-camera video track with a synthesized avatar. Even when true, the top-level `meet` feature flag must also be on and the bot must be able to open the configured `devicePath` inside its container.",
+      ),
+    renderer: z
+      .enum(AVATAR_RENDERER_IDS, {
+        error:
+          "services.meet.avatar.renderer must be one of: " +
+          AVATAR_RENDERER_IDS.join(", "),
+      })
+      .default("noop")
+      .describe(
+        "Which avatar renderer backend to use. `noop` renders nothing and is the safe default; concrete backends (talking-head, simli, heygen, tavus, sadtalker, musetalk) register themselves with the renderer registry and assert their own configuration shape at start time.",
+      ),
+    devicePath: z
+      .string({
+        error: "services.meet.avatar.devicePath must be a string",
+      })
+      .default(DEFAULT_AVATAR_DEVICE_PATH)
+      .describe(
+        "Absolute v4l2loopback device node the renderer writes Y4M frames into. Must match the device passed through to the bot container via Docker `--device` and the Chrome `--use-file-for-fake-video-capture` flag.",
+      ),
+    talkingHead: TalkingHeadAvatarOptionsSchema,
+    simli: SimliAvatarOptionsSchema,
+    heygen: HeygenAvatarOptionsSchema,
+    tavus: TavusAvatarOptionsSchema,
+    sadtalker: SadtalkerAvatarOptionsSchema,
+    musetalk: MusetalkAvatarOptionsSchema,
+  })
+  .default({
+    enabled: false,
+    renderer: "noop",
+    devicePath: DEFAULT_AVATAR_DEVICE_PATH,
+  })
+  .describe(
+    "Pluggable avatar renderer configuration. When enabled, the Meet bot publishes a synthesized video track to Meet via a v4l2loopback device.",
+  );
+
+/** Convenience export so the daemon can narrow on the fully-parsed shape. */
+export type MeetAvatarConfig = z.infer<typeof MeetAvatarSchema>;
+
+/** Narrow union of supported avatar renderer ids. */
+export type AvatarRendererId = (typeof AVATAR_RENDERER_IDS)[number];
 
 export const MeetServiceSchema = z
   .object({
@@ -200,6 +413,7 @@ export const MeetServiceSchema = z
       .describe(
         "Proactive-chat opportunity detector tuning. The detector uses a Tier 1 regex fast filter plus a Tier 2 LLM confirmation before the assistant posts in meeting chat.",
       ),
+    avatar: MeetAvatarSchema,
   })
   .describe(
     "Google Meet bot configuration — controls the containerized Meet joining bot, consent messaging, and objection handling",

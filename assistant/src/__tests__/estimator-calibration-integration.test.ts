@@ -15,18 +15,19 @@ import type { Message, Provider } from "../providers/types.js";
 /**
  * Integration-style tests that exercise the full self-calibration loop end
  * to end:
- *   1. Estimate is recorded for a `(provider, model)` pair (simulating the
- *      pre-send path in `agent/loop.ts`).
- *   2. The provider returns a ground-truth `inputTokens` via a usage event
- *      (simulating the `handleUsage` path).
- *   3. A subsequent `estimatePromptTokens` call for the SAME `(provider,
- *      model)` picks up the learned correction.
+ *   1. Estimate is recorded for a `(provider, model)` pair via
+ *      `handleUsage` (the record side still threads the provider-echoed
+ *      model through `recordEstimate`).
+ *   2. A subsequent `estimatePromptTokens` lookup picks up the learned
+ *      correction via the per-provider aggregate key `(provider, "")`.
+ *      Lookup always uses the aggregate — model-specific keys are only
+ *      read as a fallback inside `getCorrection`.
  *
- * This is the scenario both Codex (P1) and Devin flagged: before the fix,
- * callers of `estimatePromptTokens` passed only `providerName` without
- * `modelId`, so the helper looked up `(provider, "")` — a key that was
- * never written. The result was that calibration was effectively a no-op
- * because the recorded key and the lookup key did not match.
+ * Since the `modelId` lookup option has been removed from the public
+ * token-estimator API, the lookup side always converges to the aggregate.
+ * `recordEstimate` still updates both the specific `(provider, model)`
+ * key AND the `(provider, "")` aggregate on every sample, so the
+ * aggregate stays accurate even as per-model data accumulates.
  */
 describe("estimator calibration — end-to-end recording → lookup", () => {
   beforeEach(() => {
@@ -48,7 +49,7 @@ describe("estimator calibration — end-to-end recording → lookup", () => {
     ];
   }
 
-  test("subsequent estimate with the same modelId picks up the learned ratio", () => {
+  test("subsequent estimate picks up the aggregate-key correction", () => {
     const provider: Provider = {
       name: "anthropic",
       async sendMessage() {
@@ -61,16 +62,15 @@ describe("estimator calibration — end-to-end recording → lookup", () => {
     // 1. Raw estimate (what agent/loop.ts computes pre-send).
     const preSend = estimatePromptTokens(history, "system", {
       providerName: getCalibrationProviderKey(provider),
-      modelId: model,
     });
     expect(preSend).toBeGreaterThan(0);
 
     // Baseline: no correction recorded yet.
-    expect(getCorrection("anthropic", model)).toBe(1.0);
+    expect(getCorrection("anthropic", "")).toBe(1.0);
 
-    // 2. Provider returns ground truth (simulating `handleUsage`).
-    // Simulate a systematic 30% underestimate (common for Anthropic where
-    // the heuristic misses some xml-wrap overhead on tools/thinking).
+    // 2. Provider returns ground truth (simulating `handleUsage`, which
+    //    still records under (provider, event.model) and folds into the
+    //    aggregate). Simulate a systematic 30% underestimate.
     const groundTruth = Math.ceil(preSend * 1.3);
     recordEstimate(
       getCalibrationProviderKey(provider),
@@ -79,16 +79,12 @@ describe("estimator calibration — end-to-end recording → lookup", () => {
       groundTruth,
     );
 
-    // 3. Lookup with the same key now returns the learned ratio. Math.ceil
-    // on the ground truth introduces ~1/preSend of rounding noise in the
-    // stored ratio, so precision=3 is tight enough to catch regressions
-    // without false positives.
-    expect(getCorrection("anthropic", model)).toBeCloseTo(1.3, 3);
+    // 3. Lookup under the aggregate key now returns the learned ratio.
+    expect(getCorrection("anthropic", "")).toBeCloseTo(1.3, 3);
 
     // And the corrected estimate moves toward the ground truth.
     const corrected = estimatePromptTokens(history, "system", {
       providerName: getCalibrationProviderKey(provider),
-      modelId: model,
     });
     // With correction factor ≈1.3, corrected estimate is within 1 token of
     // the ground truth (Math.ceil rounding).
@@ -96,13 +92,10 @@ describe("estimator calibration — end-to-end recording → lookup", () => {
     expect(Math.abs(corrected - groundTruth)).toBeLessThanOrEqual(1);
   });
 
-  test("caller without a modelId still gets the per-provider aggregate correction", () => {
-    // Simulate a preflight site that records against (anthropic, sonnet),
-    // then a separate, early-init caller that has no modelId available.
-    // Before the fix, the early-init caller looked up (anthropic, "") which
-    // was never written — so it got 1.0 and the calibration was useless.
-    // With the aggregate-update path, (anthropic, "") now tracks the
-    // rolling per-provider average.
+  test("record with model writes both the specific and aggregate keys", () => {
+    // Simulate a preflight site that records against (anthropic, sonnet).
+    // `recordEstimate` also folds the sample into the `(anthropic, "")`
+    // aggregate so aggregate-key callers see the correction.
     const provider: Provider = {
       name: "anthropic",
       async sendMessage() {
@@ -113,7 +106,6 @@ describe("estimator calibration — end-to-end recording → lookup", () => {
 
     const preSend = estimatePromptTokens(history, "system", {
       providerName: getCalibrationProviderKey(provider),
-      modelId: "claude-sonnet-4-5",
     });
     const groundTruth = Math.ceil(preSend * 1.25);
 
@@ -124,11 +116,10 @@ describe("estimator calibration — end-to-end recording → lookup", () => {
       groundTruth,
     );
 
-    // A subsequent lookup without a modelId (e.g. window-manager that
-    // doesn't know the active model yet) uses the per-provider aggregate.
+    // A subsequent lookup via the token-estimator uses the per-provider
+    // aggregate (the only key the public API reads).
     const correctedAggregate = estimatePromptTokens(history, "system", {
       providerName: getCalibrationProviderKey(provider),
-      // modelId intentionally omitted
     });
     // Aggregate ratio ≈ 1.25 (first sample snaps to exact ratio).
     expect(correctedAggregate).toBe(Math.ceil(preSend * 1.25));
@@ -153,7 +144,6 @@ describe("estimator calibration — end-to-end recording → lookup", () => {
     // Pre-send estimate via the canonical key.
     const preSend = estimatePromptTokens(history, "system", {
       providerName: getCalibrationProviderKey(openrouter),
-      modelId: model,
     });
     expect(preSend).toBeGreaterThan(0);
 
@@ -170,9 +160,11 @@ describe("estimator calibration — end-to-end recording → lookup", () => {
     // Lookup under "anthropic" — the canonical upstream key — returns the
     // ratio. See note above about precision=3.
     expect(getCorrection("anthropic", model)).toBeCloseTo(1.2, 3);
+    // Aggregate under the canonical upstream key is also populated.
+    expect(getCorrection("anthropic", "")).toBeCloseTo(1.2, 3);
     // And under the bare wrapper name stays at the default, because NOTHING
     // was recorded under "openrouter".
-    expect(getCorrection("openrouter", model)).toBe(1.0);
+    expect(getCorrection("openrouter", "")).toBe(1.0);
 
     // The snapshot reflects a single (provider, model) key + aggregate under
     // the canonical upstream key — never under the wrapper name.
@@ -193,7 +185,6 @@ describe("estimator calibration — end-to-end recording → lookup", () => {
 
     const preSend = estimatePromptTokens(history, "system", {
       providerName: "anthropic",
-      modelId: model,
     });
     const groundTruth = Math.ceil(preSend * 1.3);
 
@@ -201,7 +192,7 @@ describe("estimator calibration — end-to-end recording → lookup", () => {
       recordEstimate("anthropic", model, preSend, groundTruth);
     }
 
-    const finalCorrection = getCorrection("anthropic", model);
+    const finalCorrection = getCorrection("anthropic", "");
     // EWMA with alpha=0.2 on constant 1.3 stays at 1.3 from the first sample
     // onward (all deltas are 0 after the initial snap). `precision=3` gives
     // us ~0.0005 tolerance which covers the Math.ceil rounding noise.
@@ -209,7 +200,6 @@ describe("estimator calibration — end-to-end recording → lookup", () => {
 
     const corrected = estimatePromptTokens(history, "system", {
       providerName: "anthropic",
-      modelId: model,
     });
     // Corrected should be very close to the ground truth (within 1 token
     // because of the Math.ceil rounding at the end of estimatePromptTokens).

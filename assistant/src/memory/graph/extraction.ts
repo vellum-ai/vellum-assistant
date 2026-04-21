@@ -71,7 +71,11 @@ Call the \`extract_graph_diff\` tool with the diff. Each node needs:
 
 - **content**: First-person prose — how the assistant naturally remembers this. Write naturally, not as a database entry. E.g. "He mentioned his mom used to make amazing Sunday dinners — he still misses them" not "User's mother cooked Sunday dinners."
 
-Be concise — most memories should be 1-3 sentences capturing the essential detail and emotional weight. Don't narrate every nuance; write a vivid snapshot, not a journal entry. Higher-significance (0.7+) memories can use a short paragraph, but even those should stay focused.
+**LENGTH: 1-3 sentences. HARD CAP — no exceptions.** This applies to every memory, including 1.0-significance transformative moments. Emotional weight lives in \`emotionalCharge\`, not wordcount. The more significant an event feels, the stronger the pull to preserve narrative — resist it. A memory whose \`content\` exceeds ~300 characters is a bug.
+
+If a memory has multiple distinct facts or beats, **split into multiple nodes connected by edges** (\`caused-by\`, \`part-of\`, \`reminds-of\`) — one node per fact or moment. Never pack a multi-beat story into a single content field. To connect two NEW nodes you create in the same diff, assign each a distinct \`temp_id\` (e.g. \`"new-1"\`, \`"new-2"\`) and reference that temp_id from \`edges_to_existing\` or \`new_edges\`. Temp IDs live only inside this single extraction call — pick values that clearly don't collide with existing candidate IDs.
+
+Do not: set the scene, describe surrounding context, preserve dialogue verbatim, catalog every emotional nuance, or narrate "what it meant." Write the SNAPSHOT. The \`emotionalCharge\` and \`significance\` fields carry the weight — content stays lean.
 
 - **type**: Classify by WHAT the memory IS, not how it FEELS. Almost every memory has emotional weight — that goes in emotionalCharge, not the type.
 
@@ -119,6 +123,8 @@ Create edges between nodes when there's a meaningful relationship:
 - "part-of": belongs to a larger concept
 - "supersedes": replaces an outdated memory (new node inherits old node's durability)
 - "resolved-by": an event, plan, or task was completed, canceled, or its outcome is now known
+
+Edges can connect any pair of nodes: existing ↔ existing, new ↔ existing, or new ↔ new. Use \`edges_to_existing\` on a new node to declare outbound edges from that node (target may be an existing candidate ID or a sibling new node's \`temp_id\`). Use top-level \`new_edges\` for edges where the source is existing or where it's cleaner to declare the edge once by referencing both endpoints by ID/temp_id.
 
 ## Triggers
 
@@ -231,6 +237,11 @@ const EXTRACT_TOOL_SCHEMA = {
         items: {
           type: "object",
           properties: {
+            temp_id: {
+              type: "string",
+              description:
+                "Optional local identifier for this new node. Reference it from edges_to_existing.target_node_id or new_edges.source_node_id/target_node_id to connect two new nodes created in the same diff. Scope is this single call only — pick distinctive values (e.g. 'new-1') that won't collide with existing candidate IDs.",
+            },
             content: {
               type: "string",
               description: "First-person prose memory",
@@ -299,11 +310,15 @@ const EXTRACT_TOOL_SCHEMA = {
             edges_to_existing: {
               type: "array",
               description:
-                "Edges from this new node to existing candidate nodes",
+                "Outbound edges from this new node. target_node_id may be an existing candidate node ID OR the temp_id of another new node in this same extraction.",
               items: {
                 type: "object",
                 properties: {
-                  target_node_id: { type: "string" },
+                  target_node_id: {
+                    type: "string",
+                    description:
+                      "An existing candidate node ID, or the temp_id of another node in create_nodes.",
+                  },
                   relationship: {
                     type: "string",
                     enum: [
@@ -383,12 +398,21 @@ const EXTRACT_TOOL_SCHEMA = {
       },
       new_edges: {
         type: "array",
-        description: "Edges between existing nodes",
+        description:
+          "Edges between any pair of nodes (existing ↔ existing, new ↔ existing, or new ↔ new). Each endpoint may be an existing candidate node ID or the temp_id of a node declared in create_nodes.",
         items: {
           type: "object",
           properties: {
-            source_node_id: { type: "string" },
-            target_node_id: { type: "string" },
+            source_node_id: {
+              type: "string",
+              description:
+                "An existing candidate node ID, or the temp_id of a node in create_nodes.",
+            },
+            target_node_id: {
+              type: "string",
+              description:
+                "An existing candidate node ID, or the temp_id of a node in create_nodes.",
+            },
             relationship: { type: "string" },
             weight: { type: "number" },
           },
@@ -405,6 +429,7 @@ const EXTRACT_TOOL_SCHEMA = {
 // ---------------------------------------------------------------------------
 
 interface RawCreateNode {
+  temp_id?: string;
   content?: string;
   type?: string;
   emotional_charge?: {
@@ -498,6 +523,22 @@ export function parseEpochMs(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * An edge endpoint that may reference either a pre-existing candidate node
+ * (by its real ID) or a brand-new node being created in the same diff
+ * (by its index into `diff.createNodes`, resolved to a real ID after apply).
+ */
+export type DeferredEdgeEndpoint =
+  | { kind: "existing"; nodeId: string }
+  | { kind: "new"; newNodeIndex: number };
+
+export interface DeferredEdge {
+  source: DeferredEdgeEndpoint;
+  target: DeferredEdgeEndpoint;
+  relationship: string;
+  weight: number;
+}
+
 export function parseExtractionResponse(
   input: Record<string, unknown>,
   conversationId: string,
@@ -507,13 +548,12 @@ export function parseExtractionResponse(
   conversationTimestamp: number,
 ): {
   diff: MemoryDiff;
-  /** Edges from new nodes → existing nodes. Applied after node creation (needs IDs). */
-  deferredEdges: Array<{
-    newNodeIndex: number;
-    targetNodeId: string;
-    relationship: string;
-    weight: number;
-  }>;
+  /**
+   * Edges with at least one endpoint that is a new node (new→existing,
+   * existing→new, or new→new). Applied after node creation so new node IDs
+   * can be resolved from their indices.
+   */
+  deferredEdges: DeferredEdge[];
   /** Triggers for new nodes. Applied after node creation (needs IDs). */
   deferredTriggers: Array<{
     newNodeIndex: number;
@@ -537,16 +577,17 @@ export function parseExtractionResponse(
     reinforceNodeIds: reinforceNodeIds.filter((id) => candidateNodeIds.has(id)),
   };
 
-  const deferredEdges: Array<{
-    newNodeIndex: number;
-    targetNodeId: string;
-    relationship: string;
-    weight: number;
-  }> = [];
+  const deferredEdges: DeferredEdge[] = [];
   const deferredTriggers: Array<{
     newNodeIndex: number;
     trigger: Omit<NewTrigger, "nodeId">;
   }> = [];
+
+  // Track raw-index → diff-index for nodes that pass validation. Edges
+  // reference nodes by temp_id, which resolves via the raw index — but
+  // deferredEdges must carry the diff index (aligns with createdNodeIds
+  // in applyDiff's return value).
+  const rawIndexToDiffIndex = new Map<number, number>();
 
   // Parse new nodes
   for (let i = 0; i < createNodes.length; i++) {
@@ -606,22 +647,11 @@ export function parseExtractionResponse(
 
     diff.createNodes.push(node);
     const nodeIndex = diff.createNodes.length - 1;
+    rawIndexToDiffIndex.set(i, nodeIndex);
 
-    // Collect edges to existing nodes (need new node ID after creation)
-    if (Array.isArray(raw.edges_to_existing)) {
-      for (const edge of raw.edges_to_existing) {
-        if (!edge.target_node_id || !candidateNodeIds.has(edge.target_node_id))
-          continue;
-        if (!edge.relationship || !VALID_RELATIONSHIPS.has(edge.relationship))
-          continue;
-        deferredEdges.push({
-          newNodeIndex: nodeIndex,
-          targetNodeId: edge.target_node_id,
-          relationship: edge.relationship,
-          weight: clamp(Number(edge.weight) || 1.0, 0, 1),
-        });
-      }
-    }
+    // Edges declared on this new node are processed in a second pass below
+    // — they can reference sibling new nodes via temp_id, which may appear
+    // later in create_nodes than the edge's declaring node.
 
     // Collect triggers
     if (Array.isArray(raw.triggers)) {
@@ -710,6 +740,81 @@ export function parseExtractionResponse(
     }
   }
 
+  // Build temp_id → diff.createNodes-index map from nodes that passed
+  // validation. A temp_id that collides with an existing candidate ID is
+  // skipped so real IDs win on lookup — the prompt instructs the LLM to
+  // choose distinctive values so this should be rare.
+  const tempIdToDiffIndex = new Map<string, number>();
+  for (let i = 0; i < createNodes.length; i++) {
+    const raw = createNodes[i];
+    const tempId = raw?.temp_id;
+    if (typeof tempId !== "string" || tempId.length === 0) continue;
+    if (candidateNodeIds.has(tempId)) continue;
+    if (tempIdToDiffIndex.has(tempId)) continue; // first writer wins
+    const diffIndex = rawIndexToDiffIndex.get(i);
+    if (diffIndex == null) continue; // raw node was rejected during validation
+    tempIdToDiffIndex.set(tempId, diffIndex);
+  }
+
+  const resolveEndpoint = (id: string): DeferredEdgeEndpoint | null => {
+    if (candidateNodeIds.has(id)) return { kind: "existing", nodeId: id };
+    const idx = tempIdToDiffIndex.get(id);
+    if (idx != null) return { kind: "new", newNodeIndex: idx };
+    return null;
+  };
+
+  const pushResolvedEdge = (
+    source: DeferredEdgeEndpoint,
+    target: DeferredEdgeEndpoint,
+    relationship: string,
+    weight: number,
+  ) => {
+    // Both endpoints existing → apply directly via diff.createEdges.
+    // Otherwise defer until new node IDs are known post-applyDiff.
+    if (source.kind === "existing" && target.kind === "existing") {
+      diff.createEdges.push({
+        sourceNodeId: source.nodeId,
+        targetNodeId: target.nodeId,
+        relationship: relationship as NewEdge["relationship"],
+        weight,
+        created: now,
+      });
+    } else {
+      deferredEdges.push({ source, target, relationship, weight });
+    }
+  };
+
+  // Second pass: resolve edges_to_existing on each raw create_nodes entry.
+  // The source is always the containing new node; the target may be either
+  // an existing candidate or a sibling new node referenced by temp_id.
+  for (let i = 0; i < createNodes.length; i++) {
+    const raw = createNodes[i];
+    const sourceDiffIndex = rawIndexToDiffIndex.get(i);
+    if (sourceDiffIndex == null) continue;
+    if (!Array.isArray(raw.edges_to_existing)) continue;
+
+    for (const edge of raw.edges_to_existing) {
+      if (!edge.target_node_id) continue;
+      if (!edge.relationship || !VALID_RELATIONSHIPS.has(edge.relationship))
+        continue;
+      const target = resolveEndpoint(edge.target_node_id);
+      if (!target) continue;
+      const source: DeferredEdgeEndpoint = {
+        kind: "new",
+        newNodeIndex: sourceDiffIndex,
+      };
+      // Skip self-loops.
+      if (target.kind === "new" && target.newNodeIndex === sourceDiffIndex)
+        continue;
+      pushResolvedEdge(
+        source,
+        target,
+        edge.relationship,
+        clamp(Number(edge.weight) || 1.0, 0, 1),
+      );
+    }
+  }
+
   // Parse updates
   for (const raw of updateNodes) {
     if (!raw.id || !candidateNodeIds.has(raw.id)) continue;
@@ -731,23 +836,34 @@ export function parseExtractionResponse(
     }
   }
 
-  // Parse edges between existing nodes
+  // Parse top-level edges — each endpoint may be an existing candidate ID or
+  // the temp_id of a new node declared in create_nodes.
   for (const raw of newEdges) {
     if (!raw.source_node_id || !raw.target_node_id) continue;
-    if (
-      !candidateNodeIds.has(raw.source_node_id) ||
-      !candidateNodeIds.has(raw.target_node_id)
-    )
-      continue;
     if (!raw.relationship || !VALID_RELATIONSHIPS.has(raw.relationship))
       continue;
-    diff.createEdges.push({
-      sourceNodeId: raw.source_node_id,
-      targetNodeId: raw.target_node_id,
-      relationship: raw.relationship as NewEdge["relationship"],
-      weight: clamp(Number(raw.weight) || 1.0, 0, 1),
-      created: now,
-    });
+    const source = resolveEndpoint(raw.source_node_id);
+    const target = resolveEndpoint(raw.target_node_id);
+    if (!source || !target) continue;
+    // Skip self-loops.
+    if (
+      source.kind === "new" &&
+      target.kind === "new" &&
+      source.newNodeIndex === target.newNodeIndex
+    )
+      continue;
+    if (
+      source.kind === "existing" &&
+      target.kind === "existing" &&
+      source.nodeId === target.nodeId
+    )
+      continue;
+    pushResolvedEdge(
+      source,
+      target,
+      raw.relationship,
+      clamp(Number(raw.weight) || 1.0, 0, 1),
+    );
   }
 
   return { diff, deferredEdges, deferredTriggers };
@@ -844,7 +960,7 @@ export async function runGraphExtraction(
   }
 
   // 2. Get provider
-  const provider = await getConfiguredProvider();
+  const provider = await getConfiguredProvider("memoryExtraction");
   if (!provider) {
     throw new BackendUnavailableError(
       "Provider unavailable for graph extraction",
@@ -929,7 +1045,7 @@ export async function runGraphExtraction(
     systemPrompt,
     {
       config: {
-        modelIntent: "quality-optimized" as const,
+        callSite: "memoryExtraction" as const,
         tool_choice: { type: "tool" as const, name: "extract_graph_diff" },
       },
     },
@@ -965,13 +1081,19 @@ export async function runGraphExtraction(
   let edgesCreated = result.edgesCreated;
   let triggersCreated = result.triggersCreated;
 
+  const resolveCreatedEndpoint = (ep: DeferredEdgeEndpoint): string | null => {
+    if (ep.kind === "existing") return ep.nodeId;
+    return createdNodeIds[ep.newNodeIndex] ?? null;
+  };
+
   for (const de of deferredEdges) {
-    const newNodeId = createdNodeIds[de.newNodeIndex];
-    if (!newNodeId) continue;
+    const sourceNodeId = resolveCreatedEndpoint(de.source);
+    const targetNodeId = resolveCreatedEndpoint(de.target);
+    if (!sourceNodeId || !targetNodeId) continue;
 
     createEdge({
-      sourceNodeId: newNodeId,
-      targetNodeId: de.targetNodeId,
+      sourceNodeId,
+      targetNodeId,
       relationship: de.relationship as NewEdge["relationship"],
       weight: de.weight,
       created: conversationTimestamp,

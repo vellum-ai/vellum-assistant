@@ -6,7 +6,7 @@ metadata:
   emoji: "▲"
   vellum:
     display-name: "Vercel Token Setup"
-    includes: ["browser"]
+    includes: ["vellum-browser-use"]
 ---
 
 You are helping your user set up a Vercel API token so they can publish apps to the web.
@@ -98,9 +98,15 @@ You will automate Vercel token creation via the browser while the user watches. 
 
 ## Browser Interaction Principles
 
-Vercel's UI may change over time. Do NOT memorize or depend on specific element IDs, CSS selectors, or DOM structures. Instead:
+All browser operations are executed through the `assistant browser` CLI, invoked via `host_bash`. Vercel's UI may change over time. Do NOT memorize or depend on specific element IDs, CSS selectors, or DOM structures. Instead:
 
-1. **Screenshot first, act second.** Before every interaction, take a `browser_screenshot` to see the current visual state. Use `browser_snapshot` to find interactive elements.
+1. **Screenshot first, act second.** Before every interaction, take a screenshot to see the current visual state. Use `assistant browser snapshot` to find interactive elements.
+
+   ```bash
+   assistant browser --session vercel screenshot --output /tmp/vercel-state.jpg
+   assistant browser --session vercel --json snapshot
+   ```
+
 2. **Adapt to what you see.** If a button's label or position differs from what you expect, use the screenshot to find the correct element.
 3. **Verify after every action.** After clicking, typing, or navigating, take a new screenshot to confirm the action succeeded.
 4. **Never assume DOM structure.** Use the snapshot to identify what's on the page and interact accordingly.
@@ -120,7 +126,7 @@ If **two or more steps** require manual fallback, abandon the automated flow ent
 
 These actions are technically impossible in the browser automation environment:
 
-- **Downloading files.** `browser_click` on a Download button does not save files to disk.
+- **Downloading files.** Clicking a Download button via `assistant browser click` does not save files to disk.
 - **Reading the token value from a screenshot.** The token IS visible in the creation dialog, but you MUST NOT attempt to read it from a screenshot - it is too easy to misread characters, and the value must be exact. Always use the `credential_store prompt` approach to let the user copy-paste it accurately.
 - **Clipboard operations.** You cannot copy/paste via browser automation.
 
@@ -145,7 +151,11 @@ If the user declines, acknowledge and stop. No further confirmations are needed 
 
 **Goal:** The user is signed in and the Vercel tokens page is loaded.
 
-Navigate to `https://vercel.com/account/tokens`.
+Navigate to `https://vercel.com/account/tokens`:
+
+```bash
+assistant browser --session vercel navigate --url "https://vercel.com/account/tokens"
+```
 
 Take a screenshot and snapshot to check the page state:
 
@@ -158,7 +168,12 @@ Take a screenshot and snapshot to check the page state:
 
 **Goal:** A new API token named "Vellum Assistant" is created.
 
-Take a screenshot and snapshot. Find and click the button to create a new token (typically labeled "Create" or "Create Token").
+Take a screenshot and snapshot. Find and click the button to create a new token (typically labeled "Create" or "Create Token"):
+
+```bash
+assistant browser --session vercel screenshot --output /tmp/vercel-tokens.jpg
+assistant browser --session vercel --json snapshot
+```
 
 On the creation form:
 
@@ -168,6 +183,10 @@ On the creation form:
 - Click create/submit
 
 **Verify:** Take a screenshot. A dialog or section should now display the newly created token value.
+
+```bash
+assistant browser --session vercel screenshot --output /tmp/vercel-token-created.jpg
+```
 
 ## Step 4: Capture Token via Secure Prompt
 
@@ -220,4 +239,4 @@ credential_store store:
 - **Page load failures:** Retry navigation once. If it still fails, tell the user and ask them to check their internet connection.
 - **Element not found:** Take a fresh screenshot to re-assess. The Vercel UI may have changed. Describe what you see and try alternative approaches. If stuck after 2 attempts, ask the user for guidance.
 - **Token already exists with same name:** This is fine - Vercel allows multiple tokens with the same name. Proceed with creation.
-- **Any unexpected state:** Take a `browser_screenshot`, describe what you see, and ask the user for guidance.
+- **Any unexpected state:** Take a screenshot (`assistant browser --session vercel screenshot --output /tmp/vercel-error.jpg`), describe what you see, and ask the user for guidance.

@@ -76,7 +76,7 @@ function readPersonaFile(filePath: string): string | null {
 
 /**
  * Resolve the raw userFile filename for the current actor's contact.
- * Returns the validated filename (e.g. "sidd.md") or null.
+ * Returns the validated filename (e.g. "alice.md") or null.
  */
 function resolveUserFilename(
   trustContext: TrustContext | undefined,
@@ -127,7 +127,7 @@ function resolveUserFilename(
 
 /**
  * Resolve the absolute on-disk path to the guardian's per-user persona
- * file (e.g. `<workspace>/users/sidd.md`). Returns `null` when no
+ * file (e.g. `<workspace>/users/alice.md`). Returns `null` when no
  * guardian is resolvable (no guardian contact, or its `userFile` is
  * unusable / fails basename validation).
  *
@@ -264,7 +264,7 @@ export function resolveGuardianPersonaStrict(): string | null {
  *
  * @param userFile - A filename (not a bare slug), matching the shape
  *   of `Contact.userFile` — a basename with a `.md` suffix
- *   (e.g. `"sidd.md"`). The path traversal guard rejects values that
+ *   (e.g. `"alice.md"`). The path traversal guard rejects values that
  *   are not a clean basename.
  *
  * Creates the parent `users/` directory if missing.

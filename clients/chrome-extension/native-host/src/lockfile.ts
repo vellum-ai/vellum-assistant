@@ -102,10 +102,15 @@ interface RawAssistantEntry {
  * Mirrors `getLockfilePaths()` in `cli/src/lib/environments/paths.ts`.
  * Unknown env names fall back to production silently — browser users
  * don't see warnings.
+ *
+ * @param environmentOverride - Optional environment name from the
+ *   native-messaging frame. When provided, takes precedence over
+ *   `process.env.VELLUM_ENVIRONMENT`. Invalid/unknown values fall back
+ *   to production behavior.
  */
-function getLockfileCandidates(): string[] {
+function getLockfileCandidates(environmentOverride?: string): string[] {
   const lockfileDirOverride = process.env.VELLUM_LOCKFILE_DIR?.trim();
-  const rawEnv = process.env.VELLUM_ENVIRONMENT?.trim() || "production";
+  const rawEnv = environmentOverride?.trim() || process.env.VELLUM_ENVIRONMENT?.trim() || "production";
   const isNonProd = NON_PRODUCTION_ENVIRONMENTS.has(rawEnv);
 
   if (!isNonProd) {
@@ -123,8 +128,8 @@ function getLockfileCandidates(): string[] {
  * Read and parse the lockfile from the first candidate path that exists
  * and contains valid JSON. Returns `null` if no valid lockfile is found.
  */
-function readRawLockfile(): RawLockfile | null {
-  for (const filePath of getLockfileCandidates()) {
+function readRawLockfile(environmentOverride?: string): RawLockfile | null {
+  for (const filePath of getLockfileCandidates(environmentOverride)) {
     try {
       const raw = readFileSync(filePath, "utf8");
       const parsed: unknown = JSON.parse(raw);
@@ -180,9 +185,13 @@ function extractDaemonPort(entry: RawAssistantEntry): number | undefined {
  * - Filtering entries that lack required fields
  * - Extracting `daemonPort` from `resources` when present
  * - Resolving which assistant is active
+ *
+ * @param environmentOverride - Optional environment name from the
+ *   native-messaging frame. When provided, takes precedence over
+ *   `process.env.VELLUM_ENVIRONMENT` for lockfile path resolution.
  */
-export function readAssistantInventory(): LockfileInventory {
-  const raw = readRawLockfile();
+export function readAssistantInventory(environmentOverride?: string): LockfileInventory {
+  const raw = readRawLockfile(environmentOverride);
   if (!raw) {
     return { assistants: [], activeAssistantId: null };
   }
@@ -211,9 +220,14 @@ export function readAssistantInventory(): LockfileInventory {
  *
  * This is a convenience wrapper used by the `request_token` handler when
  * an `assistantId` is provided in the request frame.
+ *
+ * @param assistantId - The assistant to look up.
+ * @param environmentOverride - Optional environment name from the
+ *   native-messaging frame. When provided, takes precedence over
+ *   `process.env.VELLUM_ENVIRONMENT` for lockfile path resolution.
  */
-export function resolveDaemonPort(assistantId: string): number | undefined {
-  const { assistants } = readAssistantInventory();
+export function resolveDaemonPort(assistantId: string, environmentOverride?: string): number | undefined {
+  const { assistants } = readAssistantInventory(environmentOverride);
   const match = assistants.find((a) => a.assistantId === assistantId);
   return match?.daemonPort;
 }

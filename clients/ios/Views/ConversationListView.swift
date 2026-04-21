@@ -43,29 +43,6 @@ func applyConversationSelectionRequest(
 }
 
 @MainActor
-func shouldShowCurrentTipForkAction(
-    store: IOSConversationStore,
-    for conversation: IOSConversation
-) -> Bool {
-    conversation.conversationId != nil
-        && !conversation.isPrivate
-        && store.latestPersistedTipDaemonMessageId(for: conversation.id) != nil
-}
-
-@MainActor
-func makeCurrentTipForkToolbarAction(
-    store: IOSConversationStore,
-    conversation: IOSConversation
-) -> (() -> Void)? {
-    guard shouldShowCurrentTipForkAction(store: store, for: conversation) else { return nil }
-    return {
-        Task { @MainActor in
-            _ = await store.forkCurrentTip(conversationLocalId: conversation.id)
-        }
-    }
-}
-
-@MainActor
 func makeConversationForkFromMessageAction(
     store: IOSConversationStore,
     conversation: IOSConversation
@@ -176,7 +153,6 @@ struct ConversationListView: View {
     @State private var renamingConversationId: UUID?
     @State private var renameText: String = ""
     @State private var showArchived: Bool = false
-    @AppStorage(UserDefaultsKeys.developerModeEnabled) private var developerModeEnabled: Bool = false
 
     private var activeConversations: [IOSConversation] {
         // Exclude private conversations — they are managed separately via the Private Conversations
@@ -267,6 +243,7 @@ struct ConversationListView: View {
                     conversationList
                         .navigationDestination(for: UUID.self) { conversationLocalId in
                             conversationDetailContent(for: conversationLocalId)
+                                .toolbar(.hidden, for: .tabBar)
                         }
                 }
             }
@@ -296,28 +273,6 @@ struct ConversationListView: View {
             Text("Loading chats\u{2026}")
                 .font(VFont.bodyMediumLighter)
                 .foregroundStyle(VColor.contentSecondary)
-
-            // Show the fetch error inline when developer mode is enabled so the
-            // user doesn't stare at a spinner with no feedback.
-            if developerModeEnabled, let fetchError = store.lastFetchError {
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Fetch error:")
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.systemNegativeStrong)
-                    Text(fetchError)
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(VColor.systemNegativeStrong)
-                        .textSelection(.enabled)
-                    Text(GatewayHTTPClient.connectionDiagnostics())
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(VColor.contentSecondary)
-                        .textSelection(.enabled)
-                }
-                .padding()
-                .background(Color(.secondarySystemBackground))
-                .cornerRadius(8)
-                .padding(.horizontal)
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("Chats")
@@ -333,7 +288,7 @@ struct ConversationListView: View {
                 store: store,
                 conversation: conversation
             )
-            .onAppear {
+            .task(id: conversationLocalId) {
                 store.loadHistoryIfNeeded(for: conversationLocalId)
                 store.markConversationSeenIfNeeded(conversationLocalId: conversationLocalId, isExplicitOpen: true)
                 store.viewModel(for: conversationLocalId).consumeDeepLinkIfNeeded()
@@ -379,8 +334,55 @@ struct ConversationListView: View {
         renameText = conversation.title
     }
 
+    /// Pin/Unpin is hidden on archived conversations. Reorder payloads filter
+    /// archived entries, so a local pin would never reach the server, and
+    /// `locallyEditedPinConversationIds` would then suppress inbound server pin state —
+    /// leaving the conversation permanently divergent across devices.
     private func canToggleConversationPin(_ conversation: IOSConversation) -> Bool {
-        store.isConnectedMode && conversation.conversationId != nil
+        store.isConnectedMode && conversation.conversationId != nil && !conversation.isArchived
+    }
+
+    /// Archive is hidden for channel-bound conversations (Telegram, Slack, etc.) to match
+    /// macOS behavior in `ConversationActionsMenuContent`. Archiving a channel conversation
+    /// loses the binding, so the assistant blocks it.
+    private func canArchiveConversation(_ conversation: IOSConversation) -> Bool {
+        !conversation.isChannelConversation
+    }
+
+    @ViewBuilder
+    private func pinSwipeButton(for conversation: IOSConversation) -> some View {
+        Button {
+            if conversation.isPinned {
+                store.unpinConversation(conversation)
+            } else {
+                store.pinConversation(conversation)
+            }
+        } label: {
+            Label {
+                Text(conversation.isPinned ? "Unpin" : "Pin")
+            } icon: {
+                VIconView(conversation.isPinned ? .pinOff : .pin, size: 14)
+            }
+        }
+        .tint(VColor.primaryBase)
+    }
+
+    @ViewBuilder
+    private func renameSwipeButton(for conversation: IOSConversation) -> some View {
+        Button {
+            beginRenaming(conversation)
+        } label: {
+            Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
+        }
+        .tint(.blue) // Intentional: system blue for non-destructive swipe actions
+    }
+
+    @ViewBuilder
+    private func leadingSwipeActions(for conversation: IOSConversation) -> some View {
+        if canToggleConversationPin(conversation) {
+            pinSwipeButton(for: conversation)
+        }
+        renameSwipeButton(for: conversation)
     }
 
     private func canMarkConversationUnread(_ conversation: IOSConversation) -> Bool {
@@ -422,10 +424,12 @@ struct ConversationListView: View {
             Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
         }
 
-        Button {
-            archiveActiveConversation(conversation)
-        } label: {
-            Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+        if canArchiveConversation(conversation) {
+            Button {
+                archiveActiveConversation(conversation)
+            } label: {
+                Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+            }
         }
 
         Button {
@@ -485,29 +489,6 @@ struct ConversationListView: View {
 
     private var conversationList: some View {
         List(selection: horizontalSizeClass == .regular ? $selectedConversationId : nil) {
-            // Developer-mode diagnostic banner for conversation fetch errors.
-            if developerModeEnabled, let fetchError = store.lastFetchError {
-                Section {
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        HStack(spacing: VSpacing.xs) {
-                            VIconView(.triangleAlert, size: 12)
-                            Text("Conversation fetch failed")
-                                .font(VFont.labelDefault)
-                        }
-                        .foregroundStyle(VColor.systemNegativeStrong)
-                        Text(fetchError)
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(VColor.systemNegativeStrong)
-                            .textSelection(.enabled)
-                        Text(GatewayHTTPClient.connectionDiagnostics())
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(VColor.contentSecondary)
-                            .textSelection(.enabled)
-                    }
-                    .padding(.vertical, VSpacing.xs)
-                }
-            }
-
             // Regular (non-schedule) conversations
             ForEach(filteredRegularConversations) { conversation in
                 maybeConnectedContextMenu(conversation: conversation) {
@@ -523,20 +504,17 @@ struct ConversationListView: View {
                         } label: {
                             Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
                         }
-                        Button {
-                            archiveActiveConversation(conversation)
-                        } label: {
-                            Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+                        if canArchiveConversation(conversation) {
+                            Button {
+                                archiveActiveConversation(conversation)
+                            } label: {
+                                Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+                            }
+                            .tint(VColor.systemNegativeHover)
                         }
-                        .tint(VColor.systemNegativeHover)
                     }
                     .swipeActions(edge: .leading) {
-                        Button {
-                            beginRenaming(conversation)
-                        } label: {
-                            Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
-                        }
-                        .tint(.blue) // Intentional: system blue for non-destructive swipe actions
+                        leadingSwipeActions(for: conversation)
                     }
                 }
             }
@@ -568,6 +546,9 @@ struct ConversationListView: View {
                                     Label { Text("Unarchive") } icon: { VIconView(.inbox, size: 14) }
                                 }
                                 .tint(.blue) // Intentional: system blue for non-destructive swipe actions
+                            }
+                            .swipeActions(edge: .leading) {
+                                leadingSwipeActions(for: conversation)
                             }
                         }
                     }
@@ -656,20 +637,17 @@ struct ConversationListView: View {
                     } label: {
                         Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
                     }
-                    Button {
-                        archiveActiveConversation(conversation)
-                    } label: {
-                        Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+                    if canArchiveConversation(conversation) {
+                        Button {
+                            archiveActiveConversation(conversation)
+                        } label: {
+                            Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+                        }
+                        .tint(VColor.systemNegativeHover)
                     }
-                    .tint(VColor.systemNegativeHover)
                 }
                 .swipeActions(edge: .leading) {
-                    Button {
-                        beginRenaming(conversation)
-                    } label: {
-                        Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
-                    }
-                    .tint(.blue) // Intentional: system blue for non-destructive swipe actions
+                    leadingSwipeActions(for: conversation)
                 }
             }
         } else {
@@ -691,20 +669,17 @@ struct ConversationListView: View {
                             } label: {
                                 Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
                             }
-                            Button {
-                                archiveActiveConversation(conversation)
-                            } label: {
-                                Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+                            if canArchiveConversation(conversation) {
+                                Button {
+                                    archiveActiveConversation(conversation)
+                                } label: {
+                                    Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
+                                }
+                                .tint(VColor.systemNegativeHover)
                             }
-                            .tint(VColor.systemNegativeHover)
                         }
                         .swipeActions(edge: .leading) {
-                            Button {
-                                beginRenaming(conversation)
-                            } label: {
-                                Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
-                            }
-                            .tint(.blue) // Intentional: system blue for non-destructive swipe actions
+                            leadingSwipeActions(for: conversation)
                         }
                     }
                 }
@@ -792,13 +767,6 @@ struct ConversationChatView: View {
     @ObservedObject var store: IOSConversationStore
     let conversation: IOSConversation
 
-    @EnvironmentObject var clientProvider: ClientProvider
-    @AppStorage(UserDefaultsKeys.developerModeEnabled) private var developerModeEnabled: Bool = false
-    @State private var showCopiedConfirmation = false
-    @State private var showShareSheet = false
-    @State private var shareMarkdown: String = ""
-    @State private var showDebugPanel = false
-
     var body: some View {
         let anchorRequest = store.pendingAnchorRequest(for: conversation.id)
         VStack(spacing: 0) {
@@ -822,42 +790,6 @@ struct ConversationChatView: View {
         }
             .navigationTitle("Chat")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                if developerModeEnabled {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button {
-                            showDebugPanel = true
-                        } label: {
-                            VIconView(.bug, size: 20)
-                                .foregroundStyle(VColor.contentTertiary)
-                        }
-                    }
-                }
-                if let forkAction = makeCurrentTipForkToolbarAction(store: store, conversation: conversation) {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button(action: forkAction) {
-                            Label {
-                                Text("Fork conversation")
-                            } icon: {
-                                VIconView(.gitBranch, size: 14)
-                            }
-                        }
-                    }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    exportMenu
-                }
-            }
-            .sheet(isPresented: $showShareSheet) {
-                ActivityViewController(activityItems: [shareMarkdown])
-            }
-            .sheet(isPresented: $showDebugPanel) {
-                DebugPanelView(
-                    traceStore: clientProvider.traceStore,
-                    conversationId: viewModel.conversationId,
-                    onClose: { showDebugPanel = false }
-                )
-            }
     }
 
     @ViewBuilder
@@ -897,54 +829,6 @@ struct ConversationChatView: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Open parent conversation")
         .accessibilityHint("Opens the conversation this chat forked from")
-    }
-
-    @ViewBuilder
-    private var exportMenu: some View {
-        let hasTextMessages = ChatTranscriptFormatter.hasExportableContent(messages: viewModel.messages)
-
-        Menu {
-            Button {
-                let markdown = buildMarkdown()
-                guard !markdown.isEmpty else { return }
-                UIPasteboard.general.string = markdown
-                showCopiedConfirmation = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                    showCopiedConfirmation = false
-                }
-            } label: {
-                Label {
-                    Text(showCopiedConfirmation ? "Copied!" : "Copy as Markdown")
-                } icon: {
-                    VIconView(showCopiedConfirmation ? .check : .copy, size: 14)
-                }
-            }
-
-            Button {
-                let markdown = buildMarkdown()
-                guard !markdown.isEmpty else { return }
-                shareMarkdown = markdown
-                showShareSheet = true
-            } label: {
-                Label { Text("Share\u{2026}") } icon: { VIconView(.share, size: 14) }
-            }
-        } label: {
-            VIconView(showCopiedConfirmation ? .check : .share, size: 20)
-                .foregroundStyle(showCopiedConfirmation ? VColor.systemPositiveStrong : VColor.contentTertiary)
-        }
-        .disabled(!hasTextMessages)
-    }
-
-    private func buildMarkdown() -> String {
-        let names = ChatTranscriptFormatter.ParticipantNames(
-            assistantName: "Assistant",
-            userName: "You"
-        )
-        return ChatTranscriptFormatter.conversationMarkdown(
-            messages: viewModel.messages,
-            conversationTitle: conversation.title,
-            participantNames: names
-        )
     }
 }
 

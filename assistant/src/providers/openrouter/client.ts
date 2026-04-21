@@ -12,6 +12,7 @@ export interface OpenRouterProviderOptions {
   apiKey?: string;
   baseURL?: string;
   streamTimeoutMs?: number;
+  useNativeWebSearch?: boolean;
 }
 
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
@@ -32,11 +33,51 @@ function toAnthropicMessagesBaseURL(openRouterBaseURL: string): string {
   return openRouterBaseURL.replace(/\/v1\/?$/, "");
 }
 
+/**
+ * Extract the normalized `openrouter.only` list from a per-call config. Returns
+ * an empty array when the field is absent, empty, or contains no usable string
+ * entries, so callers can branch on `length > 0` to decide whether to emit the
+ * wire-format `provider: { only: [...] }` field. Exported for tests.
+ */
+export function extractOnlyList(config: unknown): string[] {
+  const cfg = config as { openrouter?: { only?: unknown } } | undefined;
+  const only = cfg?.openrouter?.only;
+  if (!Array.isArray(only)) return [];
+  return only.filter((x): x is string => typeof x === "string" && x.length > 0);
+}
+
+/**
+ * Rewrite `options.config` for the Anthropic-compat path so OpenRouter's
+ * `provider: { only: [...] }` body field travels through `AnthropicProvider`'s
+ * `...restConfig` spread into `Anthropic.MessageStreamParams`. The `openrouter`
+ * key itself is removed because Anthropic's JSON parser doesn't know about it
+ * — only the translated `provider` field should reach the wire. Safe to inject
+ * here because `getAnthropicInner()` hardcodes OpenRouter's baseURL; the inner
+ * `AnthropicProvider` never talks to Anthropic directly. Exported for tests.
+ */
+export function withOpenRouterBodyExtras(
+  options?: SendMessageOptions,
+): SendMessageOptions | undefined {
+  if (!options?.config) return options;
+  const only = extractOnlyList(options.config);
+  if (only.length === 0) return options;
+  const { openrouter: _openrouter, ...rest } = options.config as Record<
+    string,
+    unknown
+  >;
+  const existingProvider = (rest.provider ?? {}) as Record<string, unknown>;
+  return {
+    ...options,
+    config: { ...rest, provider: { ...existingProvider, only } },
+  };
+}
+
 export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
   private readonly openRouterApiKey: string;
   private readonly defaultModel: string;
   private readonly resolvedBaseURL: string;
   private readonly providerStreamTimeoutMs: number | undefined;
+  private readonly useNativeWebSearch: boolean;
   private anthropicInner: AnthropicProvider | undefined;
 
   constructor(
@@ -55,6 +96,7 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
     this.defaultModel = model;
     this.resolvedBaseURL = baseURL;
     this.providerStreamTimeoutMs = options.streamTimeoutMs;
+    this.useNativeWebSearch = options.useNativeWebSearch ?? false;
   }
 
   // When routing to an `anthropic/*` model, actual API calls hit the Anthropic
@@ -79,7 +121,7 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
           messages,
           tools,
           systemPrompt,
-          options,
+          withOpenRouterBodyExtras(options),
         );
       }
       return await super.sendMessage(messages, tools, systemPrompt, options);
@@ -110,7 +152,14 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
   ): Record<string, unknown> {
     const config = options?.config as Record<string, unknown> | undefined;
     const thinkingEnabled = config?.thinking !== undefined;
-    return { reasoning: { enabled: thinkingEnabled } };
+    const extras: Record<string, unknown> = {
+      reasoning: { enabled: thinkingEnabled },
+    };
+    const only = extractOnlyList(config);
+    if (only.length > 0) {
+      extras.provider = { only };
+    }
+    return extras;
   }
 
   private resolveEffectiveModel(options?: SendMessageOptions): string {
@@ -131,6 +180,7 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
           baseURL: toAnthropicMessagesBaseURL(this.resolvedBaseURL),
           streamTimeoutMs: this.providerStreamTimeoutMs,
           authToken: this.openRouterApiKey,
+          useNativeWebSearch: this.useNativeWebSearch,
         },
       );
     }

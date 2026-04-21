@@ -24,6 +24,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
     case chat = "Chat"
     case display = "Display"
     case feedback = "Feedback"
+    case home = "Home"
     case icons = "Icons"
     case inputs = "Inputs"
     case layout = "Layout"
@@ -39,6 +40,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
         case .chat: return .messagesSquare
         case .display: return .layers
         case .feedback: return .bell
+        case .home: return .house
         case .icons: return .puzzle
         case .inputs: return .pencil
         case .layout: return .panelLeft
@@ -69,6 +71,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
         case .display:
             return [
                 GalleryComponent("vCard", "VCard", keywords: ["card"], description: "Container with surface background, border, and configurable padding. Use .vCard() modifier for simple wrapping.", useInsteadOf: "Manual padding + background + cornerRadius"),
+                GalleryComponent("vAppCard", "VAppCard", keywords: ["app card", "app tile", "skill card"], description: "App-tile card with preview thumbnail, title, description, and a button row (Open / Pin / secondary icon). Matches the Figma App Card spec."),
 
                 GalleryComponent("vEmptyState", "VEmptyState", keywords: ["empty state"], description: "Centered placeholder with icon, title, subtitle, and optional action button for empty content areas."),
                 GalleryComponent("vDisclosureSection", "VDisclosureSection", keywords: ["disclosure", "collapsible"], description: "Full-row clickable disclosure with animated chevron. Replaces DisclosureGroup.", useInsteadOf: "Raw DisclosureGroup"),
@@ -97,6 +100,42 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("vInfoTooltip", "VInfoTooltip", keywords: ["info", "tooltip"], description: "Info icon with hover tooltip for contextual help text."),
                 GalleryComponent("vContextWindowIndicator", "VContextWindowIndicator", keywords: ["context window", "progress", "ring"], description: "Circular ring showing context window fill level with hover popover."),
             ]
+        case .home:
+            return [
+                GalleryComponent("recapPill", "RecapPillView", keywords: ["pill", "chip", "inline", "recap"], description: "Inline interactive pill for recap text"),
+                GalleryComponent("homeAuthCard", "HomeAuthCard", keywords: ["auth", "authorise", "deny", "payment"], description: "Payment authorisation action card"),
+                GalleryComponent("homePermissionCard", "HomePermissionCard", keywords: ["permission", "tool", "action"], description: "Tool permission request card"),
+                GalleryComponent("homeAssistantCard", "HomeAssistantCard", keywords: ["assistant", "a2a", "agent"], description: "Assistant-to-assistant message card"),
+                GalleryComponent("homeReplyCard", "HomeReplyCard", keywords: ["reply", "composer", "input"], description: "Reply prompt with inline composer"),
+                GalleryComponent("homeEmailPreviewCard", "HomeEmailPreviewCard", keywords: ["email", "draft", "preview"], description: "Email draft preview card"),
+                GalleryComponent("homeImageCard", "HomeImageCard", keywords: ["image", "photo", "preview"], description: "Image preview card"),
+                GalleryComponent("homeFileCard", "HomeFileCard", keywords: ["file", "document", "attachment"], description: "File reference card"),
+                GalleryComponent("homeUpdatesListCard", "HomeUpdatesListCard", keywords: ["updates", "list", "grouped"], description: "Grouped update notifications card"),
+                GalleryComponent(
+                    "homeDetailPanel",
+                    "HomeDetailPanel",
+                    keywords: ["detail panel", "side panel", "home", "container"],
+                    description: "Reusable white right-side panel container with standardized header (icon + title + primary/secondary actions + dismiss)."
+                ),
+                GalleryComponent(
+                    "homeEmailEditor",
+                    "HomeEmailEditor",
+                    keywords: ["email editor", "compose", "side panel", "detail"],
+                    description: "Pure body content for the email editor variant of the Home detail panel."
+                ),
+                GalleryComponent(
+                    "homeInvoicePreview",
+                    "HomeInvoicePreview",
+                    keywords: ["invoice", "document", "preview", "detail"],
+                    description: "Pure body content showing a document / invoice image in the Home detail panel."
+                ),
+                GalleryComponent(
+                    "homeSplitLayout",
+                    "HomeSplitLayout",
+                    keywords: ["home", "split", "side by side", "layout"],
+                    description: "Composite demo: home + right-side HomeDetailPanel showing the side-by-side layout."
+                ),
+            ]
         case .icons:
             return [
                 GalleryComponent("vAppIconGenerator", "VAppIconGenerator", keywords: ["app icon", "generator"], description: "Generates deterministic app icons from SF Symbols with gradient backgrounds."),
@@ -109,6 +148,12 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("vTextEditor", "VTextEditor", keywords: ["text editor", "multiline"], description: "Multi-line text editor with placeholder and configurable min/max height."),
                 GalleryComponent("vToggle", "VToggle", keywords: ["toggle", "switch"], description: "Custom toggle switch with optional label and animated knob transition."),
                 GalleryComponent("vDropdown", "VDropdown", keywords: ["dropdown", "select", "picker"], description: "Generic dropdown picker with label, error, icon, and size variants (.regular, .small).", useInsteadOf: "Raw Menu + Picker with manual styling"),
+                GalleryComponent(
+                    "vFormattingToolbar",
+                    "VFormattingToolbar",
+                    keywords: ["formatting", "toolbar", "rich text", "bold italic underline"],
+                    description: "Horizontal row of icon-only formatting action buttons (B/I/U, alignment, link, lists, quote). Stateless — fires callbacks on tap."
+                ),
                 GalleryComponent("combinedForm", "Combined Form", keywords: ["form", "combined"], description: "Example of VTextField and VDropdown composed together in a form layout."),
             ]
         case .layout:
@@ -163,6 +208,11 @@ enum GalleryPage: Hashable {
 // MARK: - Gallery View
 
 struct ComponentGalleryView: View {
+    /// Registry for platform-specific gallery overview sections (e.g. macOS-only Home components).
+    nonisolated(unsafe) static var externalOverviewFactories: [String: () -> AnyView] = [:]
+    /// Registry for platform-specific gallery component detail pages.
+    nonisolated(unsafe) static var externalComponentPageFactories: [String: (String) -> AnyView] = [:]
+
     @State private var selectedPage: GalleryPage? = .overview(.buttons)
     @State private var searchText: String = ""
     @State private var expandedCategories: Set<ComponentGalleryCategory> = [.buttons]
@@ -280,7 +330,7 @@ struct ComponentGalleryView: View {
             .id(selectedPage)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(VColor.surfaceOverlay)
+            .background(VColor.surfaceBase)
         }
     }
 
@@ -357,6 +407,10 @@ struct ComponentGalleryView: View {
         case .chat: ChatGallerySection()
         case .display: DisplayGallerySection()
         case .feedback: FeedbackGallerySection()
+        case .home:
+            if let factory = ComponentGalleryView.externalOverviewFactories["home"] {
+                factory()
+            }
         case .icons: IconsGallerySection()
         case .inputs: InputsGallerySection()
         case .layout: LayoutGallerySection()
@@ -373,6 +427,10 @@ struct ComponentGalleryView: View {
         case .chat: ChatGallerySection.componentPage(componentID)
         case .display: DisplayGallerySection.componentPage(componentID)
         case .feedback: FeedbackGallerySection.componentPage(componentID)
+        case .home:
+            if let factory = ComponentGalleryView.externalComponentPageFactories["home"] {
+                factory(componentID)
+            }
         case .icons: IconsGallerySection.componentPage(componentID)
         case .inputs: InputsGallerySection.componentPage(componentID)
         case .layout: LayoutGallerySection.componentPage(componentID)
@@ -491,6 +549,19 @@ struct GalleryOverview: View {
 
         Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
     }
+}
+
+/// Register an external gallery overview factory for a category.
+/// Used by platform-specific targets to inject gallery sections for
+/// categories whose components live outside the shared module.
+public func registerGalleryOverview(for categoryKey: String, factory: @escaping () -> AnyView) {
+    ComponentGalleryView.externalOverviewFactories[categoryKey] = factory
+}
+
+/// Register an external gallery component page factory for a category.
+/// Used by platform-specific targets to inject component detail pages.
+public func registerGalleryComponentPage(for categoryKey: String, factory: @escaping (String) -> AnyView) {
+    ComponentGalleryView.externalComponentPageFactories[categoryKey] = factory
 }
 
 #endif

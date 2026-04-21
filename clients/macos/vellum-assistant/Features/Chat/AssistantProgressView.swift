@@ -40,6 +40,11 @@ struct AssistantProgressView: View {
     /// When the thinking phase ended (card transitioned to `.complete`).
     /// Nil while thinking is still in progress.
     @State private var thinkingAfterToolsEndDate: Date?
+    /// When the card first transitioned to `.complete`. Independent of the
+    /// thinking anchors — captured for every completion so the header total
+    /// duration stays monotonic across the `.toolsCompleteThinking` → `.complete`
+    /// transition even when the daemon never emitted `.processing`.
+    @State private var cardCompletedAt: Date?
 
     // MARK: - Init
 
@@ -106,8 +111,11 @@ struct AssistantProgressView: View {
             initialThinkingStart = latestEnd
             initialThinkingEnd = latestEnd.addingTimeInterval(duration)
         } else if model.allComplete && model.hasTools {
-            let phase = model.phase
-            if phase == .toolsCompleteThinking || phase == .processing {
+            // Only seed the thinking anchor when the daemon has explicitly
+            // signaled thinking-after-tools (.processing). .toolsCompleteThinking
+            // is pure phase inference and would mislabel post-tool latency as
+            // "Thinking" — see the synthetic ThinkingStepRow below.
+            if model.phase == .processing {
                 initialThinkingStart = model.latestCompletedAt ?? Date()
                 initialThinkingEnd = nil
             } else {
@@ -126,6 +134,18 @@ struct AssistantProgressView: View {
         _processingStartDate = State(initialValue: initialProcessingStartDate)
         _thinkingAfterToolsStartDate = State(initialValue: initialThinkingStart)
         _thinkingAfterToolsEndDate = State(initialValue: initialThinkingEnd)
+        // Seed the completion anchor from persisted state first so rehydration
+        // is lossless across view recycling. Falling back to `latestCompletedAt`
+        // (last tool end) drops any post-tool thinking/latency tail and
+        // re-introduces the duration regression the anchor exists to prevent.
+        let persistedCardCompletedAt = cardKeyForInit.flatMap {
+            progressUIState.wrappedValue.cardCompletedAt(for: $0)
+        }
+        let initialCardCompletedAt: Date? = {
+            if let persisted = persistedCardCompletedAt { return persisted }
+            return model.phase == .complete ? model.latestCompletedAt : nil
+        }()
+        _cardCompletedAt = State(initialValue: initialCardCompletedAt)
     }
 
     /// Stable key for this progress card in `progressUIState.cardExpansionOverrides`.
@@ -290,17 +310,32 @@ struct AssistantProgressView: View {
                     startDate = Date()
                 }
             }
-            // Reset thinking anchor when tools resume. Also reset on streamingCode
-            // when tools are still incomplete — phase resolution returns streamingCode
-            // before toolRunning whenever a code preview lingers, so in multi-wave runs
-            // the card can skip toolRunning and keep a stale anchor from the previous wave.
+            // Reset thinking + completion anchors when tools resume. Also reset on
+            // streamingCode when tools are still incomplete — phase resolution
+            // returns streamingCode before toolRunning whenever a code preview
+            // lingers, so in multi-wave runs the card can skip toolRunning and
+            // keep a stale anchor from the previous wave. Without clearing
+            // `cardCompletedAt` here the guard below (`cardCompletedAt == nil`)
+            // would block the second `.complete` from updating it, leaving the
+            // header stuck on wave 1's end time.
             if newPhase == .toolRunning
                 || (newPhase == .streamingCode && !model.allComplete && model.hasTools) {
                 thinkingAfterToolsStartDate = nil
                 thinkingAfterToolsEndDate = nil
+                cardCompletedAt = nil
+                if let key = cardKey {
+                    progressUIState.clearCardCompletedAt(for: key)
+                }
             }
-            // Track thinking phase start: all tools complete, card still active.
-            if (newPhase == .toolsCompleteThinking || newPhase == .processing)
+            // Track thinking phase start only when the daemon explicitly
+            // signaled thinking-after-tools. .processing fires only when
+            // isProcessing is true, which the daemon emits on the first
+            // thinking_delta following a tool completion (see
+            // handleThinkingDelta in conversation-agent-loop-handlers.ts).
+            // .toolsCompleteThinking is pure phase inference and does not
+            // imply real thinking happened — gating on it would mislabel
+            // post-tool network/first-token latency as "Thinking".
+            if newPhase == .processing
                 && model.allComplete && model.hasTools
                 && thinkingAfterToolsStartDate == nil {
                 thinkingAfterToolsStartDate = model.latestCompletedAt ?? Date()
@@ -313,6 +348,18 @@ struct AssistantProgressView: View {
                 if let key = cardKey {
                     let duration = now.timeIntervalSince(thinkingStart)
                     progressUIState.setThinkingDuration(for: key, duration: duration)
+                }
+            }
+            // Anchor the card's completion time on the first `.complete` transition.
+            // Unlike the thinking anchor above this fires regardless of whether
+            // `.processing` was ever observed, keeping the header total monotonic
+            // when the daemon skips straight from `.toolsCompleteThinking`.
+            // Persist on the shared state so the anchor survives view recycling.
+            if newPhase == .complete, cardCompletedAt == nil {
+                let now = Date()
+                cardCompletedAt = now
+                if let key = cardKey {
+                    progressUIState.setCardCompletedAt(for: key, date: now)
                 }
             }
             if shouldAutoExpandOnPhaseChange, !isExpanded {
@@ -521,10 +568,12 @@ struct AssistantProgressView: View {
     @ViewBuilder
     private func completedDurationLabel(model: ProgressCardPresentationModel) -> some View {
         if let start = model.earliestStartedAt {
-            // Use thinkingAfterToolsEndDate as the effective end time when present,
-            // so the parent total includes thinking time and matches the sum of
-            // sub-activity durations (tool steps + thinking row).
-            let effectiveEnd = thinkingAfterToolsEndDate ?? model.latestCompletedAt
+            // Prefer thinkingAfterToolsEndDate (when real thinking was tracked) so the
+            // parent total matches the sum of sub-activity durations. Otherwise fall
+            // back to cardCompletedAt, captured at the `.complete` transition, so the
+            // live elapsed timer doesn't drop back to tool-runtime-only when the card
+            // passes through `.toolsCompleteThinking` without ever hitting `.processing`.
+            let effectiveEnd = thinkingAfterToolsEndDate ?? cardCompletedAt ?? model.latestCompletedAt
             if let end = effectiveEnd {
                 let seconds = end.timeIntervalSince(start)
                 Text(formatStepDuration(seconds))
@@ -1075,14 +1124,20 @@ private struct ThinkingStepRow: View {
     }
 }
 
-// MARK: - Processing Dots Label (Isolated TimelineView)
+// MARK: - Processing Dots Label (Timer-based)
 
 /// Self-contained view for the processing phase label with animated dots.
-/// Extracted so the TimelineView's periodic ticks (every 0.4s) only
-/// re-evaluate this small subtree, not the entire progress card.
+/// Extracted so the periodic ticks (every 0.4s) only re-evaluate this
+/// small subtree, not the entire progress card.
+///
+/// Uses `Timer.publish` on `.main` / `.common` instead of `TimelineView`
+/// for the same reliability reasons as `ElapsedTimeLabel`.
 private struct ProcessingDotsLabel: View {
     let processingStatusText: String?
     let anchor: Date
+    @State private var now = Date()
+
+    private let timer = Timer.publish(every: 0.4, on: .main, in: .common).autoconnect()
 
     var body: some View {
         let initialLabel = ChatBubble.friendlyProcessingLabel(processingStatusText)
@@ -1093,44 +1148,56 @@ private struct ProcessingDotsLabel: View {
             "Finalizing your response",
         ]
 
-        TimelineView(.periodic(from: .now, by: 0.4)) { context in
-            let elapsed = max(0, context.date.timeIntervalSince(anchor))
-            let labelIndex = max(0, min(Int(elapsed / 8), labels.count - 1))
-            let dotPhase = max(0, Int(elapsed / 0.4) % 3)
+        let elapsed = max(0, now.timeIntervalSince(anchor))
+        let labelIndex = max(0, min(Int(elapsed / 8), labels.count - 1))
+        let dotPhase = max(0, Int(elapsed / 0.4) % 3)
 
-            HStack(spacing: VSpacing.xs) {
-                Text(labels[labelIndex])
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentDefault)
-                    .animation(.easeInOut(duration: 0.3), value: labelIndex)
+        HStack(spacing: VSpacing.xs) {
+            Text(labels[labelIndex])
+                .font(VFont.bodyMediumLighter)
+                .foregroundStyle(VColor.contentDefault)
+                .animation(.easeInOut(duration: 0.3), value: labelIndex)
 
-                ForEach(0..<3, id: \.self) { index in
-                    Circle()
-                        .fill(VColor.contentSecondary)
-                        .frame(width: 5, height: 5)
-                        .opacity(dotPhase == index ? 1.0 : 0.4)
-                }
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(VColor.contentSecondary)
+                    .frame(width: 5, height: 5)
+                    .opacity(dotPhase == index ? 1.0 : 0.4)
             }
+        }
+        .onReceive(timer) { date in
+            now = date
         }
     }
 }
 
-// MARK: - Elapsed Time Label (Isolated TimelineView)
+// MARK: - Elapsed Time Label (Timer-based)
 
 /// Self-contained view for the elapsed time counter.
-/// Extracted so the TimelineView's periodic ticks (every 1.0s) only
-/// re-evaluate this small subtree, not the entire progress card.
+/// Extracted so the periodic ticks (every 1.0s) only re-evaluate this
+/// small subtree, not the entire progress card.
+///
+/// Uses `Timer.publish` on `.main` / `.common` instead of `TimelineView`
+/// because `TimelineView(.periodic)` can silently stop firing on macOS
+/// when the view hierarchy is idle or during heavy layout passes, causing
+/// the elapsed counter to freeze.
 private struct ElapsedTimeLabel: View {
     let startDate: Date
+    @State private var now = Date()
+
+    private let timer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1.0)) { context in
-            let elapsed = max(0, context.date.timeIntervalSince(startDate))
+        let elapsed = max(0, now.timeIntervalSince(startDate))
+        Group {
             if elapsed >= 5 {
                 Text(RunningIndicator.formatElapsed(elapsed))
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
             }
+        }
+        .onReceive(timer) { date in
+            now = date
         }
     }
 }

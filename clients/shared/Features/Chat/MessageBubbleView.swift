@@ -1,5 +1,8 @@
 import os
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 private let log = Logger(
     subsystem: Bundle.appBundleIdentifier,
@@ -272,7 +275,7 @@ public struct MessageBubbleView: View {
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .textSelection(.enabled)
                 .contextMenu {
-                    sharedContextMenu()
+                    sharedContextMenu(copyableText: text)
                 }
         } else if message.isError {
             InlineChatErrorAlert(
@@ -281,7 +284,7 @@ public struct MessageBubbleView: View {
                 onRetry: onRetryConversationError
             )
             .contextMenu {
-                sharedContextMenu()
+                sharedContextMenu(copyableText: text)
             }
         } else {
             MarkdownRenderer(text: text)
@@ -290,13 +293,13 @@ public struct MessageBubbleView: View {
                 .background(VColor.surfaceBase)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
                 .contextMenu {
-                    sharedContextMenu()
+                    sharedContextMenu(copyableText: text)
                 }
         }
     }
 
     @ViewBuilder
-    private func sharedContextMenu() -> some View {
+    private func sharedContextMenu(copyableText: String) -> some View {
         if let onRegenerate {
             Button {
                 onRegenerate()
@@ -304,6 +307,16 @@ public struct MessageBubbleView: View {
                 Label { Text("Regenerate") } icon: { VIconView(.rotateCcw, size: 14) }
             }
         }
+
+        #if os(iOS)
+        if !copyableText.isEmpty {
+            Button {
+                UIPasteboard.general.string = copyableText
+            } label: {
+                Label { Text("Copy") } icon: { VIconView(.copy, size: 14) }
+            }
+        }
+        #endif
 
         if let onForkFromMessage, let daemonMessageId = message.daemonMessageId, !message.isStreaming {
             Button {

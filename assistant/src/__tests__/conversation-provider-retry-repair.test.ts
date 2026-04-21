@@ -26,23 +26,34 @@ mock.module("../config/loader.js", () => ({
     daemon: {
       titleGenerationMaxTokens: 30,
     },
-
-    provider: "mock-provider",
-    maxTokens: 4096,
-    thinking: false,
-    contextWindow: {
-      enabled: true,
-      maxInputTokens: 100000,
-      targetBudgetRatio: 0.3,
-      compactThreshold: 0.8,
-      summaryBudgetRatio: 0.05,
-      overflowRecovery: {
-        enabled: true,
-        safetyMarginRatio: 0.05,
-        maxAttempts: 3,
-        interactiveLatestTurnCompression: "summarize",
-        nonInteractiveLatestTurnCompression: "truncate",
+    
+    llm: {
+      default: {
+        provider: "mock-provider",
+        model: "mock-model",
+        maxTokens: 4096,
+        effort: "max" as const,
+        speed: "standard" as const,
+        temperature: null,
+        thinking: { enabled: false, streamThinking: true },
+        contextWindow: {
+          enabled: true,
+          maxInputTokens: 100000,
+          targetBudgetRatio: 0.3,
+          compactThreshold: 0.8,
+          summaryBudgetRatio: 0.05,
+          overflowRecovery: {
+            enabled: true,
+            safetyMarginRatio: 0.05,
+            maxAttempts: 3,
+            interactiveLatestTurnCompression: "summarize",
+            nonInteractiveLatestTurnCompression: "truncate",
+          },
+        },
       },
+      profiles: {},
+      callSites: {},
+      pricingOverrides: [],
     },
     rateLimit: { maxRequestsPerMinute: 0 },
     services: {

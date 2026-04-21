@@ -3,6 +3,12 @@ import VellumAssistantShared
 
 struct ConversationSwitcherDrawer: View {
     var conversationManager: ConversationManager
+    /// `@Observable` source of truth for `groupedConversations`. Reading
+    /// from the store directly (rather than through `ConversationManager`
+    /// forwarders) anchors Observation tracking on the object that owns the
+    /// mutation so the drawer re-renders when conversations populate. See
+    /// [Managing model data in your app](https://developer.apple.com/documentation/swiftui/managing-model-data-in-your-app).
+    var listStore: ConversationListStore
     var windowState: MainWindowState
     var sidebar: SidebarInteractionState
     var customGroupsEnabled: Bool = false
@@ -21,7 +27,7 @@ struct ConversationSwitcherDrawer: View {
 
     /// Group entries filtered by flags: custom groups merged into system:all when their flag is off.
     private var drawerEntries: [(group: ConversationGroup, conversations: [ConversationModel])] {
-        let raw = conversationManager.groupedConversations
+        let raw = listStore.groupedConversations
         var entries: [(group: ConversationGroup, conversations: [ConversationModel])] = []
         var extraForAll: [ConversationModel] = []
         for entry in raw {

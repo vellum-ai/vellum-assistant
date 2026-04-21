@@ -17,7 +17,10 @@ struct RunningIndicator: View {
     var onTap: (() -> Void)?
 
     @State private var startDate: Date = Date()
+    @State private var now: Date = Date()
     @State private var isHovered: Bool = false
+
+    private let timer = Timer.publish(every: 0.4, on: .main, in: .common).autoconnect()
 
     static func formatElapsed(_ elapsed: TimeInterval) -> String {
         let seconds = Int(elapsed)
@@ -49,52 +52,53 @@ struct RunningIndicator: View {
     }
 
     private var indicatorContent: some View {
-        TimelineView(.periodic(from: .now, by: 0.4)) { context in
-            let elapsed = context.date.timeIntervalSince(startDate)
-            let phase = Int(elapsed / 0.4) % 3
-            let currentLabel = displayLabel(elapsed: elapsed)
-            let labelIndex = progressiveLabels.isEmpty ? 0 : min(Int(elapsed / labelInterval), progressiveLabels.count - 1)
-            HStack(spacing: VSpacing.xs) {
-                if showIcon {
-                    VIconView(.terminal, size: 10)
-                        .foregroundStyle(VColor.contentSecondary)
-                }
-
-                Text(currentLabel)
-                    .font(VFont.labelDefault)
+        let elapsed = now.timeIntervalSince(startDate)
+        let phase = Int(elapsed / 0.4) % 3
+        let currentLabel = displayLabel(elapsed: elapsed)
+        let labelIndex = progressiveLabels.isEmpty ? 0 : min(Int(elapsed / labelInterval), progressiveLabels.count - 1)
+        return HStack(spacing: VSpacing.xs) {
+            if showIcon {
+                VIconView(.terminal, size: 10)
                     .foregroundStyle(VColor.contentSecondary)
-                    .animation(.easeInOut(duration: 0.3), value: labelIndex)
-
-                ForEach(0..<3, id: \.self) { index in
-                    Circle()
-                        .fill(VColor.contentSecondary)
-                        .frame(width: 5, height: 5)
-                        .opacity(phase == index ? 1.0 : 0.4)
-                }
-
-                if elapsed >= 5 {
-                    Text(Self.formatElapsed(elapsed))
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentTertiary)
-                }
-
-                if onTap != nil {
-                    VIconView(.chevronRight, size: 9)
-                        .foregroundStyle(VColor.contentTertiary)
-                }
-
-                Spacer()
             }
-            .padding(.horizontal, onTap != nil ? VSpacing.sm : 0)
-            .padding(.vertical, VSpacing.xs)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.lg)
-                    .fill(isHovered ? VColor.surfaceBase.opacity(0.6) : Color.clear)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
+
+            Text(currentLabel)
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentSecondary)
+                .animation(.easeInOut(duration: 0.3), value: labelIndex)
+
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(VColor.contentSecondary)
+                    .frame(width: 5, height: 5)
+                    .opacity(phase == index ? 1.0 : 0.4)
+            }
+
+            if elapsed >= 5 {
+                Text(Self.formatElapsed(elapsed))
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+
+            if onTap != nil {
+                VIconView(.chevronRight, size: 9)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+
+            Spacer()
         }
+        .padding(.horizontal, onTap != nil ? VSpacing.sm : 0)
+        .padding(.vertical, VSpacing.xs)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(isHovered ? VColor.surfaceBase.opacity(0.6) : Color.clear)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .onAppear {
             startDate = Date()
+        }
+        .onReceive(timer) { date in
+            now = date
         }
     }
 }

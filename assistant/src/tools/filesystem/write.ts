@@ -1,10 +1,34 @@
+import { join, resolve, sep } from "node:path";
+
+import { enqueuePkbIndexJob } from "../../memory/jobs/embed-pkb-file.js";
+import { PKB_WORKSPACE_SCOPE } from "../../memory/pkb/types.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
+import { getLogger } from "../../util/logger.js";
+import { getWorkspaceDir } from "../../util/platform.js";
 import { registerTool } from "../registry.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatWriteSummary } from "../shared/filesystem/format-diff.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+
+const logger = getLogger("file-write");
+
+/**
+ * Returns `true` iff `absPath` is an absolute path that resolves strictly
+ * inside `pkbRoot`. Matches the containment semantics used elsewhere in the
+ * daemon (e.g. `pkb-context-tracker`): a root-with-separator prefix check,
+ * guarding against `<root>siblingDir` false positives.
+ */
+function isInsidePkbRoot(absPath: string, pkbRoot: string): boolean {
+  const normalizedRoot = resolve(pkbRoot);
+  const normalized = resolve(absPath);
+  if (normalized === normalizedRoot) return false;
+  const rootWithSep = normalizedRoot.endsWith(sep)
+    ? normalizedRoot
+    : normalizedRoot + sep;
+  return normalized.startsWith(rootWithSep);
+}
 
 class FileWriteTool implements Tool {
   name = "file_write";
@@ -86,6 +110,34 @@ class FileWriteTool implements Tool {
     }
 
     const { filePath, oldContent, newContent, isNewFile } = result.value;
+
+    // If the write landed inside the workspace PKB root, enqueue a
+    // fire-and-forget re-index job so Qdrant stays in sync with on-disk
+    // content. Failures here must never surface to the caller — a file
+    // was written successfully and that is the user-facing contract.
+    try {
+      const pkbRoot = join(getWorkspaceDir(), "pkb");
+      // Gate on `.md` to match `scanPkbFiles`, which only walks markdown.
+      // Indexing `pkb/*.json` (or any other extension) here would produce
+      // chunks the reconciler can't see, leading to orphaned vectors and
+      // pointless embedding work.
+      if (filePath.toLowerCase().endsWith(".md") && isInsidePkbRoot(filePath, pkbRoot)) {
+        enqueuePkbIndexJob({
+          pkbRoot,
+          absPath: filePath,
+          memoryScopeId: PKB_WORKSPACE_SCOPE,
+        });
+      }
+    } catch (err) {
+      logger.warn(
+        {
+          filePath,
+          error: err instanceof Error ? err.message : String(err),
+        },
+        "Failed to enqueue PKB re-index job after file_write",
+      );
+    }
+
     return {
       content: `Successfully wrote to ${filePath} ${formatWriteSummary(
         oldContent,

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  DEFAULT_AVATAR_DEVICE_PATH,
   DEFAULT_MEET_OBJECTION_KEYWORDS,
   DEFAULT_MEET_PROACTIVE_CHAT_KEYWORDS,
   MeetServiceSchema,
@@ -12,6 +13,12 @@ const DEFAULT_PROACTIVE_CHAT = {
   tier2DebounceMs: 5_000,
   escalationCooldownSec: 30,
   tier2MaxTranscriptSec: 30,
+};
+
+const DEFAULT_AVATAR = {
+  enabled: false,
+  renderer: "noop",
+  devicePath: DEFAULT_AVATAR_DEVICE_PATH,
 };
 
 describe("MeetServiceSchema", () => {
@@ -28,6 +35,7 @@ describe("MeetServiceSchema", () => {
       dockerNetwork: "bridge",
       maxMeetingMinutes: 240,
       proactiveChat: DEFAULT_PROACTIVE_CHAT,
+      avatar: DEFAULT_AVATAR,
     });
   });
 
@@ -56,7 +64,11 @@ describe("MeetServiceSchema", () => {
       maxMeetingMinutes: 60,
     };
     const parsed = MeetServiceSchema.parse(input);
-    expect(parsed).toEqual({ ...input, proactiveChat: DEFAULT_PROACTIVE_CHAT });
+    expect(parsed).toEqual({
+      ...input,
+      proactiveChat: DEFAULT_PROACTIVE_CHAT,
+      avatar: DEFAULT_AVATAR,
+    });
   });
 
   test("rejects negative maxMeetingMinutes", () => {
@@ -199,5 +211,68 @@ describe("MeetServiceSchema", () => {
     expect(parsed.joinName).toBe(null);
     expect(parsed.autoLeaveOnObjection).toBe(true);
     expect(parsed.maxMeetingMinutes).toBe(240);
+  });
+});
+
+describe("MeetServiceSchema.avatar", () => {
+  test("avatar defaults to disabled with the noop renderer", () => {
+    const parsed = MeetServiceSchema.parse({});
+    expect(parsed.avatar.enabled).toBe(false);
+    expect(parsed.avatar.renderer).toBe("noop");
+    expect(parsed.avatar.devicePath).toBe(DEFAULT_AVATAR_DEVICE_PATH);
+  });
+
+  test("accepts each renderer id in the documented enum", () => {
+    const ids = [
+      "noop",
+      "talking-head",
+      "simli",
+      "heygen",
+      "tavus",
+      "sadtalker",
+      "musetalk",
+    ];
+    for (const id of ids) {
+      const parsed = MeetServiceSchema.parse({
+        avatar: { enabled: true, renderer: id },
+      });
+      expect(parsed.avatar.renderer).toBe(id);
+    }
+  });
+
+  test("rejects an unknown renderer id", () => {
+    const result = MeetServiceSchema.safeParse({
+      avatar: { renderer: "not-a-renderer" },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("per-renderer option blocks are all optional at the schema level", () => {
+    // Each renderer PR fills in its own required shape inside its
+    // `start()` implementation — the schema stays permissive so a
+    // partially-configured avatar block still round-trips through the
+    // config loader.
+    const parsed = MeetServiceSchema.parse({
+      avatar: {
+        enabled: true,
+        renderer: "simli",
+        simli: { apiKeyCredentialId: "credential-simli-prod" },
+      },
+    });
+    expect(parsed.avatar.renderer).toBe("simli");
+    expect(parsed.avatar.simli).toEqual({
+      apiKeyCredentialId: "credential-simli-prod",
+    });
+  });
+
+  test("devicePath can be overridden for non-default v4l2loopback nodes", () => {
+    const parsed = MeetServiceSchema.parse({
+      avatar: {
+        enabled: true,
+        renderer: "noop",
+        devicePath: "/dev/video11",
+      },
+    });
+    expect(parsed.avatar.devicePath).toBe("/dev/video11");
   });
 });

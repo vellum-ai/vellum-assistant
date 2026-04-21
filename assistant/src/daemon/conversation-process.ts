@@ -20,6 +20,7 @@ import {
   type TurnInterfaceContext,
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { ContextWindowResult } from "../context/window-manager.js";
 import { listPendingRequestsByConversationScope } from "../memory/canonical-guardian-store.js";
 import {
@@ -111,14 +112,6 @@ export interface ProcessConversationContext {
   currentPage?: string;
   /** Cumulative token usage stats for the conversation. */
   readonly usageStats: UsageStats;
-  /**
-   * Effective per-model max input tokens for the active model, derived from
-   * the per-model catalog capped by the optional `contextWindow.maxInputTokens`
-   * config override. Optional so older callers/tests that satisfy this
-   * interface without wiring up a ContextWindowManager continue to compile;
-   * `buildSlashContext` falls back to the config value when absent.
-   */
-  readonly effectiveMaxInputTokens?: number;
   /** Request-scoped skill IDs preactivated via config or programmatic injection. */
   preactivatedSkillIds?: string[];
   /** Add a skill ID to the preactivated set without replacing existing entries. */
@@ -148,6 +141,7 @@ export interface ProcessConversationContext {
       isInteractive?: boolean;
       isUserMessage?: boolean;
       titleText?: string;
+      callSite?: LLMCallSite;
     },
   ): Promise<void>;
   getTurnChannelContext(): TurnChannelContext | null;
@@ -267,15 +261,9 @@ function buildSlashContext(
     messageCount: conversation.messages.length,
     inputTokens: conversation.usageStats.inputTokens,
     outputTokens: conversation.usageStats.outputTokens,
-    // Prefer the per-model effective cap (catalog-resolved) when the
-    // context provides it so slash commands see the same budget the
-    // compaction logic measures against; fall back to the config value
-    // for contexts that pre-date this field.
-    maxInputTokens:
-      conversation.effectiveMaxInputTokens ??
-      config.contextWindow.maxInputTokens,
-    model: config.services.inference.model,
-    provider: config.services.inference.provider,
+    maxInputTokens: config.llm.default.contextWindow.maxInputTokens,
+    model: config.llm.default.model,
+    provider: config.llm.default.provider,
     estimatedCost: conversation.usageStats.estimatedCost,
     userMessageInterface: turnInterface?.userMessageInterface,
   };
@@ -1305,7 +1293,7 @@ export async function processMessage(
   requestId?: string,
   activeSurfaceId?: string,
   currentPage?: string,
-  options?: { isInteractive?: boolean },
+  options?: { isInteractive?: boolean; callSite?: LLMCallSite },
   displayContent?: string,
 ): Promise<string> {
   await conversation.ensureActorScopedHistory();
@@ -1661,11 +1649,13 @@ export async function processMessage(
     isInteractive?: boolean;
     isUserMessage?: boolean;
     titleText?: string;
+    callSite?: LLMCallSite;
   } = { isUserMessage: true };
   if (options?.isInteractive !== undefined)
     loopOptions.isInteractive = options.isInteractive;
   if (agentLoopContent !== resolvedContent)
     loopOptions.titleText = resolvedContent;
+  if (options?.callSite !== undefined) loopOptions.callSite = options.callSite;
 
   await conversation.runAgentLoop(
     agentLoopContent,

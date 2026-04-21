@@ -213,6 +213,20 @@ private let fallbackRegistry = STTProviderRegistry(
                 linkLabel: "Open OpenAI Platform"
             )
         ),
+        STTProviderCatalogEntry(
+            id: "xai",
+            displayName: "xAI",
+            subtitle: "Real-time speech-to-text powered by xAI. Requires an xAI API key.",
+            setupMode: .apiKey,
+            setupHint: "Enter your xAI API key to enable xAI transcription.",
+            apiKeyProviderName: "xai",
+            conversationStreamingMode: .realtimeWs,
+            credentialsGuide: STTCredentialsGuide(
+                description: "Sign in to the xAI console, navigate to API Keys, and create a new key.",
+                url: "https://console.x.ai/",
+                linkLabel: "Open xAI Console"
+            )
+        ),
     ]
 )
 

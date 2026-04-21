@@ -262,7 +262,7 @@ async function identifyDuplicateGroups(
 ): Promise<MemoryNode[][]> {
   if (nodes.length < 2) return [];
 
-  const provider = await getConfiguredProvider();
+  const provider = await getConfiguredProvider("memoryConsolidation");
   if (!provider) return [];
 
   // Compact listing: ID + first 100 chars of content
@@ -282,7 +282,7 @@ async function identifyDuplicateGroups(
     systemPrompt,
     {
       config: {
-        modelIntent: "quality-optimized" as const,
+        callSite: "memoryConsolidation" as const,
         tool_choice: { type: "tool" as const, name: "report_duplicate_groups" },
       },
     },
@@ -428,7 +428,7 @@ async function consolidateChunk(
     return true;
   });
 
-  const provider = await getConfiguredProvider();
+  const provider = await getConfiguredProvider("memoryConsolidation");
   if (!provider) {
     throw new BackendUnavailableError("Provider unavailable for consolidation");
   }
@@ -459,7 +459,7 @@ async function consolidateChunk(
     systemPrompt,
     {
       config: {
-        modelIntent: "quality-optimized" as const,
+        callSite: "memoryConsolidation" as const,
         tool_choice: { type: "tool" as const, name: "consolidate_diff" },
       },
     },

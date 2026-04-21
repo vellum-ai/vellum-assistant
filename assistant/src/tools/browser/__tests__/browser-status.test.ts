@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ToolContext } from "../../types.js";
 import {
@@ -13,6 +13,11 @@ const probeOutcomes: Record<string, ProbeOutcome> = {
   [BROWSER_STATUS_MODE.EXTENSION]: "ok",
   [BROWSER_STATUS_MODE.CDP_INSPECT]: "ok",
   [BROWSER_STATUS_MODE.LOCAL]: "ok",
+};
+const probeErrors: Record<string, CdpError | null> = {
+  [BROWSER_STATUS_MODE.EXTENSION]: null,
+  [BROWSER_STATUS_MODE.CDP_INSPECT]: null,
+  [BROWSER_STATUS_MODE.LOCAL]: null,
 };
 
 const buildCandidateListMock = mock((_context: ToolContext) => [
@@ -30,7 +35,10 @@ const getCdpClientMock = mock(
       conversationId: "test-conversation",
       send: mock(async () => {
         if (outcome === "fail") {
-          throw new CdpError("transport_error", `${mode} probe failed`);
+          throw (
+            probeErrors[mode] ??
+            new CdpError("transport_error", `${mode} probe failed`)
+          );
         }
         return { result: { value: "complete" } };
       }),
@@ -86,6 +94,15 @@ function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
 }
 
 describe("executeBrowserStatus", () => {
+  beforeEach(() => {
+    probeOutcomes[BROWSER_STATUS_MODE.EXTENSION] = "ok";
+    probeOutcomes[BROWSER_STATUS_MODE.CDP_INSPECT] = "ok";
+    probeOutcomes[BROWSER_STATUS_MODE.LOCAL] = "ok";
+    probeErrors[BROWSER_STATUS_MODE.EXTENSION] = null;
+    probeErrors[BROWSER_STATUS_MODE.CDP_INSPECT] = null;
+    probeErrors[BROWSER_STATUS_MODE.LOCAL] = null;
+  });
+
   test("reports extension preflight-unavailable when no host browser proxy is bound", async () => {
     const result = await executeBrowserStatus({}, makeContext());
     expect(result.isError).toBe(false);
@@ -119,5 +136,31 @@ describe("executeBrowserStatus", () => {
     expect(result.content).toContain(
       `${BROWSER_STATUS_INPUT_FIELD.CHECK_LOCAL_LAUNCH} must be a boolean`,
     );
+  });
+
+  test("reports extension as connected when probe fails on restricted chrome:// page", async () => {
+    probeOutcomes[BROWSER_STATUS_MODE.EXTENSION] = "fail";
+    probeErrors[BROWSER_STATUS_MODE.EXTENSION] = new CdpError(
+      "cdp_error",
+      "Cannot access a chrome:// URL",
+    );
+
+    const result = await executeBrowserStatus(
+      {},
+      makeContext({
+        hostBrowserProxy: {
+          isAvailable: () => true,
+        } as ToolContext["hostBrowserProxy"],
+      }),
+    );
+    expect(result.isError).toBe(false);
+    const payload = JSON.parse(result.content);
+    const extension = payload.modes.find(
+      (m: { mode: string }) => m.mode === BROWSER_STATUS_MODE.EXTENSION,
+    );
+    expect(extension).toBeDefined();
+    expect(extension.available).toBe(true);
+    expect(extension.verified).toBe("active_probe");
+    expect(extension.details.restrictedActiveTab).toBe(true);
   });
 });

@@ -172,11 +172,21 @@ public final class MainWindowState {
         selection = newSelection
     }
 
+    /// Whether `navigateBack()` will change visible state. True when the
+    /// inspector overlay is open (back dismisses it) OR when the history
+    /// back stack has entries. The inspector isn't a `ViewSelection`, so
+    /// opening it never pushes onto the back stack — this accessor lets
+    /// the Cmd+[ keybinding and top-bar Back button stay enabled so they
+    /// route through `navigateBack()` to dismiss the overlay.
+    var canGoBack: Bool {
+        navigationHistory.canGoBack || inspectorMessageId != nil
+    }
+
     /// Navigate back through history, falling back to `dismissOverlay()` when
     /// the back stack is empty (e.g. panel restored on app restart via
     /// `restoreLastActivePanel()` which suppresses history recording).
     func navigateBackOrDismiss() {
-        if navigationHistory.canGoBack {
+        if canGoBack {
             navigateBack()
         } else {
             dismissOverlay()
@@ -184,6 +194,16 @@ public final class MainWindowState {
     }
 
     func navigateBack() {
+        // If the inspector overlay is open, "back" dismisses it and keeps
+        // the user on the current conversation. The inspector isn't tracked
+        // in `navigationHistory`, so popping here would skip past the
+        // current conversation to whatever page preceded it.
+        if inspectorMessageId != nil {
+            withAnimation(VAnimation.standard) {
+                inspectorMessageId = nil
+            }
+            return
+        }
         guard let destination = navigationHistory.popBack(
             currentSelection: selection,
             persistentConversationId: persistentConversationId

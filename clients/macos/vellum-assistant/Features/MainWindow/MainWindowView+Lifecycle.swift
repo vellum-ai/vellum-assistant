@@ -31,7 +31,7 @@ extension MainWindowView {
                 handleUpdateOutcome(outcome)
                 connectionManager.clearLastUpdateOutcome()
             }
-            .onChange(of: conversationManager.conversations.isEmpty) { _, isEmpty in
+            .onChange(of: listStore.conversations.isEmpty) { _, isEmpty in
                 if !isEmpty && showDaemonLoading {
                     withAnimation(VAnimation.standard) {
                         showDaemonLoading = false

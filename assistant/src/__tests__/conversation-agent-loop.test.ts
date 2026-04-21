@@ -17,22 +17,33 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
-    provider: "mock-provider",
-    maxTokens: 4096,
-    thinking: false,
-    contextWindow: {
-      maxInputTokens: 100000,
-      thresholdTokens: 80000,
-      preserveRecentMessages: 6,
-      summaryModel: "mock-model",
-      maxSummaryTokens: 512,
-      overflowRecovery: {
-        enabled: true,
-        safetyMarginRatio: 0.05,
-        maxAttempts: 3,
-        interactiveLatestTurnCompression: "summarize",
-        nonInteractiveLatestTurnCompression: "truncate",
+    llm: {
+      default: {
+        provider: "mock-provider",
+        model: "mock-model",
+        maxTokens: 4096,
+        effort: "max" as const,
+        speed: "standard" as const,
+        temperature: null,
+        thinking: { enabled: false, streamThinking: true },
+        contextWindow: {
+          enabled: true,
+          maxInputTokens: 100000,
+          targetBudgetRatio: 0.3,
+          compactThreshold: 0.8,
+          summaryBudgetRatio: 0.05,
+          overflowRecovery: {
+            enabled: true,
+            safetyMarginRatio: 0.05,
+            maxAttempts: 3,
+            interactiveLatestTurnCompression: "summarize",
+            nonInteractiveLatestTurnCompression: "truncate",
+          },
+        },
       },
+      profiles: {},
+      callSites: {},
+      pricingOverrides: [],
     },
     rateLimit: { maxRequestsPerMinute: 0 },
     workspaceGit: { turnCommitMaxWaitMs: 10 },
@@ -113,10 +124,19 @@ mock.module("../hooks/manager.js", () => ({
   }),
 }));
 
+const updateMessageMetadataMock = mock(
+  (_id: string, _updates: Record<string, unknown>) => {},
+);
+const clearPkbSystemReminderMetadataForConversationMock = mock(
+  (_conversationId: string) => {},
+);
 mock.module("../memory/conversation-crud.js", () => ({
   getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
   updateConversationUsage: () => {},
+  updateMessageMetadata: updateMessageMetadataMock,
+  clearPkbSystemReminderMetadataForConversation:
+    clearPkbSystemReminderMetadataForConversationMock,
   getMessages: () => [],
   getConversation: () => ({
     id: "conv-1",
@@ -195,11 +215,31 @@ mock.module("../daemon/conversation-memory.js", () => ({
   }),
 }));
 
+let mockInjectionBlocks: {
+  pkbSystemReminder?: string;
+  unifiedTurnContext?: string;
+} = {};
+const applyRuntimeInjectionsMock = mock(async (msgs: Message[]) => ({
+  messages: msgs,
+  blocks: { ...mockInjectionBlocks },
+}));
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
-  applyRuntimeInjections: (msgs: Message[]) => msgs,
+  applyRuntimeInjections: applyRuntimeInjectionsMock,
   stripInjectionsForCompaction: (msgs: Message[]) => msgs,
   findLastInjectedNowContent: () => null,
   readNowScratchpad: () => null,
+  readPkbContext: () => null,
+  getPkbAutoInjectList: () => [
+    "INDEX.md",
+    "essentials.md",
+    "threads.md",
+    "buffer.md",
+  ],
+  isSlackChannelConversation: () => false,
+  loadSlackChronologicalMessages: () => null,
+  loadSlackActiveThreadFocusBlock: () => null,
+  assembleSlackChronologicalMessages: () => null,
+  assembleSlackActiveThreadFocusBlock: () => null,
 }));
 
 mock.module("../daemon/date-context.js", () => ({
@@ -475,10 +515,18 @@ beforeEach(() => {
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
   mockApprovalResult = { approved: false };
+  mockInjectionBlocks = {};
   recordUsageMock.mockClear();
   recordRequestLogMock.mockClear();
   syncMessageToDiskMock.mockClear();
   rebuildConversationDiskViewFromDbStateMock.mockClear();
+  updateMessageMetadataMock.mockClear();
+  updateMessageMetadataMock.mockImplementation(() => {});
+  clearPkbSystemReminderMetadataForConversationMock.mockClear();
+  clearPkbSystemReminderMetadataForConversationMock.mockImplementation(
+    () => {},
+  );
+  applyRuntimeInjectionsMock.mockClear();
 });
 
 describe("session-agent-loop", () => {
@@ -1749,72 +1797,6 @@ describe("session-agent-loop", () => {
       const complete = events.find((e) => e.type === "message_complete");
       expect(complete).toBeDefined();
     });
-
-    test("does not yield during browser flow even when handoff is available", async () => {
-      const events: ServerMessage[] = [];
-
-      const agentLoopRun: AgentLoopRun = async (
-        messages,
-        onEvent,
-        _signal,
-        _reqId,
-        onCheckpoint,
-      ) => {
-        // All tool uses are browser_ prefixed
-        onEvent({
-          type: "tool_use",
-          id: "tu-1",
-          name: "browser_navigate",
-          input: {},
-        });
-        onEvent({
-          type: "tool_result",
-          toolUseId: "tu-1",
-          content: "navigated",
-          isError: false,
-        });
-        onEvent({
-          type: "message_complete",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "browsing" }],
-          },
-        });
-        onEvent({
-          type: "usage",
-          inputTokens: 100,
-          outputTokens: 50,
-          model: "test-model",
-          providerDurationMs: 100,
-        });
-        if (onCheckpoint) {
-          onCheckpoint({
-            turnIndex: 0,
-            toolCount: 1,
-            hasToolUse: true,
-            history: messages,
-          });
-        }
-        return [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: [{ type: "text", text: "browsing" }] as ContentBlock[],
-          },
-        ];
-      };
-
-      const ctx = makeCtx({
-        agentLoopRun,
-        canHandoffAtCheckpoint: () => true,
-      } as unknown as Partial<AgentLoopConversationContext>);
-
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
-
-      // Browser flows should NOT yield
-      const handoff = events.find((e) => e.type === "generation_handoff");
-      expect(handoff).toBeUndefined();
-    });
   });
 
   describe("user cancellation", () => {
@@ -2160,6 +2142,106 @@ describe("session-agent-loop", () => {
     });
   });
 
+  describe("turnContextBlock metadata persistence", () => {
+    test("persists turnContextBlock when unifiedTurnContext is captured", async () => {
+      const turnContext = "<turn_context>\nctx payload\n</turn_context>";
+      mockInjectionBlocks = { unifiedTurnContext: turnContext };
+
+      const ctx = makeCtx();
+      await runAgentLoopImpl(ctx, "hello", "user-msg-123", () => {});
+
+      const turnContextCalls = updateMessageMetadataMock.mock.calls.filter(
+        (call) => {
+          const payload = call[1] as Record<string, unknown>;
+          return (
+            payload != null &&
+            Object.prototype.hasOwnProperty.call(payload, "turnContextBlock")
+          );
+        },
+      );
+      expect(turnContextCalls).toHaveLength(1);
+      expect(turnContextCalls[0]![0]).toBe("user-msg-123");
+      expect(turnContextCalls[0]![1]).toEqual({
+        turnContextBlock: turnContext,
+      });
+    });
+
+    test("skips persistence when unifiedTurnContext is not captured", async () => {
+      mockInjectionBlocks = {};
+
+      const ctx = makeCtx();
+      await runAgentLoopImpl(ctx, "hello", "user-msg-456", () => {});
+
+      const turnContextCalls = updateMessageMetadataMock.mock.calls.filter(
+        (call) => {
+          const payload = call[1] as Record<string, unknown>;
+          return (
+            payload != null &&
+            Object.prototype.hasOwnProperty.call(payload, "turnContextBlock")
+          );
+        },
+      );
+      expect(turnContextCalls).toHaveLength(0);
+    });
+
+    test("only persists at first call site, even when overflow re-entry fires", async () => {
+      const turnContext = "<turn_context>\nctx\n</turn_context>";
+      mockInjectionBlocks = { unifiedTurnContext: turnContext };
+
+      // Force preflight overflow path so applyRuntimeInjections is called
+      // again inside the overflow-recovery re-entry loop.
+      mockEstimateTokens = 96000;
+      mockReducerStepFn = (msgs: Message[]) => ({
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: true,
+        },
+        estimatedTokens: 50000,
+      });
+
+      const ctx = makeCtx();
+      await runAgentLoopImpl(ctx, "hello", "user-msg-789", () => {});
+
+      // Sanity check: overflow re-entry did fire (call count > 1).
+      expect(applyRuntimeInjectionsMock.mock.calls.length).toBeGreaterThan(1);
+
+      const turnContextCalls = updateMessageMetadataMock.mock.calls.filter(
+        (call) => {
+          const payload = call[1] as Record<string, unknown>;
+          return (
+            payload != null &&
+            Object.prototype.hasOwnProperty.call(payload, "turnContextBlock")
+          );
+        },
+      );
+      expect(turnContextCalls).toHaveLength(1);
+      expect(turnContextCalls[0]![0]).toBe("user-msg-789");
+    });
+
+    test("non-fatal when updateMessageMetadata throws", async () => {
+      mockInjectionBlocks = {
+        unifiedTurnContext: "<turn_context>x</turn_context>",
+      };
+      updateMessageMetadataMock.mockImplementation(() => {
+        throw new Error("simulated DB failure");
+      });
+
+      const events: ServerMessage[] = [];
+      const ctx = makeCtx();
+
+      // Should not throw; agent loop continues and emits message_complete.
+      await runAgentLoopImpl(ctx, "hello", "user-msg-err", (msg) =>
+        events.push(msg),
+      );
+
+      const complete = events.find((e) => e.type === "message_complete");
+      expect(complete).toBeDefined();
+    });
+  });
+
   describe("error-only response with no assistant text", () => {
     test("synthesizes error assistant message when provider returns no response", async () => {
       const events: ServerMessage[] = [];
@@ -2196,6 +2278,251 @@ describe("session-agent-loop", () => {
         (e) => e.type === "conversation_error",
       );
       expect(conversationErrors.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe("pkbSystemReminderBlock metadata persistence", () => {
+    test("persists pkbSystemReminderBlock in full mode with PKB active", async () => {
+      const reminder = "<system_reminder>\npkb content\n</system_reminder>";
+      mockInjectionBlocks = { pkbSystemReminder: reminder };
+      const ctx = makeCtx();
+
+      await runAgentLoopImpl(ctx, "hello", "user-msg-1", () => {});
+
+      const pkbCalls = updateMessageMetadataMock.mock.calls.filter(
+        (call) =>
+          (call[1] as Record<string, unknown>).pkbSystemReminderBlock !==
+          undefined,
+      );
+      expect(pkbCalls.length).toBe(1);
+      expect(pkbCalls[0][0]).toBe("user-msg-1");
+      expect(
+        (pkbCalls[0][1] as Record<string, unknown>).pkbSystemReminderBlock,
+      ).toBe(reminder);
+    });
+
+    test("skips persistence when pkbSystemReminder is absent (minimal mode or PKB inactive)", async () => {
+      mockInjectionBlocks = {}; // no pkbSystemReminder key
+      const ctx = makeCtx();
+
+      await runAgentLoopImpl(ctx, "hello", "user-msg-2", () => {});
+
+      const pkbCalls = updateMessageMetadataMock.mock.calls.filter(
+        (call) =>
+          (call[1] as Record<string, unknown>).pkbSystemReminderBlock !==
+          undefined,
+      );
+      expect(pkbCalls.length).toBe(0);
+    });
+
+    test("does not propagate errors when updateMessageMetadata throws", async () => {
+      mockInjectionBlocks = {
+        pkbSystemReminder: "<system_reminder>\nboom\n</system_reminder>",
+      };
+      updateMessageMetadataMock.mockImplementationOnce(() => {
+        throw new Error("db write failed");
+      });
+      const ctx = makeCtx();
+
+      // Must not throw — the persist block wraps writes in try/catch.
+      await expect(
+        runAgentLoopImpl(ctx, "hello", "user-msg-3", () => {}),
+      ).resolves.toBeUndefined();
+    });
+
+    test("writes both blocks in a single combined updateMessageMetadata call", async () => {
+      // Both blocks are persisted via one combined call to halve SQLite
+      // SELECT+UPDATE work on the hot user-turn path (the common case with
+      // PKB active).
+      const reminder = "<system_reminder>\npkb\n</system_reminder>";
+      const turnContext = "<turn_context>\nnow\n</turn_context>";
+      mockInjectionBlocks = {
+        pkbSystemReminder: reminder,
+        unifiedTurnContext: turnContext,
+      };
+      const ctx = makeCtx();
+
+      await runAgentLoopImpl(ctx, "hello", "user-msg-4", () => {});
+
+      const injectionCalls = updateMessageMetadataMock.mock.calls.filter(
+        (call) => {
+          const payload = call[1] as Record<string, unknown>;
+          return (
+            payload != null &&
+            (Object.prototype.hasOwnProperty.call(
+              payload,
+              "pkbSystemReminderBlock",
+            ) ||
+              Object.prototype.hasOwnProperty.call(payload, "turnContextBlock"))
+          );
+        },
+      );
+      expect(injectionCalls.length).toBe(1);
+      expect(injectionCalls[0]![0]).toBe("user-msg-4");
+      expect(injectionCalls[0]![1]).toEqual({
+        turnContextBlock: turnContext,
+        pkbSystemReminderBlock: reminder,
+      });
+    });
+  });
+
+  describe("compaction-strip metadata consistency", () => {
+    test("clears pkbSystemReminderBlock metadata when convergence strip runs", async () => {
+      // Reducer: succeed on first call, returning reduced messages.
+      mockReducerStepFn = (msgs: Message[]) => ({
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: false,
+        },
+        estimatedTokens: 5000,
+      });
+
+      let callCount = 0;
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        callCount++;
+        if (callCount === 1) {
+          // Trigger convergence path: error + appended assistant message so
+          // updatedHistory.length > preRunHistoryLength at the strip site.
+          onEvent({
+            type: "error",
+            error: new Error("context_length_exceeded"),
+          });
+          onEvent({
+            type: "usage",
+            inputTokens: 100,
+            outputTokens: 0,
+            model: "test-model",
+            providerDurationMs: 50,
+          });
+          return [
+            ...messages,
+            {
+              role: "assistant" as const,
+              content: [{ type: "text", text: "partial" }] as ContentBlock[],
+            },
+          ];
+        }
+        onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "recovered" }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 50,
+          outputTokens: 25,
+          model: "test-model",
+          providerDurationMs: 100,
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text", text: "recovered" }] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({
+        agentLoopRun,
+        contextWindowManager: {
+          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+          maybeCompact: async () => ({ compacted: false }),
+        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // The bulk-clear helper must have been called with the conversation id
+      // at least once (one of the three strip sites fired).
+      const clearCalls =
+        clearPkbSystemReminderMetadataForConversationMock.mock.calls.filter(
+          (call) => call[0] === "test-conv",
+        );
+      expect(clearCalls.length).toBeGreaterThanOrEqual(1);
+    });
+
+    test("strip-site clear is non-fatal when the helper throws", async () => {
+      clearPkbSystemReminderMetadataForConversationMock.mockImplementation(
+        () => {
+          throw new Error("db write failed");
+        },
+      );
+
+      mockReducerStepFn = (msgs: Message[]) => ({
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: false,
+        },
+        estimatedTokens: 5000,
+      });
+
+      let callCount = 0;
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        callCount++;
+        if (callCount === 1) {
+          onEvent({
+            type: "error",
+            error: new Error("context_length_exceeded"),
+          });
+          onEvent({
+            type: "usage",
+            inputTokens: 100,
+            outputTokens: 0,
+            model: "test-model",
+            providerDurationMs: 50,
+          });
+          return [
+            ...messages,
+            {
+              role: "assistant" as const,
+              content: [{ type: "text", text: "partial" }] as ContentBlock[],
+            },
+          ];
+        }
+        onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "recovered" }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 50,
+          outputTokens: 25,
+          model: "test-model",
+          providerDurationMs: 100,
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text", text: "recovered" }] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({
+        agentLoopRun,
+        contextWindowManager: {
+          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+          maybeCompact: async () => ({ compacted: false }),
+        } as unknown as AgentLoopConversationContext["contextWindowManager"],
+      });
+
+      // Must not throw — the strip-site clear is wrapped in try/catch.
+      await expect(
+        runAgentLoopImpl(ctx, "hello", "msg-1", () => {}),
+      ).resolves.toBeUndefined();
     });
   });
 });

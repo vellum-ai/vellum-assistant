@@ -26,6 +26,13 @@ import {
   getWorkspaceHooksDir,
 } from "../util/platform.js";
 import {
+  type ApprovalContext,
+  DefaultApprovalPolicy,
+  resolveThreshold,
+} from "./approval-policy.js";
+import { bashRiskClassifier } from "./bash-risk-classifier.js";
+import { riskToRiskLevel } from "./risk-types.js";
+import {
   buildShellAllowlistOptions,
   buildShellCommandCandidates,
   cachedParse,
@@ -48,8 +55,15 @@ import { isWorkspaceScopedInvocation } from "./workspace-policy.js";
 // Invalidated when trust rules change since risk classification for file tools
 // depends on skill source path checks which reference config, but the core
 // risk logic is input-deterministic.
+/** The result of classifyRisk(): a risk level with an optional human-readable reason. */
+export interface RiskClassification {
+  level: RiskLevel;
+  /** Human-readable explanation of why this risk level was assigned (bash/host_bash only). */
+  reason?: string;
+}
+
 const RISK_CACHE_MAX = 256;
-const riskCache = new Map<string, RiskLevel>();
+const riskCache = new Map<string, RiskClassification>();
 let riskCacheInvalidationHookRegistered = false;
 
 function riskCacheKey(
@@ -86,319 +100,8 @@ function ensureRiskCacheInvalidationHook(): void {
   onRulesChanged(clearRiskCache);
 }
 
-// Low-risk shell programs that are read-only / informational
-const LOW_RISK_PROGRAMS = new Set([
-  "ls",
-  "cat",
-  "head",
-  "tail",
-  "less",
-  "more",
-  "wc",
-  "file",
-  "stat",
-  "grep",
-  "rg",
-  "ag",
-  "ack",
-  "find",
-  "fd",
-  "which",
-  "where",
-  "whereis",
-  "type",
-  "echo",
-  "printf",
-  "date",
-  "cal",
-  "uptime",
-  "whoami",
-  "hostname",
-  "uname",
-  "pwd",
-  "realpath",
-  "dirname",
-  "basename",
-  "git",
-  "node",
-  "bun",
-  "deno",
-  "npm",
-  "npx",
-  "yarn",
-  "pnpm",
-  "python",
-  "python3",
-  "pip",
-  "pip3",
-  "man",
-  "help",
-  "info",
-  "env",
-  "printenv",
-  "set",
-  "diff",
-  "sort",
-  "uniq",
-  "cut",
-  "tr",
-  "tee",
-  "xargs",
-  "jq",
-  "yq",
-  "http",
-  "dig",
-  "nslookup",
-  "ping",
-  "tree",
-  "du",
-  "df",
-]);
-
-// High-risk shell programs / patterns
-const HIGH_RISK_PROGRAMS = new Set([
-  "sudo",
-  "su",
-  "doas",
-  "dd",
-  "mkfs",
-  "fdisk",
-  "parted",
-  "mount",
-  "umount",
-  "systemctl",
-  "service",
-  "launchctl",
-  "useradd",
-  "userdel",
-  "usermod",
-  "groupadd",
-  "groupdel",
-  "iptables",
-  "ufw",
-  "firewall-cmd",
-  "reboot",
-  "shutdown",
-  "halt",
-  "poweroff",
-  "kill",
-  "killall",
-  "pkill",
-]);
-
-// Git subcommands that are low-risk (read-only)
-const LOW_RISK_GIT_SUBCOMMANDS = new Set([
-  "status",
-  "log",
-  "diff",
-  "show",
-  "branch",
-  "tag",
-  "remote",
-  "stash",
-  "blame",
-  "shortlog",
-  "describe",
-  "rev-parse",
-  "ls-files",
-  "ls-tree",
-  "cat-file",
-  "reflog",
-]);
-
-/**
- * Classify risk for `assistant` CLI subcommands. Multi-word subcommands
- * (e.g. `assistant oauth token`) are matched by walking the positional args.
- */
-function classifyAssistantSubcommand(args: string[]): RiskLevel {
-  const sub = firstPositionalArg(args);
-  if (!sub) return RiskLevel.Low;
-
-  if (sub === "oauth") {
-    const oauthSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
-    if (oauthSub === "token") return RiskLevel.High;
-    if (oauthSub === "mode") {
-      // `oauth mode --set` is high risk; bare `oauth mode` (read) is low.
-      // Match both `--set value` (two tokens) and `--set=value` (one token).
-      if (args.some((a) => a === "--set" || a.startsWith("--set=")))
-        return RiskLevel.High;
-      return RiskLevel.Low;
-    }
-    if (oauthSub === "request") return RiskLevel.Medium;
-    if (oauthSub === "connect" || oauthSub === "disconnect")
-      return RiskLevel.Medium;
-    return RiskLevel.Low;
-  }
-
-  if (sub === "credentials") {
-    const credSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
-    if (credSub === "reveal") return RiskLevel.High;
-    if (credSub === "set" || credSub === "delete") return RiskLevel.High;
-    return RiskLevel.Low;
-  }
-
-  if (sub === "keys") {
-    const keysSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
-    if (keysSub === "set" || keysSub === "delete") return RiskLevel.High;
-    return RiskLevel.Low;
-  }
-
-  if (sub === "trust") {
-    const trustSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
-    if (trustSub === "remove" || trustSub === "clear") return RiskLevel.High;
-    return RiskLevel.Low;
-  }
-
-  return RiskLevel.Low;
-}
-
-// Commands that wrap another program — the real program appears as the first
-// non-flag argument.  When one of these is the segment program we look through
-// its args to find the effective program (e.g. `env curl …` → curl).
-const WRAPPER_PROGRAMS = new Set([
-  "env",
-  "nice",
-  "nohup",
-  "time",
-  "command",
-  "exec",
-  "strace",
-  "ltrace",
-  "ionice",
-  "taskset",
-  "timeout",
-]);
-
-// `env` flags that consume the next positional argument as their value.
-// Without this, `env -u curl echo` would incorrectly identify `curl` (the
-// value of -u) as the wrapped program instead of `echo`.
-const ENV_VALUE_FLAGS = new Set(["-u", "--unset", "-C", "--chdir"]);
-
-// `timeout` flags that consume the next positional argument as their value.
-const TIMEOUT_VALUE_FLAGS = new Set(["-s", "--signal", "-k", "--kill-after"]);
-
-// Wrapper programs where the first non-flag positional argument is a
-// configuration value (duration, CPU mask), not the wrapped program name.
-// For these wrappers, the second non-flag positional is the real program.
-const WRAPPER_SKIP_FIRST_POSITIONAL = new Set(["timeout", "taskset"]);
-
-// `git` global flags that consume the next positional argument as their value.
-// Without this, `git -C status commit` would incorrectly identify `status`
-// (the directory path) as the subcommand instead of `commit`.
-const GIT_VALUE_FLAGS = new Set([
-  "-C",
-  "-c",
-  "--git-dir",
-  "--work-tree",
-  "--namespace",
-  "--super-prefix",
-  "--config-env",
-]);
-
-/**
- * Return the first non-flag argument from an argument list, optionally
- * skipping value-taking flags.  Flags are arguments that start with `-`.
- * This is used to skip global options (e.g. `--verbose`, `-h`, `-C <path>`)
- * when extracting the subcommand from CLIs like `git`, `vellum`, and
- * `assistant`.
- *
- * When `valueFlags` is provided, any flag in that set causes the next
- * argument to be skipped as well (it is the flag's value, not a positional).
- */
-function firstPositionalArg(
-  args: string[],
-  valueFlags?: Set<string>,
-): string | undefined {
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg.startsWith("-")) {
-      if (valueFlags?.has(arg)) i++; // skip the next arg (the flag's value)
-      continue;
-    }
-    return arg;
-  }
-  return undefined;
-}
-
-// Bare filenames that `rm` is allowed to delete at Medium risk (instead of
-// High) so workspace-scoped allow rules can approve them without the
-// dangerous `allowHighRisk` flag. Only matches when the args contain no
-// flags and exactly one of these filenames.
-const RM_SAFE_BARE_FILES = new Set(["BOOTSTRAP.md", "UPDATES.md"]);
-
-function isRmOfKnownSafeFile(args: string[]): boolean {
-  if (args.length !== 1) return false;
-  const target = args[0];
-  if (target.startsWith("-") || target.includes("/")) return false;
-  return RM_SAFE_BARE_FILES.has(target);
-}
-
-/**
- * Given a segment whose program is a known wrapper, return the first
- * non-flag argument (i.e. the wrapped program name).  Returns `undefined`
- * when no suitable argument is found.
- *
- * Handles `env` specially: skips `VAR=value` pairs and value-taking flags
- * like `-u NAME` and `-C DIR`.
- *
- * Handles `timeout` and `taskset` specially: their first non-flag positional
- * argument is a duration or CPU mask, not the wrapped program. The second
- * non-flag positional is the real program.
- */
-function getWrappedProgram(seg: {
-  program: string;
-  args: string[];
-}): string | undefined {
-  const isEnv = seg.program === "env";
-  const isTimeout = seg.program === "timeout";
-  const skipFirst = WRAPPER_SKIP_FIRST_POSITIONAL.has(seg.program);
-  let skippedFirstPositional = false;
-  for (let i = 0; i < seg.args.length; i++) {
-    const arg = seg.args[i];
-    if (arg.startsWith("-")) {
-      if (isEnv && ENV_VALUE_FLAGS.has(arg)) i++; // skip the value argument
-      if (isTimeout && TIMEOUT_VALUE_FLAGS.has(arg)) i++; // skip the value argument
-      continue;
-    }
-    if (isEnv && arg.includes("=")) continue; // skip env VAR=value pairs
-    if (skipFirst && !skippedFirstPositional) {
-      skippedFirstPositional = true;
-      continue; // skip the duration/CPU mask
-    }
-    return arg;
-  }
-  return undefined;
-}
-
-/**
- * Like `getWrappedProgram`, but also returns the remaining args after the
- * wrapped program name. This allows callers to propagate subcommand-aware
- * classification (e.g. `env assistant oauth token` → classify `oauth token`).
- */
-function getWrappedProgramWithArgs(seg: {
-  program: string;
-  args: string[];
-}): { program: string; args: string[] } | undefined {
-  const isEnv = seg.program === "env";
-  const isTimeout = seg.program === "timeout";
-  const skipFirst = WRAPPER_SKIP_FIRST_POSITIONAL.has(seg.program);
-  let skippedFirstPositional = false;
-  for (let i = 0; i < seg.args.length; i++) {
-    const arg = seg.args[i];
-    if (arg.startsWith("-")) {
-      if (isEnv && ENV_VALUE_FLAGS.has(arg)) i++;
-      if (isTimeout && TIMEOUT_VALUE_FLAGS.has(arg)) i++;
-      continue;
-    }
-    if (isEnv && arg.includes("=")) continue;
-    if (skipFirst && !skippedFirstPositional) {
-      skippedFirstPositional = true;
-      continue; // skip the duration/CPU mask
-    }
-    return { program: arg, args: seg.args.slice(i + 1) };
-  }
-  return undefined;
-}
+// ── Approval policy singleton ────────────────────────────────────────────────
+const defaultApprovalPolicy = new DefaultApprovalPolicy();
 
 function getStringField(
   input: Record<string, unknown>,
@@ -582,11 +285,7 @@ async function buildCommandCandidates(
     return [`${toolName}:${skillId}`];
   }
 
-  if (
-    toolName === "web_fetch" ||
-    toolName === "browser_navigate" ||
-    toolName === "network_request"
-  ) {
+  if (toolName === "web_fetch" || toolName === "network_request") {
     const rawUrl = getStringField(input, "url").trim();
     const candidates: string[] = [];
 
@@ -663,7 +362,7 @@ export async function classifyRisk(
   preParsed?: ParsedCommand,
   manifestOverride?: ManifestOverride,
   signal?: AbortSignal,
-): Promise<RiskLevel> {
+): Promise<RiskClassification> {
   signal?.throwIfAborted();
   ensureRiskCacheInvalidationHook();
 
@@ -682,13 +381,32 @@ export async function classifyRisk(
     }
   }
 
-  let result = await classifyRiskUncached(
-    toolName,
-    input,
-    workingDir,
-    preParsed,
-    manifestOverride,
-  );
+  // ── Bash/host_bash: delegate to the registry-driven BashRiskClassifier ────
+  let result: RiskClassification;
+  if (toolName === "bash" || toolName === "host_bash") {
+    const command = ((input.command as string) ?? "").trim();
+    if (!command) {
+      result = { level: RiskLevel.Low };
+    } else {
+      const assessment = await bashRiskClassifier.classify({
+        command,
+        toolName: toolName as "bash" | "host_bash",
+      });
+      result = {
+        level: riskToRiskLevel(assessment.riskLevel),
+        reason: assessment.reason,
+      };
+    }
+  } else {
+    result = {
+      level: await classifyRiskUncached(
+        toolName,
+        input,
+        workingDir,
+        manifestOverride,
+      ),
+    };
+  }
 
   // Proxied bash commands route through the credential proxy which handles
   // per-request approval separately. Cap the bash tool's own risk at Medium
@@ -696,9 +414,9 @@ export async function classifyRisk(
   if (
     toolName === "bash" &&
     input.network_mode === "proxied" &&
-    result === RiskLevel.High
+    result.level === RiskLevel.High
   ) {
-    result = RiskLevel.Medium;
+    result = { level: RiskLevel.Medium, reason: result.reason };
   }
 
   if (cacheKey) {
@@ -716,7 +434,6 @@ async function classifyRiskUncached(
   toolName: string,
   input: Record<string, unknown>,
   workingDir?: string,
-  preParsed?: ParsedCommand,
   manifestOverride?: ManifestOverride,
 ): Promise<RiskLevel> {
   if (toolName === "file_read") {
@@ -760,13 +477,6 @@ async function classifyRiskUncached(
       ? RiskLevel.High
       : RiskLevel.Low;
   }
-  if (toolName === "browser_navigate") {
-    return input.allow_private_network === true
-      ? RiskLevel.High
-      : RiskLevel.Low;
-  }
-  // All other browser tools are low risk — the browser is sandboxed and user-visible.
-  if (toolName.startsWith("browser_")) return RiskLevel.Low;
   // Proxy-authenticated network requests are Medium risk — they carry injected
   // credentials and the user should approve the target host/origin.
   if (toolName === "network_request") return RiskLevel.Medium;
@@ -806,138 +516,6 @@ async function classifyRiskUncached(
       }
     }
     // Fall through to the tool registry default (Medium) below.
-  }
-
-  if (toolName === "bash" || toolName === "host_bash") {
-    const command = (input.command as string) ?? "";
-    if (!command.trim()) return RiskLevel.Low;
-
-    const parsed = preParsed ?? (await cachedParse(command));
-
-    // Dangerous patterns → High
-    if (parsed.dangerousPatterns.length > 0) return RiskLevel.High;
-
-    // Opaque constructs → at least Medium (never Low)
-    if (parsed.hasOpaqueConstructs) return RiskLevel.Medium;
-
-    // Check each segment
-    let maxRisk = RiskLevel.Low;
-
-    for (const seg of parsed.segments) {
-      const prog = seg.program;
-
-      if (HIGH_RISK_PROGRAMS.has(prog)) return RiskLevel.High;
-
-      if (prog === "rm") {
-        // Only downgrade rm of known safe workspace files for sandboxed bash.
-        // host_bash has a global ask rule that would prompt Medium-risk
-        // commands, so rm on the host must always require explicit approval.
-        if (toolName === "bash" && isRmOfKnownSafeFile(seg.args)) {
-          maxRisk = RiskLevel.Medium;
-          continue;
-        }
-        return RiskLevel.High;
-      }
-
-      if (
-        prog === "chmod" ||
-        prog === "chown" ||
-        prog === "chgrp" ||
-        prog === "sed" ||
-        prog === "awk"
-      ) {
-        maxRisk = RiskLevel.Medium;
-        continue;
-      }
-
-      // curl/wget can download and execute arbitrary code from the internet.
-      // Also catch wrapped invocations like `env curl …` or `nice wget …`.
-      if (prog === "curl" || prog === "wget") {
-        maxRisk = RiskLevel.Medium;
-        continue;
-      }
-
-      if (WRAPPER_PROGRAMS.has(prog)) {
-        // `command -v` and `command -V` are read-only lookups (print where
-        // a command lives) — don't escalate to high risk for those.
-        if (
-          prog === "command" &&
-          seg.args.length > 0 &&
-          (seg.args[0] === "-v" || seg.args[0] === "-V")
-        ) {
-          continue;
-        }
-        const wrapped = getWrappedProgram(seg);
-        if (wrapped === "rm") return RiskLevel.High;
-        if (wrapped && HIGH_RISK_PROGRAMS.has(wrapped)) return RiskLevel.High;
-        if (wrapped === "curl" || wrapped === "wget") {
-          maxRisk = RiskLevel.Medium;
-          continue;
-        }
-        // Propagate subcommand-aware classification for wrapped git/assistant
-        if (wrapped === "git") {
-          const wrappedWithArgs = getWrappedProgramWithArgs(seg);
-          if (wrappedWithArgs) {
-            const subcommand = firstPositionalArg(
-              wrappedWithArgs.args,
-              GIT_VALUE_FLAGS,
-            );
-            if (subcommand && LOW_RISK_GIT_SUBCOMMANDS.has(subcommand)) {
-              continue;
-            }
-            maxRisk = RiskLevel.Medium;
-            continue;
-          }
-        }
-        if (wrapped === "assistant") {
-          const wrappedWithArgs = getWrappedProgramWithArgs(seg);
-          if (wrappedWithArgs) {
-            const assistantRisk = classifyAssistantSubcommand(
-              wrappedWithArgs.args,
-            );
-            if (assistantRisk === RiskLevel.High) return RiskLevel.High;
-            if (assistantRisk === RiskLevel.Medium) {
-              maxRisk = RiskLevel.Medium;
-            }
-            continue;
-          }
-        }
-      }
-
-      if (prog === "git") {
-        const subcommand = firstPositionalArg(seg.args, GIT_VALUE_FLAGS);
-        if (subcommand && LOW_RISK_GIT_SUBCOMMANDS.has(subcommand)) {
-          // Stay at current risk
-          continue;
-        }
-        // Non-read-only git commands are medium
-        maxRisk = RiskLevel.Medium;
-        continue;
-      }
-
-      if (prog === "assistant") {
-        const assistantRisk = classifyAssistantSubcommand(seg.args);
-        if (assistantRisk === RiskLevel.High) return RiskLevel.High;
-        if (assistantRisk === RiskLevel.Medium) {
-          maxRisk = RiskLevel.Medium;
-        }
-        continue;
-      }
-
-      if (!LOW_RISK_PROGRAMS.has(prog)) {
-        // Unknown program → medium
-        if (maxRisk === RiskLevel.Low) {
-          maxRisk = RiskLevel.Medium;
-        }
-      }
-    }
-
-    // If no segments could be extracted, treat as opaque
-    if (parsed.segments.length === 0) {
-      return RiskLevel.Medium;
-    }
-
-    return maxRisk;
   }
 
   // Check the tool registry for a declared default risk level
@@ -999,7 +577,7 @@ export async function check(
     }
   }
 
-  const risk = await classifyRisk(
+  const { level: risk, reason: riskReason } = await classifyRisk(
     toolName,
     input,
     workingDir,
@@ -1024,129 +602,55 @@ export async function check(
     policyContext,
   );
 
-  // Deny rules apply at ALL risk levels — including proxied network mode.
-  // Evaluate them first so hard blocks are never downgraded to a prompt.
-  if (matchedRule && matchedRule.decision === "deny") {
-    return {
-      decision: "deny",
-      reason: `Blocked by deny rule: ${matchedRule.pattern}`,
-      matchedRule,
-    };
-  }
+  // Build approval context from local variables
+  const tool = getTool(toolName);
+  const config = getConfig();
+  const resolvedThreshold = resolveThreshold(
+    config.permissions.autoApproveUpTo,
+    policyContext?.executionContext,
+  );
+  const approvalContext: ApprovalContext = {
+    riskLevel: risk,
+    toolName,
+    matchedRule: matchedRule ?? undefined,
+    permissionsMode: config.permissions.mode,
+    isContainerized: getIsContainerized(),
+    isWorkspaceScoped:
+      risk === RiskLevel.Low
+        ? isWorkspaceScopedInvocation(toolName, input, workingDir)
+        : false,
+    toolOrigin:
+      tool?.origin === "skill" ? "skill" : tool ? "builtin" : undefined,
+    isSkillBundled: tool?.ownerSkillBundled ?? false,
+    hasManifestOverride: !!manifestOverride,
+    autoApproveUpTo: resolvedThreshold,
+  };
 
-  if (matchedRule) {
-    if (matchedRule.decision === "ask") {
-      // Ask rules always prompt — never auto-allow or auto-deny
-      return {
-        decision: "prompt",
-        reason: `Matched ask rule: ${matchedRule.pattern}`,
-        matchedRule,
-      };
-    }
+  // Delegate the allow/prompt/deny decision to the approval policy
+  const approvalDecision = defaultApprovalPolicy.evaluate(approvalContext);
 
-    // Allow rule: auto-allow for non-High risk
-    if (risk !== RiskLevel.High) {
-      return {
-        decision: "allow",
-        reason: `Matched trust rule: ${matchedRule.pattern}`,
-        matchedRule,
-      };
-    }
-    // High risk with allow rule that explicitly permits high-risk → auto-allow
-    if (matchedRule.allowHighRisk === true) {
-      return {
-        decision: "allow",
-        reason: `Matched high-risk trust rule: ${matchedRule.pattern}`,
-        matchedRule,
-      };
-    }
-    // High risk with allow rule (without allowHighRisk) → fall through to prompt
-  }
-
-  // No matching rule (or High risk with allow rule) → risk-based fallback
-
-  // Third-party skill-origin tools default to prompting when no trust rule
-  // matches, regardless of risk level. Bundled skill tools are first-party
-  // and trusted, so they fall through to the normal risk-based policy.
-  // When manifestOverride is present, the tool comes from a skill manifest
-  // but isn't registered — treat it as a third-party skill tool.
-  if (!matchedRule) {
-    const tool = getTool(toolName);
-    if (tool?.origin === "skill" && !tool.ownerSkillBundled) {
-      return {
-        decision: "prompt",
-        reason: "Skill tool: requires approval by default",
-      };
-    }
-    if (!tool && manifestOverride) {
-      return {
-        decision: "prompt",
-        reason: "Skill tool: requires approval by default",
-      };
+  // Enrich the reason with the classifier's explanation when available.
+  // For risk-based fallback decisions (prompt/deny from High/Medium risk),
+  // incorporate the classifier reason so the user sees *why* the command
+  // was classified at that level (e.g. "High risk (Recursive force delete): requires approval").
+  let enrichedReason = approvalDecision.reason;
+  if (riskReason && !approvalDecision.matchedRule) {
+    const riskLabelMatch = enrichedReason.match(
+      /^(High|Medium|Low|high|medium|low) risk(.*)/i,
+    );
+    if (riskLabelMatch) {
+      const capitalizedLabel =
+        riskLabelMatch[1].charAt(0).toUpperCase() +
+        riskLabelMatch[1].slice(1).toLowerCase();
+      enrichedReason = `${capitalizedLabel} risk (${riskReason})${riskLabelMatch[2]}`;
     }
   }
 
-  // In strict mode, every tool without an explicit matching rule must be
-  // prompted — there is no implicit auto-allow for any risk level.
-  // This explicitly covers skill_load: activating a skill can grant the
-  // agent new capabilities, so in strict mode users must approve each
-  // skill load via an exact-version or wildcard trust rule.
-  const permissionsMode = getConfig().permissions.mode;
-
-  if (permissionsMode === "strict" && !matchedRule) {
-    return {
-      decision: "prompt",
-      reason: `Strict mode: no matching rule, requires approval`,
-    };
-  }
-
-  // Workspace mode: auto-allow workspace-scoped operations that don't have
-  // an explicit rule, but only when risk is Low. Medium and High risk operations
-  // fall through to risk-based policy and always require approval.
-  if (
-    permissionsMode === "workspace" &&
-    !matchedRule &&
-    risk === RiskLevel.Low
-  ) {
-    // Outside a container, bash runs on the host — don't auto-allow
-    if (toolName === "bash" && !getIsContainerized()) {
-      // Fall through to risk-based policy below
-    } else if (isWorkspaceScopedInvocation(toolName, input, workingDir)) {
-      return {
-        decision: "allow",
-        reason: "Workspace mode: workspace-scoped operation auto-allowed",
-      };
-    }
-  }
-
-  // Auto-allow low-risk bundled skill tools even without explicit trust rules.
-  // These are first-party tools with a vetted risk declaration — applying the
-  // same policy as the per-tool default allow rules for browser tools, but
-  // generically so every new bundled skill benefits automatically.
-  // This block must come AFTER the strict mode check so that strict mode
-  // still prompts for bundled skill tools without explicit rules.
-  if (!matchedRule && risk === RiskLevel.Low) {
-    const tool = getTool(toolName);
-    if (tool?.origin === "skill" && tool.ownerSkillBundled) {
-      return {
-        decision: "allow",
-        reason: "Bundled skill tool: low risk, auto-allowed",
-      };
-    }
-  }
-
-  if (risk === RiskLevel.High) {
-    return {
-      decision: "prompt",
-      reason: `High risk: always requires approval`,
-    };
-  }
-
-  if (risk === RiskLevel.Low) {
-    return { decision: "allow", reason: "Low risk: auto-allowed" };
-  }
-
-  return { decision: "prompt", reason: `${risk} risk: requires approval` };
+  return {
+    decision: approvalDecision.decision,
+    reason: enrichedReason,
+    matchedRule: approvalDecision.matchedRule,
+  };
 }
 
 const TOOL_DISPLAY_NAMES: Record<string, string> = {
@@ -1157,7 +661,6 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   host_file_write: "host file writes",
   host_file_edit: "host file edits",
   web_fetch: "URL fetches",
-  browser_navigate: "browser navigations",
   network_request: "network requests",
 };
 
@@ -1185,6 +688,10 @@ function shellAllowlistStrategy(
   input: Record<string, unknown>,
 ): Promise<AllowlistOption[]> {
   const command = ((input.command as string) ?? "").trim();
+  // TODO(phase-3): Wire RiskAssessment.scopeOptions into permission prompts
+  // and retire buildShellAllowlistOptions + buildShellCommandCandidates from
+  // shell-identity.ts. The classifier's generateScopeOptions produces the
+  // canonical scope ladder; this legacy path should not diverge further.
   return buildShellAllowlistOptions(command);
 }
 
@@ -1366,7 +873,6 @@ const ALLOWLIST_STRATEGIES: Record<string, AllowlistStrategy> = {
   host_file_write: fileAllowlistStrategy,
   host_file_edit: fileAllowlistStrategy,
   web_fetch: urlAllowlistStrategy,
-  browser_navigate: urlAllowlistStrategy,
   network_request: urlAllowlistStrategy,
   scaffold_managed_skill: managedSkillAllowlistStrategy,
   delete_managed_skill: managedSkillAllowlistStrategy,

@@ -9,6 +9,11 @@ import { getPlatformAssistantId } from "../config/env.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { getLogger } from "../util/logger.js";
+
+const log = getLogger("platform-client");
+
+let _missingPrereqsWarned = false;
 
 export class VellumPlatformClient {
   private readonly platformBaseUrl: string;
@@ -66,7 +71,20 @@ export class VellumPlatformClient {
         )?.trim() ?? "";
     }
 
-    if (!baseUrl || !apiKey) return null;
+    if (!baseUrl || !apiKey) {
+      const level = _missingPrereqsWarned ? "debug" : "warn";
+      _missingPrereqsWarned = true;
+      log[level](
+        {
+          hasBaseUrl: !!baseUrl,
+          hasApiKey: !!apiKey,
+          hasAssistantId: !!assistantId,
+          managedProxyEnabled: ctx.enabled,
+        },
+        "Platform client prerequisites missing — returning null",
+      );
+      return null;
+    }
 
     return new VellumPlatformClient(baseUrl, apiKey, assistantId);
   }

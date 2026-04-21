@@ -84,65 +84,52 @@ final class PreChatOnboardingTests: XCTestCase {
         XCTAssertEqual(decoded.assistantName, original.assistantName)
     }
 
-    // MARK: - contextSummary
+    // MARK: - Assistant Name Pool / Sampling
 
-    func testContextSummaryWithTasksAndTools() {
-        let state = PreChatOnboardingState()
-        state.selectedTasks = ["code-building", "writing"]
-        state.selectedTools = ["slack", "linear"]
-
-        let summary = state.contextSummary
-
-        XCTAssertTrue(summary.contains("focused on"), "Should mention tasks")
-        XCTAssertTrue(summary.contains("mostly in"), "Should mention tools")
-        XCTAssertTrue(summary.contains("Let's make that easier."))
+    func testAssistantNamePoolHasExpectedSize() {
+        // The pool must be large enough that five random draws still leave
+        // meaningful variety; 25 is the product-spec target.
+        XCTAssertEqual(NameExchangeView.assistantNamePool.count, 25)
     }
 
-    func testContextSummaryWithTasksOnly() {
-        let state = PreChatOnboardingState()
-        state.selectedTasks = ["writing"]
-        state.selectedTools = []
-
-        let summary = state.contextSummary
-
-        XCTAssertTrue(summary.contains("focused on"))
-        XCTAssertTrue(summary.contains("writing"))
-        XCTAssertFalse(summary.contains("mostly in"))
+    func testAssistantNamePoolHasUniqueEntries() {
+        let pool = NameExchangeView.assistantNamePool
+        XCTAssertEqual(Set(pool).count, pool.count, "Pool entries must be unique")
     }
 
-    func testContextSummaryWithToolsOnly() {
-        let state = PreChatOnboardingState()
-        state.selectedTasks = []
-        state.selectedTools = ["figma"]
+    func testSampleAssistantNamesReturnsFiveUniqueNamesFromPool() {
+        let sample = NameExchangeView.sampleAssistantNames()
+        let pool = Set(NameExchangeView.assistantNamePool)
 
-        let summary = state.contextSummary
-
-        XCTAssertFalse(summary.contains("focused on"))
-        XCTAssertTrue(summary.contains("mostly in"))
-        XCTAssertTrue(summary.contains("figma"))
-    }
-
-    func testContextSummaryWithNoSelections() {
-        let state = PreChatOnboardingState()
-        state.selectedTasks = []
-        state.selectedTools = []
-
-        XCTAssertEqual(state.contextSummary, "Let's get to know each other.")
-    }
-
-    func testContextSummaryTruncatesLongLists() {
-        let state = PreChatOnboardingState()
-        state.selectedTasks = ["a", "b", "c", "d", "e"]
-        state.selectedTools = ["x", "y", "z", "w"]
-
-        let summary = state.contextSummary
-
-        // Should only include at most 3 items from each list
-        let taskMatches = state.selectedTasks.sorted().prefix(3)
-        for task in taskMatches {
-            XCTAssertTrue(summary.contains(task),
-                          "Summary should contain task '\(task)'")
+        XCTAssertEqual(sample.count, NameExchangeView.suggestionCount)
+        XCTAssertEqual(Set(sample).count, sample.count, "Sampled names must be unique")
+        for name in sample {
+            XCTAssertTrue(pool.contains(name), "Sampled name '\(name)' must come from the pool")
         }
+    }
+
+    func testStateDisplayedNamesMatchSampleContract() {
+        let state = PreChatOnboardingState()
+        let pool = Set(NameExchangeView.assistantNamePool)
+
+        XCTAssertEqual(state.displayedAssistantNames.count, NameExchangeView.suggestionCount)
+        XCTAssertEqual(Set(state.displayedAssistantNames).count, state.displayedAssistantNames.count)
+        for name in state.displayedAssistantNames {
+            XCTAssertTrue(pool.contains(name))
+        }
+    }
+
+    func testDefaultAssistantNameIsFromDisplayedSample() {
+        // On a fresh state (no persisted assistantName), the initial pre-fill
+        // should be one of the displayed suggestion pills so the active pill
+        // matches the text field out of the box.
+        PreChatOnboardingState.clearPersistedState()
+        let state = PreChatOnboardingState()
+
+        XCTAssertTrue(
+            state.displayedAssistantNames.contains(state.assistantName),
+            "Initial assistantName '\(state.assistantName)' should be one of the displayed suggestions"
+        )
     }
 
     // MARK: - Name Pre-fill Blacklist

@@ -62,8 +62,12 @@ struct SurfaceContainerView: View {
                     viewModel.onAction("select", ["selectedIds": selectedIds])
                 })
             case .confirmation(let data):
+                let confirmId = surface.actions.first(where: { $0.style == .primary || $0.style == .destructive })?.id ?? "confirm"
+                let cancelId = surface.actions.first(where: { $0.style == .secondary })?.id ?? "cancel"
                 ConfirmationSurfaceView(
                     data: data,
+                    confirmActionId: confirmId,
+                    cancelActionId: cancelId,
                     onAction: { actionId in
                         viewModel.onAction(actionId, nil)
                     }

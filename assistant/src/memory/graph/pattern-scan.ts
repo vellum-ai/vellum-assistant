@@ -141,7 +141,7 @@ export async function runPatternScan(
     return result;
   }
 
-  const provider = await getConfiguredProvider();
+  const provider = await getConfiguredProvider("patternScan");
   if (!provider) {
     throw new BackendUnavailableError("Provider unavailable for pattern scan");
   }
@@ -165,7 +165,7 @@ export async function runPatternScan(
     systemPrompt,
     {
       config: {
-        modelIntent: "quality-optimized" as const,
+        callSite: "patternScan" as const,
         tool_choice: { type: "tool" as const, name: "detect_patterns" },
       },
     },

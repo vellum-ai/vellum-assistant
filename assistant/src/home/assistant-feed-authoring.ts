@@ -41,6 +41,7 @@ import {
   feedItemSchema,
   type FeedItemSource,
   type FeedItemType,
+  type FeedItemUrgency,
 } from "./feed-types.js";
 import { appendFeedItem } from "./feed-writer.js";
 
@@ -80,6 +81,8 @@ export interface WriteAssistantFeedItemParams {
   minTimeAway?: number;
   /** Absolute ISO-8601 expiry timestamp. */
   expiresAt?: string;
+  /** Visual urgency treatment — controls badge color independently of sort priority. */
+  urgency?: FeedItemUrgency;
 }
 
 /**
@@ -110,6 +113,7 @@ export async function writeAssistantFeedItem(
     timestamp: now,
     createdAt: now,
     actions: params.actions,
+    urgency: params.urgency,
     minTimeAway: params.minTimeAway,
     expiresAt: params.expiresAt,
   };

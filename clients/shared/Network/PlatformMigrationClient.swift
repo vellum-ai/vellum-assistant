@@ -114,7 +114,7 @@ public enum PlatformMigrationClient {
         request.httpMethod = "PUT"
         request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
         request.httpBody = bundleData
-        request.timeoutInterval = 600
+        request.timeoutInterval = 3600
 
         let (_, statusCode) = try await executeWithRetry(request: request, label: "signed-url-upload")
 
@@ -143,7 +143,7 @@ public enum PlatformMigrationClient {
         var request = URLRequest(url: uploadURL)
         request.httpMethod = "PUT"
         request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 600
+        request.timeoutInterval = 3600
 
         let delegate = UploadProgressDelegate(onProgress: onProgress)
         let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
@@ -194,7 +194,7 @@ public enum PlatformMigrationClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 120
+        request.timeoutInterval = 3600
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(token, forHTTPHeaderField: "X-Session-Token")
         if let orgId {
@@ -266,7 +266,7 @@ public enum PlatformMigrationClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 120
+        request.timeoutInterval = 3600
         request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
         request.setValue(token, forHTTPHeaderField: "X-Session-Token")
         if let orgId {

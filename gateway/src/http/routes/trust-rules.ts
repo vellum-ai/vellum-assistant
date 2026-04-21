@@ -4,7 +4,14 @@
  * All endpoints require "edge" auth. The assistant daemon will call these
  * endpoints instead of reading trust.json directly once the migration is
  * complete (PR 14-16 in the docker-volume-security plan).
+ *
+ * Payloads are canonicalized centrally in trust-store addRule/updateRule:
+ * legacy clients can keep sending current shapes without 4xx regressions,
+ * but fields invalid for a tool's family (e.g. `executionTarget` on a
+ * URL-tool rule) are silently stripped before persistence.
  */
+
+import { SCOPED_TOOLS } from "@vellumai/ces-contracts/trust-rules";
 
 import { getLogger } from "../../logger.js";
 import {
@@ -18,6 +25,9 @@ import {
   acceptStarterBundle,
   type TrustDecision,
 } from "../../trust-store.js";
+
+/** Set for O(1) lookup when determining if a tool is scoped. */
+const SCOPED_TOOLS_SET: ReadonlySet<string> = new Set(SCOPED_TOOLS);
 
 const log = getLogger("trust-rules");
 
@@ -68,7 +78,7 @@ export function createTrustRulesAddHandler() {
       );
     }
 
-    const { tool, pattern, scope, decision, priority, allowHighRisk, executionTarget } =
+    const { tool, pattern, scope, decision, priority, executionTarget } =
       body as Record<string, unknown>;
 
     if (typeof tool !== "string" || !tool) {
@@ -83,9 +93,18 @@ export function createTrustRulesAddHandler() {
         { status: 400 },
       );
     }
-    if (typeof scope !== "string" || !scope) {
+    // Scope is required for scoped tools; for non-scoped tools it defaults
+    // to "everywhere" (a no-op that parseTrustRule will strip).
+    const isScoped = SCOPED_TOOLS_SET.has(tool as string);
+    if (isScoped && (typeof scope !== "string" || !scope)) {
       return Response.json(
-        { error: '"scope" must be a non-empty string' },
+        { error: '"scope" must be a non-empty string for scoped tools' },
+        { status: 400 },
+      );
+    }
+    if (scope !== undefined && typeof scope !== "string") {
+      return Response.json(
+        { error: '"scope" must be a string when provided' },
         { status: 400 },
       );
     }
@@ -95,15 +114,12 @@ export function createTrustRulesAddHandler() {
         { status: 400 },
       );
     }
-    if (priority !== undefined && (typeof priority !== "number" || !Number.isFinite(priority))) {
+    if (
+      priority !== undefined &&
+      (typeof priority !== "number" || !Number.isFinite(priority))
+    ) {
       return Response.json(
         { error: '"priority" must be a finite number' },
-        { status: 400 },
-      );
-    }
-    if (allowHighRisk !== undefined && typeof allowHighRisk !== "boolean") {
-      return Response.json(
-        { error: '"allowHighRisk" must be a boolean' },
         { status: 400 },
       );
     }
@@ -114,21 +130,26 @@ export function createTrustRulesAddHandler() {
       );
     }
 
+    // For non-scoped tools, pass "everywhere" as a no-op default — addRule
+    // will strip it via parseTrustRule for non-scoped tool families.
+    const effectiveScope = (scope as string) || "everywhere";
+
     try {
+      // Canonicalization is handled inside trust-store addRule.
       const rule = addRule(
-        tool,
-        pattern,
-        scope,
+        tool as string,
+        pattern as string,
+        effectiveScope,
         (decision as TrustDecision) ?? "allow",
         (priority as number) ?? 100,
         {
-          allowHighRisk: allowHighRisk as boolean | undefined,
-          executionTarget: executionTarget as string | undefined,
+          ...(executionTarget != null ? { executionTarget } : {}),
         },
       );
       return Response.json({ rule }, { status: 201 });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Internal server error";
+      const message =
+        err instanceof Error ? err.message : "Internal server error";
       log.error({ err }, "Failed to add trust rule");
       return Response.json({ error: message }, { status: 400 });
     }
@@ -142,10 +163,7 @@ export function createTrustRulesAddHandler() {
 export function createTrustRulesUpdateHandler() {
   return async (req: Request, ruleId: string): Promise<Response> => {
     if (!ruleId) {
-      return Response.json(
-        { error: "Rule ID is required" },
-        { status: 400 },
-      );
+      return Response.json({ error: "Rule ID is required" }, { status: 400 });
     }
 
     let body: unknown;
@@ -165,8 +183,10 @@ export function createTrustRulesUpdateHandler() {
       );
     }
 
-    const { tool, pattern, scope, decision, priority } =
-      body as Record<string, unknown>;
+    const { tool, pattern, scope, decision, priority } = body as Record<
+      string,
+      unknown
+    >;
 
     if (tool !== undefined && (typeof tool !== "string" || !tool)) {
       return Response.json(
@@ -192,7 +212,10 @@ export function createTrustRulesUpdateHandler() {
         { status: 400 },
       );
     }
-    if (priority !== undefined && (typeof priority !== "number" || !Number.isFinite(priority))) {
+    if (
+      priority !== undefined &&
+      (typeof priority !== "number" || !Number.isFinite(priority))
+    ) {
       return Response.json(
         { error: '"priority" must be a finite number' },
         { status: 400 },
@@ -200,6 +223,8 @@ export function createTrustRulesUpdateHandler() {
     }
 
     try {
+      // For non-scoped tools, don't include scope in the update — updateRule
+      // will ignore it for non-scoped tool families anyway.
       const rule = updateRule(ruleId, {
         tool: tool as string | undefined,
         pattern: pattern as string | undefined,
@@ -209,7 +234,8 @@ export function createTrustRulesUpdateHandler() {
       });
       return Response.json({ rule });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Internal server error";
+      const message =
+        err instanceof Error ? err.message : "Internal server error";
       if (message.includes("not found")) {
         return Response.json({ error: message }, { status: 404 });
       }
@@ -226,10 +252,7 @@ export function createTrustRulesUpdateHandler() {
 export function createTrustRulesDeleteHandler() {
   return async (_req: Request, ruleId: string): Promise<Response> => {
     if (!ruleId) {
-      return Response.json(
-        { error: "Rule ID is required" },
-        { status: 400 },
-      );
+      return Response.json({ error: "Rule ID is required" }, { status: 400 });
     }
 
     try {

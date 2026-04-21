@@ -382,13 +382,13 @@ final class ChatViewModelIOSTests: XCTestCase {
             requestId: "req-1",
             selectedPattern: "rm -rf *",
             selectedScope: "project",
-            decision: "always_allow_high_risk"
+            decision: "always_allow"
         )
 
         await waitForMockCalls(mockInteraction, count: 1)
 
         XCTAssertEqual(mockInteraction.calls.count, 1)
-        XCTAssertEqual(mockInteraction.calls[0].decision, "always_allow_high_risk")
+        XCTAssertEqual(mockInteraction.calls[0].decision, "always_allow")
         XCTAssertEqual(mockInteraction.calls[0].selectedPattern, "rm -rf *")
         XCTAssertEqual(mockInteraction.calls[0].selectedScope, "project")
     }
@@ -414,7 +414,7 @@ final class ChatViewModelIOSTests: XCTestCase {
 
     func testRespondToAlwaysAllowFallsBackWhenSendFails() async {
         let mockInteraction = MockInteractionClient()
-        // First call (always_allow_high_risk) fails, fallback (allow) also fails
+        // First call (always_allow) fails, fallback (allow) also fails
         mockInteraction.results = [.failed, .failed]
 
         let vm = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
@@ -439,21 +439,21 @@ final class ChatViewModelIOSTests: XCTestCase {
             requestId: "req-3",
             selectedPattern: "npm install",
             selectedScope: "project",
-            decision: "always_allow_high_risk"
+            decision: "always_allow"
         )
 
         await waitForMockCalls(mockInteraction, count: 2)
 
         // Both attempts failed — confirmation should be reverted to pending
         XCTAssertEqual(mockInteraction.calls.count, 2)
-        XCTAssertEqual(mockInteraction.calls[0].decision, "always_allow_high_risk")
+        XCTAssertEqual(mockInteraction.calls[0].decision, "always_allow")
         XCTAssertEqual(mockInteraction.calls[1].decision, "allow")
         XCTAssertEqual(vm.messages[0].confirmation?.state, .pending)
     }
 
     func testRespondToAlwaysAllowConnectedSendFailureFallsBackToAllow() async {
         let mockInteraction = MockInteractionClient()
-        // First call (always_allow_high_risk) fails, fallback (allow) succeeds
+        // First call (always_allow) fails, fallback (allow) succeeds
         mockInteraction.results = [.failed, .success]
 
         let vm = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
@@ -478,14 +478,14 @@ final class ChatViewModelIOSTests: XCTestCase {
             requestId: "req-fail",
             selectedPattern: "rm -rf *",
             selectedScope: "project",
-            decision: "always_allow_high_risk"
+            decision: "always_allow"
         )
 
         await waitForMockCalls(mockInteraction, count: 2)
 
-        // First attempted decision should be always_allow_high_risk (the one that failed)
+        // First attempted decision should be always_allow (the one that failed)
         XCTAssertEqual(mockInteraction.calls.count, 2)
-        XCTAssertEqual(mockInteraction.calls[0].decision, "always_allow_high_risk")
+        XCTAssertEqual(mockInteraction.calls[0].decision, "always_allow")
 
         // Fallback should be a one-time "allow"
         XCTAssertEqual(mockInteraction.calls[1].decision, "allow")

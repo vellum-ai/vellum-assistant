@@ -1,7 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
 import { eq } from "drizzle-orm";
@@ -14,42 +13,17 @@ import {
   getGatewayDb,
   resetGatewayDb,
 } from "../db/connection.js";
+import { testWorkspaceDir } from "./test-preload.js";
 
-const testDir = join(
-  tmpdir(),
-  `vellum-ipc-contact-test-${randomBytes(6).toString("hex")}`,
-);
-const protectedDir = join(testDir, ".vellum", "protected");
-const socketPath = join(testDir, "gateway.sock");
-
-const savedWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
-const savedGatewaySecurityDir = process.env.GATEWAY_SECURITY_DIR;
+const socketPath = join(testWorkspaceDir, "gateway.sock");
 
 beforeEach(async () => {
   resetGatewayDb();
-  process.env.VELLUM_WORKSPACE_DIR = testDir;
-  process.env.GATEWAY_SECURITY_DIR = protectedDir;
-  mkdirSync(protectedDir, { recursive: true });
   await initGatewayDb();
 });
 
 afterEach(() => {
   resetGatewayDb();
-  if (savedWorkspaceDir === undefined) {
-    delete process.env.VELLUM_WORKSPACE_DIR;
-  } else {
-    process.env.VELLUM_WORKSPACE_DIR = savedWorkspaceDir;
-  }
-  if (savedGatewaySecurityDir === undefined) {
-    delete process.env.GATEWAY_SECURITY_DIR;
-  } else {
-    process.env.GATEWAY_SECURITY_DIR = savedGatewaySecurityDir;
-  }
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {
-    // best effort cleanup
-  }
 });
 
 // ---------------------------------------------------------------------------

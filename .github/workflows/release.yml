@@ -24,7 +24,7 @@ jobs:
       version: ${{ steps.finalize.outputs.version }}
       base_version: ${{ steps.extract.outputs.base_version }}
       is_staging: ${{ steps.detect-staging.outputs.is_staging }}
-      docker_environments: ${{ steps.finalize.outputs.docker_environments }}
+      docker_environment: ${{ steps.finalize.outputs.docker_environment }}
       chrome_extension_changed: ${{ steps.detect-extension-changes.outputs.changed }}
     steps:
       - name: Generate GitHub App token
@@ -101,10 +101,10 @@ jobs:
             fi
             VERSION="${BASE_VERSION}-staging.${RUN_COUNT}"
             echo "Staging prerelease version: $VERSION"
-            echo 'docker_environments=["staging"]' >> "$GITHUB_OUTPUT"
+            echo 'docker_environment=staging' >> "$GITHUB_OUTPUT"
           else
             VERSION="$BASE_VERSION"
-            echo 'docker_environments=["dev","production"]' >> "$GITHUB_OUTPUT"
+            echo 'docker_environment=production' >> "$GITHUB_OUTPUT"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -253,6 +253,7 @@ jobs:
         working-directory: clients/chrome-extension
         env:
           VERSION: ${{ needs.extract-version.outputs.version }}
+          VELLUM_ENVIRONMENT: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
         run: bash build.sh
 
       - name: Verify manifest version
@@ -355,11 +356,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
         platform:
           - linux/amd64
           - linux/arm64
-    environment: ${{ matrix.environment }}
+    environment: ${{ needs.extract-version.outputs.docker_environment }}
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -381,15 +381,6 @@ jobs:
 
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-
-      - name: Login to Docker Hub
-        env:
-          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
-          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-        run: bun scripts/docker-login-with-retry.ts
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
@@ -416,8 +407,8 @@ jobs:
           file: assistant/Dockerfile
           platforms: ${{ matrix.platform }}
           outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=assistant-${{ matrix.environment }}-${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=assistant-${{ matrix.environment }}-${{ matrix.platform }}
+          cache-from: type=gha,scope=assistant-${{ needs.extract-version.outputs.docker_environment }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=assistant-${{ needs.extract-version.outputs.docker_environment }}-${{ matrix.platform }}
 
       - name: Export digest
         run: |
@@ -434,7 +425,7 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: assistant-digests-${{ matrix.environment }}-${{ steps.platform.outputs.suffix }}
+          name: assistant-digests-${{ needs.extract-version.outputs.docker_environment }}-${{ steps.platform.outputs.suffix }}
           path: /tmp/digests/*
           retention-days: 1
 
@@ -446,11 +437,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    strategy:
-      fail-fast: false
-      matrix:
-        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
-    environment: ${{ matrix.environment }}
+    environment: ${{ needs.extract-version.outputs.docker_environment }}
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -483,15 +470,6 @@ jobs:
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
 
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-
-      - name: Login to Docker Hub
-        env:
-          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
-          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-        run: bun scripts/docker-login-with-retry.ts
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
         with:
@@ -501,7 +479,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: /tmp/digests
-          pattern: assistant-digests-${{ matrix.environment }}-*
+          pattern: assistant-digests-${{ needs.extract-version.outputs.docker_environment }}-*
           merge-multiple: true
 
       - name: Compute image tags
@@ -549,7 +527,7 @@ jobs:
       - name: Upload manifest digest
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: assistant-manifest-digest-${{ matrix.environment }}
+          name: assistant-manifest-digest-${{ needs.extract-version.outputs.docker_environment }}
           path: /tmp/manifest-digest/digest
           retention-days: 1
 
@@ -562,9 +540,9 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## Assistant Image Published (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
+          echo "## Assistant Image Published (${{ needs.extract-version.outputs.docker_environment }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`${{ needs.extract-version.outputs.docker_environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
 
@@ -578,11 +556,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
         platform:
           - linux/amd64
           - linux/arm64
-    environment: ${{ matrix.environment }}
+    environment: ${{ needs.extract-version.outputs.docker_environment }}
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -604,15 +581,6 @@ jobs:
 
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-
-      - name: Login to Docker Hub
-        env:
-          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
-          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-        run: bun scripts/docker-login-with-retry.ts
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
@@ -635,11 +603,12 @@ jobs:
         id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
-          context: gateway
+          context: .
+          file: gateway/Dockerfile
           platforms: ${{ matrix.platform }}
           outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=gateway-${{ matrix.environment }}-${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=gateway-${{ matrix.environment }}-${{ matrix.platform }}
+          cache-from: type=gha,scope=gateway-${{ needs.extract-version.outputs.docker_environment }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=gateway-${{ needs.extract-version.outputs.docker_environment }}-${{ matrix.platform }}
 
       - name: Export digest
         run: |
@@ -656,7 +625,7 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: gateway-digests-${{ matrix.environment }}-${{ steps.platform.outputs.suffix }}
+          name: gateway-digests-${{ needs.extract-version.outputs.docker_environment }}-${{ steps.platform.outputs.suffix }}
           path: /tmp/digests/*
           retention-days: 1
 
@@ -670,11 +639,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
         platform:
           - linux/amd64
           - linux/arm64
-    environment: ${{ matrix.environment }}
+    environment: ${{ needs.extract-version.outputs.docker_environment }}
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -696,15 +664,6 @@ jobs:
 
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-
-      - name: Login to Docker Hub
-        env:
-          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
-          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-        run: bun scripts/docker-login-with-retry.ts
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
@@ -728,8 +687,8 @@ jobs:
           file: credential-executor/Dockerfile
           platforms: ${{ matrix.platform }}
           outputs: type=image,"name=${{ steps.image.outputs.gcp }}",push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=credential-executor-${{ matrix.environment }}-${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=credential-executor-${{ matrix.environment }}-${{ matrix.platform }}
+          cache-from: type=gha,scope=credential-executor-${{ needs.extract-version.outputs.docker_environment }}-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=credential-executor-${{ needs.extract-version.outputs.docker_environment }}-${{ matrix.platform }}
 
       - name: Export digest
         run: |
@@ -746,7 +705,7 @@ jobs:
       - name: Upload digest
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: credential-executor-digests-${{ matrix.environment }}-${{ steps.platform.outputs.suffix }}
+          name: credential-executor-digests-${{ needs.extract-version.outputs.docker_environment }}-${{ steps.platform.outputs.suffix }}
           path: /tmp/digests/*
           retention-days: 1
 
@@ -758,11 +717,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    strategy:
-      fail-fast: false
-      matrix:
-        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
-    environment: ${{ matrix.environment }}
+    environment: ${{ needs.extract-version.outputs.docker_environment }}
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -795,15 +750,6 @@ jobs:
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
 
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-
-      - name: Login to Docker Hub
-        env:
-          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
-          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-        run: bun scripts/docker-login-with-retry.ts
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
         with:
@@ -813,7 +759,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: /tmp/digests
-          pattern: gateway-digests-${{ matrix.environment }}-*
+          pattern: gateway-digests-${{ needs.extract-version.outputs.docker_environment }}-*
           merge-multiple: true
 
       - name: Compute image tags
@@ -861,7 +807,7 @@ jobs:
       - name: Upload manifest digest
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: gateway-manifest-digest-${{ matrix.environment }}
+          name: gateway-manifest-digest-${{ needs.extract-version.outputs.docker_environment }}
           path: /tmp/manifest-digest/digest
           retention-days: 1
 
@@ -874,9 +820,9 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## Gateway Image Published (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
+          echo "## Gateway Image Published (${{ needs.extract-version.outputs.docker_environment }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`${{ needs.extract-version.outputs.docker_environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
 
@@ -888,11 +834,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    strategy:
-      fail-fast: false
-      matrix:
-        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
-    environment: ${{ matrix.environment }}
+    environment: ${{ needs.extract-version.outputs.docker_environment }}
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -925,15 +867,6 @@ jobs:
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
 
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-
-      - name: Login to Docker Hub
-        env:
-          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
-          DOCKERHUB_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-        run: bun scripts/docker-login-with-retry.ts
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
         with:
@@ -943,7 +876,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: /tmp/digests
-          pattern: credential-executor-digests-${{ matrix.environment }}-*
+          pattern: credential-executor-digests-${{ needs.extract-version.outputs.docker_environment }}-*
           merge-multiple: true
 
       - name: Compute image tags
@@ -991,7 +924,7 @@ jobs:
       - name: Upload manifest digest
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: credential-executor-manifest-digest-${{ matrix.environment }}
+          name: credential-executor-manifest-digest-${{ needs.extract-version.outputs.docker_environment }}
           path: /tmp/manifest-digest/digest
           retention-days: 1
 
@@ -1004,9 +937,9 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## Credential Executor Image Published (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
+          echo "## Credential Executor Image Published (${{ needs.extract-version.outputs.docker_environment }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** \`${{ needs.extract-version.outputs.docker_environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -1031,7 +964,7 @@ jobs:
           - service: gateway
             runs_on: ubuntu-latest
             dockerhub_image_name: vellum-gateway
-            context: gateway
+            context: .
             dockerfile: gateway/Dockerfile
             feature_flag_path: gateway/src/feature-flag-registry.json
           - service: credential-executor
@@ -1116,11 +1049,7 @@ jobs:
     if: ${{ always() && !cancelled() && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && (needs.extract-version.outputs.is_staging == 'true' || needs.push-dockerhub-image.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    strategy:
-      fail-fast: false
-      matrix:
-        environment: ${{ fromJSON(needs.extract-version.outputs.docker_environments) }}
-    environment: ${{ matrix.environment }}
+    environment: ${{ needs.extract-version.outputs.docker_environment }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1152,8 +1081,16 @@ jobs:
             const relPath = importMap[lastVar];
             const filePath = path.join('assistant/src/workspace/migrations', relPath.replace(/\.js$/, '.ts'));
             const src = fs.readFileSync(filePath, 'utf-8');
-            const idMatch = src.match(/id:\s*['\x22]([^'\x22]+)['\x22]/);
-            console.log(idMatch[1]);
+            let id;
+            const litMatch = src.match(/id:\s*['\x22]([^'\x22]+)['\x22]/);
+            if (litMatch) {
+              id = litMatch[1];
+            } else {
+              const refMatch = src.match(/id:\s*(\w+)/);
+              const constLine = src.split('\n').find(l => l.includes('const ' + refMatch[1] + ' ='));
+              id = constLine.match(/['\x22]([^'\x22]+)['\x22]/)[1];
+            }
+            console.log(id);
           ")
           echo "ws_id=$WS_ID" >> "$GITHUB_OUTPUT"
           echo "Migration ceilings: db=$DB_VERSION, workspace=$WS_ID"
@@ -1165,19 +1102,19 @@ jobs:
       - name: Download assistant manifest digest
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: assistant-manifest-digest-${{ matrix.environment }}
+          name: assistant-manifest-digest-${{ needs.extract-version.outputs.docker_environment }}
           path: /tmp/assistant-digest
 
       - name: Download gateway manifest digest
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: gateway-manifest-digest-${{ matrix.environment }}
+          name: gateway-manifest-digest-${{ needs.extract-version.outputs.docker_environment }}
           path: /tmp/gateway-digest
 
       - name: Download credential-executor manifest digest
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: credential-executor-manifest-digest-${{ matrix.environment }}
+          name: credential-executor-manifest-digest-${{ needs.extract-version.outputs.docker_environment }}
           path: /tmp/credential-executor-digest
 
       - name: Extract manifest digests
@@ -1254,7 +1191,7 @@ jobs:
 
           for attempt in $(seq 1 $MAX_ATTEMPTS); do
             CURL_EXIT=0
-            echo "Registering release v${VERSION} with platform (${{ matrix.environment }}) [attempt ${attempt}/${MAX_ATTEMPTS}]..."
+            echo "Registering release v${VERSION} with platform (${{ needs.extract-version.outputs.docker_environment }}) [attempt ${attempt}/${MAX_ATTEMPTS}]..."
             HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
               -X POST "${{ steps.platform-creds.outputs.api_url }}/v1/internal/assistant-image-releases/" \
               -H "Content-Type: application/json" \
@@ -1286,7 +1223,7 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## Release Registered (${{ matrix.environment }})" >> $GITHUB_STEP_SUMMARY
+          echo "## Release Registered (${{ needs.extract-version.outputs.docker_environment }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
 
@@ -1499,7 +1436,7 @@ jobs:
       - name: Install nested package dependencies
         working-directory: .
         run: |
-          for dir in packages/*/; do
+          for dir in packages/*/ skills/*/; do
             [ -f "${dir}/package.json" ] || continue
             echo "Installing dependencies in ${dir}"
             (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
@@ -1872,7 +1809,7 @@ jobs:
       - name: Install nested package dependencies
         working-directory: .
         run: |
-          for dir in packages/*/; do
+          for dir in packages/*/ skills/*/; do
             [ -f "${dir}/package.json" ] || continue
             echo "Installing dependencies in ${dir}"
             (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
@@ -2393,7 +2330,7 @@ jobs:
 
       - name: Install nested package dependencies
         run: |
-          for dir in packages/*/; do
+          for dir in packages/*/ skills/*/; do
             [ -f "${dir}/package.json" ] || continue
             echo "Installing dependencies in ${dir}"
             (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
@@ -2943,7 +2880,7 @@ jobs:
           fi
 
           if [ "$IS_STAGING" = "true" ]; then
-            META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped. Docker images pushed to dev GCR and release registered._' "$VERSION" "$TRIGGERED_BY")
+            META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped. Docker images pushed to staging GCR and release registered._' "$VERSION" "$TRIGGERED_BY")
           else
             META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "$TRIGGERED_BY")
           fi

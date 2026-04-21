@@ -61,13 +61,6 @@ const TOOL_DEFINITION_OVERHEAD_TOKENS = 28;
 
 export interface TokenEstimatorOptions {
   providerName?: string;
-  /**
-   * Active model id. Used together with `providerName` to apply the
-   * self-calibration correction maintained in `estimator-calibration.ts`.
-   * When omitted, the correction key falls back to `(providerName, "")`
-   * so per-provider calibration still applies.
-   */
-  modelId?: string;
   /** Pre-computed tool token budget. When provided, added to the prompt total. */
   toolTokenBudget?: number;
 }
@@ -165,13 +158,28 @@ export function estimateContentBlockTokens(
         estimateTextTokens(stableJson(block.input))
       );
     case "tool_result": {
+      // Mirror the Anthropic serializer in providers/anthropic/client.ts
+      // (toAnthropicBlockSafe): block.content is always sent as the first
+      // text part, and contentBlocks are appended — but only `image` and
+      // `text` sub-blocks survive, and `image` is filtered out when
+      // is_error is true. Counting every contentBlocks entry regardless
+      // of type overestimates the wire size and can trigger spurious
+      // compaction on conversations that carry e.g. thinking sub-blocks.
+      // OpenAI and Gemini forward error-result images normally, so the
+      // is_error image drop is Anthropic-specific.
+      const anthropicDropsErrorImage =
+        options?.providerName === "anthropic" && block.is_error === true;
       let tokens =
         TOOL_BLOCK_OVERHEAD_TOKENS +
         estimateTextTokens(block.tool_use_id) +
         estimateTextTokens(block.content);
       if (block.contentBlocks) {
         for (const cb of block.contentBlocks) {
-          tokens += estimateContentBlockTokens(cb, options);
+          if (cb.type === "text") {
+            tokens += estimateContentBlockTokens(cb, options);
+          } else if (cb.type === "image" && !anthropicDropsErrorImage) {
+            tokens += estimateContentBlockTokens(cb, options);
+          }
         }
       }
       return tokens;
@@ -278,10 +286,11 @@ export function estimatePromptTokens(
   // Apply the self-calibration correction. Default is 1.0 for any
   // (provider, model) pair we haven't recorded a sample for, so first-call
   // behavior is unchanged. As usage data accumulates, the correction ratio
-  // pulls estimates toward the provider's ground-truth token count.
+  // pulls estimates toward the provider's ground-truth token count. Lookup
+  // uses the per-provider aggregate key — `getCorrection` falls back to
+  // `(provider, "")` when a model-specific sample is not available.
   const providerName = options?.providerName ?? "";
-  const modelId = options?.modelId ?? "";
-  const correction = getCorrection(providerName, modelId);
+  const correction = getCorrection(providerName, "");
   return correction === 1.0 ? raw : Math.ceil(raw * correction);
 }
 

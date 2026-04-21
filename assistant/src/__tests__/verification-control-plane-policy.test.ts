@@ -67,7 +67,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../permissions/checker.js", () => ({
-  classifyRisk: async () => "low",
+  classifyRisk: async () => ({ level: "low" }),
   check: async () => ({ decision: "allow", reason: "allowed" }),
   generateAllowlistOptions: () => [],
   generateScopeOptions: () => [],
@@ -270,16 +270,6 @@ describe("isVerificationControlPlaneInvocation", () => {
           url: "https://docs.example.com/api/v1/help",
         }),
       ).toBe(false);
-    });
-  });
-
-  describe("browser_navigate tool with verification endpoint in url", () => {
-    test("detects verification endpoint", () => {
-      expect(
-        isVerificationControlPlaneInvocation("browser_navigate", {
-          url: "http://localhost:3000/v1/channel-verification-sessions/status",
-        }),
-      ).toBe(true);
     });
   });
 
@@ -671,17 +661,6 @@ describe("ToolExecutor verification control-plane policy gate", () => {
     const result = await executor.execute(
       "web_fetch",
       { url: "http://localhost:3000/v1/channel-verification-sessions/resend" },
-      makeContext({ trustClass: "trusted_contact" }),
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("restricted to guardian users");
-  });
-
-  test("non-guardian blocked from browser_navigate to verification endpoint", async () => {
-    const executor = new ToolExecutor(makePrompter());
-    const result = await executor.execute(
-      "browser_navigate",
-      { url: "http://localhost:3000/v1/channel-verification-sessions/status" },
       makeContext({ trustClass: "trusted_contact" }),
     );
     expect(result.isError).toBe(true);

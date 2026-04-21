@@ -479,7 +479,7 @@ async function handleToolPermissionSimulate(body: {
     );
     const policyContext = { executionTarget };
 
-    const riskLevel = await classifyRisk(
+    const { level: riskLevel } = await classifyRisk(
       body.toolName,
       body.input,
       workingDir,

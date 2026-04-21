@@ -222,10 +222,6 @@ export const CallsConfigSchema = z
     ),
     safety: CallsSafetyConfigSchema.default(CallsSafetyConfigSchema.parse({})),
     voice: CallsVoiceConfigSchema.default(CallsVoiceConfigSchema.parse({})),
-    model: z
-      .string({ error: "calls.model must be a string" })
-      .optional()
-      .describe("Override the default model for phone call conversations"),
     callerIdentity: CallerIdentityConfigSchema.default(
       CallerIdentityConfigSchema.parse({}),
     ),

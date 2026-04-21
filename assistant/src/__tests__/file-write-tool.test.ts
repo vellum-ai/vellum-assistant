@@ -1,5 +1,6 @@
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
@@ -8,8 +9,47 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeAll, describe, expect, test } from "bun:test";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
+// Track calls to enqueuePkbIndexJob across tests. Captured via mock.module
+// below; individual tests clear and inspect the array.
+const enqueueCalls: Array<{
+  pkbRoot: string;
+  absPath: string;
+  memoryScopeId: string;
+}> = [];
+let enqueueThrows = false;
+
+mock.module("../memory/jobs/embed-pkb-file.js", () => ({
+  enqueuePkbIndexJob: (input: {
+    pkbRoot: string;
+    absPath: string;
+    memoryScopeId: string;
+  }) => {
+    if (enqueueThrows) {
+      throw new Error("simulated enqueue failure");
+    }
+    enqueueCalls.push(input);
+    return "job-id";
+  },
+}));
+
+// Override workspace dir via VELLUM_WORKSPACE_DIR so PKB-root detection
+// targets a temp directory without having to mock platform.js wholesale
+// (which would destabilize the rest of the tool registry's dependency tree).
+function setWorkspaceDir(dir: string): void {
+  process.env.VELLUM_WORKSPACE_DIR = dir;
+}
+
+import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import { getTool } from "../tools/registry.js";
 import type { Tool, ToolContext } from "../tools/types.js";
 
@@ -32,6 +72,24 @@ function makeContext(workingDir: string): ToolContext {
 afterEach(() => {
   for (const dir of testDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+const originalWorkspaceDirEnv = process.env.VELLUM_WORKSPACE_DIR;
+
+beforeEach(() => {
+  enqueueCalls.length = 0;
+  enqueueThrows = false;
+  // Reset to a stable tmp path so the sandbox tests (which don't use pkb/)
+  // deterministically land outside any configured PKB root.
+  process.env.VELLUM_WORKSPACE_DIR = tmpdir();
+});
+
+afterEach(() => {
+  if (originalWorkspaceDirEnv === undefined) {
+    delete process.env.VELLUM_WORKSPACE_DIR;
+  } else {
+    process.env.VELLUM_WORKSPACE_DIR = originalWorkspaceDirEnv;
   }
 });
 
@@ -116,5 +174,97 @@ describe("file_write tool (sandbox)", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("exceeds");
+  });
+});
+
+describe("file_write tool PKB re-index hook", () => {
+  test("enqueues a PKB re-index job when writing under pkb/", async () => {
+    const workingDir = makeTempDir();
+    setWorkspaceDir(workingDir);
+    mkdirSync(join(workingDir, "pkb"), { recursive: true });
+
+    const result = await fileWriteTool.execute(
+      { path: "pkb/note.md", content: "# hello\nworld\n" },
+      makeContext(workingDir),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(enqueueCalls).toHaveLength(1);
+    expect(enqueueCalls[0]).toEqual({
+      pkbRoot: join(workingDir, "pkb"),
+      absPath: join(workingDir, "pkb", "note.md"),
+      memoryScopeId: PKB_WORKSPACE_SCOPE,
+    });
+  });
+
+  test("always uses PKB_WORKSPACE_SCOPE regardless of context.memoryScopeId", async () => {
+    const workingDir = makeTempDir();
+    setWorkspaceDir(workingDir);
+    mkdirSync(join(workingDir, "pkb"), { recursive: true });
+
+    const ctx: ToolContext = {
+      ...makeContext(workingDir),
+      memoryScopeId: "private:abc123",
+    };
+
+    const result = await fileWriteTool.execute(
+      { path: "pkb/private.md", content: "secret\n" },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(enqueueCalls).toHaveLength(1);
+    // PKB files are workspace-level — the per-conversation scopeId is NOT
+    // threaded through so different conversations can't overwrite each
+    // other's Qdrant points via target_id upsert deduplication.
+    expect(enqueueCalls[0]?.memoryScopeId).toBe(PKB_WORKSPACE_SCOPE);
+  });
+
+  test("does NOT enqueue when writing outside pkb/", async () => {
+    const workingDir = makeTempDir();
+    setWorkspaceDir(workingDir);
+
+    const result = await fileWriteTool.execute(
+      { path: "notes.md", content: "# not pkb\n" },
+      makeContext(workingDir),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(enqueueCalls).toHaveLength(0);
+  });
+
+  test("does NOT enqueue for a sibling directory whose name is a pkb prefix", async () => {
+    // Guard against `<root>/pkbsomethingelse` being treated as inside `<root>/pkb`.
+    const workingDir = makeTempDir();
+    setWorkspaceDir(workingDir);
+    mkdirSync(join(workingDir, "pkbsibling"), { recursive: true });
+
+    const result = await fileWriteTool.execute(
+      { path: "pkbsibling/file.md", content: "not pkb\n" },
+      makeContext(workingDir),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(enqueueCalls).toHaveLength(0);
+  });
+
+  test("enqueue failure is swallowed and write result stays successful", async () => {
+    const workingDir = makeTempDir();
+    setWorkspaceDir(workingDir);
+    mkdirSync(join(workingDir, "pkb"), { recursive: true });
+    enqueueThrows = true;
+
+    const result = await fileWriteTool.execute(
+      { path: "pkb/oops.md", content: "still writes\n" },
+      makeContext(workingDir),
+    );
+
+    expect(result.isError).toBe(false);
+    // The mock throws, so nothing gets pushed to enqueueCalls. The critical
+    // behavior is that the thrown error never surfaces through execute().
+    expect(enqueueCalls).toHaveLength(0);
+    expect(
+      existsSync(join(workingDir, "pkb", "oops.md")),
+    ).toBe(true);
   });
 });

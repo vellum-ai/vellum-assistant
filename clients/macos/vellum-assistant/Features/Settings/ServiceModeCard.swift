@@ -8,12 +8,13 @@ import VellumAssistantShared
 /// buttons — to callers via ViewBuilder closures. Each card is responsible
 /// for placing its own save/reset actions contextually within its content.
 @MainActor
-struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
+struct ServiceModeCard<ManagedContent: View, YourOwnContent: View, Footer: View>: View {
     let title: String
     let subtitle: String
     @Binding var draftMode: String
     @ViewBuilder let managedContent: () -> ManagedContent
     @ViewBuilder let yourOwnContent: () -> YourOwnContent
+    @ViewBuilder let footer: () -> Footer
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -30,6 +31,8 @@ struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
             } else {
                 yourOwnContent()
             }
+
+            footer()
         }
         .padding(VSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -60,6 +63,68 @@ struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
                 .frame(width: 220)
             }
         }
+    }
+}
+
+extension ServiceModeCard where Footer == EmptyView {
+    init(
+        title: String,
+        subtitle: String,
+        draftMode: Binding<String>,
+        @ViewBuilder managedContent: @escaping () -> ManagedContent,
+        @ViewBuilder yourOwnContent: @escaping () -> YourOwnContent
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self._draftMode = draftMode
+        self.managedContent = managedContent
+        self.yourOwnContent = yourOwnContent
+        self.footer = { EmptyView() }
+    }
+}
+
+// MARK: - Disabled Managed Segment Control
+
+/// A segment control that visually matches `VSegmentControl` but has the
+/// "Managed" segment permanently disabled with a tooltip. Used by service
+/// cards where managed mode is not yet available.
+@MainActor
+struct DisabledManagedSegmentControl: View {
+    var tooltip: String = ""
+
+    var body: some View {
+        HStack(spacing: 0) {
+            // Disabled "Managed" segment
+            Text("Managed")
+                .font(VFont.bodySmallDefault)
+                .fixedSize()
+                .foregroundStyle(VColor.contentDisabled)
+                .padding(.horizontal, VSpacing.sm)
+                .frame(maxWidth: .infinity)
+                .frame(height: 24)
+                .contentShape(Rectangle())
+                .help(tooltip)
+
+            // Always-active "Your Own" segment
+            Text("Your Own")
+                .font(VFont.bodySmallDefault)
+                .fixedSize()
+                .foregroundStyle(VColor.contentEmphasized)
+                .padding(.horizontal, VSpacing.sm)
+                .frame(maxWidth: .infinity)
+                .frame(height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(VColor.contentInset)
+                        .shadow(color: VColor.auxBlack.opacity(0.08), radius: 2, x: 0, y: 1)
+                )
+        }
+        .padding(2)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .fill(VColor.contentBackground)
+        )
+        .frame(width: 220)
     }
 }
 

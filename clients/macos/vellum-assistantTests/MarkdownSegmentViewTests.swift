@@ -4,6 +4,10 @@ import XCTest
 @testable import VellumAssistantLib
 @testable import VellumAssistantShared
 
+#if canImport(SwiftMath)
+import SwiftMath
+#endif
+
 @MainActor
 final class MarkdownSegmentViewTests: XCTestCase {
     private static let markdownOptions = AttributedString.MarkdownParsingOptions(
@@ -162,6 +166,75 @@ final class MarkdownSegmentViewTests: XCTestCase {
         XCTAssertGreaterThan(abs(CGFloat(truncating: obliqueness!)), 0.01)
     }
 
+    func testItalicEmojiHasNoObliqueness() throws {
+        let input = "*harder than the 🥺 did*"
+        let (rendered, hasUnresolvedEmphasis) = makeRenderedMarkdown(input)
+        XCTAssertFalse(hasUnresolvedEmphasis)
+
+        // Surrounding italic text keeps obliqueness.
+        let textObliqueness = rendered.attribute(.obliqueness, at: 0, effectiveRange: nil) as? NSNumber
+        XCTAssertNotNil(textObliqueness)
+        XCTAssertGreaterThan(abs(CGFloat(truncating: try XCTUnwrap(textObliqueness))), 0.01)
+
+        // The emoji grapheme cluster has obliqueness stripped.
+        let emojiOffset = try XCTUnwrap(utf16Offset(of: "🥺", in: rendered.string))
+        let emojiObliqueness = rendered.attribute(.obliqueness, at: emojiOffset, effectiveRange: nil) as? NSNumber
+        if let emojiObliqueness {
+            XCTAssertLessThan(abs(CGFloat(truncating: emojiObliqueness)), 0.01, "Emoji inside italic runs must not be skewed")
+        }
+    }
+
+    func testBoldItalicEmojiHasNoObliqueness() throws {
+        let input = "***oof 🥺***"
+        let (rendered, hasUnresolvedEmphasis) = makeRenderedMarkdown(input)
+        XCTAssertFalse(hasUnresolvedEmphasis)
+
+        let textObliqueness = rendered.attribute(.obliqueness, at: 0, effectiveRange: nil) as? NSNumber
+        XCTAssertNotNil(textObliqueness)
+        XCTAssertGreaterThan(abs(CGFloat(truncating: try XCTUnwrap(textObliqueness))), 0.01)
+
+        let emojiOffset = try XCTUnwrap(utf16Offset(of: "🥺", in: rendered.string))
+        let emojiObliqueness = rendered.attribute(.obliqueness, at: emojiOffset, effectiveRange: nil) as? NSNumber
+        if let emojiObliqueness {
+            XCTAssertLessThan(abs(CGFloat(truncating: emojiObliqueness)), 0.01)
+        }
+    }
+
+    func testCompoundZWJEmojiHasNoObliqueness() throws {
+        // Family emoji is a multi-scalar ZWJ sequence — must be treated as one
+        // grapheme cluster so obliqueness is stripped across the whole sequence.
+        let input = "*family 👨‍👩‍👧 time*"
+        let (rendered, hasUnresolvedEmphasis) = makeRenderedMarkdown(input)
+        XCTAssertFalse(hasUnresolvedEmphasis)
+
+        let emojiOffset = try XCTUnwrap(utf16Offset(of: "👨\u{200D}👩\u{200D}👧", in: rendered.string))
+        let emojiObliqueness = rendered.attribute(.obliqueness, at: emojiOffset, effectiveRange: nil) as? NSNumber
+        if let emojiObliqueness {
+            XCTAssertLessThan(abs(CGFloat(truncating: emojiObliqueness)), 0.01)
+        }
+    }
+
+    func testTextPresentationDigitKeepsObliqueness() throws {
+        // Digits have the Emoji property but not Emoji_Presentation, and no VS16.
+        // They must remain italicized inside an italic run.
+        let input = "*round 1 ends*"
+        let (rendered, hasUnresolvedEmphasis) = makeRenderedMarkdown(input)
+        XCTAssertFalse(hasUnresolvedEmphasis)
+
+        let digitOffset = try XCTUnwrap(utf16Offset(of: "1", in: rendered.string))
+        let digitObliqueness = rendered.attribute(.obliqueness, at: digitOffset, effectiveRange: nil) as? NSNumber
+        XCTAssertNotNil(digitObliqueness, "Text-presentation digits must keep italic obliqueness")
+        XCTAssertGreaterThan(abs(CGFloat(truncating: try XCTUnwrap(digitObliqueness))), 0.01)
+    }
+
+    func testNonItalicEmojiRendersWithoutObliqueness() throws {
+        // Sanity check: when nothing applied obliqueness, the strip pass is a no-op.
+        let (rendered, _) = makeRenderedMarkdown("plain 🥺 text")
+        let emojiOffset = try XCTUnwrap(utf16Offset(of: "🥺", in: rendered.string))
+        let emojiObliqueness = rendered.attribute(.obliqueness, at: emojiOffset, effectiveRange: nil) as? NSNumber
+        XCTAssertNil(emojiObliqueness)
+    }
+
     func testInvalidEmphasisFontsSkipMeasurementCaching() throws {
         #if DEBUG
         VFont._chatMarkdownFontSetOverride = { size in
@@ -206,6 +279,36 @@ final class MarkdownSegmentViewTests: XCTestCase {
             0,
             "Unresolved emphasis must not be inserted into the measured text cache"
         )
+    }
+
+    /// `bubbleMaxWidth` is 0 during the first LazyVStack pass, before the
+    /// chat column's width resolves. A collapsed measurement must NOT be
+    /// cached at either the `measuredTextCache` or
+    /// `VSelectableTextView.measurementSizeCache` layer — caching (0,0)
+    /// would leave the cell stacked under its neighbor and cause the
+    /// multi-message overlap seen in practice.
+    func testZeroWidthReturnsZeroSizeWithoutPoisoningCaches() {
+        let segments = parseMarkdownSegments("a long enough run of text to wrap")
+        let view = MarkdownSegmentView(segments: segments, maxContentWidth: 0)
+        let result = view.resolveSelectableRunMeasurementResult(segments)
+
+        XCTAssertEqual(result.size.height, 0)
+        XCTAssertEqual(
+            MarkdownSegmentView._measuredTextCacheInsertCount,
+            0,
+            "Zero-height measurement must not populate the measured text cache"
+        )
+
+        // Now re-measure at a real width. Because nothing poisoned the
+        // caches, this must produce a non-zero height and populate the
+        // measured text cache exactly once.
+        let resolvedView = MarkdownSegmentView(
+            segments: segments,
+            maxContentWidth: VSpacing.chatBubbleMaxWidth
+        )
+        let resolved = resolvedView.resolveSelectableRunMeasurementResult(segments)
+        XCTAssertGreaterThan(resolved.size.height, 0)
+        XCTAssertEqual(MarkdownSegmentView._measuredTextCacheInsertCount, 1)
     }
 
     func testWarmupRefreshClearsRenderCachesAndForcesRebuild() {
@@ -324,6 +427,137 @@ final class MarkdownSegmentViewTests: XCTestCase {
         )
     }
 
+    // MARK: - Block Math (`$$…$$`) Parsing
+
+    func testBlockMath_singleLine() {
+        let segments = parseMarkdownSegments("$$x^2$$")
+        XCTAssertEqual(segments, [.math(latex: "x^2", display: true)])
+    }
+
+    func testBlockMath_multiLine() {
+        let segments = parseMarkdownSegments("$$\n\\frac{a}{b}\n$$")
+        XCTAssertEqual(segments, [.math(latex: "\\frac{a}{b}", display: true)])
+    }
+
+    /// Regression test for the original report that motivated this feature —
+    /// LaTeX pasted into a single-line `$$…$$` wrapper must emit exactly one
+    /// `.math` segment whose payload is the raw inner expression.
+    func testBlockMath_screenshotRegression() {
+        let input = "$$m_\\text{ferrite} \\propto (\\text{ferrite thickness}) "
+            + "\\propto \\frac{F_\\text{required}}{F_\\text{available per m}} "
+            + "\\propto \\frac{1}{\\text{margin}}$$"
+        let expectedInner = "m_\\text{ferrite} \\propto (\\text{ferrite thickness}) "
+            + "\\propto \\frac{F_\\text{required}}{F_\\text{available per m}} "
+            + "\\propto \\frac{1}{\\text{margin}}"
+
+        let segments = parseMarkdownSegments(input)
+        XCTAssertEqual(segments.count, 1)
+        guard case .math(let latex, let display) = segments.first else {
+            return XCTFail("Expected .math segment, got \(segments)")
+        }
+        XCTAssertEqual(latex, expectedInner)
+        XCTAssertTrue(display)
+    }
+
+    func testBlockMath_insideCodeBlockIsPreserved() {
+        let segments = parseMarkdownSegments("```\n$$x^2$$\n```")
+        XCTAssertEqual(segments, [.codeBlock(language: nil, code: "$$x^2$$")])
+    }
+
+    func testBlockMath_unclosedFallsBackToText() {
+        let segments = parseMarkdownSegments("$$\nx^2")
+        XCTAssertEqual(segments.count, 1)
+        guard case .text(let content) = segments.first else {
+            return XCTFail("Expected .text segment for unclosed $$, got \(segments)")
+        }
+        // Unclosed block-math reverts to plain text — the `$$` opener and any
+        // collected lines must both survive (though outer whitespace is
+        // trimmed by flushText). No `.math` segment should be emitted.
+        XCTAssertTrue(content.contains("$$"), "Unclosed `$$` opener must appear verbatim in the text; got: \(content)")
+        XCTAssertTrue(content.contains("x^2"), "Content after the unclosed opener must survive; got: \(content)")
+        for segment in segments {
+            if case .math = segment {
+                XCTFail("Unclosed `$$` must not emit a .math segment")
+            }
+        }
+    }
+
+    /// Regression: during streaming, we see `before\n$$\n<partial>` before the
+    /// closing `$$` arrives. The parser must not emit the prefix prose and
+    /// the verbatim fallback as two separate `.text` segments — the renderer
+    /// joins adjacent text with a blank line, producing a visible flicker
+    /// each streaming tick until the close arrives.
+    func testBlockMath_unclosedWithPrecedingProseStaysOneTextSegment() {
+        let segments = parseMarkdownSegments("before\n$$\nx^2")
+        var textSegments = 0
+        for segment in segments {
+            if case .text = segment { textSegments += 1 }
+            if case .math = segment {
+                XCTFail("Unclosed `$$` must not emit a .math segment")
+            }
+        }
+        XCTAssertEqual(textSegments, 1, "Verbatim fallback must flush as a single .text segment; got \(segments)")
+        guard case .text(let content) = segments.first else {
+            return XCTFail("Expected a .text segment, got \(segments)")
+        }
+        XCTAssertTrue(content.contains("before"))
+        XCTAssertTrue(content.contains("$$"))
+        XCTAssertTrue(content.contains("x^2"))
+    }
+
+    func testBlockMath_emptyDelimitersAreText() {
+        let segments = parseMarkdownSegments("$$$$")
+        XCTAssertEqual(segments, [.text("$$$$")])
+    }
+
+    func testBlockMath_twoBackToBack() {
+        let segments = parseMarkdownSegments("$$a$$\n\n$$b$$")
+        XCTAssertEqual(segments, [
+            .math(latex: "a", display: true),
+            .math(latex: "b", display: true),
+        ])
+    }
+
+    func testBlockMath_mixedWithProse() {
+        let segments = parseMarkdownSegments("Here is math:\n\n$$x^2$$\n\nEnd.")
+        XCTAssertEqual(segments, [
+            .text("Here is math:"),
+            .math(latex: "x^2", display: true),
+            .text("End."),
+        ])
+    }
+
+    /// Pins the current parser behavior for prose that contains `$` signs —
+    /// no `.math` segment should be emitted. This protects against silent
+    /// regressions when inline-math (`$…$`) support lands in the future; any
+    /// new inline-math parser must still leave price-like prose alone.
+    func testProse_withDollarSigns_isNotMisparsedAsMath() {
+        let inputs = [
+            "Prices: $10 and $20",
+            "$price: $10 vs $15$",
+            "Spent $5 on coffee.",
+            "Net of $3.50 after fees.",
+            "One $ left.",
+        ]
+        for input in inputs {
+            let segments = parseMarkdownSegments(input)
+            for segment in segments {
+                if case .math = segment {
+                    XCTFail("Prose with `$` must not emit a .math segment. Input=\(input), got=\(segments)")
+                }
+            }
+            // Every prose input above should collapse into a single .text
+            // segment — pin that too so future refactors don't silently
+            // split prose across multiple segments.
+            XCTAssertEqual(segments.count, 1, "Expected a single .text segment for input=\(input), got \(segments)")
+            if case .text(let text)? = segments.first {
+                XCTAssertEqual(text, input, "Prose must round-trip verbatim")
+            } else {
+                XCTFail("Expected first segment to be .text for input=\(input), got \(segments)")
+            }
+        }
+    }
+
     private func makeRenderedMarkdown(_ markdown: String) -> (NSAttributedString, Bool) {
         let source = (try? makeAttributedString(from: markdown)) ?? AttributedString(markdown)
         return MarkdownSegmentView.convertToNSAttributedString(
@@ -344,6 +578,11 @@ final class MarkdownSegmentViewTests: XCTestCase {
 
     private func renderedObliqueness(from rendered: NSAttributedString) -> NSNumber? {
         rendered.attribute(.obliqueness, at: 0, effectiveRange: nil) as? NSNumber
+    }
+
+    private func utf16Offset(of needle: String, in haystack: String) -> Int? {
+        guard let range = haystack.range(of: needle) else { return nil }
+        return haystack.utf16.distance(from: haystack.utf16.startIndex, to: range.lowerBound.samePosition(in: haystack.utf16)!)
     }
 
     private func familyName(for font: NSFont) -> String {
@@ -428,4 +667,18 @@ final class MarkdownSegmentViewTests: XCTestCase {
             )
         }
     }
+
+    // MARK: - SwiftMath
+
+    #if canImport(SwiftMath)
+    func testMathImage_rendersScreenshotLatex() {
+        let latex = #"m_\text{ferrite} \propto (\text{ferrite thickness}) \propto \frac{F_\text{required}}{F_\text{available per m}} \propto \frac{1}{\text{margin}}"#
+        var math = MathImage(latex: latex, fontSize: 13, textColor: NSColor.black, labelMode: .display)
+        let (error, image) = math.asImage()
+        XCTAssertNil(error, "SwiftMath rejected the screenshot LaTeX: \(error.map { String(describing: $0) } ?? "unknown")")
+        XCTAssertNotNil(image)
+        XCTAssertGreaterThan(image?.size.width ?? 0, 0)
+        XCTAssertGreaterThan(image?.size.height ?? 0, 0)
+    }
+    #endif
 }

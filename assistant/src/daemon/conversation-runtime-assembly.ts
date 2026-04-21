@@ -10,14 +10,43 @@ import { join, resolve } from "node:path";
 
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
 import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
+import {
+  getMessages as defaultGetMessages,
+  type MessageRow,
+} from "../memory/conversation-crud.js";
+import {
+  countMemoryPrefixBlocks,
+  extractMemoryPrefixBlocks,
+} from "../memory/graph/conversation-graph-memory.js";
+import { searchPkbFiles } from "../memory/pkb/pkb-search.js";
+import type { QdrantSparseVector } from "../memory/qdrant-client.js";
+import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+import {
+  extractTagLineTexts,
+  type RenderableSlackMessage,
+  renderSlackTranscript,
+} from "../messaging/providers/slack/render-transcript.js";
 import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
-import type { Message } from "../providers/types.js";
-import type { ActorTrustContext } from "../runtime/actor-trust-resolver.js";
+import type { ContentBlock, Message } from "../providers/types.js";
+import {
+  type ActorTrustContext,
+  isUntrustedTrustClass,
+  type TrustClass,
+} from "../runtime/actor-trust-resolver.js";
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
+import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
+import { filterMessagesForUntrustedActor } from "./conversation-lifecycle.js";
+import {
+  getInContextPkbPaths,
+  type PkbContextConversation,
+} from "./pkb-context-tracker.js";
+import { buildPkbReminder } from "./pkb-reminder-builder.js";
+
+const pkbReminderLog = getLogger("pkb-reminder");
 
 /**
  * Describes the capabilities of the channel through which the user is
@@ -557,7 +586,7 @@ export function injectNowScratchpad(
 ): Message {
   const scratchpadBlock = {
     type: "text" as const,
-    text: `<NOW.md Always keep this up to date>\n${content}\n</NOW.md>`,
+    text: `<NOW.md Always keep this up to date; keep under 10 lines>\n${content}\n</NOW.md>`,
   };
 
   // Find insertion point: skip any leading injected-context text blocks
@@ -586,7 +615,9 @@ export function injectNowScratchpad(
 /** Strip `<NOW.md>` blocks injected by `injectNowScratchpad`. */
 export function stripNowScratchpad(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, [
-    "<NOW.md Always keep this up to date>",
+    // Shared prefix catches both the current tag and any pre-line-limit
+    // variant that may linger in in-flight histories during a rolling deploy.
+    "<NOW.md Always keep this up to date",
     "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
   ]);
 }
@@ -607,13 +638,15 @@ const AUTOINJECT_FILENAME = "_autoinject.md";
 /** Max buffer.md lines injected into prompts — keeps context bounded even when filing is off. */
 const MAX_BUFFER_LINES = 50;
 
-const PKB_SYSTEM_REMINDER =
-  "<system_reminder>" +
-  "\n**CRITICAL:** you MUST read any PKB files that might be relevant to this conversation — " +
-  "INDEX.md is your table of contents. Don't wait to be asked. " +
-  "Use `remember` OFTEN for EVERY new fact you learn IMMEDIATELY, don't wait for the next turn. " +
-  "Corrections to things you had wrong are the highest-priority remembers — never skip them." +
-  "\n</system_reminder>";
+/** Minimum hybrid-search score for a PKB path to surface as an injection hint. */
+const PKB_HINT_THRESHOLD = 0.5;
+
+/**
+ * Stricter hint threshold for PKB entries under `archive/`. Archive files are
+ * date-indexed dumps of older notes — they match loosely and are rarely the
+ * most relevant read, so require a higher bar before recommending them.
+ */
+const PKB_HINT_ARCHIVE_THRESHOLD = 0.7;
 
 /**
  * Read `_autoinject.md` from the PKB directory and return the list of
@@ -640,6 +673,21 @@ export function readAutoinjectList(pkbDir: string): string[] | null {
 }
 
 /**
+ * Resolve the effective list of auto-inject filenames for a PKB directory.
+ *
+ * This is the single source of truth used both by `readPkbContext` (which
+ * actually injects the files) and by the PKB reminder-hint tracker in
+ * `conversation-agent-loop.ts` (which needs to know what's already in
+ * context so it doesn't redundantly recommend those files).
+ *
+ * Returns `PKB_DEFAULT_FILES` when `_autoinject.md` is missing/unreadable,
+ * or the parsed list (possibly empty) when it is present.
+ */
+export function getPkbAutoInjectList(pkbRoot: string): string[] {
+  return readAutoinjectList(pkbRoot) ?? PKB_DEFAULT_FILES;
+}
+
+/**
  * Read the always-loaded PKB files and append a nudge encouraging the
  * assistant to proactively read topic files and use `remember` aggressively.
  *
@@ -653,7 +701,7 @@ export function readPkbContext(): string | null {
   const pkbDir = join(getWorkspaceDir(), "pkb");
   if (!existsSync(pkbDir)) return null;
 
-  const filesToInject = readAutoinjectList(pkbDir) ?? PKB_DEFAULT_FILES;
+  const filesToInject = getPkbAutoInjectList(pkbDir);
 
   const parts: string[] = [];
   for (const file of filesToInject) {
@@ -686,10 +734,13 @@ export function readPkbContext(): string | null {
  */
 export function injectPkbContext(message: Message, content: string): Message {
   // Escape closing tags that could break out of the XML wrapper
-  const escaped = content.replace(/<\/pkb\s*>/gi, "&lt;/pkb&gt;");
+  const escaped = content.replace(
+    /<\/knowledge_base\s*>/gi,
+    "&lt;/knowledge_base&gt;",
+  );
   const pkbBlock = {
     type: "text" as const,
-    text: `<pkb>\n${escaped}\n</pkb>`,
+    text: `<knowledge_base>\n${escaped}\n</knowledge_base>`,
   };
 
   // Find insertion point: skip any leading memory/image blocks
@@ -721,9 +772,12 @@ export function injectPkbContext(message: Message, content: string): Message {
   };
 }
 
-/** Strip `<pkb>` blocks injected by `injectPkbContext`. */
+/** Strip `<knowledge_base>` blocks injected by `injectPkbContext`. */
 export function stripPkbContext(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, ["<pkb>"]);
+  return stripUserTextBlocksByPrefix(messages, [
+    "<knowledge_base>",
+    "<pkb>", // backward-compat: strip legacy blocks from pre-rename history
+  ]);
 }
 
 /**
@@ -909,6 +963,10 @@ export function buildUnifiedTurnContextBlock(
       .replace(/[\r\n\u0085\u2028\u2029]+/g, " ")
       // Replace remaining ASCII C0/C1 control characters and DEL.
       .replace(/[\x00-\x1F\x7F-\x9F]/g, " ")
+      // Escape XML special characters to prevent turn_context breakout.
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
       .trim();
     return singleLine.length > 0 ? singleLine : "unknown";
   };
@@ -1138,6 +1196,433 @@ export function stripTransportHints(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, ["<transport_hints>"]);
 }
 
+// ---------------------------------------------------------------------------
+// Slack chronological transcript assembly
+// ---------------------------------------------------------------------------
+
+/**
+ * True when the channel capabilities describe a Slack non-DM conversation
+ * (group/channel/mpim). Used to gate thread-only behavior such as the
+ * `<active_thread>` focus block. DMs are excluded because they have no
+ * threads.
+ *
+ * The gateway normalizer sets `chatType: "channel"` for every non-DM Slack
+ * conversation (public, private, and mpim alike — see
+ * `gateway/src/slack/normalize.ts`) and omits the field entirely for DMs.
+ * We therefore accept only `chatType === "channel"` — when the gateway
+ * omits `chatType` (as it does for DMs), the check correctly returns
+ * `false`.
+ *
+ * The chronological-transcript override applies to ALL Slack
+ * conversations (channels and DMs) — gate that on
+ * `channelCapabilities.channel === "slack"` rather than this helper.
+ */
+export function isSlackChannelConversation(
+  channelCapabilities?: ChannelCapabilities | null,
+): boolean {
+  return (
+    channelCapabilities?.channel === "slack" &&
+    channelCapabilities.chatType === "channel"
+  );
+}
+
+/**
+ * Minimal structural shape of a persisted message row used by the Slack
+ * chronological-transcript assembly path. Decouples the assembly logic from
+ * the DB-row type so it can be unit-tested with plain literals.
+ */
+export interface SlackTranscriptInputRow {
+  role: "user" | "assistant";
+  /** Raw persisted content column. JSON-encoded `ContentBlock[]` in production. */
+  content: string;
+  /** Epoch ms when the row was created. */
+  createdAt: number;
+  /** Raw `metadata` column value (JSON string with optional `slackMeta` sub-key). */
+  metadata: string | null;
+}
+
+/**
+ * Extract the user-facing plain text from an already-parsed `ContentBlock[]`.
+ * Only `text` blocks contribute to the rendered transcript line. Tool-use /
+ * tool-result / thinking blocks are intentionally elided — they would clutter
+ * the Slack-style transcript and the model can already recall them from the
+ * surrounding turn structure.
+ *
+ * Rows with no text blocks (e.g. images, file uploads, pure tool turns) would
+ * otherwise render as an empty transcript line like `[14:25 @alice]: `;
+ * surface the attachment/tool context instead so the model can tell something
+ * was actually said on that turn.
+ */
+function extractPlainTextFromBlocks(blocks: ContentBlock[]): string {
+  const parts: string[] = [];
+  const placeholderLabels: string[] = [];
+  for (const block of blocks) {
+    if (!block || typeof block !== "object") continue;
+    if (block.type === "text") {
+      parts.push(block.text);
+      continue;
+    }
+    const label = placeholderForBlockType(block.type);
+    if (label && !placeholderLabels.includes(label)) {
+      placeholderLabels.push(label);
+    }
+  }
+  if (parts.length > 0) {
+    return parts.join("\n");
+  }
+  return placeholderLabels.join(" ");
+}
+
+function placeholderForBlockType(type: ContentBlock["type"]): string | null {
+  switch (type) {
+    case "image":
+      return "[image]";
+    case "file":
+      return "[file]";
+    case "tool_use":
+    case "server_tool_use":
+      return "[tool call]";
+    case "tool_result":
+    case "web_search_tool_result":
+      return "[tool result]";
+    case "thinking":
+    case "redacted_thinking":
+    case "text":
+      return null;
+  }
+}
+
+/**
+ * Convert a persisted row into the {@link RenderableSlackMessage} shape
+ * consumed by `renderSlackTranscript`.
+ *
+ * Legacy pre-upgrade rows (no `slackMeta` sub-key, malformed metadata, etc.)
+ * yield `metadata: null`; the renderer then takes its flat-render fallback
+ * path and the row stays in chronological order via `createdAt`.
+ *
+ * Sender labels are emitted only when they add information beyond the role
+ * slot:
+ * - Reaction rows: always labeled — `@assistant` for the assistant, the real
+ *   `slackMeta.displayName` for a known user, or `@user` as a last-resort
+ *   subject so the rendered `[time X reacted ...]` line still parses.
+ * - Assistant message rows: `null` — the role slot already says "assistant".
+ * - User message rows: real `slackMeta.displayName` when available (to
+ *   disambiguate speakers in multi-party channels); `null` otherwise so the
+ *   renderer drops the redundant `@user` placeholder.
+ */
+function rowToRenderable(row: SlackTranscriptInputRow): RenderableSlackMessage {
+  let slackMeta: ReturnType<typeof readSlackMetadata> = null;
+  if (row.metadata) {
+    try {
+      const outer = JSON.parse(row.metadata) as { slackMeta?: unknown };
+      if (typeof outer.slackMeta === "string") {
+        slackMeta = readSlackMetadata(outer.slackMeta);
+      }
+    } catch {
+      // Malformed metadata — fall through to legacy/null treatment.
+    }
+  }
+
+  const isReaction = slackMeta?.eventKind === "reaction";
+  let senderLabel: string | null;
+  if (isReaction) {
+    senderLabel =
+      row.role === "assistant"
+        ? "@assistant"
+        : (slackMeta?.displayName ?? "@user");
+  } else if (row.role === "assistant") {
+    senderLabel = null;
+  } else {
+    senderLabel = slackMeta?.displayName ?? null;
+  }
+
+  // Parse `row.content` once and derive both the structured `contentBlocks`
+  // view (for downstream tool-block preservation) and the flattened
+  // `plainText` view (used for tag-line rendering) from the same parsed
+  // result. Large Slack histories with many tool payloads would otherwise
+  // pay a double JSON-parse cost per row.
+  let contentBlocks: ContentBlock[] = [];
+  let plainText: string;
+  try {
+    const parsed = JSON.parse(row.content);
+    if (Array.isArray(parsed)) {
+      contentBlocks = parsed as ContentBlock[];
+      plainText = extractPlainTextFromBlocks(contentBlocks);
+    } else if (typeof parsed === "string") {
+      plainText = parsed;
+    } else {
+      plainText = row.content;
+    }
+  } catch {
+    // Plain string row (legacy) — no structured blocks to preserve.
+    plainText = row.content;
+  }
+
+  // Attachment-only rows (images, files) carry no text block, so the
+  // transcript renderer would normally emit them *without* a tag line —
+  // the model sees the image but loses sender/timestamp attribution.
+  // Synthesize a leading text block carrying the placeholder so the
+  // renderer emits `[14:25 @alice]: [image]` and then the image itself.
+  // Pure tool-only rows (tool_use / tool_result) are intentionally
+  // excluded — those are synthetic turn continuations that should stay
+  // tag-line-free, matching the documented behaviour in
+  // `buildMessageContentBlocks`.
+  const hasTextBlock = contentBlocks.some((b) => b?.type === "text");
+  const hasAttachmentBlock = contentBlocks.some(
+    (b) => b?.type === "image" || b?.type === "file",
+  );
+  if (!hasTextBlock && hasAttachmentBlock && plainText !== "") {
+    contentBlocks = [{ type: "text", text: plainText }, ...contentBlocks];
+  }
+
+  return {
+    role: row.role,
+    content: plainText,
+    metadata: slackMeta,
+    senderLabel,
+    createdAt: row.createdAt,
+    contentBlocks,
+  };
+}
+
+/**
+ * Build a chronological Slack transcript for Slack conversations (both DMs
+ * and group/channel/mpim) and project it onto the LLM-facing `Message[]`
+ * shape.
+ *
+ * Returns `null` when the channel is not Slack (caller should fall through
+ * to the default message history). Legacy pre-upgrade rows without
+ * `slackMeta` are tolerated: the renderer's flat fallback orders them by
+ * `createdAt` alongside post-upgrade rows.
+ *
+ * For ALL Slack conversations (channels and DMs), `<transport_hints>`
+ * injection is suppressed by `applyRuntimeInjections` so the model sees
+ * one consistent persisted view instead of a duplicated gateway hint.
+ */
+export function assembleSlackChronologicalMessages(
+  rows: SlackTranscriptInputRow[],
+  capabilities: ChannelCapabilities,
+): Message[] | null {
+  if (capabilities.channel !== "slack") {
+    return null;
+  }
+  const renderable = rows.map(rowToRenderable);
+  return renderSlackTranscript(renderable);
+}
+
+/**
+ * Load DB rows for a Slack conversation and project them onto the
+ * chronological transcript shape.
+ *
+ * Convenience wrapper over `getMessages` + `assembleSlackChronologicalMessages`.
+ * The loader is exposed as a parameter so tests can substitute a stub. In
+ * production it defaults to `getMessages` from `conversation-crud.ts`.
+ *
+ * When `trustClass` identifies an untrusted actor (guardian-scoped rows
+ * must not leak into the model context), rows are passed through
+ * `filterMessagesForUntrustedActor` before assembly — mirroring the
+ * filtering applied in `loadFromDb` so the chronological transcript
+ * respects the same per-actor scoping as the default history path.
+ *
+ * Returns `null` when the channel is not Slack — callers should fall
+ * through to the default in-memory message history.
+ */
+export function loadSlackChronologicalMessages(
+  conversationId: string,
+  capabilities: ChannelCapabilities,
+  options: {
+    loader?: (id: string) => MessageRow[];
+    trustClass?: TrustClass;
+  } = {},
+): Message[] | null {
+  if (capabilities.channel !== "slack") {
+    return null;
+  }
+  const loader = options.loader ?? defaultGetMessages;
+  const allRows = loader(conversationId);
+  const scopedRows = isUntrustedTrustClass(options.trustClass)
+    ? filterMessagesForUntrustedActor(allRows)
+    : allRows;
+  // Coerce MessageRow.role (string) to the structural row's stricter union.
+  const rows: SlackTranscriptInputRow[] = scopedRows.map((row) => ({
+    role: row.role === "assistant" ? "assistant" : "user",
+    content: row.content,
+    createdAt: row.createdAt,
+    metadata: row.metadata,
+  }));
+  return assembleSlackChronologicalMessages(rows, capabilities);
+}
+
+// ---------------------------------------------------------------------------
+// Active-thread focus block (non-persisted; appended to current user turn)
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect the "active" Slack thread ts for the current turn.
+ *
+ * The active thread is the thread the current inbound user message belongs
+ * to: scan from newest to oldest and return the `slackMeta.threadTs` of the
+ * most recent user row that carries one. Returns `null` when no recent user
+ * row sits inside a thread (e.g. the inbound was a top-level channel post,
+ * or the conversation has no Slack-tagged user rows yet).
+ *
+ * Pure: takes pre-mapped renderable rows and returns the ts string only.
+ */
+function detectActiveThreadTs(rows: RenderableSlackMessage[]): string | null {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i];
+    if (row.role !== "user") continue;
+    const meta = row.metadata;
+    if (!meta) continue;
+    if (meta.eventKind !== "message") continue;
+    if (typeof meta.threadTs === "string" && meta.threadTs.length > 0) {
+      return meta.threadTs;
+    }
+    // First non-thread user row wins: the inbound is top-level, no active
+    // thread to focus on.
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Build a focus block listing every message belonging to the active thread:
+ * the parent (whose `channelTs` equals `activeThreadTs`) plus every reply
+ * (whose `threadTs` equals `activeThreadTs`). Reactions targeting any of
+ * those messages are also pulled in via their `targetChannelTs`. Edits and
+ * deletions surface through the existing renderer markers.
+ *
+ * Returns `null` when no rows match (e.g. parent backfill hasn't run yet
+ * AND the thread has no replies in storage either) so the caller can skip
+ * the empty block. Otherwise returns the rendered XML block ready to append
+ * to the user's tail message.
+ *
+ * Pure: takes pre-mapped renderable rows + a thread ts, returns text only.
+ */
+function buildActiveThreadBlockFromRenderable(
+  rows: RenderableSlackMessage[],
+  activeThreadTs: string,
+): string | null {
+  const members: RenderableSlackMessage[] = [];
+  for (const row of rows) {
+    const meta = row.metadata;
+    if (!meta) continue;
+    if (meta.eventKind === "message") {
+      if (
+        meta.channelTs === activeThreadTs ||
+        meta.threadTs === activeThreadTs
+      ) {
+        members.push(row);
+      }
+      continue;
+    }
+    if (
+      meta.eventKind === "reaction" &&
+      meta.reaction &&
+      meta.reaction.targetChannelTs === activeThreadTs
+    ) {
+      members.push(row);
+      continue;
+    }
+    // Reactions targeting a reply within the thread also belong in the
+    // focus block — collect them by checking the reaction target against
+    // any thread reply's channelTs we've already accepted. We do this in a
+    // second pass below to avoid an O(n^2) inner scan here.
+  }
+
+  // Second pass: pull in reactions whose target is one of the already-
+  // collected reply messages. Using a Set keeps this O(n).
+  const memberChannelTs = new Set(
+    members
+      .map((m) => m.metadata?.channelTs)
+      .filter((v): v is string => typeof v === "string"),
+  );
+  for (const row of rows) {
+    const meta = row.metadata;
+    if (!meta || meta.eventKind !== "reaction" || !meta.reaction) continue;
+    if (meta.reaction.targetChannelTs === activeThreadTs) continue; // already added
+    if (memberChannelTs.has(meta.reaction.targetChannelTs)) {
+      members.push(row);
+    }
+  }
+
+  if (members.length === 0) return null;
+
+  // The active-thread block is flattened to plain text below, which discards
+  // `Message.role`. Force a role-derived sender label on any member whose
+  // `rowToRenderable` emitted `null` (assistant rows, user rows without a
+  // real Slack displayName) so speaker attribution survives the flattening.
+  const labeledMembers = members.map((m) =>
+    m.senderLabel
+      ? m
+      : {
+          ...m,
+          senderLabel: m.role === "assistant" ? "@assistant" : "@user",
+        },
+  );
+
+  const rendered = renderSlackTranscript(labeledMembers);
+  if (rendered.length === 0) return null;
+  const lines = extractTagLineTexts(rendered).join("\n");
+  return `<active_thread>\n${lines}\n</active_thread>`;
+}
+
+/**
+ * Build the Slack active-thread focus block from raw rows.
+ *
+ * Pure assembly entrypoint mirroring `assembleSlackChronologicalMessages`.
+ * Returns the rendered `<active_thread>` block as a string, or `null` when:
+ *   - the channel is not Slack, OR
+ *   - the channel is a Slack DM (DMs do not have threads), OR
+ *   - the latest user row is top-level (not in a thread), OR
+ *   - no rows belong to the active thread.
+ */
+export function assembleSlackActiveThreadFocusBlock(
+  rows: SlackTranscriptInputRow[],
+  capabilities: ChannelCapabilities,
+): string | null {
+  if (capabilities.channel !== "slack") return null;
+  // DMs do not have threads, so the focus block is always a no-op.
+  // The gateway sets `chatType: "channel"` for every non-DM Slack
+  // conversation and omits the field for DMs, so gate the focus block
+  // on the positive `"channel"` match.
+  if (capabilities.chatType !== "channel") return null;
+  const renderable = rows.map(rowToRenderable);
+  const activeThreadTs = detectActiveThreadTs(renderable);
+  if (!activeThreadTs) return null;
+  return buildActiveThreadBlockFromRenderable(renderable, activeThreadTs);
+}
+
+/**
+ * Loader convenience over `assembleSlackActiveThreadFocusBlock` mirroring
+ * `loadSlackChronologicalMessages`. Returns `null` when the channel is not
+ * Slack, or when it is a Slack DM (DMs have no threads), so callers can
+ * skip the injection entirely without paying for a DB read.
+ */
+export function loadSlackActiveThreadFocusBlock(
+  conversationId: string,
+  capabilities: ChannelCapabilities,
+  options: {
+    loader?: (id: string) => MessageRow[];
+    trustClass?: TrustClass;
+  } = {},
+): string | null {
+  if (capabilities.channel !== "slack") return null;
+  if (capabilities.chatType !== "channel") return null;
+  const loader = options.loader ?? defaultGetMessages;
+  const allRows = loader(conversationId);
+  const scopedRows = isUntrustedTrustClass(options.trustClass)
+    ? filterMessagesForUntrustedActor(allRows)
+    : allRows;
+  const rows: SlackTranscriptInputRow[] = scopedRows.map((row) => ({
+    role: row.role === "assistant" ? "assistant" : "user",
+    content: row.content,
+    createdAt: row.createdAt,
+    metadata: row.metadata,
+  }));
+  return assembleSlackActiveThreadFocusBlock(rows, capabilities);
+}
+
 /** Prefixes stripped by the pipeline (order doesn't matter — single pass). */
 const RUNTIME_INJECTION_PREFIXES = [
   "<channel_capabilities>",
@@ -1164,11 +1649,18 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<active_workspace>",
   "<active_dynamic_page>",
   "<non_interactive_context>",
-  "<NOW.md Always keep this up to date>",
+  // Shared prefix catches both the current NOW.md tag and any pre-line-limit
+  // variant that may linger in in-flight histories during a rolling deploy.
+  "<NOW.md Always keep this up to date",
   "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
-  "<pkb>",
+  "<knowledge_base>",
+  "<pkb>", // backward-compat: strip legacy tag from pre-rename history
   "<system_reminder>",
   "<transport_hints>",
+  // The Slack active-thread focus block is non-persisted and injected on
+  // the FINAL user turn only. Strip it here so re-assembly during compaction
+  // and overflow recovery does not duplicate it across turns.
+  "<active_thread>",
   "<system_notice>One or more tool calls returned an error.",
 ];
 
@@ -1189,16 +1681,23 @@ export function stripInjectionsForCompaction(messages: Message[]): Message[] {
  * Returns null if no NOW.md injection is found.
  */
 export function findLastInjectedNowContent(messages: Message[]): string | null {
-  const prefix = "<NOW.md Always keep this up to date>\n";
+  // Matches every NOW.md opening tag we emit (the tag text may evolve over
+  // time, e.g. adding a line-limit hint), so in-flight histories with older
+  // tag variants remain discoverable during a rolling deploy.
+  const openTagPrefix = "<NOW.md Always keep this up to date";
   const suffix = "\n</NOW.md>";
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role !== "user") continue;
     for (const block of msg.content) {
-      if (block.type === "text" && block.text.startsWith(prefix)) {
-        const end = block.text.lastIndexOf(suffix);
-        if (end > prefix.length) return block.text.slice(prefix.length, end);
+      if (block.type !== "text" || !block.text.startsWith(openTagPrefix)) {
+        continue;
       }
+      const tagEnd = block.text.indexOf(">\n");
+      if (tagEnd < 0) continue;
+      const contentStart = tagEnd + ">\n".length;
+      const end = block.text.lastIndexOf(suffix);
+      if (end > contentStart) return block.text.slice(contentStart, end);
     }
   }
   return null;
@@ -1216,12 +1715,28 @@ export function findLastInjectedNowContent(messages: Message[]): string | null {
 export type InjectionMode = "full" | "minimal";
 
 /**
+ * Per-turn injection bytes captured for later persistence to message
+ * metadata. Empty in this PR — later PRs capture `<turn_context>` and
+ * `<system_reminder>` bodies so they survive daemon restarts.
+ */
+export interface RuntimeInjectionBlocks {
+  unifiedTurnContext?: string;
+  pkbSystemReminder?: string;
+}
+
+export interface RuntimeInjectionResult {
+  messages: Message[];
+  blocks: RuntimeInjectionBlocks;
+}
+
+/**
  * Apply a chain of user-message injections to `runMessages`.
  *
  * Each injection is optional — pass `null`/`undefined` to skip it.
- * Returns the final message array ready for the provider.
+ * Returns the final message array ready for the provider, along with a
+ * `blocks` object reserved for captured injection bytes (currently empty).
  */
-export function applyRuntimeInjections(
+export async function applyRuntimeInjections(
   runMessages: Message[],
   options: {
     activeSurface?: ActiveSurfaceContext | null;
@@ -1232,15 +1747,114 @@ export function applyRuntimeInjections(
     voiceCallControlPrompt?: string | null;
     pkbContext?: string | null;
     pkbActive?: boolean;
+    /**
+     * Dense query vector surfaced from the graph memory retriever (PR 3).
+     * When present together with `pkbActive`, used to run `searchPkbFiles`
+     * to surface relevance hints in the PKB system reminder. When missing,
+     * the reminder falls back to the flat static text.
+     */
+    pkbQueryVector?: number[];
+    /** Optional sparse vector accompanying `pkbQueryVector`. */
+    pkbSparseVector?: QdrantSparseVector;
+    /** Memory scope id used to filter PKB search results. */
+    pkbScopeId?: string;
+    /**
+     * The live conversation (or a minimal shape containing `messages`) used
+     * to compute which PKB paths are already "in context" and therefore
+     * suppressed from hint suggestions.
+     */
+    pkbConversation?: PkbContextConversation;
+    /** Auto-injected PKB filenames (resolved relative to `pkbRoot`). */
+    pkbAutoInjectList?: string[];
+    /** Absolute path to the PKB directory (e.g. `<workspace>/pkb`). */
+    pkbRoot?: string;
+    /**
+     * Working directory against which relative `file_read` tool paths
+     * resolve, used to detect workspace-relative reads like
+     * `pkb/threads.md`. Falls back to `pkbRoot` when omitted.
+     */
+    pkbWorkingDir?: string;
     nowScratchpad?: string | null;
     subagentStatusBlock?: string | null;
     isNonInteractive?: boolean;
     transportHints?: string[] | null;
+    /**
+     * Pre-rendered Slack chronological transcript that replaces the
+     * default `runMessages` history for any Slack conversation (channels
+     * and DMs alike).
+     *
+     * When `channelCapabilities` describes a Slack conversation and this
+     * array is non-empty, it overrides `runMessages` so the model sees one
+     * chronologically-ordered transcript built from the stored Slack
+     * metadata. Channel renders include sibling-thread tags; DM renders
+     * are flat (DMs have no threads). The `transportHints` pipeline is
+     * skipped for any Slack conversation so the persisted view isn't
+     * duplicated by gateway-side hints.
+     *
+     * Callers build this via `loadSlackChronologicalMessages` (or the
+     * underlying `assembleSlackChronologicalMessages`) before invoking
+     * this function so the assembly path stays free of direct DB calls
+     * and remains easy to test.
+     */
+    slackChronologicalMessages?: Message[] | null;
+    /**
+     * Pre-rendered `<active_thread>` focus block listing the messages of
+     * the thread the current inbound user message belongs to.
+     *
+     * Appended (tail-block) to the FINAL user message ONLY when
+     * `channelCapabilities` describes a Slack non-DM channel. The block is
+     * non-persisted: history rebuilds re-derive it from storage on each
+     * turn, and `RUNTIME_INJECTION_PREFIXES` strips any `<active_thread>`
+     * blocks from prior turns so they do not accumulate.
+     *
+     * Callers build this via `loadSlackActiveThreadFocusBlock` (or the
+     * underlying `assembleSlackActiveThreadFocusBlock`). Pass `null` /
+     * `undefined` when the inbound is a top-level (non-thread) post.
+     */
+    slackActiveThreadFocusBlock?: string | null;
     mode?: InjectionMode;
   },
-): Message[] {
+): Promise<RuntimeInjectionResult> {
   const mode = options.mode ?? "full";
+  let pkbSystemReminderCaptured: string | undefined;
+  const slackChannel = isSlackChannelConversation(options.channelCapabilities);
+  // Slack DMs and channels both assemble context from persisted message
+  // rows, so suppress hint injection for any Slack conversation. Other
+  // channels (telegram, email, etc.) keep the generic hint pipeline.
+  const slackConversation = options.channelCapabilities?.channel === "slack";
+  let turnContextCaptured: string | undefined;
   let result = runMessages;
+  // Slack channels AND DMs both override `runMessages` with a pre-rendered
+  // chronological transcript built from persisted message rows. The shared
+  // assembler (`assembleSlackChronologicalMessages`) renders thread tags
+  // for channels and a flat sequence for DMs, so the same branch handles
+  // both. The active-thread focus block below stays gated on `slackChannel`
+  // since DMs do not have threads.
+  if (
+    slackConversation &&
+    options.slackChronologicalMessages &&
+    options.slackChronologicalMessages.length > 0
+  ) {
+    // `graphMemory.prepareMemory` prepends a `<memory __injected>` block
+    // (and any memory-image groups) to the last user message before
+    // runtime assembly runs. The Slack transcript is freshly rendered
+    // from persisted rows and has no such prefix, so swap it in and then
+    // re-prepend the captured prefix onto the new tail user message.
+    const carriedMemoryBlocks = extractMemoryPrefixBlocks(runMessages);
+    result = options.slackChronologicalMessages;
+    if (carriedMemoryBlocks.length > 0) {
+      const slackTail = result[result.length - 1];
+      if (slackTail && slackTail.role === "user") {
+        result = [
+          ...result.slice(0, -1),
+          {
+            ...slackTail,
+            content: [...carriedMemoryBlocks, ...slackTail.content],
+          },
+        ];
+      }
+    }
+  }
 
   // For non-interactive conversations (scheduled jobs, work items), instruct the
   // model to never ask for clarification — there is no human present to answer.
@@ -1284,17 +1898,90 @@ export function applyRuntimeInjections(
   }
 
   // PKB behavioral nudge — injected on every turn when PKB is active so
-  // the model keeps reading topic files and calling `remember`.
+  // the model keeps reading topic files and calling `remember`. When a
+  // query vector is available from the graph memory retriever, run a
+  // hybrid PKB search to surface up to three relevance hints; fall back
+  // to the flat static reminder on empty results or any error.
   if (mode === "full" && options.pkbActive) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
+      let hints: string[] = [];
+      const queryVector = options.pkbQueryVector;
+      if (
+        queryVector &&
+        queryVector.length > 0 &&
+        options.pkbScopeId &&
+        options.pkbConversation &&
+        options.pkbRoot
+      ) {
+        try {
+          const results = await searchPkbFiles(
+            queryVector,
+            options.pkbSparseVector,
+            8,
+            [options.pkbScopeId],
+          );
+          const workingDir = options.pkbWorkingDir ?? options.pkbRoot;
+          const inContext = getInContextPkbPaths(
+            options.pkbConversation,
+            options.pkbAutoInjectList ?? [],
+            options.pkbRoot,
+            workingDir,
+          );
+          const pkbRoot = options.pkbRoot;
+          // Gate on `denseScore` (cosine, [0, 1]) so the quality bar is stable
+          // regardless of whether sparse was provided. Rank by `hybridScore`
+          // (RRF) when available — that captures the sparse signal for
+          // re-ordering eligible hits. hybridScore and denseScore live on
+          // different scales, so items with hybridScore are ordered together
+          // and placed ahead of items that only have denseScore.
+          hints = results
+            .filter((r) => {
+              const abs = resolve(pkbRoot, r.path);
+              if (inContext.has(abs)) return false;
+              const threshold = r.path
+                .replace(/\\/g, "/")
+                .startsWith("archive/")
+                ? PKB_HINT_ARCHIVE_THRESHOLD
+                : PKB_HINT_THRESHOLD;
+              return r.denseScore >= threshold;
+            })
+            .sort((a, b) => {
+              const aHasHybrid = a.hybridScore !== undefined;
+              const bHasHybrid = b.hybridScore !== undefined;
+              if (aHasHybrid && !bHasHybrid) return -1;
+              if (!aHasHybrid && bHasHybrid) return 1;
+              if (aHasHybrid && bHasHybrid) {
+                return b.hybridScore! - a.hybridScore!;
+              }
+              return b.denseScore - a.denseScore;
+            })
+            .slice(0, 3)
+            .map((r) => r.path);
+        } catch (err) {
+          pkbReminderLog.warn(
+            { err: err instanceof Error ? err.message : String(err) },
+            "PKB hint search failed — falling back to flat reminder",
+          );
+          hints = [];
+        }
+      }
+
+      const reminder = buildPkbReminder(hints);
+      pkbSystemReminderCaptured = reminder;
+      // Splice the reminder in right after the memory prefix blocks so it
+      // lands above the user's typed text, producing the tail shape
+      // `[<turn_context>, <memory __injected>, <system_reminder>, ...your_text, ...later_appends]`
+      // after `unifiedTurnContext` later prepends `<turn_context>` at index 0.
+      const memoryPrefixCount = countMemoryPrefixBlocks(userTail.content);
       result = [
         ...result.slice(0, -1),
         {
           ...userTail,
           content: [
-            ...userTail.content,
-            { type: "text" as const, text: PKB_SYSTEM_REMINDER },
+            ...userTail.content.slice(0, memoryPrefixCount),
+            { type: "text" as const, text: reminder },
+            ...userTail.content.slice(memoryPrefixCount),
           ],
         },
       ];
@@ -1354,6 +2041,7 @@ export function applyRuntimeInjections(
   if (options.unifiedTurnContext) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
+      turnContextCaptured = options.unifiedTurnContext;
       result = [
         ...result.slice(0, -1),
         {
@@ -1367,8 +2055,15 @@ export function applyRuntimeInjections(
     }
   }
 
+  // Slack conversations (both channels and DMs) build their own
+  // chronological transcript from persisted messages and intentionally do
+  // not receive the per-turn `<transport_hints>` block — the rendered
+  // history already covers the active thread / DM, so duplicating it
+  // would confuse the model. Other channels (telegram, email, etc.) keep
+  // the existing injection.
   if (
     mode === "full" &&
+    !slackConversation &&
     options.transportHints &&
     options.transportHints.length > 0
   ) {
@@ -1377,6 +2072,36 @@ export function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectTransportHints(userTail, options.transportHints),
+      ];
+    }
+  }
+
+  // Slack active-thread focus block: when the inbound user message lives
+  // inside a thread, append a non-persisted `<active_thread>` tail block
+  // listing that thread's parent + replies so the model can orient even
+  // when the channel-wide chronological transcript is long and
+  // interleaved. Stripped on subsequent rebuilds via the
+  // `RUNTIME_INJECTION_PREFIXES` list so focus blocks never accumulate.
+  if (
+    mode === "full" &&
+    slackChannel &&
+    typeof options.slackActiveThreadFocusBlock === "string" &&
+    options.slackActiveThreadFocusBlock.length > 0
+  ) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === "user") {
+      result = [
+        ...result.slice(0, -1),
+        {
+          ...userTail,
+          content: [
+            ...userTail.content,
+            {
+              type: "text" as const,
+              text: options.slackActiveThreadFocusBlock,
+            },
+          ],
+        },
       ];
     }
   }
@@ -1397,5 +2122,11 @@ export function applyRuntimeInjections(
     }
   }
 
-  return result;
+  return {
+    messages: result,
+    blocks: {
+      unifiedTurnContext: turnContextCaptured,
+      pkbSystemReminder: pkbSystemReminderCaptured,
+    },
+  };
 }

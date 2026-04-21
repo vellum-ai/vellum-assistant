@@ -2,7 +2,6 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { ContextWindowConfig } from "../config/types.js";
-import { getModelCapabilities } from "../providers/model-catalog.js";
 import type {
   ContentBlock,
   ImageContent,
@@ -62,6 +61,7 @@ const SUMMARY_PROMPT_FALLBACK = [
   "Focus on actionable state, not prose.",
   "Preserve concrete facts: goals, constraints, decisions, pending questions, file paths, commands, errors, and TODOs.",
   "Remove repetition and stale details that were superseded.",
+  'Thread anchors: when a "Retained Thread References" section is present, each listed reply cites its parent via `→ Mxxxxxx`. If that parent appears in the Transcript, preserve its text verbatim (reactions may be aggregated as "N users reacted"). Omit when the section is absent.',
   "Return concise markdown using these section headers exactly:",
   "## Goals",
   "## Constraints",
@@ -92,6 +92,20 @@ export function loadCompactPromptOrFallback(
 }
 
 const SUMMARY_SYSTEM_PROMPT = loadCompactPromptOrFallback();
+
+/**
+ * Pattern matching a Slack-style reply tag-line's parent-alias reference.
+ * The chronological renderer emits reply lines as
+ * `[MM/DD/YY HH:MM @sender → Mxxxxxx]: body`, or, for edited replies,
+ * `[MM/DD/YY HH:MM @sender → Mxxxxxx, edited MM/DD/YY HH:MM]: body`. The
+ * character after the 6-hex parent alias is therefore `]` for a plain reply
+ * or `,` for an edited one — the regex accepts either. `Mxxxxxx` is the
+ * first 6 hex chars of sha256(threadTs). A retained-tail text block that
+ * contains this pattern is carrying a live reference to a parent that may
+ * still live in the compactable region — the summarizer needs to know about
+ * it to act on the Thread-anchors clause of SUMMARY_SYSTEM_PROMPT.
+ */
+const THREAD_REPLY_REFERENCE_PATTERN = /→ M[0-9a-f]{6}[,\]]/;
 
 export interface ContextWindowResult {
   messages: Message[];
@@ -133,9 +147,16 @@ export interface ContextWindowCompactOptions {
    * Override the minimum number of recent user turns to preserve.
    * Set to `0` for emergency recovery that can compact the entire history
    * (except the summary message itself). When omitted, the default floor
-   * of 1 recent user turn is enforced.
+   * is `1` (or `8` when `conversationOriginChannel === "slack"`).
    */
   minKeepRecentUserTurns?: number;
+  /**
+   * Origin channel hint used when `minKeepRecentUserTurns` is omitted.
+   * Slack-originated conversations bump the default keep floor so multi-turn
+   * thread context (replies, quoted messages) is not summarized away too
+   * aggressively. Explicit `minKeepRecentUserTurns` overrides this hint.
+   */
+  conversationOriginChannel?: string;
   /**
    * Override the target input token budget used for keep-boundary
    * projected-fit checks. Allows the caller to demand a stricter fit
@@ -156,22 +177,6 @@ export interface ContextWindowManagerOptions {
   config: ContextWindowConfig;
   /** Pre-computed tool token budget to include in all estimations. */
   toolTokenBudget?: number;
-  /**
-   * Active model id (or a thunk that resolves it). Serves two purposes:
-   *
-   * 1. Threaded into `estimatePromptTokens` so the calibration correction
-   *    matches the `(provider, model)` key recorded by `handleUsage`. When
-   *    the thunk returns `undefined`, the per-provider aggregate key is the
-   *    fallback.
-   * 2. Resolves the per-model capability entry via `getModelCapabilities`.
-   *    When the catalog entry is present, `catalog.contextWindow` is the
-   *    authoritative maximum and `config.maxInputTokens` is a conservative
-   *    ceiling on top:
-   *    `effectiveMaxInputTokens = min(catalog.contextWindow, config.maxInputTokens)`.
-   *    When unset or catalog miss, the manager falls back to
-   *    `config.maxInputTokens` alone for backwards compatibility.
-   */
-  activeModel?: string | (() => string | undefined);
 }
 
 export class ContextWindowManager {
@@ -179,10 +184,6 @@ export class ContextWindowManager {
   private readonly _systemPrompt: string | (() => string);
   private readonly config: ContextWindowConfig;
   private readonly toolTokenBudget: number;
-  private readonly _activeModel:
-    | string
-    | (() => string | undefined)
-    | undefined;
   /**
    * Number of leading messages that are non-persisted (injected inherited
    * context from a parent conversation).  `countPersistedMessages` subtracts
@@ -213,55 +214,16 @@ export class ContextWindowManager {
     this._systemPrompt = options.systemPrompt;
     this.config = options.config;
     this.toolTokenBudget = options.toolTokenBudget ?? 0;
-    this._activeModel = options.activeModel;
-  }
-
-  /**
-   * Effective input token budget for this turn.
-   *
-   * Resolution order:
-   *   1. Look up `getModelCapabilities(provider.name, activeModel)`; when
-   *      present, `catalog.contextWindow` is the authoritative native ceiling.
-   *   2. Treat `config.maxInputTokens` as an optional conservative cap on top
-   *      (e.g. to keep request latency predictable or leave headroom).
-   *   3. If the catalog miss for this model, fall back to `config.maxInputTokens`
-   *      alone for backwards compatibility — behavior matches the pre-catalog
-   *      world.
-   */
-  get effectiveMaxInputTokens(): number {
-    const configCap = this.config.maxInputTokens;
-    const modelId =
-      typeof this._activeModel === "function"
-        ? this._activeModel()
-        : this._activeModel;
-    if (!modelId) return configCap;
-    const capabilities = getModelCapabilities(this.provider.name, modelId);
-    if (!capabilities) return configCap;
-    return Math.min(capabilities.contextWindow, configCap);
   }
 
   /**
    * Provider key for the local token estimator. Wrapper providers (e.g.
    * OpenRouter routing to `anthropic/*`) override `tokenEstimationProvider`
    * so image/PDF sizing uses the same rules as the upstream API instead of
-   * the generic `base64/4` fallback. This is also the canonical key used by
-   * the calibration lookup so record and read sites agree.
+   * the generic `base64/4` fallback.
    */
   private get estimationProviderName(): string {
     return this.provider.tokenEstimationProvider ?? this.provider.name;
-  }
-
-  /**
-   * Resolve the active model id for the calibration lookup. When unset (or
-   * the thunk returns undefined), `estimatePromptTokens` falls back to the
-   * per-provider aggregate key recorded alongside every `(provider, model)`
-   * sample — still catching systematic provider-level bias.
-   */
-  private get activeModel(): string | undefined {
-    if (this._activeModel === undefined) return undefined;
-    return typeof this._activeModel === "function"
-      ? this._activeModel()
-      : this._activeModel;
   }
 
   /** Lazily resolve and cache the system prompt for the duration of a compaction pass. */
@@ -292,11 +254,10 @@ export class ContextWindowManager {
     try {
       const estimated = estimatePromptTokens(messages, this.systemPrompt, {
         providerName: this.estimationProviderName,
-        modelId: this.activeModel,
         toolTokenBudget: this.toolTokenBudget,
       });
       const threshold = Math.floor(
-        this.effectiveMaxInputTokens * this.config.compactThreshold,
+        this.config.maxInputTokens * this.config.compactThreshold,
       );
       return { needed: estimated >= threshold, estimatedTokens: estimated };
     } finally {
@@ -321,19 +282,14 @@ export class ContextWindowManager {
     signal?: AbortSignal,
     options?: ContextWindowCompactOptions,
   ): Promise<ContextWindowResult> {
-    // Snapshot the effective maxInputTokens once per pass so every branch of
-    // this method sees the same value (the activeModel callback, if supplied,
-    // could in principle return different strings across calls during a turn).
-    const maxInputTokens = this.effectiveMaxInputTokens;
     const previousEstimatedInputTokens =
       options?.precomputedEstimate ??
       estimatePromptTokens(messages, this.systemPrompt, {
         providerName: this.estimationProviderName,
-        modelId: this.activeModel,
         toolTokenBudget: this.toolTokenBudget,
       });
     const thresholdTokens = Math.floor(
-      maxInputTokens * this.config.compactThreshold,
+      this.config.maxInputTokens * this.config.compactThreshold,
     );
     const existingSummary = getSummaryFromContextMessage(messages[0]);
 
@@ -343,7 +299,7 @@ export class ContextWindowManager {
         compacted: false,
         previousEstimatedInputTokens,
         estimatedInputTokens: previousEstimatedInputTokens,
-        maxInputTokens,
+        maxInputTokens: this.config.maxInputTokens,
         thresholdTokens,
         compactedMessages: 0,
         compactedPersistedMessages: 0,
@@ -362,7 +318,7 @@ export class ContextWindowManager {
         compacted: false,
         previousEstimatedInputTokens,
         estimatedInputTokens: previousEstimatedInputTokens,
-        maxInputTokens,
+        maxInputTokens: this.config.maxInputTokens,
         thresholdTokens,
         compactedMessages: 0,
         compactedPersistedMessages: 0,
@@ -383,7 +339,7 @@ export class ContextWindowManager {
         compacted: false,
         previousEstimatedInputTokens,
         estimatedInputTokens: previousEstimatedInputTokens,
-        maxInputTokens,
+        maxInputTokens: this.config.maxInputTokens,
         thresholdTokens,
         compactedMessages: 0,
         compactedPersistedMessages: 0,
@@ -396,15 +352,12 @@ export class ContextWindowManager {
       };
     }
 
-    const keepPlan = this.pickKeepBoundary(
-      messages,
-      userTurnStarts,
-      maxInputTokens,
-      {
-        minKeepRecentUserTurns: options?.minKeepRecentUserTurns,
-        targetInputTokensOverride: options?.targetInputTokensOverride,
-      },
-    );
+    const keepPlan = this.pickKeepBoundary(messages, userTurnStarts, {
+      minKeepRecentUserTurns: options?.minKeepRecentUserTurns,
+      targetInputTokensOverride: options?.targetInputTokensOverride,
+      conversationOriginChannel: options?.conversationOriginChannel,
+      force: options?.force,
+    });
     if (keepPlan.keepFromIndex <= summaryOffset) {
       // All turns fit after truncation projection, but the real in-memory
       // messages may still contain un-truncated tool results. Apply truncation
@@ -418,7 +371,6 @@ export class ContextWindowManager {
       const estimatedAfterTruncation = didTruncate
         ? estimatePromptTokens(truncatedMessages, this.systemPrompt, {
             providerName: this.estimationProviderName,
-            modelId: this.activeModel,
             toolTokenBudget: this.toolTokenBudget,
           })
         : previousEstimatedInputTokens;
@@ -427,7 +379,7 @@ export class ContextWindowManager {
         compacted: didTruncate,
         previousEstimatedInputTokens,
         estimatedInputTokens: estimatedAfterTruncation,
-        maxInputTokens,
+        maxInputTokens: this.config.maxInputTokens,
         thresholdTokens,
         compactedMessages: 0,
         compactedPersistedMessages: 0,
@@ -452,7 +404,7 @@ export class ContextWindowManager {
         compacted: false,
         previousEstimatedInputTokens,
         estimatedInputTokens: previousEstimatedInputTokens,
-        maxInputTokens,
+        maxInputTokens: this.config.maxInputTokens,
         thresholdTokens,
         compactedMessages: 0,
         compactedPersistedMessages: 0,
@@ -491,7 +443,6 @@ export class ContextWindowManager {
       this.systemPrompt,
       {
         providerName: this.estimationProviderName,
-        modelId: this.activeModel,
         toolTokenBudget: this.toolTokenBudget,
       },
     );
@@ -501,7 +452,7 @@ export class ContextWindowManager {
     );
     const severePressure =
       previousEstimatedInputTokens >=
-      Math.floor(maxInputTokens * SEVERE_PRESSURE_RATIO);
+      Math.floor(this.config.maxInputTokens * SEVERE_PRESSURE_RATIO);
     const lastCompactedAt = options?.lastCompactedAt;
 
     // Adaptive cooldown: conversations growing quickly (high projected gain) compact
@@ -544,7 +495,7 @@ export class ContextWindowManager {
         compacted: false,
         previousEstimatedInputTokens,
         estimatedInputTokens: previousEstimatedInputTokens,
-        maxInputTokens,
+        maxInputTokens: this.config.maxInputTokens,
         thresholdTokens,
         compactedMessages: 0,
         compactedPersistedMessages: 0,
@@ -566,7 +517,7 @@ export class ContextWindowManager {
         compacted: false,
         previousEstimatedInputTokens,
         estimatedInputTokens: previousEstimatedInputTokens,
-        maxInputTokens,
+        maxInputTokens: this.config.maxInputTokens,
         thresholdTokens,
         compactedMessages: 0,
         compactedPersistedMessages: 0,
@@ -579,15 +530,18 @@ export class ContextWindowManager {
       };
     }
 
+    const retainedThreadRefs = collectRetainedThreadReferences(
+      messages.slice(keepPlan.keepFromIndex),
+    );
     const transcriptBlocks = this.capTranscriptBlocksToTokenBudget(
       serializeMessagesToContentBlocks(compactableMessages),
       existingSummary ?? "No previous summary.",
-      maxInputTokens,
+      retainedThreadRefs,
     );
     const summaryUpdate = await this.updateSummary(
       existingSummary ?? "No previous summary.",
       transcriptBlocks,
-      maxInputTokens,
+      retainedThreadRefs,
       signal,
     );
     const summary = summaryUpdate.summary;
@@ -624,7 +578,6 @@ export class ContextWindowManager {
       this.systemPrompt,
       {
         providerName: this.estimationProviderName,
-        modelId: this.activeModel,
         toolTokenBudget: this.toolTokenBudget,
       },
     );
@@ -658,7 +611,7 @@ export class ContextWindowManager {
       compacted: true,
       previousEstimatedInputTokens,
       estimatedInputTokens,
-      maxInputTokens,
+      maxInputTokens: this.config.maxInputTokens,
       thresholdTokens,
       compactedMessages: compactableMessages.length,
       compactedPersistedMessages,
@@ -674,15 +627,9 @@ export class ContextWindowManager {
     };
   }
 
-  /**
-   * Budget derived from the snapshotted `maxInputTokens` — accepts the
-   * snapshot as a parameter rather than re-reading `this.effectiveMaxInputTokens`
-   * so every branch of `_maybeCompact` that shares a pass sees the same budget,
-   * even if the `activeModel` callback returns a different model mid-pass.
-   */
-  private computeTargetInputTokens(maxInputTokens: number): number {
+  private get targetInputTokens(): number {
     return Math.floor(
-      maxInputTokens *
+      this.config.maxInputTokens *
         (this.config.targetBudgetRatio - this.config.summaryBudgetRatio),
     );
   }
@@ -690,19 +637,25 @@ export class ContextWindowManager {
   private pickKeepBoundary(
     messages: Message[],
     userTurnStarts: number[],
-    maxInputTokens: number,
     opts?: {
       minKeepRecentUserTurns?: number;
       targetInputTokensOverride?: number;
+      conversationOriginChannel?: string;
+      force?: boolean;
     },
   ): { keepFromIndex: number; keepTurns: number } {
+    // Slack-originated conversations rely on multi-turn thread context
+    // (reply chains, quoted messages, contextual references). Bump the
+    // default keep floor for them so compaction does not summarize away
+    // recent turns that the next reply may directly cite. Explicit
+    // `minKeepRecentUserTurns` (including emergency `0`) wins.
+    const defaultTurns = opts?.conversationOriginChannel === "slack" ? 8 : 1;
     const minFloor = Math.min(
-      Math.max(0, Math.floor(opts?.minKeepRecentUserTurns ?? 1)),
+      Math.max(0, Math.floor(opts?.minKeepRecentUserTurns ?? defaultTurns)),
       userTurnStarts.length,
     );
     const targetTokens =
-      opts?.targetInputTokensOverride ??
-      this.computeTargetInputTokens(maxInputTokens);
+      opts?.targetInputTokensOverride ?? this.targetInputTokens;
 
     // Binary search for the maximum keepTurns whose projected tokens fit
     // within the budget. Token count is monotonically non-decreasing with
@@ -722,7 +675,6 @@ export class ContextWindowManager {
       );
       return estimatePromptTokens(projectedMessages, this.systemPrompt, {
         providerName: this.estimationProviderName,
-        modelId: this.activeModel,
         toolTokenBudget: this.toolTokenBudget,
       });
     };
@@ -745,6 +697,32 @@ export class ContextWindowManager {
       lo = hi;
     }
 
+    // Under forced compaction with only the implicit default floor in play,
+    // that floor stops being an absolute override when the kept region still
+    // exceeds the target. Walk keepTurns below the floor — down to 0 if
+    // needed — so /compact can always drive the conversation toward target,
+    // even when the floor turn itself is oversized (e.g. a huge paste in the
+    // last user message). Exceptions that still treat the floor as hard:
+    //   - Explicit `minKeepRecentUserTurns` (the caller opted in to that
+    //     floor; emergency recovery already passes 0 when it wants to go all
+    //     the way down).
+    //   - Slack origin (the bumped 8-turn floor protects thread reply chains
+    //     and quoted-message context that the next reply may directly cite).
+    // Automatic mid-loop compaction (force !== true) always honors the floor
+    // so the in-flight agent turn isn't summarized away.
+    const floorIsImplicitDefault =
+      opts?.minKeepRecentUserTurns === undefined &&
+      opts?.conversationOriginChannel !== "slack";
+    if (
+      opts?.force &&
+      floorIsImplicitDefault &&
+      projectedTokensForKeep(lo) > targetTokens
+    ) {
+      while (lo > 0 && projectedTokensForKeep(lo) > targetTokens) {
+        lo--;
+      }
+    }
+
     const keepTurns = lo;
     const rawKeepFromIndex =
       keepTurns === 0
@@ -755,15 +733,10 @@ export class ContextWindowManager {
     return { keepFromIndex, keepTurns };
   }
 
-  /**
-   * Budget derived from the snapshotted `maxInputTokens` — accepts the
-   * snapshot as a parameter rather than re-reading `this.effectiveMaxInputTokens`
-   * so every branch of `_maybeCompact` that shares a pass sees the same budget.
-   */
-  private computeSummaryMaxTokens(maxInputTokens: number): number {
+  private get summaryMaxTokens(): number {
     return Math.max(
       1,
-      Math.floor(maxInputTokens * this.config.summaryBudgetRatio),
+      Math.floor(this.config.maxInputTokens * this.config.summaryBudgetRatio),
     );
   }
 
@@ -781,17 +754,22 @@ export class ContextWindowManager {
   private capTranscriptBlocksToTokenBudget(
     blocks: ContentBlock[],
     currentSummary: string,
-    maxInputTokens: number,
+    retainedThreadRefs: string[],
   ): ContentBlock[] {
+    const retainedRefsText = retainedThreadRefs.join("\n");
     const overheadTokens =
       estimateTextTokens(SUMMARY_SYSTEM_PROMPT) +
       estimateTextTokens(currentSummary) +
+      estimateTextTokens(retainedRefsText) +
       // Scaffolding text in buildSummaryContentBlocks ("Update the summary...",
       // section headers, etc.) — generous fixed estimate.
       200 +
-      this.computeSummaryMaxTokens(maxInputTokens);
+      this.summaryMaxTokens;
 
-    const maxTranscriptTokens = Math.max(0, maxInputTokens - overheadTokens);
+    const maxTranscriptTokens = Math.max(
+      0,
+      this.config.maxInputTokens - overheadTokens,
+    );
 
     const estimateBlockTokens = (b: ContentBlock): number =>
       estimateContentBlockTokens(b, {
@@ -883,7 +861,7 @@ export class ContextWindowManager {
   private async updateSummary(
     currentSummary: string,
     transcriptBlocks: ContentBlock[],
-    maxInputTokens: number,
+    retainedThreadRefs: string[],
     signal?: AbortSignal,
   ): Promise<{
     summary: string;
@@ -900,10 +878,10 @@ export class ContextWindowManager {
      */
     failed: boolean;
   }> {
-    const summaryMaxTokens = this.computeSummaryMaxTokens(maxInputTokens);
     const contentBlocks = buildSummaryContentBlocks(
       currentSummary,
       transcriptBlocks,
+      retainedThreadRefs,
     );
     const summaryMessage: Message = { role: "user", content: contentBlocks };
     let failed = false;
@@ -913,7 +891,7 @@ export class ContextWindowManager {
         undefined,
         SUMMARY_SYSTEM_PROMPT,
         {
-          config: { max_tokens: summaryMaxTokens },
+          config: { max_tokens: this.summaryMaxTokens },
           signal,
         },
       );
@@ -921,7 +899,7 @@ export class ContextWindowManager {
       const nextSummary = extractText(response.content).trim();
       if (nextSummary.length > 0) {
         return {
-          summary: this.clampSummary(nextSummary, summaryMaxTokens),
+          summary: this.clampSummary(nextSummary),
           inputTokens: response.usage.inputTokens,
           outputTokens: response.usage.outputTokens,
           model: response.model,
@@ -956,9 +934,9 @@ export class ContextWindowManager {
     };
   }
 
-  private clampSummary(summary: string, summaryMaxTokens: number): string {
+  private clampSummary(summary: string): string {
     // Budget in tokens → approximate char limit (4 chars ≈ 1 token).
-    const maxChars = summaryMaxTokens * 4;
+    const maxChars = this.summaryMaxTokens * 4;
     if (summary.length <= maxChars) return summary;
     return `${safeStringSlice(summary, 0, maxChars)}...`;
   }
@@ -1109,24 +1087,66 @@ export function createContextSummaryMessage(summary: string): Message {
 function buildSummaryContentBlocks(
   currentSummary: string,
   transcriptBlocks: ContentBlock[],
+  retainedThreadRefs: string[],
 ): ContentBlock[] {
+  const lines = [
+    "Update the summary with new transcript data.",
+    "If new information conflicts with older notes, keep the most recent and explicit detail.",
+    "Keep all unresolved asks and next steps.",
+    "For any images included below, describe their visual content in the summary so the information is preserved after compaction.",
+    "",
+    "### Existing Summary",
+    currentSummary.trim().length > 0 ? currentSummary.trim() : "None.",
+    "",
+  ];
+  if (retainedThreadRefs.length > 0) {
+    lines.push(
+      "### Retained Thread References",
+      "These reply tag lines remain in the live context after compaction. Each `→ Mxxxxxx` cites a parent message by alias; if that parent appears in the Transcript below, preserve its text verbatim.",
+      ...retainedThreadRefs.map((ref) => `- ${ref}`),
+      "",
+    );
+  }
+  lines.push("### Transcript");
   return [
     {
       type: "text",
-      text: [
-        "Update the summary with new transcript data.",
-        "If new information conflicts with older notes, keep the most recent and explicit detail.",
-        "Keep all unresolved asks and next steps.",
-        "For any images included below, describe their visual content in the summary so the information is preserved after compaction.",
-        "",
-        "### Existing Summary",
-        currentSummary.trim().length > 0 ? currentSummary.trim() : "None.",
-        "",
-        "### Transcript",
-      ].join("\n"),
+      text: lines.join("\n"),
     } as ContentBlock,
     ...transcriptBlocks,
   ];
+}
+
+/**
+ * Scan retained-tail messages for Slack-style reply tag lines that cite a
+ * thread parent via the `→ Mxxxxxx` alias convention. Returns the full tag
+ * line for each match (de-duplicated, order-preserved) so the summarizer
+ * has a concrete list of parents whose text must be preserved verbatim.
+ *
+ * Non-slack conversations and retained tails without any reply markers
+ * produce an empty list — in that case the summarizer is told explicitly
+ * that no verbatim preservation is required.
+ */
+function collectRetainedThreadReferences(
+  retainedMessages: Message[],
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const msg of retainedMessages) {
+    for (const block of msg.content) {
+      if (block.type !== "text") continue;
+      const text = (block as { text: string }).text;
+      for (const line of text.split("\n")) {
+        if (!THREAD_REPLY_REFERENCE_PATTERN.test(line)) continue;
+        const trimmed = line.trim();
+        if (trimmed.length === 0) continue;
+        if (seen.has(trimmed)) continue;
+        seen.add(trimmed);
+        out.push(trimmed);
+      }
+    }
+  }
+  return out;
 }
 
 /**

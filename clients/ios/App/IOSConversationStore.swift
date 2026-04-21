@@ -31,6 +31,15 @@ struct IOSConversation: Identifiable {
     /// The source that created this conversation (e.g. "heartbeat", "task", "schedule", "reminder", "notification").
     /// Immutable after creation — pinning/moving a conversation changes groupId but never source.
     var source: String?
+    /// The daemon-side conversation classification: "standard", "private", "background", "scheduled".
+    /// Canonical signal for unread-suppression of automated threads. `nil` for rows written by
+    /// older daemons or for locally-created conversations that have not yet round-tripped to the
+    /// server; callers should treat `nil` as non-suppressed.
+    var conversationType: String?
+    /// The originating channel for this conversation (e.g. "vellum", "telegram", "notification:...").
+    /// Derived from `channelBinding.sourceChannel` (preferred) or `conversationOriginChannel`.
+    /// Used to gate destructive actions on channel-bound conversations — see `isChannelConversation`.
+    var originChannel: String?
     var hasUnseenLatestAssistantMessage: Bool
     var latestAssistantMessageAt: Date?
     var lastSeenAssistantMessageAt: Date?
@@ -42,19 +51,32 @@ struct IOSConversation: Identifiable {
         return title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ")
     }
 
+    /// Whether this conversation is bound to an external channel (Telegram, Slack, etc.).
+    /// Channel conversations cannot be archived — matches macOS behavior in
+    /// `ConversationModel.isChannelConversation` so destructive actions stay consistent
+    /// across platforms.
+    var isChannelConversation: Bool {
+        guard let originChannel else { return false }
+        if originChannel == "vellum" { return false }
+        if originChannel.hasPrefix("notification:") { return false }
+        return true
+    }
+
     /// Whether this conversation is automated (heartbeat, schedule, background/task)
     /// and should never show unread indicators. Per Apple HIG, badges and unread
     /// indicators should only reflect content requiring user attention — system-generated
     /// messages from automated threads do not qualify.
     ///
-    /// Schedule detection uses `scheduleJobId` / title prefix (via `isScheduleConversation`).
-    /// Background detection uses `source` (immutable) rather than `groupId` (mutable on
-    /// pin/move) so suppression is stable regardless of group changes.
+    /// Primary signal is `conversationType` (the daemon's canonical classification) so any
+    /// server-created `background` or `scheduled` conversation is suppressed regardless of source.
+    /// The source/title fallbacks cover locally-created conversations and older daemons that
+    /// don't return the field.
     var shouldSuppressUnreadIndicator: Bool {
-        isScheduleConversation || source == "heartbeat" || source == "task"
+        conversationType == "background" || conversationType == "scheduled"
+            || isScheduleConversation || source == "heartbeat" || source == "task" || source == "auto-analysis"
     }
 
-    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, conversationId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, displayOrder: Int? = nil, isPrivate: Bool = false, scheduleJobId: String? = nil, forkParent: ConversationForkParent? = nil, groupId: String? = nil, source: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil) {
+    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, conversationId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, displayOrder: Int? = nil, isPrivate: Bool = false, scheduleJobId: String? = nil, forkParent: ConversationForkParent? = nil, groupId: String? = nil, source: String? = nil, conversationType: String? = nil, originChannel: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -68,6 +90,8 @@ struct IOSConversation: Identifiable {
         self.forkParent = forkParent
         self.groupId = groupId
         self.source = source
+        self.conversationType = conversationType
+        self.originChannel = originChannel
         self.hasUnseenLatestAssistantMessage = hasUnseenLatestAssistantMessage
         self.latestAssistantMessageAt = latestAssistantMessageAt
         self.lastSeenAssistantMessageAt = lastSeenAssistantMessageAt
@@ -90,6 +114,8 @@ private struct PersistedConversation: Codable {
     var scheduleJobId: String?
     var forkParent: ConversationForkParent?
     var source: String?
+    var conversationType: String?
+    var originChannel: String?
     var hasUnseenLatestAssistantMessage: Bool?
     var latestAssistantMessageAt: Date?
     var lastSeenAssistantMessageAt: Date?
@@ -100,7 +126,7 @@ private struct PersistedConversation: Codable {
     enum CodingKeys: String, CodingKey {
         case id, title, createdAt, lastActivityAt, isArchived, isPinned, displayOrder, isPrivate
         case conversationId
-        case scheduleJobId, forkParent, source, hasUnseenLatestAssistantMessage, latestAssistantMessageAt, lastSeenAssistantMessageAt
+        case scheduleJobId, forkParent, source, conversationType, originChannel, hasUnseenLatestAssistantMessage, latestAssistantMessageAt, lastSeenAssistantMessageAt
         // Legacy key used before the session-to-conversation rename.
         case legacySessionId = "sessionId"
     }
@@ -126,6 +152,8 @@ extension PersistedConversation {
         scheduleJobId = try container.decodeIfPresent(String.self, forKey: .scheduleJobId)
         forkParent = try container.decodeIfPresent(ConversationForkParent.self, forKey: .forkParent)
         source = try container.decodeIfPresent(String.self, forKey: .source)
+        conversationType = try container.decodeIfPresent(String.self, forKey: .conversationType)
+        originChannel = try container.decodeIfPresent(String.self, forKey: .originChannel)
         hasUnseenLatestAssistantMessage = try container.decodeIfPresent(Bool.self, forKey: .hasUnseenLatestAssistantMessage)
         latestAssistantMessageAt = try container.decodeIfPresent(Date.self, forKey: .latestAssistantMessageAt)
         lastSeenAssistantMessageAt = try container.decodeIfPresent(Date.self, forKey: .lastSeenAssistantMessageAt)
@@ -146,6 +174,8 @@ extension PersistedConversation {
         try container.encodeIfPresent(scheduleJobId, forKey: .scheduleJobId)
         try container.encodeIfPresent(forkParent, forKey: .forkParent)
         try container.encodeIfPresent(source, forKey: .source)
+        try container.encodeIfPresent(conversationType, forKey: .conversationType)
+        try container.encodeIfPresent(originChannel, forKey: .originChannel)
         try container.encodeIfPresent(hasUnseenLatestAssistantMessage, forKey: .hasUnseenLatestAssistantMessage)
         try container.encodeIfPresent(latestAssistantMessageAt, forKey: .latestAssistantMessageAt)
         try container.encodeIfPresent(lastSeenAssistantMessageAt, forKey: .lastSeenAssistantMessageAt)
@@ -219,10 +249,9 @@ class IOSConversationStore: ObservableObject {
     /// Maps daemon conversation IDs to local conversation IDs for history loading.
     private var pendingHistoryByConversationId: [String: UUID] = [:]
     /// Per-domain generation counters for observation loops. Each observation type
-    /// (fork, title, activity) has its own counter so that starting/restarting one
+    /// (fork, activity) has its own counter so that starting/restarting one
     /// loop does not invalidate the others. All are cleared when a conversation is deleted.
     private var forkGenerations: [UUID: Int] = [:]
-    private var titleGenerations: [UUID: Int] = [:]
     private var activityGenerations: [UUID: Int] = [:]
     /// Last observed fork-availability tip ID per conversation, for change detection.
     private var lastObservedForkTipIds: [UUID: String?] = [:]
@@ -279,6 +308,8 @@ class IOSConversationStore: ObservableObject {
         conversation.displayOrder = item.displayOrder.map { Int($0) }
         conversation.groupId = item.groupId
         conversation.source = item.source
+        conversation.conversationType = item.conversationType
+        conversation.originChannel = item.channelBinding?.sourceChannel ?? item.conversationOriginChannel
         let serverUnseen = item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
         conversation.hasUnseenLatestAssistantMessage =
             conversation.shouldSuppressUnreadIndicator ? false : serverUnseen
@@ -320,6 +351,8 @@ class IOSConversationStore: ObservableObject {
         conversation.conversationId = restored.conversationId ?? conversation.conversationId
         conversation.scheduleJobId = restored.scheduleJobId ?? conversation.scheduleJobId
         conversation.source = restored.source ?? conversation.source
+        conversation.conversationType = restored.conversationType ?? conversation.conversationType
+        conversation.originChannel = restored.originChannel ?? conversation.originChannel
         conversation.forkParent = restored.forkParent
         let hasLocalPinEdit = conversation.conversationId.map { locallyEditedPinConversationIds.contains($0) } ?? false
         if !hasLocalPinEdit {
@@ -413,7 +446,8 @@ class IOSConversationStore: ObservableObject {
             isPrivate: item.conversationType == "private",
             scheduleJobId: item.scheduleJobId,
             forkParent: item.forkParent,
-            source: item.source
+            source: item.source,
+            conversationType: item.conversationType
         )
         applyConversationMetadata(item, to: &conversation)
         return conversation
@@ -573,6 +607,23 @@ class IOSConversationStore: ObservableObject {
                 }
             }
         }
+
+        // Refetch the conversation list whenever the iOS app becomes active
+        // (user returns from another app — on the Simulator, this fires when
+        // focus moves away from the Simulator window and back). This covers
+        // the case where a mutation on another device (pin/rename/archive)
+        // didn't produce a `conversation_list_invalidated` SSE event on this
+        // device — either because the server didn't broadcast it or because
+        // our SSE stream was between reconnects when it fired.
+        // `scheduleInvalidationRefetch` debounces, so rapid activations
+        // coalesce into a single fetch.
+        NotificationCenter.default
+            .publisher(for: UIApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in
+                guard let self, self.isConnectedMode else { return }
+                self.scheduleInvalidationRefetch(daemon: daemon)
+            }
+            .store(in: &cancellables)
 
         // Fetch conversation list once connected. Try immediately if already connected,
         // otherwise wait for the daemonDidReconnect notification.
@@ -864,6 +915,8 @@ class IOSConversationStore: ObservableObject {
                             forkParent: restored.forkParent,
                             groupId: restored.groupId,
                             source: restored.source,
+                            conversationType: restored.conversationType,
+                            originChannel: restored.originChannel,
                             hasUnseenLatestAssistantMessage: restored.hasUnseenLatestAssistantMessage,
                             latestAssistantMessageAt: restored.latestAssistantMessageAt,
                             lastSeenAssistantMessageAt: restored.lastSeenAssistantMessageAt
@@ -1074,6 +1127,10 @@ class IOSConversationStore: ObservableObject {
                 observeForForkAvailability(vm: existing, conversationLocalId: conversationLocalId)
             }
             updateForkCommandHandler(vm: existing, conversationLocalId: conversationLocalId)
+            // Ensure the SSE message loop is running so cross-device messages
+            // (e.g. sent from macOS) appear in real-time. ensureMessageLoopStarted()
+            // is a no-op when the loop is already active (guards on messageLoopTask).
+            existing.ensureMessageLoopStarted()
             return existing
         }
         let vm = ChatViewModel(connectionManager: connectionManager, eventStreamClient: eventStreamClient)
@@ -1095,13 +1152,11 @@ class IOSConversationStore: ObservableObject {
         wireReconnectCallback(vm: vm, conversationLocalId: conversationLocalId)
         observeForForkAvailability(vm: vm, conversationLocalId: conversationLocalId)
         updateForkCommandHandler(vm: vm, conversationLocalId: conversationLocalId)
-
-        // Only auto-title conversations without a daemon conversation (new local conversations).
-        // Daemon conversations already have titles from the conversation list.
-        if conversations.first(where: { $0.id == conversationLocalId })?.conversationId == nil {
-            observeForTitleGeneration(vm: vm, conversationLocalId: conversationLocalId)
-        }
         observeForActivityTracking(vm: vm, conversationLocalId: conversationLocalId)
+        // Start the SSE message loop so messages from other devices (e.g. macOS)
+        // appear in real-time. Without this, the loop only starts as a side-effect
+        // of sending a message via MessageSendCoordinator. (LUM-1034)
+        vm.ensureMessageLoopStarted()
         return vm
     }
 
@@ -1174,47 +1229,6 @@ class IOSConversationStore: ObservableObject {
         }
     }
 
-    /// Watch for the first completed assistant reply to auto-title the conversation.
-    private func observeForTitleGeneration(vm: ChatViewModel, conversationLocalId: UUID) {
-        // Find the conversation's default title; skip if already customized.
-        guard conversations.first(where: { $0.id == conversationLocalId })?.title == "New Chat" else { return }
-        let generation = nextGeneration(in: &titleGenerations, for: conversationLocalId)
-        observeTitleGenerationLoop(vm: vm, conversationLocalId: conversationLocalId, generation: generation)
-    }
-
-    private func observeTitleGenerationLoop(vm: ChatViewModel, conversationLocalId: UUID, generation: Int) {
-        guard titleGenerations[conversationLocalId] == generation else { return }
-        let messageManager = vm.messageManager
-        withObservationTracking {
-            _ = messageManager.messages
-        } onChange: { [weak self, weak vm] in
-            Task { @MainActor [weak self, weak vm] in
-                guard let self, let vm,
-                      self.titleGenerations[conversationLocalId] == generation else { return }
-                let messages = vm.messageManager.messages
-                guard let firstUser = messages.first(where: { $0.role == .user }),
-                      !firstUser.text.isEmpty,
-                      messages.contains(where: { $0.role == .assistant && !$0.isStreaming }) else {
-                    // Not ready yet — re-arm.
-                    self.observeTitleGenerationLoop(vm: vm, conversationLocalId: conversationLocalId, generation: generation)
-                    return
-                }
-                // One-shot: do not re-arm after triggering.
-                let firstUserMessage = firstUser.text
-                Task {
-                    if let title = await TitleGenerator.shared.generateTitle(
-                        for: conversationLocalId,
-                        firstUserMessage: firstUserMessage
-                    ) {
-                        await MainActor.run {
-                            self.updateTitle(title, for: conversationLocalId)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     /// Update lastActivityAt whenever the message count changes (not on every streaming delta).
     /// Skips updates while the VM is loading history so that hydrating old messages
     /// doesn't stamp the conversation as recently active.
@@ -1260,13 +1274,11 @@ class IOSConversationStore: ObservableObject {
     /// guards will pass.
     private func invalidateObservationGenerations(for conversationLocalId: UUID) {
         forkGenerations.removeValue(forKey: conversationLocalId)
-        titleGenerations.removeValue(forKey: conversationLocalId)
         activityGenerations.removeValue(forKey: conversationLocalId)
     }
 
     private func invalidateAllObservationGenerations() {
         forkGenerations.removeAll()
-        titleGenerations.removeAll()
         activityGenerations.removeAll()
     }
 
@@ -1316,10 +1328,14 @@ class IOSConversationStore: ObservableObject {
         saveConnectedCache()
     }
 
+    /// Pin is only valid on non-archived conversations. Archived entries are
+    /// filtered out of reorder payloads, so pinning one would never reach the
+    /// server and would create permanent local/remote divergence.
     func pinConversation(_ conversation: IOSConversation) {
         guard isConnectedMode,
               let idx = conversations.firstIndex(where: { $0.id == conversation.id }),
               conversations[idx].conversationId != nil,
+              !conversations[idx].isArchived,
               !conversations[idx].isPinned else { return }
 
         conversations[idx].isPinned = true
@@ -1329,14 +1345,22 @@ class IOSConversationStore: ObservableObject {
             locallyEditedPinConversationIds.insert(sid)
         }
         recompactPinnedDisplayOrders()
-        sendReorderConversations()
+        if let sid = conversations[idx].conversationId {
+            sendPinChange(
+                conversationId: sid,
+                isPinned: true,
+                displayOrder: conversations[idx].displayOrder
+            )
+        }
         saveConnectedCache()
     }
 
+    /// Unpin is only valid on non-archived conversations (see `pinConversation` docstring).
     func unpinConversation(_ conversation: IOSConversation) {
         guard isConnectedMode,
               let idx = conversations.firstIndex(where: { $0.id == conversation.id }),
               conversations[idx].conversationId != nil,
+              !conversations[idx].isArchived,
               conversations[idx].isPinned else { return }
 
         conversations[idx].isPinned = false
@@ -1346,7 +1370,9 @@ class IOSConversationStore: ObservableObject {
             locallyEditedPinConversationIds.insert(sid)
         }
         recompactPinnedDisplayOrders()
-        sendReorderConversations()
+        if let sid = conversations[idx].conversationId {
+            sendPinChange(conversationId: sid, isPinned: false, displayOrder: nil)
+        }
         saveConnectedCache()
     }
 
@@ -1555,20 +1581,25 @@ class IOSConversationStore: ObservableObject {
         }
     }
 
-    private func sendReorderConversations() {
-        let updates = conversations.compactMap { conversation -> ReorderConversationsRequestUpdate? in
-            guard let conversationId = conversation.conversationId, !conversation.isArchived, !conversation.isPrivate else {
-                return nil
-            }
-
-            return ReorderConversationsRequestUpdate(
-                conversationId: conversationId,
-                displayOrder: conversation.displayOrder.map(Double.init),
-                isPinned: conversation.isPinned
-            )
+    /// Send a single-conversation pin change delta.
+    ///
+    /// Submitting every conversation's `isPinned` from the local cache on each
+    /// toggle would clobber concurrent pin edits made on another device between
+    /// this client's last refetch and its POST. Sending only the conversation
+    /// whose pin state actually changed makes concurrent edits on different
+    /// devices naturally safe — each client's POST touches only what it
+    /// toggled, so the other device's unrelated changes survive.
+    private func sendPinChange(conversationId: String, isPinned: Bool, displayOrder: Int?) {
+        let update = ReorderConversationsRequestUpdate(
+            conversationId: conversationId,
+            displayOrder: displayOrder.map(Double.init),
+            isPinned: isPinned
+        )
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = await self.conversationListClient.reorderConversations(updates: [update])
+            self.locallyEditedPinConversationIds.remove(conversationId)
         }
-        guard !updates.isEmpty else { return }
-        Task { await conversationListClient.reorderConversations(updates: updates) }
     }
 
     // MARK: - Persistence
@@ -1596,6 +1627,8 @@ class IOSConversationStore: ObservableObject {
                 scheduleJobId: $0.scheduleJobId,
                 forkParent: $0.forkParent,
                 source: $0.source,
+                conversationType: $0.conversationType,
+                originChannel: $0.originChannel,
                 hasUnseenLatestAssistantMessage: $0.hasUnseenLatestAssistantMessage,
                 latestAssistantMessageAt: $0.latestAssistantMessageAt,
                 lastSeenAssistantMessageAt: $0.lastSeenAssistantMessageAt
@@ -1626,6 +1659,8 @@ class IOSConversationStore: ObservableObject {
                 scheduleJobId: p.scheduleJobId,
                 forkParent: p.forkParent,
                 source: p.source,
+                conversationType: p.conversationType,
+                originChannel: p.originChannel,
                 hasUnseenLatestAssistantMessage: p.hasUnseenLatestAssistantMessage ?? false,
                 latestAssistantMessageAt: p.latestAssistantMessageAt,
                 lastSeenAssistantMessageAt: p.lastSeenAssistantMessageAt
@@ -1651,7 +1686,8 @@ class IOSConversationStore: ObservableObject {
                 conversationId: $0.conversationId,
                 scheduleJobId: $0.scheduleJobId,
                 forkParent: $0.forkParent,
-                source: $0.source
+                source: $0.source,
+                conversationType: $0.conversationType
             )
         }
         if let data = try? JSONEncoder().encode(persisted) {
@@ -1675,7 +1711,8 @@ class IOSConversationStore: ObservableObject {
                 isPrivate: $0.isPrivate ?? false,
                 scheduleJobId: $0.scheduleJobId,
                 forkParent: $0.forkParent,
-                source: $0.source
+                source: $0.source,
+                conversationType: $0.conversationType
             )
         }
     }

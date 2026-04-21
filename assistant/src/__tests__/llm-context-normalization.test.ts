@@ -1601,4 +1601,125 @@ describe("normalizeLlmContextPayloads", () => {
 
     expect(normalized).toEqual({});
   });
+
+  test("normalizes Responses API web_search_call output as a tool_use section", () => {
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_030,
+      requestPayload: {
+        model: "gpt-5.4",
+        instructions: "Search the web when needed.",
+        input: [
+          {
+            role: "user",
+            content: [{ type: "input_text", text: "What is the weather?" }],
+            type: "message",
+          },
+        ],
+        tools: [{ type: "web_search_preview" }],
+      },
+      responsePayload: {
+        model: "gpt-5.4",
+        output: [
+          {
+            type: "web_search_call",
+            id: "ws_abc",
+            status: "completed",
+          },
+          {
+            type: "message",
+            role: "assistant",
+            content: [
+              { type: "output_text", text: "It is sunny in Boston today." },
+            ],
+          },
+        ],
+        usage: { input_tokens: 30, output_tokens: 15 },
+        status: "completed",
+      },
+    });
+
+    expect(normalized.summary).toEqual({
+      provider: "openai",
+      model: "gpt-5.4",
+      inputTokens: 30,
+      outputTokens: 15,
+      stopReason: "stop",
+      requestMessageCount: 1,
+      requestToolCount: 1,
+      responseMessageCount: 1,
+      responseToolCallCount: 1,
+      responsePreview: "It is sunny in Boston today.",
+      toolCallNames: ["web_search"],
+    });
+    expect(normalized.responseSections).toEqual([
+      {
+        kind: "tool_use",
+        label: "Response tool call 1",
+        role: "assistant",
+        toolName: "web_search",
+        data: { id: "ws_abc", status: "completed" },
+        text: "[Web search: completed]",
+      },
+      {
+        kind: "message",
+        label: "Assistant response",
+        role: "assistant",
+        text: "It is sunny in Boston today.",
+      },
+    ]);
+  });
+
+  test("normalizes Responses API response with only web_search_call (no message)", () => {
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_031,
+      requestPayload: {
+        model: "gpt-5.4",
+        instructions: "Search the web.",
+        input: [
+          {
+            role: "user",
+            content: [{ type: "input_text", text: "Find latest news" }],
+            type: "message",
+          },
+        ],
+        tools: [{ type: "web_search_preview" }],
+      },
+      responsePayload: {
+        model: "gpt-5.4",
+        output: [
+          {
+            type: "web_search_call",
+            id: "ws_only",
+            status: "searching",
+          },
+        ],
+        usage: { input_tokens: 20, output_tokens: 5 },
+        status: "incomplete",
+      },
+    });
+
+    expect(normalized.summary).toEqual({
+      provider: "openai",
+      model: "gpt-5.4",
+      inputTokens: 20,
+      outputTokens: 5,
+      stopReason: "incomplete",
+      requestMessageCount: 1,
+      requestToolCount: 1,
+      responseMessageCount: 1,
+      responseToolCallCount: 1,
+      responsePreview: undefined,
+      toolCallNames: ["web_search"],
+    });
+    expect(normalized.responseSections).toEqual([
+      {
+        kind: "tool_use",
+        label: "Response tool call 1",
+        role: "assistant",
+        toolName: "web_search",
+        data: { id: "ws_only", status: "searching" },
+        text: "[Web search: searching]",
+      },
+    ]);
+  });
 });

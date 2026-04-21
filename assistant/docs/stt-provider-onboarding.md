@@ -39,7 +39,7 @@ The `services.stt.providers` map uses a sparse `z.record(z.string(), ...)` schem
 2. Implement the `transcribe(request)` method using a lazy-imported provider module (follow the pattern in the existing adapters).
 3. Add a `case` branch in `createDaemonBatchTranscriber()` for the new `SttProviderId`. The exhaustive `never` check at the bottom of the switch ensures a compile error if this step is skipped.
 
-If the provider needs a new REST client module, add it under `src/providers/speech-to-text/` following the pattern of `openai-whisper.ts`, `deepgram.ts`, and `google-gemini.ts`.
+If the provider needs a new REST client module, add it under `src/providers/speech-to-text/` following the pattern of `openai-whisper.ts`, `deepgram.ts`, `google-gemini.ts`, and `xai.ts`.
 
 ## 5. Credential plumbing
 
@@ -72,6 +72,7 @@ Add a new entry to the `providers` array with the following fields:
 | `openai-whisper` | `openai`                                    | shared        |
 | `deepgram`       | `deepgram`                                  | exclusive     |
 | `google-gemini`  | `gemini`                                    | shared        |
+| `xai`            | `xai`                                       | exclusive     |
 
 When the provider ID differs from the credential provider name (e.g. `google-gemini` maps to `gemini`), the key is **shared** with other services that use the same credential. The `sttKeyIsExclusive` / `sttKeyIsShared` helpers in the macOS settings layer derive this automatically from the catalog.
 

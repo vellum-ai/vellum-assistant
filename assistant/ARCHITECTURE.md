@@ -595,13 +595,13 @@ Audio-to-text conversion occurs in five distinct runtime boundaries, each with i
 
 **Boundary overview:**
 
-| Boundary                     | Runtime                                                                       | Provider (current)                             | Adapter module                                                                                                                                    | Caller                                                                                               |
-| ---------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| **Telephony (hybrid)**       | Twilio-native ConversationRelay or daemon media-stream (provider-conditional) | Configured STT provider (via `services.stt`)   | `src/calls/telephony-stt-routing.ts`                                                                                                              | `src/calls/twilio-routes.ts`                                                                         |
-| **Daemon batch**             | Daemon process (REST API to provider)                                         | Configured STT provider (via `services.stt`)   | `src/stt/daemon-batch-transcriber.ts`                                                                                                             | `src/runtime/routes/inbound-stages/transcribe-audio.ts`                                              |
-| **Conversation streaming**   | Daemon process (WebSocket-based)                                              | Deepgram or Google Gemini (via `services.stt`) | `src/stt/stt-stream-session.ts`, `src/providers/speech-to-text/deepgram-realtime.ts`, `src/providers/speech-to-text/google-gemini-live-stream.ts` | `VoiceInputManager` (macOS conversation), `InputBarView` (iOS conversation) via gateway WS proxy     |
-| **Client service-first**     | macOS / iOS via gateway → daemon                                              | Configured STT provider (via `services.stt`)   | `src/runtime/routes/stt-routes.ts`, `clients/shared/Network/STTClient.swift`                                                                      | `VoiceInputManager` (macOS dictation), `InputBarView` (iOS), `OpenAIVoiceService` (macOS voice mode) |
-| **Client-native (fallback)** | macOS / iOS on-device                                                         | Apple Speech (`SFSpeechRecognizer`)            | `clients/macos/.../SpeechRecognizerAdapter.swift`, `clients/ios/.../SpeechRecognizerAdapter.swift`                                                | Fallback when STT service is unconfigured or fails                                                   |
+| Boundary                     | Runtime                                                                       | Provider (current)                           | Adapter module                                                                                                                                                                                                                                             | Caller                                                                                               |
+| ---------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **Telephony (hybrid)**       | Twilio-native ConversationRelay or daemon media-stream (provider-conditional) | Configured STT provider (via `services.stt`) | `src/calls/telephony-stt-routing.ts`                                                                                                                                                                                                                       | `src/calls/twilio-routes.ts`                                                                         |
+| **Daemon batch**             | Daemon process (REST API to provider)                                         | Configured STT provider (via `services.stt`) | `src/stt/daemon-batch-transcriber.ts`                                                                                                                                                                                                                      | `src/runtime/routes/inbound-stages/transcribe-audio.ts`                                              |
+| **Conversation streaming**   | Daemon process (WebSocket-based)                                              | Configured STT provider (via `services.stt`) | `src/stt/stt-stream-session.ts`, `src/providers/speech-to-text/deepgram-realtime.ts`, `src/providers/speech-to-text/google-gemini-live-stream.ts`, `src/providers/speech-to-text/openai-whisper-stream.ts`, `src/providers/speech-to-text/xai-realtime.ts` | `VoiceInputManager` (macOS conversation), `InputBarView` (iOS conversation) via gateway WS proxy     |
+| **Client service-first**     | macOS / iOS via gateway → daemon                                              | Configured STT provider (via `services.stt`) | `src/runtime/routes/stt-routes.ts`, `clients/shared/Network/STTClient.swift`                                                                                                                                                                               | `VoiceInputManager` (macOS dictation), `InputBarView` (iOS), `OpenAIVoiceService` (macOS voice mode) |
+| **Client-native (fallback)** | macOS / iOS on-device                                                         | Apple Speech (`SFSpeechRecognizer`)          | `clients/macos/.../SpeechRecognizerAdapter.swift`, `clients/ios/.../SpeechRecognizerAdapter.swift`                                                                                                                                                         | Fallback when STT service is unconfigured or fails                                                   |
 
 **Telephony boundary (hybrid routing):**
 
@@ -750,32 +750,28 @@ These differences are intentional — the adapters were designed for their respe
 
 ### Update Bulletin System
 
-Release-driven update notification system that surfaces release notes to the assistant via the system prompt.
+Release-driven update notification system that dispatches a background conversation to process release notes when a release lands.
 
 **Data flow:**
 
-1. **Bundled template** (`src/prompts/templates/UPDATES.md`) — source of release notes, maintained per-release in the repo.
-2. **Startup sync** (`syncUpdateBulletinOnStartup()` in `src/config/update-bulletin.ts`) — materializes the bundled template into the workspace `UPDATES.md` on daemon boot. Uses atomic write (temp + rename) for crash safety.
-3. **System prompt injection** — `buildSystemPrompt()` reads workspace `UPDATES.md` and injects it as a `## Recent Updates` section with judgment-based handling instructions.
-4. **Completion by deletion** — the assistant deletes `UPDATES.md` when it has actioned all updates. Next startup detects the deletion and marks those releases as completed in checkpoint state.
-5. **Cross-release merge** — if pending updates from a prior release exist when a new release lands, both release blocks coexist in the same file.
+1. **Storage** — Release notes live at `<workspace>/UPDATES.md`. The file is written by workspace migrations; each release that needs to surface notes ships a dedicated migration in `src/workspace/migrations/` that appends a release-notes block to the file. The workspace-migration runner is the authoritative idempotency mechanism: `runWorkspaceMigrations()` records each migration's `WorkspaceMigration.id` in `<workspace>/data/.workspace-migrations.json` and never re-runs an ID that is already in the `applied` set.
+2. **Dispatch** — At daemon startup (after `runWorkspaceMigrations()`), `runUpdateBulletinJobIfNeeded()` is invoked fire-and-forget. It hashes the current `UPDATES.md` content and compares against the `updates:last_processed_hash` checkpoint. When the hashes differ, it bootstraps a `conversationType: "background"` conversation and calls `wakeAgentForOpportunity()` so the agent processes the bulletin without any interactive session.
+3. **Completion** — The agent acts on the contents and deletes `UPDATES.md` when done. The job persists the new hash to `updates:last_processed_hash` post-wake, so subsequent startups short-circuit until the file is repopulated by a future migration.
 
 **Checkpoint keys** (in `memory_checkpoints` table):
 
-- `updates:active_releases` — JSON array of version strings currently active.
-- `updates:completed_releases` — JSON array of version strings already completed.
+- `updates:last_processed_hash` — content hash of the `UPDATES.md` payload most recently dispatched to the background job.
 
 **Key source files:**
 
-| File                                   | Purpose                                                   |
-| -------------------------------------- | --------------------------------------------------------- |
-| `src/prompts/templates/UPDATES.md`     | Bundled release-note template                             |
-| `src/config/update-bulletin.ts`        | Startup sync logic (materialize, delete-complete, merge)  |
-| `src/config/update-bulletin-format.ts` | Release block formatter/parser helpers                    |
-| `src/config/update-bulletin-state.ts`  | Checkpoint state helpers for active/completed releases    |
-| `src/prompts/system-prompt.ts`         | Prompt injection of updates section                       |
-| `src/daemon/config-watcher.ts`         | File watcher — evicts sessions on UPDATES.md changes      |
-| `src/permissions/defaults.ts`          | Auto-allow rules for file_read/write/edit + rm UPDATES.md |
+| File                                   | Purpose                                                                                   |
+| -------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `src/workspace/migrations/`            | Per-release migrations that append release notes to `UPDATES.md`                          |
+| `src/workspace/migrations/registry.ts` | Append-only `WORKSPACE_MIGRATIONS` registry                                               |
+| `src/prompts/update-bulletin-job.ts`   | `runUpdateBulletinJobIfNeeded()` — hash check, background dispatch, and checkpoint update |
+| `src/daemon/lifecycle.ts`              | Fire-and-forget dispatch of `runUpdateBulletinJobIfNeeded()` after DB init at startup     |
+| `src/config/schemas/updates.ts`        | `updates.enabled` config toggle (defaults to `true`; disables the background dispatch)    |
+| `src/permissions/defaults.ts`          | Auto-allow rules for file_read/write/edit + bare-filename `rm UPDATES.md`                 |
 
 ---
 
@@ -1570,18 +1566,19 @@ graph TB
     FIND_RULE -->|"No match"| NO_MATCH{"Fallback logic"}
 
     RISK_CHECK -->|"Low / Medium"| AUTO_ALLOW["decision: allow<br/>Auto-allowed by rule"]
-    RISK_CHECK -->|"High"| HIGH_CHECK{"allowHighRisk<br/>on rule?"}
-    HIGH_CHECK -->|"true"| AUTO_ALLOW
-    HIGH_CHECK -->|"false / absent"| PROMPT_HIGH["decision: prompt<br/>High risk override"]
+    RISK_CHECK -->|"High"| HIGH_CHECK{"shouldAutoAllowHighRisk()<br/>(containerized bash?)"}
+    HIGH_CHECK -->|"yes"| AUTO_ALLOW
+    HIGH_CHECK -->|"no"| RISK_THRESHOLD{"Risk-based<br/>threshold fallback"}
 
     NO_MATCH -->|"tool.origin === 'skill'"| PROMPT_SKILL["decision: prompt<br/>Skill tools always ask"]
     NO_MATCH -->|"strict mode"| PROMPT_STRICT["decision: prompt<br/>No implicit auto-allow"]
-    NO_MATCH -->|"workspace mode (default)"| WS_CHECK{"Workspace-scoped<br/>invocation?"}
+    NO_MATCH -->|"workspace mode (default)"| WS_CHECK{"Workspace-scoped<br/>+ Low risk?"}
     WS_CHECK -->|"yes"| AUTO_WS["decision: allow<br/>Workspace-scoped auto-allow"]
-    WS_CHECK -->|"no"| RISK_FALLBACK_WS{"Risk level?"}
-    RISK_FALLBACK_WS -->|"Low"| AUTO_WS_LOW["decision: allow<br/>Low risk auto-allow"]
-    RISK_FALLBACK_WS -->|"Medium"| PROMPT_WS_MED["decision: prompt"]
-    RISK_FALLBACK_WS -->|"High"| PROMPT_WS_HIGH["decision: prompt"]
+    WS_CHECK -->|"no"| RISK_THRESHOLD
+
+    RISK_THRESHOLD{"risk ≤ autoApproveUpTo<br/>threshold?"}
+    RISK_THRESHOLD -->|"yes"| AUTO_THRESHOLD["decision: allow<br/>within auto-approve threshold"]
+    RISK_THRESHOLD -->|"no"| PROMPT_THRESHOLD["decision: prompt<br/>above auto-approve threshold"]
 ```
 
 ### Permission Modes: Workspace and Strict
@@ -1599,7 +1596,7 @@ The `permissions.mode` config option (`workspace` or `strict`) controls the defa
 | `browser_*` skill tools with system default rules  | Auto-allowed (priority 100 allow rules)       | Auto-allowed (priority 100 allow rules)       |
 | Skill-origin tools with no matching rule           | Prompted                                      | Prompted                                      |
 | Allow rules for non-high-risk tools                | Auto-allowed                                  | Auto-allowed                                  |
-| Allow rules with `allowHighRisk: true`             | Auto-allowed (even high risk)                 | Auto-allowed (even high risk)                 |
+| Allow rules + containerized bash (high risk)       | Auto-allowed (runtime check)                  | Auto-allowed (runtime check)                  |
 | Deny rules                                         | Blocked                                       | Blocked                                       |
 
 **Workspace mode** (default) auto-allows operations scoped to the workspace (file reads/writes/edits within the workspace directory, sandboxed bash) without prompting. Host operations, network requests, and operations outside the workspace still follow the normal approval flow. Explicit deny and ask rules override auto-allow.
@@ -1621,7 +1618,6 @@ Rules are stored in `~/.vellum/protected/trust.json` with version `3`. Each rule
 | `decision`        | `allow \| deny \| ask` | What to do when the rule matches                                         |
 | `priority`        | `number`               | Higher priority wins; deny wins ties at equal priority                   |
 | `executionTarget` | `string?`              | `sandbox` or `host` — restricts by execution context                     |
-| `allowHighRisk`   | `boolean?`             | When true, auto-allows even high-risk invocations                        |
 
 Missing optional fields act as wildcards. A rule with no `executionTarget` matches any target.
 
@@ -1715,7 +1711,7 @@ When a permission prompt is sent to the client (via `confirmation_request` SSE e
 | `allowlistOptions` | Suggested patterns for "always allow" rules         |
 | `scopeOptions`     | Suggested scopes for rule persistence               |
 
-The user can respond with: `allow` (one-time), `always_allow` (create allow rule), `always_allow_high_risk` (create allow rule with `allowHighRisk: true`), `deny` (one-time), or `always_deny` (create deny rule).
+The user can respond with: `allow` (one-time), `always_allow` (create allow rule), `deny` (one-time), or `always_deny` (create deny rule). High-risk operations with an allow rule in containerized environments are auto-allowed at runtime by `DefaultApprovalPolicy.shouldAutoAllowHighRisk()` without requiring persisted state. All other risk-based decisions use the `autoApproveUpTo` threshold (default: `"low"`) -- tools at or below the threshold are auto-allowed, those above are prompted.
 
 ### Canonical Paths
 
@@ -2094,7 +2090,7 @@ Connected channels are resolved at signal emission time: vellum is always includ
 
 **Audit trail (SQLite):** `notification_events` → `notification_decisions` (with `conversationActions` in validation results) → `notification_deliveries` (with `conversation_id`, `message_id`, `conversation_strategy`, `conversation_action`, `conversation_target_id`, `conversation_fallback_used`)
 
-**Configuration:** `notifications.decisionModelIntent` in `config.json`.
+**Configuration:** `llm.callSites.notificationDecision` (decision engine) and `llm.callSites.preferenceExtraction` (preference extractor) in `config.json`. Both fall back to `llm.default` when unset.
 
 ---
 

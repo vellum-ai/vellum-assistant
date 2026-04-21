@@ -94,7 +94,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../permissions/checker.js", () => ({
-  classifyRisk: async () => riskOverride,
+  classifyRisk: async () => ({ level: riskOverride }),
   check: async () => {
     if (checkResultOverride) return checkResultOverride;
     return { decision: "allow", reason: "allowed" };

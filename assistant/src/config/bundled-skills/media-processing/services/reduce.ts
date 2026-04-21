@@ -179,7 +179,7 @@ async function sendToClaude(
   model?: string,
   onProgress?: (msg: string) => void,
 ): Promise<ReduceResult> {
-  const provider = await getConfiguredProvider();
+  const provider = await getConfiguredProvider("mainAgent");
   if (!provider) {
     throw new Error("No LLM provider available. Please configure an API key.");
   }

@@ -458,6 +458,221 @@ describe("parseExtractionResponse — edges", () => {
     expect(diff.createEdges).toHaveLength(0);
   });
 
+  test("new_edges resolves temp_ids to new→new deferred edges", () => {
+    const { diff, deferredEdges } = parse({
+      create_nodes: [
+        {
+          temp_id: "new-1",
+          content: "First beat.",
+          type: "episodic",
+          emotional_charge: {
+            valence: 0,
+            intensity: 0,
+            decay_curve: "linear",
+            decay_rate: 0.05,
+          },
+          significance: 0.5,
+          confidence: 0.8,
+          source_type: "direct",
+        },
+        {
+          temp_id: "new-2",
+          content: "Second beat.",
+          type: "episodic",
+          emotional_charge: {
+            valence: 0,
+            intensity: 0,
+            decay_curve: "linear",
+            decay_rate: 0.05,
+          },
+          significance: 0.5,
+          confidence: 0.8,
+          source_type: "direct",
+        },
+      ],
+      reinforce_node_ids: [],
+      new_edges: [
+        {
+          source_node_id: "new-1",
+          target_node_id: "new-2",
+          relationship: "part-of",
+          weight: 0.6,
+        },
+      ],
+    });
+
+    expect(diff.createEdges).toHaveLength(0);
+    expect(deferredEdges).toHaveLength(1);
+    expect(deferredEdges[0].source).toEqual({ kind: "new", newNodeIndex: 0 });
+    expect(deferredEdges[0].target).toEqual({ kind: "new", newNodeIndex: 1 });
+    expect(deferredEdges[0].relationship).toBe("part-of");
+  });
+
+  test("new_edges resolves existing→new via temp_id", () => {
+    const { diff, deferredEdges } = parse(
+      {
+        create_nodes: [
+          {
+            temp_id: "n1",
+            content: "A new memory linked from an old one.",
+            type: "episodic",
+            emotional_charge: {
+              valence: 0,
+              intensity: 0,
+              decay_curve: "linear",
+              decay_rate: 0.05,
+            },
+            significance: 0.5,
+            confidence: 0.8,
+            source_type: "direct",
+          },
+        ],
+        reinforce_node_ids: [],
+        new_edges: [
+          {
+            source_node_id: "existing-1",
+            target_node_id: "n1",
+            relationship: "reminds-of",
+          },
+        ],
+      },
+      ["existing-1"],
+    );
+
+    expect(diff.createEdges).toHaveLength(0);
+    expect(deferredEdges).toHaveLength(1);
+    expect(deferredEdges[0].source).toEqual({
+      kind: "existing",
+      nodeId: "existing-1",
+    });
+    expect(deferredEdges[0].target).toEqual({ kind: "new", newNodeIndex: 0 });
+  });
+
+  test("new_edges with two existing endpoints lands in diff.createEdges", () => {
+    const { diff, deferredEdges } = parse(
+      {
+        create_nodes: [],
+        reinforce_node_ids: [],
+        new_edges: [
+          {
+            source_node_id: "a",
+            target_node_id: "b",
+            relationship: "depends-on",
+            weight: 0.5,
+          },
+        ],
+      },
+      ["a", "b"],
+    );
+
+    expect(diff.createEdges).toHaveLength(1);
+    expect(diff.createEdges[0].sourceNodeId).toBe("a");
+    expect(diff.createEdges[0].targetNodeId).toBe("b");
+    expect(deferredEdges).toHaveLength(0);
+  });
+
+  test("new_edges skips references to unknown temp_ids", () => {
+    const { diff, deferredEdges } = parse(
+      {
+        create_nodes: [
+          {
+            temp_id: "n1",
+            content: "Something.",
+            type: "semantic",
+            emotional_charge: {
+              valence: 0,
+              intensity: 0,
+              decay_curve: "linear",
+              decay_rate: 0.05,
+            },
+            significance: 0.5,
+            confidence: 0.8,
+            source_type: "direct",
+          },
+        ],
+        reinforce_node_ids: [],
+        new_edges: [
+          {
+            source_node_id: "n1",
+            target_node_id: "n-does-not-exist",
+            relationship: "caused-by",
+          },
+        ],
+      },
+      [],
+    );
+
+    expect(diff.createEdges).toHaveLength(0);
+    expect(deferredEdges).toHaveLength(0);
+  });
+
+  test("candidate ID takes precedence over colliding temp_id", () => {
+    const { diff, deferredEdges } = parse(
+      {
+        create_nodes: [
+          {
+            temp_id: "collide",
+            content: "New node.",
+            type: "semantic",
+            emotional_charge: {
+              valence: 0,
+              intensity: 0,
+              decay_curve: "linear",
+              decay_rate: 0.05,
+            },
+            significance: 0.5,
+            confidence: 0.8,
+            source_type: "direct",
+          },
+        ],
+        reinforce_node_ids: [],
+        new_edges: [
+          {
+            source_node_id: "other",
+            target_node_id: "collide",
+            relationship: "reminds-of",
+          },
+        ],
+      },
+      ["collide", "other"],
+    );
+
+    // "collide" resolves to the existing candidate, not the new node's temp_id.
+    expect(diff.createEdges).toHaveLength(1);
+    expect(diff.createEdges[0].targetNodeId).toBe("collide");
+    expect(deferredEdges).toHaveLength(0);
+  });
+
+  test("edges_to_existing self-loop (same-node temp_id) is dropped", () => {
+    const { deferredEdges, diff } = parse({
+      create_nodes: [
+        {
+          temp_id: "n1",
+          content: "Self-referential.",
+          type: "semantic",
+          emotional_charge: {
+            valence: 0,
+            intensity: 0,
+            decay_curve: "linear",
+            decay_rate: 0.05,
+          },
+          significance: 0.5,
+          confidence: 0.8,
+          source_type: "direct",
+          edges_to_existing: [
+            {
+              target_node_id: "n1",
+              relationship: "part-of",
+            },
+          ],
+        },
+      ],
+      reinforce_node_ids: [],
+    });
+    expect(diff.createNodes).toHaveLength(1);
+    expect(deferredEdges).toHaveLength(0);
+  });
+
   test("defaults edge weight to 1.0", () => {
     const { diff } = parse(
       {
@@ -512,10 +727,65 @@ describe("parseExtractionResponse — deferred edges", () => {
       ["existing-1"],
     );
     expect(deferredEdges).toHaveLength(1);
-    expect(deferredEdges[0].newNodeIndex).toBe(0);
-    expect(deferredEdges[0].targetNodeId).toBe("existing-1");
+    expect(deferredEdges[0].source).toEqual({ kind: "new", newNodeIndex: 0 });
+    expect(deferredEdges[0].target).toEqual({
+      kind: "existing",
+      nodeId: "existing-1",
+    });
     expect(deferredEdges[0].relationship).toBe("caused-by");
     expect(deferredEdges[0].weight).toBe(0.7);
+  });
+
+  test("resolves new→new edges in edges_to_existing via temp_ids", () => {
+    const { deferredEdges, diff } = parse({
+      create_nodes: [
+        {
+          temp_id: "n1",
+          content: "Event A happened.",
+          type: "episodic",
+          emotional_charge: {
+            valence: 0,
+            intensity: 0,
+            decay_curve: "linear",
+            decay_rate: 0.05,
+          },
+          significance: 0.5,
+          confidence: 0.8,
+          source_type: "direct",
+          edges_to_existing: [
+            {
+              target_node_id: "n2",
+              relationship: "caused-by",
+              weight: 0.9,
+            },
+          ],
+        },
+        {
+          temp_id: "n2",
+          content: "Event B happened as a result.",
+          type: "episodic",
+          emotional_charge: {
+            valence: 0,
+            intensity: 0,
+            decay_curve: "linear",
+            decay_rate: 0.05,
+          },
+          significance: 0.5,
+          confidence: 0.8,
+          source_type: "direct",
+        },
+      ],
+      reinforce_node_ids: [],
+    });
+
+    expect(diff.createNodes).toHaveLength(2);
+    // Edge should NOT land in diff.createEdges (both endpoints are new).
+    expect(diff.createEdges).toHaveLength(0);
+    expect(deferredEdges).toHaveLength(1);
+    expect(deferredEdges[0].source).toEqual({ kind: "new", newNodeIndex: 0 });
+    expect(deferredEdges[0].target).toEqual({ kind: "new", newNodeIndex: 1 });
+    expect(deferredEdges[0].relationship).toBe("caused-by");
+    expect(deferredEdges[0].weight).toBe(0.9);
   });
 
   test("ignores deferred edges to non-candidate targets", () => {

@@ -14,6 +14,10 @@ const log = getLogger("rate-limit");
 export class RateLimitProvider implements Provider {
   public readonly name: string;
 
+  get tokenEstimationProvider(): string | undefined {
+    return this.inner.tokenEstimationProvider;
+  }
+
   private requestTimestamps: number[];
 
   constructor(

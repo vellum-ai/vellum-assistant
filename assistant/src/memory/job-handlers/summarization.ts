@@ -161,7 +161,7 @@ async function summarizeWithLLM(
     return buildFallbackSummary(existingSummary, newContent, label);
   }
 
-  const provider = await getConfiguredProvider();
+  const provider = await getConfiguredProvider("conversationSummarization");
   if (!provider) {
     log.debug(
       { label },
@@ -189,7 +189,7 @@ async function summarizeWithLLM(
         systemPrompt,
         {
           config: {
-            modelIntent: summarizationConfig.modelIntent,
+            callSite: "conversationSummarization" as const,
             max_tokens: SUMMARY_MAX_TOKENS,
           },
           signal,

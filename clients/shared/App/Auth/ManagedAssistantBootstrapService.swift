@@ -198,15 +198,22 @@ public final class ManagedAssistantBootstrapService {
     ///
     /// If the platform response omits the `status` field (older API versions), the
     /// assistant is assumed ready immediately for backward compatibility.
-    public func awaitAssistantProvisioned(assistantId: String, timeout: TimeInterval = 120) async throws {
+    ///
+    /// The default timeout is scoped to platform-side provisioning, which typically
+    /// completes in a few seconds. Runtime boot time is covered by the caller's
+    /// subsequent gateway health poll, so this phase does not need to absorb it.
+    public func awaitAssistantProvisioned(assistantId: String, timeout: TimeInterval = 60) async throws {
         guard let organizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId") else {
             log.warning("No persisted organization ID — skipping provisioning poll")
             return
         }
 
-        let start = CFAbsoluteTimeGetCurrent()
+        // Use ContinuousClock so NTP adjustments or DST transitions during the
+        // poll don't shorten or extend the deadline.
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(timeout))
 
-        while CFAbsoluteTimeGetCurrent() - start < timeout {
+        while clock.now < deadline {
             do {
                 let result = try await authService.getAssistant(id: assistantId, organizationId: organizationId)
                 switch result {
@@ -238,7 +245,7 @@ public final class ManagedAssistantBootstrapService {
                 log.warning("Provisioning poll failed for \(assistantId, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
 
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled else { return }
         }
 

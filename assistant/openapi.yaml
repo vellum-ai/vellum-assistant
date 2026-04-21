@@ -2088,7 +2088,7 @@ paths:
                   description: Pending interaction request ID
                 decision:
                   type: string
-                  description: "One of: allow, allow_10m, allow_conversation, deny, always_allow, always_deny, always_allow_high_risk"
+                  description: "One of: allow, allow_10m, allow_conversation, deny, always_allow, always_deny"
                 selectedPattern:
                   type: string
                   description: Allowlist pattern for persistent decisions
@@ -4243,6 +4243,7 @@ paths:
                             - new
                             - seen
                             - acted_on
+                            - dismissed
                         expiresAt:
                           type: string
                         minTimeAway:
@@ -4265,6 +4266,13 @@ paths:
                               - label
                               - prompt
                             additionalProperties: false
+                        urgency:
+                          type: string
+                          enum:
+                            - low
+                            - medium
+                            - high
+                            - critical
                         author:
                           type: string
                           enum:
@@ -4365,6 +4373,7 @@ paths:
                       - new
                       - seen
                       - acted_on
+                      - dismissed
                   expiresAt:
                     type: string
                   minTimeAway:
@@ -4387,6 +4396,13 @@ paths:
                         - label
                         - prompt
                       additionalProperties: false
+                  urgency:
+                    type: string
+                    enum:
+                      - low
+                      - medium
+                      - high
+                      - critical
                   author:
                     type: string
                     enum:
@@ -4424,6 +4440,7 @@ paths:
                     - new
                     - seen
                     - acted_on
+                    - dismissed
               required:
                 - status
               additionalProperties: false
@@ -4910,6 +4927,14 @@ paths:
           description: Successful response
     post:
       operationId: integrations_slack_channel_config_post
+      tags:
+        - channel
+      responses:
+        "200":
+          description: Successful response
+  /v1/integrations/slack/channel/oauth-install:
+    post:
+      operationId: integrations_slack_channel_oauthinstall_post
       tags:
         - channel
       responses:
@@ -8488,9 +8513,6 @@ paths:
                 decision:
                   type: string
                   description: allow or deny
-                allowHighRisk:
-                  type: boolean
-                  description: Allow high-risk invocations
               required:
                 - requestId
                 - pattern
@@ -8556,20 +8578,16 @@ paths:
                   description: Allowlist pattern
                 scope:
                   type: string
-                  description: Scope
+                  description: Scope (required for scoped tools, ignored for others)
                 decision:
                   type: string
                   description: allow, deny, or ask
-                allowHighRisk:
-                  type: boolean
-                  description: Allow high-risk invocations
                 executionTarget:
                   type: string
                   description: Execution target
               required:
                 - toolName
                 - pattern
-                - scope
                 - decision
               additionalProperties: false
   /v1/trust-rules/manage/{id}:

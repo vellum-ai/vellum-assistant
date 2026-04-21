@@ -49,6 +49,21 @@ export const DEFAULT_FRAME_BYTES = 320;
 const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_BACKOFF_MS = 500;
 
+/** s16le is 2 bytes per sample. */
+const BYTES_PER_SAMPLE = 2;
+
+/**
+ * Audio-duration window that must flow through the socket in a single attempt
+ * before we consider the pipeline "stable" and reset the reconnect budget.
+ * Expressed in seconds so the threshold stays meaningful across non-default
+ * `rateHz` / `frameBytes` combinations — a raw frame count would be far too
+ * lenient with large frames and far too strict with small ones. Two seconds
+ * is enough that a pathologically flapping PulseAudio (crashing shortly after
+ * each startup and emitting a few frames in between) can no longer keep the
+ * budget perpetually topped up.
+ */
+const STABILITY_WINDOW_SECONDS = 2;
+
 export interface AudioCaptureOptions {
   /**
    * Absolute path to the Unix socket the daemon is listening on. The daemon
@@ -147,7 +162,7 @@ function defaultSpawn(argv: readonly string[]): SpawnedParec {
   const proc: Subprocess = Bun.spawn(argv as string[], {
     stdin: "ignore",
     stdout: "pipe",
-    stderr: "pipe",
+    stderr: "inherit",
   });
   return {
     stdout: proc.stdout as ReadableStream<Uint8Array> | null,
@@ -210,6 +225,17 @@ export async function startAudioCapture(
     );
   }
 
+  // Derive the stability threshold from the configured rate/frame size so the
+  // reconnect-reset gate maps to a constant audio duration regardless of the
+  // caller's chunking. At defaults (16kHz, 320-byte frames) this is 200 frames;
+  // with large frames (e.g. 3200 bytes) it shrinks to 20 frames.
+  const samplesPerFrame = frameBytes / BYTES_PER_SAMPLE;
+  const framesPerSecond = rateHz / samplesPerFrame;
+  const minFramesToResetBudget = Math.max(
+    1,
+    Math.ceil(framesPerSecond * STABILITY_WINDOW_SECONDS),
+  );
+
   const argv = buildParecArgv(sourceDevice, rateHz);
 
   // Capture state — shared across the retry loop.
@@ -247,6 +273,7 @@ export async function startAudioCapture(
   async function runOneAttempt(): Promise<{
     outcome: AttemptOutcome;
     error?: Error;
+    framesWritten: number;
   }> {
     let attemptError: Error | undefined;
 
@@ -258,6 +285,7 @@ export async function startAudioCapture(
       return {
         outcome: "parec",
         error: err instanceof Error ? err : new Error(String(err)),
+        framesWritten: 0,
       };
     }
     currentProc = proc;
@@ -276,6 +304,7 @@ export async function startAudioCapture(
       return {
         outcome: "socket",
         error: err instanceof Error ? err : new Error(String(err)),
+        framesWritten: 0,
       };
     }
     currentSocket = sock;
@@ -305,7 +334,16 @@ export async function startAudioCapture(
     // 4. Pipe parec.stdout through the frame chunker into the socket.
     // We deliberately don't `await` the pump — it races against the three
     // promises above and terminates when any of them settles.
-    const pumpDone = pumpFrames(proc.stdout, sock, frameBytes, () => stopping);
+    let framesWritten = 0;
+    const pumpDone = pumpFrames(
+      proc.stdout,
+      sock,
+      frameBytes,
+      () => stopping,
+      () => {
+        framesWritten += 1;
+      },
+    );
 
     const raceOutcome = await Promise.race([
       stoppedP,
@@ -354,9 +392,9 @@ export async function startAudioCapture(
     currentSocket = null;
 
     if (outcome === "stopped") {
-      return { outcome: "stopped" };
+      return { outcome: "stopped", framesWritten };
     }
-    return { outcome, error: attemptError };
+    return { outcome, error: attemptError, framesWritten };
   }
 
   /**
@@ -368,13 +406,20 @@ export async function startAudioCapture(
     let consecutiveFailures = 0;
 
     while (!stopping) {
-      const { outcome, error } = await runOneAttempt();
+      const { outcome, error, framesWritten } = await runOneAttempt();
 
       if (outcome === "stopped") {
         break;
       }
 
-      // Any non-stop outcome counts as a failure toward the budget.
+      // Reset the failure counter only if this attempt streamed enough data
+      // to look genuinely healthy. A single frame would otherwise let
+      // pathological flapping (e.g. PulseAudio crashing moments after each
+      // startup) keep the reconnect budget perpetually topped up.
+      if (framesWritten >= minFramesToResetBudget) {
+        consecutiveFailures = 0;
+      }
+
       consecutiveFailures += 1;
       if (consecutiveFailures > MAX_RECONNECT_ATTEMPTS) {
         fatalError =
@@ -463,6 +508,7 @@ async function pumpFrames(
   sock: CapturedSocket,
   frameBytes: number,
   isStopping: () => boolean,
+  onFrame?: () => void,
 ): Promise<void> {
   if (!stdout) return;
   const reader = stdout.getReader();
@@ -491,6 +537,7 @@ async function pumpFrames(
         buffer = buffer.slice(frameBytes);
         try {
           sock.write(frame);
+          onFrame?.();
         } catch {
           // Socket write failure aborts the pump; the outer attempt loop
           // will pick it up via the socket's `error`/`close` handlers.

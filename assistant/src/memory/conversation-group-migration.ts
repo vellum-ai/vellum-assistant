@@ -58,10 +58,6 @@ export function ensureGroupMigration(): void {
   }
 
   // 3. Seed system groups.
-  //
-  // `system:reflections` is a legacy group kept for backward compatibility
-  // with existing installations. New auto-analysis conversations are assigned
-  // to `system:background`; the migration in step 6 moves existing ones.
   const now = Math.floor(Date.now() / 1000);
   rawExec(`
     INSERT OR IGNORE INTO conversation_groups (id, name, sort_position, is_system_group, created_at, updated_at)
@@ -69,8 +65,7 @@ export function ensureGroupMigration(): void {
       ('system:pinned', 'Pinned', 0, TRUE, ${now}, ${now}),
       ('system:scheduled', 'Scheduled', 1, TRUE, ${now}, ${now}),
       ('system:background', 'Background', 2, TRUE, ${now}, ${now}),
-      ('system:all', 'Recents', 3, TRUE, ${now}, ${now}),
-      ('system:reflections', 'Reflections', 100, TRUE, ${now}, ${now})
+      ('system:all', 'Recents', 3, TRUE, ${now}, ${now})
   `);
 
   // One-time migration: move system:all to sortPosition 3 (from 999999).
@@ -241,6 +236,43 @@ export function ensureGroupMigration(): void {
     } catch (err) {
       rawExec("ROLLBACK");
       log.error({ err }, "reflections-to-background migration failed, rolled back");
+      throw err;
+    }
+  }
+
+  // 7. One-time cleanup: delete the orphaned system:reflections group row.
+  //
+  // Reflections render as a sub-group under Background via the client's
+  // sub-group label provider; the standalone system:reflections group is no
+  // longer referenced by any conversation after step 6. Leaving the row in
+  // place causes the macOS sidebar to render an empty duplicate "Reflections"
+  // entry with a fallback folder icon alongside the Background sub-group.
+  const reflectionsGroupDeleted = rawGet<{ id: string }>(
+    "SELECT id FROM conversation_groups WHERE id = '_reflections_group_deleted_complete'",
+  );
+
+  if (!reflectionsGroupDeleted) {
+    try {
+      rawExec("BEGIN");
+
+      // Belt-and-suspenders: re-run the conversation move in case a straggler
+      // crept in between step 6's sentinel being set and this step shipping.
+      rawExec(`
+        UPDATE conversations SET group_id = 'system:background'
+        WHERE group_id = 'system:reflections'
+      `);
+
+      rawExec(`DELETE FROM conversation_groups WHERE id = 'system:reflections'`);
+
+      rawExec(`
+        INSERT OR IGNORE INTO conversation_groups (id, name, sort_position, is_system_group)
+        VALUES ('_reflections_group_deleted_complete', '_reflections_group_deleted_complete', -1, TRUE)
+      `);
+
+      rawExec("COMMIT");
+    } catch (err) {
+      rawExec("ROLLBACK");
+      log.error({ err }, "reflections-group deletion failed, rolled back");
       throw err;
     }
   }

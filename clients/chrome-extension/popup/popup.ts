@@ -43,19 +43,18 @@ import {
   healthToPhase,
   shouldExpandTroubleshooting,
   hasTroubleshootingControls,
+  deriveEnvironmentHint,
   type ConnectionHealthState,
   type ConnectionHealthDetail,
   type ConnectionPhase,
   type GetStatusResponse,
   type AssistantsGetResponse,
   type AssistantSelectResponse,
+  type EnvironmentStateResponse,
 } from './popup-state.js';
-
-const DEFAULT_RELAY_PORT = 7830;
 
 // ── DOM references ──────────────────────────────────────────────────
 
-const portInput = document.getElementById('port-input') as HTMLInputElement;
 const connectionToggle = document.getElementById('connection-toggle') as HTMLInputElement;
 const connectionToggleHint = document.getElementById(
   'connection-toggle-hint',
@@ -64,6 +63,13 @@ const statusDot = document.getElementById('status-dot') as HTMLDivElement;
 const statusText = document.getElementById('status-text') as HTMLParagraphElement;
 const statusBadge = document.getElementById('status-badge') as HTMLSpanElement;
 const errorText = document.getElementById('error-text') as HTMLParagraphElement;
+const debugDetails = document.getElementById('debug-details') as HTMLDivElement;
+const debugDetailsText = document.getElementById(
+  'debug-details-text',
+) as HTMLParagraphElement;
+const copyDebugDetailsButton = document.getElementById(
+  'copy-debug-details',
+) as HTMLButtonElement;
 const setupMessage = document.getElementById('setup-message') as HTMLParagraphElement;
 const btnCloudSignIn = document.getElementById('btn-cloud-signin') as HTMLButtonElement;
 const cloudStatus = document.getElementById('cloud-status') as HTMLParagraphElement;
@@ -87,6 +93,13 @@ const assistantSelect = document.getElementById(
   'assistant-select',
 ) as HTMLSelectElement;
 
+const environmentSelect = document.getElementById(
+  'environment-select',
+) as HTMLSelectElement;
+const environmentHint = document.getElementById(
+  'environment-hint',
+) as HTMLParagraphElement;
+
 // ── Current assistant state ─────────────────────────────────────────
 //
 // Tracks the currently selected assistant and its auth profile so
@@ -101,6 +114,14 @@ let currentAuthProfile: AssistantAuthProfile | null = null;
 // section can react to state changes.
 
 let currentHealthState: ConnectionHealthState = 'paused';
+let currentDebugDetails: string | null = null;
+
+// ── Current environment state ───────────────────────────────────────
+//
+// Tracks the build-default environment so the change handler can
+// detect when the user re-selects the default and clear the override.
+
+let currentBuildDefaultEnvironment: string | undefined;
 
 // ── Connection phase management ─────────────────────────────────────
 
@@ -179,12 +200,11 @@ function applyHealthState(
   statusBadge.textContent = badge.text;
   statusBadge.className = `status-badge ${badge.className}`;
 
-  portInput.disabled = phase === 'connecting' || phase === 'reconnecting';
-
   setSetupMessage(phase);
 
   if (health === 'connected') {
     errorText.style.display = 'none';
+    hideDebugDetails();
   }
 
   // Update troubleshooting section visibility and expansion.
@@ -206,7 +226,6 @@ function setPhase(phase: ConnectionPhase): void {
     statusText.textContent = 'Desktop app required';
     statusBadge.textContent = 'Needs app';
     statusBadge.className = 'status-badge disconnected';
-    portInput.disabled = false;
     setSetupMessage('no-native-host');
     updateTroubleshootSection('error');
     return;
@@ -234,9 +253,55 @@ function showErrorText(msg: string): void {
   errorText.style.display = 'block';
 }
 
-function showError(msg: string): void {
-  showErrorText(msg);
+function hideDebugDetails(): void {
+  currentDebugDetails = null;
+  debugDetailsText.textContent = '';
+  debugDetails.style.display = 'none';
 }
+
+function maybeShowDebugDetails(message: string, details?: string): void {
+  const traceMatch = message.match(/\[trace=([^\]]+)\]/);
+  const traceLine = traceMatch ? `trace_id=${traceMatch[1]}` : null;
+  const rendered =
+    details && details.trim().length > 0
+      ? details.trim()
+      : traceLine;
+
+  if (!rendered) {
+    hideDebugDetails();
+    return;
+  }
+
+  currentDebugDetails = rendered;
+  debugDetailsText.textContent = rendered;
+  debugDetails.style.display = 'block';
+}
+
+function showErrorTextWithDebug(msg: string, debugText?: string): void {
+  errorText.textContent = msg;
+  errorText.style.display = 'block';
+  maybeShowDebugDetails(msg, debugText);
+}
+
+function showError(msg: string, debugText?: string): void {
+  showErrorTextWithDebug(msg, debugText);
+}
+
+copyDebugDetailsButton.addEventListener('click', async () => {
+  if (!currentDebugDetails) return;
+  try {
+    await navigator.clipboard.writeText(currentDebugDetails);
+    const originalLabel = copyDebugDetailsButton.textContent;
+    copyDebugDetailsButton.textContent = 'Copied';
+    setTimeout(() => {
+      copyDebugDetailsButton.textContent = originalLabel;
+    }, 1000);
+  } catch (err) {
+    showError(
+      `Failed to copy debug details: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+});
 
 // ── Advanced section ─────────────────────────────────────────────────
 
@@ -335,18 +400,20 @@ function updateAuthSections(authProfile: AssistantAuthProfile | null): void {
 /**
  * Load the assistant catalog from the worker and render the selector.
  */
-function isNativeHostUnavailable(error: string | undefined): boolean {
+function isNativeHostMissing(error: string | undefined): boolean {
   if (!error) return false;
   const lower = error.toLowerCase();
-  // Match only Chrome's specific host-not-installed error messages:
+  // Match only Chrome's host-not-installed error message:
   //   "Specified native messaging host not found."
-  //   "Access to the specified native messaging host is forbidden."
-  // Recoverable errors like timeouts, generic helper errors, and
-  // disconnect-before-response must NOT trigger the no-native-host phase.
-  return (
-    (lower.includes('native messaging host') && lower.includes('not found')) ||
-    (lower.includes('native messaging host') && lower.includes('forbidden'))
-  );
+  // Recoverable errors, allowlist errors ("forbidden"), generic helper
+  // errors, and disconnect-before-response must NOT trigger no-native-host.
+  return lower.includes('native messaging host') && lower.includes('not found');
+}
+
+function isNativeHostForbidden(error: string | undefined): boolean {
+  if (!error) return false;
+  const lower = error.toLowerCase();
+  return lower.includes('native messaging host') && lower.includes('forbidden');
 }
 
 function loadAssistantCatalog(): void {
@@ -354,8 +421,15 @@ function loadAssistantCatalog(): void {
     if (chrome.runtime.lastError || !response?.ok) {
       const errMsg = response?.error ?? chrome.runtime.lastError?.message ?? 'Failed to load assistants';
 
-      if (isNativeHostUnavailable(errMsg)) {
+      if (isNativeHostMissing(errMsg)) {
         setPhase('no-native-host');
+        return;
+      }
+
+      if (isNativeHostForbidden(errMsg)) {
+        showError(
+          'Native host access is blocked for this extension ID. Add the ID to ~/.vellum/chrome-extension-allowlist.local.json, restart the assistant, then reload Chrome.',
+        );
         return;
       }
 
@@ -388,6 +462,7 @@ assistantSelect.addEventListener('change', () => {
   if (!assistantId) return;
 
   errorText.style.display = 'none';
+  hideDebugDetails();
 
   chrome.runtime.sendMessage(
     { type: 'assistant-select', assistantId },
@@ -412,13 +487,6 @@ assistantSelect.addEventListener('change', () => {
   );
 });
 
-// Load saved relay port on open.
-chrome.storage.local.get(['relayPort']).then((result) => {
-  if (result.relayPort !== undefined) {
-    portInput.value = String(result.relayPort);
-  }
-});
-
 // Query current health state from service worker.
 chrome.runtime.sendMessage({ type: 'get_status' }, (response: GetStatusResponse) => {
   if (chrome.runtime.lastError) return;
@@ -432,15 +500,6 @@ chrome.runtime.sendMessage({ type: 'get_status' }, (response: GetStatusResponse)
   }
 });
 
-function getPort(): number {
-  const portStr = portInput.value.trim();
-  if (portStr) {
-    const portNum = parseInt(portStr, 10);
-    if (!isNaN(portNum) && portNum > 0 && portNum <= 65535) return portNum;
-  }
-  return DEFAULT_RELAY_PORT;
-}
-
 // ── Connection toggle ────────────────────────────────────────────────
 //
 // No local precheck -- the worker handles auth bootstrap (pairing/sign-in)
@@ -448,27 +507,17 @@ function getPort(): number {
 // even when not previously paired or signed in.
 
 async function requestConnect(): Promise<void> {
-  const port = getPort();
-
   errorText.style.display = 'none';
+  hideDebugDetails();
   setPhase('connecting');
 
-  try {
-    if (portInput.value.trim()) {
-      await chrome.storage.local.set({ relayPort: port });
-    } else {
-      await chrome.storage.local.remove('relayPort');
-    }
-  } catch (err) {
-    showError(err instanceof Error ? err.message : String(err));
-    applyHealthState('error');
-    return;
-  }
-
   await new Promise<void>((resolve) => {
-    chrome.runtime.sendMessage({ type: 'connect' }, (response: { ok: boolean; error?: string }) => {
+    chrome.runtime.sendMessage({ type: 'connect' }, (response: { ok: boolean; error?: string; debugDetails?: string }) => {
       if (chrome.runtime.lastError || !response?.ok) {
-        showError(response?.error ?? chrome.runtime.lastError?.message ?? 'Unknown error');
+        showError(
+          response?.error ?? chrome.runtime.lastError?.message ?? 'Unknown error',
+          response?.debugDetails,
+        );
         applyHealthState('error');
         resolve();
         return;
@@ -650,6 +699,12 @@ async function refreshCloudStatus(): Promise<void> {
       typeof (authErr as { message?: unknown }).message === 'string'
     ) {
       showErrorText((authErr as { message: string }).message);
+      if (typeof (authErr as { debugDetails?: unknown }).debugDetails === 'string') {
+        maybeShowDebugDetails(
+          (authErr as { message: string }).message,
+          (authErr as { debugDetails: string }).debugDetails,
+        );
+      }
     }
   } catch (err) {
     setCloudStatus(`Error: ${err instanceof Error ? err.message : String(err)}`, false);
@@ -660,6 +715,7 @@ interface CloudSignInResponse {
   ok: boolean;
   token?: StoredCloudToken;
   error?: string;
+  debugDetails?: string;
 }
 
 function requestCloudSignIn(): Promise<CloudSignInResponse> {
@@ -678,6 +734,7 @@ btnCloudSignIn.addEventListener('click', async () => {
   btnCloudSignIn.disabled = true;
   setCloudStatus('Signing in\u2026', false);
   errorText.style.display = 'none';
+  hideDebugDetails();
   // Clear any stale auth-error the worker persisted during a failed
   // reconnect -- the user is explicitly retrying sign-in now.
   await chrome.storage.local.remove('vellum.relayAuthError');
@@ -685,10 +742,112 @@ btnCloudSignIn.addEventListener('click', async () => {
   const response = await requestCloudSignIn();
   if (response.ok && response.token) {
     setCloudStatus(`Signed in as guardian:${response.token.guardianId}`, true);
+    hideDebugDetails();
   } else {
-    setCloudStatus(`Sign-in failed: ${response.error ?? 'Unknown error'}`, false);
+    const message = `Sign-in failed: ${response.error ?? 'Unknown error'}`;
+    setCloudStatus(message, false);
+    showErrorTextWithDebug(message, response.debugDetails);
   }
   btnCloudSignIn.disabled = false;
 });
 
 refreshCloudStatus();
+
+// ── Environment selector ────────────────────────────────────────────
+//
+// The environment dropdown allows developers to override the build-time
+// default environment for the current extension profile. This changes
+// which cloud API and web URLs are used for sign-in, pairing, and relay.
+//
+// On popup open we load the effective environment from the worker via
+// `environment-get` and render the selected value. On change we persist
+// the override via `environment-set`, refresh the assistant catalog and
+// auth status, and force a disconnect/reconnect if currently connected.
+
+/**
+ * Load environment state from the worker and render the selector.
+ */
+function loadEnvironmentState(): void {
+  chrome.runtime.sendMessage({ type: 'environment-get' }, (response: EnvironmentStateResponse) => {
+    if (chrome.runtime.lastError || !response?.ok) return;
+
+    currentBuildDefaultEnvironment = response.buildDefaultEnvironment;
+
+    const effective = response.effectiveEnvironment ?? 'dev';
+    environmentSelect.value = effective;
+    environmentHint.textContent = deriveEnvironmentHint(
+      response.overrideEnvironment,
+      response.buildDefaultEnvironment,
+    );
+  });
+}
+
+// Load on popup open.
+loadEnvironmentState();
+
+/**
+ * Handle environment dropdown changes.
+ *
+ * Orchestration after environment-set:
+ *   1. Refresh assistant catalog (endpoints may have changed).
+ *   2. Refresh local/cloud auth status panels.
+ *   3. If currently connected, disconnect and reconnect so the new
+ *      environment-sensitive endpoints take effect immediately.
+ */
+environmentSelect.addEventListener('change', async () => {
+  const newEnv = environmentSelect.value;
+  errorText.style.display = 'none';
+  hideDebugDetails();
+
+  // When the user selects the build-default environment, clear the
+  // override so future bundle updates can change the default without
+  // the user staying pinned to a stale value.
+  const isDefault = currentBuildDefaultEnvironment != null && newEnv === currentBuildDefaultEnvironment;
+  const overrideValue = isDefault ? null : newEnv;
+
+  // Persist the environment override via the worker.
+  const response = await new Promise<EnvironmentStateResponse>((resolve) => {
+    chrome.runtime.sendMessage(
+      { type: 'environment-set', environment: overrideValue },
+      (r: EnvironmentStateResponse) => {
+        if (chrome.runtime.lastError) {
+          resolve({ ok: false, error: chrome.runtime.lastError.message ?? 'Unknown error' });
+          return;
+        }
+        resolve(r ?? { ok: false, error: 'No response from service worker' });
+      },
+    );
+  });
+
+  if (!response.ok) {
+    showError(response.error ?? 'Failed to set environment');
+    return;
+  }
+
+  // Update the hint to reflect the new state.
+  environmentHint.textContent = deriveEnvironmentHint(
+    response.overrideEnvironment,
+    response.buildDefaultEnvironment,
+  );
+
+  // Refresh the assistant catalog — environment change may affect
+  // which assistants are available and their auth endpoints.
+  loadAssistantCatalog();
+
+  // Refresh auth status panels.
+  void refreshLocalStatus();
+  void refreshCloudStatus();
+
+  // If currently connected, force disconnect then reconnect so the new
+  // environment-sensitive endpoints take effect immediately. The worker's
+  // `environment-set` handler does NOT auto-reconnect — the popup
+  // orchestrates this explicitly.
+  if (currentHealthState === 'connected' || currentHealthState === 'connecting' || currentHealthState === 'reconnecting') {
+    // Disconnect first.
+    await new Promise<void>((resolve) => {
+      chrome.runtime.sendMessage({ type: 'pause' }, () => resolve());
+    });
+    // Reconnect with the new environment.
+    await requestConnect();
+  }
+});

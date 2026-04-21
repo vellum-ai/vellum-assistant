@@ -27,11 +27,39 @@ mock.module("../config/loader.js", () => ({
     rateLimit: { maxRequestsPerMinute: 0 },
     secretDetection: { enabled: false },
     contextWindow: { maxInputTokens: 200000 },
+    llm: {
+      default: {
+        provider: "anthropic",
+        model: "claude-opus-4-7",
+        maxTokens: 64000,
+        effort: "max" as const,
+        speed: "standard" as const,
+        temperature: null,
+        thinking: { enabled: true, streamThinking: true },
+        contextWindow: {
+          enabled: true,
+          maxInputTokens: 200000,
+          targetBudgetRatio: 0.3,
+          compactThreshold: 0.8,
+          summaryBudgetRatio: 0.05,
+          overflowRecovery: {
+            enabled: true,
+            safetyMarginRatio: 0.05,
+            maxAttempts: 3,
+            interactiveLatestTurnCompression: "summarize",
+            nonInteractiveLatestTurnCompression: "truncate",
+          },
+        },
+      },
+      profiles: {},
+      callSites: {},
+      pricingOverrides: [],
+    },
     services: {
       inference: {
         mode: "your-own",
         provider: "anthropic",
-        model: "claude-opus-4-6",
+        model: "claude-opus-4-7",
       },
       "image-generation": {
         mode: "your-own",
@@ -55,16 +83,35 @@ mock.module("../config/env.js", () => ({
   setIngressPublicBaseUrl: () => {},
 }));
 
-// Mock the trust store so addRule doesn't touch disk or require full config
+// Mock the trust store so addRule doesn't touch disk or require full config.
+// Track calls to addRule so tests can verify canonicalization.
+const addRuleCalls: Array<{
+  tool: string;
+  pattern: string;
+  scope: string;
+  decision: string;
+  priority?: number;
+  options?: { executionTarget?: string };
+}> = [];
 mock.module("../permissions/trust-store.js", () => ({
-  addRule: () => ({
-    id: "test-rule",
-    tool: "test",
-    pattern: "*",
-    scope: "everywhere",
-    decision: "allow",
-    priority: 100,
-  }),
+  addRule: (
+    tool: string,
+    pattern: string,
+    scope: string,
+    decision: string,
+    priority?: number,
+    options?: { executionTarget?: string },
+  ) => {
+    addRuleCalls.push({ tool, pattern, scope, decision, priority, options });
+    return {
+      id: "test-rule",
+      tool,
+      pattern,
+      scope,
+      decision,
+      priority: priority ?? 100,
+    };
+  },
   getRules: () => [],
 }));
 
@@ -231,6 +278,7 @@ describe("standalone approval endpoints — HTTP layer", () => {
     db.run("DELETE FROM conversations");
     db.run("DELETE FROM conversation_keys");
     pendingInteractions.clear();
+    addRuleCalls.length = 0;
     eventHub = new AssistantEventHub();
   });
 
@@ -914,6 +962,82 @@ describe("standalone approval endpoints — HTTP layer", () => {
 
       // Interaction should still be present (not consumed)
       expect(pendingInteractions.get("req-keep")).toBeDefined();
+
+      await stopServer();
+    });
+
+    test("trust rule creation works without allowHighRisk for scoped tool families", async () => {
+      const session = makeIdleSession();
+      await startServer(() => session);
+
+      pendingInteractions.register("req-bash-hr", {
+        conversation: session,
+        conversationId: "conv-1",
+        kind: "confirmation",
+        confirmationDetails: {
+          toolName: "bash",
+          input: { command: "rm -rf /tmp/test" },
+          riskLevel: "high",
+          allowlistOptions: [
+            { label: "Allow rm", description: "test", pattern: "rm**" },
+          ],
+          scopeOptions: [{ label: "Everywhere", scope: "everywhere" }],
+        },
+      });
+
+      const res = await fetch(url("trust-rules"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+        body: JSON.stringify({
+          requestId: "req-bash-hr",
+          pattern: "rm**",
+          scope: "everywhere",
+          decision: "allow",
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(addRuleCalls).toHaveLength(1);
+      expect(addRuleCalls[0].decision).toBe("allow");
+
+      await stopServer();
+    });
+
+    test("accepts scope 'everywhere' for non-scoped tools (backward compat)", async () => {
+      const session = makeIdleSession();
+      await startServer(() => session);
+
+      pendingInteractions.register("req-nonscoped", {
+        conversation: session,
+        conversationId: "conv-1",
+        kind: "confirmation",
+        confirmationDetails: {
+          toolName: "web_fetch",
+          input: { url: "https://example.com" },
+          riskLevel: "medium",
+          allowlistOptions: [
+            {
+              label: "Allow fetch",
+              description: "test",
+              pattern: "https://example.com/**",
+            },
+          ],
+          scopeOptions: [],
+        },
+      });
+
+      const res = await fetch(url("trust-rules"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+        body: JSON.stringify({
+          requestId: "req-nonscoped",
+          pattern: "https://example.com/**",
+          scope: "everywhere",
+          decision: "allow",
+        }),
+      });
+
+      expect(res.status).toBe(200);
 
       await stopServer();
     });

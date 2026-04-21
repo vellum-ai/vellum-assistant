@@ -5,9 +5,10 @@ import { join } from "node:path";
 /**
  * Smoke test that validates the meet-bot package can boot.
  *
- * Real Meet-join, audio capture, and Playwright orchestration land in later
- * PRs of the meet-phase-1 plan; for now we only confirm that `bun src/main.ts`
- * runs to completion, exits 0, and emits the expected boot marker on stdout.
+ * Real Meet-join, audio capture, and Chrome/extension orchestration land in
+ * later PRs of the meet-phase-1 plan; for now we only confirm that
+ * `bun src/main.ts` runs to completion, exits 0, and emits the expected boot
+ * marker on stdout.
  */
 describe("meet-bot boot", () => {
   test("runs src/main.ts and logs the boot marker", () => {

@@ -2,6 +2,7 @@ import { getConfig } from "../../config/loader.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
+import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { getLogger } from "../../util/logger.js";
 import {
   DEFAULT_BASE_DELAY_MS,
@@ -92,7 +93,7 @@ function formatBraveResults(
     lines.push("");
   }
 
-  return lines.join("\n") + CITATION_INSTRUCTION;
+  return lines.join("\n");
 }
 
 function formatPerplexityResults(
@@ -114,7 +115,7 @@ function formatPerplexityResults(
     }
   }
 
-  return lines.join("\n") + CITATION_INSTRUCTION;
+  return lines.join("\n");
 }
 
 async function executeBraveSearch(
@@ -151,7 +152,14 @@ async function executeBraveSearch(
     if (response.ok) {
       const data = (await response.json()) as BraveSearchResponse;
       const results = data.web?.results ?? [];
-      return { content: formatBraveResults(results, query), isError: false };
+      return {
+        content:
+          wrapUntrustedContent(formatBraveResults(results, query), {
+            source: "search",
+            sourceDetail: "brave",
+          }) + CITATION_INSTRUCTION,
+        isError: false,
+      };
     }
 
     await response.text();
@@ -219,7 +227,14 @@ async function executePerplexitySearch(
 
     if (response.ok) {
       const data = (await response.json()) as PerplexityResponse;
-      return { content: formatPerplexityResults(data, query), isError: false };
+      return {
+        content:
+          wrapUntrustedContent(formatPerplexityResults(data, query), {
+            source: "search",
+            sourceDetail: "perplexity",
+          }) + CITATION_INSTRUCTION,
+        isError: false,
+      };
     }
 
     await response.text();

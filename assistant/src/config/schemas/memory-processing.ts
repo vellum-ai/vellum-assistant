@@ -43,17 +43,9 @@ export const MemorySummarizationConfigSchema = z
       .describe(
         "Whether to use an LLM for summarizing and consolidating memory items",
       ),
-    modelIntent: z
-      .enum(["latency-optimized", "quality-optimized", "vision-optimized"], {
-        error: "memory.summarization.modelIntent must be a valid model intent",
-      })
-      .default("quality-optimized")
-      .describe(
-        "Model selection strategy for summarization — trade off speed vs quality",
-      ),
   })
   .describe(
-    "Controls how memory items are summarized and consolidated over time",
+    "Controls how memory items are summarized and consolidated over time. Model selection lives under llm.callSites.conversationSummarization.",
   );
 
 export type MemoryExtractionConfig = z.infer<

@@ -17,6 +17,7 @@ import {
 } from "../gateway-client.js";
 import { buildActionLegend } from "../guardian-decision-types.js";
 import type { ApprovalCopyGenerator } from "../http-types.js";
+import { trackApprovalPromptTs } from "./approval-prompt-ts-tracker.js";
 import { requiredDecisionKeywords } from "./channel-route-shared.js";
 
 const log = getLogger("runtime-http");
@@ -141,7 +142,7 @@ export async function deliverGeneratedApprovalPrompt(
     }
 
     try {
-      await deliverApprovalPrompt(
+      const deliveryResult = await deliverApprovalPrompt(
         replyCallbackUrl,
         chatId,
         enrichedText,
@@ -149,6 +150,9 @@ export async function deliverGeneratedApprovalPrompt(
         assistantId,
         bearerToken,
       );
+      if (deliveryResult.ts) {
+        trackApprovalPromptTs(sourceChannel, chatId, deliveryResult.ts);
+      }
       return true;
     } catch (err) {
       log.error(
@@ -168,7 +172,7 @@ export async function deliverGeneratedApprovalPrompt(
     const taggedFallback = `${plainTextFallback}\n[ref:${uiMetadata.requestId}]`;
 
     try {
-      await deliverChannelReply(
+      const fallbackResult = await deliverChannelReply(
         replyCallbackUrl,
         {
           chatId,
@@ -177,6 +181,9 @@ export async function deliverGeneratedApprovalPrompt(
         },
         bearerToken,
       );
+      if (fallbackResult.ts) {
+        trackApprovalPromptTs(sourceChannel, chatId, fallbackResult.ts);
+      }
       return true;
     } catch (err) {
       log.error(
@@ -197,7 +204,7 @@ export async function deliverGeneratedApprovalPrompt(
   const taggedPlainText = `${plainText}\n[ref:${uiMetadata.requestId}]`;
 
   try {
-    await deliverChannelReply(
+    const plainResult = await deliverChannelReply(
       replyCallbackUrl,
       {
         chatId,
@@ -206,6 +213,9 @@ export async function deliverGeneratedApprovalPrompt(
       },
       bearerToken,
     );
+    if (plainResult.ts) {
+      trackApprovalPromptTs(sourceChannel, chatId, plainResult.ts);
+    }
     return true;
   } catch (err) {
     log.error(

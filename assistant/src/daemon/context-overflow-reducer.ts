@@ -86,13 +86,6 @@ export interface ReducerStepResult {
 export interface ReducerConfig {
   /** Provider name for token estimation. */
   providerName: string;
-  /**
-   * Active model id — threaded into `estimatePromptTokens` so the calibration
-   * correction matches the `(provider, model)` key the agent loop records on
-   * every usage event. When omitted, the estimator falls back to the
-   * per-provider aggregate recorded alongside each sample.
-   */
-  modelId?: string;
   /** The system prompt (needed for accurate token estimation). */
   systemPrompt: string;
   /** The context window config from the assistant config. */
@@ -156,7 +149,6 @@ export async function reduceContextOverflow(
   // All tiers exhausted
   const estimatedTokens = estimatePromptTokens(messages, config.systemPrompt, {
     providerName: config.providerName,
-    modelId: config.modelId,
     toolTokenBudget: config.toolTokenBudget,
   });
   return {
@@ -190,7 +182,6 @@ async function applyForcedCompaction(
     ? result.estimatedInputTokens
     : estimatePromptTokens(messages, config.systemPrompt, {
         providerName: config.providerName,
-        modelId: config.modelId,
         toolTokenBudget: config.toolTokenBudget,
       });
 
@@ -224,7 +215,6 @@ function applyToolResultTruncation(
     config.systemPrompt,
     {
       providerName: config.providerName,
-      modelId: config.modelId,
       toolTokenBudget: config.toolTokenBudget,
     },
   );
@@ -257,7 +247,6 @@ function applyMediaStubbing(
     // Compute the token budget available for media content.
     const totalTokens = estimatePromptTokens(messages, config.systemPrompt, {
       providerName: config.providerName,
-      modelId: config.modelId,
       toolTokenBudget: config.toolTokenBudget,
     });
 
@@ -309,7 +298,6 @@ function applyMediaStubbing(
     config.systemPrompt,
     {
       providerName: config.providerName,
-      modelId: config.modelId,
       toolTokenBudget: config.toolTokenBudget,
     },
   );
@@ -340,7 +328,6 @@ function applyInjectionDowngrade(
   // mode, which the caller applies via applyRuntimeInjections().
   const estimatedTokens = estimatePromptTokens(messages, config.systemPrompt, {
     providerName: config.providerName,
-    modelId: config.modelId,
     toolTokenBudget: config.toolTokenBudget,
   });
 

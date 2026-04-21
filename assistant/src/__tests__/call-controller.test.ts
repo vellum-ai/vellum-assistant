@@ -35,10 +35,9 @@ mock.module("../config/loader.js", () => {
       silenceTimeoutSeconds: 30,
       disclosure: { enabled: false, text: "" },
       safety: { denyCategories: [] },
-      model: undefined,
     },
     memory: { enabled: false },
-    notifications: { decisionModelIntent: "latency-optimized" },
+    notifications: {},
     services: {
       tts: {
         mode: "your-own" as const,

@@ -6,11 +6,14 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
-import { ConfigError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import { ensureDataDir, getWorkspaceConfigPath } from "../util/platform.js";
+import {
+  ensureDataDir,
+  getWorkspaceConfigPath,
+  getWorkspaceDir,
+} from "../util/platform.js";
 import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import { AssistantConfigSchema } from "./schema.js";
 import type { AssistantConfig } from "./types.js";
@@ -45,6 +48,116 @@ export function applyNestedDefaults(config: unknown): AssistantConfig {
 
 function cloneDefaultConfig(): AssistantConfig {
   return applyNestedDefaults({});
+}
+
+/**
+ * Build a filesystem-safe ISO-8601 timestamp for use in quarantine filenames.
+ * Replaces `:` (invalid on Windows, confusing on macOS Finder) with `-` so the
+ * resulting string is safe on every supported platform.
+ */
+function filesystemSafeTimestamp(date: Date = new Date()): string {
+  return date.toISOString().replace(/:/g, "-");
+}
+
+/**
+ * Rename a corrupt config file to a quarantine path so the bad content is
+ * preserved for debug while the daemon falls through to defaults. Logs at
+ * `error` level with a remediation hint. Best-effort: if the rename itself
+ * fails (missing permissions, readonly FS, etc.) we still fall through to
+ * defaults — startup must never block.
+ *
+ * The quarantine filename encodes a millisecond-precision timestamp and ends
+ * in `.json` so editors syntax-highlight the preserved content:
+ *   `<path>.corrupt-<ISO-timestamp>.json`
+ *
+ * On a successful rename, also appends a bulletin to `<workspace>/UPDATES.md`
+ * so the background update-bulletin job surfaces the event to the user
+ * proactively on their next interaction (log-level errors alone are invisible
+ * to users).
+ */
+function quarantineCorruptConfig(configPath: string, err: unknown): string {
+  const quarantinePath = `${configPath}.corrupt-${filesystemSafeTimestamp()}.json`;
+  try {
+    renameSync(configPath, quarantinePath);
+    log.error(
+      `config file at ${configPath} was corrupt (${String(err)}); ` +
+        `quarantined to ${quarantinePath} and loaded defaults. ` +
+        `Inspect the quarantined file to recover any hand-edited settings.`,
+    );
+    appendQuarantineBulletin(configPath, quarantinePath);
+  } catch (renameErr) {
+    log.error(
+      { renameErr },
+      `config file at ${configPath} was corrupt (${String(err)}) but could ` +
+        `not be renamed for quarantine; loaded defaults.`,
+    );
+  }
+  return quarantinePath;
+}
+
+/**
+ * Append a config-quarantine bulletin to `<workspace>/UPDATES.md`. On the
+ * next daemon boot the background update-bulletin job picks up UPDATES.md
+ * and processes it inside a background-only conversation (not the user's
+ * chat). The agent decides whether and when to surface the event — typical
+ * cases are the user asking why their settings changed or noticing missing
+ * API keys. The bulletin is agent-visible context, not a push notification.
+ *
+ * Idempotency: the appended block embeds a marker keyed on the quarantine
+ * filename's basename. If that marker is already present in UPDATES.md (a
+ * prior append succeeded but the process crashed before control returned, or
+ * the file was hand-edited), the function is a no-op. This mirrors the
+ * pattern release-notes workspace migrations use — see the "Release Update
+ * Hygiene" section in the root `AGENTS.md`.
+ *
+ * Best-effort: any write failure is logged at `warn` and swallowed. The
+ * quarantine path must never block startup, and the error log from
+ * `quarantineCorruptConfig` remains the authoritative record.
+ *
+ * Exported with an underscore-prefixed alias (`_appendQuarantineBulletin`) so
+ * tests can exercise the idempotent-skip branch directly with a deterministic
+ * quarantine basename. Non-test callers should never import the underscore
+ * alias — the wiring into `quarantineCorruptConfig` is the production entry
+ * point.
+ */
+function appendQuarantineBulletin(
+  originalPath: string,
+  quarantinePath: string,
+): void {
+  try {
+    const updatesPath = join(getWorkspaceDir(), "UPDATES.md");
+    const quarantineBasename = basename(quarantinePath);
+    const marker = `<!-- config-quarantine:${quarantineBasename} -->`;
+
+    const existing = existsSync(updatesPath)
+      ? readFileSync(updatesPath, "utf-8")
+      : "";
+    if (existing.includes(marker)) return;
+
+    const timestamp = new Date().toISOString();
+    const block =
+      `## Config was reset to defaults\n\n` +
+      `Your \`config.json\` was unreadable at ${timestamp} and couldn't be parsed ` +
+      `as JSON. The assistant preserved the original file at \`${quarantinePath}\` ` +
+      `and loaded defaults so the app stays working.\n\n` +
+      `If you had custom settings (API keys, model choices, voice preferences), ` +
+      `they are still in the quarantined file — \`cat ${quarantinePath}\` to ` +
+      `recover them, then re-enter through Settings or the CLI.\n\n` +
+      `${marker}\n`;
+
+    const toWrite = existing.length === 0 ? block : `${existing}\n${block}`;
+    writeFileSync(updatesPath, toWrite, "utf-8");
+    log.info(
+      `Appended config-quarantine bulletin to ${updatesPath} for ${originalPath} ` +
+        `(quarantined as ${quarantineBasename}).`,
+    );
+  } catch (bulletinErr) {
+    log.warn(
+      { bulletinErr },
+      `Failed to append config-quarantine bulletin to UPDATES.md; ` +
+        `the quarantine event is still recorded in the assistant logs.`,
+    );
+  }
 }
 
 /**
@@ -207,9 +320,52 @@ export function deepMergeMissing(
 }
 
 /**
+ * Recursively strip `null` leaves from a plain-object value, returning a
+ * deep clone with all `null`-valued keys removed at every nesting level.
+ * Non-object inputs (scalars, arrays, `null` itself) are returned as-is.
+ *
+ * Used to sanitize `overrides` before assigning whole subtrees in
+ * `deepMergeOverwrite`, so deletion-sentinel semantics apply uniformly
+ * even when the corresponding `target` key does not yet exist.
+ */
+function stripNullLeaves(value: unknown): unknown {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (v === null) continue;
+    out[k] = stripNullLeaves(v);
+  }
+  return out;
+}
+
+/**
  * Deep-merge `overrides` into `target`, overwriting leaf values.
  * Recursively merges nested objects; scalars and arrays from `overrides`
  * replace corresponding values in `target`.
+ *
+ * JSON `null` semantics depend on what the target currently holds at
+ * that key:
+ *
+ * - **Target holds a non-null object** (not array): `null` deletes the
+ *   key, removing the entire subtree. This supports "clear entry"
+ *   semantics (e.g. the macOS SettingsStore clearing a call-site
+ *   override via `{ callSites: { memoryRetrieval: null } }`).
+ *
+ * - **Target holds a scalar, null, or array**: `null` is assigned as the
+ *   value, preserving nullable config fields like `activeHoursStart`
+ *   and `llmRequestLogRetentionMs` where `null` is a valid schema
+ *   value meaning "disabled / no limit".
+ *
+ * - **Key absent from target**: no-op. Assigning null to a missing key
+ *   would create a spurious entry; callers that want to establish a
+ *   null value should set the key to its default first.
+ *
+ * When an override assigns a whole object subtree to a key that does
+ * not yet exist on `target` (or whose existing value is a scalar/array),
+ * `stripNullLeaves` drops any `null` leaves inside that subtree before
+ * assignment so no invalid nulls get persisted for non-nullable fields.
  */
 export function deepMergeOverwrite(
   target: Record<string, unknown>,
@@ -217,8 +373,20 @@ export function deepMergeOverwrite(
 ): void {
   for (const key of Object.keys(overrides)) {
     const ov = overrides[key];
-    if (
-      ov != null &&
+    if (ov === null) {
+      if (!(key in target)) continue;
+      const existing = target[key];
+      if (
+        existing != null &&
+        typeof existing === "object" &&
+        !Array.isArray(existing)
+      ) {
+        delete target[key];
+      } else {
+        target[key] = null;
+      }
+    } else if (
+      ov !== undefined &&
       typeof ov === "object" &&
       !Array.isArray(ov) &&
       target[key] != null &&
@@ -230,7 +398,7 @@ export function deepMergeOverwrite(
         ov as Record<string, unknown>,
       );
     } else {
-      target[key] = ov;
+      target[key] = stripNullLeaves(ov);
     }
   }
 }
@@ -363,9 +531,14 @@ export function loadConfig(): AssistantConfig {
       try {
         fileConfig = JSON.parse(readFileSync(configPath, "utf-8"));
       } catch (err) {
-        throw new ConfigError(
-          `Failed to parse config at ${configPath}: ${err}`,
-        );
+        // The daemon must never block startup (assistant/CLAUDE.md). A config
+        // file that fails JSON.parse — truncated during a mid-write crash, or
+        // hand-edited to invalid JSON — is quarantined so the content is
+        // preserved for debug, and startup proceeds with the same default-
+        // config path used when config.json does not exist.
+        quarantineCorruptConfig(configPath, err);
+        fileConfig = {};
+        configFileExisted = false;
       }
     } else {
       configFileExisted = false;
@@ -521,7 +694,11 @@ export function loadRawConfig(): Record<string, unknown> {
     try {
       raw = JSON.parse(readFileSync(configPath, "utf-8"));
     } catch (err) {
-      throw new ConfigError(`Failed to parse config at ${configPath}: ${err}`);
+      // Mirror loadConfig(): quarantine the corrupt file and return an empty
+      // object rather than throwing. This prevents /v1/config from surfacing
+      // a 500 when the user's config.json is malformed.
+      quarantineCorruptConfig(configPath, err);
+      raw = {};
     }
   }
 
@@ -571,3 +748,10 @@ export function setNestedValue(
   }
   current[keys[keys.length - 1]] = value;
 }
+
+/**
+ * Test-only alias for `appendQuarantineBulletin`. Exists so the crash-mid-
+ * append idempotency branch can be exercised with a deterministic quarantine
+ * basename without widening the runtime surface. Not for production use.
+ */
+export const _appendQuarantineBulletin = appendQuarantineBulletin;

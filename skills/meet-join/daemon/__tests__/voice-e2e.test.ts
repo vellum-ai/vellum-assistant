@@ -479,7 +479,7 @@ function participantChangeWithSelf(): ParticipantChangeEvent {
     type: "participant.change",
     meetingId: MEETING_ID,
     timestamp: "2024-01-01T00:00:00.000Z",
-    joined: [{ id: BOT_PARTICIPANT_ID, name: "Velissa", isSelf: true }],
+    joined: [{ id: BOT_PARTICIPANT_ID, name: "Aria", isSelf: true }],
     left: [],
   };
 }
@@ -773,7 +773,7 @@ describe("Meet voice E2E (bridge + watcher + real assistant-event-hub)", () => {
       await new Promise((r) => setTimeout(r, 80));
       dispatcher.dispatch(
         MEETING_ID,
-        speakerChange(BOT_PARTICIPANT_ID, "Velissa"),
+        speakerChange(BOT_PARTICIPANT_ID, "Aria"),
       );
 
       // The pending cancel must have been cleared by the return-to-bot

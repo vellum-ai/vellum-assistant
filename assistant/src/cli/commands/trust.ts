@@ -1,3 +1,4 @@
+import { ruleScope } from "@vellumai/ces-contracts";
 import type { Command } from "commander";
 
 import {
@@ -38,9 +39,11 @@ Displays a table of all trust rules with the following columns:
   ID        First 8 characters of the full rule UUID
   Tool      Tool name the rule applies to (e.g. bash, host_bash)
   Pattern   Glob pattern matched against the tool's command argument
-  Scope     Context scope for the rule (e.g. workspace path)
-  Dcn       Decision: allow or deny
+  Scope     Context scope for the rule (shown only when rules have
+            non-global scopes, i.e. not "everywhere")
+  Dcn       Decision: allow, deny, or ask
   Pri       Priority (higher values take precedence)
+  Flags     Metadata: T:<target> = executionTarget
   Created   Date the rule was created (YYYY-MM-DD)
 
 IDs are shown truncated to 8 characters. Use the full ID or any unique
@@ -55,34 +58,62 @@ Examples:
         log.info("No trust rules");
         return;
       }
+
+      // Only show the Scope column when at least one rule has a
+      // non-global scope (i.e. something other than "everywhere").
+      const hasNonGlobalScope = rules.some(
+        (r) => ruleScope(r) !== "everywhere",
+      );
+
+      // Only show the Flags column when at least one rule carries
+      // metadata signals (executionTarget).
+      const hasFlags = rules.some((r) => r.executionTarget != null);
+
       const idW = 8;
       const toolW = 12;
       const patternW = 30;
-      const scopeW = 20;
+      const scopeW = hasNonGlobalScope ? 20 : 0;
       const decW = 6;
       const priW = 4;
+      const flagsW = hasFlags ? 16 : 0;
+
+      let header =
+        "ID".padEnd(idW) + "Tool".padEnd(toolW) + "Pattern".padEnd(patternW);
+      if (hasNonGlobalScope) header += "Scope".padEnd(scopeW);
+      header += "Dcn".padEnd(decW) + "Pri".padEnd(priW);
+      if (hasFlags) header += "Flags".padEnd(flagsW);
+      header += "Created";
+      log.info(header);
       log.info(
-        "ID".padEnd(idW) +
-          "Tool".padEnd(toolW) +
-          "Pattern".padEnd(patternW) +
-          "Scope".padEnd(scopeW) +
-          "Dcn".padEnd(decW) +
-          "Pri".padEnd(priW) +
-          "Created",
+        "-".repeat(idW + toolW + patternW + scopeW + decW + priW + flagsW + 20),
       );
-      log.info("-".repeat(idW + toolW + patternW + scopeW + decW + priW + 20));
+
       for (const r of rules) {
         const id = r.id.slice(0, SHORT_HASH_LENGTH);
         const created = new Date(r.createdAt).toISOString().slice(0, 10);
-        log.info(
+
+        let line =
           id.padEnd(idW) +
-            r.tool.padEnd(toolW) +
-            r.pattern.slice(0, patternW - 2).padEnd(patternW) +
-            r.scope.slice(0, scopeW - 2).padEnd(scopeW) +
-            r.decision.slice(0, decW - 1).padEnd(decW) +
-            String(r.priority).padEnd(priW) +
-            created,
-        );
+          r.tool.padEnd(toolW) +
+          r.pattern.slice(0, patternW - 2).padEnd(patternW);
+
+        if (hasNonGlobalScope) {
+          const scope = ruleScope(r);
+          line += scope.slice(0, scopeW - 2).padEnd(scopeW);
+        }
+
+        line +=
+          r.decision.slice(0, decW - 1).padEnd(decW) +
+          String(r.priority).padEnd(priW);
+
+        if (hasFlags) {
+          const flags: string[] = [];
+          if (r.executionTarget) flags.push(`T:${r.executionTarget}`);
+          line += (flags.join(" ") || "").slice(0, flagsW - 2).padEnd(flagsW);
+        }
+
+        line += created;
+        log.info(line);
       }
     });
 

@@ -1517,7 +1517,7 @@ export async function draftSkill(
     if (missing.length > 0) {
       let llmGenerated = false;
       try {
-        const provider = await getConfiguredProvider();
+        const provider = await getConfiguredProvider("skillCategoryInference");
         if (provider) {
           const { signal, cleanup } = createTimeout(LLM_DRAFT_TIMEOUT_MS);
           try {
@@ -1539,7 +1539,7 @@ export async function draftSkill(
               [],
               undefined,
               {
-                config: { modelIntent: "latency-optimized", max_tokens: 256 },
+                config: { callSite: "skillCategoryInference", max_tokens: 256 },
                 signal,
               },
             );

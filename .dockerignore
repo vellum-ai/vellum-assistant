@@ -4,12 +4,27 @@
 !assistant/**
 !credential-executor/
 !credential-executor/**
+!gateway/
+!gateway/**
 !packages/
 !packages/**
 !skills/
 !skills/meet-join/
+!skills/meet-join/package.json
+!skills/meet-join/bun.lock
+!skills/meet-join/config-schema.ts
+!skills/meet-join/meet-config.ts
+!skills/meet-join/register.ts
 !skills/meet-join/contracts/
 !skills/meet-join/contracts/**
+!skills/meet-join/daemon/
+!skills/meet-join/daemon/**
+!skills/meet-join/tools/
+!skills/meet-join/tools/**
+!skills/meet-join/routes/
+!skills/meet-join/routes/**
+!skills/meet-join/shared/
+!skills/meet-join/shared/**
 
 # Exclude local dependencies and build outputs from included directories.
 assistant/node_modules/
@@ -21,7 +36,13 @@ assistant/.env.*
 credential-executor/node_modules/
 credential-executor/.env
 credential-executor/.env.*
+gateway/node_modules/
+gateway/.env
+gateway/.env.*
 packages/*/node_modules/
 packages/*/.env
 packages/*/.env.*
+skills/meet-join/node_modules/
 skills/meet-join/contracts/node_modules/
+skills/meet-join/**/__tests__/
+skills/meet-join/**/*.test.ts

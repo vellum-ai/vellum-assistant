@@ -148,12 +148,19 @@ export function handleConfirmationResponse(
   // Route by requestId to the conversation that originated the prompt, not by
   // the current conversation binding which may have changed since the
   // request was issued (e.g. after a conversation switch).
+  // Normalize legacy decision: older clients may still send
+  // "always_allow_high_risk" via WebSocket for high-risk prompts.
+  const decision =
+    msg.decision === ("always_allow_high_risk" as typeof msg.decision)
+      ? "always_allow"
+      : msg.decision;
+
   for (const [conversationId, conversation] of ctx.conversations) {
     if (conversation.hasPendingConfirmation(msg.requestId)) {
       ctx.touchConversation(conversationId);
       conversation.handleConfirmationResponse(
         msg.requestId,
-        msg.decision,
+        decision,
         msg.selectedPattern,
         msg.selectedScope,
         undefined,
@@ -435,7 +442,7 @@ export function handleUsageRequest(
     totalInputTokens: conversation.totalInputTokens,
     totalOutputTokens: conversation.totalOutputTokens,
     estimatedCost: conversation.totalEstimatedCost,
-    model: config.services.inference.model,
+    model: config.llm.default.model,
   });
 }
 

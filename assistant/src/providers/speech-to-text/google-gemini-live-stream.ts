@@ -250,10 +250,9 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
     let timedOut = false;
     connectPromise
       .then((session) => {
-        if (timedOut) {
-          // Never assign a session after the start() timeout: if we did,
-          // `this.session` would persist past the failed start() and a
-          // retry would incorrectly trip the "start() called twice" guard.
+        if (timedOut || this.closed || this.stopping) {
+          // Never assign a session after shutdown or timeout: if we did,
+          // `this.session` would persist as an orphaned live WebSocket.
           try {
             session.close();
           } catch {
@@ -398,6 +397,7 @@ export class GoogleGeminiLiveStreamingTranscriber implements StreamingTranscribe
       serverContent.turnComplete === true;
 
     if (isComplete) {
+      if (this.finalEmittedForCurrentTurn) return;
       const finalText = this.currentTurnText;
       this.currentTurnText = "";
       this.lastEmittedPartial = "";

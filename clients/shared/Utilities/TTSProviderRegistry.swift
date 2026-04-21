@@ -203,6 +203,22 @@ private let fallbackRegistry = TTSProviderRegistry(
                 linkLabel: "Open Deepgram Console"
             )
         ),
+        TTSProviderCatalogEntry(
+            id: "xai",
+            displayName: "xAI",
+            subtitle: "Text-to-speech from xAI with expressive voices (eve, ara, rex, sal, leo). Requires an xAI API key.",
+            setupMode: .cli,
+            setupHint: "Run the setup commands in your terminal to configure xAI credentials.",
+            credentialMode: .credential,
+            credentialNamespace: "xai",
+            apiKeyProviderName: nil,
+            supportsVoiceSelection: false,
+            credentialsGuide: TTSCredentialsGuide(
+                description: "Sign in to the xAI console, navigate to API Keys, and create a new key.",
+                url: "https://console.x.ai/",
+                linkLabel: "Open xAI Console"
+            )
+        ),
     ]
 )
 

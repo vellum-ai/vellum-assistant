@@ -40,6 +40,12 @@ struct ConversationModel: Identifiable, Hashable {
     var lastInteractedAt: Date
     var kind: ConversationKind
     var source: String?
+    /// The daemon-side conversation classification: "standard", "private", "background", "scheduled".
+    /// This is the canonical signal for unread-suppression of automated threads — keys off the
+    /// `conversationType` column the daemon sets at creation time, and is stable across pin/move
+    /// operations (which can mutate `groupId` but never `conversationType`). `nil` for rows returned
+    /// by older daemons that predate the field; callers should treat `nil` as non-suppressed.
+    var conversationType: String?
     var hostAccess: Bool
     /// The schedule job ID that created this conversation, if any.
     /// Conversations sharing the same scheduleJobId belong to the same schedule group.
@@ -50,7 +56,7 @@ struct ConversationModel: Identifiable, Hashable {
     var forkParent: ConversationForkParent?
     var originChannel: String?
 
-    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), conversationId: String? = nil, isArchived: Bool = false, groupId: String? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ConversationKind = .standard, source: String? = nil, hostAccess: Bool = false, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil, forkParent: ConversationForkParent? = nil, originChannel: String? = nil) {
+    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), conversationId: String? = nil, isArchived: Bool = false, groupId: String? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ConversationKind = .standard, source: String? = nil, conversationType: String? = nil, hostAccess: Bool = false, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil, forkParent: ConversationForkParent? = nil, originChannel: String? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -61,6 +67,7 @@ struct ConversationModel: Identifiable, Hashable {
         self.lastInteractedAt = lastInteractedAt ?? createdAt
         self.kind = kind
         self.source = source
+        self.conversationType = conversationType
         self.hostAccess = hostAccess
         self.scheduleJobId = scheduleJobId
         self.hasUnseenLatestAssistantMessage = hasUnseenLatestAssistantMessage
@@ -97,9 +104,17 @@ struct ConversationModel: Identifiable, Hashable {
     }
 
     /// Whether this conversation is automated (heartbeat, schedule, background/task,
-    /// auto-analysis) and should never show unread indicators on individual rows.
+    /// auto-analysis, watcher, filing, and any future daemon-classified background thread)
+    /// and should never show unread indicators on individual rows.
+    ///
+    /// Primary signal is `conversationType` — the daemon's canonical field — so any
+    /// server-created background/scheduled conversation is suppressed regardless of its
+    /// `source`. The source-based fallbacks cover locally-created conversations (before
+    /// the server round-trip sets `conversationType`) and older daemons that don't return
+    /// the field.
     var shouldSuppressUnreadIndicator: Bool {
-        isScheduleConversation || shouldReturnToBackgroundOnUnpin
+        conversationType == "background" || conversationType == "scheduled"
+            || isScheduleConversation || shouldReturnToBackgroundOnUnpin
     }
 
     /// Whether this conversation should be excluded from *global* unread
@@ -148,6 +163,7 @@ struct ConversationModel: Identifiable, Hashable {
             lhs.lastInteractedAt == rhs.lastInteractedAt &&
             lhs.kind == rhs.kind &&
             lhs.source == rhs.source &&
+            lhs.conversationType == rhs.conversationType &&
             lhs.hostAccess == rhs.hostAccess &&
             lhs.scheduleJobId == rhs.scheduleJobId &&
             lhs.hasUnseenLatestAssistantMessage == rhs.hasUnseenLatestAssistantMessage &&
@@ -170,6 +186,7 @@ struct ConversationModel: Identifiable, Hashable {
         hasher.combine(lastInteractedAt)
         hasher.combine(kind)
         hasher.combine(source)
+        hasher.combine(conversationType)
         hasher.combine(hostAccess)
         hasher.combine(scheduleJobId)
         hasher.combine(hasUnseenLatestAssistantMessage)

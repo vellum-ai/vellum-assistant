@@ -43,8 +43,7 @@ struct QueuedMessagesDrawer: View {
                 .strokeBorder(VColor.borderBase, lineWidth: 1)
         )
         .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: VSpacing.chatColumnMaxWidth)
-        .frame(maxWidth: .infinity, alignment: .center)
+        .widthCap(VSpacing.chatColumnMaxWidth)
     }
 
     private func header(queuedMessages: [ChatMessage]) -> some View {

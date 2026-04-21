@@ -22,9 +22,9 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
     "vision-optimized": "gpt-5.4",
   },
   gemini: {
-    "latency-optimized": "gemini-3-flash",
-    "quality-optimized": "gemini-3-flash",
-    "vision-optimized": "gemini-3-flash",
+    "latency-optimized": "gemini-2.5-flash-lite",
+    "quality-optimized": "gemini-2.5-flash",
+    "vision-optimized": "gemini-2.5-flash",
   },
   ollama: {
     "latency-optimized": "llama3.2",
@@ -43,7 +43,7 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
   },
 };
 
-const FALLBACK_DEFAULT_MODEL = "claude-opus-4-6";
+const FALLBACK_DEFAULT_MODEL = "claude-opus-4-7";
 
 const MODEL_INTENTS = new Set<ModelIntent>([
   "latency-optimized",

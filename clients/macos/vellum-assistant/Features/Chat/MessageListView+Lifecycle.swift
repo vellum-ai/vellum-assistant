@@ -171,6 +171,10 @@ extension MessageListView {
         highlightedMessageId = nil
         scrollState.highlightDismissTask?.cancel()
         scrollState.highlightDismissTask = nil
+        // `.id(conversationId)` is on the inner ScrollView, so this view's
+        // `@State` survives conversation switches. Fixed-sentinel row IDs
+        // (e.g. queuedMarker) would otherwise reuse heights across chats.
+        messageHeightCache.reset()
         // Reset scroll state for the new conversation.
         scrollState.reset(for: conversationId)
         // Capture the new conversation's activity phase so a conversation

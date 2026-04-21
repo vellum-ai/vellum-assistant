@@ -2,14 +2,20 @@ import { describe, it, expect } from "bun:test";
 import {
   normalizeSlackBlockActions,
   normalizeSlackReactionAdded,
+  normalizeSlackReactionRemoved,
   normalizeSlackDirectMessage,
   normalizeSlackChannelMessage,
   normalizeSlackAppMention,
+  normalizeSlackMessageEdit,
+  normalizeSlackMessageDelete,
   type SlackBlockActionsPayload,
   type SlackReactionAddedEvent,
+  type SlackReactionRemovedEvent,
   type SlackDirectMessageEvent,
   type SlackChannelMessageEvent,
   type SlackAppMentionEvent,
+  type SlackMessageChangedEvent,
+  type SlackMessageDeletedEvent,
   type SlackFile,
 } from "./normalize.js";
 import type { GatewayConfig } from "../config.js";
@@ -64,6 +70,26 @@ function makeReactionAddedEvent(
 ): SlackReactionAddedEvent {
   return {
     type: "reaction_added",
+    user: overrides?.user ?? "U123",
+    reaction: overrides?.reaction ?? "thumbsup",
+    item: {
+      type: "message",
+      channel: overrides?.channelId ?? "C456",
+      ts: overrides?.messageTs ?? "1234567890.123456",
+    },
+  };
+}
+
+function makeReactionRemovedEvent(
+  overrides?: Partial<{
+    user: string;
+    reaction: string;
+    channelId: string;
+    messageTs: string;
+  }>,
+): SlackReactionRemovedEvent {
+  return {
+    type: "reaction_removed",
     user: overrides?.user ?? "U123",
     reaction: overrides?.reaction ?? "thumbsup",
     item: {
@@ -258,6 +284,205 @@ describe("normalizeSlackReactionAdded", () => {
       "reaction:white_check_mark",
     );
   });
+
+  it("normalizes reactions on a non-bot-thread channel message", () => {
+    // Filter expansion: PR 3 admits reactions on any subscribed channel,
+    // not just tracked bot-thread messages. The normalizer itself doesn't
+    // gate on thread tracking — that filter lives in socket-mode.ts.
+    // Verify the normalizer happily produces a valid event for an arbitrary
+    // public-channel message ts when routing matches the channel.
+    const config = makeConfig({
+      defaultAssistantId: undefined,
+      unmappedPolicy: "reject",
+      routingEntries: [
+        { type: "conversation_id", key: "C500", assistantId: "ast-1" },
+      ],
+    });
+    const event = makeReactionAddedEvent({
+      channelId: "C500",
+      messageTs: "1700000000.999999",
+    });
+    const result = normalizeSlackReactionAdded(event, "evt-expand", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.callbackData).toBe("reaction:thumbsup");
+    expect(result!.channel).toBe("C500");
+    expect(result!.threadTs).toBe("1700000000.999999");
+    expect(result!.routing.assistantId).toBe("ast-1");
+    expect(result!.event.message.externalMessageId).toBe(
+      "C500:1700000000.999999:thumbsup:U123",
+    );
+  });
+});
+
+describe("normalizeSlackReactionRemoved", () => {
+  it("normalizes a reaction_removed event with reaction_removed: prefix", () => {
+    const config = makeConfig();
+    const event = makeReactionRemovedEvent();
+    const result = normalizeSlackReactionRemoved(event, "evt-r-1", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.sourceChannel).toBe("slack");
+    expect(result!.event.message.callbackData).toBe(
+      "reaction_removed:thumbsup",
+    );
+    expect(result!.event.message.content).toBe("reaction_removed:thumbsup");
+    expect(result!.event.message.conversationExternalId).toBe("C456");
+    expect(result!.event.message.externalMessageId).toBe(
+      "C456:1234567890.123456:thumbsup:U123:removed",
+    );
+    expect(result!.event.actor.actorExternalId).toBe("U123");
+    expect(result!.event.source.messageId).toBe("1234567890.123456");
+    expect(result!.channel).toBe("C456");
+    expect(result!.threadTs).toBe("1234567890.123456");
+  });
+
+  it("uses the reaction name in callbackData", () => {
+    const config = makeConfig();
+    const event = makeReactionRemovedEvent({ reaction: "white_check_mark" });
+    const result = normalizeSlackReactionRemoved(event, "evt-r-2", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.callbackData).toBe(
+      "reaction_removed:white_check_mark",
+    );
+  });
+
+  it("returns null when user is missing", () => {
+    const config = makeConfig();
+    const event = makeReactionRemovedEvent({ user: "" });
+    const result = normalizeSlackReactionRemoved(event, "evt-r-3", config);
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null when item channel is missing", () => {
+    const config = makeConfig();
+    const event = makeReactionRemovedEvent();
+    event.item.channel = "";
+    const result = normalizeSlackReactionRemoved(event, "evt-r-4", config);
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null when item ts is missing", () => {
+    const config = makeConfig();
+    const event = makeReactionRemovedEvent();
+    event.item.ts = "";
+    const result = normalizeSlackReactionRemoved(event, "evt-r-5", config);
+
+    expect(result).toBeNull();
+  });
+
+  it("ignores reactions removed by the bot itself", () => {
+    const config = makeConfig();
+    const event = makeReactionRemovedEvent({ user: "UBOT" });
+    const result = normalizeSlackReactionRemoved(
+      event,
+      "evt-r-6",
+      config,
+      "UBOT",
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null when routing rejects on a public channel", () => {
+    const config = makeConfig({
+      unmappedPolicy: "reject",
+      defaultAssistantId: undefined,
+    });
+    const event = makeReactionRemovedEvent();
+    const result = normalizeSlackReactionRemoved(event, "evt-r-7", config);
+
+    expect(result).toBeNull();
+  });
+
+  it("falls back to default assistant for unrouted DM channels", () => {
+    const config = makeConfig({
+      defaultAssistantId: "default-ast",
+      unmappedPolicy: "reject",
+    });
+    const event = makeReactionRemovedEvent({
+      channelId: "D999",
+      messageTs: "111.222",
+    });
+    const result = normalizeSlackReactionRemoved(event, "evt-r-8", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.channel).toBe("D999");
+    expect(result!.event.message.externalMessageId).toBe(
+      "D999:111.222:thumbsup:U123:removed",
+    );
+  });
+
+  it("normalizes reaction_removed in a DM channel", () => {
+    const config = makeConfig();
+    const event = makeReactionRemovedEvent({
+      channelId: "D789",
+      messageTs: "1700000000.000001",
+    });
+    const result = normalizeSlackReactionRemoved(event, "evt-r-9", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.channel).toBe("D789");
+    expect(result!.event.message.callbackData).toBe(
+      "reaction_removed:thumbsup",
+    );
+    expect(result!.event.message.externalMessageId).toBe(
+      "D789:1700000000.000001:thumbsup:U123:removed",
+    );
+  });
+
+  it("normalizes reaction_removed on a non-bot-thread channel message", () => {
+    // Filter expansion: PR 3 admits reactions on any subscribed channel,
+    // not just tracked bot-thread messages. Verify the removed normalizer
+    // produces a valid event for an arbitrary public-channel message ts.
+    const config = makeConfig({
+      defaultAssistantId: undefined,
+      unmappedPolicy: "reject",
+      routingEntries: [
+        { type: "conversation_id", key: "C500", assistantId: "ast-1" },
+      ],
+    });
+    const event = makeReactionRemovedEvent({
+      channelId: "C500",
+      messageTs: "1700000000.999999",
+    });
+    const result = normalizeSlackReactionRemoved(event, "evt-r-10", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.routing.assistantId).toBe("ast-1");
+    expect(result!.event.message.externalMessageId).toBe(
+      "C500:1700000000.999999:thumbsup:U123:removed",
+    );
+  });
+
+  it("produces a different externalMessageId than reaction_added for the same emoji+user+message", () => {
+    // Critical for dedup: an add followed by a remove of the same emoji by
+    // the same user on the same message must not collide on externalMessageId.
+    const config = makeConfig();
+    const addEvent = makeReactionAddedEvent({
+      reaction: "fire",
+      messageTs: "111.222",
+    });
+    const removeEvent = makeReactionRemovedEvent({
+      reaction: "fire",
+      messageTs: "111.222",
+    });
+    const addResult = normalizeSlackReactionAdded(addEvent, "evt-add", config);
+    const removeResult = normalizeSlackReactionRemoved(
+      removeEvent,
+      "evt-remove",
+      config,
+    );
+
+    expect(addResult).not.toBeNull();
+    expect(removeResult).not.toBeNull();
+    expect(addResult!.event.message.externalMessageId).not.toBe(
+      removeResult!.event.message.externalMessageId,
+    );
+  });
 });
 
 describe("DM threading", () => {
@@ -341,8 +566,16 @@ describe("attachment extraction in normalize functions", () => {
       const config = makeConfig();
       const event = makeDmEvent({
         files: [
-          makeSlackFile({ id: "F001", mimetype: "image/png", name: "photo.png" }),
-          makeSlackFile({ id: "F002", mimetype: "image/jpeg", name: "pic.jpg" }),
+          makeSlackFile({
+            id: "F001",
+            mimetype: "image/png",
+            name: "photo.png",
+          }),
+          makeSlackFile({
+            id: "F002",
+            mimetype: "image/jpeg",
+            name: "pic.jpg",
+          }),
         ],
       });
       const result = normalizeSlackDirectMessage(event, "evt-1", config);
@@ -444,7 +677,11 @@ describe("attachment extraction in normalize functions", () => {
       const config = makeConfig();
       const event = makeChannelEvent({
         files: [
-          makeSlackFile({ id: "F010", mimetype: "image/gif", name: "anim.gif" }),
+          makeSlackFile({
+            id: "F010",
+            mimetype: "image/gif",
+            name: "anim.gif",
+          }),
         ],
       });
       const result = normalizeSlackChannelMessage(event, "evt-ch-1", config);
@@ -519,11 +756,7 @@ describe("attachment extraction in normalize functions", () => {
             }),
           ],
         });
-        const result = normalizeSlackChannelMessage(
-          event,
-          "evt-fs-4",
-          config,
-        );
+        const result = normalizeSlackChannelMessage(event, "evt-fs-4", config);
 
         expect(result).not.toBeNull();
         expect(result!.event.message.attachments).toHaveLength(1);
@@ -535,11 +768,7 @@ describe("attachment extraction in normalize functions", () => {
       it("normalizes channel message with file_share subtype without files", () => {
         const config = makeConfig();
         const event = makeChannelEvent({ subtype: "file_share" });
-        const result = normalizeSlackChannelMessage(
-          event,
-          "evt-fs-5",
-          config,
-        );
+        const result = normalizeSlackChannelMessage(event, "evt-fs-5", config);
 
         expect(result).not.toBeNull();
         expect(result!.event.message.content).toBe("hello");
@@ -549,11 +778,7 @@ describe("attachment extraction in normalize functions", () => {
       it("drops channel message with bot_message subtype", () => {
         const config = makeConfig();
         const event = makeChannelEvent({ subtype: "bot_message" });
-        const result = normalizeSlackChannelMessage(
-          event,
-          "evt-fs-6",
-          config,
-        );
+        const result = normalizeSlackChannelMessage(event, "evt-fs-6", config);
 
         expect(result).toBeNull();
       });
@@ -586,6 +811,528 @@ describe("attachment extraction in normalize functions", () => {
       });
       expect(result!.slackFiles).toBeDefined();
       expect(result!.slackFiles!.get("F020")!.id).toBe("F020");
+    });
+  });
+});
+
+// Shared factory for SlackMessageChangedEvent used by the edit-normalizer
+// tests (PR 4) and the source.threadId propagation tests (PR 2).
+function makeMessageChangedEvent(
+  overrides?: Partial<{
+    channel: string;
+    channelType: SlackMessageChangedEvent["channel_type"];
+    eventTs: string;
+    messageTs: string;
+    user: string;
+    text: string;
+    threadTs?: string;
+  }>,
+): SlackMessageChangedEvent {
+  return {
+    type: "message",
+    subtype: "message_changed",
+    channel: overrides?.channel ?? "C456",
+    channel_type: overrides?.channelType ?? "channel",
+    ts: overrides?.eventTs ?? "1700000000.000200",
+    event_ts: overrides?.eventTs ?? "1700000000.000200",
+    message: {
+      user: overrides?.user ?? "U123",
+      text: overrides?.text ?? "edited content",
+      ts: overrides?.messageTs ?? "1700000000.000100",
+      ...(overrides?.threadTs ? { thread_ts: overrides.threadTs } : {}),
+    },
+    previous_message: {
+      user: overrides?.user ?? "U123",
+      text: "original content",
+      ts: overrides?.messageTs ?? "1700000000.000100",
+    },
+  };
+}
+
+describe("normalizeSlackMessageEdit", () => {
+  it("normalizes an edit in a subscribed channel (not DM, not bot thread)", () => {
+    // Bot is subscribed to the channel via a conversation_id routing entry —
+    // this is the case PR 4 expanded the gateway filter to admit.
+    const config = makeConfig({
+      routingEntries: [
+        { type: "conversation_id", key: "C456", assistantId: "ast-2" },
+      ],
+      unmappedPolicy: "reject",
+      defaultAssistantId: undefined,
+    });
+    const event = makeMessageChangedEvent({
+      channel: "C456",
+      channelType: "channel",
+      messageTs: "1700000000.000100",
+      eventTs: "1700000000.000200",
+      user: "U123",
+    });
+    const eventId = "Ev0XYZ";
+
+    const result = normalizeSlackMessageEdit(event, eventId, config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.isEdit).toBe(true);
+    expect(result!.event.message.conversationExternalId).toBe("C456");
+    expect(result!.event.actor.actorExternalId).toBe("U123");
+    expect(result!.event.source.chatType).toBe("channel");
+    expect(result!.routing.assistantId).toBe("ast-2");
+    expect(result!.routing.routeSource).toBe("conversation_id");
+
+    // PR 3 invariant: source.messageId is the original Slack ts (the lookup
+    // key the daemon uses to find the prior message), and externalMessageId
+    // is the per-edit eventId. They MUST be distinct so successive edits do
+    // not collide in the dedup pipeline.
+    expect(result!.event.source.messageId).toBe("1700000000.000100");
+    expect(result!.event.message.externalMessageId).toBe(eventId);
+    expect(result!.event.source.messageId).not.toBe(
+      result!.event.message.externalMessageId,
+    );
+  });
+
+  it("uses message ts as threadTs for top-level channel edits", () => {
+    const config = makeConfig({
+      routingEntries: [
+        { type: "conversation_id", key: "C456", assistantId: "ast-2" },
+      ],
+      unmappedPolicy: "reject",
+      defaultAssistantId: undefined,
+    });
+    const event = makeMessageChangedEvent({
+      channel: "C456",
+      channelType: "channel",
+      messageTs: "1700000000.000100",
+    });
+    const result = normalizeSlackMessageEdit(event, "Ev1", config);
+
+    expect(result).not.toBeNull();
+    // For channel edits without a thread_ts, fall back to the message ts so
+    // any reply lands on the same root message.
+    expect(result!.threadTs).toBe("1700000000.000100");
+    expect(result!.channel).toBe("C456");
+  });
+
+  it("preserves thread_ts on a threaded channel edit", () => {
+    const config = makeConfig({
+      routingEntries: [
+        { type: "conversation_id", key: "C456", assistantId: "ast-2" },
+      ],
+      unmappedPolicy: "reject",
+      defaultAssistantId: undefined,
+    });
+    const event = makeMessageChangedEvent({
+      channel: "C456",
+      channelType: "channel",
+      messageTs: "1700000000.000150",
+      threadTs: "1700000000.000050",
+    });
+    const result = normalizeSlackMessageEdit(event, "Ev2", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.threadTs).toBe("1700000000.000050");
+    expect(result!.event.source.messageId).toBe("1700000000.000150");
+  });
+
+  it("returns null when channel has no routing entry and not a DM", () => {
+    // Without a route and without DM fallback, an edit in an unknown channel
+    // is unroutable — normalize must return null so the gateway drops it.
+    const config = makeConfig({
+      routingEntries: [],
+      unmappedPolicy: "reject",
+      defaultAssistantId: undefined,
+    });
+    const event = makeMessageChangedEvent({
+      channel: "C999",
+      channelType: "channel",
+    });
+    const result = normalizeSlackMessageEdit(event, "Ev3", config);
+
+    expect(result).toBeNull();
+  });
+
+  it("ignores edits authored by the bot itself", () => {
+    const config = makeConfig({
+      routingEntries: [
+        { type: "conversation_id", key: "C456", assistantId: "ast-2" },
+      ],
+    });
+    const event = makeMessageChangedEvent({ user: "UBOT" });
+    const result = normalizeSlackMessageEdit(event, "Ev4", config, "UBOT");
+
+    expect(result).toBeNull();
+  });
+
+  it("infers DM from channel ID prefix when channel_type is absent", () => {
+    const config = makeConfig({ unmappedPolicy: "reject" });
+    // Build the event directly so `channel_type` is truly absent — the
+    // makeMessageChangedEvent helper coalesces undefined back to "channel".
+    const event: SlackMessageChangedEvent = {
+      type: "message",
+      subtype: "message_changed",
+      channel: "D789",
+      ts: "1700000000.000200",
+      event_ts: "1700000000.000200",
+      message: {
+        user: "U123",
+        text: "edited content",
+        ts: "1700000000.000100",
+      },
+      previous_message: {
+        user: "U123",
+        text: "original content",
+        ts: "1700000000.000100",
+      },
+    };
+    const result = normalizeSlackMessageEdit(event, "Ev5", config);
+
+    // Without the DM-prefix fallback this would be null (unmapped + reject).
+    expect(result).not.toBeNull();
+    expect(result!.routing.assistantId).toBe("ast-1");
+    // DMs should not be tagged as channel chat even when inferred.
+    expect(result!.event.source.chatType).toBeUndefined();
+    // DM without thread_ts — threadTs should be omitted so replies go inline.
+    expect(result!.threadTs).toBeUndefined();
+  });
+});
+
+// --- normalizeSlackMessageDelete ---
+
+function makeMessageDeletedEvent(
+  overrides?: Partial<SlackMessageDeletedEvent>,
+): SlackMessageDeletedEvent {
+  return {
+    type: "message",
+    subtype: "message_deleted",
+    channel: "C456",
+    channel_type: "channel",
+    hidden: true,
+    ts: "1700000000.999999",
+    deleted_ts: "1700000000.000100",
+    previous_message: {
+      user: "U123",
+      text: "the original message",
+      ts: "1700000000.000100",
+    },
+    ...overrides,
+  };
+}
+
+describe("normalizeSlackMessageDelete", () => {
+  it("normalizes a DM delete with the message_deleted sentinel", () => {
+    const config = makeConfig();
+    const event = makeMessageDeletedEvent({
+      channel: "D789",
+      channel_type: "im",
+      previous_message: {
+        user: "U123",
+        text: "hi",
+        ts: "1700000000.000100",
+      },
+    });
+    const result = normalizeSlackMessageDelete(event, "evt-del-dm", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.sourceChannel).toBe("slack");
+    expect(result!.event.message.callbackData).toBe("message_deleted");
+    expect(result!.event.message.content).toBe("");
+    expect(result!.event.message.externalMessageId).toBe("evt-del-dm");
+    expect(result!.event.message.conversationExternalId).toBe("D789");
+    expect(result!.event.source.messageId).toBe("1700000000.000100");
+    expect(result!.event.source.updateId).toBe("evt-del-dm");
+    // DMs should not be tagged as channel chat
+    expect(result!.event.source.chatType).toBeUndefined();
+    // No thread_ts on the previous message means no threadTs propagated
+    expect(result!.threadTs).toBeUndefined();
+    expect(result!.channel).toBe("D789");
+    expect(result!.event.actor.actorExternalId).toBe("U123");
+  });
+
+  it("normalizes a channel delete with the message_deleted sentinel", () => {
+    const config = makeConfig();
+    const event = makeMessageDeletedEvent();
+    const result = normalizeSlackMessageDelete(event, "evt-del-ch", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.message.callbackData).toBe("message_deleted");
+    expect(result!.event.message.content).toBe("");
+    expect(result!.event.message.externalMessageId).toBe("evt-del-ch");
+    // source.messageId carries the original deleted message's ts
+    expect(result!.event.source.messageId).toBe("1700000000.000100");
+    expect(result!.event.source.chatType).toBe("channel");
+    expect(result!.event.message.conversationExternalId).toBe("C456");
+    expect(result!.channel).toBe("C456");
+    expect(result!.event.actor.actorExternalId).toBe("U123");
+  });
+
+  it("preserves threadTs from the previous_message thread root", () => {
+    const config = makeConfig();
+    const event = makeMessageDeletedEvent({
+      previous_message: {
+        user: "U123",
+        text: "thread reply",
+        ts: "1700000000.000100",
+        thread_ts: "1700000000.000050",
+      },
+    });
+    const result = normalizeSlackMessageDelete(event, "evt-del-thr", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.threadTs).toBe("1700000000.000050");
+  });
+
+  it("returns null when deleted_ts is missing", () => {
+    const config = makeConfig();
+    const event = makeMessageDeletedEvent({
+      deleted_ts: undefined as unknown as string,
+    });
+    const result = normalizeSlackMessageDelete(event, "evt-del-bad", config);
+
+    expect(result).toBeNull();
+  });
+
+  it("falls back to a synthetic actor when previous_message.user is missing", () => {
+    const config = makeConfig();
+    const event = makeMessageDeletedEvent({
+      previous_message: {
+        text: "[no user]",
+        ts: "1700000000.000100",
+      },
+    });
+    const result = normalizeSlackMessageDelete(
+      event,
+      "evt-del-no-user",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.actor.actorExternalId).toBe("slack-system");
+  });
+
+  it("returns null when channel routing rejects without a default", () => {
+    const config = makeConfig({
+      unmappedPolicy: "reject",
+      defaultAssistantId: undefined,
+    });
+    const event = makeMessageDeletedEvent();
+    const result = normalizeSlackMessageDelete(
+      event,
+      "evt-del-noroute",
+      config,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("falls back to default assistant for DM deletes when channel is unrouted", () => {
+    const config = makeConfig({ unmappedPolicy: "reject" });
+    const event = makeMessageDeletedEvent({
+      channel: "D789",
+      channel_type: "im",
+    });
+    const result = normalizeSlackMessageDelete(
+      event,
+      "evt-del-dm-default",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.routing.assistantId).toBe("ast-1");
+  });
+
+  it("infers DM from channel ID prefix when channel_type is absent", () => {
+    const config = makeConfig({ unmappedPolicy: "reject" });
+    const event = makeMessageDeletedEvent({
+      channel: "D789",
+      channel_type: undefined,
+    });
+    const result = normalizeSlackMessageDelete(
+      event,
+      "evt-del-dm-infer",
+      config,
+    );
+
+    // Without the DM-prefix fallback this would be null (unmapped + reject).
+    expect(result).not.toBeNull();
+    expect(result!.routing.assistantId).toBe("ast-1");
+    // DMs should not be tagged as channel chat even when inferred.
+    expect(result!.event.source.chatType).toBeUndefined();
+  });
+});
+
+// --- source.threadId propagation ---
+//
+// Asserts that PR 2's new `source.threadId` field is populated on every
+// Slack normalizer that has thread info, and absent for top-level messages
+// without a thread.
+
+describe("source.threadId propagation", () => {
+  describe("normalizeSlackDirectMessage", () => {
+    it("populates source.threadId when thread_ts is present", () => {
+      const config = makeConfig();
+      const event = makeDmEvent({ thread_ts: "1700000000.111111" });
+      const result = normalizeSlackDirectMessage(event, "evt-tid-1", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBe("1700000000.111111");
+    });
+
+    it("omits source.threadId when thread_ts is absent", () => {
+      const config = makeConfig();
+      const event = makeDmEvent();
+      const result = normalizeSlackDirectMessage(event, "evt-tid-2", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBeUndefined();
+    });
+  });
+
+  describe("normalizeSlackChannelMessage", () => {
+    it("populates source.threadId when thread_ts is present", () => {
+      const config = makeConfig();
+      const event = makeChannelEvent({ thread_ts: "1700000000.222222" });
+      const result = normalizeSlackChannelMessage(event, "evt-tid-3", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBe("1700000000.222222");
+    });
+
+    it("omits source.threadId when thread_ts is absent (top-level channel message)", () => {
+      const config = makeConfig();
+      const event = makeChannelEvent();
+      const result = normalizeSlackChannelMessage(event, "evt-tid-4", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBeUndefined();
+    });
+  });
+
+  describe("normalizeSlackAppMention", () => {
+    it("populates source.threadId when thread_ts is present", () => {
+      const config = makeConfig();
+      const event = makeAppMentionEvent({ thread_ts: "1700000000.333333" });
+      const result = normalizeSlackAppMention(event, "evt-tid-5", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBe("1700000000.333333");
+    });
+
+    it("omits source.threadId when thread_ts is absent", () => {
+      const config = makeConfig();
+      const event = makeAppMentionEvent();
+      const result = normalizeSlackAppMention(event, "evt-tid-6", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBeUndefined();
+    });
+  });
+
+  describe("normalizeSlackReactionAdded", () => {
+    it("populates source.threadId with the reacted message's ts", () => {
+      const config = makeConfig();
+      const event = makeReactionAddedEvent({
+        messageTs: "1700000000.444444",
+      });
+      const result = normalizeSlackReactionAdded(event, "evt-tid-7", config);
+
+      expect(result).not.toBeNull();
+      // Reactions route replies against the reacted message, so threadId
+      // mirrors the wrapper's threadTs (which equals item.ts).
+      expect(result!.event.source.threadId).toBe("1700000000.444444");
+      expect(result!.threadTs).toBe("1700000000.444444");
+    });
+  });
+
+  describe("normalizeSlackMessageEdit", () => {
+    it("populates source.threadId for channel edits inside a thread", () => {
+      const config = makeConfig({
+        routingEntries: [
+          { type: "conversation_id", key: "C456", assistantId: "ast-2" },
+        ],
+      });
+      const event = makeMessageChangedEvent({
+        threadTs: "1700000000.555555",
+      });
+      const result = normalizeSlackMessageEdit(event, "evt-tid-8", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBe("1700000000.555555");
+    });
+
+    it("omits source.threadId for channel edits with no thread", () => {
+      const config = makeConfig({
+        routingEntries: [
+          { type: "conversation_id", key: "C456", assistantId: "ast-2" },
+        ],
+      });
+      const event = makeMessageChangedEvent();
+      const result = normalizeSlackMessageEdit(event, "evt-tid-9", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBeUndefined();
+    });
+
+    it("omits source.threadId for DM edits with no thread", () => {
+      const config = makeConfig();
+      const event = makeMessageChangedEvent({
+        channel: "D789",
+        channelType: "im",
+      });
+      const result = normalizeSlackMessageEdit(event, "evt-tid-10", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBeUndefined();
+    });
+  });
+
+  describe("normalizeSlackBlockActions", () => {
+    it("populates source.threadId when message.thread_ts is present", () => {
+      const config = makeConfig();
+      const payload = makeBlockActionsPayload();
+      payload.message = {
+        ts: "1234567890.999999",
+        thread_ts: "1234567890.000001",
+        text: "Choose an option",
+      };
+      const result = normalizeSlackBlockActions(payload, "env-tid-1", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBe("1234567890.000001");
+    });
+
+    it("omits source.threadId when message.thread_ts is absent", () => {
+      const config = makeConfig();
+      const payload = makeBlockActionsPayload();
+      const result = normalizeSlackBlockActions(payload, "env-tid-2", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBeUndefined();
+    });
+  });
+
+  describe("normalizeSlackMessageDelete", () => {
+    it("populates source.threadId for deletes of threaded messages", () => {
+      const config = makeConfig();
+      const event = makeMessageDeletedEvent({
+        previous_message: {
+          user: "U123",
+          text: "thread reply",
+          ts: "1700000000.000100",
+          thread_ts: "parent_ts",
+        },
+      });
+      const result = normalizeSlackMessageDelete(event, "evt-tid-11", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBe("parent_ts");
+    });
+
+    it("omits source.threadId for deletes of top-level messages", () => {
+      const config = makeConfig();
+      const event = makeMessageDeletedEvent();
+      const result = normalizeSlackMessageDelete(event, "evt-tid-12", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.source.threadId).toBeUndefined();
     });
   });
 });

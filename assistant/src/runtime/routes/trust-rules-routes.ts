@@ -4,7 +4,13 @@
  * These endpoints manage persistent trust rules independently of
  * the approval-flow trust-rule endpoint in approval-routes.ts.
  * All endpoints are bearer-token authenticated (standard runtime auth).
+ *
+ * Canonicalization is handled centrally inside `addRule`/`updateRule` in
+ * trust-store.ts: legacy clients can keep sending current shapes without
+ * 4xx regressions, but fields invalid for a tool's family (e.g.
+ * `executionTarget` on a URL-tool rule) are silently stripped.
  */
+import { SCOPED_TOOLS } from "@vellumai/ces-contracts";
 import { z } from "zod";
 
 import {
@@ -16,6 +22,9 @@ import {
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
+
+/** O(1) lookup set for scoped tool names. */
+const SCOPED_TOOLS_SET: ReadonlySet<string> = new Set(SCOPED_TOOLS);
 
 const log = getLogger("trust-rules-routes");
 
@@ -30,7 +39,11 @@ function handleListTrustRules(): Response {
 /**
  * POST /v1/trust-rules/manage — add a trust rule (standalone, not approval-flow).
  *
- * Body: { toolName, pattern, scope, decision, allowHighRisk?, executionTarget? }
+ * Body: { toolName, pattern, scope, decision, executionTarget? }
+ *
+ * Legacy payloads that include fields invalid for the tool's family (e.g.
+ * `executionTarget` on a `web_fetch` rule) are accepted but canonicalized:
+ * the invalid fields are stripped before persistence.
  */
 export async function handleAddTrustRuleManage(
   req: Request,
@@ -40,12 +53,10 @@ export async function handleAddTrustRuleManage(
     pattern?: string;
     scope?: string;
     decision?: string;
-    allowHighRisk?: boolean;
     executionTarget?: string;
   };
 
-  const { toolName, pattern, scope, decision, allowHighRisk, executionTarget } =
-    body;
+  const { toolName, pattern, scope, decision, executionTarget } = body;
 
   if (!toolName || typeof toolName !== "string") {
     return httpError("BAD_REQUEST", "toolName is required", 400);
@@ -60,8 +71,10 @@ export async function handleAddTrustRuleManage(
   if (!pattern || typeof pattern !== "string") {
     return httpError("BAD_REQUEST", "pattern is required", 400);
   }
-  if (!scope || typeof scope !== "string") {
-    return httpError("BAD_REQUEST", "scope is required", 400);
+  // Scope is only required for scoped tools. Non-scoped tools ignore scope.
+  const isScoped = SCOPED_TOOLS_SET.has(toolName);
+  if (isScoped && (!scope || typeof scope !== "string")) {
+    return httpError("BAD_REQUEST", "scope is required for scoped tools", 400);
   }
   const validDecisions = ["allow", "deny", "ask"] as const;
   if (
@@ -76,14 +89,18 @@ export async function handleAddTrustRuleManage(
   }
 
   try {
-    const hasMetadata = allowHighRisk != null || executionTarget != null;
+    // Canonicalization is handled inside addRule — no need to pre-parse here.
+    // Legacy callers that send e.g. executionTarget on a URL-tool rule won't
+    // get a 4xx — the field is simply dropped during normalization in addRule.
     addRule(
       toolName,
       pattern,
-      scope,
+      isScoped ? scope! : "everywhere",
       decision as "allow" | "deny" | "ask",
       undefined,
-      hasMetadata ? { allowHighRisk, executionTarget } : undefined,
+      {
+        ...(executionTarget != null ? { executionTarget } : {}),
+      },
     );
     log.info(
       { toolName, pattern, scope, decision },
@@ -197,12 +214,11 @@ export function trustRulesRouteDefinitions(): RouteDefinition[] {
       requestBody: z.object({
         toolName: z.string().describe("Tool name"),
         pattern: z.string().describe("Allowlist pattern"),
-        scope: z.string().describe("Scope"),
-        decision: z.string().describe("allow, deny, or ask"),
-        allowHighRisk: z
-          .boolean()
-          .describe("Allow high-risk invocations")
+        scope: z
+          .string()
+          .describe("Scope (required for scoped tools, ignored for others)")
           .optional(),
+        decision: z.string().describe("allow, deny, or ask"),
         executionTarget: z.string().describe("Execution target").optional(),
       }),
       responseBody: z.object({

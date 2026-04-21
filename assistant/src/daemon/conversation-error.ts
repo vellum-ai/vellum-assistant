@@ -86,6 +86,14 @@ const WEB_SEARCH_ORDERING_PATTERNS = [
   /web_search.*tool_result/i,
 ];
 
+// Stale/invalid opaque `encrypted_content` token in replayed web-search results.
+// Anthropic's tokens have bounded validity; the daemon replaces historical
+// `web_search_tool_result` blocks with text summaries to avoid this, but this
+// classifier remains as defense-in-depth for any path that bypasses the strip.
+const STALE_WEB_SEARCH_CONTENT_PATTERNS = [
+  /invalid\s+`?encrypted_content`?\s+in\s+`?(?:web_)?search_result`?\s+block/i,
+];
+
 // Streaming corruption patterns (Anthropic SDK throws non-HTTP errors for SSE issues)
 const STREAMING_ERROR_PATTERNS = [
   /unexpected event order/i,
@@ -113,7 +121,7 @@ export interface ErrorContext {
  * instead of `conversation_error`.
  *
  * Provider SDKs wrap the underlying AbortError in their own error class
- * (e.g. `ProviderError("Anthropic API error (undefined): Request was aborted.")`),
+ * (e.g. `ProviderError("Anthropic API error: Request was aborted.")`),
  * which erases the `AbortError` name. To compensate, the daemon tags every
  * `controller.abort(reason)` call with an `AbortReason` object — when the
  * wrapped `ProviderError` carries that tagged reason, we treat it as a user
@@ -302,6 +310,15 @@ function classifyCore(
           errorCategory: "web_search_ordering",
         };
       }
+      if (isStaleWebSearchContent(message)) {
+        return {
+          code: "PROVIDER_WEB_SEARCH",
+          userMessage:
+            "Stale web-search results in conversation history. Please try again.",
+          retryable: true,
+          errorCategory: "stale_web_search_content",
+        };
+      }
       if (isOrderingError(message)) {
         return {
           code: "PROVIDER_ORDERING",
@@ -352,6 +369,15 @@ export function isContextTooLarge(message: string): boolean {
 /** Check whether an error message indicates a web-search-specific ordering failure. */
 export function isWebSearchOrderingError(message: string): boolean {
   return WEB_SEARCH_ORDERING_PATTERNS.some((p) => p.test(message));
+}
+
+/**
+ * Check whether an error message indicates a stale/invalid `encrypted_content`
+ * opaque token in a replayed `web_search_tool_result`. See
+ * `stripHistoricalWebSearchResults()` for the proactive mitigation.
+ */
+export function isStaleWebSearchContent(message: string): boolean {
+  return STALE_WEB_SEARCH_CONTENT_PATTERNS.some((p) => p.test(message));
 }
 
 /** Check whether an error message indicates a tool_use/tool_result ordering failure. */
@@ -412,6 +438,15 @@ function classifyByMessage(
         "An internal error occurred with web search. Please try again.",
       retryable: true,
       errorCategory: "web_search_ordering",
+    };
+  }
+  if (isStaleWebSearchContent(message)) {
+    return {
+      code: "PROVIDER_WEB_SEARCH",
+      userMessage:
+        "Stale web-search results in conversation history. Please try again.",
+      retryable: true,
+      errorCategory: "stale_web_search_content",
     };
   }
 

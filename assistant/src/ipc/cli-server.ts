@@ -10,17 +10,18 @@
  * - Request:  { "id": string, "method": string, "params"?: Record<string, unknown> }
  * - Response: { "id": string, "result"?: unknown, "error"?: string }
  *
- * The socket lives at `{workspaceDir}/assistant-cli.sock` on the workspace
- * volume so CLI commands running in the same container can connect to it.
+ * The preferred socket path is `{workspaceDir}/assistant-cli.sock`. On
+ * platforms with strict AF_UNIX path limits (notably macOS), the server falls
+ * back to a shorter deterministic path so CLI commands can still connect.
  */
 
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { join } from "node:path";
+import { dirname } from "node:path";
 
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
 import { cliIpcRoutes } from "./routes/index.js";
+import { resolveIpcSocketPath } from "./socket-path.js";
 
 const log = getLogger("cli-ipc-server");
 
@@ -61,7 +62,19 @@ export class CliIpcServer {
   private socketPath: string;
 
   constructor() {
-    this.socketPath = getCliSocketPath();
+    const socketResolution = resolveIpcSocketPath("assistant-cli.sock");
+    this.socketPath = socketResolution.path;
+    if (socketResolution.source !== "workspace") {
+      log.warn(
+        {
+          source: socketResolution.source,
+          workspacePath: socketResolution.workspacePath,
+          resolvedPath: socketResolution.path,
+          maxPathBytes: socketResolution.maxPathBytes,
+        },
+        "CLI IPC socket path exceeded platform limit; using fallback path",
+      );
+    }
     for (const route of cliIpcRoutes) {
       this.methods.set(route.method, route.handler);
     }
@@ -74,6 +87,12 @@ export class CliIpcServer {
 
   /** Start listening on the Unix domain socket. */
   start(): void {
+    // Ensure the parent directory exists before listening.
+    const socketDir = dirname(this.socketPath);
+    if (!existsSync(socketDir)) {
+      mkdirSync(socketDir, { recursive: true, mode: 0o700 });
+    }
+
     // Clean up stale socket file from a previous run
     if (existsSync(this.socketPath)) {
       try {
@@ -229,6 +248,5 @@ export class CliIpcServer {
 // ---------------------------------------------------------------------------
 
 export function getCliSocketPath(): string {
-  return join(getWorkspaceDir(), "assistant-cli.sock");
+  return resolveIpcSocketPath("assistant-cli.sock").path;
 }
-

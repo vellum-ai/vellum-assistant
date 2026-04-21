@@ -222,6 +222,53 @@ extension AppDelegate {
         }
     }
 
+    /// Clears any stored actor-token credentials and re-runs the initial
+    /// bootstrap flow. Unlike `ensureActorCredentials()`, which short-circuits
+    /// when a stored token is already present, this method deliberately wipes
+    /// the existing credential first so `performInitialBootstrap()` is forced
+    /// to re-provision from scratch. Intended as a recovery primitive for
+    /// stale/invalid credentials (see `GatewayConnectionManager.attemptRePair()`).
+    ///
+    /// In Docker/cloud hatches, the CLI-persisted `guardian-token.json` on
+    /// disk can still contain the same revoked token that produced the auth
+    /// failures. `performInitialBootstrap()` imports that file ahead of any
+    /// HTTP path, so without deleting it we would silently re-arm the bad
+    /// credential and the re-pair would "succeed" only to fall right back
+    /// into 401s. Delete the file for remote hatches (Docker/cloud/managed),
+    /// where the CLI or launcher will re-provision and rewrite the file,
+    /// so the bootstrap is forced down a genuine reprovision path.
+    ///
+    /// For local/bare-metal assistants the on-disk token is the only
+    /// recovery artifact — nothing is guaranteed to rewrite it — so preserve
+    /// it. Bootstrap will still skip the (now-wiped) in-memory credentials
+    /// and re-import from the file, which is the intended local fallback.
+    ///
+    /// If the delete is attempted but fails (e.g. filesystem permissions),
+    /// the stale file would otherwise be re-imported by
+    /// `performInitialBootstrap()`, defeating the fix. In that case pass
+    /// `skipFileImport: true` so the bootstrap ignores the file entirely
+    /// and drives the HTTP reprovision path.
+    func forceReBootstrap() async {
+        log.info("forceReBootstrap: clearing stored credentials and re-running bootstrap")
+        ActorTokenManager.deleteAllCredentials()
+
+        var skipFileImport = false
+        if let assistantId = LockfileAssistant.loadActiveAssistantId() {
+            let assistant = LockfileAssistant.loadByName(assistantId)
+            let isRemoteHatch = assistant?.isRemote ?? false
+            if isRemoteHatch {
+                let deleted = GuardianTokenFileReader.deleteTokenFile(assistantId: assistantId)
+                if !deleted {
+                    log.warning("forceReBootstrap: failed to delete stale guardian token file — skipping file import to avoid re-arming the revoked token")
+                    skipFileImport = true
+                }
+            } else {
+                log.info("forceReBootstrap: local/bare-metal hatch — preserving guardian token file as the only recovery artifact")
+            }
+        }
+        await performInitialBootstrap(skipFileImport: skipFileImport)
+    }
+
     /// Performs the initial actor token bootstrap, reactively waiting for a
     /// gateway connection before each attempt. Called only when no actor token
     /// exists (first launch or after credential wipe).
@@ -229,38 +276,77 @@ extension AppDelegate {
     /// Before hitting the network, checks whether the CLI already persisted a
     /// guardian token to disk (e.g. during a Docker or cloud hatch). If found,
     /// imports it directly and skips the HTTP bootstrap entirely.
-    func performInitialBootstrap() async {
+    ///
+    /// `skipFileImport`: when `true`, bypass the guardian-token.json import
+    /// entirely and jump straight to the HTTP fallback. Used by
+    /// `forceReBootstrap()` when a stale file could not be deleted — leaving
+    /// the import path enabled in that case would silently re-arm the revoked
+    /// token the re-bootstrap is meant to discard.
+    func performInitialBootstrap(skipFileImport: Bool = false) async {
         guard let assistantId = LockfileAssistant.loadActiveAssistantId() else { return }
 
-        // Try importing a guardian token that was already written to disk
-        // (e.g. by the CLI during hatch or by AppleContainersLauncher).
-        if GuardianTokenFileReader.importIfAvailable(assistantId: assistantId) {
-            log.info("Imported guardian token from file — skipping HTTP bootstrap")
-            return
-        }
-
-        // The token file doesn't exist yet — the launcher/CLI may still be
-        // writing it. Poll for up to ~60s before falling back to HTTP bootstrap.
-        let maxAttempts = 30
-        let delay: UInt64 = 2_000_000_000 // 2 seconds per poll
-        for attempt in 1...maxAttempts {
-            guard !Task.isCancelled else { return }
-            try? await Task.sleep(nanoseconds: delay)
-            guard !Task.isCancelled else { return }
-
+        if !skipFileImport {
+            // Try importing a guardian token that was already written to disk
+            // (e.g. by the CLI during hatch or by AppleContainersLauncher).
             if GuardianTokenFileReader.importIfAvailable(assistantId: assistantId) {
-                log.info("Imported guardian token from file after \(attempt) poll(s)")
+                log.info("Imported guardian token from file — skipping HTTP bootstrap")
                 return
             }
-        }
 
-        // Token file never appeared — fall back to HTTP bootstrap via
-        // /v1/guardian/init. This path generates its own random bootstrap
-        // secret which may fail if the runtime already consumed the real one.
-        log.warning("Guardian token file not found after \(maxAttempts) polls — falling back to /v1/guardian/init")
+            // The token file doesn't exist yet — the launcher/CLI may still be
+            // writing it. Poll for up to ~60s before falling back to HTTP bootstrap.
+            let maxAttempts = 30
+            let delay: UInt64 = 2_000_000_000 // 2 seconds per poll
+            for attempt in 1...maxAttempts {
+                guard !Task.isCancelled else { return }
+                try? await Task.sleep(nanoseconds: delay)
+                guard !Task.isCancelled else { return }
+
+                if GuardianTokenFileReader.importIfAvailable(assistantId: assistantId) {
+                    log.info("Imported guardian token from file after \(attempt) poll(s)")
+                    return
+                }
+            }
+
+            // Token file never appeared — fall back to HTTP bootstrap via
+            // /v1/guardian/init. This path generates its own random bootstrap
+            // secret which may fail if the runtime already consumed the real one.
+            log.warning("Guardian token file not found after \(maxAttempts) polls — falling back to /v1/guardian/init")
+        } else {
+            log.info("performInitialBootstrap: skipFileImport=true — driving HTTP reprovision path directly")
+        }
 
         let deviceId = PairingQRCodeSheet.computeHostId()
         let retryDelay: UInt64 = 500_000_000
+
+        // Self-heal path: if a refresh token survives in the keychain (e.g.
+        // from a slightly-stale CLI file import or a prior run), try to
+        // rotate it into a fresh access/refresh pair before hitting the
+        // bootstrap-lockfile-guarded init endpoint. The lockfile permanently
+        // 403s /v1/guardian/init after first use, so init alone has no path
+        // to recover — whereas refresh succeeds whenever the server still
+        // recognizes the refresh token, covering the common
+        // "access-expired-but-refresh-still-valid" case.
+        if ActorTokenManager.getRefreshToken() != nil {
+            if !connectionManager.isConnected {
+                await awaitConnectionEstablished()
+                guard !Task.isCancelled else { return }
+            }
+            let refreshResult = await ActorCredentialRefresher.refresh(
+                platform: "macos",
+                deviceId: deviceId
+            )
+            switch refreshResult {
+            case .success:
+                log.info("Initial actor token bootstrap recovered via refresh")
+                return
+            case .terminalError(let reason):
+                log.warning("Refresh terminal error (\(reason, privacy: .public)) — clearing credentials and falling back to /v1/guardian/init")
+                ActorTokenManager.deleteAllCredentials()
+            case .transientError:
+                log.info("Refresh transient error — falling back to /v1/guardian/init")
+            }
+        }
 
         while !Task.isCancelled {
             if !connectionManager.isConnected {

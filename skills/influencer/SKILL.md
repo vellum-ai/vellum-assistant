@@ -6,15 +6,14 @@ metadata:
   emoji: "🔍"
   vellum:
     display-name: "Influencer Research"
-    includes: ["browser"]
+    includes: ["vellum-browser-use"]
 ---
 
-Use browser automation for collection and `host_bash` helper scripts for deterministic parsing, scoring, and comparison.
+Use browser automation for collection and `host_bash` helper scripts for deterministic parsing, scoring, and comparison. All browser operations are executed through the `assistant browser` CLI, invoked via `host_bash`.
 
 ## Required tools
 
-- Browser tools: `browser_navigate`, `browser_snapshot`, `browser_extract`, `browser_click`, `browser_type`, `browser_press_key`, `browser_scroll`, `browser_wait_for`, `browser_screenshot`.
-- Host tool: `host_bash` for helper scripts in `scripts/`.
+- `host_bash` for `assistant browser` CLI commands and helper scripts in `scripts/`.
 
 ## Hard constraints
 
@@ -40,9 +39,9 @@ Use returned `step` to route to `discover`, `enrich_profile`, or `compare_shortl
 1. Navigate to keyword search/post surfaces.
 2. Snapshot + extract:
 
-```text
-browser_snapshot {}
-browser_extract { "include_links": true }
+```bash
+assistant browser --session influencer --json snapshot
+assistant browser --session influencer --json extract --include-links
 ```
 
 3. Parse candidates:
@@ -54,7 +53,7 @@ bun {baseDir}/scripts/influencer-parse-candidates.ts --platform instagram --inpu
 #### TikTok
 
 1. Navigate to user search page for query.
-2. Use `browser_scroll` + `browser_wait_for` to load additional candidates.
+2. Use `assistant browser --session influencer scroll` + `assistant browser --session influencer wait-for` to load additional candidates.
 3. Extract and parse:
 
 ```bash
@@ -64,7 +63,13 @@ bun {baseDir}/scripts/influencer-parse-candidates.ts --platform tiktok --input-j
 #### X/Twitter
 
 1. Navigate to people search view (`f=user`).
-2. Snapshot + extract.
+2. Snapshot + extract:
+
+```bash
+assistant browser --session influencer --json snapshot
+assistant browser --session influencer --json extract --include-links
+```
+
 3. Parse:
 
 ```bash
@@ -108,7 +113,7 @@ Present results grouped by platform with:
 ## Retry and fallback policy
 
 - Retry budget: 3 attempts for each state-changing browser step.
-- After any navigation or click that changes DOM, run fresh `browser_snapshot`.
+- After any navigation or click that changes DOM, run fresh `assistant browser --session influencer --json snapshot`.
 - If blocked by sign-in wall or challenge after retries, ask user to complete that step and resume from latest successful state.
 
 ## Platform notes

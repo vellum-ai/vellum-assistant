@@ -4,8 +4,8 @@
  * The general HTTP server suite in `http-server.test.ts` covers auth and
  * validation at a high level; this file exercises the full matrix for
  * `/send_chat` specifically — auth, body validation, the 2000-character
- * Meet chat limit, the Playwright failure path (502), and the happy path
- * (200). The `sendChat` helper from `chat-bridge.ts` is mocked via the
+ * Meet chat limit, the extension-dispatch failure path (502), and the
+ * happy path (200). The extension-side chat send is mocked via the
  * `onSendChat` callback so no browser is required.
  */
 
@@ -200,10 +200,10 @@ describe("POST /send_chat endpoint", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Playwright failure path
+  // Extension-dispatch failure path
   // -------------------------------------------------------------------------
 
-  test("returns 502 when sendChat throws (Playwright selector failure)", async () => {
+  test("returns 502 when sendChat throws (extension selector / dispatch failure)", async () => {
     const harness = makeServer();
     server = harness.server;
     const base = await startOnRandomPort(server);
@@ -230,7 +230,7 @@ describe("POST /send_chat endpoint", () => {
     const base = await startOnRandomPort(server);
 
     // Force a non-Error throw. `Error` is the shape our code path expects,
-    // but Playwright and other libs have been known to throw plain objects,
+    // but callbacks and other libs have been known to throw plain objects,
     // so we verify the stringify fallback behaves.
     harness.failNextWith.error = { toString: () => "weird-failure" } as Error;
 

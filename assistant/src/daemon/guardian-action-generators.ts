@@ -1,5 +1,7 @@
-import { loadConfig } from "../config/loader.js";
+import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
+import { getConfiguredProvider } from "../providers/provider-send-message.js";
 import { getProvider } from "../providers/registry.js";
+import type { Provider } from "../providers/types.js";
 import {
   buildGuardianActionGenerationPrompt,
   getGuardianActionFallbackMessage,
@@ -18,21 +20,20 @@ import type {
 /**
  * Create the daemon-owned guardian action copy generator that resolves
  * providers and calls `provider.sendMessage` to generate guardian action
- * copy text. Uses `latency-optimized` model intent since these are
- * time-sensitive voice responses.
+ * copy text. Uses the `guardianQuestionCopy` call site so model selection
+ * tracks the unified `llm.callSites` configuration.
  *
  * This keeps all provider awareness in the daemon lifecycle, away from
  * the runtime composer.
  */
 export function createGuardianActionCopyGenerator(): GuardianActionCopyGenerator {
   return async (context, options = {}) => {
-    const config = loadConfig();
-    let provider;
-    try {
-      provider = getProvider(config.services.inference.provider);
-    } catch {
-      return null;
-    }
+    const baseProvider = await getConfiguredProvider("guardianQuestionCopy");
+    if (!baseProvider) return null;
+    // Wrap so the per-call `callSite` can route to a different provider
+    // transport when `llm.callSites.guardianQuestionCopy.provider` overrides
+    // the default. Without this, callSite only affects request metadata.
+    const provider = wrapWithCallSiteRouting(baseProvider);
 
     const fallbackText =
       options.fallbackText?.trim() || getGuardianActionFallbackMessage(context);
@@ -52,7 +53,7 @@ export function createGuardianActionCopyGenerator(): GuardianActionCopyGenerator
       {
         config: {
           max_tokens: options.maxTokens ?? GUARDIAN_ACTION_COPY_MAX_TOKENS,
-          modelIntent: "latency-optimized",
+          callSite: "guardianQuestionCopy",
         },
         signal: AbortSignal.timeout(
           options.timeoutMs ?? GUARDIAN_ACTION_COPY_TIMEOUT_MS,
@@ -130,8 +131,11 @@ const VALID_FOLLOWUP_DISPOSITIONS: ReadonlySet<string> = new Set([
  */
 export function createGuardianFollowUpConversationGenerator(): GuardianFollowUpConversationGenerator {
   return async (context) => {
-    const config = loadConfig();
-    const provider = getProvider(config.services.inference.provider);
+    const baseProvider = await getConfiguredProvider("guardianQuestionCopy");
+    if (!baseProvider) {
+      throw new Error("No configured provider available for follow-up conversation");
+    }
+    const provider = wrapWithCallSiteRouting(baseProvider);
 
     const userPrompt = [
       `Original question from the voice call: "${context.questionText}"`,
@@ -146,7 +150,7 @@ export function createGuardianFollowUpConversationGenerator(): GuardianFollowUpC
       {
         config: {
           max_tokens: FOLLOWUP_CONVERSATION_MAX_TOKENS,
-          modelIntent: "latency-optimized",
+          callSite: "guardianQuestionCopy",
         },
         signal: AbortSignal.timeout(FOLLOWUP_CONVERSATION_TIMEOUT_MS),
       },
@@ -187,4 +191,20 @@ export function createGuardianFollowUpConversationGenerator(): GuardianFollowUpC
     };
     return result;
   };
+}
+
+/**
+ * Wrap a base Provider so per-call `callSite` metadata can route the actual
+ * transport to a different provider when `llm.callSites.<id>.provider`
+ * differs from the default. Without this wrapper, only request metadata
+ * reflects the callSite — the HTTP transport stays bound to the default.
+ */
+function wrapWithCallSiteRouting(base: Provider): Provider {
+  return new CallSiteRoutingProvider(base, (name) => {
+    try {
+      return getProvider(name);
+    } catch {
+      return undefined;
+    }
+  });
 }

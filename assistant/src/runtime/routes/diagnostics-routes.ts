@@ -222,7 +222,7 @@ async function handleDictation(body: DictationBody): Promise<Response> {
   const transcription = expandSnippets(body.transcription, profile.snippets);
 
   try {
-    const provider = await getConfiguredProvider();
+    const provider = await getConfiguredProvider("interactionClassifier");
     if (!provider) {
       log.warn(
         "Dictation: no provider available, using heuristic + raw transcription",
@@ -288,7 +288,7 @@ async function handleDictation(body: DictationBody): Promise<Response> {
         systemPrompt,
         {
           config: {
-            modelIntent: "latency-optimized",
+            callSite: "interactionClassifier",
             max_tokens: maxTokens,
             tool_choice: {
               type: "tool" as const,
@@ -381,7 +381,7 @@ async function handleCommandMode(
   const maxTokens = Math.max(1024, computeMaxTokens(inputLength));
 
   try {
-    const provider = await getConfiguredProvider();
+    const provider = await getConfiguredProvider("interactionClassifier");
     if (!provider) {
       log.warn("Command mode: no provider available, returning selected text");
       const normalizedText = applyDictionary(
@@ -399,7 +399,9 @@ async function handleCommandMode(
       [userMessage(body.transcription)],
       [],
       systemPrompt,
-      { config: { modelIntent: "latency-optimized", max_tokens: maxTokens } },
+      {
+        config: { callSite: "interactionClassifier", max_tokens: maxTokens },
+      },
     );
 
     const textBlock = response.content.find((b) => b.type === "text");

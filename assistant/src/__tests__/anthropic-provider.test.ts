@@ -10,6 +10,15 @@ let lastStreamParams: Record<string, unknown> | null = null;
 let _lastStreamOptions: Record<string, unknown> | null = null;
 let lastConstructorArgs: Record<string, unknown> | null = null;
 
+type ScriptedStreamEvent =
+  | { kind: "text"; text: string }
+  | { kind: "blockStart"; blockType?: "text" }
+  | { kind: "blockStop" };
+
+// When set, the mock fires these scripted stream events in order instead of
+// the default single "Hello" text event. Tests reset this in beforeEach.
+let scriptedStream: ScriptedStreamEvent[] | null = null;
+
 const fakeResponse = {
   content: [{ type: "text", text: "Hello" }],
   model: "claude-sonnet-4-6",
@@ -50,8 +59,25 @@ mock.module("@anthropic-ai/sdk", () => ({
           return this;
         },
         async finalMessage() {
-          // Fire text events
-          for (const cb of handlers["text"] ?? []) cb("Hello");
+          if (scriptedStream) {
+            for (const event of scriptedStream) {
+              if (event.kind === "text") {
+                for (const cb of handlers["text"] ?? []) cb(event.text);
+              } else if (event.kind === "blockStart") {
+                for (const cb of handlers["streamEvent"] ?? [])
+                  cb({
+                    type: "content_block_start",
+                    content_block: { type: event.blockType ?? "text" },
+                  });
+              } else if (event.kind === "blockStop") {
+                for (const cb of handlers["streamEvent"] ?? [])
+                  cb({ type: "content_block_stop" });
+              }
+            }
+          } else {
+            // Default: a single "Hello" text event (preserves existing tests).
+            for (const cb of handlers["text"] ?? []) cb("Hello");
+          }
           return fakeResponse;
         },
       };
@@ -77,6 +103,7 @@ mock.module("@anthropic-ai/sdk", () => ({
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../prompts/system-prompt.js";
 import {
   AnthropicProvider,
+  isPlaceholderSentinelText,
   PLACEHOLDER_BLOCKS_OMITTED,
   PLACEHOLDER_EMPTY_TURN,
 } from "../providers/anthropic/client.js";
@@ -144,6 +171,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     lastStreamParams = null;
     _lastStreamOptions = null;
     lastConstructorArgs = null;
+    scriptedStream = null;
     provider = new AnthropicProvider("sk-ant-test", "claude-sonnet-4-6");
   });
 
@@ -1252,6 +1280,147 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     for (let i = 1; i < sent.length; i++) {
       expect(sent[i].role).not.toBe(sent[i - 1].role);
     }
+  });
+
+  test("streams normal text through without delay when text is not a sentinel prefix", async () => {
+    scriptedStream = [
+      { kind: "blockStart" },
+      { kind: "text", text: "Hello world" },
+      { kind: "blockStop" },
+    ];
+    const emitted: string[] = [];
+    await provider.sendMessage([userMsg("Hi")], undefined, undefined, {
+      onEvent: (event) => {
+        if (event.type === "text_delta") emitted.push(event.text);
+      },
+    });
+    expect(emitted).toEqual(["Hello world"]);
+  });
+
+  test("suppresses placeholder sentinel streamed as a single chunk", async () => {
+    // Model echoes a sentinel in one chunk; buffer should hold it and
+    // drop it on content_block_stop since it matches exactly.
+    scriptedStream = [
+      { kind: "blockStart" },
+      { kind: "text", text: PLACEHOLDER_EMPTY_TURN },
+      { kind: "blockStop" },
+    ];
+    const emitted: string[] = [];
+    await provider.sendMessage([userMsg("Hi")], undefined, undefined, {
+      onEvent: (event) => {
+        if (event.type === "text_delta") emitted.push(event.text);
+      },
+    });
+    expect(emitted).toEqual([]);
+  });
+
+  test("suppresses bare-variant sentinel streamed as a single chunk", async () => {
+    scriptedStream = [
+      { kind: "blockStart" },
+      { kind: "text", text: "__PLACEHOLDER__[empty assistant turn]" },
+      { kind: "blockStop" },
+    ];
+    const emitted: string[] = [];
+    await provider.sendMessage([userMsg("Hi")], undefined, undefined, {
+      onEvent: (event) => {
+        if (event.type === "text_delta") emitted.push(event.text);
+      },
+    });
+    expect(emitted).toEqual([]);
+  });
+
+  test("suppresses placeholder sentinel streamed across multiple chunks", async () => {
+    scriptedStream = [
+      { kind: "blockStart" },
+      { kind: "text", text: "\x00__PLACE" },
+      { kind: "text", text: "HOLDER__[empty" },
+      { kind: "text", text: " assistant turn]" },
+      { kind: "blockStop" },
+    ];
+    const emitted: string[] = [];
+    await provider.sendMessage([userMsg("Hi")], undefined, undefined, {
+      onEvent: (event) => {
+        if (event.type === "text_delta") emitted.push(event.text);
+      },
+    });
+    expect(emitted).toEqual([]);
+  });
+
+  test("flushes buffered prefix when the continuation diverges from all sentinels", async () => {
+    // "__PLACEHOLDER__" is a prefix of the sentinels, so it stays buffered.
+    // Once the next chunk diverges (bracket instead of the expected opening),
+    // the buffer must flush.
+    scriptedStream = [
+      { kind: "blockStart" },
+      { kind: "text", text: "__PLACEHOLDER__" },
+      { kind: "text", text: " is bold in markdown" },
+      { kind: "blockStop" },
+    ];
+    const emitted: string[] = [];
+    await provider.sendMessage([userMsg("Hi")], undefined, undefined, {
+      onEvent: (event) => {
+        if (event.type === "text_delta") emitted.push(event.text);
+      },
+    });
+    expect(emitted.join("")).toBe("__PLACEHOLDER__ is bold in markdown");
+  });
+
+  test("flushes non-sentinel residual buffer at content_block_stop", async () => {
+    // If the stream ends mid-prefix, the residual must be flushed (the
+    // accumulated text isn't a complete sentinel, so it's real content).
+    scriptedStream = [
+      { kind: "blockStart" },
+      { kind: "text", text: "__PLACEHOLDER__" },
+      { kind: "blockStop" },
+    ];
+    const emitted: string[] = [];
+    await provider.sendMessage([userMsg("Hi")], undefined, undefined, {
+      onEvent: (event) => {
+        if (event.type === "text_delta") emitted.push(event.text);
+      },
+    });
+    expect(emitted).toEqual(["__PLACEHOLDER__"]);
+  });
+
+  test("resets buffer across content blocks so a sentinel in one block doesn't poison the next", async () => {
+    scriptedStream = [
+      { kind: "blockStart" },
+      { kind: "text", text: PLACEHOLDER_EMPTY_TURN },
+      { kind: "blockStop" },
+      { kind: "blockStart" },
+      { kind: "text", text: "Fresh block content" },
+      { kind: "blockStop" },
+    ];
+    const emitted: string[] = [];
+    await provider.sendMessage([userMsg("Hi")], undefined, undefined, {
+      onEvent: (event) => {
+        if (event.type === "text_delta") emitted.push(event.text);
+      },
+    });
+    expect(emitted).toEqual(["Fresh block content"]);
+  });
+
+  test("isPlaceholderSentinelText matches sentinel with and without the null-byte prefix", () => {
+    // The runtime filter must be lenient enough to catch sentinel text that
+    // lost its `\x00` prefix in transit (e.g. a model echoing it back from
+    // input history without reproducing the control character). Migration 222
+    // handles the same two variants.
+    expect(isPlaceholderSentinelText(PLACEHOLDER_EMPTY_TURN)).toBe(true);
+    expect(isPlaceholderSentinelText(PLACEHOLDER_BLOCKS_OMITTED)).toBe(true);
+    expect(
+      isPlaceholderSentinelText("__PLACEHOLDER__[empty assistant turn]"),
+    ).toBe(true);
+    expect(
+      isPlaceholderSentinelText("__PLACEHOLDER__[internal blocks omitted]"),
+    ).toBe(true);
+    // Nearby strings must NOT match — guard against over-broad matching.
+    expect(isPlaceholderSentinelText("")).toBe(false);
+    expect(isPlaceholderSentinelText("__PLACEHOLDER__")).toBe(false);
+    expect(
+      isPlaceholderSentinelText(
+        "prefix __PLACEHOLDER__[empty assistant turn]",
+      ),
+    ).toBe(false);
   });
 
   // -----------------------------------------------------------------------

@@ -4,12 +4,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { SlackConversation } from "../messaging/providers/slack/types.js";
 
-const BUNDLED_SKILLS_DIR = join(
-  import.meta.dir,
-  "..",
-  "config",
-  "bundled-skills",
-);
+const REPO_SKILLS_DIR = join(import.meta.dir, "..", "..", "..", "skills");
 
 describe("slack adapter isPrivate mapping", () => {
   // Inline the mapping logic to test it independently of the adapter module
@@ -47,7 +42,7 @@ describe("slack adapter isPrivate mapping", () => {
 });
 
 describe("slack skill has no TOOLS.json (uses Web API via CLI)", () => {
-  const toolsPath = join(BUNDLED_SKILLS_DIR, "slack", "TOOLS.json");
+  const toolsPath = join(REPO_SKILLS_DIR, "slack", "TOOLS.json");
 
   test("TOOLS.json does not exist", () => {
     expect(() => readFileSync(toolsPath)).toThrow();
@@ -56,7 +51,7 @@ describe("slack skill has no TOOLS.json (uses Web API via CLI)", () => {
 
 describe("slack skill SKILL.md", () => {
   const skillMd = readFileSync(
-    join(BUNDLED_SKILLS_DIR, "slack", "SKILL.md"),
+    join(REPO_SKILLS_DIR, "slack", "SKILL.md"),
     "utf-8",
   );
 

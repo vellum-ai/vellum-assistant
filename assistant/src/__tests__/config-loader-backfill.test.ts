@@ -65,6 +65,7 @@ afterAll(() => {
 
 import {
   deepMergeMissing,
+  deepMergeOverwrite,
   invalidateConfigCache,
   loadConfig,
 } from "../config/loader.js";
@@ -140,6 +141,179 @@ describe("deepMergeMissing", () => {
     const changed = deepMergeMissing(target, defaults);
     expect(changed).toBe(true);
     expect(target).toEqual({ slack: { deliverAuthBypass: false } });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: deepMergeOverwrite (unit) — JSON-null-as-deletion semantics
+// ---------------------------------------------------------------------------
+
+describe("deepMergeOverwrite", () => {
+  test("overwrites top-level scalars", () => {
+    const target: Record<string, unknown> = { a: 1, b: "old" };
+    deepMergeOverwrite(target, { a: 2, c: "new" });
+    expect(target).toEqual({ a: 2, b: "old", c: "new" });
+  });
+
+  test("recursively merges nested objects, overwriting leaves", () => {
+    const target: Record<string, unknown> = {
+      nested: { keep: "yes", change: "before" },
+    };
+    deepMergeOverwrite(target, {
+      nested: { change: "after", added: 42 },
+    });
+    expect(target).toEqual({
+      nested: { keep: "yes", change: "after", added: 42 },
+    });
+  });
+
+  test("replaces arrays wholesale rather than merging", () => {
+    const target: Record<string, unknown> = { items: [1, 2, 3] };
+    deepMergeOverwrite(target, { items: [9] });
+    expect(target).toEqual({ items: [9] });
+  });
+
+  test("assigns null to scalar fields (preserves nullable config values)", () => {
+    const target: Record<string, unknown> = { a: 1, b: 2 };
+    deepMergeOverwrite(target, { a: null });
+    expect(target).toEqual({ a: null, b: 2 });
+    expect("a" in target).toBe(true);
+  });
+
+  test("assigns null to nested scalar fields, preserving siblings", () => {
+    const target: Record<string, unknown> = {
+      a: { b: 1, c: 2, d: 3 },
+    };
+    deepMergeOverwrite(target, { a: { b: null } });
+    expect(target).toEqual({ a: { b: null, c: 2, d: 3 } });
+    expect("b" in (target.a as Record<string, unknown>)).toBe(true);
+  });
+
+  test("assigns null to existing null fields (no-op for already-null)", () => {
+    const target: Record<string, unknown> = {
+      heartbeat: { activeHoursStart: null, intervalMs: 6000 },
+    };
+    deepMergeOverwrite(target, {
+      heartbeat: { activeHoursStart: null },
+    });
+    expect(target).toEqual({
+      heartbeat: { activeHoursStart: null, intervalMs: 6000 },
+    });
+  });
+
+  test("deletion of a nested key whose value is itself an object", () => {
+    // Models the macOS clear-call-site-override case:
+    // PATCH { llm: { callSites: { commitMessage: null } } } removes the
+    // commitMessage entry entirely while keeping other call-site entries
+    // and unrelated llm fields intact.
+    const target: Record<string, unknown> = {
+      llm: {
+        provider: "anthropic",
+        callSites: {
+          commitMessage: { provider: "openai", model: "gpt-4" },
+          memoryRetrieval: { profile: "fast" },
+        },
+      },
+    };
+    deepMergeOverwrite(target, {
+      llm: { callSites: { commitMessage: null } },
+    });
+    expect(target).toEqual({
+      llm: {
+        provider: "anthropic",
+        callSites: {
+          memoryRetrieval: { profile: "fast" },
+        },
+      },
+    });
+  });
+
+  test("deletion is a no-op when the key is already absent", () => {
+    const target: Record<string, unknown> = { a: 1 };
+    deepMergeOverwrite(target, { missing: null });
+    expect(target).toEqual({ a: 1 });
+    expect("missing" in target).toBe(false);
+  });
+
+  test("strips null leaves when assigning a whole subtree to a missing key", () => {
+    // Models a PATCH that introduces a new call-site entry while clearing
+    // some of its sub-fields in the same payload — the nulls must not
+    // be persisted.
+    const target: Record<string, unknown> = { llm: { provider: "anthropic" } };
+    deepMergeOverwrite(target, {
+      llm: {
+        callSites: {
+          commitMessage: { provider: null, model: "gpt-4", profile: null },
+        },
+      },
+    });
+    expect(target).toEqual({
+      llm: {
+        provider: "anthropic",
+        callSites: {
+          commitMessage: { model: "gpt-4" },
+        },
+      },
+    });
+  });
+
+  test("strips null leaves when overwriting a scalar with an object subtree", () => {
+    const target: Record<string, unknown> = { a: 1 };
+    deepMergeOverwrite(target, { a: { b: null, c: 5, d: { e: null, f: 6 } } });
+    expect(target).toEqual({ a: { c: 5, d: { f: 6 } } });
+  });
+
+  test("nullable config fields: null replaces scalar default, not deleted", () => {
+    // Models PATCH { heartbeat: { activeHoursStart: null, activeHoursEnd: null } }
+    // on a config where the defaults (8, 22) are in place. The nullable fields
+    // must store null (meaning "disabled") — NOT be deleted (which would
+    // re-apply schema defaults on next load).
+    const target: Record<string, unknown> = {
+      heartbeat: { intervalMs: 6000, activeHoursStart: 8, activeHoursEnd: 22 },
+    };
+    deepMergeOverwrite(target, {
+      heartbeat: { activeHoursStart: null, activeHoursEnd: null },
+    });
+    expect(target).toEqual({
+      heartbeat: { intervalMs: 6000, activeHoursStart: null, activeHoursEnd: null },
+    });
+  });
+
+  test("mixed: deletes object entries, assigns null to scalars in same merge", () => {
+    // Verifies both behaviors coexist in a single merge: object entries are
+    // deleted (call-site clearing) while scalar nulls are assigned (nullable fields).
+    const target: Record<string, unknown> = {
+      llm: {
+        callSites: {
+          commitMessage: { provider: "openai" },
+        },
+      },
+      heartbeat: { activeHoursStart: 8 },
+    };
+    deepMergeOverwrite(target, {
+      llm: { callSites: { commitMessage: null } },
+      heartbeat: { activeHoursStart: null },
+    });
+    expect(target).toEqual({
+      llm: { callSites: {} },
+      heartbeat: { activeHoursStart: null },
+    });
+  });
+
+  test("preserves explicit boolean false and zero (not treated as null)", () => {
+    const target: Record<string, unknown> = { a: true, b: 1 };
+    deepMergeOverwrite(target, { a: false, b: 0 });
+    expect(target).toEqual({ a: false, b: 0 });
+  });
+
+  test("undefined override values are passed through, not treated as deletion", () => {
+    // JSON.parse never produces undefined, but guard the in-process call path:
+    // an explicit undefined assignment should follow the same "scalar overwrite"
+    // path as before, not the null-deletion path.
+    const target: Record<string, unknown> = { a: 1 };
+    deepMergeOverwrite(target, { a: undefined });
+    expect("a" in target).toBe(true);
+    expect(target.a).toBeUndefined();
   });
 });
 

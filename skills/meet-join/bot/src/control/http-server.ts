@@ -9,6 +9,9 @@
  *   - `POST /send_chat`               — post a chat message into the Meet chat panel.
  *   - `POST /play_audio`              — stream raw PCM into pacat (Phase 3).
  *   - `DELETE /play_audio/:streamId`  — cancel an in-flight playback (barge-in).
+ *   - `POST /avatar/enable`           — start the configured avatar renderer, wire its frames to `/dev/video10`, then flip the Meet camera toggle ON via the camera channel.
+ *   - `POST /avatar/disable`          — flip the Meet camera toggle OFF (before renderer teardown to avoid a brief black frame), then tear down the renderer + detach the device writer.
+ *   - `POST /avatar/viseme`           — forward a viseme event into the active renderer (no-op when disabled).
  *
  * Every mutating route validates its body against the corresponding Zod
  * schema from the contracts barrel so command shapes stay in sync with
@@ -27,6 +30,18 @@ import {
 import { Hono, type Context } from "hono";
 import { randomUUID } from "node:crypto";
 
+import {
+  attachDeviceWriter,
+  AvatarRendererUnavailableError,
+  resolveAvatarRenderer,
+  type AvatarConfig,
+  type AvatarNativeMessagingSender,
+  type AvatarRenderer,
+  type DeviceWriterHandle,
+  type VisemeEvent,
+} from "../media/avatar/index.js";
+import type { VideoDeviceHandle } from "../media/video-device.js";
+import { openVideoDevice as defaultOpenVideoDevice } from "../media/video-device.js";
 import {
   startAudioPlayback,
   type AudioPlaybackHandle,
@@ -48,17 +63,20 @@ const MEET_CHAT_MAX_LENGTH = 2000;
  *
  * The server is a thin wiring layer: it validates the incoming payload,
  * updates the lifecycle phase where appropriate, and delegates the actual
- * work (driving Playwright, talking to the ASR pipeline, etc.) to these
- * callbacks. Phases 2 and 3 replace the 501 stubs with real implementations.
+ * work (dispatching to the Chrome extension over native messaging, talking
+ * to the ASR pipeline, etc.) to these callbacks. Phases 2 and 3 replace the
+ * 501 stubs with real implementations.
  */
 export interface HttpServerCallbacks {
   /** Called when `POST /leave` is received and the phase has been flipped. */
   onLeave: (reason: string | undefined) => Promise<void> | void;
   /**
    * Called when `POST /send_chat` is received with a valid body. The
-   * implementation is expected to type `text` into the Meet chat composer
-   * and submit it. Throwing (or rejecting) is the signal that Playwright
-   * could not post the message — the HTTP route converts that into a 502.
+   * implementation is expected to forward `text` to the Chrome extension
+   * (via the NMH socket) so the extension can type it into the Meet chat
+   * composer and submit it. Throwing (or rejecting) is the signal that the
+   * extension could not post the message — the HTTP route converts that
+   * into a 502.
    */
   onSendChat: (text: string) => Promise<void> | void;
   /**
@@ -85,6 +103,96 @@ export interface CreateHttpServerOptions extends HttpServerCallbacks {
    * child process.
    */
   playbackSpawnOptions?: StartAudioPlaybackOptions;
+  /**
+   * Avatar-subsystem options. When absent, the `/avatar/*` routes still
+   * mount (the surface is always present for a consistent API) but every
+   * route returns 503 with an "avatar disabled" body, so callers that
+   * POST to `/avatar/enable` get a clear error rather than silent
+   * success. Populated by `main.ts` at boot when the avatar feature is
+   * opted into via `AVATAR_ENABLED=1`.
+   */
+  avatar?: HttpServerAvatarOptions;
+}
+
+/**
+ * Configuration handed to `createHttpServer` when the avatar subsystem
+ * is available. Mirrors the dependency-injection pattern the rest of
+ * the bot uses so tests can stub out the registry, the device opener,
+ * and the config without touching real v4l2 devices.
+ */
+export interface HttpServerAvatarOptions {
+  /**
+   * Fully-resolved `services.meet.avatar.*` config block the daemon
+   * passed down via env vars. Contains at least `renderer` + `enabled`;
+   * renderer-specific sub-objects are accessed by name inside each
+   * factory. Credentials are already resolved to raw values (the bot
+   * has no vault access) so any credential field in this object is
+   * safe to read directly.
+   */
+  config: AvatarConfig;
+  /**
+   * Renderer-resolver override. Defaults to
+   * {@link resolveAvatarRenderer}; tests swap in a lambda that returns
+   * a `FakeAvatarRenderer` so the HTTP flow can be exercised without
+   * registering a real backend.
+   */
+  resolveRenderer?: (config: AvatarConfig) => AvatarRenderer | null;
+  /**
+   * Native-messaging surface forwarded to the renderer factory's
+   * `deps.nativeMessaging`. Renderers that drive an extension-hosted
+   * avatar (TalkingHead.js) require this; renderers that render
+   * server-side or delegate to a hosted WebRTC backend ignore it.
+   * When absent, `/avatar/enable` falls back to a deps bag without a
+   * native-messaging surface — the TalkingHead factory then throws
+   * {@link AvatarRendererUnavailableError} and the route returns 503.
+   */
+  nativeMessaging?: AvatarNativeMessagingSender;
+  /**
+   * Device opener override. Defaults to
+   * {@link defaultOpenVideoDevice}; tests provide a shim that returns
+   * an in-memory sink so `/avatar/enable` can run without a real
+   * `/dev/video10` on the test host. When absent, the default is used.
+   */
+  openDevice?: (devicePath: string) => Promise<VideoDeviceHandle>;
+  /**
+   * Explicit device path override. When absent, the runtime falls
+   * back to whatever default the device opener uses (today
+   * `/dev/video10`).
+   */
+  devicePath?: string;
+  /**
+   * Maximum FPS cap applied to renderer output before it reaches the
+   * device sink. Defaults to the module default; kept configurable so
+   * tests can validate FPS-gating behavior.
+   */
+  maxFps?: number;
+  /**
+   * Camera-channel handle the server uses to ask the extension to turn
+   * the Meet camera on / off. When absent, `/avatar/enable` starts the
+   * renderer and `/avatar/disable` stops it — without flipping the
+   * camera toggle. This is the boot-smoke-test behavior (no extension
+   * is attached) and also the fallback when the extension is temporarily
+   * disconnected.
+   *
+   * When present, `/avatar/enable` starts the renderer FIRST (so the
+   * v4l2loopback device has frames to emit the moment Meet reads from
+   * it) and then flips the camera toggle ON; `/avatar/disable` flips the
+   * toggle OFF FIRST (so Meet stops emitting to other participants
+   * before the renderer tears down the frames) and then stops the
+   * renderer. This ordering avoids a brief black frame between the two
+   * transitions that other participants would otherwise see.
+   *
+   * A failed camera toggle is non-fatal on the enable path: the server
+   * logs the failure via the response body and leaves the renderer
+   * running, since tearing it back down would be strictly worse than a
+   * stuck camera toggle. On the disable path, a failed toggle is also
+   * non-fatal — we still stop the renderer so the device doesn't leak
+   * frames into a Meet tab that may still have the camera on.
+   */
+  camera?: {
+    enableCamera: () => Promise<{ changed: boolean }>;
+    disableCamera: () => Promise<{ changed: boolean }>;
+  };
 }
 
 export interface HttpServerHandle {
@@ -127,8 +235,18 @@ export function createHttpServer(
     onPlayAudio,
     startPlayback,
     playbackSpawnOptions,
+    avatar,
   } = options;
   const playbackFactory = startPlayback ?? startAudioPlayback;
+
+  // Avatar state — nulls when the subsystem isn't active. Guarded by a
+  // serialization lock (`avatarMutationChain`) so concurrent `/avatar/enable`
+  // + `/avatar/disable` requests can't interleave a half-torn-down renderer
+  // with a fresh one.
+  let avatarRenderer: AvatarRenderer | null = null;
+  let avatarDeviceHandle: VideoDeviceHandle | null = null;
+  let avatarDeviceWriter: DeviceWriterHandle | null = null;
+  let avatarMutationChain: Promise<unknown> = Promise.resolve();
 
   const activeStreams = new Map<string, ActiveStream>();
 
@@ -143,6 +261,16 @@ export function createHttpServer(
    * fresh promise as the new tail for the next arrival to queue behind.
    */
   let playbackChain: Promise<void> = Promise.resolve();
+
+  /**
+   * Tail of the chat-send queue. Concurrent POST /send_chat requests must
+   * not interleave extension commands on the shared chat input — one
+   * fill/press sequence (run inside the extension) must complete before
+   * the next begins, otherwise two messages race on the same DOM element
+   * and both may be lost or garbled. Identical pattern to `playbackChain`
+   * above.
+   */
+  let chatChain: Promise<void> = Promise.resolve();
 
   const app = new Hono();
 
@@ -209,9 +337,10 @@ export function createHttpServer(
 
   // -------------------------------------------------------------------------
   // POST /send_chat — validate, enforce Meet's 2000-char chat limit, then
-  // hand off to the Playwright-backed callback. Success returns 200; a
-  // thrown/rejected callback is surfaced as 502 so the daemon can tell
-  // "bad request" apart from "Meet DOM didn't cooperate".
+  // hand off to the extension-backed callback (over the NMH socket).
+  // Success returns 200; a thrown/rejected callback is surfaced as 502 so
+  // the daemon can tell "bad request" apart from "extension failed to post
+  // the message".
   // -------------------------------------------------------------------------
 
   app.post("/send_chat", async (c) => {
@@ -232,11 +361,20 @@ export function createHttpServer(
         400,
       );
     }
+    const previousChat = chatChain;
+    let releaseChatChain!: () => void;
+    chatChain = new Promise<void>((resolve) => {
+      releaseChatChain = resolve;
+    });
+    await previousChat;
+
     try {
       await onSendChat(parsed.data.text);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return c.json({ sent: false, error: message }, 502);
+    } finally {
+      releaseChatChain();
     }
     return c.json({ sent: true, timestamp: new Date().toISOString() }, 200);
   });
@@ -304,130 +442,177 @@ export function createHttpServer(
     // awaiting it directly is safe.
     await previousChain;
 
-    let handle: AudioPlaybackHandle;
     try {
-      handle = playbackFactory(playbackSpawnOptions);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      // Release our slot so the next POST in the chain isn't blocked on a
-      // handler that failed before it even registered.
-      releaseChain();
-      return c.json({ error: `failed to start playback: ${message}` }, 500);
-    }
-
-    const controller = new AbortController();
-    activeStreams.set(streamId, { controller, handle });
-
-    // Observability hook — invoked fire-and-forget so slow callbacks don't
-    // stall the audio pipeline.
-    void Promise.resolve(onPlayAudio(streamId)).catch(() => {});
-
-    const body = c.req.raw.body;
-    if (!body) {
-      activeStreams.delete(streamId);
-      // No body is treated as an empty stream — flush trailing silence for
-      // symmetry and return success.
+      let handle: AudioPlaybackHandle;
       try {
-        await handle.flushSilence(TRAILING_SILENCE_MS);
-      } catch {
-        // Best-effort; silence is cosmetic.
+        handle = playbackFactory(playbackSpawnOptions);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return c.json({ error: `failed to start playback: ${message}` }, 500);
       }
-      releaseChain();
-      return c.json({ streamId, bytes: 0 }, 200);
-    }
 
-    let bytes = 0;
-    let cancelled = false;
-    let writeError: Error | null = null;
-
-    const reader = body.getReader();
-    const abortPromise = new Promise<void>((resolve) => {
-      if (controller.signal.aborted) {
-        cancelled = true;
-        resolve();
-        return;
+      // The playback handle is a module-level singleton (see
+      // `audio-playback.ts` — the same `handle` is returned across every
+      // POST). Its utterance-relative clock accumulates across POSTs
+      // unless we explicitly reset it, which would cause every viseme
+      // from the second-and-later utterance (daemon-stamped as ms from
+      // THAT utterance's start, so also restarting at 0) to satisfy
+      // `visemeTs < effectivePlaybackMs` and flush immediately on
+      // arrival — defeating the point of buffering. Reset here so each
+      // stream gets a fresh 0-based clock matching the daemon's
+      // per-utterance timestamp coordinate system. Reset the viseme-
+      // driven renderer's mirror clock in lockstep for the same reason.
+      handle.resetPlaybackClock();
+      const rendererAtStreamStart = avatarRenderer;
+      if (
+        rendererAtStreamStart !== null &&
+        rendererAtStreamStart.capabilities.needsVisemes &&
+        typeof rendererAtStreamStart.resetPlaybackTimestamp === "function"
+      ) {
+        rendererAtStreamStart.resetPlaybackTimestamp();
       }
-      controller.signal.addEventListener(
-        "abort",
-        () => {
-          cancelled = true;
-          try {
-            // Best-effort — releases the reader so the `read()` loop sees
-            // EOF on the next iteration.
-            reader.cancel().catch(() => {});
-          } catch {
-            // ignore
-          }
-          resolve();
-        },
-        { once: true },
-      );
-    });
 
-    try {
-      while (true) {
-        const readP = reader.read();
-        const next = await Promise.race([
-          readP.then((r) => ({ kind: "read" as const, value: r })),
-          abortPromise.then(() => ({ kind: "abort" as const })),
-        ]);
+      const controller = new AbortController();
+      activeStreams.set(streamId, { controller, handle });
 
-        if (next.kind === "abort") {
-          break;
+      // PR 9: wire the playback-timestamp stream into the active
+      // avatar renderer so viseme-driven renderers (TalkingHead.js)
+      // can align their frame emission to actual audio playback time
+      // instead of to viseme-arrival time. Non-viseme renderers
+      // (Simli/HeyGen/Tavus/SadTalker/MuseTalk) leave
+      // `notifyPlaybackTimestamp` undefined on the interface, so the
+      // wiring is a no-op for them — this timing fix is inert for
+      // hosted / GPU-sidecar backends whose audio-to-motion timing is
+      // owned server-side.
+      //
+      // The renderer is resolved DYNAMICALLY on every tick rather than
+      // snapshotted at stream start — otherwise a mid-stream
+      // `/avatar/disable` + `/avatar/enable` would leave every tick
+      // landing on the old (stopped) renderer while the freshly
+      // enabled one got nothing. Reading the closure variable on each
+      // tick also severs the bridge immediately when `/avatar/disable`
+      // nulls `avatarRenderer`, which is what the teardown regression
+      // test guards.
+      const unsubscribePlaybackTimestamp = handle.onPlaybackTimestamp((ts) => {
+        const current = avatarRenderer;
+        if (current === null) return;
+        if (!current.capabilities.needsVisemes) return;
+        if (typeof current.notifyPlaybackTimestamp !== "function") return;
+        current.notifyPlaybackTimestamp(ts);
+      });
+
+      // Observability hook — invoked fire-and-forget so slow callbacks don't
+      // stall the audio pipeline.
+      void Promise.resolve(onPlayAudio(streamId)).catch(() => {});
+
+      const body = c.req.raw.body;
+      if (!body) {
+        if (activeStreams.get(streamId)?.controller === controller) {
+          activeStreams.delete(streamId);
         }
-        const { value, done } = next.value;
-        if (done) break;
-        if (!value || value.length === 0) continue;
-
         try {
-          await handle.write(value);
-          bytes += value.length;
-        } catch (err) {
-          writeError = err instanceof Error ? err : new Error(String(err));
-          break;
+          await handle.flushSilence(TRAILING_SILENCE_MS);
+        } catch {
+          // Best-effort; silence is cosmetic.
         }
+        unsubscribePlaybackTimestamp();
+        return c.json({ streamId, bytes: 0 }, 200);
       }
+
+      let bytes = 0;
+      let cancelled = false;
+      let writeError: Error | null = null;
+
+      const reader = body.getReader();
+      const abortPromise = new Promise<void>((resolve) => {
+        if (controller.signal.aborted) {
+          cancelled = true;
+          resolve();
+          return;
+        }
+        controller.signal.addEventListener(
+          "abort",
+          () => {
+            cancelled = true;
+            try {
+              // Best-effort — releases the reader so the `read()` loop sees
+              // EOF on the next iteration.
+              reader.cancel().catch(() => {});
+            } catch {
+              // ignore
+            }
+            resolve();
+          },
+          { once: true },
+        );
+      });
+
+      try {
+        while (true) {
+          const readP = reader.read();
+          const next = await Promise.race([
+            readP.then((r) => ({ kind: "read" as const, value: r })),
+            abortPromise.then(() => ({ kind: "abort" as const })),
+          ]);
+
+          if (next.kind === "abort") {
+            break;
+          }
+          const { value, done } = next.value;
+          if (done) break;
+          if (!value || value.length === 0) continue;
+
+          try {
+            await handle.write(value);
+            bytes += value.length;
+          } catch (err) {
+            writeError = err instanceof Error ? err : new Error(String(err));
+            break;
+          }
+        }
+      } finally {
+        try {
+          reader.releaseLock();
+        } catch {
+          // Lock may already be released after `cancel()`; fine.
+        }
+        if (activeStreams.get(streamId)?.controller === controller) {
+          activeStreams.delete(streamId);
+        }
+        try {
+          await handle.flushSilence(TRAILING_SILENCE_MS);
+        } catch {
+          // Best-effort.
+        }
+        // Drop the playback→renderer bridge at stream end so the next
+        // stream subscribes fresh.
+        unsubscribePlaybackTimestamp();
+      }
+
+      if (writeError) {
+        return c.json(
+          { error: `playback write failed: ${writeError.message}`, bytes },
+          500,
+        );
+      }
+      if (cancelled) {
+        // 499 — Nginx's convention for "client closed request"; used here as
+        // the signal that playback was interrupted (either by the HTTP peer
+        // dropping or by DELETE /play_audio/:id). Hono's typed status codes
+        // don't include 499 (it's non-standard), so we build the Response by
+        // hand.
+        return new Response(
+          JSON.stringify({ streamId, bytes, cancelled: true }),
+          {
+            status: 499,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      return c.json({ streamId, bytes }, 200);
     } finally {
-      try {
-        reader.releaseLock();
-      } catch {
-        // Lock may already be released after `cancel()`; fine.
-      }
-      activeStreams.delete(streamId);
-      // Always flush trailing silence so we don't "pop" — even on cancel,
-      // which intentionally stops PCM mid-frame.
-      try {
-        await handle.flushSilence(TRAILING_SILENCE_MS);
-      } catch {
-        // Best-effort.
-      }
-      // Release our slot in the playback chain *after* the silence flush
-      // so any POST queued behind us only unblocks once the shared pacat
-      // stdin is fully quiesced.
       releaseChain();
     }
-
-    if (writeError) {
-      return c.json(
-        { error: `playback write failed: ${writeError.message}`, bytes },
-        500,
-      );
-    }
-    if (cancelled) {
-      // 499 — Nginx's convention for "client closed request"; used here as
-      // the signal that playback was interrupted (either by the HTTP peer
-      // dropping or by DELETE /play_audio/:id). Hono's typed status codes
-      // don't include 499 (it's non-standard), so we build the Response by
-      // hand.
-      return new Response(
-        JSON.stringify({ streamId, bytes, cancelled: true }),
-        {
-          status: 499,
-          headers: { "content-type": "application/json" },
-        },
-      );
-    }
-    return c.json({ streamId, bytes }, 200);
   });
 
   // -------------------------------------------------------------------------
@@ -450,6 +635,305 @@ export function createHttpServer(
     // interrupt, not a join point. The POST side is responsible for
     // flushing silence and clearing its registry entry.
     return c.json({ cancelled: true, streamId }, 200);
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /avatar/viseme — forward a viseme event to the active renderer.
+  //
+  // Body shape must match `VisemeEvent` from
+  // `../media/avatar/types.ts` — the same shape the daemon's
+  // `tts-lipsync.ts` forwarder POSTs. When no renderer is active (the
+  // feature is off, or `/avatar/enable` has not yet been called), the
+  // event is dropped with a 200 so the forwarder doesn't buffer /
+  // retry. When the active renderer advertises `needsVisemes: false`,
+  // the event is similarly dropped without calling the renderer — the
+  // drop is cheap enough that the branch is just a belt-and-suspenders
+  // gate in case a renderer forgets to self-check.
+  // -------------------------------------------------------------------------
+
+  app.post("/avatar/viseme", async (c) => {
+    const body = await readJson(c);
+    const parsed = parseVisemeEvent(body);
+    if (!parsed) {
+      return c.json({ error: "invalid viseme event body" }, 400);
+    }
+    // Drop silently when the renderer isn't active. Keeping a 200 here
+    // means the daemon's fire-and-forget forwarder doesn't flood retry
+    // traffic against a bot that simply hasn't flipped the renderer on.
+    if (!avatarRenderer) {
+      return c.json({ dispatched: false }, 200);
+    }
+    if (!avatarRenderer.capabilities.needsVisemes) {
+      return c.json({ dispatched: false }, 200);
+    }
+    try {
+      avatarRenderer.pushViseme(parsed);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json(
+        { dispatched: false, error: `pushViseme threw: ${message}` },
+        500,
+      );
+    }
+    return c.json({ dispatched: true }, 200);
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /avatar/enable — start the configured renderer + attach the
+  // device writer. Concurrency-safe via `avatarMutationChain` so racing
+  // enables don't produce two live renderers on one device.
+  // -------------------------------------------------------------------------
+
+  app.post("/avatar/enable", async (c) => {
+    if (!avatar) {
+      return c.json(
+        {
+          enabled: false,
+          error: "avatar subsystem disabled (AVATAR_ENABLED not set)",
+        },
+        503,
+      );
+    }
+    const previous = avatarMutationChain;
+    let release!: (v: unknown) => void;
+    avatarMutationChain = new Promise((resolve) => {
+      release = resolve;
+    });
+    try {
+      await previous;
+    } catch {
+      // A prior mutation failed; we still hold the lock and can proceed.
+    }
+    try {
+      // Idempotent: if a renderer is already running, just return
+      // success so the daemon's retry path doesn't thrash the device.
+      if (avatarRenderer) {
+        return c.json(
+          {
+            enabled: true,
+            renderer: avatarRenderer.id,
+            alreadyRunning: true,
+          },
+          200,
+        );
+      }
+
+      let renderer: AvatarRenderer | null;
+      try {
+        const resolveFn =
+          avatar.resolveRenderer ??
+          ((config) =>
+            resolveAvatarRenderer(config, {
+              ...(avatar.nativeMessaging
+                ? { nativeMessaging: avatar.nativeMessaging }
+                : {}),
+            }));
+        renderer = resolveFn(avatar.config);
+      } catch (err) {
+        if (err instanceof AvatarRendererUnavailableError) {
+          return c.json(
+            {
+              enabled: false,
+              renderer: err.rendererId,
+              error: err.reason,
+            },
+            503,
+          );
+        }
+        throw err;
+      }
+
+      // `null` means "noop / disabled at config level" — return 200
+      // because the feature is behaving as configured. No device
+      // attachment happens, and the bot's camera track stays absent
+      // (identical to phase 3 behavior).
+      if (!renderer) {
+        return c.json(
+          {
+            enabled: true,
+            renderer: "noop",
+            active: false,
+          },
+          200,
+        );
+      }
+
+      // Start the renderer BEFORE opening the device so a
+      // construction-time `AvatarRendererUnavailableError` thrown
+      // from `start()` doesn't leak a held file descriptor.
+      try {
+        await renderer.start();
+      } catch (err) {
+        // `start()` may have partially initialized resources (GPU
+        // session, WebRTC connection, spawned tab) before throwing.
+        // Best-effort teardown so an unexpected error doesn't leak
+        // them — `avatarRenderer` is still null, so no later
+        // `/avatar/disable` call would clean up.
+        await renderer.stop().catch(() => {});
+        if (err instanceof AvatarRendererUnavailableError) {
+          return c.json(
+            {
+              enabled: false,
+              renderer: err.rendererId,
+              error: err.reason,
+            },
+            503,
+          );
+        }
+        throw err;
+      }
+
+      const openDeviceFn = avatar.openDevice ?? defaultOpenVideoDevice;
+      let deviceHandle: VideoDeviceHandle;
+      try {
+        deviceHandle = avatar.devicePath
+          ? await openDeviceFn(avatar.devicePath)
+          : await openDeviceFn("/dev/video10");
+      } catch (err) {
+        // If the device couldn't be opened, tear the renderer down so
+        // we don't leak a live GPU session or tab.
+        await renderer.stop().catch(() => {});
+        const message = err instanceof Error ? err.message : String(err);
+        return c.json(
+          {
+            enabled: false,
+            renderer: renderer.id,
+            error: `failed to open avatar device: ${message}`,
+          },
+          503,
+        );
+      }
+
+      const writer = attachDeviceWriter({
+        renderer,
+        sink: deviceHandle.sink,
+        maxFps: avatar.maxFps,
+      });
+
+      avatarRenderer = renderer;
+      avatarDeviceHandle = deviceHandle;
+      avatarDeviceWriter = writer;
+
+      // Flip the Meet camera toggle ON so other participants start
+      // receiving frames from `/dev/video10` (now fed by the renderer).
+      // Ordered AFTER renderer start + device attach so the moment the
+      // toggle flips the camera ON, Meet reads real frames instead of a
+      // black frame. Non-fatal on failure: a stuck camera toggle is a
+      // regression signal but tearing the renderer back down would be
+      // strictly worse — the device is attached, the renderer is
+      // running, and the next `/avatar/enable` retry or a manual user
+      // click can recover.
+      let cameraChange: { changed: boolean } | null = null;
+      let cameraError: string | null = null;
+      if (avatar.camera) {
+        try {
+          cameraChange = await avatar.camera.enableCamera();
+        } catch (err) {
+          cameraError = err instanceof Error ? err.message : String(err);
+        }
+      }
+
+      const body: Record<string, unknown> = {
+        enabled: true,
+        renderer: renderer.id,
+        active: true,
+        devicePath: deviceHandle.devicePath,
+      };
+      if (cameraChange !== null) {
+        body.cameraChanged = cameraChange.changed;
+      }
+      if (cameraError !== null) {
+        body.cameraError = cameraError;
+      }
+      return c.json(body, 200);
+    } finally {
+      release(undefined);
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // POST /avatar/disable — detach the writer, stop the renderer, close
+  // the device. Idempotent: returns 200 even when nothing is running.
+  // -------------------------------------------------------------------------
+
+  app.post("/avatar/disable", async (c) => {
+    if (!avatar) {
+      return c.json(
+        {
+          disabled: true,
+          reason: "avatar subsystem disabled (AVATAR_ENABLED not set)",
+        },
+        200,
+      );
+    }
+    const previous = avatarMutationChain;
+    let release!: (v: unknown) => void;
+    avatarMutationChain = new Promise((resolve) => {
+      release = resolve;
+    });
+    try {
+      await previous;
+    } catch {
+      /* previous mutation error; proceed with teardown */
+    }
+    try {
+      const writer = avatarDeviceWriter;
+      const device = avatarDeviceHandle;
+      const renderer = avatarRenderer;
+
+      avatarDeviceWriter = null;
+      avatarDeviceHandle = null;
+      avatarRenderer = null;
+
+      // Flip the camera OFF BEFORE tearing down the renderer so other
+      // participants stop seeing the video track before the frame source
+      // disappears — this avoids the brief black frame gap that would
+      // otherwise appear while the renderer/device teardown is in
+      // flight. Non-fatal on failure; we still complete teardown so the
+      // device doesn't hold open a handle.
+      let cameraChange: { changed: boolean } | null = null;
+      let cameraError: string | null = null;
+      if (avatar.camera) {
+        try {
+          cameraChange = await avatar.camera.disableCamera();
+        } catch (err) {
+          cameraError = err instanceof Error ? err.message : String(err);
+        }
+      }
+
+      // Teardown order (reverse of setup): writer → device → renderer.
+      if (writer) {
+        try {
+          writer.stop();
+        } catch {
+          /* best-effort */
+        }
+      }
+      if (device) {
+        await device.close().catch(() => {
+          /* best-effort */
+        });
+      }
+      if (renderer) {
+        await renderer.stop().catch(() => {
+          /* best-effort */
+        });
+      }
+
+      const body: Record<string, unknown> = {
+        disabled: true,
+        wasActive: renderer !== null,
+      };
+      if (cameraChange !== null) {
+        body.cameraChanged = cameraChange.changed;
+      }
+      if (cameraError !== null) {
+        body.cameraError = cameraError;
+      }
+      return c.json(body, 200);
+    } finally {
+      release(undefined);
+    }
   });
 
   // -------------------------------------------------------------------------
@@ -494,4 +978,34 @@ async function readJson(c: Context): Promise<unknown> {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Validate `/avatar/viseme` request bodies against the `VisemeEvent`
+ * shape declared in `../media/avatar/types.ts` without bringing zod
+ * into the bot's runtime surface. The avatar module is deliberately
+ * schema-free (it's shared with hosted renderer factories that may
+ * run in sandboxed environments), so we hand-roll the predicate here.
+ *
+ * Accepts `phoneme: string`, `weight: number`, `timestamp: number`.
+ * Returns `null` for any shape mismatch so the route can reply with a
+ * generic 400 — the daemon's `tts-lipsync.ts` forwarder already tolerates
+ * 4xx/5xx from this route, so surfacing specific issues isn't worth the
+ * extra surface.
+ */
+function parseVisemeEvent(body: unknown): VisemeEvent | null {
+  if (!body || typeof body !== "object") return null;
+  const raw = body as Record<string, unknown>;
+  if (typeof raw.phoneme !== "string") return null;
+  if (typeof raw.weight !== "number" || !Number.isFinite(raw.weight)) {
+    return null;
+  }
+  if (typeof raw.timestamp !== "number" || !Number.isFinite(raw.timestamp)) {
+    return null;
+  }
+  return {
+    phoneme: raw.phoneme,
+    weight: raw.weight,
+    timestamp: raw.timestamp,
+  };
 }

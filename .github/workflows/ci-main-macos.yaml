@@ -112,6 +112,21 @@ jobs:
     steps:
       - name: Generate GitHub App token
         id: app-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
+      - name: Wait before token retry
+        if: steps.app-token.outcome == 'failure'
+        run: |
+          echo "::warning::Initial GitHub App token generation failed (likely transient api.github.com timeout from macOS runner). Retrying after 30s."
+          sleep 30
+
+      - name: Generate GitHub App token (retry)
+        id: app-token-retry
+        if: steps.app-token.outcome == 'failure'
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
         with:
           app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
@@ -120,7 +135,7 @@ jobs:
       - name: Cancel if superseded by a newer run
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
-          github-token: ${{ steps.app-token.outputs.token }}
+          github-token: ${{ steps.app-token.outputs.token || steps.app-token-retry.outputs.token }}
           script: |
             const branch = context.ref.replace('refs/heads/', '');
             for (const status of ['queued', 'waiting', 'in_progress']) {
@@ -150,7 +165,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ steps.app-token.outputs.token || steps.app-token-retry.outputs.token }}
 
       - name: Select Xcode 26.2
         run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer
@@ -206,7 +221,7 @@ jobs:
 
       - name: Configure GitHub auth for SPM binary downloads
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || steps.app-token-retry.outputs.token }}
         run: |
           printf "machine github.com\nlogin oauth2\npassword %s\n" "${GH_TOKEN}" > ~/.netrc
           chmod 600 ~/.netrc
@@ -214,9 +229,7 @@ jobs:
       - name: Install nested package dependencies
         run: |
           pids=()
-          # The daemon bundles zod via skills/meet-join/{config-schema.ts,contracts}
-          # so those directories need their own node_modules alongside packages/.
-          for dir in packages/*/ skills/meet-join/ skills/meet-join/contracts/; do
+          for dir in packages/*/ skills/*/; do
             [ -f "${dir}/package.json" ] || continue
             echo "Installing dependencies in ${dir}"
             (cd "${dir}" && bun install) &

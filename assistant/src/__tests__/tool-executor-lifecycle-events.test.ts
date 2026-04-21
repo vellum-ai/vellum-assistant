@@ -64,7 +64,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../permissions/checker.js", () => ({
-  classifyRisk: async () => checkerRisk,
+  classifyRisk: async () => ({ level: checkerRisk }),
   check: async () => ({ decision: checkerDecision, reason: checkerReason }),
   generateAllowlistOptions: () => [
     { label: "exact", description: "exact", pattern: "exact" },
@@ -639,7 +639,7 @@ describe("ToolExecutor lifecycle events", () => {
     const result = await executor.execute(
       "file_edit",
       {
-        path: "/Users/sidd/.vellum/workspace/users/sidd.md",
+        path: "/Users/alice/.vellum/workspace/users/alice.md",
         old_string: "old",
         new_string: "new",
       },

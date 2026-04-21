@@ -239,6 +239,14 @@ struct VCodeTextView: NSViewRepresentable {
     func makeNSView(context: Context) -> VCodeHorizontalScrollView {
         let textStorage = NSTextStorage()
         let layoutManager = NSLayoutManager()
+        // Non-contiguous layout confines glyph generation to the requested
+        // bounding rect. Without this, adding the NSTextView to its scroll
+        // view triggers full-document glyph layout from character 0 on the
+        // main thread (via `_setSuperview:` → `setNeedsDisplayInRect:` →
+        // `_glyphRangeForBoundingRect:`), producing multi-second hangs for
+        // large code blocks.
+        // https://developer.apple.com/documentation/appkit/nslayoutmanager/allowsnoncontiguouslayout
+        layoutManager.allowsNonContiguousLayout = true
         textStorage.addLayoutManager(layoutManager)
         let textContainer = NSTextContainer(size: NSSize(
             width: CGFloat.greatestFiniteMagnitude,
@@ -326,33 +334,21 @@ struct VCodeTextView: NSViewRepresentable {
         nsView: VCodeHorizontalScrollView,
         context: Context
     ) -> CGSize? {
-        guard let textView = nsView.documentView as? ClickReportingTextView,
-              let layoutManager = textView.layoutManager,
-              let textContainer = textView.textContainer,
-              let textStorage = textView.textStorage else { return nil }
+        guard let textView = nsView.documentView as? ClickReportingTextView else { return nil }
 
         let width = proposal.width ?? 400
 
-        // SwiftUI calls `sizeThatFits` for every cell on every `LazyVStack`
-        // layout pass. Returning the cached size when
-        // `(textStorage.length, width)` matches the last measurement avoids
-        // rerunning `ensureLayout`, which is O(n) in glyph count. `applyText`
-        // invalidates on both the plain-text apply and async syntax-highlight
-        // completion (font variants can change line height).
-        let coordinator = context.coordinator
-        let length = textStorage.length
-        if length == coordinator.lastMeasuredLength,
-           width == coordinator.lastMeasuredWidth {
-            return CGSize(width: width, height: coordinator.lastMeasuredHeight)
-        }
-
-        layoutManager.ensureLayout(for: textContainer)
-        let usedRect = layoutManager.usedRect(for: textContainer)
-        let height = usedRect.height + textView.textContainerInset.height * 2
-
-        coordinator.lastMeasuredLength = length
-        coordinator.lastMeasuredWidth = width
-        coordinator.lastMeasuredHeight = height
+        // Height is derived directly from line count and the pinned
+        // per-line height, bypassing `NSLayoutManager.ensureLayout(for:)`.
+        // The text container is unbounded horizontally, so lines never
+        // wrap; `paragraphStyle.minimumLineHeight == maximumLineHeight`
+        // clamps every line (including bold/italic syntax-highlight runs)
+        // to the same `defaultLineHeight`. That makes the geometry exactly
+        // `lineCount * lineHeight + insets`, and removes an O(glyph count)
+        // main-thread layout pass that SwiftUI would otherwise re-run on
+        // every cell during `LazyVStack` layout.
+        let height = CGFloat(context.coordinator.lineCount) * VCodeView.lineHeight
+            + textView.textContainerInset.height * 2
         return CGSize(width: width, height: height)
     }
 
@@ -366,20 +362,11 @@ struct VCodeTextView: NSViewRepresentable {
         var lastMatchCount: Int = 0
         var paragraphStyle: NSParagraphStyle?
 
-        // Last successful `sizeThatFits` measurement. Invalidated wherever
-        // the text storage is replaced: `applyText` and the async
-        // syntax-highlight completion.
-        var lastMeasuredLength: Int = -1
-        var lastMeasuredWidth: CGFloat = -1
-        var lastMeasuredHeight: CGFloat = 0
+        // Newline count for the current text. Drives `sizeThatFits`
+        // geometry directly, avoiding `NSLayoutManager.ensureLayout(for:)`.
+        var lineCount: Int = 1
 
         private var highlightTask: Task<Void, Never>?
-
-        func invalidateMeasurementCache() {
-            lastMeasuredLength = -1
-            lastMeasuredWidth = -1
-            lastMeasuredHeight = 0
-        }
 
         deinit {
             highlightTask?.cancel()
@@ -397,7 +384,7 @@ struct VCodeTextView: NSViewRepresentable {
             to textView: NSTextView
         ) {
             lastText = text
-            invalidateMeasurementCache()
+            lineCount = VCodeView.countLines(in: text)
 
             // Apply plain text immediately so the view is never empty
             guard let textStorage = textView.textStorage else { return }
@@ -427,10 +414,6 @@ struct VCodeTextView: NSViewRepresentable {
                     storage.beginEditing()
                     storage.setAttributedString(highlighted)
                     storage.endEditing()
-
-                    // Invalidate measurement cache — font variants from
-                    // highlighting (bold/italic) may change line heights.
-                    self?.invalidateMeasurementCache()
 
                     // Re-apply search highlights that were wiped by setAttributedString
                     if let self, !self.currentMatchRanges.isEmpty {

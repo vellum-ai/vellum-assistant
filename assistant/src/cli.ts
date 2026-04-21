@@ -113,23 +113,6 @@ export function formatConfirmationCommandPreview(
   if (req.toolName === "web_fetch") {
     return `fetch ${sanitizeUrlForDisplay(req.input.url ?? "")}`;
   }
-  if (req.toolName === "browser_navigate") {
-    return `navigate ${sanitizeUrlForDisplay(req.input.url ?? "")}`;
-  }
-  if (req.toolName === "browser_close") {
-    return req.input.close_all_pages
-      ? "close all browser pages"
-      : "close browser page";
-  }
-  if (req.toolName === "browser_click") {
-    return `click ${req.input.element_id ?? req.input.selector ?? ""}`;
-  }
-  if (req.toolName === "browser_type") {
-    return `type into ${req.input.element_id ?? req.input.selector ?? ""}`;
-  }
-  if (req.toolName === "browser_press_key") {
-    return `press "${req.input.key ?? ""}"`;
-  }
   return req.toolName;
 }
 
@@ -174,26 +157,6 @@ export async function startCli(): Promise<void> {
         return `Editing ${input.path ?? ""}...`;
       case "web_fetch":
         return `Fetching ${sanitizeUrlForDisplay(input.url).slice(0, 80)}...`;
-      case "browser_navigate":
-        return `Navigating to ${sanitizeUrlForDisplay(input.url).slice(0, 80)}...`;
-      case "browser_snapshot":
-        return "Taking page snapshot...";
-      case "browser_close":
-        return "Closing browser...";
-      case "browser_click":
-        return `Clicking ${String(input.element_id ?? input.selector ?? "").slice(0, 60)}...`;
-      case "browser_type":
-        return `Typing into ${String(input.element_id ?? input.selector ?? "").slice(0, 60)}...`;
-      case "browser_press_key":
-        return `Pressing "${String(input.key ?? "")}"...`;
-      case "browser_wait_for":
-        if (input.selector)
-          return `Waiting for ${String(input.selector).slice(0, 60)}...`;
-        if (input.text)
-          return `Waiting for text "${String(input.text).slice(0, 40)}"...`;
-        return `Waiting ${input.duration ?? 0}ms...`;
-      case "browser_extract":
-        return "Extracting page content...";
       default:
         return `Running ${toolName}...`;
     }

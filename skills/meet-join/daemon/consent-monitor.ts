@@ -127,8 +127,9 @@ export interface MeetConsentMonitorDeps {
   config: MeetConsentMonitorConfig;
   /**
    * Ask the LLM for an objection verdict. Defaults to a wrapper around the
-   * repo-wide provider abstraction using {@link CONSENT_LLM_MAX_TOKENS} and
-   * `modelIntent: "latency-optimized"`. Tests inject scripted responses.
+   * repo-wide provider abstraction using {@link CONSENT_LLM_MAX_TOKENS}
+   * under the `meetConsentMonitor` call site. Tests inject scripted
+   * responses.
    */
   llmAsk?: ObjectionLLMAsk;
   /** Override the dispatcher subscribe (tests). */
@@ -201,6 +202,9 @@ export class MeetConsentMonitor {
 
   /** Flips to true after the first positive objection verdict. */
   private decided = false;
+
+  /** Flips to true when `stop()` is called so in-flight LLM verdicts are discarded. */
+  private stopped = false;
 
   /** In-flight flag so overlapping keyword hits don't fan out LLM calls. */
   private llmInFlight = false;
@@ -293,6 +297,7 @@ export class MeetConsentMonitor {
    * Tear down the subscription and timer. Idempotent.
    */
   stop(): void {
+    this.stopped = true;
     if (this.unsubscribe) {
       try {
         this.unsubscribe();
@@ -500,7 +505,7 @@ export class MeetConsentMonitor {
    * checks (there shouldn't be any, but defense-in-depth).
    */
   private async maybeRunLLMCheck(trigger: string): Promise<void> {
-    if (this.decided || this.llmInFlight) return;
+    if (this.decided || this.llmInFlight || this.stopped) return;
     // Don't call the LLM on the tick path when both buffers are empty.
     if (
       trigger === "tick" &&
@@ -550,15 +555,6 @@ export class MeetConsentMonitor {
       return;
     }
 
-    // Advance the content watermark to the current content timestamp
-    // before firing. Every LLM call that actually fires advances the
-    // watermark so the next tick will correctly skip if no new content
-    // has arrived since the call — whether this call was tick-driven or
-    // keyword-driven. (The keyword path still fires whenever it hits,
-    // because the watermark check is tick-only; the debounce above is
-    // what rate-limits keyword-triggered calls.)
-    this.lastLlmCheckContentTimestamp = this.lastContentTimestamp;
-
     // Stamp the debounce clock BEFORE the async LLM call begins so a
     // second trigger arriving while this call is in flight is debounced
     // (in addition to being collapsed by the in-flight flag below).
@@ -569,10 +565,22 @@ export class MeetConsentMonitor {
     const prevLlmCheckAt = this.lastLlmCheckAt;
     this.lastLlmCheckAt = now;
 
+    // Capture the content timestamp we're about to check so we can
+    // advance the watermark only after a successful LLM call. Advancing
+    // before the call would prevent retry on failure.
+    const contentTimestampAtCheck = this.lastContentTimestamp;
+
+    this.trimTranscriptBuffer();
     const prompt = this.buildPrompt();
     this.llmInFlight = true;
     try {
       const decision = await this.llmAsk(prompt);
+      if (this.stopped) return;
+
+      // Advance the content watermark only after a successful LLM call
+      // so that a failed call doesn't prevent the next tick from retrying.
+      this.lastLlmCheckContentTimestamp = contentTimestampAtCheck;
+
       if (!decision.objected) {
         log.debug(
           {
@@ -610,9 +618,9 @@ export class MeetConsentMonitor {
         }
       }
     } catch (err) {
-      // Restore the debounce clock on failure so the next trigger is
-      // not silently suppressed for the remainder of the 8s window.
-      // The `prev` value may be `null` (first-ever call) — that's fine.
+      // Restore the debounce clock on failure so the next trigger is not
+      // silently suppressed. The content watermark doesn't need restoring
+      // because it's only advanced after a successful LLM call (line above).
       this.lastLlmCheckAt = prevLlmCheckAt;
       log.warn(
         { err, meetingId: this.meetingId, trigger },
@@ -693,7 +701,7 @@ const OBJECTION_TOOL: ToolDefinition = {
 
 /**
  * Default {@link ObjectionLLMAsk} — routes through the repo-wide provider
- * abstraction with `modelIntent: "latency-optimized"`, times out at
+ * abstraction under the `meetConsentMonitor` call site, times out at
  * {@link CONSENT_LLM_TIMEOUT_MS}, and extracts the tool-use input as the
  * structured verdict.
  *
@@ -701,7 +709,8 @@ const OBJECTION_TOOL: ToolDefinition = {
  * real provider.
  */
 async function defaultLLMAsk(prompt: string): Promise<ObjectionDecision> {
-  const provider: Provider | null = await getConfiguredProvider();
+  const provider: Provider | null =
+    await getConfiguredProvider("meetConsentMonitor");
   if (!provider) {
     // No provider available — conservatively assume no objection so the
     // monitor doesn't interrupt a meeting based on missing infra.
@@ -716,7 +725,7 @@ async function defaultLLMAsk(prompt: string): Promise<ObjectionDecision> {
       "You are a strict JSON classifier. Only respond via the report_objection tool.",
       {
         config: {
-          modelIntent: "latency-optimized",
+          callSite: "meetConsentMonitor",
           max_tokens: CONSENT_LLM_MAX_TOKENS,
           tool_choice: { type: "tool" as const, name: OBJECTION_TOOL.name },
         },

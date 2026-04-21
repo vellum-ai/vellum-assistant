@@ -109,7 +109,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../permissions/checker.js", () => ({
-  classifyRisk: async () => "low",
+  classifyRisk: async () => ({ level: "low" }),
   check: async (
     toolName: string,
     input: Record<string, unknown>,
@@ -309,6 +309,8 @@ describe("ToolExecutor policy context plumbing", () => {
     expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
+      executionContext: "conversation",
+      ephemeralRules: undefined,
       executionTarget: "sandbox",
     });
   });
@@ -326,7 +328,10 @@ describe("ToolExecutor policy context plumbing", () => {
 
     expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
-    expect(lastCheckArgs!.policyContext).toBeUndefined();
+    expect(lastCheckArgs!.policyContext).toEqual({
+      executionContext: "conversation",
+      ephemeralRules: undefined,
+    });
   });
 
   test('passes undefined policyContext for tools with origin "core"', async () => {
@@ -356,7 +361,10 @@ describe("ToolExecutor policy context plumbing", () => {
 
     expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
-    expect(lastCheckArgs!.policyContext).toBeUndefined();
+    expect(lastCheckArgs!.policyContext).toEqual({
+      executionContext: "conversation",
+      ephemeralRules: undefined,
+    });
   });
 
   test('includes executionTarget "host" from skill tool metadata', async () => {
@@ -390,6 +398,8 @@ describe("ToolExecutor policy context plumbing", () => {
     expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
+      executionContext: "conversation",
+      ephemeralRules: undefined,
       executionTarget: "host",
     });
   });
@@ -420,6 +430,8 @@ describe("ToolExecutor policy context plumbing", () => {
     expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
+      executionContext: "conversation",
+      ephemeralRules: undefined,
       executionTarget: undefined,
     });
   });
@@ -463,7 +475,7 @@ describe("ToolExecutor contextual rule creation", () => {
         scope: string,
         decision = "allow",
         priority = 100,
-        options?: { allowHighRisk?: boolean; executionTarget?: string },
+        options?: { executionTarget?: string },
       ) => {
         return {
           id: "spy-rule-id",
@@ -528,7 +540,7 @@ describe("ToolExecutor contextual rule creation", () => {
     expect(options.executionTarget).toBe("sandbox");
   });
 
-  test("always_allow_high_risk sets allowHighRisk and captures execution target", async () => {
+  test("always_allow captures execution target without allowHighRisk", async () => {
     checkResultOverride = { decision: "prompt", reason: "test prompt" };
     const spy = setupAddRuleSpy();
 
@@ -553,7 +565,7 @@ describe("ToolExecutor contextual rule creation", () => {
     };
 
     const prompter = makePrompterWithDecision(
-      "always_allow_high_risk",
+      "always_allow",
       "risky_tool:*",
       "everywhere",
     );
@@ -569,7 +581,6 @@ describe("ToolExecutor contextual rule creation", () => {
     expect(scope).toBe("everywhere");
     expect(decision).toBe("allow");
     expect(options).toBeDefined();
-    expect(options.allowHighRisk).toBe(true);
     expect(options.executionTarget).toBe("host");
   });
 
@@ -663,13 +674,13 @@ describe("ToolExecutor contextual rule creation", () => {
     expect(scope).toBe("everywhere");
   });
 
-  test("always_allow_high_risk for core tool sets allowHighRisk without execution target", async () => {
+  test("always_allow for core tool creates rule without execution target", async () => {
     checkResultOverride = { decision: "prompt", reason: "test prompt" };
     const spy = setupAddRuleSpy();
     getToolOverride = undefined;
 
     const prompter = makePrompterWithDecision(
-      "always_allow_high_risk",
+      "always_allow",
       "sudo *",
       "everywhere",
     );
@@ -683,10 +694,8 @@ describe("ToolExecutor contextual rule creation", () => {
     expect(result.isError).toBe(false);
     expect(spy).toHaveBeenCalledTimes(1);
     const [, , , , , options] = spy.mock.calls[0];
-    expect(options).toBeDefined();
-    expect(options.allowHighRisk).toBe(true);
-    // No execution target for core tools
-    expect(options.executionTarget).toBeUndefined();
+    // Core tools have no executionTarget, so ruleOptions is empty → undefined
+    expect(options).toBeUndefined();
   });
 
   test("skill tool with host execution target records executionTarget in rule", async () => {
@@ -754,7 +763,7 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
         scope: string,
         decision = "allow",
         priority = 100,
-        options?: { allowHighRisk?: boolean; executionTarget?: string },
+        options?: { executionTarget?: string },
       ) => {
         return {
           id: "spy-rule-id",
@@ -771,7 +780,7 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
     return addRuleSpy;
   }
 
-  test("always_allow_high_risk creates rule with allowHighRisk: true for high-risk skill tool", async () => {
+  test("always_allow creates rule with execution target for high-risk skill tool", async () => {
     checkResultOverride = {
       decision: "prompt",
       reason: "High risk: always requires approval",
@@ -799,7 +808,7 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
     };
 
     const prompter = makePrompterWithDecision(
-      "always_allow_high_risk",
+      "always_allow",
       "deploy_tool:*",
       "everywhere",
     );
@@ -818,12 +827,12 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
     expect(pattern).toBe("deploy_tool:*");
     expect(scope).toBe("everywhere");
     expect(decision).toBe("allow");
-    // The key integration assertion: allowHighRisk + execution target together
-    expect(options.allowHighRisk).toBe(true);
+    // The key integration assertion: execution target is captured
+    expect(options.executionTarget).toBeDefined();
     expect(options.executionTarget).toBe("host");
   });
 
-  test("always_allow creates rule without allowHighRisk even for high-risk skill tool", async () => {
+  test("always_allow creates rule with execution target for skill tool", async () => {
     checkResultOverride = { decision: "prompt", reason: "test prompt" };
     const spy = setupAddRuleSpy();
 
@@ -847,9 +856,7 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
       };
     };
 
-    // User chooses always_allow (NOT always_allow_high_risk) — the rule
-    // should NOT have allowHighRisk set, meaning future high-risk checks
-    // will still prompt.
+    // User chooses always_allow — rule is created with execution target.
     const prompter = makePrompterWithDecision(
       "always_allow",
       "risky_op:*",
@@ -864,8 +871,8 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
     expect(options).toBeDefined();
     // executionTarget should be present
     expect(options.executionTarget).toBe("sandbox");
-    // But allowHighRisk should NOT be set
-    expect(options.allowHighRisk).toBeUndefined();
+    // Rule should have execution target
+    // allowHighRisk is no longer persisted
   });
 
   test("executor forwards policyContext to check() for version-bound skill tool", async () => {
@@ -894,13 +901,15 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
 
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
+      executionContext: "conversation",
+      ephemeralRules: undefined,
       executionTarget: "sandbox",
     });
   });
 
   // ── Skill mutation approval regression tests (PR 30) ──────────
 
-  test("always_allow_high_risk for skill source write creates rule with allowHighRisk and execution target", async () => {
+  test("always_allow for skill source write creates rule with execution target", async () => {
     checkResultOverride = {
       decision: "prompt",
       reason: "High risk: always requires approval",
@@ -928,7 +937,7 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
     };
 
     const prompter = makePrompterWithDecision(
-      "always_allow_high_risk",
+      "always_allow",
       "file_write:*/skills/**",
       "everywhere",
     );
@@ -946,11 +955,11 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
     expect(pattern).toBe("file_write:*/skills/**");
     expect(scope).toBe("everywhere");
     expect(decision).toBe("allow");
-    expect(options.allowHighRisk).toBe(true);
+    expect(options.executionTarget).toBeDefined();
     expect(options.executionTarget).toBe("sandbox");
   });
 
-  test("always_allow (not high risk) for skill source write creates rule WITHOUT allowHighRisk", async () => {
+  test("always_allow for skill source write creates rule with execution target (baseline)", async () => {
     checkResultOverride = {
       decision: "prompt",
       reason: "High risk: always requires approval",
@@ -977,7 +986,7 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
       };
     };
 
-    // User chooses always_allow instead of always_allow_high_risk
+    // User chooses always_allow
     const prompter = makePrompterWithDecision(
       "always_allow",
       "file_write:*/skills/**",
@@ -995,8 +1004,8 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
     const [, , , , , options] = spy.mock.calls[0];
     expect(options).toBeDefined();
     expect(options.executionTarget).toBe("sandbox");
-    // Without always_allow_high_risk, the allowHighRisk flag should NOT be set
-    expect(options.allowHighRisk).toBeUndefined();
+    // Execution target is captured from the tool context
+    // allowHighRisk is no longer persisted
   });
 
   test("skill version is captured in rule for future version-bound matching", async () => {
@@ -1027,7 +1036,7 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
     };
 
     const prompter = makePrompterWithDecision(
-      "always_allow_high_risk",
+      "always_allow",
       "file_edit:*/skills/**",
       "everywhere",
     );
@@ -1042,7 +1051,7 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
     expect(spy).toHaveBeenCalledTimes(1);
     const [tool, , , , , options] = spy.mock.calls[0];
     expect(tool).toBe("file_edit");
-    expect(options.allowHighRisk).toBe(true);
+    expect(options.executionTarget).toBeDefined();
     expect(options.executionTarget).toBe("sandbox");
   });
 
@@ -1076,11 +1085,13 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
 
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
+      executionContext: "conversation",
+      ephemeralRules: undefined,
       executionTarget: "sandbox",
     });
   });
 
-  test("executor creates rule on always_allow_high_risk with full context", async () => {
+  test("executor creates rule on always_allow with full context", async () => {
     checkResultOverride = {
       decision: "prompt",
       reason: "High risk: always requires approval",
@@ -1108,7 +1119,7 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
     };
 
     const prompter = makePrompterWithDecision(
-      "always_allow_high_risk",
+      "always_allow",
       "admin_action:*",
       "everywhere",
     );
@@ -1128,7 +1139,7 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
     expect(pattern).toBe("admin_action:*");
     expect(scope).toBe("everywhere");
     expect(decision).toBe("allow");
-    expect(options.allowHighRisk).toBe(true);
+    expect(options.executionTarget).toBeDefined();
     expect(options.executionTarget).toBe("host");
   });
 });
@@ -1147,14 +1158,6 @@ describe("isSideEffectTool", () => {
       "bash",
       "host_bash",
       "web_fetch",
-      "browser_navigate",
-      "browser_click",
-      "browser_type",
-      "browser_press_key",
-      "browser_close",
-      "browser_attach",
-      "browser_detach",
-      "browser_fill_credential",
       "document_create",
       "document_update",
       "schedule_create",
@@ -1175,6 +1178,14 @@ describe("isSideEffectTool", () => {
       "memory_recall",
       "memory_manage",
       "web_search",
+      "browser_navigate",
+      "browser_click",
+      "browser_type",
+      "browser_press_key",
+      "browser_close",
+      "browser_attach",
+      "browser_detach",
+      "browser_fill_credential",
       "browser_snapshot",
       "browser_screenshot",
       "browser_wait_for",
@@ -1232,7 +1243,7 @@ describe("isSideEffectTool", () => {
 // would cause this test to fail instead of being masked by a blanket
 // mock-allow.
 describe("ToolExecutor baseline: allow rule auto-allows file_edit guardian persona", () => {
-  const guardianPersonaPath = "/Users/sidd/.vellum/workspace/users/sidd.md";
+  const guardianPersonaPath = "/Users/alice/.vellum/workspace/users/alice.md";
   let ruleSpy: ReturnType<typeof spyOn> | undefined;
 
   beforeEach(() => {
@@ -1554,7 +1565,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     const result = await executor.execute(
       "file_edit",
       {
-        path: "/Users/sidd/.vellum/workspace/users/sidd.md",
+        path: "/Users/alice/.vellum/workspace/users/alice.md",
         old_string: "old pref",
         new_string: "new pref",
       },
@@ -1573,7 +1584,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     const result = await executor.execute(
       "host_file_edit",
       {
-        path: "/Users/sidd/.vellum/workspace/users/sidd.md",
+        path: "/Users/alice/.vellum/workspace/users/alice.md",
         old_string: "x",
         new_string: "y",
       },
@@ -1582,51 +1593,6 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
 
     expect(result.isError).toBe(false);
     expect(promptCalled).toBe(true);
-  });
-
-  // ── Browser action tools as side-effect tools (PR fix2) ──────────
-
-  test("browser_click forces prompt in private conversation", async () => {
-    checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
-
-    const executor = new ToolExecutor(makeTrackingPrompter());
-    const result = await executor.execute(
-      "browser_click",
-      { selector: "#submit-btn" },
-      makeContext({ forcePromptSideEffects: true }),
-    );
-
-    expect(result.isError).toBe(false);
-    expect(promptCalled).toBe(true);
-  });
-
-  test("browser_type forces prompt in private conversation", async () => {
-    checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
-
-    const executor = new ToolExecutor(makeTrackingPrompter());
-    const result = await executor.execute(
-      "browser_type",
-      { selector: "#search-input", text: "query" },
-      makeContext({ forcePromptSideEffects: true }),
-    );
-
-    expect(result.isError).toBe(false);
-    expect(promptCalled).toBe(true);
-  });
-
-  test("browser_snapshot does NOT force prompt in private conversation", async () => {
-    checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
-
-    const executor = new ToolExecutor(makeTrackingPrompter());
-    const result = await executor.execute(
-      "browser_snapshot",
-      {},
-      makeContext({ forcePromptSideEffects: true }),
-    );
-
-    expect(result.isError).toBe(false);
-    // browser_snapshot is read-only — must NOT trigger forced prompting
-    expect(promptCalled).toBe(false);
   });
 
   // ── Always-mutating document tools (PR fix5) ──────────
@@ -1832,7 +1798,7 @@ describe("ToolExecutor persistentDecisionsAllowed contract", () => {
         scope: string,
         decision = "allow",
         priority = 100,
-        options?: { allowHighRisk?: boolean; executionTarget?: string },
+        options?: { executionTarget?: string },
       ) => {
         return {
           id: "spy-rule-id",
@@ -2172,7 +2138,7 @@ describe("ToolExecutor persistent-allow lifecycle", () => {
         scope: string,
         decision = "allow",
         priority = 100,
-        options?: { allowHighRisk?: boolean; executionTarget?: string },
+        options?: { executionTarget?: string },
       ) => {
         return {
           id: "spy-rule-id",

@@ -30,7 +30,7 @@ import type {
 // ---------------------------------------------------------------------------
 
 mock.module("../permissions/checker.js", () => ({
-  classifyRisk: async () => RiskLevel.Low,
+  classifyRisk: async () => ({ level: RiskLevel.Low }),
   check: async () => ({ decision: "allow", reason: "" }),
   generateAllowlistOptions: async () => [],
   generateScopeOptions: () => [],

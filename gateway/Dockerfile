@@ -8,10 +8,15 @@ WORKDIR /app
 
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 
-COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile --production
+# Copy shared packages needed by gateway's repo-local dependencies
+COPY packages/ces-contracts ./packages/ces-contracts
 
-COPY . .
+# Install gateway dependencies first for cache reuse
+COPY gateway/package.json gateway/bun.lock ./gateway/
+RUN cd /app/gateway && bun install --frozen-lockfile --production
+
+# Copy source
+COPY gateway ./gateway
 
 # Runtime stage
 FROM debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13fcd800a78ef7c7a AS runner
@@ -30,7 +35,15 @@ COPY --from=builder /usr/local/bin/bun /usr/local/bin/bun
 RUN groupadd --system --gid 1001 gateway && \
     useradd --system --uid 1001 --gid gateway --create-home gateway
 
-COPY --from=builder --chown=gateway:gateway /app /app
+COPY --from=builder --chown=gateway:gateway /app/gateway /app
+# `bun install` materializes `file:../packages/ces-contracts` as a
+# `node_modules/@vellumai/ces-contracts/` directory whose files are symlinks
+# pointing at absolute `/app/packages/ces-contracts/...` source paths in
+# the builder. Those absolute targets have to exist in the runner too, or
+# every `@vellumai/ces-contracts[/…]` import resolves to a dangling link
+# and the gateway crashes with "Cannot find module ..." at first use.
+# Copy the sibling package into the runner so the symlinks resolve.
+COPY --from=builder --chown=gateway:gateway /app/packages /app/packages
 
 RUN mkdir -p /gateway-security && chown gateway:gateway /gateway-security
 

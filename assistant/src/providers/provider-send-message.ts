@@ -4,8 +4,14 @@
  * and response extraction helpers.
  */
 
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
-import { getProvider, initializeProviders, listProviders } from "./registry.js";
+import type { LLMCallSite } from "../config/schemas/llm.js";
+import {
+  getProvider,
+  initializeProviders,
+  listProviders,
+} from "./registry.js";
 import type {
   ContentBlock,
   Message,
@@ -36,9 +42,17 @@ let lazyInitPromise: Promise<void> | null = null;
  * If providers haven't been initialized yet (e.g. non-daemon code paths),
  * performs a one-shot `initializeProviders(getConfig())`.
  *
+ * The provider name is sourced from
+ * `resolveCallSiteConfig(callSite, config.llm).provider` — i.e. the unified
+ * `llm` block drives selection. The `callSite` argument is required so the
+ * resolver can layer per-call-site overrides; pass the closest matching
+ * call-site identifier from `LLMCallSiteEnum` when adding a new caller.
+ *
  * Returns `null` when no providers are available at all.
  */
-export async function resolveConfiguredProvider(): Promise<ConfiguredProviderResult | null> {
+export async function resolveConfiguredProvider(
+  callSite: LLMCallSite,
+): Promise<ConfiguredProviderResult | null> {
   const config = getConfig();
 
   if (listProviders().length === 0) {
@@ -54,7 +68,7 @@ export async function resolveConfiguredProvider(): Promise<ConfiguredProviderRes
     }
   }
 
-  const inferenceProvider = config.services.inference.provider;
+  const inferenceProvider = resolveCallSiteConfig(callSite, config.llm).provider;
 
   try {
     const provider = getProvider(inferenceProvider);
@@ -72,10 +86,13 @@ export async function resolveConfiguredProvider(): Promise<ConfiguredProviderRes
  * Thin wrapper around `resolveConfiguredProvider()` for callsites
  * that only need the Provider instance.
  *
- * Returns `null` when no providers are available.
+ * `callSite` is required — see `resolveConfiguredProvider`. Returns `null`
+ * when no providers are available.
  */
-export async function getConfiguredProvider(): Promise<Provider | null> {
-  const result = await resolveConfiguredProvider();
+export async function getConfiguredProvider(
+  callSite: LLMCallSite,
+): Promise<Provider | null> {
+  const result = await resolveConfiguredProvider(callSite);
   return result?.provider ?? null;
 }
 

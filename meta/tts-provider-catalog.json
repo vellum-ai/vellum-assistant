@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "providers": [
     {
       "id": "elevenlabs",
@@ -44,6 +44,21 @@
         "description": "Sign in to Deepgram, navigate to your API Keys page, and create or copy an existing key. This is the same key used for speech-to-text.",
         "url": "https://console.deepgram.com/",
         "linkLabel": "Open Deepgram Console"
+      }
+    },
+    {
+      "id": "xai",
+      "displayName": "xAI",
+      "subtitle": "Text-to-speech from xAI with expressive voices (eve, ara, rex, sal, leo). Requires an xAI API key.",
+      "setupMode": "cli",
+      "setupHint": "Run the setup commands in your terminal to configure xAI credentials.",
+      "credentialMode": "credential",
+      "credentialNamespace": "xai",
+      "supportsVoiceSelection": false,
+      "credentialsGuide": {
+        "description": "Sign in to the xAI console, navigate to API Keys, and create a new key.",
+        "url": "https://console.x.ai/",
+        "linkLabel": "Open xAI Console"
       }
     }
   ]

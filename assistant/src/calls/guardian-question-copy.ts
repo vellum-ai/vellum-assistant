@@ -52,7 +52,7 @@ export async function generateGuardianCopy(
   const fallback = buildFallbackCopy(questionText);
 
   // If no provider is configured, return fallback immediately
-  const resolved = await resolveConfiguredProvider();
+  const resolved = await resolveConfiguredProvider("guardianQuestionCopy");
   if (!resolved) {
     log.debug(
       "No provider available for guardian copy generation, using fallback",
@@ -82,7 +82,7 @@ export async function generateGuardianCopy(
       [userMessage(prompt)],
       undefined,
       undefined,
-      { signal, config: { modelIntent: "latency-optimized" } },
+      { signal, config: { callSite: "guardianQuestionCopy" } },
     );
 
     const text = extractText(response);

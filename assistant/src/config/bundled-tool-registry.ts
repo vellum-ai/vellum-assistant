@@ -22,26 +22,6 @@ import * as appCreate from "./bundled-skills/app-builder/tools/app-create.js";
 import * as appDelete from "./bundled-skills/app-builder/tools/app-delete.js";
 import * as appGenerateIcon from "./bundled-skills/app-builder/tools/app-generate-icon.js";
 import * as appRefresh from "./bundled-skills/app-builder/tools/app-refresh.js";
-// ── browser ────────────────────────────────────────────────────────────────────
-import * as browserAttach from "./bundled-skills/browser/tools/browser-attach.js";
-import * as browserClick from "./bundled-skills/browser/tools/browser-click.js";
-import * as browserClose from "./bundled-skills/browser/tools/browser-close.js";
-import * as browserDetach from "./bundled-skills/browser/tools/browser-detach.js";
-import * as browserExtract from "./bundled-skills/browser/tools/browser-extract.js";
-import * as browserFillCredential from "./bundled-skills/browser/tools/browser-fill-credential.js";
-import * as browserHover from "./bundled-skills/browser/tools/browser-hover.js";
-import * as browserNavigate from "./bundled-skills/browser/tools/browser-navigate.js";
-import * as browserPressKey from "./bundled-skills/browser/tools/browser-press-key.js";
-import * as browserScreenshot from "./bundled-skills/browser/tools/browser-screenshot.js";
-import * as browserScroll from "./bundled-skills/browser/tools/browser-scroll.js";
-import * as browserSelectOption from "./bundled-skills/browser/tools/browser-select-option.js";
-import * as browserSnapshot from "./bundled-skills/browser/tools/browser-snapshot.js";
-import * as browserStatus from "./bundled-skills/browser/tools/browser-status.js";
-import * as browserType from "./bundled-skills/browser/tools/browser-type.js";
-import * as browserWaitFor from "./bundled-skills/browser/tools/browser-wait-for.js";
-import * as browserWaitForDownload from "./bundled-skills/browser/tools/browser-wait-for-download.js";
-// ── chatgpt-import ─────────────────────────────────────────────────────────────
-import * as chatgptImport from "./bundled-skills/chatgpt-import/tools/chatgpt-import.js";
 // ── computer-use ───────────────────────────────────────────────────────────────
 import * as computerUseClick from "./bundled-skills/computer-use/tools/computer-use-click.js";
 import * as computerUseDone from "./bundled-skills/computer-use/tools/computer-use-done.js";
@@ -68,27 +48,6 @@ import * as documentUpdate from "./bundled-skills/document/tools/document-update
 import * as followupCreate from "./bundled-skills/followups/tools/followup-create.js";
 import * as followupList from "./bundled-skills/followups/tools/followup-list.js";
 import * as followupResolve from "./bundled-skills/followups/tools/followup-resolve.js";
-// ── gmail ──────────────────────────────────────────────────────────────────────
-import * as gmailArchive from "./bundled-skills/gmail/tools/gmail-archive.js";
-import * as gmailAttachments from "./bundled-skills/gmail/tools/gmail-attachments.js";
-import * as gmailDraft from "./bundled-skills/gmail/tools/gmail-draft.js";
-import * as gmailFilters from "./bundled-skills/gmail/tools/gmail-filters.js";
-import * as gmailFollowUp from "./bundled-skills/gmail/tools/gmail-follow-up.js";
-import * as gmailForward from "./bundled-skills/gmail/tools/gmail-forward.js";
-import * as gmailLabel from "./bundled-skills/gmail/tools/gmail-label.js";
-import * as gmailOutreachScan from "./bundled-skills/gmail/tools/gmail-outreach-scan.js";
-import * as gmailPreferencesTool from "./bundled-skills/gmail/tools/gmail-preferences-tool.js";
-import * as gmailSendDraft from "./bundled-skills/gmail/tools/gmail-send-draft.js";
-import * as gmailSenderDigest from "./bundled-skills/gmail/tools/gmail-sender-digest.js";
-import * as gmailTrash from "./bundled-skills/gmail/tools/gmail-trash.js";
-import * as gmailUnsubscribe from "./bundled-skills/gmail/tools/gmail-unsubscribe.js";
-import * as gmailVacation from "./bundled-skills/gmail/tools/gmail-vacation.js";
-// ── google-calendar ────────────────────────────────────────────────────────────
-import * as calendarCheckAvailability from "./bundled-skills/google-calendar/tools/calendar-check-availability.js";
-import * as calendarCreateEvent from "./bundled-skills/google-calendar/tools/calendar-create-event.js";
-import * as calendarGetEvent from "./bundled-skills/google-calendar/tools/calendar-get-event.js";
-import * as calendarListEvents from "./bundled-skills/google-calendar/tools/calendar-list-events.js";
-import * as calendarRsvp from "./bundled-skills/google-calendar/tools/calendar-rsvp.js";
 // ── image-studio ───────────────────────────────────────────────────────────────
 import * as mediaGenerateImage from "./bundled-skills/image-studio/tools/media-generate-image.js";
 // ── media-processing ───────────────────────────────────────────────────────────
@@ -111,25 +70,6 @@ import * as messagingSend from "./bundled-skills/messaging/tools/messaging-send.
 import * as messagingSenderDigest from "./bundled-skills/messaging/tools/messaging-sender-digest.js";
 // ── notifications ──────────────────────────────────────────────────────────────
 import * as sendNotification from "./bundled-skills/notifications/tools/send-notification.js";
-// ── outlook ────────────────────────────────────────────────────────────────────
-import * as outlookAttachments from "./bundled-skills/outlook/tools/outlook-attachments.js";
-import * as outlookCategories from "./bundled-skills/outlook/tools/outlook-categories.js";
-import * as outlookDraft from "./bundled-skills/outlook/tools/outlook-draft.js";
-import * as outlookFollowUp from "./bundled-skills/outlook/tools/outlook-follow-up.js";
-import * as outlookForward from "./bundled-skills/outlook/tools/outlook-forward.js";
-import * as outlookOutreachScan from "./bundled-skills/outlook/tools/outlook-outreach-scan.js";
-import * as outlookRules from "./bundled-skills/outlook/tools/outlook-rules.js";
-import * as outlookSendDraft from "./bundled-skills/outlook/tools/outlook-send-draft.js";
-import * as outlookSenderDigest from "./bundled-skills/outlook/tools/outlook-sender-digest.js";
-import * as outlookTrash from "./bundled-skills/outlook/tools/outlook-trash.js";
-import * as outlookUnsubscribe from "./bundled-skills/outlook/tools/outlook-unsubscribe.js";
-import * as outlookVacation from "./bundled-skills/outlook/tools/outlook-vacation.js";
-// ── outlook-calendar ───────────────────────────────────────────────────────────
-import * as outlookCalendarCheckAvailability from "./bundled-skills/outlook-calendar/tools/outlook-calendar-check-availability.js";
-import * as outlookCalendarCreateEvent from "./bundled-skills/outlook-calendar/tools/outlook-calendar-create-event.js";
-import * as outlookCalendarGetEvent from "./bundled-skills/outlook-calendar/tools/outlook-calendar-get-event.js";
-import * as outlookCalendarListEvents from "./bundled-skills/outlook-calendar/tools/outlook-calendar-list-events.js";
-import * as outlookCalendarRsvp from "./bundled-skills/outlook-calendar/tools/outlook-calendar-rsvp.js";
 // ── phone-calls ────────────────────────────────────────────────────────────────
 import * as callEnd from "./bundled-skills/phone-calls/tools/call-end.js";
 import * as callStart from "./bundled-skills/phone-calls/tools/call-start.js";
@@ -172,24 +112,8 @@ import * as subagentMessage from "./bundled-skills/subagent/tools/subagent-messa
 import * as subagentRead from "./bundled-skills/subagent/tools/subagent-read.js";
 import * as subagentSpawn from "./bundled-skills/subagent/tools/subagent-spawn.js";
 import * as subagentStatus from "./bundled-skills/subagent/tools/subagent-status.js";
-// ── tasks ──────────────────────────────────────────────────────────────────────
-import * as taskDelete from "./bundled-skills/tasks/tools/task-delete.js";
-import * as taskList from "./bundled-skills/tasks/tools/task-list.js";
-import * as taskListAdd from "./bundled-skills/tasks/tools/task-list-add.js";
-import * as taskListRemove from "./bundled-skills/tasks/tools/task-list-remove.js";
-import * as taskListShow from "./bundled-skills/tasks/tools/task-list-show.js";
-import * as taskListUpdate from "./bundled-skills/tasks/tools/task-list-update.js";
-import * as taskQueueRun from "./bundled-skills/tasks/tools/task-queue-run.js";
-import * as taskRun from "./bundled-skills/tasks/tools/task-run.js";
-import * as taskSave from "./bundled-skills/tasks/tools/task-save.js";
 // ── transcribe ─────────────────────────────────────────────────────────────────
 import * as transcribeMedia from "./bundled-skills/transcribe/tools/transcribe-media.js";
-// ── watcher ────────────────────────────────────────────────────────────────────
-import * as watcherCreate from "./bundled-skills/watcher/tools/watcher-create.js";
-import * as watcherDelete from "./bundled-skills/watcher/tools/watcher-delete.js";
-import * as watcherDigest from "./bundled-skills/watcher/tools/watcher-digest.js";
-import * as watcherList from "./bundled-skills/watcher/tools/watcher-list.js";
-import * as watcherUpdate from "./bundled-skills/watcher/tools/watcher-update.js";
 
 // ─── Registry ────────────────────────────────────────────────────────────────
 
@@ -205,28 +129,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["app-builder:tools/app-delete.ts", appDelete],
   ["app-builder:tools/app-refresh.ts", appRefresh],
   ["app-builder:tools/app-generate-icon.ts", appGenerateIcon],
-
-  // browser
-  ["browser:tools/browser-navigate.ts", browserNavigate],
-  ["browser:tools/browser-snapshot.ts", browserSnapshot],
-  ["browser:tools/browser-screenshot.ts", browserScreenshot],
-  ["browser:tools/browser-close.ts", browserClose],
-  ["browser:tools/browser-attach.ts", browserAttach],
-  ["browser:tools/browser-detach.ts", browserDetach],
-  ["browser:tools/browser-click.ts", browserClick],
-  ["browser:tools/browser-type.ts", browserType],
-  ["browser:tools/browser-press-key.ts", browserPressKey],
-  ["browser:tools/browser-scroll.ts", browserScroll],
-  ["browser:tools/browser-select-option.ts", browserSelectOption],
-  ["browser:tools/browser-hover.ts", browserHover],
-  ["browser:tools/browser-wait-for.ts", browserWaitFor],
-  ["browser:tools/browser-extract.ts", browserExtract],
-  ["browser:tools/browser-wait-for-download.ts", browserWaitForDownload],
-  ["browser:tools/browser-fill-credential.ts", browserFillCredential],
-  ["browser:tools/browser-status.ts", browserStatus],
-
-  // chatgpt-import
-  ["chatgpt-import:tools/chatgpt-import.ts", chatgptImport],
 
   // computer-use
   ["computer-use:tools/computer-use-observe.ts", computerUseObserve],
@@ -262,32 +164,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["followups:tools/followup-list.ts", followupList],
   ["followups:tools/followup-resolve.ts", followupResolve],
 
-  // gmail
-  ["gmail:tools/gmail-archive.ts", gmailArchive],
-  ["gmail:tools/gmail-label.ts", gmailLabel],
-  ["gmail:tools/gmail-trash.ts", gmailTrash],
-  ["gmail:tools/gmail-unsubscribe.ts", gmailUnsubscribe],
-  ["gmail:tools/gmail-draft.ts", gmailDraft],
-  ["gmail:tools/gmail-send-draft.ts", gmailSendDraft],
-  ["gmail:tools/gmail-attachments.ts", gmailAttachments],
-  ["gmail:tools/gmail-forward.ts", gmailForward],
-  ["gmail:tools/gmail-follow-up.ts", gmailFollowUp],
-  ["gmail:tools/gmail-filters.ts", gmailFilters],
-  ["gmail:tools/gmail-vacation.ts", gmailVacation],
-  ["gmail:tools/gmail-sender-digest.ts", gmailSenderDigest],
-  ["gmail:tools/gmail-outreach-scan.ts", gmailOutreachScan],
-  ["gmail:tools/gmail-preferences-tool.ts", gmailPreferencesTool],
-
-  // google-calendar
-  ["google-calendar:tools/calendar-list-events.ts", calendarListEvents],
-  ["google-calendar:tools/calendar-get-event.ts", calendarGetEvent],
-  ["google-calendar:tools/calendar-create-event.ts", calendarCreateEvent],
-  [
-    "google-calendar:tools/calendar-check-availability.ts",
-    calendarCheckAvailability,
-  ],
-  ["google-calendar:tools/calendar-rsvp.ts", calendarRsvp],
-
   // image-studio
   ["image-studio:tools/media-generate-image.ts", mediaGenerateImage],
 
@@ -316,39 +192,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
 
   // notifications
   ["notifications:tools/send-notification.ts", sendNotification],
-
-  // outlook
-  ["outlook:tools/outlook-rules.ts", outlookRules],
-  ["outlook:tools/outlook-vacation.ts", outlookVacation],
-  ["outlook:tools/outlook-sender-digest.ts", outlookSenderDigest],
-  ["outlook:tools/outlook-outreach-scan.ts", outlookOutreachScan],
-  ["outlook:tools/outlook-draft.ts", outlookDraft],
-  ["outlook:tools/outlook-send-draft.ts", outlookSendDraft],
-  ["outlook:tools/outlook-forward.ts", outlookForward],
-  ["outlook:tools/outlook-trash.ts", outlookTrash],
-  ["outlook:tools/outlook-categories.ts", outlookCategories],
-  ["outlook:tools/outlook-follow-up.ts", outlookFollowUp],
-  ["outlook:tools/outlook-unsubscribe.ts", outlookUnsubscribe],
-  ["outlook:tools/outlook-attachments.ts", outlookAttachments],
-
-  // outlook-calendar
-  [
-    "outlook-calendar:tools/outlook-calendar-list-events.ts",
-    outlookCalendarListEvents,
-  ],
-  [
-    "outlook-calendar:tools/outlook-calendar-get-event.ts",
-    outlookCalendarGetEvent,
-  ],
-  [
-    "outlook-calendar:tools/outlook-calendar-create-event.ts",
-    outlookCalendarCreateEvent,
-  ],
-  [
-    "outlook-calendar:tools/outlook-calendar-check-availability.ts",
-    outlookCalendarCheckAvailability,
-  ],
-  ["outlook-calendar:tools/outlook-calendar-rsvp.ts", outlookCalendarRsvp],
 
   // phone-calls
   ["phone-calls:tools/call-start.ts", callStart],
@@ -400,24 +243,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["subagent:tools/subagent-message.ts", subagentMessage],
   ["subagent:tools/subagent-read.ts", subagentRead],
 
-  // tasks
-  ["tasks:tools/task-save.ts", taskSave],
-  ["tasks:tools/task-run.ts", taskRun],
-  ["tasks:tools/task-list.ts", taskList],
-  ["tasks:tools/task-delete.ts", taskDelete],
-  ["tasks:tools/task-list-show.ts", taskListShow],
-  ["tasks:tools/task-list-add.ts", taskListAdd],
-  ["tasks:tools/task-list-update.ts", taskListUpdate],
-  ["tasks:tools/task-list-remove.ts", taskListRemove],
-  ["tasks:tools/task-queue-run.ts", taskQueueRun],
-
   // transcribe
   ["transcribe:tools/transcribe-media.ts", transcribeMedia],
-
-  // watcher
-  ["watcher:tools/watcher-create.ts", watcherCreate],
-  ["watcher:tools/watcher-list.ts", watcherList],
-  ["watcher:tools/watcher-update.ts", watcherUpdate],
-  ["watcher:tools/watcher-delete.ts", watcherDelete],
-  ["watcher:tools/watcher-digest.ts", watcherDigest],
 ]);

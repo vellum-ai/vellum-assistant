@@ -2,15 +2,9 @@
 import Foundation
 
 enum UserDefaultsKeys {
-    static let developerModeEnabled = "developer_mode_enabled"
     static let appearanceMode = "appearance_mode"
     static let gatewayBaseURL = "gateway_base_url"
     static let conversationKey = "conversation_key"
-
-    // Voice mode settings
-    static let voiceListeningTimeout = "voice_listening_timeout"
-    static let voiceTTSProvider = "voice_tts_provider"
-    static let voiceSilenceThreshold = "voice_silence_threshold"
 
     // Media embed settings
     static let mediaEmbedsEnabled = "media_embeds_enabled"

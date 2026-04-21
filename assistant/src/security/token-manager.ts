@@ -232,7 +232,8 @@ async function doRefresh(service: string, connId: string): Promise<string> {
       tokenExchangeBodyFormat,
     );
   } catch (err) {
-    circuitBreaker.recordFailure(connId);
+    const credential = isCredentialError(err);
+    circuitBreaker.recordFailure(connId, credential);
     if (circuitBreaker.isOpen(connId)) {
       const state = circuitBreaker.getState(connId)!;
       log.warn(
@@ -244,7 +245,7 @@ async function doRefresh(service: string, connId: string): Promise<string> {
         "Token refresh circuit breaker opened — skipping refresh attempts until cooldown expires",
       );
     }
-    if (isCredentialError(err)) {
+    if (credential) {
       const msg = err instanceof Error ? err.message : String(err);
       throw new TokenExpiredError(
         service,
@@ -269,17 +270,30 @@ async function doRefresh(service: string, connId: string): Promise<string> {
     );
   }
 
-  // Update oauth_connection row with new expiry.
-  try {
-    updateConnection(connId, {
-      expiresAt: persisted.expiresAt,
-      hasRefreshToken: persisted.hasRefreshToken,
-    });
-  } catch (err) {
-    log.warn(
-      { err, service },
-      "Failed to update oauth_connection after refresh",
-    );
+  // Update oauth_connection row with new expiry. Retry once on failure
+  // to reduce the risk of stale expiresAt metadata in SQLite while the
+  // actual token in secure storage is valid.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      updateConnection(connId, {
+        expiresAt: persisted.expiresAt,
+        hasRefreshToken: persisted.hasRefreshToken,
+      });
+      break;
+    } catch (err) {
+      if (attempt === 0) {
+        log.warn(
+          { err, service },
+          "Failed to update oauth_connection after refresh, retrying",
+        );
+      } else {
+        log.error(
+          { err, service, expiresAt: persisted.expiresAt },
+          "Failed to update oauth_connection after refresh — token is valid " +
+            "in secure storage but SQLite expiry metadata is stale",
+        );
+      }
+    }
   }
 
   circuitBreaker.recordSuccess(connId);

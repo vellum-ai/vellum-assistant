@@ -102,6 +102,11 @@ struct ComposerTextEditor: NSViewRepresentable {
         // Reference: https://developer.apple.com/documentation/appkit/nstextview/1449309-layoutmanager
         let textStorage = NSTextStorage()
         let layoutManager = NSLayoutManager()
+        // Confine glyph generation to the requested bounding rect so that
+        // attaching the text view to its scroll view does not force full
+        // document layout on the main thread.
+        // https://developer.apple.com/documentation/appkit/nslayoutmanager/allowsnoncontiguouslayout
+        layoutManager.allowsNonContiguousLayout = true
         textStorage.addLayoutManager(layoutManager)
         let textContainer = NSTextContainer(size: NSSize(
             width: 0,
@@ -327,6 +332,16 @@ struct ComposerTextEditor: NSViewRepresentable {
             coordinator.boundsObserver = nil
         }
         coordinator.cancelPendingMeasureHeight()
+
+        // NSTextView registers text-edit undo actions on the window's undo
+        // manager with the text view as an unsafe-unretained target — weak
+        // zeroing does not apply, so a later cmd+z after the view is torn
+        // down dereferences a freed pointer in `_undoRedoTextOperation:`.
+        // Purge our actions before the view dies.
+        if let textView = scrollView.documentView as? ComposerTextView {
+            textView.breakUndoCoalescing()
+            textView.undoManager?.removeAllActions(withTarget: textView)
+        }
     }
 
     // MARK: - Coordinator

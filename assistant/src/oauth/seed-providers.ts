@@ -16,8 +16,11 @@ import { seedProviders } from "./oauth-store.js";
  * description, dashboardUrl, clientIdPlaceholder, requiresClientSecret,
  * logoUrl)
  * are overwritten on subsequent startups — user-customizable
- * fields (defaultScopes, scopePolicy) are only
+ * fields (scopePolicy) are only
  * written on initial insert and preserved across restarts.
+ * defaultScopes are also overwritten on subsequent startups so that
+ * upstream scope additions (e.g. new Gmail API scopes) propagate to
+ * existing installations.
  */
 export const PROVIDER_SEED_DATA: Record<
   string,
@@ -244,7 +247,6 @@ export const PROVIDER_SEED_DATA: Record<
     tokenEndpointAuthMethod: "client_secret_basic",
     loopbackPort: 17335,
     managedServiceConfigKey: "twitter-oauth",
-    featureFlag: "managed-x-oauth-integration",
     injectionTemplates: [
       {
         hostPattern: "api.x.com",

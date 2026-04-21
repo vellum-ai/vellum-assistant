@@ -119,9 +119,19 @@ export interface WakeOptions {
   source: string;
 }
 
+/**
+ * Reason a wake returned `invoked: false`. Callers (CLI, update-bulletin
+ * job) need to distinguish "conversation doesn't exist" from "conversation
+ * exists but stayed busy past the wait-until-idle timeout" — the former is
+ * a user-visible error, the latter is an expected transient condition.
+ */
+export type WakeSkipReason = "not_found" | "timeout" | "no_resolver";
+
 export interface WakeResult {
   invoked: boolean;
   producedToolCalls: boolean;
+  /** Present only when `invoked: false`; identifies why the wake was skipped. */
+  reason?: WakeSkipReason;
 }
 
 /**
@@ -223,13 +233,12 @@ async function waitUntilIdle(
   target: WakeTarget,
   nowFn: () => number,
   timeoutMs = 30_000,
-): Promise<void> {
+): Promise<boolean> {
   const deadline = nowFn() + timeoutMs;
-  // 50ms backoff is fine — wakes are not latency-critical and a user turn
-  // typically completes on the order of seconds.
   while (target.isProcessing() && nowFn() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
+  return !target.isProcessing();
 }
 
 /**
@@ -300,7 +309,7 @@ export async function wakeAgentForOpportunity(
       { conversationId, source },
       "agent-wake: no resolver available (default resolver not registered and no deps passed); skipping",
     );
-    return { invoked: false, producedToolCalls: false };
+    return { invoked: false, producedToolCalls: false, reason: "no_resolver" };
   }
   const nowFn = deps?.now ?? Date.now;
   const startedAt = nowFn();
@@ -312,10 +321,17 @@ export async function wakeAgentForOpportunity(
         { conversationId, source },
         "agent-wake: conversation not found; skipping",
       );
-      return { invoked: false, producedToolCalls: false };
+      return { invoked: false, producedToolCalls: false, reason: "not_found" };
     }
 
-    await waitUntilIdle(target, nowFn);
+    const idle = await waitUntilIdle(target, nowFn);
+    if (!idle) {
+      log.warn(
+        { conversationId, source },
+        "agent-wake: conversation still processing after timeout; skipping",
+      );
+      return { invoked: false, producedToolCalls: false, reason: "timeout" };
+    }
 
     const baseline = target.getMessages();
     const hintContent = `[opportunity:${source}] ${hint}`;
@@ -346,6 +362,7 @@ export async function wakeAgentForOpportunity(
     let producedToolCalls = false;
     let toolUseNames: string[] = [];
     let tailMessageCount = 0;
+    let drainedInTry = false;
     try {
       let updatedHistory: Message[];
       try {
@@ -375,8 +392,11 @@ export async function wakeAgentForOpportunity(
       // `drainSingleMessage` reads `ctx.messages` mid-tail and writes a
       // DB row that lands out of chronological order (queued user msg
       // before the wake's just-produced assistant outputs).
-      const { tailMessages, hasVisibleText, toolUseNames: names } =
-        inspectWakeOutput(baseline.length, updatedHistory);
+      const {
+        tailMessages,
+        hasVisibleText,
+        toolUseNames: names,
+      } = inspectWakeOutput(baseline.length, updatedHistory);
       toolUseNames = names;
       producedToolCalls = names.length > 0;
       const producedOutput = producedToolCalls || hasVisibleText;
@@ -431,11 +451,12 @@ export async function wakeAgentForOpportunity(
         }
       }
 
-      return { invoked: true, producedToolCalls };
-    } finally {
-      // Release the processing marker regardless of success/failure so
-      // the next user turn (or wake) isn't blocked waiting on a stale
-      // flag.
+      // Drain queued messages AFTER tail is pushed + persisted so the
+      // next dequeued user message sees the complete, up-to-date
+      // history. markProcessing(false) must come first (the queue only
+      // accepts entries while processing === true, and drain expects
+      // processing to already be false). The finally block handles the
+      // error/early-return paths where no tail was produced.
       try {
         target.markProcessing(false);
       } catch (err) {
@@ -444,15 +465,6 @@ export async function wakeAgentForOpportunity(
           "agent-wake: markProcessing(false) threw; continuing",
         );
       }
-      // Drain any messages queued during the wake. Order matters:
-      // `enqueueMessage()` only queues when `processing === true`, so
-      // late sends arriving while the wake was running landed on the
-      // queue. The canonical user-turn finally calls drain after
-      // resetting `processing = false` AND after `ctx.messages` has
-      // been updated with the new tail; mirror that here so a queued
-      // message is picked up against an updated history rather than
-      // stranded behind an out-of-order DB row. Wrapped in try/catch
-      // so a drain failure can't propagate out of the wake.
       if (target.drainQueue) {
         try {
           await target.drainQueue();
@@ -461,6 +473,35 @@ export async function wakeAgentForOpportunity(
             { conversationId, source, err },
             "agent-wake: drainQueue threw; continuing",
           );
+        }
+      }
+      drainedInTry = true;
+
+      return { invoked: true, producedToolCalls };
+    } finally {
+      // The success path (above) already called markProcessing(false)
+      // + drainQueue after tail persist. This catch-all handles the
+      // error and early-return paths where no tail was produced — those
+      // exit the try body before reaching the drain block, so
+      // `drainedInTry` is still false.
+      if (!drainedInTry) {
+        try {
+          target.markProcessing(false);
+        } catch (err) {
+          log.warn(
+            { conversationId, source, err },
+            "agent-wake: markProcessing(false) threw; continuing",
+          );
+        }
+        if (target.drainQueue) {
+          try {
+            await target.drainQueue();
+          } catch (err) {
+            log.warn(
+              { conversationId, source, err },
+              "agent-wake: drainQueue threw; continuing",
+            );
+          }
         }
       }
 

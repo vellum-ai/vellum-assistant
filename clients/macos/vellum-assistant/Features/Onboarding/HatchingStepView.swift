@@ -7,6 +7,10 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Hatch
 @MainActor
 struct HatchingStepView: View {
     @Bindable var state: OnboardingState
+    /// Supplied by `OnboardingFlowView` for the managed hatch flow so the user
+    /// can retry the platform bootstrap without the destructive `resetForRetry`
+    /// path used by the CLI hatch flows (which wipes ToS, API keys, etc.).
+    var onRetryManaged: (() async -> Void)?
 
     @State private var cliLauncher = VellumCli()
     @State private var showContent = false
@@ -14,7 +18,7 @@ struct HatchingStepView: View {
     @State private var pulseScale: CGFloat = 0.9
     @State private var showCharacter = true
     @State private var hatchStarted = false
-    @State private var failureReason: String?
+    @State private var isCheckingHealth = false
     private var hatchBody: AvatarBodyShape {
         state.hatchAvatarBodyShape ?? .allCases[0]
     }
@@ -29,8 +33,17 @@ struct HatchingStepView: View {
     }
     @State private var showFooterCharacters = false
     @State private var completionTask: Task<Void, Never>?
+    @State private var healthCheckTask: Task<Void, Never>?
     @State private var isAnimatingProgress: Bool = false
-    @State private var progressStartTime: CFAbsoluteTime?
+    /// Monotonic-ish start instant for the progress bar. Uses `Date()` rather
+    /// than `CFAbsoluteTimeGetCurrent()` because `TimelineView(.animation)`
+    /// hands us a `Date` per frame — mixing clocks causes the bar to jump if
+    /// wall-clock is adjusted mid-hatch.
+    @State private var progressStartDate: Date?
+    /// Managed hatch interpolates the bar between discrete targets
+    /// (0.33 → 0.66 → 1.0). These track the start of the current segment.
+    @State private var segmentStartDate: Date?
+    @State private var segmentStartValue: Double = 0
     @State private var completionTime: Date?
     @State private var progressAtCompletion: Double?
 
@@ -96,23 +109,41 @@ struct HatchingStepView: View {
                 startHatching()
             }
 
-            // In the managed path, hatchStepLabel is set before HatchingStepView
-            // appears, so .onChange(of: hatchStepLabel) never fires. Start the
-            // progress timer eagerly when the label is already present.
+            // Managed bootstrap sets `hatchStepLabel` before this view mounts,
+            // so `.onChange(of: hatchStepLabel)` won't fire for the initial
+            // label. Start the progress timer here when a label is already set.
             if state.hatchStepLabel != nil {
-                progressStartTime = CFAbsoluteTimeGetCurrent()
-                isAnimatingProgress = true
+                startProgressAnimation()
             }
         }
         .onDisappear {
             completionTask?.cancel()
+            healthCheckTask?.cancel()
             isAnimatingProgress = false
         }
         .onChange(of: state.hatchStepLabel) { oldLabel, newLabel in
             if oldLabel == nil, newLabel != nil {
-                progressStartTime = CFAbsoluteTimeGetCurrent()
-                isAnimatingProgress = true
+                startProgressAnimation()
             }
+        }
+        .onChange(of: state.hatchProgressTarget) { oldTarget, _ in
+            // Managed hatch progress snaps forward through discrete targets;
+            // record the currently displayed value as the segment base so the
+            // bar animates smoothly toward the new target. `onChange` fires
+            // after the target has been updated, so we compute the displayed
+            // value using `oldTarget` — otherwise `progressValue(at:)` would
+            // already be interpolating toward the new target and the bar
+            // would jump to the next checkpoint instead of easing into it.
+            guard state.isManagedHatch, progressStartDate != nil else { return }
+            let now = Date()
+            let segStart = segmentStartDate ?? progressStartDate ?? now
+            let segDuration: TimeInterval = 1.5
+            let elapsed = max(0, now.timeIntervalSince(segStart))
+            let t = min(1.0, elapsed / segDuration)
+            let eased = 1.0 - pow(1.0 - t, 3.0)
+            let currentDisplayed = segmentStartValue + (oldTarget - segmentStartValue) * eased
+            segmentStartValue = currentDisplayed
+            segmentStartDate = now
         }
         .onChange(of: state.hatchCompleted) { _, completed in
             if completed {
@@ -194,14 +225,15 @@ struct HatchingStepView: View {
                     Text("You already have an assistant")
                         .font(VFont.titleLarge)
                         .foregroundStyle(VColor.contentDefault)
-                    Text("You have an assistant on the hosted platform")
+                    Text(state.hatchFailureReason ?? "You have an assistant on the hosted platform")
                         .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentSecondary)
+                        .textSelection(.enabled)
                 } else {
                     Text("Something went wrong")
                         .font(VFont.titleLarge)
                         .foregroundStyle(VColor.contentDefault)
-                    if let reason = failureReason {
+                    if let reason = state.hatchFailureReason {
                         Text(reason)
                             .font(VFont.bodyMediumDefault)
                             .foregroundStyle(VColor.contentSecondary)
@@ -251,7 +283,8 @@ struct HatchingStepView: View {
                             .frame(width: geo.size.width * progress, height: 6)
                     }
                 }
-                .frame(maxWidth: 200, maxHeight: 6)
+                .frame(height: 6)
+                .widthCap(200)
                 .accessibilityElement()
                 .accessibilityValue("\(Int(progress * 100)) percent")
                 .accessibilityLabel("Setup progress")
@@ -270,11 +303,16 @@ struct HatchingStepView: View {
     private var failureButtons: some View {
         VStack(spacing: VSpacing.sm) {
             if state.hasExistingManagedAssistant {
-                VButton(label: "Meet your assistant", style: .primary, isFullWidth: true) {
+                VButton(
+                    label: isCheckingHealth ? "Checking…" : "Meet your assistant",
+                    style: .primary,
+                    isFullWidth: true,
+                    isDisabled: isCheckingHealth
+                ) {
                     meetExistingAssistant()
                 }
 
-                VButton(label: "Go Back", style: .ghost) {
+                VButton(label: "Go Back", style: .ghost, isDisabled: isCheckingHealth) {
                     goBack()
                 }
             } else {
@@ -287,15 +325,18 @@ struct HatchingStepView: View {
                 }
             }
         }
-        .frame(maxWidth: 280)
+        .widthCap(280)
         .padding(.top, VSpacing.xs)
     }
 
     private func goBack() {
+        healthCheckTask?.cancel()
+        isCheckingHealth = false
         state.isHatching = false
         state.isManagedHatch = false
         state.hasExistingManagedAssistant = false
         state.hatchFailed = false
+        state.hatchFailureReason = nil
         state.hatchLogLines = []
         state.hatchProgressTarget = 0.0
         state.hatchProgressDisplay = 0.0
@@ -303,18 +344,84 @@ struct HatchingStepView: View {
         state.hatchTotalSteps = 1
         state.hatchCurrentStep = 0
         hatchStarted = false
-        failureReason = nil
+        progressStartDate = nil
+        segmentStartDate = nil
+        segmentStartValue = 0
     }
 
+    /// Health-gated completion for the "Meet your assistant" button.
+    /// Polls the assistant-scoped gateway health endpoint for up to 30s and
+    /// only flips `hatchCompleted = true` on a real success — previously the
+    /// button unconditionally marked the hatch complete, which could drop
+    /// users into an unreachable assistant.
     private func meetExistingAssistant() {
-        state.hatchFailed = false
-        state.hatchCompleted = true
+        guard !isCheckingHealth else { return }
+        isCheckingHealth = true
+        state.hatchFailureReason = nil
+        state.hatchStepLabel = "Verifying assistant\u{2026}"
+
+        healthCheckTask?.cancel()
+        healthCheckTask = Task { @MainActor in
+            let isReady = await pollAssistantHealth(timeout: .seconds(30))
+            guard !Task.isCancelled else { return }
+            isCheckingHealth = false
+            if isReady {
+                state.hatchFailed = false
+                state.hatchProgressTarget = 1.0
+                state.hatchStepLabel = "Ready"
+                state.hatchCompleted = true
+            } else {
+                state.hatchFailureReason =
+                    "We couldn't reach your assistant. Please try again in a moment."
+                state.hatchStepLabel = nil
+            }
+        }
+    }
+
+    private func pollAssistantHealth(timeout: Duration) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if Task.isCancelled { return false }
+            do {
+                let (_, response): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
+                    path: "assistants/{assistantId}/health",
+                    timeout: 5
+                ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
+                if response.isSuccess { return true }
+                log.warning("Health check status \(response.statusCode) during 'Meet your assistant' verification")
+            } catch {
+                log.warning("Health check failed during 'Meet your assistant' verification: \(error.localizedDescription, privacy: .public)")
+            }
+            try? await Task.sleep(for: .seconds(2))
+        }
+        return false
     }
 
     private func retryHatch() {
         hatchStarted = false
-        failureReason = nil
-        state.resetForRetry()
+        if state.isManagedHatch, let onRetryManaged {
+            // Non-destructive retry: re-run managed bootstrap from the top.
+            // `resetForRetry` would wipe ToS acceptance and API keys, which is
+            // the wrong behavior when the user just needs to retry a transient
+            // platform or network failure.
+            state.hatchFailed = false
+            state.hatchFailureReason = nil
+            state.hatchLogLines = []
+            state.hatchProgressTarget = 0.0
+            state.hatchProgressDisplay = 0.0
+            state.hatchStepLabel = nil
+            state.hatchTotalSteps = 1
+            state.hatchCurrentStep = 0
+            progressStartDate = nil
+            segmentStartDate = nil
+            segmentStartValue = 0
+            completionTime = nil
+            progressAtCompletion = nil
+            Task { await onRetryManaged() }
+        } else {
+            state.resetForRetry()
+        }
     }
 
     /// Called when the CLI process finishes successfully or when the success
@@ -359,18 +466,34 @@ struct HatchingStepView: View {
         }
     }
 
-    /// Computes the progress bar value for the given point in time.
-    /// Called from within `TimelineView(.animation)` so it runs at display refresh rate.
-    private func progressValue(at date: Date) -> Double {
-        guard state.hatchStepLabel != nil, let startTime = progressStartTime else { return 0 }
+    /// Initialize progress-bar timing state. Called both when the view first
+    /// mounts with a pre-set label (managed flow) and when the label
+    /// transitions nil → non-nil (CLI / pairing / Apple-container flows).
+    private func startProgressAnimation() {
+        let now = Date()
+        progressStartDate = now
+        segmentStartDate = now
+        segmentStartValue = 0
+        isAnimatingProgress = true
+    }
 
-        if state.hatchCompleted, let compTime = completionTime, let baseProgress = progressAtCompletion {
-            // Ease-out ramp from current position to 100%
-            let timeSinceCompletion = date.timeIntervalSince(compTime)
-            let rampProgress = min(1.0, 1.0 - exp(-timeSinceCompletion * 3.0))
-            let value = baseProgress + (1.0 - baseProgress) * rampProgress
-            if value >= 0.999 {
-                // Stop the animation once the ramp is effectively complete
+    /// Computes the progress bar value for the given point in time.
+    /// Called from within `TimelineView(.animation)` so it runs at display
+    /// refresh rate. The `date` parameter comes from SwiftUI's display-synced
+    /// timeline — do not re-sample a clock here.
+    private func progressValue(at date: Date) -> Double {
+        guard state.hatchStepLabel != nil, let startDate = progressStartDate else { return 0 }
+
+        if state.isManagedHatch {
+            // Managed hatch: interpolate between discrete targets (0.33 / 0.66 / 1.0)
+            // set by `awaitManagedAssistantReady`. Each segment eases out over ~1.5s.
+            let segStart = segmentStartDate ?? startDate
+            let segDuration: TimeInterval = 1.5
+            let elapsed = max(0, date.timeIntervalSince(segStart))
+            let t = min(1.0, elapsed / segDuration)
+            let eased = 1.0 - pow(1.0 - t, 3.0)  // ease-out cubic
+            let value = segmentStartValue + (state.hatchProgressTarget - segmentStartValue) * eased
+            if state.hatchCompleted && value >= 0.999 {
                 Task { @MainActor in
                     isAnimatingProgress = false
                 }
@@ -379,16 +502,26 @@ struct HatchingStepView: View {
             return value
         }
 
-        if state.hatchFailed {
-            // Freeze at the last computed asymptotic value
-            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-            return 0.95 * (1.0 - exp(-elapsed / estimatedDuration))
+        // Non-managed flows (local / docker / apple-container / pairing) use a
+        // time-based asymptotic curve so the bar always appears to be moving.
+        if state.hatchCompleted, let compTime = completionTime, let baseProgress = progressAtCompletion {
+            // Ease-out ramp from current position to 100%
+            let timeSinceCompletion = date.timeIntervalSince(compTime)
+            let rampProgress = min(1.0, 1.0 - exp(-timeSinceCompletion * 3.0))
+            let value = baseProgress + (1.0 - baseProgress) * rampProgress
+            if value >= 0.999 {
+                Task { @MainActor in
+                    isAnimatingProgress = false
+                }
+                return 1.0
+            }
+            return value
         }
 
-        // Asymptotic time-based progress: 0.95 * (1 - e^(-t/estimated))
+        // Asymptotic time-based progress: 0.95 * (1 - e^(-t/estimated)).
         // Never reaches 95% no matter how long — always appears to be moving.
         // estimatedDuration controls the pace: at 1x estimate the bar is ~60%.
-        let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+        let elapsed = max(0, date.timeIntervalSince(startDate))
         return 0.95 * (1.0 - exp(-elapsed / estimatedDuration))
     }
 
@@ -433,7 +566,7 @@ struct HatchingStepView: View {
             } catch {
                 log.error("Apple container hatch failed: \(error.localizedDescription, privacy: .public)")
                 state.hatchLogLines.append("Error: \(error.localizedDescription)")
-                failureReason = error.localizedDescription
+                state.hatchFailureReason = error.localizedDescription
                 state.hatchFailed = true
             }
         }
@@ -450,10 +583,10 @@ struct HatchingStepView: View {
     private func buildOnboardingConfigValues() -> [String: String] {
         var configValues: [String: String] = [:]
         if !state.selectedProvider.isEmpty {
-            configValues["services.inference.provider"] = state.selectedProvider
+            configValues["llm.default.provider"] = state.selectedProvider
         }
         if !state.selectedModel.isEmpty {
-            configValues["services.inference.model"] = state.selectedModel
+            configValues["llm.default.model"] = state.selectedModel
         }
         if managedSignInEnabled && !state.skippedAuth {
             configValues["services.inference.mode"] = "managed"
@@ -529,7 +662,7 @@ struct HatchingStepView: View {
             } catch {
                 log.error("Remote hatch failed: \(String(describing: error), privacy: .public)")
                 state.hatchLogLines.append("Error: \(error.localizedDescription)")
-                failureReason = friendlyErrorMessage(from: error)
+                state.hatchFailureReason = friendlyErrorMessage(from: error)
                 state.hatchFailed = true
             }
         }
@@ -547,7 +680,7 @@ struct HatchingStepView: View {
             } catch {
                 log.error("Pairing failed: \(String(describing: error), privacy: .public)")
                 state.hatchLogLines.append("Error: \(error.localizedDescription)")
-                failureReason = friendlyErrorMessage(from: error)
+                state.hatchFailureReason = friendlyErrorMessage(from: error)
                 state.hatchFailed = true
             }
         }

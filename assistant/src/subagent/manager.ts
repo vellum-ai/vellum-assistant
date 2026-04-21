@@ -17,6 +17,7 @@ import {
 } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
+import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { getProvider } from "../providers/registry.js";
 import { createAbortReason } from "../util/abort-reasons.js";
@@ -155,7 +156,9 @@ export class SubagentManager {
    * `onSubagentFinished`.  Used by fork spawn to resolve the parent's
    * system prompt when `config.parentSystemPrompt` is not provided.
    */
-  resolveParentConversation?: (conversationId: string) => Conversation | undefined;
+  resolveParentConversation?: (
+    conversationId: string,
+  ) => Conversation | undefined;
 
   // ── Spawn ───────────────────────────────────────────────────────────
 
@@ -211,7 +214,19 @@ export class SubagentManager {
 
     // ── Build conversation dependencies ─────────────────────────────
     const appConfig = getConfig();
-    let provider = getProvider(appConfig.services.inference.provider);
+    let provider = getProvider(appConfig.llm.default.provider);
+    // Per-call `options.config.callSite` (e.g. `subagentSpawn`) can resolve
+    // to a provider name that differs from `llm.default.provider`. Wrap the
+    // default provider so the actual transport routes correctly per call,
+    // rather than only forwarding metadata to the default's HTTP client.
+    // See `providers/call-site-routing.ts`.
+    provider = new CallSiteRoutingProvider(provider, (name) => {
+      try {
+        return getProvider(name);
+      } catch {
+        return undefined;
+      }
+    });
     const { rateLimit } = appConfig;
     if (rateLimit.maxRequestsPerMinute > 0) {
       provider = new RateLimitProvider(
@@ -227,19 +242,21 @@ export class SubagentManager {
       if (config.parentSystemPrompt) {
         systemPrompt = config.parentSystemPrompt;
       } else if (this.resolveParentConversation) {
-        const parentConv = this.resolveParentConversation(config.parentConversationId);
+        const parentConv = this.resolveParentConversation(
+          config.parentConversationId,
+        );
         const resolved = parentConv?.getCurrentSystemPrompt();
         if (!resolved) {
           throw new Error(
             "Fork spawn requires a parent system prompt but neither config.parentSystemPrompt " +
-            "nor resolveParentConversation yielded one.",
+              "nor resolveParentConversation yielded one.",
           );
         }
         systemPrompt = resolved;
       } else {
         throw new Error(
           "Fork spawn requires a parent system prompt but neither config.parentSystemPrompt " +
-          "is set nor resolveParentConversation callback is wired.",
+            "is set nor resolveParentConversation callback is wired.",
         );
       }
     } else {
@@ -247,7 +264,7 @@ export class SubagentManager {
         config.systemPromptOverride ??
         buildSubagentSystemPrompt({ ...config, id: subagentId }, role);
     }
-    const maxTokens = appConfig.maxTokens;
+    const maxTokens = appConfig.llm.default.maxTokens;
     const workingDir = getSandboxWorkingDir();
 
     const memoryPolicy: ConversationMemoryPolicy = isFork
@@ -266,10 +283,16 @@ export class SubagentManager {
     const now = Date.now();
     // For forks, default sendResultToUser to false (silent) unless explicitly true.
     const resolvedSendResultToUser = isFork
-      ? (config.sendResultToUser === true ? true : false)
+      ? config.sendResultToUser === true
+        ? true
+        : false
       : config.sendResultToUser;
     const state: SubagentState = {
-      config: { ...config, id: subagentId, sendResultToUser: resolvedSendResultToUser },
+      config: {
+        ...config,
+        id: subagentId,
+        sendResultToUser: resolvedSendResultToUser,
+      },
       status: "pending",
       conversationId: conversationRecord.id,
       isFork,
@@ -413,7 +436,9 @@ export class SubagentManager {
       // This prepends the inherited context so the fork has full conversational
       // awareness while the objective becomes the latest user turn.
       if (managed.state.isFork && managed.state.config.parentMessages) {
-        conversation.injectInheritedContext(managed.state.config.parentMessages);
+        conversation.injectInheritedContext(
+          managed.state.config.parentMessages,
+        );
         // Release the parent message arrays now that they've been injected — holding
         // them in SubagentState.config would retain significant memory until the TTL
         // sweep disposes this entry (up to 30 minutes for terminal subagents).
@@ -439,7 +464,9 @@ export class SubagentManager {
           ].join("\n")
         : objective;
       const messageId = await conversation.persistUserMessage(message, []);
-      await conversation.runAgentLoop(message, messageId, onEvent);
+      await conversation.runAgentLoop(message, messageId, onEvent, {
+        callSite: "subagentSpawn",
+      });
 
       // Agent loop completed successfully.
       // Copy usage stats from the conversation before sending status (which includes usage).
@@ -634,7 +661,9 @@ export class SubagentManager {
       const conversation = managed.conversation;
       const messageId = await conversation.persistUserMessage(trimmed, []);
       conversation
-        .runAgentLoop(trimmed, messageId, onEvent)
+        .runAgentLoop(trimmed, messageId, onEvent, {
+          callSite: "subagentSpawn",
+        })
         .catch((err) => {
           log.error({ subagentId, err }, "Subagent message processing failed");
         });
@@ -900,8 +929,7 @@ export class SubagentManager {
     const prefix = managed.state.isFork ? "Fork" : "Subagent";
     let notificationString = `[${prefix} "${info.label}" — ${urgency}] ${message}`;
     if (urgency === "blocked") {
-      notificationString +=
-        `\nUse subagent_message to send guidance to this ${prefix.toLowerCase()}.`;
+      notificationString += `\nUse subagent_message to send guidance to this ${prefix.toLowerCase()}.`;
     }
 
     try {

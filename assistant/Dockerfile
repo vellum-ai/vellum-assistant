@@ -24,6 +24,18 @@ COPY packages/egress-proxy ./packages/egress-proxy
 COPY assistant/package.json assistant/bun.lock ./assistant/
 RUN cd /app/assistant && bun install --frozen-lockfile
 
+# Copy bundled first-party skills and install their deps. The repo-root
+# .dockerignore is the single source of truth for which skills (and which
+# files within them) ship in the assistant image -- adding or removing a
+# bundled skill is a .dockerignore edit, not a Dockerfile edit.
+COPY skills ./skills
+RUN set -eu; for pkg in /app/skills/*/package.json; do \
+      [ -e "$pkg" ] || continue; \
+      dir="$(dirname "$pkg")"; \
+      echo "Installing dependencies for $dir"; \
+      (cd "$dir" && (bun install --frozen-lockfile 2>/dev/null || bun install)); \
+    done
+
 # Copy source
 COPY assistant ./assistant
 

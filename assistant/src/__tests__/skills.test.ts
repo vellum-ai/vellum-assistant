@@ -520,9 +520,16 @@ describe("includes frontmatter parsing", () => {
   });
 });
 
-describe("bundled browser skill", () => {
+describe("managed browser skill", () => {
+  const BROWSER_SKILL_MD = readFileSync(
+    join(import.meta.dirname, "../../../skills/vellum-browser-use/SKILL.md"),
+    "utf-8",
+  );
+
   beforeEach(() => {
-    mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
+    const skillDir = join(TEST_DIR, "skills", "vellum-browser-use");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, "SKILL.md"), BROWSER_SKILL_MD);
   });
 
   afterEach(() => {
@@ -531,51 +538,30 @@ describe("bundled browser skill", () => {
       rmSync(skillsDir, { recursive: true, force: true });
   });
 
-  test("browser skill appears in full catalog (including bundled)", () => {
+  test("browser skill appears in full catalog", () => {
     const catalog = loadSkillCatalog();
-    const browserSkill = catalog.find((s) => s.id === "browser");
+    const browserSkill = catalog.find((s) => s.id === "vellum-browser-use");
     expect(browserSkill).toBeDefined();
-    expect(browserSkill!.name).toBe("browser");
+    expect(browserSkill!.name).toBe("vellum-browser-use");
     expect(browserSkill!.displayName).toBe("Browser");
-    expect(browserSkill!.bundled).toBe(true);
   });
 
   test("browser skill has correct metadata", () => {
     const catalog = loadSkillCatalog();
-    const browserSkill = catalog.find((s) => s.id === "browser");
+    const browserSkill = catalog.find((s) => s.id === "vellum-browser-use");
     expect(browserSkill).toBeDefined();
     expect(browserSkill!.description).toBe(
-      "Navigate and interact with web pages using a headless browser",
+      "Browse the web using `assistant browser` CLI commands",
     );
   });
 
-  test("browser skill has a valid tool manifest with all browser tools", () => {
+  test("browser skill has no tool manifest", () => {
     const catalog = loadSkillCatalog();
-    const browserSkill = catalog.find((s) => s.id === "browser");
+    const browserSkill = catalog.find((s) => s.id === "vellum-browser-use");
     expect(browserSkill).toBeDefined();
-    expect(browserSkill!.toolManifest).toBeDefined();
-    expect(browserSkill!.toolManifest!.present).toBe(true);
-    expect(browserSkill!.toolManifest!.valid).toBe(true);
-    expect(browserSkill!.toolManifest!.toolCount).toBe(17);
-    expect(browserSkill!.toolManifest!.toolNames).toEqual([
-      "browser_navigate",
-      "browser_snapshot",
-      "browser_screenshot",
-      "browser_close",
-      "browser_attach",
-      "browser_detach",
-      "browser_click",
-      "browser_type",
-      "browser_press_key",
-      "browser_scroll",
-      "browser_select_option",
-      "browser_hover",
-      "browser_wait_for",
-      "browser_extract",
-      "browser_wait_for_download",
-      "browser_fill_credential",
-      "browser_status",
-    ]);
+    // Browser tools are dispatched via skill_execute and do not use
+    // a skill-tool manifest.
+    expect(browserSkill!.toolManifest).toBeUndefined();
   });
 });
 

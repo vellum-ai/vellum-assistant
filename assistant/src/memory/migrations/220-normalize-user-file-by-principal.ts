@@ -63,8 +63,8 @@ export function isAutoIncrementedUserFile(
  * Multiple contact rows may represent the same principal (one per channel:
  * desktop, phone, Slack, etc.). When a new row was created for a second
  * channel, `generateUserFileSlug(displayName)` auto-incremented to avoid a
- * filename collision (e.g. `sidd.md` → `sidd-2.md`), even though no
- * `sidd-2.md` file ever existed on disk. The persona resolver then silently
+ * filename collision (e.g. `alice.md` → `alice-2.md`), even though no
+ * `alice-2.md` file ever existed on disk. The persona resolver then silently
  * fell back to `users/default.md` for that channel's messages — and the same
  * slug is used for the journal directory, so the user lost per-principal
  * continuity on every non-primary channel.

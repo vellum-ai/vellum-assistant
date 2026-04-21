@@ -57,6 +57,13 @@ export interface ListAssistantsOptions {
    * in the extension itself should rely on the default.
    */
   timeoutMs?: number;
+  /**
+   * Optional environment override. When provided, the native host uses
+   * this environment to resolve lockfile paths instead of the process-level
+   * `VELLUM_ENVIRONMENT`. This lets the extension switch environments
+   * (e.g. `dev`, `staging`, `production`) without restarting Chrome.
+   */
+  environment?: string;
 }
 
 /**
@@ -192,6 +199,10 @@ export async function listAssistants(
       finish(() => reject(new Error(message)));
     });
 
-    port.postMessage({ type: 'list_assistants' });
+    const listMessage: Record<string, unknown> = { type: 'list_assistants' };
+    if (options.environment) {
+      listMessage.environment = options.environment;
+    }
+    port.postMessage(listMessage);
   });
 }

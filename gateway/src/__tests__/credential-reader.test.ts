@@ -1,7 +1,7 @@
 import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { hostname, tmpdir, userInfo } from "node:os";
+import { hostname, userInfo } from "node:os";
 import { createCipheriv, pbkdf2Sync, randomBytes } from "node:crypto";
 import { credentialKey } from "../credential-key.js";
 
@@ -33,13 +33,8 @@ import {
 // Temp directory for metadata / encrypted store fixtures
 // ---------------------------------------------------------------------------
 
-const testDir = join(
-  tmpdir(),
-  `cred-reader-test-${randomBytes(4).toString("hex")}`,
-);
-
 function metadataDir(): string {
-  return join(testDir, "data", "credentials");
+  return join(testWorkspaceDir, "data", "credentials");
 }
 
 function writeMetadata(
@@ -106,8 +101,8 @@ function encryptEntries(
 }
 
 function writeEncryptedStore(entries: Record<string, string>): void {
-  mkdirSync(testDir, { recursive: true });
-  const storePath = join(testDir, "keys.enc");
+  mkdirSync(testSecurityDir, { recursive: true });
+  const storePath = join(testSecurityDir, "keys.enc");
 
   const salt = randomBytes(16);
   const key = pbkdf2Sync(
@@ -131,35 +126,37 @@ function writeEncryptedStore(entries: Record<string, string>): void {
  * The store.key is used directly as the AES-256-GCM key (no PBKDF2).
  */
 function writeEncryptedStoreV2(entries: Record<string, string>): void {
-  mkdirSync(testDir, { recursive: true });
+  mkdirSync(testSecurityDir, { recursive: true });
 
   const storeKey = randomBytes(KEY_LENGTH);
-  writeFileSync(join(testDir, "store.key"), storeKey);
+  writeFileSync(join(testSecurityDir, "store.key"), storeKey);
 
   const store = {
     version: 2,
     entries: encryptEntries(entries, storeKey),
   };
-  writeFileSync(join(testDir, "keys.enc"), JSON.stringify(store));
+  writeFileSync(join(testSecurityDir, "keys.enc"), JSON.stringify(store));
 }
 
 // ---------------------------------------------------------------------------
 // Setup / teardown
 // ---------------------------------------------------------------------------
 
+import { testSecurityDir, testWorkspaceDir } from "./test-preload.js";
+
 beforeEach(() => {
-  process.env.GATEWAY_SECURITY_DIR = testDir;
-  process.env.VELLUM_WORKSPACE_DIR = testDir;
   logCalls.length = 0;
 });
 
 afterEach(() => {
-  delete process.env.GATEWAY_SECURITY_DIR;
-  delete process.env.VELLUM_WORKSPACE_DIR;
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {
-    // best-effort cleanup
+  // Clean up fixture files written by individual tests.
+  for (const dir of [testSecurityDir, testWorkspaceDir]) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      mkdirSync(dir, { recursive: true });
+    } catch {
+      // best-effort cleanup
+    }
   }
 });
 
@@ -179,7 +176,7 @@ describe("v2 encrypted store with store.key", () => {
 
   test("returns undefined for v2 store when store.key is missing", async () => {
     // Write a v2 store but without the store.key file
-    mkdirSync(testDir, { recursive: true });
+    mkdirSync(testSecurityDir, { recursive: true });
 
     const storeKey = randomBytes(KEY_LENGTH);
     const store = {
@@ -189,7 +186,7 @@ describe("v2 encrypted store with store.key", () => {
         storeKey,
       ),
     };
-    writeFileSync(join(testDir, "keys.enc"), JSON.stringify(store));
+    writeFileSync(join(testSecurityDir, "keys.enc"), JSON.stringify(store));
     // Deliberately do NOT write store.key
 
     const result = await readCredential(credentialKey("test", "key"));

@@ -19,8 +19,6 @@ describe("provider registry (ollama)", () => {
       services: {
         inference: {
           mode: "your-own",
-          provider: "ollama",
-          model: "claude-opus-4-6",
         },
         "image-generation": {
           mode: "your-own",
@@ -32,6 +30,7 @@ describe("provider registry (ollama)", () => {
           provider: "inference-provider-native",
         },
       },
+      llm: { default: { provider: "ollama", model: "claude-opus-4-6" } },
     });
 
     const provider = getProvider("ollama");

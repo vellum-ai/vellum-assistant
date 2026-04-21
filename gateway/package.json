@@ -24,6 +24,7 @@
     "postinstall": "cd .. && (git config core.hooksPath || git config core.hooksPath .githooks 2>/dev/null || true) && ([ -f meta/feature-flags/sync-bundled-copies.ts ] && bun run meta/feature-flags/sync-bundled-copies.ts 2>/dev/null || true)"
   },
   "dependencies": {
+    "@vellumai/ces-contracts": "file:../packages/ces-contracts",
     "drizzle-kit": "0.30.6",
     "drizzle-orm": "0.45.2",
     "file-type": "21.3.0",

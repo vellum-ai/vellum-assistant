@@ -15,32 +15,20 @@ final class PreChatOnboardingState {
     var selectedTools: Set<String> = []
     var selectedTasks: Set<String> = []
     var toneValue: Double = 0.5 // 0 = casual, 0.5 = balanced, 1 = professional
-    var userName: String = ""
-    var assistantName: String = NameExchangeView.assistantNameSuggestions.randomElement() ?? "Pax"
+    var userName: String
+    var assistantName: String
     var skippedAll: Bool = false
+
+    /// Random subset of `NameExchangeView.assistantNamePool` displayed as
+    /// quick-tap suggestion pills. Sampled once per state instance so the pills
+    /// remain stable across re-renders and back-navigation within a session.
+    /// Not persisted to UserDefaults — a fresh sample is drawn on each run.
+    let displayedAssistantNames: [String]
 
     var toneLabel: String {
         if toneValue < 0.25 { return "casual" }
         if toneValue > 0.75 { return "professional" }
         return "balanced"
-    }
-
-    var contextSummary: String {
-        var parts: [String] = []
-        if !selectedTasks.isEmpty {
-            let taskLabels = selectedTasks.sorted().prefix(3).joined(separator: ", ")
-            parts.append("focused on \(taskLabels)")
-        }
-        if !selectedTools.isEmpty {
-            // Strip internal "other:" prefix so display reads "Trello" not "other:Trello"
-            let toolLabels = Array(Set(selectedTools
-                .map { $0.hasPrefix("other:") ? String($0.dropFirst(6)) : $0 }))
-                .sorted().prefix(3)
-                .joined(separator: ", ")
-            parts.append("mostly in \(toolLabels)")
-        }
-        if parts.isEmpty { return "Let's get to know each other." }
-        return "You're \(parts.joined(separator: ", ")). Let's make that easier."
     }
 
     // MARK: - Persistence Keys
@@ -62,6 +50,11 @@ final class PreChatOnboardingState {
     // MARK: - Init (restore from UserDefaults)
 
     init() {
+        let sampled = NameExchangeView.sampleAssistantNames()
+        self.displayedAssistantNames = sampled
+        self.assistantName = sampled.first ?? "Pax"
+        self.userName = ""
+
         let defaults = UserDefaults.standard
         let storedVersion = defaults.integer(forKey: Self.flowVersionKey)
 

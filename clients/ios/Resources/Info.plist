@@ -57,16 +57,10 @@
 			</dict>
 		</dict>
 	</dict>
-	<key>NSCameraUsageDescription</key>
-	<string>Vellum Assistant uses the camera to scan QR codes for pairing with your Assistant.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Vellum Assistant connects to your Assistant on your local network to send and receive messages.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Vellum Assistant needs access to your microphone for voice input.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Select photos to attach to your message</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Vellum Assistant needs access to speech recognition to transcribe your voice input.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>UILaunchScreen</key>

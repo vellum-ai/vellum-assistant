@@ -31,23 +31,34 @@ mock.module("../providers/registry.js", () => ({
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-
-    provider: "mock-provider",
-    maxTokens: 4096,
-    thinking: false,
-    contextWindow: {
-      enabled: true,
-      maxInputTokens: 100000,
-      targetBudgetRatio: 0.3,
-      compactThreshold: 0.8,
-      summaryBudgetRatio: 0.05,
-      overflowRecovery: {
-        enabled: true,
-        safetyMarginRatio: 0.05,
-        maxAttempts: 3,
-        interactiveLatestTurnCompression: "summarize",
-        nonInteractiveLatestTurnCompression: "truncate",
+    
+    llm: {
+      default: {
+        provider: "mock-provider",
+        model: "mock-model",
+        maxTokens: 4096,
+        effort: "max" as const,
+        speed: "standard" as const,
+        temperature: null,
+        thinking: { enabled: false, streamThinking: true },
+        contextWindow: {
+          enabled: true,
+          maxInputTokens: 100000,
+          targetBudgetRatio: 0.3,
+          compactThreshold: 0.8,
+          summaryBudgetRatio: 0.05,
+          overflowRecovery: {
+            enabled: true,
+            safetyMarginRatio: 0.05,
+            maxAttempts: 3,
+            interactiveLatestTurnCompression: "summarize",
+            nonInteractiveLatestTurnCompression: "truncate",
+          },
+        },
       },
+      profiles: {},
+      callSites: {},
+      pricingOverrides: [],
     },
     rateLimit: { maxRequestsPerMinute: 0 },
     memory: { enabled: false },
@@ -178,6 +189,20 @@ mock.module("../memory/llm-usage-store.js", () => ({
 mock.module("../memory/app-store.js", () => ({
   getApp: () => null,
   updateApp: () => {},
+}));
+
+// Avoid real workspace-git initialization on /tmp — on CI runners,
+// `git add -A` under /tmp hits permission errors on systemd-private dirs,
+// which blocks the agent loop for long enough to trip the 5s test timeout
+// on the first test case before the circuit breaker opens.
+mock.module("../workspace/git-service.js", () => ({
+  getWorkspaceGitService: () => ({
+    ensureInitialized: async () => {},
+  }),
+}));
+
+mock.module("../workspace/turn-commit.js", () => ({
+  commitTurnChanges: async () => {},
 }));
 
 mock.module("../agent/loop.js", () => ({

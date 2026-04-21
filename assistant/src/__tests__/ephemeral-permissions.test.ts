@@ -83,7 +83,7 @@ describe("ephemeral-permissions", () => {
       expect(fileReadRule.createdAt).toBeGreaterThan(0);
 
       // Ephemeral task rules should not auto-allow high-risk tools
-      expect(fileReadRule.allowHighRisk).toBeUndefined();
+      // allowHighRisk is no longer a field on rules
 
       // Check other rules have correct tool names
       expect(rules[1].tool).toBe("bash");
@@ -276,7 +276,7 @@ describe("ephemeral-permissions", () => {
       expect(result.decision).toBe("allow");
     });
 
-    test("high-risk tool still prompts even with ephemeral allow rule (no allowHighRisk)", async () => {
+    test("high-risk tool still prompts even with ephemeral allow rule", async () => {
       const ephemeralRules: TrustRule[] = [
         {
           id: "ephemeral:run-1:bash",
@@ -286,7 +286,7 @@ describe("ephemeral-permissions", () => {
           decision: "allow",
           priority: 50,
           createdAt: Date.now(),
-          // Note: allowHighRisk is NOT set
+          // allowHighRisk is no longer a field
         },
       ];
 
@@ -303,6 +303,96 @@ describe("ephemeral-permissions", () => {
       );
 
       expect(result.decision).toBe("prompt");
+    });
+  });
+
+  // ── Canonical shape and scope fallback semantics ──────────────────
+  //
+  // Validates that ephemeral rules follow canonical persisted shapes
+  // and that optional scope behaves correctly as a fallback.
+
+  describe("canonical shape and scope fallback semantics", () => {
+    beforeEach(() => {
+      clearCache();
+    });
+
+    test("ephemeral rule with scope 'everywhere' matches from any working directory", () => {
+      // Use a tool (host_file_read) that has no default allow rule and a
+      // high priority so the ephemeral rule wins over the default ask rule.
+      const ephemeralRules: TrustRule[] = [
+        {
+          id: "ephemeral:run-scope:host_file_read",
+          tool: "host_file_read",
+          pattern: "**",
+          scope: "everywhere",
+          decision: "allow",
+          priority: 2000,
+          createdAt: Date.now(),
+        },
+      ];
+
+      const ctx: PolicyContext = { ephemeralRules };
+
+      // Should match from /tmp
+      const r1 = findHighestPriorityRule(
+        "host_file_read",
+        ["host_file_read:/tmp/foo.txt"],
+        "/tmp",
+        ctx,
+      );
+      expect(r1).not.toBeNull();
+      expect(r1!.id).toBe("ephemeral:run-scope:host_file_read");
+
+      // Should match from /home/user/project
+      const r2 = findHighestPriorityRule(
+        "host_file_read",
+        ["host_file_read:/home/user/project/bar.ts"],
+        "/home/user/project",
+        ctx,
+      );
+      expect(r2).not.toBeNull();
+      expect(r2!.id).toBe("ephemeral:run-scope:host_file_read");
+    });
+
+    test("ephemeral rule does not carry stray metadata fields for non-scoped tools", () => {
+      // buildTaskRules generates canonical ephemeral rules.
+      // For a tool like file_read (scoped family), the generated rule
+      // should have no executionTarget.
+      const rules = buildTaskRules("run-canon", ["file_read", "bash"], "/tmp");
+
+      for (const rule of rules) {
+        expect(rule.scope).toBe("everywhere");
+        expect(rule.executionTarget).toBeUndefined();
+      }
+    });
+
+    test("ephemeral rule with project scope does not match sibling project", () => {
+      const ephemeralRules: TrustRule[] = [
+        {
+          id: "ephemeral:run-proj:file_write",
+          tool: "file_write",
+          pattern: "**",
+          scope: "/home/user/project-a",
+          decision: "allow",
+          priority: 75,
+          createdAt: Date.now(),
+        },
+      ];
+
+      const ctx: PolicyContext = { ephemeralRules };
+
+      // Should NOT match from a sibling directory
+      const result = findHighestPriorityRule(
+        "file_write",
+        ["file_write:/home/user/project-b/file.ts"],
+        "/home/user/project-b",
+        ctx,
+      );
+
+      // The ephemeral rule should not be the match (scope mismatch)
+      if (result) {
+        expect(result.id).not.toBe("ephemeral:run-proj:file_write");
+      }
     });
   });
 

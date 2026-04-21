@@ -167,6 +167,58 @@ export type TtsDeepgramProviderConfig = z.infer<
   typeof TtsDeepgramProviderConfigSchema
 >;
 
+export const TtsXaiProviderConfigSchema = z
+  .object({
+    voiceId: z
+      .string({
+        error: "services.tts.providers.xai.voiceId must be a string",
+      })
+      .transform((v) => v || "eve")
+      .default("eve")
+      .describe(
+        "xAI voice ID — one of: eve, ara, rex, sal, leo (case-insensitive)",
+      ),
+    language: z
+      .string({
+        error: "services.tts.providers.xai.language must be a string",
+      })
+      .default("auto")
+      .describe(
+        "BCP-47 language code (e.g. 'en-US') or 'auto' for auto-detection",
+      ),
+    format: z
+      .enum(["mp3", "wav"], {
+        error: "services.tts.providers.xai.format must be one of: mp3, wav",
+      })
+      .default("mp3")
+      .describe("Output audio format for call/runtime playback"),
+    sampleRate: z
+      .number({
+        error: "services.tts.providers.xai.sampleRate must be a number",
+      })
+      .int("services.tts.providers.xai.sampleRate must be an integer")
+      .refine((v) => [8000, 16000, 22050, 24000, 44100, 48000].includes(v), {
+        message:
+          "services.tts.providers.xai.sampleRate must be one of: 8000, 16000, 22050, 24000, 44100, 48000",
+      })
+      .default(24000)
+      .describe("Output sample rate in Hz"),
+    bitRate: z
+      .number({
+        error: "services.tts.providers.xai.bitRate must be a number",
+      })
+      .int("services.tts.providers.xai.bitRate must be an integer")
+      .refine((v) => [32000, 64000, 96000, 128000, 192000].includes(v), {
+        message:
+          "services.tts.providers.xai.bitRate must be one of: 32000, 64000, 96000, 128000, 192000",
+      })
+      .default(128000)
+      .describe("MP3 bit rate (ignored for non-MP3 codecs)"),
+  })
+  .describe("xAI provider configuration under services.tts");
+
+export type TtsXaiProviderConfig = z.infer<typeof TtsXaiProviderConfigSchema>;
+
 export const TtsProvidersSchema = z.object({
   elevenlabs: TtsElevenLabsProviderConfigSchema.default(
     TtsElevenLabsProviderConfigSchema.parse({}),
@@ -177,6 +229,7 @@ export const TtsProvidersSchema = z.object({
   deepgram: TtsDeepgramProviderConfigSchema.default(
     TtsDeepgramProviderConfigSchema.parse({}),
   ),
+  xai: TtsXaiProviderConfigSchema.default(TtsXaiProviderConfigSchema.parse({})),
 });
 export type TtsProviders = z.infer<typeof TtsProvidersSchema>;
 

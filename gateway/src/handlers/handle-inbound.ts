@@ -104,6 +104,7 @@ export async function handleInbound(
           updateId: event.source.updateId,
           messageId: event.source.messageId,
           chatType: event.source.chatType,
+          ...(event.source.threadId ? { threadId: event.source.threadId } : {}),
           languageCode: event.actor.languageCode,
           isBot: event.actor.isBot,
           ...(transportHints.length > 0 ? { hints: transportHints } : {}),

@@ -170,6 +170,26 @@ export const PLACEHOLDER_EMPTY_TURN =
 export const PLACEHOLDER_BLOCKS_OMITTED =
   "\x00__PLACEHOLDER__[internal blocks omitted]";
 
+// Compared against the payload with any leading `\x00` stripped, so the check
+// matches both the prefixed sentinel we emit and any bare variant that lost
+// the null byte in transit (e.g. the model echoing the text back without
+// reproducing the control character).
+const PLACEHOLDER_SENTINEL_BARE: ReadonlySet<string> = new Set([
+  PLACEHOLDER_EMPTY_TURN.slice(1),
+  PLACEHOLDER_BLOCKS_OMITTED.slice(1),
+]);
+
+/**
+ * True when the text is one of the provider's internal alternation-preserving
+ * sentinels, with or without the null-byte prefix. These must never be
+ * persisted or rendered to users — they exist only in outbound Anthropic API
+ * request bodies.
+ */
+export function isPlaceholderSentinelText(text: string): boolean {
+  const normalized = text.startsWith("\x00") ? text.slice(1) : text;
+  return PLACEHOLDER_SENTINEL_BARE.has(normalized);
+}
+
 /**
  * Synthetic placeholder injected as user-message content when Anthropic API
  * alternation requires a user turn but no real user content exists. Uses the
@@ -645,16 +665,27 @@ export class AnthropicProvider implements Provider {
       authToken?: string;
     } = {},
   ) {
+    this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
+    // Pass the same deadline to the SDK so its per-request timeout can't
+    // fire before `createStreamTimeout` does. The SDK's default is 10 min,
+    // which truncates any request we intend to run longer than that. We add
+    // a 60s buffer so `createStreamTimeout` always wins — its abort reason
+    // produces a clearer error message than the SDK's generic timeout.
+    const sdkTimeoutMs = this.streamTimeoutMs + 60_000;
     this.client = options.authToken
       ? new Anthropic({
           apiKey: null,
           authToken: options.authToken,
           baseURL: options.baseURL,
+          timeout: sdkTimeoutMs,
         })
-      : new Anthropic({ apiKey, baseURL: options.baseURL });
+      : new Anthropic({
+          apiKey,
+          baseURL: options.baseURL,
+          timeout: sdkTimeoutMs,
+        });
     this.model = model;
     this.useNativeWebSearch = options.useNativeWebSearch ?? false;
-    this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
   }
 
   async sendMessage(
@@ -669,6 +700,11 @@ export class AnthropicProvider implements Provider {
         | "5m"
         | "1h") ?? "1h";
     let sentMessages: Anthropic.MessageParam[] | undefined;
+    const startedAt = Date.now();
+    // Hoisted so the catch block can distinguish our inner stream timeout
+    // (30 min default) from an external transport abort (bun fetch deadline,
+    // edge LB, NAT idle) — only the latter should be retried.
+    let innerTimeoutSignal: AbortSignal | undefined;
     try {
       const formatted = messages
         .map((m) => {
@@ -758,10 +794,7 @@ export class AnthropicProvider implements Provider {
             )
               return false;
             const text = (c[0] as { text?: string }).text;
-            return (
-              text === PLACEHOLDER_EMPTY_TURN ||
-              text === PLACEHOLDER_BLOCKS_OMITTED
-            );
+            return typeof text === "string" && isPlaceholderSentinelText(text);
           };
           if (isPlaceholder(iContent)) {
             formatted.splice(i, 1);
@@ -992,6 +1025,7 @@ export class AnthropicProvider implements Provider {
 
       const { signal: timeoutSignal, cleanup: cleanupTimeout } =
         createStreamTimeout(this.streamTimeoutMs, signal);
+      innerTimeoutSignal = timeoutSignal;
 
       /** Minimal stream interface shared by MessageStream and BetaMessageStream. */
       interface UnifiedStream {
@@ -1043,8 +1077,30 @@ export class AnthropicProvider implements Provider {
                 signal: timeoutSignal,
               }) as unknown as UnifiedStream);
 
+        // Buffer streaming text until it's clear the accumulated text isn't
+        // going to form a placeholder sentinel. Sentinels are injected into
+        // outbound requests for role alternation and are sometimes echoed by
+        // the model; holding back partial prefixes prevents them from
+        // flashing on the live UI before cleanAssistantContent strips them
+        // at persist time. Buffer is bounded by the longest sentinel (~45
+        // chars) and resets on every content_block_start.
+        const SENTINEL_TEXTS: readonly string[] = [
+          PLACEHOLDER_EMPTY_TURN,
+          PLACEHOLDER_EMPTY_TURN.slice(1),
+          PLACEHOLDER_BLOCKS_OMITTED,
+          PLACEHOLDER_BLOCKS_OMITTED.slice(1),
+        ];
+        const couldBeSentinelPrefix = (s: string): boolean =>
+          SENTINEL_TEXTS.some((sentinel) => sentinel.startsWith(s));
+        const isCompleteSentinel = (s: string): boolean =>
+          SENTINEL_TEXTS.includes(s);
+        let textBuffer = "";
+
         stream.on("text", (text) => {
-          onEvent?.({ type: "text_delta", text });
+          textBuffer += text;
+          if (couldBeSentinelPrefix(textBuffer)) return;
+          onEvent?.({ type: "text_delta", text: textBuffer });
+          textBuffer = "";
         });
 
         stream.on("thinking", (thinking) => {
@@ -1059,6 +1115,13 @@ export class AnthropicProvider implements Provider {
         let pendingInputJsonFlush: ReturnType<typeof setTimeout> | undefined;
 
         stream.on("streamEvent", (event) => {
+          // Reset the text sentinel buffer at each content-block boundary.
+          // A new block starts fresh; at the end of a block, flush any
+          // buffered text that is NOT a complete sentinel, and drop it if
+          // it is one.
+          if (event.type === "content_block_start") {
+            textBuffer = "";
+          }
           if (
             event.type === "content_block_start" &&
             event.content_block.type === "tool_use"
@@ -1122,6 +1185,11 @@ export class AnthropicProvider implements Provider {
             currentStreamingToolName = undefined;
             currentStreamingToolUseId = undefined;
             accumulatedInputJson = "";
+            // Flush residual text buffer unless it's exactly a sentinel.
+            if (textBuffer.length > 0 && !isCompleteSentinel(textBuffer)) {
+              onEvent?.({ type: "text_delta", text: textBuffer });
+            }
+            textBuffer = "";
           }
         });
 
@@ -1187,10 +1255,18 @@ export class AnthropicProvider implements Provider {
     } catch (error) {
       // Propagate a tagged AbortReason (set by the daemon at controller.abort())
       // so wrapped errors can be classified as user cancellation downstream.
+      const callerAborted = signal?.aborted === true;
       const abortReason =
-        signal?.aborted && isAbortReason(signal.reason)
-          ? signal.reason
+        callerAborted && isAbortReason(signal!.reason)
+          ? signal!.reason
           : undefined;
+      const elapsedMs = Date.now() - startedAt;
+      // Inner-timeout means OUR 30-min stream deadline fired, not the caller
+      // and not an external transport cutoff. We rewrite the message so the
+      // retry layer can distinguish it from a transport abort (which should
+      // retry) — a timed-out stream would almost certainly time out again.
+      const innerTimeoutFired =
+        innerTimeoutSignal?.aborted === true && !callerAborted;
       if (error instanceof Anthropic.APIError) {
         // Log detailed message structure for tool_use/tool_result ordering errors
         if (
@@ -1206,15 +1282,32 @@ export class AnthropicProvider implements Provider {
             "Anthropic 400: tool_use/tool_result pairing error — dumping message structure",
           );
         }
+        const isAbortMessage =
+          error.status === undefined &&
+          /request was aborted/i.test(error.message);
         if (abortReason) {
           log.info(
-            { abortReason, message: error.message },
+            { abortReason, elapsedMs, message: error.message },
             "Anthropic request aborted by daemon",
+          );
+        } else if (isAbortMessage) {
+          log.error(
+            {
+              elapsedMs,
+              cause: error.cause,
+              callerSignalAborted: callerAborted,
+              innerTimeoutFired,
+              message: error.message,
+            },
+            innerTimeoutFired
+              ? "Anthropic stream timed out (inner streamTimeoutMs fired)"
+              : "Anthropic stream aborted by transport — no daemon or inner-timeout abort; likely bun fetch deadline, edge LB, or network idle cutoff",
           );
         } else {
           log.error(
             {
               status: error.status,
+              elapsedMs,
               message: error.message,
               headers: Object.fromEntries(error.headers?.entries() ?? []),
             },
@@ -1238,12 +1331,30 @@ export class AnthropicProvider implements Provider {
         const errorOptions: {
           retryAfterMs?: number;
           abortReason?: unknown;
+          cause?: unknown;
         } = {};
         if (retryAfterMs !== undefined)
           errorOptions.retryAfterMs = retryAfterMs;
         if (abortReason) errorOptions.abortReason = abortReason;
+        // Only preserve the original error as `cause` for transport aborts
+        // without a daemon-tagged reason — it's the diagnostic signal the
+        // retry layer and log reader rely on. Don't leak it through the
+        // caller-aborted path, which already carries `abortReason`.
+        if (!abortReason && isAbortMessage) errorOptions.cause = error;
+        // Rewrite the message only for inner-timeout, so the retry layer
+        // won't retry a request that already hit its 30-min deadline.
+        const rewrittenMessage =
+          isAbortMessage && innerTimeoutFired
+            ? `Anthropic stream timed out after ${Math.round(elapsedMs / 1000)}s (inner streamTimeoutMs)`
+            : error.message;
+        // Only include the `(status)` parenthetical when the SDK surfaced a
+        // real HTTP status. Abort paths and mid-stream protocol errors have
+        // `error.status === undefined`, and string-interpolating that produces
+        // a confusing "Anthropic API error (undefined): …" message.
+        const statusPart =
+          error.status !== undefined ? ` (${error.status})` : "";
         throw new ProviderError(
-          `Anthropic API error (${error.status}): ${error.message}`,
+          `Anthropic API error${statusPart}: ${rewrittenMessage}`,
           "anthropic",
           error.status,
           Object.keys(errorOptions).length > 0 ? errorOptions : undefined,

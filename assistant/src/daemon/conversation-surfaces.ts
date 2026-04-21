@@ -13,6 +13,10 @@ import {
   getMessages,
   updateMessageContent,
 } from "../memory/conversation-crud.js";
+import type {
+  InteractiveUiRequest,
+  InteractiveUiResult,
+} from "../runtime/interactive-ui.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
@@ -21,7 +25,9 @@ import { launchConversation } from "./conversation-launch.js";
 import type { TrustContext } from "./conversation-runtime-assembly.js";
 import type {
   CardSurfaceData,
+  ConfirmationSurfaceData,
   DynamicPageSurfaceData,
+  FormSurfaceData,
   ListSurfaceData,
   ServerMessage,
   SurfaceData,
@@ -272,6 +278,30 @@ export interface SurfaceConversationContext {
   accumulatedSurfaceState: Map<string, Record<string, unknown>>;
   /** Request IDs that originated from surface action button clicks (not regular user messages). */
   surfaceActionRequestIds: Set<string>;
+  /**
+   * Pending standalone UI requests keyed by surfaceId.
+   * These are daemon-driven surfaces (not LLM tool invocations) that block
+   * the caller until the user submits, cancels, or the timeout elapses.
+   * Optional: only present on conversations that support standalone surfaces.
+   */
+  pendingStandaloneSurfaces?: Map<
+    string,
+    {
+      resolve: (result: InteractiveUiResult) => void;
+      timer: ReturnType<typeof setTimeout>;
+      surfaceType: SurfaceType;
+    }
+  >;
+  /**
+   * Short-lived tombstone set of recently-completed standalone surface IDs.
+   * Prevents late client actions (arriving after timeout/resolution) from
+   * falling through to the history-restored path and triggering an
+   * unintended LLM turn. Entries are auto-removed after a TTL.
+   */
+  recentlyCompletedStandaloneSurfaces?: Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >;
   currentTurnSurfaces: Array<{
     surfaceId: string;
     surfaceType: SurfaceType;
@@ -288,6 +318,8 @@ export interface SurfaceConversationContext {
   }>;
   /** Optional proxy for delegating computer-use actions to a connected desktop client. */
   hostCuProxy?: import("./host-cu-proxy.js").HostCuProxy;
+  /** True when no interactive client is connected (headless / channel-only). */
+  readonly hasNoClient?: boolean;
   isProcessing(): boolean;
   enqueueMessage(
     content: string,
@@ -352,6 +384,266 @@ export function createSurfaceMutex(): SurfaceMutex {
 
   Object.defineProperty(mutex, "size", { get: () => chains.size });
   return mutex as SurfaceMutex;
+}
+
+// ── Standalone surface lifecycle ────────────────────────────────────
+//
+// Daemon-driven UI surfaces that block the caller (skill, IPC handler)
+// until the user responds or the timeout elapses. Unlike LLM-invoked
+// surfaces (ui_show tool), these never trigger an LLM follow-up turn —
+// the result is returned directly to the requesting code.
+
+/** Default timeout for standalone surfaces when the caller does not specify one. */
+const DEFAULT_STANDALONE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * How long a tombstone entry persists after a standalone surface is completed.
+ * Late client actions arriving within this window are silently dropped.
+ */
+const STANDALONE_TOMBSTONE_TTL_MS = 30_000; // 30 seconds
+
+/**
+ * Check whether the conversation can show interactive UI surfaces.
+ * Fails closed when no client is connected or the channel doesn't
+ * support dynamic UI.
+ */
+export function canShowInteractiveUi(
+  ctx: Pick<SurfaceConversationContext, "hasNoClient" | "channelCapabilities">,
+): boolean {
+  if (ctx.hasNoClient) return false;
+  if (ctx.channelCapabilities && !ctx.channelCapabilities.supportsDynamicUi) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Show a standalone UI surface and return a Promise that resolves when
+ * the user submits, cancels, or the timeout elapses.
+ *
+ * This is the core entry point for daemon-driven (non-LLM) UI requests.
+ * It performs the fail-closed capability check, emits `ui_surface_show`,
+ * stores surface state, arms the timeout, and registers a pending entry
+ * so that `handleSurfaceAction` can intercept the callback.
+ */
+export function showStandaloneSurface(
+  ctx: SurfaceConversationContext,
+  request: InteractiveUiRequest,
+  surfaceId: string,
+): Promise<InteractiveUiResult> {
+  // ── Fail-closed: no interactive UI capability ──
+  if (!canShowInteractiveUi(ctx)) {
+    log.warn(
+      {
+        conversationId: ctx.conversationId,
+        surfaceType: request.surfaceType,
+        hasNoClient: ctx.hasNoClient,
+        channel: ctx.channelCapabilities?.channel,
+      },
+      "standalone surface: no interactive UI capability; failing closed",
+    );
+    return Promise.resolve({
+      status: "cancelled" as const,
+      surfaceId,
+      cancellationReason: "no_interactive_surface",
+    });
+  }
+
+  // The pendingStandaloneSurfaces map must exist on the context.
+  // The Conversation class always initializes it; if absent, fail closed.
+  if (!ctx.pendingStandaloneSurfaces) {
+    log.warn(
+      { conversationId: ctx.conversationId, surfaceType: request.surfaceType },
+      "standalone surface: pendingStandaloneSurfaces map missing; failing closed",
+    );
+    return Promise.resolve({
+      status: "cancelled" as const,
+      surfaceId,
+      cancellationReason: "no_interactive_surface",
+    });
+  }
+  const pendingMap = ctx.pendingStandaloneSurfaces;
+
+  const timeoutMs = request.timeoutMs ?? DEFAULT_STANDALONE_TIMEOUT_MS;
+
+  // Build surface data from the request payload.
+  const surfaceType = request.surfaceType as SurfaceType;
+  const data = buildStandaloneSurfaceData(request);
+  const actions = request.actions?.map((a) => ({
+    id: a.id,
+    label: a.label,
+    style: (a.variant === "danger"
+      ? "destructive"
+      : (a.variant ?? "secondary")) as "primary" | "secondary" | "destructive",
+  }));
+
+  return new Promise<InteractiveUiResult>((resolve) => {
+    // ── Arm timeout ──
+    const timer = setTimeout(() => {
+      // Notify the client BEFORE cleanup so the surface is dismissed on
+      // the client side, preventing stale user interactions from reaching
+      // handleSurfaceAction and being misrouted to the LLM.
+      try {
+        const emitTimeout =
+          ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
+        emitTimeout({
+          type: "ui_surface_complete",
+          conversationId: ctx.conversationId,
+          surfaceId,
+          summary: "Timed out",
+        });
+      } catch (err) {
+        log.warn(
+          { err, conversationId: ctx.conversationId, surfaceId },
+          "Failed to emit ui_surface_complete on timeout",
+        );
+      }
+
+      cleanupStandaloneSurface(ctx, surfaceId);
+      log.info(
+        { conversationId: ctx.conversationId, surfaceId, timeoutMs },
+        "standalone surface timed out",
+      );
+      resolve({ status: "timed_out", surfaceId });
+    }, timeoutMs);
+
+    // ── Register pending entry ──
+    pendingMap.set(surfaceId, {
+      resolve,
+      timer,
+      surfaceType,
+    });
+
+    // ── Store surface state ──
+    ctx.surfaceState.set(surfaceId, {
+      surfaceType,
+      data,
+      title: request.title,
+      actions,
+    });
+
+    // ── Emit to client ──
+    const emit = ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
+    emit({
+      type: "ui_surface_show",
+      conversationId: ctx.conversationId,
+      surfaceId,
+      surfaceType,
+      title: request.title,
+      data,
+      actions,
+      display: "inline",
+    } as unknown as UiSurfaceShow);
+
+    log.info(
+      {
+        conversationId: ctx.conversationId,
+        surfaceId,
+        surfaceType,
+        timeoutMs,
+      },
+      "standalone surface shown",
+    );
+  });
+}
+
+/**
+ * Build a SurfaceData object from an InteractiveUiRequest.
+ * Maps the generic `data` payload to the typed shape expected by the
+ * surface type.
+ */
+function buildStandaloneSurfaceData(
+  request: InteractiveUiRequest,
+): SurfaceData {
+  if (request.surfaceType === "confirmation") {
+    return {
+      message:
+        typeof request.data.message === "string"
+          ? request.data.message
+          : (request.title ?? "Please confirm"),
+      detail:
+        typeof request.data.detail === "string"
+          ? request.data.detail
+          : undefined,
+      confirmLabel:
+        typeof request.data.confirmLabel === "string"
+          ? request.data.confirmLabel
+          : undefined,
+      cancelLabel:
+        typeof request.data.cancelLabel === "string"
+          ? request.data.cancelLabel
+          : undefined,
+      destructive:
+        typeof request.data.destructive === "boolean"
+          ? request.data.destructive
+          : undefined,
+    } satisfies ConfirmationSurfaceData;
+  }
+
+  if (request.surfaceType === "form") {
+    // Preserve the full form payload (pages, pageLabels, and any future
+    // additive keys) via spreading. Apply defensive normalization so that
+    // `fields` is always a valid array — callers that use `pages` instead
+    // of top-level `fields` may omit the latter entirely.
+    const raw = request.data as Record<string, unknown>;
+    const hasFields = Array.isArray(raw.fields) && raw.fields.length > 0;
+    const fields: FormSurfaceData["fields"] = hasFields
+      ? (raw.fields as FormSurfaceData["fields"])
+      : [];
+
+    return {
+      ...raw,
+      fields,
+    } as FormSurfaceData;
+  }
+
+  // Fallback: pass through opaque data
+  return request.data as unknown as SurfaceData;
+}
+
+/**
+ * Cleanup a standalone surface entry: clear the timeout timer, remove
+ * the pending entry, remove surface state, and record a short-lived
+ * tombstone so late client actions are silently dropped instead of
+ * falling through to the LLM path. Idempotent — safe to call multiple
+ * times for the same surfaceId.
+ */
+export function cleanupStandaloneSurface(
+  ctx: Pick<
+    SurfaceConversationContext,
+    | "pendingStandaloneSurfaces"
+    | "recentlyCompletedStandaloneSurfaces"
+    | "surfaceState"
+    | "pendingSurfaceActions"
+    | "lastSurfaceAction"
+    | "accumulatedSurfaceState"
+    | "surfaceUndoStacks"
+  >,
+  surfaceId: string,
+): void {
+  const entry = ctx.pendingStandaloneSurfaces?.get(surfaceId);
+  if (entry) {
+    clearTimeout(entry.timer);
+    ctx.pendingStandaloneSurfaces?.delete(surfaceId);
+  }
+  ctx.surfaceState.delete(surfaceId);
+  ctx.pendingSurfaceActions.delete(surfaceId);
+  ctx.lastSurfaceAction.delete(surfaceId);
+  ctx.accumulatedSurfaceState.delete(surfaceId);
+  ctx.surfaceUndoStacks.delete(surfaceId);
+
+  // Record a tombstone so late client actions are silently dropped.
+  if (ctx.recentlyCompletedStandaloneSurfaces) {
+    // Clear any existing tombstone timer for this surfaceId (idempotency).
+    const existingTimer =
+      ctx.recentlyCompletedStandaloneSurfaces.get(surfaceId);
+    if (existingTimer) clearTimeout(existingTimer);
+
+    const tombstoneTimer = setTimeout(() => {
+      ctx.recentlyCompletedStandaloneSurfaces?.delete(surfaceId);
+    }, STANDALONE_TOMBSTONE_TTL_MS);
+    ctx.recentlyCompletedStandaloneSurfaces.set(surfaceId, tombstoneTimer);
+  }
 }
 
 /**
@@ -663,6 +955,85 @@ export async function handleSurfaceAction(
   actionId: string,
   data?: Record<string, unknown>,
 ): Promise<SurfaceActionResult> {
+  // ── Standalone surface interception ──────────────────────────────
+  // Daemon-driven surfaces (from `requestInteractiveUi`) register a
+  // pending entry in `pendingStandaloneSurfaces`. When the user clicks
+  // an action, resolve the caller's Promise directly and return WITHOUT
+  // enqueuing a model message — consumed standalone callbacks never
+  // trigger an LLM follow-up turn.
+  //
+  // This block runs BEFORE launch_conversation dispatch so that a
+  // standalone form whose submittedData happens to contain
+  // `_action: "launch_conversation"` is resolved as a standalone
+  // interaction rather than triggering a conversation launch.
+  const standalone = ctx.pendingStandaloneSurfaces?.get(surfaceId);
+  if (standalone) {
+    const stored = ctx.surfaceState.get(surfaceId);
+    const summary = buildCompletionSummary(
+      standalone.surfaceType,
+      actionId,
+      data,
+      stored?.data as Record<string, unknown> | undefined,
+    );
+
+    // Determine result status from the action.
+    const isCancellation = actionId === "cancel" || actionId === "dismiss";
+    const status: InteractiveUiResult["status"] = isCancellation
+      ? "cancelled"
+      : "submitted";
+
+    const result: InteractiveUiResult = {
+      status,
+      surfaceId,
+      actionId,
+      ...(data ? { submittedData: data } : {}),
+      ...(isCancellation
+        ? { cancellationReason: "user_dismissed" as const }
+        : {}),
+      summary,
+    };
+
+    // Emit ui_surface_complete so the client transitions the surface chip.
+    const emit = ctx.broadcastToAllClients ?? ctx.sendToClient.bind(ctx);
+    emit({
+      type: "ui_surface_complete",
+      conversationId: ctx.conversationId,
+      surfaceId,
+      summary,
+      submittedData: data,
+    });
+
+    // Cleanup and resolve — order matters: cleanup clears the timer
+    // before resolve() unblocks the caller.
+    cleanupStandaloneSurface(ctx, surfaceId);
+    standalone.resolve(result);
+
+    log.info(
+      {
+        conversationId: ctx.conversationId,
+        surfaceId,
+        actionId,
+        status,
+      },
+      "standalone surface resolved by user action",
+    );
+
+    // Return without enqueuing a model message.
+    return { accepted: true, conversationId: ctx.conversationId };
+  }
+
+  // ── Tombstone guard for recently-completed standalone surfaces ────
+  // After a standalone surface times out or is resolved, cleanup removes
+  // all state. Without this guard a late client action would fall through
+  // to the history-restored path below and enqueue a message to the LLM.
+  if (ctx.recentlyCompletedStandaloneSurfaces?.has(surfaceId)) {
+    log.debug(
+      { conversationId: ctx.conversationId, surfaceId, actionId },
+      "Dropping late action for recently-completed standalone surface",
+    );
+    return { accepted: true, conversationId: ctx.conversationId };
+  }
+
   // `launch_conversation` actions spawn a fresh conversation inline instead
   // of round-tripping through the LLM with a `[User action on card surface:
   // ...]` chat message. This dispatch must run BEFORE the pending-vs-not
@@ -1279,8 +1650,18 @@ export function buildCompletionSummary(
           : undefined;
       return confirmLabel ? `User chose: "${confirmLabel}"` : "Confirmed";
     }
+    if (actionId === "deny") {
+      // The deny button's custom label is passed as cancelLabel in the
+      // confirmation surface data (the deny action reuses the cancel label
+      // since both represent the "reject" path).
+      const denyLabel =
+        typeof surfaceData?.cancelLabel === "string"
+          ? surfaceData.cancelLabel
+          : undefined;
+      return denyLabel ? `User chose: "${denyLabel}"` : "Denied";
+    }
     // Preserve the actual action ID so the LLM knows the user's exact choice
-    // (e.g. "deny", "no", "reject") rather than misreporting it as confirmed.
+    // rather than misreporting it as confirmed.
     return `User selected: ${actionId}`;
   }
   if (surfaceType === "form") {
@@ -1331,6 +1712,13 @@ export function buildUserFacingLabel(
           ? surfaceData.confirmLabel
           : undefined;
       return confirmLabel ?? "Confirmed";
+    }
+    if (actionId === "deny") {
+      const denyLabel =
+        typeof surfaceData?.cancelLabel === "string"
+          ? surfaceData.cancelLabel
+          : undefined;
+      return denyLabel ?? "Denied";
     }
     return `Selected: ${actionId}`;
   }

@@ -44,7 +44,7 @@ struct ContactsListView: View {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 contactListRow(
                     name: "Your Assistant",
-                    role: "assistant",
+                    badgeKind: .assistant,
                     isSelected: selection == .assistant,
                     isHovered: isAssistantHovered,
                     onTap: { selection = .assistant },
@@ -54,7 +54,7 @@ struct ContactsListView: View {
                 if let guardian = viewModel.guardianContact {
                     contactListRow(
                         name: "You",
-                        role: guardian.role,
+                        badgeKind: ContactTypeBadge.Kind(role: guardian.role, contactType: guardian.contactType),
                         isSelected: selection == .contact(guardian.id),
                         isHovered: hoveredContactId == guardian.id,
                         onTap: { selection = .contact(guardian.id) },
@@ -83,7 +83,7 @@ struct ContactsListView: View {
                         ForEach(viewModel.filteredRegularContacts, id: \.id) { contact in
                             contactListRow(
                                 name: contact.displayName,
-                                role: contact.role,
+                                badgeKind: ContactTypeBadge.Kind(role: contact.role, contactType: contact.contactType),
                                 isSelected: selection == .contact(contact.id),
                                 isHovered: hoveredContactId == contact.id,
                                 onTap: { selection = .contact(contact.id) },
@@ -151,7 +151,7 @@ struct ContactsListView: View {
 
     private func contactListRow(
         name: String,
-        role: String?,
+        badgeKind: ContactTypeBadge.Kind,
         isSelected: Bool,
         isHovered: Bool,
         onTap: @escaping () -> Void,
@@ -166,7 +166,7 @@ struct ContactsListView: View {
 
                 Spacer()
 
-                ContactTypeBadge(role: role)
+                ContactTypeBadge(kind: badgeKind)
             }
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.md)

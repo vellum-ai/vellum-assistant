@@ -89,6 +89,8 @@ export interface RefreshBreakerState {
   consecutiveFailures: number;
   openedAt: number;
   cooldownMs: number;
+  /** Whether the breaker tripped due to a credential error (vs transient). */
+  isCredentialError: boolean;
 }
 
 /**
@@ -128,18 +130,34 @@ export class RefreshCircuitBreaker {
     this.breakers.delete(key);
   }
 
-  /** Record a failed refresh attempt, potentially opening the breaker. */
-  recordFailure(key: string): void {
+  /**
+   * Record a failed refresh attempt, potentially opening the breaker.
+   *
+   * @param isCredential - When true, the failure is a credential error
+   *   (revoked token, invalid client) that no amount of retrying will fix.
+   *   Only credential errors count toward opening the circuit breaker.
+   *   Transient errors (network timeouts, 5xx) are silently ignored here —
+   *   they do not trip the breaker and are not recorded. Upstream retry logic
+   *   in refreshOAuth2Token handles transient failures with exponential backoff.
+   */
+  recordFailure(key: string, isCredential = true): void {
+    if (!isCredential) {
+      // Transient failures should not trip the breaker. The retry logic in
+      // refreshOAuth2Token handles transient errors with its own backoff.
+      return;
+    }
     const state = this.breakers.get(key);
     if (!state) {
       this.breakers.set(key, {
         consecutiveFailures: 1,
         openedAt: 0,
         cooldownMs: INITIAL_COOLDOWN_MS,
+        isCredentialError: true,
       });
       return;
     }
     state.consecutiveFailures++;
+    state.isCredentialError = true;
     if (state.consecutiveFailures >= REFRESH_FAILURE_THRESHOLD) {
       // Only escalate cooldown on the exact failure that trips the breaker.
       // Concurrent in-flight failures that arrive after the threshold is

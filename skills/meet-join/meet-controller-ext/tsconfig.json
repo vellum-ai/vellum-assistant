@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "lib": ["ES2022", "DOM"],
+    "types": ["chrome", "bun"],
+    "noEmit": true
+  },
+  "include": [
+    "src/**/*",
+    "../contracts/index.ts",
+    "../contracts/native-messaging.ts",
+    "../contracts/events.ts",
+    "../contracts/commands.ts"
+  ],
+  "exclude": ["node_modules", "dist", "../contracts/__tests__/**"]
+}

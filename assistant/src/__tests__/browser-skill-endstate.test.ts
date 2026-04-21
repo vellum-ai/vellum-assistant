@@ -1,8 +1,8 @@
 /**
- * End-state verification test for the browser skill migration.
+ * End-state verification test for the browser CLI-only architecture.
  *
- * Locks the final invariants from the BROWSER_SKILL plan so that future
- * changes cannot silently regress any of the migration guarantees.
+ * Locks the invariants of the CLI-only browser contract so that future
+ * changes cannot silently regress any of the architectural guarantees.
  */
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 
@@ -10,23 +10,21 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => ({}),
 }));
 
+import { BROWSER_OPERATION_META } from "../browser/operations.js";
+import { BROWSER_OPERATIONS } from "../browser/types.js";
 import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 import {
   projectSkillTools,
   resetSkillToolProjection,
 } from "../daemon/conversation-skill-tools.js";
-import { getDefaultRuleTemplates } from "../permissions/defaults.js";
 import {
   __resetRegistryForTesting,
   getAllToolDefinitions,
   getAllTools,
   initializeTools,
 } from "../tools/registry.js";
-import { eagerModuleToolNames } from "../tools/tool-manifest.js";
 import {
   BROWSER_SKILL_ID,
-  BROWSER_TOOL_COUNT,
-  BROWSER_TOOL_NAMES,
   buildSkillLoadHistory,
 } from "./test-support/browser-skill-harness.js";
 
@@ -35,7 +33,7 @@ afterAll(() => {
   _setOverridesForTesting({});
 });
 
-describe("browser skill migration end-state", () => {
+describe("browser CLI-only architecture end-state", () => {
   beforeAll(async () => {
     __resetRegistryForTesting();
     _setOverridesForTesting({
@@ -44,169 +42,83 @@ describe("browser skill migration end-state", () => {
     await initializeTools();
   });
 
-  const BROWSER_TOOLS = [
-    "browser_navigate",
-    "browser_snapshot",
-    "browser_screenshot",
-    "browser_close",
-    "browser_attach",
-    "browser_detach",
-    "browser_click",
-    "browser_type",
-    "browser_press_key",
-    "browser_scroll",
-    "browser_select_option",
-    "browser_hover",
-    "browser_wait_for",
-    "browser_extract",
-    "browser_wait_for_download",
-    "browser_fill_credential",
-    "browser_status",
-  ] as const;
+  // ── 1. No browser_* tools in startup payload ─────────────────────
 
-  // ── 1. Startup payload excludes browser tools ──────────────────────
-
-  test("browser tools are NOT in startup core registry", () => {
+  test("no browser_* tools are registered at startup", () => {
     const toolNames = getAllTools().map((t) => t.name);
-    for (const name of BROWSER_TOOLS) {
-      expect(toolNames).not.toContain(name);
-    }
+    const browserTools = toolNames.filter((n) => n.startsWith("browser_"));
+    expect(browserTools).toHaveLength(0);
   });
 
-  test("browser tool names are NOT in eagerModuleToolNames", () => {
-    for (const name of BROWSER_TOOLS) {
-      expect(eagerModuleToolNames).not.toContain(name);
-    }
-  });
-
-  test("startup tool definition count is reduced (no browser tools)", () => {
+  test("no browser_* tool definitions at startup", () => {
     const definitions = getAllToolDefinitions();
-    // Startup has ~20 definitions after moving scaffold/settings/skill-management
-    // tools to bundled skills (no browser tools).
-    // Allow wider drift for unrelated tool additions while still failing if
-    // browser tools are reintroduced at startup (+many definitions).
-    expect(definitions.length).toBeGreaterThanOrEqual(15);
-    expect(definitions.length).toBeLessThanOrEqual(50);
-
-    const defNames = definitions.map((d) => d.name);
-    for (const name of BROWSER_TOOLS) {
-      expect(defNames).not.toContain(name);
-    }
-
-    // Payload ceiling: startup payload is ~22 000 chars.  Browser tools
-    // contribute ~4 640 chars — if they leak back in, the total would exceed
-    // 35 000.  The margin absorbs minor tool additions.
-    const payloadSize = JSON.stringify(definitions).length;
-    expect(payloadSize).toBeLessThan(35_000);
+    const browserDefs = definitions.filter((d) =>
+      d.name.startsWith("browser_"),
+    );
+    expect(browserDefs).toHaveLength(0);
   });
 
-  // ── 2. Browser skill exists and is active ──────────────────────────
+  // ── 2. Browser skill directory exists with SKILL.md ──────────────
 
-  test("bundled browser skill directory exists with SKILL.md and TOOLS.json", async () => {
+  test("managed browser skill directory exists with SKILL.md but no TOOLS.json", async () => {
     const path = await import("node:path");
     const fs = await import("node:fs");
+    // Browser skill lives in skills/vellum-browser-use/ (managed), not bundled-skills/.
     const skillDir = path.resolve(
       import.meta.dirname,
-      "../config/bundled-skills/browser",
+      "../../../skills/vellum-browser-use",
     );
     expect(fs.existsSync(path.join(skillDir, "SKILL.md"))).toBe(true);
-    expect(fs.existsSync(path.join(skillDir, "TOOLS.json"))).toBe(true);
+    // Browser operations are dispatched via the CLI, not via skill tools.
+    expect(fs.existsSync(path.join(skillDir, "TOOLS.json"))).toBe(false);
   });
 
-  test("browser TOOLS.json contains all browser tools", async () => {
-    const path = await import("node:path");
-    const fs = await import("node:fs");
-    const toolsPath = path.resolve(
-      import.meta.dirname,
-      "../config/bundled-skills/browser/TOOLS.json",
-    );
-    const manifest = JSON.parse(fs.readFileSync(toolsPath, "utf-8"));
-    expect(manifest.version).toBe(1);
-    expect(manifest.tools).toHaveLength(BROWSER_TOOLS.length);
-    const toolNames = manifest.tools.map((t: { name: string }) => t.name);
-    for (const name of BROWSER_TOOLS) {
-      expect(toolNames).toContain(name);
-    }
-  });
+  // ── 3. Browser tool wrapper directory does not exist ─────────────
 
-  test("every browser tool schema exposes an optional browser_mode property", async () => {
-    const path = await import("node:path");
-    const fs = await import("node:fs");
-    const toolsPath = path.resolve(
-      import.meta.dirname,
-      "../config/bundled-skills/browser/TOOLS.json",
-    );
-    const manifest = JSON.parse(fs.readFileSync(toolsPath, "utf-8"));
-    for (const tool of manifest.tools) {
-      const props = tool.input_schema?.properties ?? {};
-      expect(props.browser_mode).toBeDefined();
-      expect(props.browser_mode.type).toBe("string");
-      // browser_mode must NOT be required
-      const required: string[] = tool.input_schema?.required ?? [];
-      expect(required).not.toContain("browser_mode");
-    }
-  });
-
-  // ── 3. Permission defaults align with PR 08/09 ────────────────────
-
-  test("skill_load has default allow rule", () => {
-    const templates = getDefaultRuleTemplates();
-    const rule = templates.find(
-      (t) => t.id === "default:allow-skill_load-global",
-    );
-    expect(rule).toBeDefined();
-    expect(rule!.decision).toBe("allow");
-  });
-
-  test("all browser tools have default allow rules", () => {
-    const templates = getDefaultRuleTemplates();
-    for (const tool of BROWSER_TOOLS) {
-      const rule = templates.find(
-        (t) => t.id === `default:allow-${tool}-global`,
-      );
-      expect(rule).toBeDefined();
-      expect(rule!.decision).toBe("allow");
-      // browser_navigate uses standalone "**" globstar because navigate
-      // candidates contain URLs with "/" (e.g. "browser_navigate:https://example.com/path").
-      const expectedPattern = tool === "browser_navigate" ? "**" : `${tool}:*`;
-      expect(rule!.pattern).toBe(expectedPattern);
-    }
-  });
-
-  // ── 4. Tool wrapper scripts exist ──────────────────────────────────
-
-  test("all browser tool wrapper scripts exist", async () => {
+  test("browser tool wrapper scripts directory does not exist", async () => {
     const path = await import("node:path");
     const fs = await import("node:fs");
     const toolsDir = path.resolve(
       import.meta.dirname,
-      "../config/bundled-skills/browser/tools",
+      "../../../skills/vellum-browser-use/tools",
     );
-    const wrapperFiles = [
-      "browser-navigate.ts",
-      "browser-snapshot.ts",
-      "browser-screenshot.ts",
-      "browser-close.ts",
-      "browser-attach.ts",
-      "browser-detach.ts",
-      "browser-click.ts",
-      "browser-type.ts",
-      "browser-press-key.ts",
-      "browser-scroll.ts",
-      "browser-select-option.ts",
-      "browser-hover.ts",
-      "browser-wait-for.ts",
-      "browser-extract.ts",
-      "browser-wait-for-download.ts",
-      "browser-fill-credential.ts",
-      "browser-status.ts",
-    ];
-    for (const file of wrapperFiles) {
-      expect(fs.existsSync(path.join(toolsDir, file))).toBe(true);
+    // Browser operations are dispatched via CLI commands,
+    // not via per-tool executor files.
+    expect(fs.existsSync(toolsDir)).toBe(false);
+  });
+
+  // ── 4. Browser operations have CLI metadata ──────────────────────
+
+  test("every browser operation has CLI subcommand metadata", () => {
+    for (const op of BROWSER_OPERATIONS) {
+      const meta = BROWSER_OPERATION_META.find((m) => m.operation === op);
+      expect(meta).toBeDefined();
+      expect(meta!.helpText).toBeDefined();
+      expect(meta!.helpText).toContain("assistant browser");
     }
   });
 
-  // ── 5. Execution extraction is in place ────────────────────────────
+  // ── 5. Skill projection emits no tool definitions ────────────────
+
+  test("skill_load projection registers no browser tools", () => {
+    const history = buildSkillLoadHistory(BROWSER_SKILL_ID);
+    const tracking = new Map<string, string>();
+
+    try {
+      const projection = projectSkillTools(history, {
+        previouslyActiveSkillIds: tracking,
+      });
+
+      // No tool definitions sent to the LLM — browser operations are
+      // dispatched via `assistant browser` CLI commands.
+      expect(projection.toolDefinitions).toHaveLength(0);
+      expect(projection.allowedToolNames.size).toBe(0);
+    } finally {
+      resetSkillToolProjection(tracking);
+    }
+  });
+
+  // ── 6. Execution module exists ───────────────────────────────────
 
   test("browser-execution.ts exists with exported execute functions", async () => {
     const path = await import("node:path");
@@ -216,48 +128,5 @@ describe("browser skill migration end-state", () => {
       "../tools/browser/browser-execution.ts",
     );
     expect(fs.existsSync(execPath)).toBe(true);
-    const content = fs.readFileSync(execPath, "utf-8");
-    // browser_wait_for_download uses a standalone wrapper that calls
-    // browserManager.waitForDownload() directly — no execute* function.
-    const TOOLS_WITH_EXECUTE_FN = BROWSER_TOOLS.filter(
-      (name) => name !== "browser_wait_for_download",
-    );
-    for (const name of TOOLS_WITH_EXECUTE_FN) {
-      // Derive expected function name: browser_navigate -> executeBrowserNavigate
-      const fnName =
-        "execute" +
-        name
-          .split("_")
-          .map((s, i) =>
-            i === 0 ? "Browser" : s.charAt(0).toUpperCase() + s.slice(1),
-          )
-          .join("");
-      expect(content).toContain(fnName);
-    }
-  });
-
-  // ── 6. Runtime projection adds all browser tools ──────────
-
-  test("skill_load projection adds all browser tools", () => {
-    const history = buildSkillLoadHistory(BROWSER_SKILL_ID);
-    const tracking = new Map<string, string>();
-
-    try {
-      const projection = projectSkillTools(history, {
-        previouslyActiveSkillIds: tracking,
-      });
-
-      // Tool definitions are no longer sent to the LLM (dispatched via
-      // skill_execute), so toolDefinitions is expected to be empty.
-      expect(projection.toolDefinitions).toHaveLength(0);
-
-      // All browser tools should be registered and tracked in allowedToolNames
-      expect(projection.allowedToolNames.size).toBe(BROWSER_TOOL_COUNT);
-      for (const name of BROWSER_TOOL_NAMES) {
-        expect(projection.allowedToolNames.has(name)).toBe(true);
-      }
-    } finally {
-      resetSkillToolProjection(tracking);
-    }
   });
 });

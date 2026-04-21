@@ -11,6 +11,7 @@ enum SettingsTab: String {
     case billing = "Billing"
     case archivedConversations = "Archive"
     case schedules = "Schedules"
+    case debug = "Debug"
     case developer = "Developer"
 
     var icon: VIcon {
@@ -24,12 +25,13 @@ enum SettingsTab: String {
         case .billing: return .creditCard
         case .archivedConversations: return .archive
         case .schedules: return .calendar
+        case .debug: return .bug
         case .developer: return .terminal
         }
     }
 
     /// Primary tabs shown in the main nav list (excludes feature-flagged bottom tabs).
-    static func primaryTabs(billingEnabled: Bool = false, soundsEnabled: Bool = true, schedulesEnabled: Bool = false) -> [SettingsTab] {
+    static func primaryTabs(billingEnabled: Bool = false, soundsEnabled: Bool = true, schedulesEnabled: Bool = false, debugEnabled: Bool = false) -> [SettingsTab] {
         var tabs: [SettingsTab] = [.general, .modelsAndServices, .integrations]
         tabs.append(.voice)
         if soundsEnabled { tabs.append(.sounds) }
@@ -37,6 +39,7 @@ enum SettingsTab: String {
         tabs.append(.permissionsAndPrivacy)
         tabs.append(.archivedConversations)
         if schedulesEnabled { tabs.append(.schedules) }
+        if debugEnabled { tabs.append(.debug) }
         return tabs
     }
 }
@@ -100,7 +103,11 @@ struct SettingsPanel: View {
             let canShowBilling = billingEnabled && authManager.isAuthenticated && orgId != nil
             // Contacts and developer flags load asynchronously, so default
             // to false at init time — those tabs aren't visible yet.
-            let visibleTabs = SettingsTab.primaryTabs(billingEnabled: canShowBilling, soundsEnabled: soundsEnabled, schedulesEnabled: false)
+            // Debug tab is gated to managed assistants; `AppDelegate` publishes
+            // this synchronously via `isCurrentAssistantManaged` which is set
+            // in `ConnectionSetup` before the settings view is presented.
+            let debugEnabled = AppDelegate.shared?.isCurrentAssistantManaged ?? false
+            let visibleTabs = SettingsTab.primaryTabs(billingEnabled: canShowBilling, soundsEnabled: soundsEnabled, schedulesEnabled: false, debugEnabled: debugEnabled)
             if visibleTabs.contains(pending) {
                 _selectedTab = State(initialValue: pending)
             } else {
@@ -217,7 +224,7 @@ struct SettingsPanel: View {
                 // the flag manager directly avoids a stale billingVisible.
                 let billingEnabled = MacOSClientFeatureFlagManager.shared.isEnabled(Self.billingFeatureFlagKey)
                 let canShowBilling = billingEnabled && authManager.isAuthenticated && connectedOrgId != nil
-                let visibleTabs = SettingsTab.primaryTabs(billingEnabled: canShowBilling, soundsEnabled: isSoundsEnabled, schedulesEnabled: isSchedulesEnabled)
+                let visibleTabs = SettingsTab.primaryTabs(billingEnabled: canShowBilling, soundsEnabled: isSoundsEnabled, schedulesEnabled: isSchedulesEnabled, debugEnabled: isDebugVisible)
                     + (isDeveloperEnabled ? [.developer] : [])
                 if visibleTabs.contains(tab) {
                     selectedTab = tab
@@ -236,6 +243,11 @@ struct SettingsPanel: View {
         }
         .onChange(of: billingVisible) { _, visible in
             if !visible && selectedTab == .billing {
+                selectedTab = .general
+            }
+        }
+        .onChange(of: isDebugVisible) { _, visible in
+            if !visible && selectedTab == .debug {
                 selectedTab = .general
             }
         }
@@ -341,7 +353,7 @@ struct SettingsPanel: View {
 
     /// All currently visible tabs (primary + gated bottom tabs).
     private var allVisibleTabs: [SettingsTab] {
-        var tabs = SettingsTab.primaryTabs(billingEnabled: billingVisible, soundsEnabled: isSoundsEnabled, schedulesEnabled: isSchedulesEnabled)
+        var tabs = SettingsTab.primaryTabs(billingEnabled: billingVisible, soundsEnabled: isSoundsEnabled, schedulesEnabled: isSchedulesEnabled, debugEnabled: isDebugVisible)
         if isDeveloperEnabled {
             tabs.append(.developer)
         }
@@ -354,9 +366,17 @@ struct SettingsPanel: View {
         return isBillingEnabled && authManager.isAuthenticated && connectedOrgId != nil
     }
 
+    /// The Debug tab currently only hosts cloud-hosted assistant tooling
+    /// (backups), so it's hidden for local and self-hosted remote assistants.
+    /// Recomputed on bootstrap so assistant switches update the nav.
+    private var isDebugVisible: Bool {
+        let _ = bootstrapGeneration
+        return AppDelegate.shared?.isCurrentAssistantManaged ?? false
+    }
+
     private var settingsNav: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            ForEach(SettingsTab.primaryTabs(billingEnabled: billingVisible, soundsEnabled: isSoundsEnabled, schedulesEnabled: isSchedulesEnabled), id: \.self) { tab in
+            ForEach(SettingsTab.primaryTabs(billingEnabled: billingVisible, soundsEnabled: isSoundsEnabled, schedulesEnabled: isSchedulesEnabled, debugEnabled: isDebugVisible), id: \.self) { tab in
                 VNavItem(icon: tab.icon.rawValue, label: tab.rawValue, isActive: selectedTab == tab) {
                     selectedTab = tab
                 }
@@ -425,6 +445,8 @@ struct SettingsPanel: View {
             SettingsArchivedConversationsTab(conversationManager: conversationManager)
         case .schedules:
             SettingsSchedulesTab()
+        case .debug:
+            SettingsDebugTab(store: store)
         case .developer:
             SettingsDeveloperTab(store: store, connectionManager: connectionManager, authManager: authManager, onClose: onClose)
         }
@@ -499,6 +521,12 @@ struct SettingsPanel: View {
                     showToast: showToast
                 )
             }
+
+            // TEXT-TO-SPEECH
+            TTSServiceCard(store: store)
+
+            // SPEECH-TO-TEXT
+            STTServiceCard(store: store)
 
             // EMAIL (feature-flagged)
             if isEmailChannelEnabled {

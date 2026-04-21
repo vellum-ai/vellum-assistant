@@ -13,7 +13,6 @@ targets:
     platform: iOS
     sources:
       - path: App
-      - path: Services
       - path: Views
       - path: Resources
         buildPhase: resources
@@ -23,8 +22,6 @@ targets:
     dependencies:
       - package: VellumAssistant
         product: VellumAssistantShared
-      - package: VellumAssistant
-        product: ObjCExceptionCatcher
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.vocify-inc.vellum-assistant-ios

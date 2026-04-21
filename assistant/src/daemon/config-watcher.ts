@@ -172,7 +172,6 @@ export class ConfigWatcher {
         onConversationEvict();
         onIdentityChanged?.();
       },
-      "UPDATES.md": () => onConversationEvict(),
     };
 
     const watchDir = (
