@@ -977,7 +977,7 @@ describe("Permission Checker", () => {
       );
       // High-risk tools always prompt even with allow rules
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("high risk");
+      expect(result.reason).toContain("High risk");
     });
 
     test("allow rule for scaffold_managed_skill does not match other skill ids", async () => {
@@ -1011,7 +1011,7 @@ describe("Permission Checker", () => {
       );
       // High-risk tools always prompt even with allow rules
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("high risk");
+      expect(result.reason).toContain("High risk");
     });
 
     test("computer_use_click prompts by default via computer-use ask rule", async () => {
@@ -1498,7 +1498,7 @@ describe("Permission Checker", () => {
       // Use a path outside the workspace to test the risk-based fallback.
       const result = await check("file_read", { path: "/etc/hosts" }, "/tmp");
       expect(result.decision).toBe("allow");
-      expect(result.reason).toContain("low risk");
+      expect(result.reason).toContain("Low risk");
     });
 
     // Regression: trust rules properly override the default-ask policy
@@ -4081,7 +4081,7 @@ describe("Permission Checker", () => {
         addRule("file_write", `file_write:${checkerTestDir}/skills/**`, "/tmp");
         const result = await check("file_write", { path: skillPath }, "/tmp");
         expect(result.decision).toBe("prompt");
-        expect(result.reason).toContain("high risk");
+        expect(result.reason).toContain("High risk");
       });
 
       test("allow rule for skill mutation prompts (high risk, non-bash tool)", async () => {
@@ -4810,7 +4810,7 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
       workspaceDir,
     );
     expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("low risk");
+    expect(result.reason).toContain("Low risk");
   });
 
   test("file_write outside workspace → allow (Low risk fallback)", async () => {
@@ -4820,7 +4820,7 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
       workspaceDir,
     );
     expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("low risk");
+    expect(result.reason).toContain("Low risk");
   });
 
   // ── bash (non-containerized) — workspace auto-allow blocked, risk-based fallback ──
@@ -4918,7 +4918,7 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
       workspaceDir,
     );
     expect(result.decision).toBe("allow");
-    expect(result.reason).toContain("low risk");
+    expect(result.reason).toContain("Low risk");
   });
 
   test("network_request → prompt (Medium risk, not workspace-scoped)", async () => {
