@@ -69,7 +69,8 @@ struct ToolSelectionView: View {
                     ? "Continue"
                     : "Continue \u{00B7} \(selectedTools.count) selected",
                 style: .primary,
-                isFullWidth: true
+                isFullWidth: true,
+                isDisabled: selectedTools.isEmpty
             ) {
                 onContinue()
             }
