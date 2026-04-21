@@ -241,7 +241,7 @@ struct CreditsExhaustedBanner: View {
 
 // MARK: - Compaction Circuit Open Banner
 
-/// Inline banner shown when the daemon has paused automatic context
+/// Inline banner shown when the assistant has paused automatic context
 /// compaction after three consecutive summary-LLM failures. Stays visible
 /// while `openUntil` is in the future; auto-dismisses once the cooldown
 /// elapses. A minute-granularity ticker is sufficient — the cooldown is
