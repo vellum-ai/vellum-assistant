@@ -50,32 +50,10 @@ const WORKFLOW_PATH_PATTERNS = {
     "clients/chrome-extension/**",
     ".github/workflows/pr-chrome-extension.yaml",
   ],
-  "pr-macos.yaml": [
-    "clients/macos/**",
-    "clients/shared/**",
-    "clients/Package.swift",
-    "clients/.periphery.yml",
-    "clients/.periphery_baseline.json",
-    "clients/scripts/periphery-scan.sh",
-    "assistant/**",
-    "gateway/**",
-    "credential-executor/**",
-    "packages/**",
-    ".github/workflows/pr-macos.yaml",
-  ],
-  "pr-credential-executor.yaml": [
-    "credential-executor/**",
-    "packages/ces-contracts/**",
-    "packages/credential-storage/**",
-    "packages/egress-proxy/**",
-    ".github/workflows/pr-credential-executor.yaml",
-  ],
-  "pr-ios.yaml": [
-    "clients/ios/**",
-    "clients/shared/**",
-    "clients/Package.swift",
-    ".github/workflows/pr-ios.yaml",
-  ],
+  // NOTE: pr-macos.yaml, pr-ios.yaml, and pr-credential-executor.yaml are
+  // intentionally excluded. All their jobs are gated on the `preview` label
+  // which is only available on pull_request events — workflow_dispatch would
+  // always skip every job, wasting API calls.
 };
 
 function globToRegex(pattern) {
@@ -99,6 +77,16 @@ function getChangedFiles() {
     execSync("git fetch origin main --quiet 2>/dev/null", { stdio: "pipe" });
   } catch {
     // Already fetched or offline — proceed with what we have
+  }
+
+  // Verify the base ref exists before diffing
+  try {
+    execSync("git rev-parse --verify origin/main", { stdio: "pipe" });
+  } catch {
+    console.error(
+      "Error: origin/main not found. Run 'git fetch origin main' or use --workflows to specify explicitly."
+    );
+    process.exit(1);
   }
 
   const diff = execSync("git diff --name-only origin/main...HEAD", {
