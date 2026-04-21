@@ -1,9 +1,9 @@
 import VellumAssistantShared
 import SwiftUI
 
-/// Collapsible "Advanced" disclosure that reveals Local Mode trade-offs and
-/// a secondary "USE LOCAL MODE" call-to-action. Designed to live inside the
-/// onboarding first step's setup cards.
+/// Collapsible "Local Mode" disclosure that presents the privacy-first
+/// alternative to the managed Vellum Cloud card. Copy is intentionally
+/// framed positively — this is a first-class option, not a downgrade.
 ///
 /// The parent owns `isExpanded` so the card's transition can be coordinated
 /// with sibling animations.
@@ -11,16 +11,15 @@ import SwiftUI
 internal struct OnboardingLocalModeDisclosure: View {
     @Binding var isExpanded: Bool
 
-    var kicker: String = "ADVANCED"
-    var title: String = "Continue without an account (Local Mode)"
-    var tradeoffsKicker: String = "TRADE-OFFS"
+    var kicker: String = "LOCAL MODE"
+    var title: String = "Continue without an account"
+    var tradeoffsKicker: String = "HOW IT WORKS"
     var tradeoffs: [String] = [
-        "Requires your own OpenAI API key",
-        "Only awake when your Mac is active",
-        "Available on this device only",
-        "No cloud sync or automated backup",
+        "No account — install and start chatting",
+        "Your data stays on your Mac",
+        "Bring your own API key",
     ]
-    var secondaryCTA: String = "USE LOCAL MODE"
+    var secondaryCTA: String = "Continue locally"
     var isDisabled: Bool = false
     var onUseLocalMode: () -> Void
 
@@ -52,7 +51,7 @@ internal struct OnboardingLocalModeDisclosure: View {
                     label: isExpanded ? "Collapse" : "Expand",
                     iconOnly: isExpanded ? VIcon.x.rawValue : VIcon.plus.rawValue,
                     style: .outlined,
-                    size: .pillRegular,
+                    size: .pill,
                     iconColor: VColor.contentSecondary
                 ) {
                     withAnimation(VAnimation.fast) { isExpanded.toggle() }

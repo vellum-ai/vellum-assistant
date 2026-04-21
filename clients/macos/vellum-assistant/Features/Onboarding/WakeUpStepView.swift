@@ -27,7 +27,8 @@ struct WakeUpStepView: View {
 
     @State private var showTitle = false
     @State private var showSubtext = false
-    @State private var showCards = false
+    @State private var showCloudCard = false
+    @State private var showDisclosure = false
     @State private var showCharacters = false
     @State private var isAdvancedExpanded: Bool = false
 
@@ -41,7 +42,7 @@ struct WakeUpStepView: View {
     var body: some View {
         // Title
         Text("Welcome to Vellum")
-            .font(VFont.titleMedium)
+            .font(VFont.titleLarge)
             .foregroundStyle(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
@@ -57,6 +58,9 @@ struct WakeUpStepView: View {
             .padding(.bottom, VSpacing.md)
 
         // Setup-option cards (managed path) or single "Get Started" fallback.
+        // The two cards animate in separately (cloud first, then the
+        // disclosure) so the primary option anchors the user's attention
+        // before the secondary one slides in underneath.
         VStack(spacing: VSpacing.xs) {
             if managedSignInEnabled {
                 OnboardingVellumCloudCard(
@@ -65,6 +69,8 @@ struct WakeUpStepView: View {
                     isDisabled: isAdvancing,
                     onContinue: { onContinueWithVellum() }
                 )
+                .opacity(showCloudCard ? 1 : 0)
+                .offset(y: showCloudCard ? 0 : 12)
 
                 OnboardingLocalModeDisclosure(
                     isExpanded: $isAdvancedExpanded,
@@ -76,10 +82,14 @@ struct WakeUpStepView: View {
                         onStartWithAPIKey()
                     }
                 )
+                .opacity(showDisclosure ? 1 : 0)
+                .offset(y: showDisclosure ? 0 : 12)
             } else {
                 VButton(label: "Get Started", style: .primary, isFullWidth: true) {
                     onStartWithAPIKey()
                 }
+                .opacity(showCloudCard ? 1 : 0)
+                .offset(y: showCloudCard ? 0 : 12)
             }
 
             if let error = authManager?.errorMessage {
@@ -90,9 +100,7 @@ struct WakeUpStepView: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, VSpacing.xxl)
-        .opacity(showCards ? 1 : 0)
-        .offset(y: showCards ? 0 : 12)
+        .padding(.horizontal, VSpacing.xl)
         .disabled(
             isAdvancing
                 || authManager?.isLoading == true
@@ -106,28 +114,33 @@ struct WakeUpStepView: View {
                 showSubtext = true
             }
             withAnimation(.easeOut(duration: 0.5).delay(0.5)) {
-                showCards = true
+                showCloudCard = true
+            }
+            withAnimation(.easeOut(duration: 0.5).delay(0.65)) {
+                showDisclosure = true
             }
         }
 
-        Spacer(minLength: VSpacing.xs)
+        Spacer(minLength: VSpacing.md)
 
         Text("2026 Vellum Inc.")
             .font(VFont.labelSmall)
-            .foregroundStyle(VColor.borderElement)
+            .foregroundStyle(VColor.contentTertiary)
             .padding(.bottom, VSpacing.xs)
 
-        // Characters peeking up from the bottom — single composed image
-        // exported from Figma, displayed edge-to-edge at the window bottom.
-        // Clip bottom corners to match the macOS window corner radius.
-        // The image is capped to 64pt of height so the hero + cards +
-        // expanded Advanced state can still fit inside the 630pt window
-        // envelope without engaging the ScrollView.
+        // Characters peeking up from the bottom. `scaledToFill` +
+        // `.frame(height: 56)` + `.clipped()` renders the illustration
+        // full-bleed across the 440pt window and crops the top so the
+        // piece peeks rather than floats. Sitting at 56pt tall keeps the
+        // whole step fitting in a 440×630 window even with the Advanced
+        // disclosure expanded.
         if let characters = Self.welcomeCharacters {
             Image(nsImage: characters)
                 .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: .infinity, maxHeight: 64)
+                .scaledToFill()
+                .frame(maxWidth: .infinity)
+                .frame(height: 56)
+                .clipped()
                 .clipShape(UnevenRoundedRectangle(
                     topLeadingRadius: 0,
                     bottomLeadingRadius: VRadius.window,
@@ -136,7 +149,7 @@ struct WakeUpStepView: View {
                 ))
                 .opacity(showCharacters ? 1 : 0)
                 .offset(y: showCharacters ? 0 : 30)
-                .animation(.easeOut(duration: 0.6).delay(0.7), value: showCharacters)
+                .animation(.easeOut(duration: 0.6).delay(0.8), value: showCharacters)
                 .onAppear { showCharacters = true }
                 .accessibilityHidden(true)
         }
