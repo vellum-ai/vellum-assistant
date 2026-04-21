@@ -52,9 +52,9 @@ export function loadCompactPrompt(): string {
 }
 
 /**
- * Hardcoded fallback matching the original inline prompt. Used if the bundled
- * `compact.md` asset is missing or unreadable so the daemon can still compact
- * conversations rather than failing module import at startup.
+ * Hardcoded fallback prompt used when the bundled `compact.md` asset is
+ * missing or unreadable, so the daemon can still compact conversations
+ * rather than failing module import at startup.
  */
 const SUMMARY_PROMPT_FALLBACK = [
   "You compress long assistant conversations into durable working memory.",
