@@ -33,7 +33,9 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Install linked package dependencies
-        run: cd ../packages/ces-contracts && bun install --frozen-lockfile
+        run: |
+          cd ../packages/ces-contracts && bun install --frozen-lockfile
+          cd ../../skills/meet-join && bun install --frozen-lockfile
 
       - name: Download previous baseline
         id: baseline

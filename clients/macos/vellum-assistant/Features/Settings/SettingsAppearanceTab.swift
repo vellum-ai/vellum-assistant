@@ -15,6 +15,8 @@ struct SettingsAppearanceTab: View {
     @State private var isRecordingCurrentConversation = false
     @State private var isRecordingMarkConversationUnread = false
     @State private var isRecordingPopOut = false
+    @State private var isRecordingPreviousConversation = false
+    @State private var isRecordingNextConversation = false
     @State private var isRecordingVoiceInput = false
     @State private var shortcutMonitor: Any?
     @State private var flagsMonitor: Any?
@@ -428,6 +430,72 @@ struct SettingsAppearanceTab: View {
 
                 SettingsDivider()
 
+                // Previous conversation (configurable)
+                HStack {
+                    Text("Previous conversation")
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentSecondary)
+                    Spacer()
+                    if isRecordingPreviousConversation, let display = recordingDisplayString, !display.isEmpty {
+                        VShortcutTag(display)
+                    } else {
+                        VShortcutTag(ShortcutHelper.displayString(for: store.previousConversationShortcut))
+                    }
+
+                    if isRecordingPreviousConversation {
+                        VButton(label: "Press shortcut...", style: .outlined) {
+                            stopRecording()
+                        }
+                    } else {
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Change", style: .outlined) {
+                                startRecordingPreviousConversation()
+                            }
+                            if !store.previousConversationShortcut.isEmpty {
+                                VButton(label: "Remove", style: .outlined) {
+                                    store.previousConversationShortcut = ""
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, VSpacing.md)
+
+                SettingsDivider()
+
+                // Next conversation (configurable)
+                HStack {
+                    Text("Next conversation")
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentSecondary)
+                    Spacer()
+                    if isRecordingNextConversation, let display = recordingDisplayString, !display.isEmpty {
+                        VShortcutTag(display)
+                    } else {
+                        VShortcutTag(ShortcutHelper.displayString(for: store.nextConversationShortcut))
+                    }
+
+                    if isRecordingNextConversation {
+                        VButton(label: "Press shortcut...", style: .outlined) {
+                            stopRecording()
+                        }
+                    } else {
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Change", style: .outlined) {
+                                startRecordingNextConversation()
+                            }
+                            if !store.nextConversationShortcut.isEmpty {
+                                VButton(label: "Remove", style: .outlined) {
+                                    store.nextConversationShortcut = ""
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, VSpacing.md)
+
+                SettingsDivider()
+
                 VToggle(
                     isOn: Binding(
                         get: { store.cmdEnterToSend },
@@ -658,6 +726,20 @@ struct SettingsAppearanceTab: View {
         isRecordingPopOut = true
     }
 
+    private func startRecordingPreviousConversation() {
+        startRecordingShortcut { shortcut, _ in
+            store.previousConversationShortcut = shortcut
+        }
+        isRecordingPreviousConversation = true
+    }
+
+    private func startRecordingNextConversation() {
+        startRecordingShortcut { shortcut, _ in
+            store.nextConversationShortcut = shortcut
+        }
+        isRecordingNextConversation = true
+    }
+
     /// Shared recording logic. The callback receives the shortcut string and the raw NSEvent key code.
     private func startRecordingShortcut(onRecord: @escaping (String, UInt16) -> Void) {
         stopRecording()
@@ -706,6 +788,8 @@ struct SettingsAppearanceTab: View {
         isRecordingCurrentConversation = false
         isRecordingMarkConversationUnread = false
         isRecordingPopOut = false
+        isRecordingPreviousConversation = false
+        isRecordingNextConversation = false
         recordingDisplayString = nil
         if let monitor = shortcutMonitor {
             NSEvent.removeMonitor(monitor)

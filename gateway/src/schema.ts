@@ -1956,7 +1956,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Slack OAuth install",
           description:
-            "Authenticated gateway endpoint that initiates the Slack OAuth loopback flow to capture bot and user tokens. This endpoint blocks while the user completes the Slack consent screen (up to 6 minutes).",
+            "Scope-protected gateway endpoint that initiates the Slack OAuth loopback flow to capture bot and user tokens. This endpoint blocks while the user completes the Slack consent screen (up to 6 minutes). Requires a bearer token with `settings.write` scope.",
           operationId: "slackChannelOAuthInstallPost",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -1973,6 +1973,7 @@ export function buildSchema(): Record<string, unknown> {
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
             },
+            "403": { description: "Insufficient scope" },
             "502": { description: "Failed to reach assistant runtime" },
             "504": { description: "Assistant runtime request timed out" },
           },
@@ -2763,7 +2764,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Add a trust rule",
           description:
-            "Authenticated gateway endpoint that adds a new trust rule. Payloads are canonicalized through family-aware parsing before persistence: fields invalid for the tool's family (e.g. executionTarget on URL-tool rules) are silently stripped. Legacy request shapes are accepted without 4xx regressions.",
+            "Authenticated gateway endpoint that adds a new trust rule. Payloads are canonicalized through family-aware parsing before persistence: fields invalid for the tool's family (e.g. executionTarget on URL-tool rules, scope on non-scoped tools) are silently stripped. The `scope` field is required for scoped tools (bash, file_read, etc.) and optional for all others. Legacy request shapes are accepted without 4xx regressions.",
           operationId: "trustRulesPost",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -3201,7 +3202,12 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Import workspace backup",
           description:
-            "Proxies a migration import request to the assistant daemon. Accepts a binary .vbundle backup body and restores the workspace from it. Authenticated with an edge JWT. Timeout is 120 seconds to accommodate large backups.",
+            "Proxies a migration import request to the assistant. Two request shapes are accepted:\n" +
+            "\n" +
+            "  - `application/octet-stream`: raw .vbundle body. The request is proxied synchronously and the caller's connection stays open for the full import duration (returns 200 on success).\n" +
+            '  - `application/json` with `{ "url": "<signed GCS URL>" }`: the gateway generates a jobId, kicks off the upstream assistant call in the background, and returns `202 Accepted` with `{ job_id, status: "pending" }` immediately. Callers poll `GET /v1/migrations/import/{jobId}/status` for progress.\n' +
+            "\n" +
+            "Authenticated with an edge JWT. Synchronous-path timeout is 60 minutes to accommodate large 8 GB backups; the async path returns immediately.",
           operationId: "migrationImport",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -3210,15 +3216,96 @@ export function buildSchema(): Record<string, unknown> {
               "application/octet-stream": {
                 schema: { type: "string", format: "binary" },
               },
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["url"],
+                  properties: {
+                    url: {
+                      type: "string",
+                      format: "uri",
+                      description:
+                        "Signed GCS URL pointing at a .vbundle archive.",
+                    },
+                  },
+                },
+              },
             },
           },
           responses: {
-            "200": { description: "Backup imported successfully" },
+            "200": {
+              description:
+                "Backup imported successfully (synchronous byte path).",
+            },
+            "202": {
+              description:
+                "Import accepted for async processing (JSON URL path). Poll `/v1/migrations/import/{jobId}/status` for progress.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["job_id", "status"],
+                    properties: {
+                      job_id: { type: "string" },
+                      status: { type: "string", enum: ["pending"] },
+                    },
+                  },
+                },
+              },
+            },
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
             },
             "502": { description: "Failed to reach assistant daemon" },
             "504": { description: "Assistant daemon request timed out" },
+          },
+        },
+      },
+      "/v1/migrations/import/{jobId}/status": {
+        get: {
+          summary: "Poll async import job status",
+          description:
+            "Returns the current status of an async `.vbundle` import kicked off by `POST /v1/migrations/import` with a JSON `{url}` body. Finished jobs remain queryable for 30 minutes before being pruned.",
+          operationId: "migrationImportStatus",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              in: "path",
+              name: "jobId",
+              required: true,
+              schema: { type: "string" },
+              description:
+                "The `job_id` returned by the 202 response from `POST /v1/migrations/import`.",
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Current job status.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["job_id", "status"],
+                    properties: {
+                      job_id: { type: "string" },
+                      status: {
+                        type: "string",
+                        enum: ["pending", "processing", "complete", "failed"],
+                      },
+                      error: { type: "string" },
+                      result: {},
+                    },
+                  },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "404": {
+              description:
+                "Unknown job — never issued, or pruned after 30-minute TTL.",
+            },
           },
         },
       },

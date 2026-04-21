@@ -354,6 +354,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "compaction-v2",
+      "scope": "assistant",
+      "key": "compaction-v2",
+      "label": "Compaction v2",
+      "description": "Boundary-message-based compaction pipeline with forked prompt-cache-shared summarization and microcompact pre-pass. Replaces the four-tier overflow reducer and cursor-based storage.",
+      "defaultEnabled": false
+    },
+    {
       "id": "scroll-debug-overlay",
       "scope": "macos",
       "key": "scroll-debug-overlay",

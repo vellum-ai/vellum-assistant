@@ -14,7 +14,10 @@ import {
   getMessages as defaultGetMessages,
   type MessageRow,
 } from "../memory/conversation-crud.js";
-import { extractMemoryPrefixBlocks } from "../memory/graph/conversation-graph-memory.js";
+import {
+  countMemoryPrefixBlocks,
+  extractMemoryPrefixBlocks,
+} from "../memory/graph/conversation-graph-memory.js";
 import { searchPkbFiles } from "../memory/pkb/pkb-search.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
@@ -731,10 +734,13 @@ export function readPkbContext(): string | null {
  */
 export function injectPkbContext(message: Message, content: string): Message {
   // Escape closing tags that could break out of the XML wrapper
-  const escaped = content.replace(/<\/pkb\s*>/gi, "&lt;/pkb&gt;");
+  const escaped = content.replace(
+    /<\/knowledge_base\s*>/gi,
+    "&lt;/knowledge_base&gt;",
+  );
   const pkbBlock = {
     type: "text" as const,
-    text: `<pkb>\n${escaped}\n</pkb>`,
+    text: `<knowledge_base>\n${escaped}\n</knowledge_base>`,
   };
 
   // Find insertion point: skip any leading memory/image blocks
@@ -766,9 +772,12 @@ export function injectPkbContext(message: Message, content: string): Message {
   };
 }
 
-/** Strip `<pkb>` blocks injected by `injectPkbContext`. */
+/** Strip `<knowledge_base>` blocks injected by `injectPkbContext`. */
 export function stripPkbContext(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, ["<pkb>"]);
+  return stripUserTextBlocksByPrefix(messages, [
+    "<knowledge_base>",
+    "<pkb>", // backward-compat: strip legacy blocks from pre-rename history
+  ]);
 }
 
 /**
@@ -954,6 +963,10 @@ export function buildUnifiedTurnContextBlock(
       .replace(/[\r\n\u0085\u2028\u2029]+/g, " ")
       // Replace remaining ASCII C0/C1 control characters and DEL.
       .replace(/[\x00-\x1F\x7F-\x9F]/g, " ")
+      // Escape XML special characters to prevent turn_context breakout.
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
       .trim();
     return singleLine.length > 0 ? singleLine : "unknown";
   };
@@ -1196,9 +1209,9 @@ export function stripTransportHints(messages: Message[]): Message[] {
  * The gateway normalizer sets `chatType: "channel"` for every non-DM Slack
  * conversation (public, private, and mpim alike — see
  * `gateway/src/slack/normalize.ts`) and omits the field entirely for DMs.
- * We therefore accept on `chatType === "channel"` rather than negating
- * against `"im"` — the prior `!== "im"` check incorrectly classified DMs
- * (where the gateway-omitted field is `undefined`) as channels.
+ * We therefore accept only `chatType === "channel"` — when the gateway
+ * omits `chatType` (as it does for DMs), the check correctly returns
+ * `false`.
  *
  * The chronological-transcript override applies to ALL Slack
  * conversations (channels and DMs) — gate that on
@@ -1572,8 +1585,7 @@ export function assembleSlackActiveThreadFocusBlock(
   // DMs do not have threads, so the focus block is always a no-op.
   // The gateway sets `chatType: "channel"` for every non-DM Slack
   // conversation and omits the field for DMs, so gate the focus block
-  // on the positive match rather than negating against `"im"` (which
-  // leaks through when `chatType` is `undefined`).
+  // on the positive `"channel"` match.
   if (capabilities.chatType !== "channel") return null;
   const renderable = rows.map(rowToRenderable);
   const activeThreadTs = detectActiveThreadTs(renderable);
@@ -1641,7 +1653,8 @@ const RUNTIME_INJECTION_PREFIXES = [
   // variant that may linger in in-flight histories during a rolling deploy.
   "<NOW.md Always keep this up to date",
   "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
-  "<pkb>",
+  "<knowledge_base>",
+  "<pkb>", // backward-compat: strip legacy tag from pre-rename history
   "<system_reminder>",
   "<transport_hints>",
   // The Slack active-thread focus block is non-persisted and injected on
@@ -1702,10 +1715,26 @@ export function findLastInjectedNowContent(messages: Message[]): string | null {
 export type InjectionMode = "full" | "minimal";
 
 /**
+ * Per-turn injection bytes captured for later persistence to message
+ * metadata. Empty in this PR — later PRs capture `<turn_context>` and
+ * `<system_reminder>` bodies so they survive daemon restarts.
+ */
+export interface RuntimeInjectionBlocks {
+  unifiedTurnContext?: string;
+  pkbSystemReminder?: string;
+}
+
+export interface RuntimeInjectionResult {
+  messages: Message[];
+  blocks: RuntimeInjectionBlocks;
+}
+
+/**
  * Apply a chain of user-message injections to `runMessages`.
  *
  * Each injection is optional — pass `null`/`undefined` to skip it.
- * Returns the final message array ready for the provider.
+ * Returns the final message array ready for the provider, along with a
+ * `blocks` object reserved for captured injection bytes (currently empty).
  */
 export async function applyRuntimeInjections(
   runMessages: Message[],
@@ -1785,13 +1814,15 @@ export async function applyRuntimeInjections(
     slackActiveThreadFocusBlock?: string | null;
     mode?: InjectionMode;
   },
-): Promise<Message[]> {
+): Promise<RuntimeInjectionResult> {
   const mode = options.mode ?? "full";
+  let pkbSystemReminderCaptured: string | undefined;
   const slackChannel = isSlackChannelConversation(options.channelCapabilities);
   // Slack DMs and channels both assemble context from persisted message
   // rows, so suppress hint injection for any Slack conversation. Other
   // channels (telegram, email, etc.) keep the generic hint pipeline.
   const slackConversation = options.channelCapabilities?.channel === "slack";
+  let turnContextCaptured: string | undefined;
   let result = runMessages;
   // Slack channels AND DMs both override `runMessages` with a pre-rendered
   // chronological transcript built from persisted message rows. The shared
@@ -1898,6 +1929,12 @@ export async function applyRuntimeInjections(
             workingDir,
           );
           const pkbRoot = options.pkbRoot;
+          // Gate on `denseScore` (cosine, [0, 1]) so the quality bar is stable
+          // regardless of whether sparse was provided. Rank by `hybridScore`
+          // (RRF) when available — that captures the sparse signal for
+          // re-ordering eligible hits. hybridScore and denseScore live on
+          // different scales, so items with hybridScore are ordered together
+          // and placed ahead of items that only have denseScore.
           hints = results
             .filter((r) => {
               const abs = resolve(pkbRoot, r.path);
@@ -1907,7 +1944,17 @@ export async function applyRuntimeInjections(
                 .startsWith("archive/")
                 ? PKB_HINT_ARCHIVE_THRESHOLD
                 : PKB_HINT_THRESHOLD;
-              return r.score >= threshold;
+              return r.denseScore >= threshold;
+            })
+            .sort((a, b) => {
+              const aHasHybrid = a.hybridScore !== undefined;
+              const bHasHybrid = b.hybridScore !== undefined;
+              if (aHasHybrid && !bHasHybrid) return -1;
+              if (!aHasHybrid && bHasHybrid) return 1;
+              if (aHasHybrid && bHasHybrid) {
+                return b.hybridScore! - a.hybridScore!;
+              }
+              return b.denseScore - a.denseScore;
             })
             .slice(0, 3)
             .map((r) => r.path);
@@ -1921,13 +1968,20 @@ export async function applyRuntimeInjections(
       }
 
       const reminder = buildPkbReminder(hints);
+      pkbSystemReminderCaptured = reminder;
+      // Splice the reminder in right after the memory prefix blocks so it
+      // lands above the user's typed text, producing the tail shape
+      // `[<turn_context>, <memory __injected>, <system_reminder>, ...your_text, ...later_appends]`
+      // after `unifiedTurnContext` later prepends `<turn_context>` at index 0.
+      const memoryPrefixCount = countMemoryPrefixBlocks(userTail.content);
       result = [
         ...result.slice(0, -1),
         {
           ...userTail,
           content: [
-            ...userTail.content,
+            ...userTail.content.slice(0, memoryPrefixCount),
             { type: "text" as const, text: reminder },
+            ...userTail.content.slice(memoryPrefixCount),
           ],
         },
       ];
@@ -1987,6 +2041,7 @@ export async function applyRuntimeInjections(
   if (options.unifiedTurnContext) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
+      turnContextCaptured = options.unifiedTurnContext;
       result = [
         ...result.slice(0, -1),
         {
@@ -2067,5 +2122,11 @@ export async function applyRuntimeInjections(
     }
   }
 
-  return result;
+  return {
+    messages: result,
+    blocks: {
+      unifiedTurnContext: turnContextCaptured,
+      pkbSystemReminder: pkbSystemReminderCaptured,
+    },
+  };
 }

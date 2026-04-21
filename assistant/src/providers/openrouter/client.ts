@@ -6,6 +6,7 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../types.js";
+import { ContextOverflowError, isContextOverflowError } from "../types.js";
 
 export interface OpenRouterProviderOptions {
   apiKey?: string;
@@ -42,9 +43,7 @@ export function extractOnlyList(config: unknown): string[] {
   const cfg = config as { openrouter?: { only?: unknown } } | undefined;
   const only = cfg?.openrouter?.only;
   if (!Array.isArray(only)) return [];
-  return only.filter(
-    (x): x is string => typeof x === "string" && x.length > 0,
-  );
+  return only.filter((x): x is string => typeof x === "string" && x.length > 0);
 }
 
 /**
@@ -66,7 +65,11 @@ export function withOpenRouterBodyExtras(
     string,
     unknown
   >;
-  return { ...options, config: { ...rest, provider: { only } } };
+  const existingProvider = (rest.provider ?? {}) as Record<string, unknown>;
+  return {
+    ...options,
+    config: { ...rest, provider: { ...existingProvider, only } },
+  };
 }
 
 export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
@@ -112,15 +115,31 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
     const effectiveModel = this.resolveEffectiveModel(options);
-    if (isAnthropicModel(effectiveModel)) {
-      return this.getAnthropicInner().sendMessage(
-        messages,
-        tools,
-        systemPrompt,
-        withOpenRouterBodyExtras(options),
-      );
+    try {
+      if (isAnthropicModel(effectiveModel)) {
+        return await this.getAnthropicInner().sendMessage(
+          messages,
+          tools,
+          systemPrompt,
+          withOpenRouterBodyExtras(options),
+        );
+      }
+      return await super.sendMessage(messages, tools, systemPrompt, options);
+    } catch (error) {
+      // Re-tag delegate-thrown ContextOverflowError so the outer provider name
+      // matches the configured provider ("openrouter"). This keeps downstream
+      // error reporting and metrics attribution accurate, while preserving the
+      // actualTokens/maxTokens extracted by the delegate.
+      if (isContextOverflowError(error) && error.provider !== this.name) {
+        throw new ContextOverflowError(error.message, this.name, {
+          actualTokens: error.actualTokens,
+          maxTokens: error.maxTokens,
+          statusCode: error.statusCode,
+          cause: error,
+        });
+      }
+      throw error;
     }
-    return super.sendMessage(messages, tools, systemPrompt, options);
   }
 
   // OpenRouter's unified `reasoning` parameter controls extended thinking on

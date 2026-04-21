@@ -1,8 +1,22 @@
+import type { Message } from "../../../../messaging/provider-types.js";
+import { wrapUntrustedContent } from "../../../../security/untrusted-content.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import { err, getProviderConnection, ok, resolveProvider } from "./shared.js";
+
+function wrapMessageContent(msg: Message): Message {
+  const source =
+    msg.platform === "gmail" || msg.platform === "outlook" ? "email" : "slack";
+  return {
+    ...msg,
+    text: wrapUntrustedContent(msg.text, {
+      source,
+      sourceDetail: msg.sender.email ?? msg.sender.name,
+    }),
+  };
+}
 
 export async function run(
   input: Record<string, unknown>,
@@ -32,7 +46,7 @@ export async function run(
     } else {
       messages = await provider.getHistory(conn, conversationId, { limit });
     }
-    return ok(JSON.stringify(messages, null, 2));
+    return ok(JSON.stringify(messages.map(wrapMessageContent), null, 2));
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
   }

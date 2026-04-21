@@ -32,7 +32,7 @@ const addRuleSpy = mock(() => {});
 
 mock.module("../permissions/checker.js", () => ({
   check: checkSpy,
-  classifyRisk: () => Promise.resolve("low"),
+  classifyRisk: () => Promise.resolve({ level: "low" }),
   generateAllowlistOptions: () => Promise.resolve([]),
   generateScopeOptions: () => [],
 }));

@@ -119,63 +119,62 @@ struct InferenceServiceCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            ServiceModeCard(
-                title: "Inference",
-                subtitle: draftMode == "managed"
-                    ? "Configure which model to use to power your assistant"
-                    : "Configure which LLM provider and model to use to power your assistant",
-                draftMode: $draftMode,
-                managedContent: {
-                    if isLoggedIn {
-                        VStack(alignment: .leading, spacing: VSpacing.sm) {
-                            managedProviderPicker
-                            PickerWithInlineSave(
-                                hasChanges: hasChanges,
-                                isSaving: store.apiKeySaving,
-                                onSave: { save() }
-                            ) {
-                                modelPicker
-                            }
-                        }
-                    } else {
-                        managedLoginPrompt
-                    }
-                },
-                yourOwnContent: {
+        ServiceModeCard(
+            title: "Inference",
+            subtitle: draftMode == "managed"
+                ? "Configure which model to use to power your assistant"
+                : "Configure which LLM provider and model to use to power your assistant",
+            draftMode: $draftMode,
+            managedContent: {
+                if isLoggedIn {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        providerPicker
-
-                        // Model picker
-                        modelPicker
-
-                        // API Key field
-                        apiKeyField
-
-                        // Action buttons
-                        ServiceCardActions(
+                        managedProviderPicker
+                        PickerWithInlineSave(
                             hasChanges: hasChanges,
                             isSaving: store.apiKeySaving,
-                            onSave: { save() },
-                            savingLabel: "Validating...",
-                            onReset: {
-                                store.clearAPIKeyForProvider(effectiveProvider)
-                                providerHasKey = false
-                                apiKeyText = ""
-                            },
-                            showReset: providerHasKey
-                        )
+                            onSave: { save() }
+                        ) {
+                            modelPicker
+                        }
                     }
+                } else {
+                    managedLoginPrompt
                 }
-            )
+            },
+            yourOwnContent: {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    providerPicker
 
-            // Per-call-site overrides badge — only visible when the user has
-            // at least one override configured. Tapping opens the overrides
-            // sheet.
-            if store.overridesCount > 0 {
-                overridesBadge
+                    // Model picker
+                    modelPicker
+
+                    // API Key field
+                    apiKeyField
+
+                    // Action buttons
+                    ServiceCardActions(
+                        hasChanges: hasChanges,
+                        isSaving: store.apiKeySaving,
+                        onSave: { save() },
+                        savingLabel: "Validating...",
+                        onReset: {
+                            store.clearAPIKeyForProvider(effectiveProvider)
+                            providerHasKey = false
+                            apiKeyText = ""
+                        },
+                        showReset: providerHasKey
+                    )
+                }
+            },
+            footer: {
+                // Per-call-site overrides badge — only visible when the user has
+                // at least one override configured. Tapping opens the overrides
+                // sheet.
+                if store.overridesCount > 0 {
+                    overridesBadge
+                }
             }
-        }
+        )
         .sheet(isPresented: $showOverridesSheet) {
             CallSiteOverridesSheet(store: store, isPresented: $showOverridesSheet)
         }

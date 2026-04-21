@@ -1,4 +1,7 @@
-import { rawGet, rawRun } from "../../memory/raw-query.js";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { Database } from "bun:sqlite";
+
 import type { WorkspaceMigration } from "./types.js";
 
 const GMAIL_SETTINGS_BASIC_SCOPE =
@@ -20,36 +23,45 @@ export const fixBackfillGoogleGmailSettingsScopeMigration: WorkspaceMigration =
     id: "042-fix-backfill-google-gmail-settings-scope",
     description:
       "Re-run gmail.settings.basic scope backfill with correct SQLite column names",
-    run(_workspaceDir: string): void {
-      let row: { default_scopes: string } | null;
+    run(workspaceDir: string): void {
+      const dbPath = join(workspaceDir, "data", "db", "assistant.db");
+      if (!existsSync(dbPath)) return; // DB not created yet — nothing to backfill.
+
+      let db: Database;
       try {
-        row = rawGet<{ default_scopes: string }>(
-          `SELECT default_scopes FROM oauth_providers WHERE provider_key = 'google'`,
-        );
+        db = new Database(dbPath);
       } catch {
-        // DB not initialized yet — nothing to backfill.
+        // Cannot open DB — nothing to backfill.
         return;
       }
 
-      if (!row) return; // No google provider row — seed will create it fresh.
-
-      let scopes: string[];
       try {
-        const parsed = JSON.parse(row.default_scopes);
-        scopes = Array.isArray(parsed) ? parsed : [];
-      } catch {
-        scopes = [];
+        const row = db
+          .query(
+            `SELECT default_scopes FROM oauth_providers WHERE provider_key = 'google'`,
+          )
+          .get() as { default_scopes: string } | null;
+
+        if (!row) return; // No google provider row — seed will create it fresh.
+
+        let scopes: string[];
+        try {
+          const parsed = JSON.parse(row.default_scopes);
+          scopes = Array.isArray(parsed) ? parsed : [];
+        } catch {
+          scopes = [];
+        }
+
+        if (scopes.includes(GMAIL_SETTINGS_BASIC_SCOPE)) return; // Already present.
+
+        scopes.push(GMAIL_SETTINGS_BASIC_SCOPE);
+
+        db.query(
+          `UPDATE oauth_providers SET default_scopes = ?, updated_at = ? WHERE provider_key = 'google'`,
+        ).run(JSON.stringify(scopes), Date.now());
+      } finally {
+        db.close();
       }
-
-      if (scopes.includes(GMAIL_SETTINGS_BASIC_SCOPE)) return; // Already present.
-
-      scopes.push(GMAIL_SETTINGS_BASIC_SCOPE);
-
-      rawRun(
-        `UPDATE oauth_providers SET default_scopes = ?, updated_at = ? WHERE provider_key = 'google'`,
-        JSON.stringify(scopes),
-        new Date().toISOString(),
-      );
     },
     down(_workspaceDir: string): void {
       // Forward-only: removing the scope would break Gmail settings functionality

@@ -1,7 +1,11 @@
 import * as Sentry from "@sentry/node";
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { estimateToolsTokens } from "../context/token-estimator.js";
+import {
+  estimatePromptTokensRaw,
+  estimateToolsTokens,
+  getCalibrationProviderKey,
+} from "../context/token-estimator.js";
 import { truncateOversizedToolResults } from "../context/tool-result-truncation.js";
 import { getHookManager } from "../hooks/manager.js";
 import type {
@@ -16,7 +20,9 @@ import {
   applyStreamingSubstitution,
   applySubstitutions,
 } from "../tools/sensitive-output-placeholders.js";
+import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
+import { isRetryableNetworkError } from "../util/retry.js";
 
 const log = getLogger("agent-loop");
 
@@ -101,6 +107,13 @@ export type AgentEvent =
       providerDurationMs: number;
       rawRequest?: unknown;
       rawResponse?: unknown;
+      /**
+       * Pre-send token estimate for the same call. Used by the estimator
+       * calibrator to learn how off the heuristic is versus provider
+       * ground truth. Omitted only when estimation genuinely was not run
+       * for this call (e.g. legacy/stubbed code paths).
+       */
+      estimatedInputTokens?: number;
     };
 
 const DEFAULT_CONFIG: AgentLoopConfig = {
@@ -111,6 +124,42 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
 
 const MAX_CONSECUTIVE_ERROR_NUDGES = 3;
 const MAX_EMPTY_RESPONSE_RETRIES = 1;
+
+/**
+ * User-config HTTP status codes that should never page the on-call: billing
+ * exhaustion (402), invalid credentials (401), and forbidden/plan-gated (403).
+ * The user-facing error path already surfaces an actionable message (e.g.
+ * credits_exhausted); a Sentry issue adds noise without engineering signal.
+ */
+const USER_CONFIG_STATUS_CODES = new Set([401, 402, 403]);
+
+/**
+ * Whether an agent-loop error should be reported to Sentry. Suppresses:
+ *
+ *  - `ProviderError` carrying a user-config status code (401/402/403) — these
+ *    are bad API keys, exhausted billing, or plan gates, not engineering bugs.
+ *  - Retry-exhausted transient network errors (`retriesExhausted === true` +
+ *    still categorized as retryable network) — the retry loop already tried
+ *    its best; the user's network was flaky, not our code.
+ *
+ * Everything else (5xx with no retry-exhaustion tag, surprise errors, tool
+ * failures, etc.) still pages.
+ */
+export function shouldCaptureAgentLoopError(err: Error): boolean {
+  if (
+    err instanceof ProviderError &&
+    err.statusCode !== undefined &&
+    USER_CONFIG_STATUS_CODES.has(err.statusCode)
+  ) {
+    return false;
+  }
+  const exhausted = (err as Error & { retriesExhausted?: boolean })
+    .retriesExhausted;
+  if (exhausted === true && isRetryableNetworkError(err)) {
+    return false;
+  }
+  return true;
+}
 
 export interface ResolvedSystemPrompt {
   systemPrompt: string;
@@ -333,6 +382,23 @@ export class AgentLoop {
         const providerStart = Date.now();
         lastLlmCallTime = providerStart;
 
+        // Compute the pre-send estimate against the full in-memory
+        // history — matching what upstream callers of
+        // `estimatePromptTokens` (preflight, mid-loop checkpoints, the
+        // window manager) see. We use the RAW estimate (before applying
+        // the existing correction) so the calibrator learns the true
+        // bias against provider ground truth instead of ratcheting a
+        // feedback loop against its own corrected output.
+        const toolTokenBudget =
+          currentTools.length > 0 ? estimateToolsTokens(currentTools) : 0;
+        const preSendEstimatedTokens = estimatePromptTokensRaw(
+          history,
+          turnSystemPrompt,
+          {
+            providerName: getCalibrationProviderKey(this.provider),
+            toolTokenBudget,
+          },
+        );
         rlog.info({ turn: toolUseTurns }, "LLM call start");
 
         // Strip image contentBlocks from older tool results to prevent
@@ -415,6 +481,7 @@ export class AgentLoop {
           providerDurationMs,
           rawRequest: response.rawRequest,
           rawResponse: response.rawResponse,
+          estimatedInputTokens: preSendEstimatedTokens,
         });
 
         void getHookManager().trigger("post-llm-call", {
@@ -767,7 +834,9 @@ export class AgentLoop {
           { err, turn: toolUseTurns, messageCount: history.length },
           "Agent loop error during turn processing",
         );
-        Sentry.captureException(err);
+        if (shouldCaptureAgentLoopError(err)) {
+          Sentry.captureException(err);
+        }
         onEvent({ type: "error", error: err });
         break;
       }

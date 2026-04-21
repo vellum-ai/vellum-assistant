@@ -19,7 +19,19 @@ export const PKB_WORKSPACE_SCOPE = "_pkb_workspace" as const;
 
 export interface PkbSearchResult {
   path: string;
-  score: number;
+  /**
+   * Cosine similarity from the dense-only Qdrant query. Always present —
+   * acts as the threshold gate for hint eligibility since it lives on the
+   * stable `[0, 1]` cosine scale regardless of whether sparse was provided.
+   */
+  denseScore: number;
+  /**
+   * Qdrant RRF fusion score from the hybrid (dense + sparse) query. Present
+   * only when a sparse vector was supplied to `searchPkbFiles`. Lives on a
+   * different (much smaller) scale than `denseScore`, so it is used for
+   * ranking within the gated set — not for quality thresholding.
+   */
+  hybridScore?: number;
   snippet?: string;
 }
 

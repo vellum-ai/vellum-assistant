@@ -116,6 +116,9 @@ function errorFrame(message: string): string {
   return JSON.stringify({ type: "error", message });
 }
 
+/** Frame xAI sends once the session is ready to accept audio. */
+const CREATED_FRAME = JSON.stringify({ type: "transcript.created" });
+
 /** Collect all events emitted during a test. */
 function createEventCollector(): {
   events: SttStreamServerEvent[];
@@ -171,6 +174,7 @@ describe("XAIRealtimeTranscriber", () => {
 
     const startPromise = transcriber.start(onEvent);
     mockWs.simulateOpen();
+    mockWs.simulateMessage(CREATED_FRAME);
     await startPromise;
 
     return { transcriber, events };
@@ -196,6 +200,7 @@ describe("XAIRealtimeTranscriber", () => {
     const { onEvent } = createEventCollector();
     const startPromise = transcriber.start(onEvent);
     mockWs.simulateOpen();
+    mockWs.simulateMessage(CREATED_FRAME);
     await startPromise;
 
     expect(capturedUrl).toBeDefined();
@@ -337,6 +342,7 @@ describe("XAIRealtimeTranscriber", () => {
     const { events, onEvent } = createEventCollector();
     const startPromise = transcriber.start(onEvent);
     mockWs.simulateOpen();
+    mockWs.simulateMessage(CREATED_FRAME);
     await startPromise;
 
     const url = new URL(capturedUrl!);
@@ -359,7 +365,7 @@ describe("XAIRealtimeTranscriber", () => {
     expect(events[0]).toEqual({
       type: "final",
       text: "a b c d",
-      speakerLabel: "speaker-0",
+      speakerLabel: "0",
     });
 
     (globalThis as Record<string, unknown>).WebSocket = origWs;
@@ -465,7 +471,7 @@ describe("XAIRealtimeTranscriber", () => {
     const firstAttempt = transcriber.start(onEvent);
     mockWs.simulateClose(4001, "unauthorized");
     await expect(firstAttempt).rejects.toThrow(
-      /xAI WebSocket closed before open/,
+      /xAI WebSocket closed before handshake/,
     );
 
     // Second attempt with a fresh mock — must not throw
@@ -483,6 +489,7 @@ describe("XAIRealtimeTranscriber", () => {
 
     const secondAttempt = transcriber.start(onEvent);
     mockWs.simulateOpen();
+    mockWs.simulateMessage(CREATED_FRAME);
     await expect(secondAttempt).resolves.toBeUndefined();
   });
 
@@ -510,6 +517,62 @@ describe("XAIRealtimeTranscriber", () => {
 
     const secondAttempt = transcriber.start(onEvent);
     mockWs.simulateOpen();
+    mockWs.simulateMessage(CREATED_FRAME);
     await expect(secondAttempt).resolves.toBeUndefined();
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  // Handshake: start() does NOT resolve on WS `open` alone — it waits
+  // for xAI's `transcript.created` frame so early sendAudio() calls
+  // can't be dropped before the session is ready.
+  // ─────────────────────────────────────────────────────────────────
+
+  test("start() waits for transcript.created before resolving", async () => {
+    const transcriber = new XAIRealtimeTranscriber(TEST_API_KEY, {
+      connectTimeoutMs: 1_000,
+      inactivityTimeoutMs: 60_000,
+    });
+    const { onEvent } = createEventCollector();
+
+    const startPromise = transcriber.start(onEvent);
+
+    // Only `open` fires — start() must not resolve yet.
+    mockWs.simulateOpen();
+    let resolved = false;
+    startPromise.then(
+      () => {
+        resolved = true;
+      },
+      () => {},
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    expect(resolved).toBe(false);
+
+    // `transcript.created` arrives — start() resolves.
+    mockWs.simulateMessage(CREATED_FRAME);
+    await expect(startPromise).resolves.toBeUndefined();
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  // Close-race: a close event that arrives between WS open and
+  // `transcript.created` must be handled (rejecting start()), not
+  // dropped into a listener gap.
+  // ─────────────────────────────────────────────────────────────────
+
+  test("start() rejects when close fires between open and transcript.created", async () => {
+    const transcriber = new XAIRealtimeTranscriber(TEST_API_KEY, {
+      connectTimeoutMs: 1_000,
+    });
+    const { onEvent } = createEventCollector();
+
+    const startPromise = transcriber.start(onEvent);
+    mockWs.simulateOpen();
+    // Close arrives before transcript.created — must still reject
+    // rather than silently hanging the handshake.
+    mockWs.simulateClose(1011, "server error");
+
+    await expect(startPromise).rejects.toThrow(
+      /xAI WebSocket closed before handshake/,
+    );
   });
 });

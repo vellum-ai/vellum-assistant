@@ -6,12 +6,16 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Provi
 /// Top-level schema for `provider-env-vars.json`.
 ///
 /// The JSON file lives at `meta/provider-env-vars.json` and is the single
-/// source of truth for provider→env var mappings across the CLI, assistant
-/// runtime, and macOS client.
+/// source of truth for **search-provider** env var mappings (e.g. Brave,
+/// Perplexity). LLM-provider env vars have moved into the LLM provider
+/// catalog (`meta/llm-provider-catalog.json`, surfaced via
+/// `LLMProviderRegistry`). Callers that need the combined LLM + search
+/// mapping should merge both sources — see `VellumCli.providerEnvVars`
+/// for the canonical combination.
 public struct ProviderEnvVarRegistry: Decodable {
     public let version: Int
-    /// Provider identifiers (e.g. "anthropic") mapped to their env var name
-    /// (e.g. "ANTHROPIC_API_KEY").
+    /// Provider identifiers (e.g. "brave") mapped to their env var name
+    /// (e.g. "BRAVE_API_KEY").
     public let providers: [String: String]
 }
 

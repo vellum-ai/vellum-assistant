@@ -139,11 +139,39 @@ For emails not caught by pattern queries, use LLM-based classification in Standa
 
 ---
 
+## Dry-Run Defaults
+
+When the user's inbox management trust stage is 0 (flag-only), or when a batch exceeds 1,000 operations at stage 1, default to `--dry-run` mode:
+
+1. Run the pipeline with `--dry-run` on all archive calls
+2. At the end, show a summary: counts by phase with example subjects
+3. Ask the user to confirm before committing: "This would archive X,XXX emails across Y passes. Commit?"
+4. If confirmed, commit via `bun run scripts/gmail-commit.ts commit --run-id "<run-id>"`
+5. If rejected, cancel via `bun run scripts/gmail-commit.ts cancel --run-id "<run-id>"`
+
+At stage 2 or for small batches at stage 1, archive directly (but still log for audit/reversal).
+
+---
+
+## Error Recovery & Resume
+
+Archive operations are logged to an operation log for resumability. If a pass fails mid-run (rate limit, daily quota, OAuth expiry, crash):
+
+1. **Check for interrupted runs** before starting a new cleanup: `bun run scripts/gmail-runs.ts list`. If a recent run shows `status: "interrupted"`, offer to resume it.
+2. **Resume**: `bun run scripts/gmail-archive.ts archive --resume "<run-id>"`. This skips already-committed chunks and retries pending ones.
+3. **Daily quota (403)**: The archive script detects daily quota exhaustion and writes an `interrupted` log entry with a resume hint. Do not retry until after midnight PT — offer to resume the run later.
+4. **Rate limit (429)**: Handled automatically with exponential backoff (up to 5 retries for batch operations). No user intervention needed.
+
+All archive outputs now include a `run_id`. Pass `--run-id` to group multiple passes under one run, and `--phase` to label the pipeline phase (e.g. `--phase "noise_archive"`).
+
+---
+
 ## Phase 5: Post-Cleanup
 
-1. **Report totals** — how many archived per pass, which categories
+1. **Report totals** — how many archived per pass, which categories, and the `run_id` for each pass
 2. **Update blocklist** — remember which senders/domains were archived; use for faster future passes
 3. **Surface any urgents found** — if financial/legal/suspension items surfaced during the pass, present them now with recommended actions
+4. **Mention reversal** — remind the user: "If any of these archives were wrong, I can reverse specific threads: `bun run scripts/gmail-reverse.ts --run-id <id> --thread <message-id>`"
 
 ---
 

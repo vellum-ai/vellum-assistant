@@ -410,9 +410,30 @@ struct TeleportSection: View {
             throw TeleportError.importFailed(message: "Failed to save managed assistant configuration to lockfile.")
         }
 
+        // Wait for post-hatch runtime provisioning (assistant_api_key,
+        // platform_assistant_id, webhook_secret, actor token) to complete
+        // before the import starts rearranging the workspace — otherwise
+        // Django's POST /v1/secrets can race with the atomic workspace
+        // swap, return 500, and fail-closed-revoke the just-issued
+        // assistant API key (leaving the managed proxy rejecting the
+        // pod's key as "Invalid or revoked API key" on the first message).
+        phase = .transferring(step: "Finalizing cloud assistant...")
+        try await ManagedAssistantBootstrapService.shared.awaitAssistantProvisioned(
+            assistantId: platformAssistant.id
+        )
+
         // Step 5 — Import bundle to managed assistant
         phase = .transferring(step: "Importing data to cloud...")
         try await importBundleToManaged(bundleData: bundleData, bundleKey: bundleKey)
+
+        // Step 5b — Inject client-resolvable vellum identity fields that
+        // Django's post-hatch provisioning doesn't cover (org id, user id).
+        // Normal local bootstrap sets these via `LocalAssistantBootstrapService`;
+        // the teleport flow has to do it here because it skips that bootstrap.
+        await ManagedAssistantIdentityInjection.inject(
+            into: platformAssistant.id,
+            organizationId: organizationId
+        )
 
         // Step 6 — Resolve managed assistant for later switch
         guard let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.assistantId == platformAssistant.id && $0.isManaged }) else {
@@ -569,9 +590,29 @@ struct TeleportSection: View {
             throw TeleportError.importFailed(message: "Failed to save managed assistant configuration to lockfile.")
         }
 
+        // Wait for post-hatch runtime provisioning (assistant_api_key,
+        // platform_assistant_id, webhook_secret, actor token) to complete
+        // before the import starts rearranging the workspace — Django's
+        // POST /v1/secrets can otherwise race with the atomic workspace
+        // swap, return 500, and fail-closed-revoke the just-issued
+        // assistant API key. Mirrors the wait in `teleportLocalToPlatform`.
+        phase = .transferring(step: "Finalizing cloud assistant...")
+        try await ManagedAssistantBootstrapService.shared.awaitAssistantProvisioned(
+            assistantId: platformAssistant.id
+        )
+
         // Step 5 — Import bundle to managed assistant
         phase = .transferring(step: "Importing data to cloud...")
         try await importBundleToManaged(bundleData: bundleData, bundleKey: bundleKey)
+
+        // Step 5b — Inject client-resolvable vellum identity fields that
+        // Django's post-hatch provisioning doesn't cover (org id, user id).
+        // Normal local bootstrap sets these via `LocalAssistantBootstrapService`;
+        // the teleport flow has to do it here because it skips that bootstrap.
+        await ManagedAssistantIdentityInjection.inject(
+            into: platformAssistant.id,
+            organizationId: organizationId
+        )
 
         // Step 6 — Resolve managed assistant for later switch
         guard let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.assistantId == platformAssistant.id && $0.isManaged }) else {

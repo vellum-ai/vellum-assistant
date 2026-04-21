@@ -173,12 +173,16 @@ export function startParticipantScraper(
       rows = scrapeRows();
       // If the panel was closed out from under us (e.g. the chat reader
       // toggled its panel and Meet auto-collapsed participants), retry
-      // opening on the next tick.
+      // opening on the next tick. Return early so we don't diff against
+      // `rows = []` and emit synthetic `left` events for participants who
+      // are still in the meeting — the next tick will reopen the panel
+      // and the diff will stay stable.
       if (
         rows.length === 0 &&
         !document.querySelector(selectors.INGAME_PARTICIPANT_LIST)
       ) {
         panelOpenAttempted = false;
+        return;
       }
     } catch {
       // Transient DOM error (navigation, panel auto-closed, etc.). Skip this

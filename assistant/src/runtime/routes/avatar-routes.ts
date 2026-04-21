@@ -10,7 +10,7 @@ import { getAvatarImagePath } from "../../util/platform.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
-import { httpError } from "../http-errors.js";
+import { httpError, type HttpErrorCode } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("avatar-routes");
@@ -78,9 +78,25 @@ export function avatarRouteDefinitions(): RouteDefinition[] {
         const result = writeTraitsAndRenderAvatar(body);
 
         if (!result.ok) {
-          const status = result.reason === "render_error" ? 500 : 400;
-          const code =
-            result.reason === "render_error" ? "INTERNAL_ERROR" : "BAD_REQUEST";
+          // Map each failure reason to an HTTP status that reflects its
+          // cause: invalid inputs → 400, missing native dependency → 503,
+          // everything else → 500.
+          let status: number;
+          let code: HttpErrorCode;
+          switch (result.reason) {
+            case "invalid_traits":
+              status = 400;
+              code = "BAD_REQUEST";
+              break;
+            case "native_unavailable":
+              status = 503;
+              code = "SERVICE_UNAVAILABLE";
+              break;
+            case "render_error":
+              status = 500;
+              code = "INTERNAL_ERROR";
+              break;
+          }
           return httpError(code, result.message, status);
         }
 

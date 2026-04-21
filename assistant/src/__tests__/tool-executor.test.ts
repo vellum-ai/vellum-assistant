@@ -109,7 +109,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../permissions/checker.js", () => ({
-  classifyRisk: async () => "low",
+  classifyRisk: async () => ({ level: "low" }),
   check: async (
     toolName: string,
     input: Record<string, unknown>,
@@ -309,6 +309,8 @@ describe("ToolExecutor policy context plumbing", () => {
     expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
+      executionContext: "conversation",
+      ephemeralRules: undefined,
       executionTarget: "sandbox",
     });
   });
@@ -326,7 +328,10 @@ describe("ToolExecutor policy context plumbing", () => {
 
     expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
-    expect(lastCheckArgs!.policyContext).toBeUndefined();
+    expect(lastCheckArgs!.policyContext).toEqual({
+      executionContext: "conversation",
+      ephemeralRules: undefined,
+    });
   });
 
   test('passes undefined policyContext for tools with origin "core"', async () => {
@@ -356,7 +361,10 @@ describe("ToolExecutor policy context plumbing", () => {
 
     expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
-    expect(lastCheckArgs!.policyContext).toBeUndefined();
+    expect(lastCheckArgs!.policyContext).toEqual({
+      executionContext: "conversation",
+      ephemeralRules: undefined,
+    });
   });
 
   test('includes executionTarget "host" from skill tool metadata', async () => {
@@ -390,6 +398,8 @@ describe("ToolExecutor policy context plumbing", () => {
     expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
+      executionContext: "conversation",
+      ephemeralRules: undefined,
       executionTarget: "host",
     });
   });
@@ -420,6 +430,8 @@ describe("ToolExecutor policy context plumbing", () => {
     expect(result.isError).toBe(false);
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
+      executionContext: "conversation",
+      ephemeralRules: undefined,
       executionTarget: undefined,
     });
   });
@@ -889,6 +901,8 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
 
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
+      executionContext: "conversation",
+      ephemeralRules: undefined,
       executionTarget: "sandbox",
     });
   });
@@ -1071,6 +1085,8 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
 
     expect(lastCheckArgs).toBeDefined();
     expect(lastCheckArgs!.policyContext).toEqual({
+      executionContext: "conversation",
+      ephemeralRules: undefined,
       executionTarget: "sandbox",
     });
   });

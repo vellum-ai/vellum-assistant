@@ -451,7 +451,7 @@ extension AppDelegate {
 
             if currentAssistantStatus == .authFailed {
                 let item = NSMenuItem(
-                    title: "Re-pair Assistant",
+                    title: "Re-pair \(name)",
                     action: #selector(rePairAssistant),
                     keyEquivalent: ""
                 )

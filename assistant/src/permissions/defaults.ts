@@ -12,12 +12,15 @@ import { getWorkspaceDir } from "../util/platform.js";
 /**
  * A default rule template is structurally identical to TrustRuleBase
  * minus `createdAt` (set at backfill time) and `userModifiedAt` (set
- * when users explicitly override defaults).
+ * when users explicitly override defaults), plus the optional
+ * `scope` field that scoped tool families support.
  */
 export type DefaultRuleTemplate = Omit<
   TrustRuleBase,
   "createdAt" | "userModifiedAt"
->;
+> & {
+  scope?: string;
+};
 
 /**
  * Escape minimatch metacharacters so a literal path is matched literally when
@@ -106,7 +109,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     id: `default:ask-${tool}-global`,
     tool,
     pattern: "**",
-    scope: "everywhere",
     decision: "ask" as const,
     priority: 1000,
   }));
@@ -117,7 +119,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     id: `default:ask-${tool}-global`,
     tool,
     pattern: `${tool}:*`,
-    scope: "everywhere",
     decision: "ask" as const,
     priority: 1000,
   }));
@@ -249,7 +250,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     id: "default:ask-skill_load_dynamic-global",
     tool: SKILL_LOAD_TOOL,
     pattern: "skill_load_dynamic:*",
-    scope: "everywhere",
     decision: "ask",
     priority: 200,
   };
@@ -258,7 +258,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     id: "default:allow-skill_load-global",
     tool: SKILL_LOAD_TOOL,
     pattern: "skill_load:*",
-    scope: "everywhere",
     decision: "allow",
     priority: 100,
   };
@@ -267,7 +266,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     id: "default:allow-skill_execute-global",
     tool: "skill_execute",
     pattern: "skill_execute:*",
-    scope: "everywhere",
     decision: "allow",
     priority: 100,
   };
@@ -281,7 +279,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
       id: `default:allow-${tool}-global`,
       tool,
       pattern: `${tool}:*`,
-      scope: "everywhere",
       decision: "allow" as const,
       priority: 100,
     }),
@@ -292,7 +289,6 @@ export function getDefaultRuleTemplates(): DefaultRuleTemplate[] {
     id: "default:allow-recall-global",
     tool: "recall",
     pattern: "recall:*",
-    scope: "everywhere",
     decision: "allow",
     priority: 100,
   };

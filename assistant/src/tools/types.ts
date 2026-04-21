@@ -31,6 +31,8 @@ export interface ToolExecutionStartEvent extends ToolLifecycleEventBase {
 export interface ToolPermissionPromptEvent extends ToolLifecycleEventBase {
   type: "permission_prompt";
   riskLevel: string;
+  /** Classifier-provided reason explaining why the risk level was assigned (bash/host_bash only). */
+  riskReason?: string;
   reason: string;
   allowlistOptions: AllowlistOption[];
   scopeOptions: ScopeOption[];
@@ -41,6 +43,8 @@ export interface ToolPermissionPromptEvent extends ToolLifecycleEventBase {
 export interface ToolPermissionDeniedEvent extends ToolLifecycleEventBase {
   type: "permission_denied";
   riskLevel: string;
+  /** Classifier-provided reason explaining why the risk level was assigned (bash/host_bash only). */
+  riskReason?: string;
   decision: "deny" | "always_deny";
   reason: string;
   durationMs: number;

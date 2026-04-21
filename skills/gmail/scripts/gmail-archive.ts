@@ -13,8 +13,21 @@ import {
   optionalArg,
   parseCsv,
 } from "./lib/common.js";
-import { gmailGet, gmailPost } from "./lib/gmail-client.js";
+import { gmailGet, gmailPost, DailyQuotaExceededError } from "./lib/gmail-client.js";
 import { addToBlocklist } from "./gmail-prefs.js";
+import {
+  generateRunId,
+  writeStaged,
+  writeCommitted,
+  writeFailed,
+  writeInterrupted,
+  writeCheckpoint,
+  writeCompleted,
+  summarizeRun,
+  summarizeDryRun,
+  getPendingOps,
+  runExists,
+} from "./lib/op-log.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -80,33 +93,88 @@ function recordBlocklist(senderEmails: string[]): void {
   }
 }
 
-/** Batch modify messages in chunks of BATCH_MODIFY_LIMIT. */
+/**
+ * Batch modify messages in chunks of BATCH_MODIFY_LIMIT.
+ * Each chunk is logged to the op log before execution for resumability.
+ * In dry-run mode, writes staged entries but skips all API calls.
+ */
 async function batchArchive(
   messageIds: string[],
   account?: string,
-): Promise<void> {
+  opts?: { runId?: string; phase?: string; reason?: string; dryRun?: boolean },
+): Promise<{ runId: string; committed: number; failed: number; staged: number }> {
+  const runId = opts?.runId ?? generateRunId();
+  let committed = 0;
+  let failed = 0;
+  let staged = 0;
+
   for (let i = 0; i < messageIds.length; i += BATCH_MODIFY_LIMIT) {
+    const chunkIndex = Math.floor(i / BATCH_MODIFY_LIMIT);
     const chunk = messageIds.slice(i, i + BATCH_MODIFY_LIMIT);
-    const resp = await gmailPost(
-      "/messages/batchModify",
-      { ids: chunk, removeLabelIds: ["INBOX"] },
-      account,
-    );
-    if (!resp.ok) {
-      throw new Error(
-        `batchModify failed (status ${resp.status}): ${JSON.stringify(resp.data)}`,
+
+    writeStaged({
+      run_id: runId,
+      phase: opts?.phase,
+      op: "archive",
+      chunk_index: chunkIndex,
+      message_ids: chunk,
+      reason: opts?.reason,
+    });
+    staged++;
+
+    // In dry-run mode, only stage — don't execute
+    if (opts?.dryRun) continue;
+
+    try {
+      const resp = await gmailPost(
+        "/messages/batchModify",
+        { ids: chunk, removeLabelIds: ["INBOX"] },
+        account,
       );
+      if (!resp.ok) {
+        const errMsg = `batchModify failed (status ${resp.status}): ${JSON.stringify(resp.data)}`;
+        writeFailed(runId, chunkIndex, errMsg);
+        failed++;
+        continue;
+      }
+      writeCommitted(runId, chunkIndex);
+      committed++;
+    } catch (err) {
+      if (err instanceof DailyQuotaExceededError) {
+        writeInterrupted({
+          run_id: runId,
+          reason: "daily_quota",
+          resume_hint: "Resume after midnight PT",
+          checkpoint: { processed_count: i, query: opts?.reason },
+        });
+        throw err;
+      }
+      const errMsg = err instanceof Error ? err.message : String(err);
+      writeFailed(runId, chunkIndex, errMsg);
+      failed++;
     }
   }
+
+  if (!opts?.dryRun) {
+    writeCompleted(runId, committed, failed);
+  }
+  return { runId, committed, failed, staged };
 }
 
-/** Paginate Gmail message search, collecting all message IDs up to MAX_MESSAGES. */
+/** Checkpoint interval — write pagination state every N IDs. */
+const CHECKPOINT_INTERVAL = 500;
+
+/**
+ * Paginate Gmail message search, collecting all message IDs up to MAX_MESSAGES.
+ * Supports resuming from a page token and writes checkpoints for resumability.
+ */
 async function collectMessageIds(
   query: string,
   account?: string,
+  opts?: { runId?: string; startPageToken?: string },
 ): Promise<string[]> {
   const allIds: string[] = [];
-  let pageToken: string | undefined;
+  let pageToken: string | undefined = opts?.startPageToken;
 
   while (allIds.length < MAX_MESSAGES) {
     const remaining = MAX_MESSAGES - allIds.length;
@@ -133,6 +201,16 @@ async function collectMessageIds(
     allIds.push(...ids.slice(0, remaining));
 
     pageToken = resp.data.nextPageToken ?? undefined;
+
+    // Write a checkpoint every CHECKPOINT_INTERVAL IDs
+    if (opts?.runId && allIds.length % CHECKPOINT_INTERVAL < ids.length) {
+      writeCheckpoint(opts.runId, {
+        page_token: pageToken,
+        processed_count: allIds.length,
+        query,
+      });
+    }
+
     if (!pageToken) break;
   }
 
@@ -148,8 +226,13 @@ async function archiveByQuery(
   query: string,
   account?: string,
   skipConfirm?: boolean,
+  runId?: string,
+  phase?: string,
+  dryRun?: boolean,
 ): Promise<void> {
-  if (!skipConfirm) {
+  const rid = runId ?? generateRunId();
+
+  if (!dryRun && !skipConfirm) {
     const confirmed = await requestConfirmation({
       title: "Archive messages",
       message: `Archive all messages matching query: ${query}`,
@@ -161,15 +244,40 @@ async function archiveByQuery(
     }
   }
 
-  const messageIds = await collectMessageIds(query, account);
+  const messageIds = await collectMessageIds(query, account, { runId: rid });
 
   if (messageIds.length === 0) {
     ok({ archived: 0, method: "query", note: "No messages matched the query" });
     return;
   }
 
-  await batchArchive(messageIds, account);
-  ok({ archived: messageIds.length, method: "query" });
+  const result = await batchArchive(messageIds, account, {
+    runId: rid,
+    phase,
+    reason: `query:${query}`,
+    dryRun,
+  });
+
+  if (dryRun) {
+    const summary = summarizeDryRun(rid);
+    ok({
+      dry_run: true,
+      run_id: result.runId,
+      would_archive: messageIds.length,
+      method: "query",
+      summary,
+      commit_command: `bun run scripts/gmail-commit.ts commit --run-id ${result.runId}`,
+      cancel_command: `bun run scripts/gmail-commit.ts cancel --run-id ${result.runId}`,
+    });
+  } else {
+    ok({
+      archived: messageIds.length,
+      method: "query",
+      run_id: result.runId,
+      committed: result.committed,
+      failed: result.failed,
+    });
+  }
 }
 
 /** Path 2: --cache-key + --sender-emails — retrieve from cache, fall back to per-sender query. */
@@ -178,8 +286,13 @@ async function archiveByCacheKey(
   senderEmails: string[],
   account?: string,
   skipConfirm?: boolean,
+  runId?: string,
+  phase?: string,
+  dryRun?: boolean,
 ): Promise<void> {
-  if (!skipConfirm) {
+  const rid = runId ?? generateRunId();
+
+  if (!dryRun && !skipConfirm) {
     const confirmed = await requestConfirmation({
       title: "Archive messages",
       message: `Archive messages from ${senderEmails.length} sender(s)`,
@@ -231,7 +344,7 @@ async function archiveByCacheKey(
     for (const email of senderEmails) {
       const sanitized = email.replace(/"/g, "");
       const query = `from:"${sanitized}" in:inbox`;
-      const ids = await collectMessageIds(query, account);
+      const ids = await collectMessageIds(query, account, { runId: rid });
       allMessageIds.push(...ids);
       if (allMessageIds.length >= MAX_MESSAGES) break;
     }
@@ -242,9 +355,34 @@ async function archiveByCacheKey(
     return;
   }
 
-  await batchArchive(allMessageIds, account);
-  recordBlocklist(senderEmails);
-  ok({ archived: allMessageIds.length, method: "cache" });
+  const result = await batchArchive(allMessageIds, account, {
+    runId: rid,
+    phase,
+    reason: `cache:${senderEmails.join(",")}`,
+    dryRun,
+  });
+
+  if (dryRun) {
+    const summary = summarizeDryRun(rid);
+    ok({
+      dry_run: true,
+      run_id: result.runId,
+      would_archive: allMessageIds.length,
+      method: "cache",
+      summary,
+      commit_command: `bun run scripts/gmail-commit.ts commit --run-id ${result.runId}`,
+      cancel_command: `bun run scripts/gmail-commit.ts cancel --run-id ${result.runId}`,
+    });
+  } else {
+    recordBlocklist(senderEmails);
+    ok({
+      archived: allMessageIds.length,
+      method: "cache",
+      run_id: result.runId,
+      committed: result.committed,
+      failed: result.failed,
+    });
+  }
 }
 
 /** Path 3: --message-ids — direct batch archive. */
@@ -252,8 +390,13 @@ async function archiveByMessageIds(
   messageIds: string[],
   account?: string,
   skipConfirm?: boolean,
+  runId?: string,
+  phase?: string,
+  dryRun?: boolean,
 ): Promise<void> {
-  if (!skipConfirm) {
+  const rid = runId ?? generateRunId();
+
+  if (!dryRun && !skipConfirm) {
     const confirmed = await requestConfirmation({
       title: "Archive messages",
       message: `Archive ${messageIds.length} message(s)`,
@@ -265,8 +408,33 @@ async function archiveByMessageIds(
     }
   }
 
-  await batchArchive(messageIds, account);
-  ok({ archived: messageIds.length, method: "batch" });
+  const result = await batchArchive(messageIds, account, {
+    runId: rid,
+    phase,
+    reason: `batch:${messageIds.length} messages`,
+    dryRun,
+  });
+
+  if (dryRun) {
+    const summary = summarizeDryRun(rid);
+    ok({
+      dry_run: true,
+      run_id: result.runId,
+      would_archive: messageIds.length,
+      method: "batch",
+      summary,
+      commit_command: `bun run scripts/gmail-commit.ts commit --run-id ${result.runId}`,
+      cancel_command: `bun run scripts/gmail-commit.ts cancel --run-id ${result.runId}`,
+    });
+  } else {
+    ok({
+      archived: messageIds.length,
+      method: "batch",
+      run_id: result.runId,
+      committed: result.committed,
+      failed: result.failed,
+    });
+  }
 }
 
 /** Path 4: --message-id — single message archive (no confirmation). */
@@ -290,6 +458,82 @@ async function archiveSingleMessage(
 }
 
 // ---------------------------------------------------------------------------
+// Resume
+// ---------------------------------------------------------------------------
+
+/**
+ * Resume an interrupted or partially-failed run.
+ * Loads the op log, finds pending (staged but not committed/failed) ops,
+ * and re-executes them.
+ */
+async function resumeRun(
+  resumeRunId: string,
+  account?: string,
+): Promise<void> {
+  if (!runExists(resumeRunId)) {
+    printError(`Run not found: ${resumeRunId}`);
+    return;
+  }
+
+  const pending = getPendingOps(resumeRunId);
+  if (pending.length === 0) {
+    const summary = summarizeRun(resumeRunId);
+    ok({
+      resumed: false,
+      run_id: resumeRunId,
+      note: "No pending operations to resume",
+      summary,
+    });
+    return;
+  }
+
+  let committed = 0;
+  let failed = 0;
+
+  for (const entry of pending) {
+    if (!entry.message_ids || entry.chunk_index === undefined) continue;
+
+    try {
+      const resp = await gmailPost(
+        "/messages/batchModify",
+        { ids: entry.message_ids, removeLabelIds: ["INBOX"] },
+        account,
+      );
+      if (!resp.ok) {
+        const errMsg = `batchModify failed (status ${resp.status}): ${JSON.stringify(resp.data)}`;
+        writeFailed(resumeRunId, entry.chunk_index, errMsg);
+        failed++;
+        continue;
+      }
+      writeCommitted(resumeRunId, entry.chunk_index);
+      committed++;
+    } catch (err) {
+      if (err instanceof DailyQuotaExceededError) {
+        writeInterrupted({
+          run_id: resumeRunId,
+          reason: "daily_quota",
+          resume_hint: "Resume after midnight PT",
+        });
+        throw err;
+      }
+      const errMsg = err instanceof Error ? err.message : String(err);
+      writeFailed(resumeRunId, entry.chunk_index, errMsg);
+      failed++;
+    }
+  }
+
+  writeCompleted(resumeRunId, committed, failed);
+  const summary = summarizeRun(resumeRunId);
+  ok({
+    resumed: true,
+    run_id: resumeRunId,
+    committed,
+    failed,
+    summary,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Main dispatcher
 // ---------------------------------------------------------------------------
 
@@ -298,6 +542,16 @@ async function main(): Promise<void> {
 
   const account = optionalArg(args, "account");
   const skipConfirm = args["skip-confirm"] === true;
+  const dryRun = args["dry-run"] === true;
+  const runId = optionalArg(args, "run-id");
+  const phase = optionalArg(args, "phase");
+
+  // Resume mode
+  const resumeRunId = optionalArg(args, "resume");
+  if (resumeRunId) {
+    await resumeRun(resumeRunId, account);
+    return;
+  }
 
   const query = optionalArg(args, "query");
   const cacheKey = optionalArg(args, "cache-key");
@@ -307,24 +561,41 @@ async function main(): Promise<void> {
 
   // Priority: --query > --cache-key > --message-ids > --message-id
   if (query) {
-    await archiveByQuery(query, account, skipConfirm);
+    await archiveByQuery(query, account, skipConfirm, runId, phase, dryRun);
   } else if (cacheKey && senderEmailsRaw) {
     const senderEmails = parseCsv(senderEmailsRaw);
-    await archiveByCacheKey(cacheKey, senderEmails, account, skipConfirm);
+    await archiveByCacheKey(
+      cacheKey,
+      senderEmails,
+      account,
+      skipConfirm,
+      runId,
+      phase,
+      dryRun,
+    );
   } else if (messageIdsRaw) {
     const messageIds = parseCsv(messageIdsRaw);
-    await archiveByMessageIds(messageIds, account, skipConfirm);
+    await archiveByMessageIds(messageIds, account, skipConfirm, runId, phase, dryRun);
   } else if (messageId) {
     await archiveSingleMessage(messageId, account);
   } else {
     printError(
-      "Provide --query, --cache-key + --sender-emails, --message-ids, or --message-id.",
+      "Provide --query, --cache-key + --sender-emails, --message-ids, --message-id, or --resume <run-id>.",
     );
   }
 }
 
 if (import.meta.main) {
   main().catch((err) => {
+    if (err instanceof DailyQuotaExceededError) {
+      // Already written to op log — surface a user-friendly message
+      ok({
+        interrupted: true,
+        reason: "daily_quota",
+        note: "Gmail daily quota exceeded. Resume after midnight PT with --resume <run-id>.",
+      });
+      return;
+    }
     printError(err instanceof Error ? err.message : String(err));
   });
 }

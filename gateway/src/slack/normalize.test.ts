@@ -961,6 +961,38 @@ describe("normalizeSlackMessageEdit", () => {
 
     expect(result).toBeNull();
   });
+
+  it("infers DM from channel ID prefix when channel_type is absent", () => {
+    const config = makeConfig({ unmappedPolicy: "reject" });
+    // Build the event directly so `channel_type` is truly absent — the
+    // makeMessageChangedEvent helper coalesces undefined back to "channel".
+    const event: SlackMessageChangedEvent = {
+      type: "message",
+      subtype: "message_changed",
+      channel: "D789",
+      ts: "1700000000.000200",
+      event_ts: "1700000000.000200",
+      message: {
+        user: "U123",
+        text: "edited content",
+        ts: "1700000000.000100",
+      },
+      previous_message: {
+        user: "U123",
+        text: "original content",
+        ts: "1700000000.000100",
+      },
+    };
+    const result = normalizeSlackMessageEdit(event, "Ev5", config);
+
+    // Without the DM-prefix fallback this would be null (unmapped + reject).
+    expect(result).not.toBeNull();
+    expect(result!.routing.assistantId).toBe("ast-1");
+    // DMs should not be tagged as channel chat even when inferred.
+    expect(result!.event.source.chatType).toBeUndefined();
+    // DM without thread_ts — threadTs should be omitted so replies go inline.
+    expect(result!.threadTs).toBeUndefined();
+  });
 });
 
 // --- normalizeSlackMessageDelete ---

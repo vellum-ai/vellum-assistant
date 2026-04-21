@@ -269,7 +269,20 @@ export class HeartbeatService {
       const report = await checkAllCredentials();
       if (report.unhealthy.length > 0) {
         await this.notifyUnhealthyCredentials(report.unhealthy);
-        return report.unhealthy.map((r) => r.provider);
+        // Only block providers for hard-failure statuses — expiring and ping_failed
+        // are transient/still-usable and should not disable provider tools.
+        // missing_scopes is a hard failure because required scopes are absent and
+        // provider tools will predictably fail.
+        const hardFailureStatuses = new Set([
+          "revoked",
+          "missing_token",
+          "expired",
+          "missing_scopes",
+        ]);
+        const hardFailures = report.unhealthy.filter((r) =>
+          hardFailureStatuses.has(r.status),
+        );
+        return [...new Set(hardFailures.map((r) => r.provider))];
       }
     } catch (err) {
       log.error({ err }, "Credential health check failed");
@@ -312,9 +325,7 @@ export class HeartbeatService {
 
     for (const result of results) {
       const urgency =
-        result.status === "revoked" ||
-        result.status === "expired" ||
-        result.status === "ping_failed"
+        result.status === "revoked" || result.status === "expired"
           ? ("high" as const)
           : ("medium" as const);
 

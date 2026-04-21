@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import type { ContextWindowConfig } from "../config/types.js";
 import type {
   ContentBlock,
@@ -5,6 +8,7 @@ import type {
   Message,
   Provider,
 } from "../providers/types.js";
+import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
 import { safeStringSlice } from "../util/unicode.js";
 import {
@@ -26,7 +30,33 @@ const COMPACTION_TOOL_RESULT_MAX_CHARS = 6_000;
 const MIN_COMPACTABLE_PERSISTED_MESSAGES = 2;
 const INTERNAL_CONTEXT_SUMMARY_MESSAGES = new WeakSet<Message>();
 
-const SUMMARY_SYSTEM_PROMPT = [
+/**
+ * Load the compaction summary system prompt from the bundled markdown asset.
+ *
+ * `resolveBundledDir` handles the compiled-binary case where the caller path
+ * points to `/$bunfs/` and the asset lives next to the executable (macOS app
+ * bundle `Contents/Resources/` or sibling dir). In source mode it falls back
+ * to the sibling `prompts/` directory.
+ */
+export function loadCompactPrompt(): string {
+  const callerDir = import.meta.dirname ?? __dirname;
+  const promptsDir = resolveBundledDir(callerDir, "prompts", "compact-prompts");
+  const promptPath = join(promptsDir, "compact.md");
+  const contents = readFileSync(promptPath, "utf-8");
+  if (contents.length === 0) {
+    throw new Error(
+      `compact.md at ${promptPath} is empty — compaction summary prompt missing`,
+    );
+  }
+  return contents;
+}
+
+/**
+ * Hardcoded fallback prompt used when the bundled `compact.md` asset is
+ * missing or unreadable, so the daemon can still compact conversations
+ * rather than failing module import at startup.
+ */
+const SUMMARY_PROMPT_FALLBACK = [
   "You compress long assistant conversations into durable working memory.",
   "Focus on actionable state, not prose.",
   "Preserve concrete facts: goals, constraints, decisions, pending questions, file paths, commands, errors, and TODOs.",
@@ -42,15 +72,40 @@ const SUMMARY_SYSTEM_PROMPT = [
 ].join("\n");
 
 /**
+ * Load the compact prompt with graceful fallback. If `loader` throws (missing
+ * or unreadable bundled asset, partial deployment, filesystem corruption),
+ * logs a warning and returns the hardcoded fallback string so module import
+ * never fails. The loader is injectable for testability.
+ */
+export function loadCompactPromptOrFallback(
+  loader: () => string = loadCompactPrompt,
+): string {
+  try {
+    return loader();
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to load compact.md from bundle; using inline fallback prompt. The bundled asset may be missing or unreadable.",
+    );
+    return SUMMARY_PROMPT_FALLBACK;
+  }
+}
+
+const SUMMARY_SYSTEM_PROMPT = loadCompactPromptOrFallback();
+
+/**
  * Pattern matching a Slack-style reply tag-line's parent-alias reference.
  * The chronological renderer emits reply lines as
- * `[MM/DD/YY HH:MM @sender → Mxxxxxx]: body`, where `Mxxxxxx` is the first 6
- * hex chars of sha256(threadTs). A retained-tail text block that contains
- * this pattern is carrying a live reference to a parent that may still live
- * in the compactable region — the summarizer needs to know about it to act
- * on the Thread-anchors clause of SUMMARY_SYSTEM_PROMPT.
+ * `[MM/DD/YY HH:MM @sender → Mxxxxxx]: body`, or, for edited replies,
+ * `[MM/DD/YY HH:MM @sender → Mxxxxxx, edited MM/DD/YY HH:MM]: body`. The
+ * character after the 6-hex parent alias is therefore `]` for a plain reply
+ * or `,` for an edited one — the regex accepts either. `Mxxxxxx` is the
+ * first 6 hex chars of sha256(threadTs). A retained-tail text block that
+ * contains this pattern is carrying a live reference to a parent that may
+ * still live in the compactable region — the summarizer needs to know about
+ * it to act on the Thread-anchors clause of SUMMARY_SYSTEM_PROMPT.
  */
-const THREAD_REPLY_REFERENCE_PATTERN = /→ M[0-9a-f]{6}]/;
+const THREAD_REPLY_REFERENCE_PATTERN = /→ M[0-9a-f]{6}[,\]]/;
 
 export interface ContextWindowResult {
   messages: Message[];
@@ -70,6 +125,13 @@ export interface ContextWindowResult {
   summaryRawResponses?: unknown[];
   summaryText: string;
   reason?: string;
+  /**
+   * True when the summary LLM call threw and the local fallback produced the
+   * summary. Callers use this to distinguish provider-side summary failures
+   * from successful compactions so they can apply circuit-breaker logic
+   * without losing the fallback-compacted messages.
+   */
+  summaryFailed?: boolean;
 }
 
 export interface ShouldCompactResult {
@@ -489,6 +551,7 @@ export class ContextWindowManager {
     const summaryCacheCreationInputTokens =
       summaryUpdate.cacheCreationInputTokens;
     const summaryCacheReadInputTokens = summaryUpdate.cacheReadInputTokens;
+    const summaryFailed = summaryUpdate.failed;
     const summaryRawResponses: unknown[] = [];
     if (Array.isArray(summaryUpdate.rawResponse)) {
       summaryRawResponses.push(...summaryUpdate.rawResponse);
@@ -560,6 +623,7 @@ export class ContextWindowManager {
       summaryCacheReadInputTokens,
       summaryRawResponses,
       summaryText: summary,
+      summaryFailed,
     };
   }
 
@@ -807,6 +871,12 @@ export class ContextWindowManager {
     cacheCreationInputTokens: number;
     cacheReadInputTokens: number;
     rawResponse?: unknown;
+    /**
+     * True when the provider.sendMessage call threw and the local fallback
+     * was used. Callers (the agent loop) use this to drive circuit-breaker
+     * state without having to reimplement the fallback themselves.
+     */
+    failed: boolean;
   }> {
     const contentBlocks = buildSummaryContentBlocks(
       currentSummary,
@@ -814,6 +884,7 @@ export class ContextWindowManager {
       retainedThreadRefs,
     );
     const summaryMessage: Message = { role: "user", content: contentBlocks };
+    let failed = false;
     try {
       const response = await this.provider.sendMessage(
         [summaryMessage],
@@ -836,9 +907,11 @@ export class ContextWindowManager {
             response.usage.cacheCreationInputTokens ?? 0,
           cacheReadInputTokens: response.usage.cacheReadInputTokens ?? 0,
           rawResponse: response.rawResponse,
+          failed: false,
         };
       }
     } catch (err) {
+      failed = true;
       log.warn({ err }, "Summary generation failed, using local fallback");
     }
 
@@ -857,6 +930,7 @@ export class ContextWindowManager {
       model: "",
       cacheCreationInputTokens: 0,
       cacheReadInputTokens: 0,
+      failed,
     };
   }
 

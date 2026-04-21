@@ -10,6 +10,7 @@ import type { TrustRuleBase } from "@vellumai/ces-contracts";
  * we flatten the union here by intersecting the base with the optional fields.
  */
 export type TrustRule = TrustRuleBase & {
+  scope?: string;
   executionTarget?: string;
 };
 
@@ -61,4 +62,11 @@ export interface PolicyContext {
   executionTarget?: string;
   /** Ephemeral rules for task-scoped permissions — checked before persistent trust.json rules. */
   ephemeralRules?: TrustRule[];
+  /**
+   * Execution context for per-context threshold resolution.
+   * - "conversation": interactive client session (default)
+   * - "background": non-interactive guardian session (e.g. scheduled jobs)
+   * - "headless": non-interactive non-guardian session
+   */
+  executionContext?: "conversation" | "background" | "headless";
 }

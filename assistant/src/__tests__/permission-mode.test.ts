@@ -40,6 +40,11 @@ describe("PermissionsConfigSchema", () => {
     expect(PermissionsConfigSchema.parse({})).toEqual({
       mode: "workspace",
       hostAccess: false,
+      autoApproveUpTo: {
+        conversation: "low",
+        background: "medium",
+        headless: "none",
+      },
     });
   });
 
@@ -47,6 +52,11 @@ describe("PermissionsConfigSchema", () => {
     expect(PermissionsConfigSchema.parse({ mode: "strict" })).toEqual({
       mode: "strict",
       hostAccess: false,
+      autoApproveUpTo: {
+        conversation: "low",
+        background: "medium",
+        headless: "none",
+      },
     });
   });
 
@@ -59,6 +69,11 @@ describe("PermissionsConfigSchema", () => {
     ).toEqual({
       mode: "workspace",
       hostAccess: true,
+      autoApproveUpTo: {
+        conversation: "low",
+        background: "medium",
+        headless: "none",
+      },
     });
   });
 
@@ -66,6 +81,7 @@ describe("PermissionsConfigSchema", () => {
     const input = {
       mode: "workspace" as const,
       hostAccess: true,
+      autoApproveUpTo: "low" as const,
     };
     const json = JSON.stringify(input);
     expect(PermissionsConfigSchema.parse(JSON.parse(json))).toEqual(input);

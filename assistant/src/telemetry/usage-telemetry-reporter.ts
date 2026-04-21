@@ -45,6 +45,7 @@ const CHECKPOINT_KEY_LIFECYCLE_WATERMARK =
 const CHECKPOINT_KEY_LIFECYCLE_WATERMARK_ID =
   "telemetry:lifecycle:last_reported_id";
 const REPORT_INTERVAL_MS = 5 * 60 * 1000;
+const INITIAL_FLUSH_DELAY_MS = 30_000; // Delay first flush to let CES handshake complete
 const BATCH_SIZE = 500;
 const MAX_CONSECUTIVE_BATCHES = 10;
 const TELEMETRY_PATH = "/v1/telemetry/ingest/";
@@ -54,13 +55,21 @@ const TELEMETRY_PATH = "/v1/telemetry/ingest/";
 // ---------------------------------------------------------------------------
 
 export class UsageTelemetryReporter {
+  private initialFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private activeFlush: Promise<void> | null = null;
 
   start(): void {
-    this.flush().catch((err) => {
-      log.warn({ err }, "Initial usage telemetry flush failed");
-    });
+    // Delay the first flush to allow the credential infrastructure (CES
+    // handshake) to complete. Without this delay, VellumPlatformClient.create()
+    // returns null because the credential backend hasn't resolved yet, causing
+    // telemetry to fall back to anonymous mode permanently.
+    this.initialFlushTimer = setTimeout(() => {
+      this.initialFlushTimer = null;
+      this.flush().catch((err) => {
+        log.warn({ err }, "Initial usage telemetry flush failed");
+      });
+    }, INITIAL_FLUSH_DELAY_MS);
     this.timer = setInterval(() => {
       this.flush().catch((err) => {
         log.warn({ err }, "Scheduled usage telemetry flush failed");
@@ -69,6 +78,10 @@ export class UsageTelemetryReporter {
   }
 
   async stop(): Promise<void> {
+    if (this.initialFlushTimer) {
+      clearTimeout(this.initialFlushTimer);
+      this.initialFlushTimer = null;
+    }
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
