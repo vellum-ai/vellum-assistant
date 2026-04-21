@@ -77,6 +77,15 @@ struct ConversationListView: View {
     /// Nil on compact, where the chat header hosts the Settings gear instead.
     var onShowSettings: (() -> Void)?
 
+    /// Invoked when the user archives the currently active conversation.
+    /// The parent is responsible for (a) choosing a replacement conversation
+    /// and (b) marking it as *seeded* (not an explicit open), so the
+    /// replacement's `.task(id:)` does not silently clear its unread badge.
+    /// The binding alone cannot communicate seed state, so this callback
+    /// replaces the fallback `selectedConversationId = activeConversations.first?.id`
+    /// when provided.
+    var onArchiveActiveConversation: (() -> Void)?
+
     /// Single source of truth for the active conversation, owned by
     /// `IOSRootNavigationView.activeConversationId`. The binding keeps the
     /// iPad `NavigationSplitView` detail pane and the iPhone `compactRoot`
@@ -269,15 +278,22 @@ struct ConversationListView: View {
     private func archiveActiveConversation(_ conversation: IOSConversation) {
         store.archiveConversation(conversation)
         // Switch away from the archived conversation on both size classes.
-        // The compact (drawer) path needs this because `archiveConversation`
-        // only flips `isArchived` without removing from `store.conversations`,
-        // so `IOSRootNavigationView.reconcileActiveConversation`'s
+        // `archiveConversation` only flips `isArchived` without removing
+        // from `store.conversations`, so `IOSRootNavigationView.reconcileActiveConversation`'s
         // `.onChange(of: store.conversations.map(\.id))` trigger never fires
         // — the archived conversation would otherwise stay on-screen.
         // `selectedConversationId` is bound to `activeConversationId` in both
         // the iPad split view and the compact drawer, so assigning here
         // updates whichever path is active.
-        if selectedConversationId == conversation.id {
+        guard selectedConversationId == conversation.id else { return }
+        if let onArchiveActiveConversation {
+            // Compact path: parent owns `activeConversationWasSeeded` and must
+            // mark the replacement as seeded to avoid silently clearing its
+            // unread badge via `compactRoot`'s `.task(id:)` auto-mark-seen.
+            onArchiveActiveConversation()
+        } else {
+            // iPad path: `conversationDetailContent(for:)` always marks seen
+            // on mount (no seeded gating), so a plain binding write is fine.
             selectedConversationId = activeConversations.first?.id
         }
     }

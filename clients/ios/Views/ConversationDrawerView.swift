@@ -20,6 +20,7 @@ struct ConversationDrawerView: View {
     @ObservedObject var store: IOSConversationStore
     let onSelectConversation: (UUID) -> Void
     let onClose: () -> Void
+    let onArchiveActiveConversation: () -> Void
     @Binding var activeConversationId: UUID?
 
     var body: some View {
@@ -27,6 +28,7 @@ struct ConversationDrawerView: View {
             ConversationListView(
                 store: store,
                 onSelectConversation: onSelectConversation,
+                onArchiveActiveConversation: onArchiveActiveConversation,
                 selectedConversationId: $activeConversationId
             )
             .toolbar {

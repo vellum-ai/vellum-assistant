@@ -151,6 +151,7 @@ struct IOSRootNavigationView: View {
                     store: store,
                     onSelectConversation: selectConversation,
                     onClose: closeDrawer,
+                    onArchiveActiveConversation: handleArchiveActiveConversation,
                     activeConversationId: $activeConversationId
                 )
                 .frame(width: drawerWidth)
@@ -334,6 +335,17 @@ struct IOSRootNavigationView: View {
         activeConversationWasSeeded = false
         activeConversationId = conversation.id
         closeDrawer()
+    }
+
+    /// Fallback after the user archives the currently active conversation from
+    /// the drawer. Marks the replacement as *seeded* — the user didn't
+    /// explicitly open it — so `compactRoot`'s `.task(id:)` does not silently
+    /// clear its unread badge or override a pending `.unread` attention
+    /// signal. Mirrors the seeding discipline used by
+    /// `seedActiveConversationIfNeeded` and `reconcileActiveConversation`.
+    private func handleArchiveActiveConversation() {
+        activeConversationWasSeeded = true
+        activeConversationId = firstSelectableConversationId()
     }
 
     // MARK: - Selection request handling
