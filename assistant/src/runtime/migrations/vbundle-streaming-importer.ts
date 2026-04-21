@@ -31,12 +31,15 @@ import { createWriteStream, existsSync } from "node:fs";
 import {
   copyFile,
   cp,
+  lstat,
   mkdir,
   readdir,
   readFile,
+  readlink,
   rename,
   rm,
   stat,
+  symlink,
   unlink,
   writeFile,
 } from "node:fs/promises";
@@ -1257,10 +1260,7 @@ async function carryOverEntry(
     await rename(liveChild, tempChild);
   } catch (err) {
     if (isEXDEV(err)) {
-      await cp(liveChild, tempChild, {
-        recursive: true,
-        preserveTimestamps: true,
-      });
+      await copyTreeSkippingTransient(liveChild, tempChild);
       await rm(liveChild, { recursive: true, force: true });
     } else {
       throw err;
@@ -1297,10 +1297,7 @@ async function restoreCarriedPaths(
     } catch (err) {
       if (isEXDEV(err)) {
         try {
-          await cp(tempChild, liveChild, {
-            recursive: true,
-            preserveTimestamps: true,
-          });
+          await copyTreeSkippingTransient(tempChild, liveChild);
           await rm(tempChild, { recursive: true, force: true });
           continue;
         } catch (cpErr) {
@@ -1495,15 +1492,114 @@ async function moveEntryWithExdevFallback(
     await rename(src, dst);
   } catch (err) {
     if (isEXDEV(err)) {
-      await cp(src, dst, {
-        recursive: true,
-        preserveTimestamps: true,
-      });
+      try {
+        await copyTreeSkippingTransient(src, dst);
+      } catch (cpErr) {
+        // Partial cp could leave incomplete content at `dst`. Remove it so
+        // `restoreFromBackupDir` (running on a later error path) doesn't
+        // mistake half-a-tree for a valid backup entry and clobber the
+        // still-intact source with it. Leave `src` alone — we never got
+        // to the rm step, so it's whole.
+        await rm(dst, { recursive: true, force: true }).catch((rmErr) => {
+          log.warn(
+            { err: rmErr, dst },
+            "Failed to clean up partial cp destination after EXDEV fallback failure",
+          );
+        });
+        throw cpErr;
+      }
       await rm(src, { recursive: true, force: true });
       return;
     }
     throw err;
   }
+}
+
+/**
+ * `fs.cp(..., { recursive: true })` throws `ERR_FS_CP_SOCKET` (and
+ * similar for FIFOs / other special files) in newer Node versions, which
+ * breaks imports in real deployments — most concretely, the meet-join
+ * skill creates unix sockets under `meets/<id>/sockets/` that end up
+ * inside the workspace. Special files are session-scoped, always safe to
+ * drop across an import. This wrapper asks `fs.cp` to skip anything that
+ * isn't a regular file / directory / symlink, and falls back to a manual
+ * walk if `fs.cp` still trips over something we couldn't filter ahead of
+ * time.
+ */
+async function copyTreeSkippingTransient(
+  src: string,
+  dst: string,
+): Promise<void> {
+  try {
+    await cp(src, dst, {
+      recursive: true,
+      preserveTimestamps: true,
+      filter: async (source) => {
+        try {
+          const info = await lstat(source);
+          // Keep regular files, directories, and symlinks. Skip sockets,
+          // FIFOs, block/char devices — transient / non-portable content
+          // that `fs.cp` refuses to replicate anyway.
+          return info.isFile() || info.isDirectory() || info.isSymbolicLink();
+        } catch {
+          // If we can't stat, let `fs.cp` try and surface the real error.
+          return true;
+        }
+      },
+    });
+  } catch (err) {
+    if (!isCpUnsupportedFileType(err)) throw err;
+    // Fall back to a manual walk that skips anything that isn't a file,
+    // dir, or symlink. `fs.cp` on Node can still occasionally surface
+    // ERR_FS_CP_SOCKET despite the filter (races where the socket
+    // appears between filter call and read), so the manual walk is the
+    // last-resort path.
+    log.warn(
+      { err, src, dst },
+      "cp filter still surfaced unsupported file type; falling back to manual walk",
+    );
+    await manualCopyTreeSkippingTransient(src, dst);
+  }
+}
+
+function isCpUnsupportedFileType(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const code = (err as { code?: string }).code;
+  return (
+    code === "ERR_FS_CP_SOCKET" ||
+    code === "ERR_FS_CP_FIFO_PIPE" ||
+    code === "ERR_FS_CP_UNKNOWN"
+  );
+}
+
+async function manualCopyTreeSkippingTransient(
+  src: string,
+  dst: string,
+): Promise<void> {
+  const info = await lstat(src);
+  if (info.isSymbolicLink()) {
+    const target = await readlink(src);
+    await mkdir(dirname(dst), { recursive: true });
+    await symlink(target, dst);
+    return;
+  }
+  if (info.isFile()) {
+    await mkdir(dirname(dst), { recursive: true });
+    await copyFile(src, dst);
+    return;
+  }
+  if (info.isDirectory()) {
+    await mkdir(dst, { recursive: true });
+    for (const name of await readdir(src)) {
+      await manualCopyTreeSkippingTransient(join(src, name), join(dst, name));
+    }
+    return;
+  }
+  // Anything else (socket, FIFO, device) — intentionally skip.
+  log.debug(
+    { src },
+    "Skipping transient/special filesystem entry during cross-fs copy",
+  );
 }
 
 interface RestoreFromBackupResult {
@@ -1549,7 +1645,6 @@ async function restoreFromBackupDir(
     return { ok: false, failedCount: 1 };
   }
 
-  const absRealWorkspace = resolve(realWorkspaceDir);
   const carriedLivePaths = carried.map((c) => resolve(c.liveChild));
 
   let failedCount = 0;
@@ -1596,7 +1691,7 @@ async function restoreFromBackupDir(
     } catch (err) {
       if (isEXDEV(err)) {
         try {
-          await cp(src, dst, { recursive: true, preserveTimestamps: true });
+          await copyTreeSkippingTransient(src, dst);
           await rm(src, { recursive: true, force: true });
           continue;
         } catch (cpErr) {
@@ -1615,10 +1710,6 @@ async function restoreFromBackupDir(
       );
     }
   }
-
-  // Suppress unused-variable on `absRealWorkspace` (reserved for future
-  // use if we ever need to validate dst is under realWorkspaceDir).
-  void absRealWorkspace;
 
   return { ok: failedCount === 0, failedCount };
 }
@@ -1663,10 +1754,7 @@ async function mergeBackupIntoLive(
         await rename(childSrc, childDst);
       } catch (err) {
         if (isEXDEV(err)) {
-          await cp(childSrc, childDst, {
-            recursive: true,
-            preserveTimestamps: true,
-          });
+          await copyTreeSkippingTransient(childSrc, childDst);
           await rm(childSrc, { recursive: true, force: true });
         } else {
           throw err;
@@ -1698,10 +1786,7 @@ async function mergeBackupIntoLive(
       await rename(childSrc, childDst);
     } catch (err) {
       if (isEXDEV(err)) {
-        await cp(childSrc, childDst, {
-          recursive: true,
-          preserveTimestamps: true,
-        });
+        await copyTreeSkippingTransient(childSrc, childDst);
         await rm(childSrc, { recursive: true, force: true });
       } else {
         throw err;
