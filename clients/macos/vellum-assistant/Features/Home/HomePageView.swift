@@ -61,7 +61,7 @@ struct HomePageView<DetailPanel: View>: View {
     /// everything" — a non-empty set is treated as an inclusion filter
     /// in ``groupedFeed``. Deliberately view-local (not persisted):
     /// the filter is a transient read-time affordance, not a setting.
-    @State private var activeFilters: Set<FeedItemType> = []
+    @State private var activeFilter: FeedItemType? = nil
 
     /// Editorial column width. Bumped from 600pt to 960pt to match the
     /// Figma redesign — the new three-block layout reads as a wider page,
@@ -127,9 +127,11 @@ struct HomePageView<DetailPanel: View>: View {
                 }
 
                 HomeFeedFilterBar(
-                    selected: activeFilters,
+                    selected: activeFilter,
                     onToggle: { type in
-                        activeFilters.formSymmetricDifference([type])
+                        // Single-select: tapping the active chip clears
+                        // the filter; tapping a different chip replaces it.
+                        activeFilter = (activeFilter == type) ? nil : type
                     }
                 )
 
@@ -207,7 +209,7 @@ struct HomePageView<DetailPanel: View>: View {
             return a.createdAt > b.createdAt
         }
         let filtered = sorted.filter { item in
-            activeFilters.isEmpty || activeFilters.contains(item.type)
+            activeFilter == nil || activeFilter == item.type
         }
         return HomeFeedTimeGroup.bucket(filtered)
     }

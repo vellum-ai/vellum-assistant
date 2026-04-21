@@ -6,16 +6,16 @@ import VellumAssistantShared
 ///
 /// Layout: a 12pt "Filter:" caption + a row of four 26pt icon-circle
 /// chips — Heartbeat (`.nudge`), Input (`.action`), Notification
-/// (`.digest`), and Schedule (`.thread`). Chips are toggles; tapping
-/// one adds/removes its ``FeedItemType`` from the active filter set.
-/// An empty active set means "show everything" — the parent view is
-/// responsible for applying the filter to its feed.
+/// (`.digest`), and Schedule (`.thread`). Chips are single-select:
+/// tapping a chip makes it the active filter; tapping the active chip
+/// again clears the filter. A nil ``selected`` means "show everything" —
+/// the parent view is responsible for applying the filter to its feed.
 ///
 /// The chip shape + tint mapping is intentionally aligned with
 /// ``HomeRecapRow``'s leading icon, so the filter chips and the row
 /// icons read as a single visual language.
 struct HomeFeedFilterBar: View {
-    let selected: Set<FeedItemType>
+    let selected: FeedItemType?
     let onToggle: (FeedItemType) -> Void
 
     /// Order matches the Figma mock (Heartbeat, Input, Notification,
@@ -35,7 +35,7 @@ struct HomeFeedFilterBar: View {
             ForEach(Self.chipOrder, id: \.self) { type in
                 HomeFeedFilterChip(
                     type: type,
-                    isSelected: selected.contains(type),
+                    isSelected: selected == type,
                     onToggle: { onToggle(type) }
                 )
             }
