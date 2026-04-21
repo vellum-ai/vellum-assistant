@@ -31,6 +31,10 @@ public final class HomeFeedStore {
 
     public private(set) var items: [FeedItem] = []
     public private(set) var contextBanner: ContextBanner?
+    /// Prompt-pill suggestions from the daemon. Same failure-mode
+    /// semantics as `items` — preserved on fetch error so a transient
+    /// network blip doesn't blank the pill bar.
+    public private(set) var suggestedPrompts: [SuggestedPrompt] = []
     public private(set) var isLoading: Bool = false
     public private(set) var lastLoadedAt: Date?
 
@@ -109,6 +113,7 @@ public final class HomeFeedStore {
             guard loadGeneration == myGeneration else { return }
             self.items = response.items
             self.contextBanner = response.contextBanner
+            self.suggestedPrompts = response.suggestedPrompts
             self.lastLoadedAt = Date()
         } catch {
             log.error("HomeFeedStore.load failed: \(error.localizedDescription)")

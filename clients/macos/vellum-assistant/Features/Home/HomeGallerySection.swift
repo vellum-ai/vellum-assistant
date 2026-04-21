@@ -510,9 +510,24 @@ struct HomeGallerySection: View {
                         HomeSuggestionPillBar(
                             headline: "By the way, have you tried one of these:",
                             suggestions: [
-                                HomeSuggestion(id: "baby", icon: .gamepad, label: "App for baby names"),
-                                HomeSuggestion(id: "car", icon: .car, label: "Get your cars spring-ready"),
-                                HomeSuggestion(id: "vacation", icon: .plane, label: "Plan your next vacation"),
+                                HomeSuggestion(
+                                    id: "baby",
+                                    icon: .gamepad,
+                                    label: "App for baby names",
+                                    prompt: "What apps for baby names should I try?"
+                                ),
+                                HomeSuggestion(
+                                    id: "car",
+                                    icon: .car,
+                                    label: "Get your cars spring-ready",
+                                    prompt: "Help me get my car spring-ready"
+                                ),
+                                HomeSuggestion(
+                                    id: "vacation",
+                                    icon: .plane,
+                                    label: "Plan your next vacation",
+                                    prompt: "Help me plan my next vacation"
+                                ),
                             ],
                             onSelect: { _ in },
                             onDismiss: {}

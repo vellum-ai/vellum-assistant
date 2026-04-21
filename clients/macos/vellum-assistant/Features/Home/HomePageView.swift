@@ -215,33 +215,12 @@ struct HomePageView<DetailPanel: View>: View {
 
     // MARK: - Suggestions
 
-    /// Stopgap source of suggestion pills: the first three capabilities
-    /// the daemon surfaced for this relationship. The long-term source is
-    /// a dedicated `HomeFeedResponse.suggestions` field on the feed
-    /// payload.
-    /// TODO: swap to `HomeFeedResponse.suggestions` once the daemon
-    /// contract lands (tracked by the Home redesign plan).
+    /// Suggestion pills sourced from `HomeFeedResponse.suggestedPrompts`,
+    /// capped at three. The daemon always returns an array (possibly
+    /// empty), so there is no fallback path — an empty response collapses
+    /// the pill bar entirely.
     private var currentSuggestions: [HomeSuggestion] {
-        guard let capabilities = store.state?.capabilities else { return [] }
-        return capabilities.prefix(3).map { capability in
-            HomeSuggestion(
-                id: capability.id,
-                icon: capabilityIcon(capability),
-                label: capability.name
-            )
-        }
-    }
-
-    /// Picks an icon for a capability suggestion pill. We don't have a
-    /// per-capability icon field, so fall back to a small rotating set of
-    /// generic "action" glyphs. Safe default is `.sparkles` — matches the
-    /// suggestion bar preview.
-    private func capabilityIcon(_ capability: Capability) -> VIcon {
-        switch capability.tier {
-        case .unlocked: return .sparkles
-        case .nextUp:   return .wand
-        case .earned:   return .star
-        }
+        feedStore.suggestedPrompts.prefix(3).map { HomeSuggestion(from: $0) }
     }
 
     // MARK: - Recap row styling
