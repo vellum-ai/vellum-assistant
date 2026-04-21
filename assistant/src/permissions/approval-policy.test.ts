@@ -719,6 +719,38 @@ describe("autoApproveUpTo threshold", () => {
     });
   });
 
+  describe('autoApproveUpTo: "high" — everything auto-allows', () => {
+    test("Low risk → allow", () => {
+      const result = evaluate({
+        riskLevel: RiskLevel.Low,
+        toolName: "some_tool",
+        autoApproveUpTo: "high",
+      });
+      expect(result.decision).toBe("allow");
+      expect(result.reason).toContain("within auto-approve threshold");
+    });
+
+    test("Medium risk → allow", () => {
+      const result = evaluate({
+        riskLevel: RiskLevel.Medium,
+        toolName: "some_tool",
+        autoApproveUpTo: "high",
+      });
+      expect(result.decision).toBe("allow");
+      expect(result.reason).toContain("within auto-approve threshold");
+    });
+
+    test("High risk → allow", () => {
+      const result = evaluate({
+        riskLevel: RiskLevel.High,
+        toolName: "some_tool",
+        autoApproveUpTo: "high",
+      });
+      expect(result.decision).toBe("allow");
+      expect(result.reason).toContain("within auto-approve threshold");
+    });
+  });
+
   describe("threshold interacts correctly with rule-based decisions", () => {
     test("deny rule still denies regardless of threshold", () => {
       const denyRule = makeRule({ decision: "deny" });
@@ -828,6 +860,12 @@ describe("resolveThreshold", () => {
       expect(resolveThreshold("none", "headless")).toBe("none");
     });
 
+    test("returns high scalar for any context", () => {
+      expect(resolveThreshold("high", "conversation")).toBe("high");
+      expect(resolveThreshold("high", "background")).toBe("high");
+      expect(resolveThreshold("high", "headless")).toBe("high");
+    });
+
     test("returns scalar when executionContext is omitted", () => {
       expect(resolveThreshold("low")).toBe("low");
     });
@@ -909,12 +947,13 @@ describe("guardian threshold-based auto-approve (ordinal comparison)", () => {
   // This is the logic that replaces the old `riskLevel !== RiskLevel.High` check.
   function isWithinThreshold(
     riskLevel: RiskLevel,
-    bgThreshold: "none" | "low" | "medium",
+    bgThreshold: "none" | "low" | "medium" | "high",
   ): boolean {
     const thresholdOrdinal: Record<string, number> = {
       none: -1,
       low: 0,
       medium: 1,
+      high: 2,
     };
     const riskOrdinal: Record<string, number> = {
       [RiskLevel.Low]: 0,
@@ -1007,7 +1046,38 @@ describe("guardian threshold-based auto-approve (ordinal comparison)", () => {
     });
   });
 
+  describe('loosest config (background: "high") — everything auto-approves', () => {
+    test("Low risk → within threshold (auto-approve)", () => {
+      const bgThreshold = resolveThreshold(
+        { conversation: "low", background: "high", headless: "none" },
+        "background",
+      );
+      expect(bgThreshold).toBe("high");
+      expect(isWithinThreshold(RiskLevel.Low, bgThreshold)).toBe(true);
+    });
+
+    test("Medium risk → within threshold (auto-approve)", () => {
+      const bgThreshold = resolveThreshold(
+        { conversation: "low", background: "high", headless: "none" },
+        "background",
+      );
+      expect(isWithinThreshold(RiskLevel.Medium, bgThreshold)).toBe(true);
+    });
+
+    test("High risk → within threshold (auto-approve)", () => {
+      const bgThreshold = resolveThreshold(
+        { conversation: "low", background: "high", headless: "none" },
+        "background",
+      );
+      expect(isWithinThreshold(RiskLevel.High, bgThreshold)).toBe(true);
+    });
+  });
+
   describe("scalar config form resolves correctly for background context", () => {
+    test('scalar "high" → background resolves to high', () => {
+      expect(resolveThreshold("high", "background")).toBe("high");
+    });
+
     test('scalar "medium" → background resolves to medium', () => {
       expect(resolveThreshold("medium", "background")).toBe("medium");
     });

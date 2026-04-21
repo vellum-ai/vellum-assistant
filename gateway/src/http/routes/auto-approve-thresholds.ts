@@ -20,7 +20,7 @@ const log = getLogger("auto-approve-thresholds");
 // Shared validation
 // ---------------------------------------------------------------------------
 
-export const VALID_THRESHOLDS = ["none", "low", "medium"] as const;
+export const VALID_THRESHOLDS = ["none", "low", "medium", "high"] as const;
 type Threshold = (typeof VALID_THRESHOLDS)[number];
 
 function isValidThreshold(value: unknown): value is Threshold {

@@ -5,19 +5,30 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Thres
 
 // MARK: - Types
 
-/// The three risk-tolerance levels a user can select.
+/// The four risk-tolerance levels a user can select.
 public enum RiskThreshold: String, CaseIterable, Identifiable, Hashable {
     case none = "none"
     case low = "low"
     case medium = "medium"
+    case high = "high"
 
     public var id: String { rawValue }
 
     public var label: String {
         switch self {
-        case .none: return "None"
-        case .low: return "Low"
-        case .medium: return "Medium"
+        case .none: return "Strict"
+        case .low: return "Default"
+        case .medium: return "Relaxed"
+        case .high: return "Full access"
+        }
+    }
+
+    public var settingsDescription: String {
+        switch self {
+        case .none: return "Always ask before acting. No actions are auto-approved."
+        case .low: return "Auto-approve low-risk actions like reading files and web searches."
+        case .medium: return "Auto-approve low and medium-risk actions like writing files in your workspace."
+        case .high: return "Auto-approve all actions, including high-risk and unrecognized commands. Your assistant will never ask for permission."
         }
     }
 }

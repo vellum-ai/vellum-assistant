@@ -6,7 +6,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Compo
 
 // MARK: - Threshold Preset
 
-/// The three presets surfaced in the per-conversation threshold picker.
+/// The four presets surfaced in the per-conversation threshold picker.
 /// Each maps to a concrete ``RiskThreshold`` value.
 enum ThresholdPreset: String, CaseIterable, Identifiable, Equatable {
     /// Prompt for everything (maps to ``RiskThreshold.none``).
@@ -15,6 +15,8 @@ enum ThresholdPreset: String, CaseIterable, Identifiable, Equatable {
     case `default`
     /// Auto-approve most tools (maps to ``RiskThreshold.medium``).
     case relaxed
+    /// Auto-approve all actions (maps to ``RiskThreshold.high``).
+    case fullAccess
 
     var id: String { rawValue }
 
@@ -23,6 +25,7 @@ enum ThresholdPreset: String, CaseIterable, Identifiable, Equatable {
         case .strict: return "Strict"
         case .default: return "Default"
         case .relaxed: return "Relaxed"
+        case .fullAccess: return "Full access"
         }
     }
 
@@ -31,6 +34,7 @@ enum ThresholdPreset: String, CaseIterable, Identifiable, Equatable {
         case .strict: return "Prompt for everything"
         case .default: return "Auto-approve low-risk tools"
         case .relaxed: return "Auto-approve most tools"
+        case .fullAccess: return "Auto-approve all actions"
         }
     }
 
@@ -39,6 +43,7 @@ enum ThresholdPreset: String, CaseIterable, Identifiable, Equatable {
         case .strict: return .lock
         case .default: return .shieldCheck
         case .relaxed: return .triangleAlert
+        case .fullAccess: return .shieldOff
         }
     }
 
@@ -47,6 +52,7 @@ enum ThresholdPreset: String, CaseIterable, Identifiable, Equatable {
         case .strict: return VColor.contentSecondary
         case .default: return VColor.contentSecondary
         case .relaxed: return VColor.systemMidStrong
+        case .fullAccess: return VColor.systemNegativeStrong
         }
     }
 
@@ -57,6 +63,7 @@ enum ThresholdPreset: String, CaseIterable, Identifiable, Equatable {
         case .strict: return RiskThreshold.none.rawValue
         case .default: return nil
         case .relaxed: return RiskThreshold.medium.rawValue
+        case .fullAccess: return RiskThreshold.high.rawValue
         }
     }
 
@@ -72,11 +79,15 @@ enum ThresholdPreset: String, CaseIterable, Identifiable, Equatable {
         guard let override else { return .default }
         if override == globalInteractive { return .default }
 
-        // Compare by risk level ordering: none < low < medium
+        // Check for exact matches to named presets first
+        if override == RiskThreshold.high.rawValue { return .fullAccess }
+
+        // Compare by risk level ordering: none < low < medium < high
         let order: [String] = [
             RiskThreshold.none.rawValue,
             RiskThreshold.low.rawValue,
             RiskThreshold.medium.rawValue,
+            RiskThreshold.high.rawValue,
         ]
         let overrideIndex = order.firstIndex(of: override) ?? 0
         let globalIndex = order.firstIndex(of: globalInteractive) ?? 0
@@ -95,7 +106,7 @@ enum ThresholdPreset: String, CaseIterable, Identifiable, Equatable {
 
 /// A compact pill button in the composer action bar that lets the user set a
 /// per-conversation auto-approve threshold override. Opens a dropdown menu
-/// with three presets: Strict, Default, and Relaxed.
+/// with four presets: Strict, Default, Relaxed, and Full access.
 @MainActor
 struct ComposerThresholdPicker: View {
     let conversationId: UUID?
@@ -126,6 +137,14 @@ struct ComposerThresholdPicker: View {
 
     private let composerActionButtonSize: CGFloat = 32
 
+    private var pillLabelColor: Color {
+        switch currentPreset {
+        case .fullAccess: return VColor.systemNegativeStrong
+        case .relaxed: return VColor.systemMidStrong
+        default: return VColor.contentSecondary
+        }
+    }
+
     var body: some View {
         #if os(macOS)
         Button {
@@ -142,11 +161,7 @@ struct ComposerThresholdPicker: View {
                     .foregroundStyle(currentPreset.iconColor)
                 Text(currentPreset.label)
                     .font(VFont.labelDefault)
-                    .foregroundStyle(
-                        currentPreset == .relaxed
-                            ? VColor.systemMidStrong
-                            : VColor.contentSecondary
-                    )
+                    .foregroundStyle(pillLabelColor)
                 VIconView(.chevronDown, size: 10)
                     .foregroundStyle(VColor.contentTertiary)
             }

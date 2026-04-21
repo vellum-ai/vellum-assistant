@@ -92,11 +92,24 @@ describe("auto-approve thresholds", () => {
     test("returns 400 for invalid threshold value", async () => {
       const handler = createGlobalThresholdPutHandler();
 
-      const res = await handler(makeRequest({ interactive: "high" }));
+      const res = await handler(makeRequest({ interactive: "extreme" }));
       expect(res.status).toBe(400);
       const data = await res.json();
       expect(data.error).toContain("interactive");
-      expect(data.error).toContain("none, low, medium");
+      expect(data.error).toContain("none, low, medium, high");
+    });
+
+    test("accepts high as a valid threshold value", async () => {
+      const handler = createGlobalThresholdPutHandler();
+
+      const res = await handler(makeRequest({ interactive: "high" }));
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data).toEqual({
+        interactive: "high",
+        background: "medium",
+        headless: "none",
+      });
     });
 
     test("returns 400 for invalid body (non-JSON)", async () => {

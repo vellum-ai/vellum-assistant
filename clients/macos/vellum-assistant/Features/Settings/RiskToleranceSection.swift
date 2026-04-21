@@ -48,7 +48,7 @@ struct RiskToleranceSection: View {
 
     var body: some View {
         SettingsCard(title: "Risk Tolerance") {
-            Text("Auto-approve tools up to this risk level without prompting. Higher levels mean fewer permission prompts.")
+            Text("Control which actions your assistant can take without asking first. Each action is classified by risk level — your tolerance determines which levels auto-approve.")
                 .font(VFont.bodyMediumDefault)
                 .foregroundStyle(VColor.contentTertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -72,7 +72,7 @@ struct RiskToleranceSection: View {
                     maxWidth: 280
                 )
                 .accessibilityLabel("When chatting risk threshold")
-                Text("Auto-approve low-risk tools like reading files and web searches.")
+                Text(interactiveSelection.settingsDescription)
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
             }
@@ -101,7 +101,10 @@ struct RiskToleranceSection: View {
                             maxWidth: 280
                         )
                         .accessibilityLabel("Scheduled tasks risk threshold")
-                        Text("Auto-approve tools when running scheduled background tasks.")
+                        Text("When your assistant runs background tasks like heartbeats and scheduled jobs.")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                        Text(backgroundSelection.settingsDescription)
                             .font(VFont.labelDefault)
                             .foregroundStyle(VColor.contentTertiary)
                     }
@@ -128,7 +131,10 @@ struct RiskToleranceSection: View {
                             maxWidth: 280
                         )
                         .accessibilityLabel("Automation / API risk threshold")
-                        Text("Auto-approve tools when triggered via API or automation.")
+                        Text("When triggered externally via API or webhooks.")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                        Text(headlessSelection.settingsDescription)
                             .font(VFont.labelDefault)
                             .foregroundStyle(VColor.contentTertiary)
                     }

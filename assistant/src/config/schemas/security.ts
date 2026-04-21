@@ -89,25 +89,25 @@ export const PermissionsConfigSchema = z
       ),
     autoApproveUpTo: z
       .union([
-        z.enum(["none", "low", "medium"], {
+        z.enum(["none", "low", "medium", "high"], {
           error:
-            "permissions.autoApproveUpTo must be one of: none, low, medium",
+            "permissions.autoApproveUpTo must be one of: none, low, medium, high",
         }),
         z.object({
           conversation: z
-            .enum(["none", "low", "medium"])
+            .enum(["none", "low", "medium", "high"])
             .default("low")
             .describe(
               "Threshold for interactive conversation sessions (default: low)",
             ),
           background: z
-            .enum(["none", "low", "medium"])
+            .enum(["none", "low", "medium", "high"])
             .default("medium")
             .describe(
               "Threshold for non-interactive guardian sessions (default: medium)",
             ),
           headless: z
-            .enum(["none", "low", "medium"])
+            .enum(["none", "low", "medium", "high"])
             .default("none")
             .describe(
               "Threshold for non-interactive non-guardian sessions (default: none)",
@@ -117,7 +117,7 @@ export const PermissionsConfigSchema = z
       .default({ conversation: "low", background: "medium", headless: "none" })
       .describe(
         "Auto-approve tools at or below this risk level without prompting. " +
-          "Accepts a scalar ('none', 'low', 'medium') applied to all contexts, " +
+          "Accepts a scalar ('none', 'low', 'medium', 'high') applied to all contexts, " +
           "or an object with per-context overrides: { conversation, background, headless }.",
       ),
   })

@@ -28,8 +28,9 @@ export interface ApprovalContext {
    * - "none": prompt for everything (strictest)
    * - "low": auto-approve Low risk (default, matches existing behavior)
    * - "medium": auto-approve Low and Medium risk
+   * - "high": auto-approve everything unconditionally
    */
-  autoApproveUpTo?: "none" | "low" | "medium";
+  autoApproveUpTo?: "none" | "low" | "medium" | "high";
 }
 
 // ── Threshold resolution ─────────────────────────────────────────────────────
@@ -55,7 +56,10 @@ export interface ApprovalContext {
  * `"low"` is therefore *less strict* than the headless default. This is
  * intentional: the user explicitly chose a uniform threshold.
  */
-const CONTEXT_DEFAULTS: Record<ExecutionContext, "none" | "low" | "medium"> = {
+const CONTEXT_DEFAULTS: Record<
+  ExecutionContext,
+  "none" | "low" | "medium" | "high"
+> = {
   conversation: "low",
   background: "medium",
   headless: "none",
@@ -64,7 +68,7 @@ const CONTEXT_DEFAULTS: Record<ExecutionContext, "none" | "low" | "medium"> = {
 export function resolveThreshold(
   configValue: PermissionsConfig["autoApproveUpTo"] | undefined,
   executionContext?: ExecutionContext,
-): "none" | "low" | "medium" {
+): "none" | "low" | "medium" | "high" {
   if (configValue == null) {
     return CONTEXT_DEFAULTS[executionContext ?? "conversation"];
   }
@@ -84,6 +88,7 @@ const THRESHOLD_ORDINAL: Record<string, number> = {
   none: -1,
   low: 0,
   medium: 1,
+  high: 2,
 };
 
 /** The outcome of an approval policy evaluation. */

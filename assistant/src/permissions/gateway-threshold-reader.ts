@@ -20,7 +20,7 @@ const log = getLogger("gateway-threshold-reader");
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type Threshold = "none" | "low" | "medium";
+type Threshold = "none" | "low" | "medium" | "high";
 
 interface GlobalThresholds {
   interactive: string;
@@ -76,7 +76,12 @@ function mapExecutionContextToField(
 }
 
 function isValidThreshold(value: string): value is Threshold {
-  return value === "none" || value === "low" || value === "medium";
+  return (
+    value === "none" ||
+    value === "low" ||
+    value === "medium" ||
+    value === "high"
+  );
 }
 
 // ── Main export ──────────────────────────────────────────────────────────────
