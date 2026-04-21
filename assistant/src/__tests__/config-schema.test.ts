@@ -763,6 +763,64 @@ describe("AssistantConfigSchema", () => {
     expect(parsed.permissions.autoApproveUpTo).toBe("medium");
   });
 
+  test("accepts autoApproveUpTo as per-context object", () => {
+    const result = AssistantConfigSchema.parse({
+      permissions: {
+        autoApproveUpTo: {
+          conversation: "low",
+          background: "medium",
+          headless: "none",
+        },
+      },
+    });
+    expect(result.permissions.autoApproveUpTo).toEqual({
+      conversation: "low",
+      background: "medium",
+      headless: "none",
+    });
+  });
+
+  test("per-context object applies defaults for omitted keys", () => {
+    const result = AssistantConfigSchema.parse({
+      permissions: {
+        autoApproveUpTo: {},
+      },
+    });
+    expect(result.permissions.autoApproveUpTo).toEqual({
+      conversation: "low",
+      background: "medium",
+      headless: "none",
+    });
+  });
+
+  test("per-context object rejects invalid enum values", () => {
+    const result = AssistantConfigSchema.safeParse({
+      permissions: {
+        autoApproveUpTo: { conversation: "high" },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("per-context object round-trips through JSON serialization", () => {
+    const original = AssistantConfigSchema.parse({
+      permissions: {
+        autoApproveUpTo: {
+          conversation: "none",
+          background: "low",
+          headless: "medium",
+        },
+      },
+    });
+    const json = JSON.stringify(original);
+    const parsed = AssistantConfigSchema.parse(JSON.parse(json));
+    expect(parsed.permissions.autoApproveUpTo).toEqual({
+      conversation: "none",
+      background: "low",
+      headless: "medium",
+    });
+  });
+
   test("applies workspaceGit defaults including interactiveGitTimeoutMs", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.workspaceGit).toEqual({
