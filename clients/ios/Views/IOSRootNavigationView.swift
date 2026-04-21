@@ -33,6 +33,13 @@ struct IOSRootNavigationView: View {
     @State private var isDrawerOpen: Bool = false
     @State private var isSettingsPresented: Bool = false
     @State private var activeConversationId: UUID?
+    /// True when `activeConversationId` was populated by the auto-seed path
+    /// (cold start / size-class transition / fallback after deletion) rather
+    /// than by an explicit user action. `compactRoot`'s `.task(id:)` uses
+    /// this to decide whether to mark the conversation as seen: we must not
+    /// silently clear unread state or override a pending `.unread` attention
+    /// signal on a conversation the user never explicitly opened.
+    @State private var activeConversationWasSeeded: Bool = false
     @State private var dragTranslation: CGFloat = 0
     @State private var settingsPresentDelayTask: Task<Void, Never>?
 
@@ -215,7 +222,16 @@ struct IOSRootNavigationView: View {
             )
             .task(id: id) {
                 store.loadHistoryIfNeeded(for: id)
-                store.markConversationSeenIfNeeded(conversationLocalId: id, isExplicitOpen: true)
+                // Only mark the conversation as seen when the detail was
+                // mounted by an explicit user action (drawer tap, compose,
+                // selection request). The seed path populates
+                // `activeConversationId` on cold start / size-class
+                // transitions without user involvement, and marking-seen
+                // there would silently clear unread state and any pending
+                // `.unread` attention override on every launch.
+                if !activeConversationWasSeeded {
+                    store.markConversationSeenIfNeeded(conversationLocalId: id, isExplicitOpen: true)
+                }
                 store.viewModel(for: id).consumeDeepLinkIfNeeded()
             }
             .onChange(of: conversation.hasUnseenLatestAssistantMessage) { _, hasUnseen in
@@ -312,12 +328,22 @@ struct IOSRootNavigationView: View {
     }
 
     private func selectConversation(_ id: UUID) {
+        let wasAlreadyActive = (activeConversationId == id)
+        activeConversationWasSeeded = false
         activeConversationId = id
         closeDrawer()
+        if wasAlreadyActive {
+            // `.task(id:)` won't refire because `id` is unchanged, so mark
+            // seen explicitly — this path matters when the user taps the
+            // currently-seeded conversation in the drawer and expects its
+            // unread badge to clear.
+            store.markConversationSeenIfNeeded(conversationLocalId: id, isExplicitOpen: true)
+        }
     }
 
     private func composeNewConversation() {
         let conversation = store.newConversation()
+        activeConversationWasSeeded = false
         activeConversationId = conversation.id
         closeDrawer()
     }
@@ -336,7 +362,9 @@ struct IOSRootNavigationView: View {
     /// when there is no active conversation.
     private func seedActiveConversationIfNeeded() {
         guard horizontalSizeClass != .regular, activeConversationId == nil else { return }
-        activeConversationId = firstSelectableConversationId()
+        guard let seed = firstSelectableConversationId() else { return }
+        activeConversationWasSeeded = true
+        activeConversationId = seed
     }
 
     /// Ensures `activeConversationId` points at a conversation that is still
@@ -356,12 +384,24 @@ struct IOSRootNavigationView: View {
         }
         let stillExists = store.conversations.contains { $0.id == id }
         if !stillExists {
+            // Not a user-initiated open — the previously active conversation
+            // was deleted out from under us. Treat the fallback as a seed so
+            // `compactRoot`'s `.task(id:)` won't auto-mark-seen.
+            activeConversationWasSeeded = true
             activeConversationId = firstSelectableConversationId()
         }
     }
 
+    /// Excludes the synthetic loading placeholder (`IOSConversationStore`
+    /// inserts a single `IOSConversation()` with `conversationId == nil`
+    /// while `isLoadingInitialConversations` is true). That placeholder has
+    /// no daemon-side identity; seeding it would mount a chat view that
+    /// cannot load history and would get thrown away as soon as the first
+    /// real conversation list response arrives.
     private func firstSelectableConversationId() -> UUID? {
-        store.conversations.first(where: { !$0.isArchived && !$0.isPrivate })?.id
+        store.conversations.first(where: {
+            $0.conversationId != nil && !$0.isArchived && !$0.isPrivate
+        })?.id
     }
 
     private func applyPendingSelectionRequestIfNeeded() {
@@ -387,8 +427,19 @@ struct IOSRootNavigationView: View {
         // `store.selectionRequest`) before this handler could dismiss the
         // Settings sheet, which would leave the target chat stranded behind
         // the modal on iPad.
+        let wasAlreadyActive = (activeConversationId == request.conversationLocalId)
+        activeConversationWasSeeded = false
         activeConversationId = request.conversationLocalId
         closeDrawer()
+        if wasAlreadyActive {
+            // Same-id requests (e.g. re-tapping the push for the
+            // currently-active chat) won't retrigger `.task(id:)`; mark seen
+            // here so the explicit intent still clears unread state.
+            store.markConversationSeenIfNeeded(
+                conversationLocalId: request.conversationLocalId,
+                isExplicitOpen: true
+            )
+        }
         store.consumeSelectionRequest(id: request.id)
     }
 }
