@@ -88,7 +88,7 @@ struct AssistantPickerView: View {
                     .controlSize(.small)
                     .progressViewStyle(.circular)
             } else {
-                VButton(label: "Connect", style: .secondary) {
+                VButton(label: "Connect", style: .outlined) {
                     connectingId = item.id
                     onConnect(item.id)
                 }
@@ -108,6 +108,7 @@ struct AssistantPickerItem: Identifiable {
     let subtitle: String?
     let isManaged: Bool
 
+    @MainActor
     static func from(lockfile: LockfileAssistant) -> AssistantPickerItem {
         let name = AssistantDisplayName.resolve(
             IdentityInfo.cached(for: lockfile.assistantId)?.name,
@@ -122,6 +123,7 @@ struct AssistantPickerItem: Identifiable {
         )
     }
 
+    @MainActor
     static func from(platform: PlatformAssistant) -> AssistantPickerItem {
         let name = AssistantDisplayName.resolve(platform.name, platform.id)
         return AssistantPickerItem(
