@@ -6534,7 +6534,7 @@ paths:
                   type: string
                 mode:
                   type: string
-                  description: notify or execute
+                  description: notify, execute, or script
                 routingIntent:
                   type: string
                   description: single_channel, multi_channel, or all_channels
