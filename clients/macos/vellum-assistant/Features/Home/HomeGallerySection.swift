@@ -558,18 +558,18 @@ struct HomeGallerySection: View {
                             .foregroundStyle(VColor.contentSecondary)
 
                         HomeFeedFilterBar(
-                            selected: Set<FeedItemType>(),
+                            selected: nil,
                             onToggle: { _ in }
                         )
 
                         Divider().background(VColor.borderBase)
 
-                        Text("Partial selection (Heartbeat + Notification active)")
+                        Text("Heartbeat selected (single-select)")
                             .font(VFont.bodySmallEmphasised)
                             .foregroundStyle(VColor.contentSecondary)
 
                         HomeFeedFilterBar(
-                            selected: [.nudge, .digest],
+                            selected: .nudge,
                             onToggle: { _ in }
                         )
                     }
