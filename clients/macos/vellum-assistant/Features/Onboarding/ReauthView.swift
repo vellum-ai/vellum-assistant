@@ -8,6 +8,10 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Reaut
 struct ReauthView: View {
     @Bindable var authManager: AuthManager
     var onComplete: () -> Void
+    /// Invoked when `ReturningUserRouter` decides `.showHostingPicker`
+    /// after re-auth (platform returned 0 assistants for this user).
+    /// The host swaps this view for the onboarding hosting picker.
+    var onNeedsHostingPicker: (() -> Void)?
 
     @State private var showContent = false
     @State private var didComplete = false
@@ -117,13 +121,13 @@ struct ReauthView: View {
             // — callers (startAuthenticatedFlow, performLogout) have already
             // resolved the auth state before presenting this view.
             if authManager.isAuthenticated && !didComplete {
-                await completeManagedActivation()
+                await routeAuthenticatedUser()
             }
         }
         .onChange(of: authManager.isAuthenticated) { _, isAuthenticated in
             if isAuthenticated && !didComplete {
                 Task {
-                    await completeManagedActivation()
+                    await routeAuthenticatedUser()
                 }
             }
         }
@@ -151,7 +155,44 @@ struct ReauthView: View {
     private func handleLoginTap() async {
         await authManager.startWorkOSLogin()
         if authManager.isAuthenticated {
-            await completeManagedActivation()
+            await routeAuthenticatedUser()
+        }
+    }
+
+    /// Route through `ReturningUserRouter` so this view and
+    /// `AppDelegate+AuthLifecycle` share one post-auth decision path.
+    ///
+    /// Always takes the async path (no fast-path). `ReauthView` is only
+    /// shown when the lockfile already has a managed current-env entry,
+    /// so `decideFast()` would always return `.autoConnect` — consulting
+    /// the platform is the whole point of routing on re-auth (it catches
+    /// stale lockfile entries where the platform has 0 assistants).
+    @MainActor
+    private func routeAuthenticatedUser() async {
+        guard !didComplete else { return }
+        let router = ReturningUserRouter()
+        do {
+            let decision = try await router.route()
+            guard !didComplete else { return }
+            log.info("ReauthView router decision=\(String(describing: decision), privacy: .public)")
+            switch decision {
+            case .autoConnect:
+                await completeManagedActivation()
+            case .showHostingPicker:
+                if let onNeedsHostingPicker {
+                    log.info("ReauthView → showHostingPicker")
+                    didComplete = true
+                    onNeedsHostingPicker()
+                } else {
+                    // No callback wired — fall back to the old behavior
+                    // so the re-auth flow still terminates.
+                    log.info("ReauthView → showHostingPicker but no callback — falling back to managed activation")
+                    await completeManagedActivation()
+                }
+            }
+        } catch {
+            // CancellationError — view was torn down, nothing to do.
+            log.info("ReauthView router cancelled")
         }
     }
 

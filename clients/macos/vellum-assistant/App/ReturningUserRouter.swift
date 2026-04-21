@@ -152,6 +152,11 @@ final class ReturningUserRouter {
 
     // MARK: - Helpers
 
+    /// Thrown when the platform fetch exceeds the timeout. Distinct from
+    /// `CancellationError` so callers can tell a timeout apart from a
+    /// parent-task cancellation.
+    private struct PlatformTimeoutError: Error {}
+
     /// Run an async closure with a timeout.
     private func withTimeout<T: Sendable>(
         seconds: UInt64,
@@ -161,7 +166,7 @@ final class ReturningUserRouter {
             group.addTask { try await operation() }
             group.addTask {
                 try await Task.sleep(nanoseconds: seconds * 1_000_000_000)
-                throw CancellationError()
+                throw PlatformTimeoutError()
             }
             let result = try await group.next()!
             group.cancelAll()

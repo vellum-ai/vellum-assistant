@@ -66,14 +66,18 @@ extension AppDelegate {
         }
     }
 
-    func showAuthWindow(reusingWindow existingWindow: NSWindow? = nil) {
-        if let existing = authWindow {
+    func showAuthWindow(
+        reusingWindow existingWindow: NSWindow? = nil,
+        forceOnboarding: Bool = false
+    ) {
+        if let existing = authWindow, !forceOnboarding {
             existing.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        let hasManagedAssistants = LockfileAssistant.loadAll().contains { $0.isManaged && $0.isCurrentEnvironment }
+        let hasManagedAssistants = !forceOnboarding
+            && LockfileAssistant.loadAll().contains { $0.isManaged && $0.isCurrentEnvironment }
         let authView: AnyView
 
         if hasManagedAssistants {
@@ -82,6 +86,9 @@ extension AppDelegate {
                 authManager: authManager,
                 onComplete: { [weak self] in
                     self?.proceedToApp()
+                },
+                onNeedsHostingPicker: { [weak self] in
+                    self?.showAuthWindow(forceOnboarding: true)
                 }
             ))
         } else {
@@ -105,9 +112,14 @@ extension AppDelegate {
 
         let hostingController = NSHostingController(rootView: authView)
 
+        // When forcing the onboarding picker after re-auth, reuse the
+        // current authWindow so the view swaps in-place rather than
+        // closing and re-opening a window.
+        let windowToReuse = existingWindow ?? (forceOnboarding ? authWindow : nil)
+
         let window: NSWindow
-        if let existingWindow {
-            window = existingWindow
+        if let windowToReuse {
+            window = windowToReuse
             window.contentViewController = hostingController
             window.isMovableByWindowBackground = true
             window.backgroundColor = NSColor(VColor.surfaceOverlay)
