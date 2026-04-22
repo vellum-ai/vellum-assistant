@@ -48,6 +48,7 @@ import { defaultLlmCallPlugin } from "../plugins/defaults/llm-call.js";
 import { defaultMemoryRetrievalPlugin } from "../plugins/defaults/memory-retrieval.js";
 import { defaultOverflowReducePlugin } from "../plugins/defaults/overflow-reduce.js";
 import { defaultPersistencePlugin } from "../plugins/defaults/persistence.js";
+import { defaultTitleGeneratePlugin } from "../plugins/defaults/title-generate.js";
 import { defaultTokenEstimatePlugin } from "../plugins/defaults/token-estimate.js";
 import { defaultToolErrorPlugin } from "../plugins/defaults/tool-error.js";
 import { defaultToolExecutePlugin } from "../plugins/defaults/tool-execute.js";
@@ -192,6 +193,7 @@ function registerDefaultPlugins(): void {
     defaultCompactionPlugin,
     defaultCircuitBreakerPlugin,
     defaultPersistencePlugin,
+    defaultTitleGeneratePlugin,
   ];
   for (const plugin of defaults) {
     try {
