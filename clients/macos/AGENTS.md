@@ -53,21 +53,28 @@ All UI and feature code lives in `Features/`, organized by domain:
 
 | Module | Purpose |
 |--------|---------|
-| `Ambient/` | Background screen monitoring UI |
+| `AssistantSwitcher/` | Menu-bar assistant switcher with new/retire actions |
 | `Avatar/` | Avatar customization |
+| `ChannelVerification/` | Channel verification flow |
 | `Chat/` | ChatView, ChatViewModel (multi-turn messaging), ChatMessage model |
 | `CommandPalette/` | Command palette (search, actions) |
 | `Contacts/` | Contact management |
-| `ChannelVerification/` | Channel verification flow |
+| `Home/` | Home tab — relationship + capabilities surface, home feed, grouped notifications |
+| `Installer/` | Native messaging host installer for Host Browser Proxy (Chrome extension CDP) |
 | `MainWindow/` | MainWindowView shell, ConversationSwitcherDrawer, NavigationToolbar, ConversationManager, side panels |
 | `MainWindow/Panels/` | Side panels including LogsAndUsagePanel (combined logs + usage dashboard with settings-like sidebar layout) |
+| `Meet/` | In-meeting status panel |
 | `Onboarding/` | Multi-step first-launch flow (OnboardingFlowView → OnboardingState) |
 | `QuickInput/` | Quick task input popover and screen selection |
 | `Session/` | Session overlay UI for computer-use task execution |
 | `Settings/` | Tabbed settings panels (Appearance, Advanced, Connect, Trust, Skills, etc.) |
 | `Sharing/` | Content sharing and export |
+| `Sounds/` | SoundManager with file-based config, FSEvents watcher |
 | `Surfaces/` | Daemon surface rendering (HTML/JSON overlays) |
+| `Terminal/` | Native SSH terminal (developer settings, managed assistants) |
 | `Voice/` | Voice input UI (VoiceTranscriptionWindow) |
+
+(`Ambient/` is a top-level sibling of `Features/`, not inside it — see "Ambient Agent" below.)
 
 </details>
 
@@ -165,7 +172,7 @@ The design system uses a two-tier architecture with functional subgrouping:
 
 ```
 DesignSystem/
-├── Tokens/              (VColor, VFont, VSpacing, VRadius, VShadow, VAnimation)
+├── Tokens/              (VColor, VFont, VSpacing, VRadius, VShadow, VAnimation, VIcon, VSizing, VMeadow, + web token export)
 ├── Core/                (atomic building blocks — single-responsibility controls)
 │   ├── Buttons/         (VButton)
 │   ├── Inputs/          (VSlider, VTextEditor, VTextField, VToggle)
@@ -221,18 +228,24 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 - Fun: `funYellow`, `funRed`, `funPurple`, `funPink`, `funCoral`, `funTeal`, `funGreen`, `funBlue` (non-adaptive, decorative)
 - Raw palettes (Moss, Stone/Slate, Forest/Sage, Emerald, Danger, Amber) are internal — use semantic tokens above.
 
-**VFont** — macOS HIG-aligned type scale:
-- `largeTitle` (26pt semibold), `title` (22pt semibold), `headline` (13pt semibold)
-- `body` (13pt), `bodyMedium` (13pt medium), `bodyBold` (13pt semibold), `bodySmall` (12pt)
-- `caption` (11pt), `captionMedium` (11pt medium), `small` (10pt)
-- `mono` (13pt DM Mono), `monoSmall` (11pt DM Mono), `monoBodyMedium` (13pt DM Mono medium), `monoMedium` (16pt DM Mono medium)
-- `sectionTitle` (17pt medium), `sectionDescription` (13pt), `inputLabel` (12pt medium)
-- `cardTitle` (16pt semibold), `cardEmoji` (32pt system)
-- `display` (18pt semibold), `modalTitle` (18pt semibold), `panelTitle` (24pt medium)
+**VFont** — Figma-sourced type scale. Sizes use `adaptiveSize()` (slightly smaller on iOS):
+- Brand (Instrument Serif): `brandMedium` (32pt), `brandSmall` (22pt), `brandMini` (16pt)
+- Display (DM Sans): `displayLarge` (32pt 400)
+- Title (DM Sans): `titleLarge` (24pt 400), `titleMedium` (20pt 400), `titleSmall` (16pt 500)
+- Body Large (DM Sans, 16pt): `bodyLargeLighter` (300), `bodyLargeDefault` (400), `bodyLargeEmphasised` (500)
+- Body Medium (DM Sans, 14pt): `bodyMediumLighter` (300), `bodyMediumDefault` (400), `bodyMediumEmphasised` (500)
+- Body Small (DM Sans, 12pt): `bodySmallDefault` (400), `bodySmallEmphasised` (500)
+- Label (DM Sans): `labelDefault` (11pt 400), `labelSmall` (10pt 400)
+- Numeric: `numericMono` (11pt DM Sans tabular)
+- Specialty: `menuCompact` (13pt 400), `chat` (16pt 400)
+- Emoji: `cardEmoji` (32pt system), `onboardingEmoji` (80pt adaptive system)
+- NSFont bridge (AppKit interop, used by `NSTextView` bridges): `nsChat`, `nsBodyMediumDefault`, `nsBodyMediumLighter`, `nsBodySmallDefault`, `nsMono`, `nsMonoBold`, `nsMonoItalic`
+
+DM Mono is not used in the SwiftUI-facing palette anymore (removed when the type scale was realigned to Figma). Tabular numerics use `numericMono` (DM Sans tabular).
 
 **VSpacing** — 4pt grid: `xxs`(2), `xs`(4), `sm`(8), `md`(12), `lg`(16), `xl`(24), `xxl`(32), `xxxl`(48). Semantic aliases: `inline`=sm, `content`=lg, `section`=xl, `page`=xxl.
 
-**VRadius** — `xs`(2), `sm`(4), `md`(8), `window`(10), `lg`(12), `xl`(16), `pill`(999).
+**VRadius** — `xs`(2), `sm`(4), `chip`(6), `md`(8), `window`(10), `lg`(12), `xl`(16), `xxl`(20), `pill`(999).
 
 **VAnimation** — `snappy` (0.12s easeOut), `fast` (0.15s easeOut), `standard` (0.25s easeInOut), `slow` (0.4s easeInOut), `spring`, `panel` (gentle spring for panels), `bouncy` (celebratory spring).
 
@@ -282,6 +295,12 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
   - [`.containerRelativeFrame(.horizontal)`](https://developer.apple.com/documentation/swiftui/view/containerrelativeframe(_:alignment:)) — width constraint without FlexFrame.
   
   Never trade `HStack+Spacer` for `.frame(alignment:)` in lazy containers — fewer layout nodes is not worth O(n) recursive alignment queries per node.
+  
+  **Enforced mechanically in CI**: [`clients/scripts/check-flexframe.sh`](../scripts/check-flexframe.sh) fails the build on new `.frame(maxWidth:)` / `.frame(maxHeight:)` inside `Features/Chat/` and `Features/MainWindow/`. Known intentional leaves are listed in [`clients/scripts/flexframe-allowlist.txt`](../scripts/flexframe-allowlist.txt) with rationale. The manual audit process missed regressions twice (#25947 wrong call on bounded `maxWidth`, #26220 deferred leaves) before the lint existed — prefer fixing the code over adding allowlist entries; the allowlist is a last resort.
+  
+  **Leaf wrapper exception (O(0) cascade)**: `_FlexFrameLayout` wrapping a view with no descendants — `Text`, `Image`, `VIconView`, `RoundedRectangle`, etc. — has nothing to cascade into. The alignment query bottoms out immediately. Documented allowlist case: [`QueuedMessageRow.swift:55`](vellum-assistant/Features/Chat/QueuedMessageRow.swift) `.frame(maxWidth: .infinity, alignment: .leading)` around a leaf `Text` with `.lineLimit(1).truncationMode(.tail)` — a configuration `HStack + Spacer` breaks cleanly (truncation stops working because the Text takes intrinsic width first). If you must wrap a leaf, prefer `HStack + Spacer` or `.widthCap` anyway; use the allowlist only when those break required semantics.
+  
+  **Non-lazy cascades (LUM-1116)**: the same `ViewDimensions.subscript` → `explicitAlignment` recursion can hit non-lazy hierarchies when a `MoveTransition` animates a deep stack under `SizeFittingLayoutComputer` (`.fixedSize(…)`, popovers, overlays, `NSHostingView` intrinsic-sizing boundaries). The rule as written scopes to lazy cells; the underlying mechanism is broader. If you place `.transition(.move(…))` on a view that (a) sits under a `.fixedSize()` / intrinsic-sizing parent and (b) has 5+ stack levels, consider `.transition(.opacity)` instead — far fewer measurement passes per animation frame.
 - **No `.frame(maxHeight:)` on ScrollView inside LazyVStack cells**: `.frame(maxHeight:)` creates `_FlexFrameLayout` which measures the ScrollView's full content height before clamping — defeating lazy loading. Use the two-path pattern instead: long content gets `ScrollView { }.frame(height: fixedHeight)` (definite height, O(1)); short content renders directly with no ScrollView. See [`.frame(width:height:alignment:)`](https://developer.apple.com/documentation/swiftui/view/frame(width:height:alignment:)) vs [`.frame(minWidth:...maxHeight:...)`](https://developer.apple.com/documentation/swiftui/view/frame(minwidth:idealwidth:maxwidth:minheight:idealheight:maxheight:alignment:)).
 - **Use `.frame(width:)` (not `.frame(maxWidth:)`) on ScrollView containers with LazyVStack**: `.frame(width:)` creates [`_FrameLayout`](https://developer.apple.com/documentation/swiftui/view/frame(width:height:alignment:)) which returns `bounds.midX` for alignment without querying children — the alignment cascade stops here. `.frame(maxWidth:)` creates [`_FlexFrameLayout`](https://developer.apple.com/documentation/swiftui/view/frame(minwidth:idealwidth:maxwidth:minheight:idealheight:maxheight:alignment:)) which queries `explicitAlignment` on children, cascading O(n) through the entire `LazyVStack` subtree on every layout pass. Use a computed width (e.g. `min(containerWidth, maxWidth)`) to get responsive behavior without `_FlexFrameLayout`. Do NOT use a custom `Layout` container **between the outer modifier chain and the `ScrollView`** — custom `Layout` containers at that level disrupt SwiftUI's internal scroll infrastructure, causing intermittent cell materialization failures. (Note: `WidthCapLayout` / `.widthCap()` used *inside* cells is safe — it doesn't sit between the ScrollView and its parent.)
 - **Gallery**: When adding or modifying a design system primitive/component, update the corresponding Gallery section file (`Gallery/Sections/`) so the visual catalog stays current.
@@ -307,7 +326,8 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 - **Adding .swift files**: Auto-picked up by SPM. No manual project file edits needed. New files go in `vellum-assistant/` (library target); only `@main` entry point lives in `vellum-assistant-app/`.
 - **Popover close delay** — 300ms initial delay before session starts to let the popover close and target app regain focus.
 - **SessionState enum** must stay in sync with `SessionOverlayView` pattern matching.
-- **SourceKit false positives** — SourceKit may report "Cannot find X in scope" for design system types (VColor, VFont, etc.) due to SPM module resolution. These are false positives — `swift build` succeeds. Do not "fix" these by adding imports or changing code.
+- **SourceKit false positives** — SourceKit may report "Cannot find X in scope" or "No such module" for design system types (VColor, VFont, etc.) or shared modules (VellumAssistantShared) due to SPM module resolution. These are false positives — `swift build` succeeds. Do not "fix" these by adding imports or changing code.
+- **Stale SPM module cache after worktree switches** — when switching between `/do` worktrees (or otherwise moving between cloned copies), SPM's `clients/.build/arm64-apple-macosx/debug/ModuleCache/` holds `.pcm` files compiled with absolute paths to directories that no longer exist. Symptoms: both SourceKit and `swift build` report errors like "Type `Bundle` has no member `appBundleIdentifier`" or "No such module `VellumAssistantShared`" on files that were clean in the other worktree. Error output contains a telltale `was compiled with module cache path '…-wt-do-…'` line pointing at the deleted worktree. Fix: `rm -rf clients/.build/arm64-apple-macosx/debug/ModuleCache` and rebuild. Do NOT start adding imports.
 
 ---
 
