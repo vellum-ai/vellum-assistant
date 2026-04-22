@@ -82,8 +82,6 @@ struct HomeRecapGroupRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(parentTitle))
         .accessibilityAddTraits(.isButton)
-        .accessibilityValue(Text(isExpanded.wrappedValue ? "Expanded" : "Collapsed"))
-        .accessibilityHint(Text("Double-tap to \(isExpanded.wrappedValue ? "collapse" : "expand") \(children.count) updates"))
     }
 
     // MARK: - Children
@@ -127,73 +125,4 @@ struct HomeRecapGroupRow: View {
         .accessibilityLabel(Text(child.title))
         .accessibilityAddTraits(.isButton)
     }
-}
-
-// MARK: - Previews
-
-private let previewChildren: [HomeRecapGroupRow.Child] = [
-    .init(
-        id: "1",
-        icon: .bell,
-        iconForeground: VColor.feedDigestStrong,
-        iconBackground: VColor.feedDigestWeak,
-        title: "This is the First notification in the group"
-    ),
-    .init(
-        id: "2",
-        icon: .bell,
-        iconForeground: VColor.feedDigestStrong,
-        iconBackground: VColor.feedDigestWeak,
-        title: "This is the Second notification in the group"
-    ),
-    .init(
-        id: "3",
-        icon: .bell,
-        iconForeground: VColor.feedDigestStrong,
-        iconBackground: VColor.feedDigestWeak,
-        title: "This is the Third notification in the group"
-    ),
-    .init(
-        id: "4",
-        icon: .bell,
-        iconForeground: VColor.feedDigestStrong,
-        iconBackground: VColor.feedDigestWeak,
-        title: "This is the Fourth notification in the group"
-    ),
-]
-
-#Preview("Expanded") {
-    VStack {
-        HomeRecapGroupRow(
-            parentIcon: .bell,
-            parentIconForeground: VColor.feedDigestStrong,
-            parentIconBackground: VColor.feedDigestWeak,
-            parentTitle: "There's also 4 low priority updates if you want to have a look.",
-            children: previewChildren,
-            isExpanded: .constant(true),
-            onParentTap: {},
-            onChildTap: { _ in }
-        )
-    }
-    .frame(width: 720)
-    .padding()
-    .background(VColor.surfaceBase)
-}
-
-#Preview("Collapsed") {
-    VStack {
-        HomeRecapGroupRow(
-            parentIcon: .bell,
-            parentIconForeground: VColor.feedDigestStrong,
-            parentIconBackground: VColor.feedDigestWeak,
-            parentTitle: "There's also 4 low priority updates if you want to have a look.",
-            children: previewChildren,
-            isExpanded: .constant(false),
-            onParentTap: {},
-            onChildTap: { _ in }
-        )
-    }
-    .frame(width: 720)
-    .padding()
-    .background(VColor.surfaceBase)
 }
