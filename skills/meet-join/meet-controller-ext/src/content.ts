@@ -325,22 +325,25 @@ async function handleJoin(
     console.warn("[meet-ext] lifecycle(joining) send failed:", err);
   }
 
-  // Tracks whether `onAdmitted` fired. Used to (a) suppress a duplicate
-  // post-await `joined` emit in the happy path and (b) guard the error
-  // catch from emitting `lifecycle:error` once we've already told the
-  // daemon we joined — a late reject from the best-effort consent post
-  // must not walk back the admission signal.
+  // Tracks whether `onAdmitted` fired and completed. Used to (a) suppress
+  // a duplicate post-await `joined` emit in the happy path and (b) guard
+  // the error catch from emitting `lifecycle:error` once we've already
+  // told the daemon we joined — a late reject from the best-effort
+  // consent post must not walk back the admission signal. Set only after
+  // both `startMeetingSession` and the `joined` send have completed, so a
+  // throw from either step leaves `admitted` false and lets the outer
+  // catch emit `lifecycle:error` rather than swallowing the failure.
   let admitted = false;
   const finalizeAdmission = (): void => {
     if (generation !== joinGeneration) return;
     if (admitted) return;
-    admitted = true;
     activeSession = startMeetingSession({ meetingId, displayName });
     try {
       chrome.runtime.sendMessage(lifecycleMessage("joined", meetingId));
     } catch (err) {
       console.warn("[meet-ext] lifecycle(joined) send failed:", err);
     }
+    admitted = true;
   };
 
   try {
