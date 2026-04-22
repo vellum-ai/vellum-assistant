@@ -98,7 +98,7 @@ async function invoke(
 }
 
 describe("POST /v1/conversations/:id/playground/inject-compaction-failures", () => {
-  test("returns 404 when the compaction-playground flag is disabled", async () => {
+  test("returns 404 with playground_disabled code when the compaction-playground flag is disabled", async () => {
     const conversation = makeConversation();
     const deps = makeDeps({ enabled: false, conversation });
     const route = getInjectRoute(deps);
@@ -106,12 +106,19 @@ describe("POST /v1/conversations/:id/playground/inject-compaction-failures", () 
     const res = await invoke(route, conversation.conversationId, {});
     expect(res.status).toBe(404);
 
+    const body = (await res.json()) as {
+      error: { code: string; message: string };
+    };
+    // Distinct from `conversation_not_found` so the Swift client can
+    // surface the right toast text without sniffing the URL path.
+    expect(body.error.code).toBe("playground_disabled");
+
     // Flag-gated — the handler must not mutate conversation state or emit
     // events when the playground is disabled.
     expect(conversation.sentMessages).toHaveLength(0);
   });
 
-  test("returns 404 when the conversation is missing", async () => {
+  test("returns 404 with conversation_not_found code when the conversation is missing", async () => {
     const deps = makeDeps({ enabled: true, conversation: undefined });
     const route = getInjectRoute(deps);
 
@@ -121,7 +128,8 @@ describe("POST /v1/conversations/:id/playground/inject-compaction-failures", () 
     const body = (await res.json()) as {
       error: { code: string; message: string };
     };
-    expect(body.error.code).toBe("NOT_FOUND");
+    expect(body.error.code).toBe("conversation_not_found");
+    expect(body.error.message).toContain("missing-conv-id");
   });
 
   test("mutates both fields and emits compaction_circuit_open when both provided", async () => {

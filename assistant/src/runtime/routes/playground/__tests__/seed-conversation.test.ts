@@ -69,7 +69,7 @@ function makeCtx(body: unknown) {
 }
 
 describe("POST /v1/playground/seed-conversation", () => {
-  test("returns 404 when the playground flag is disabled", async () => {
+  test("returns 404 with playground_disabled code when the playground flag is disabled", async () => {
     const { deps } = makeDeps({ enabled: false });
     const handler = getSeedHandler(deps);
 
@@ -77,7 +77,9 @@ describe("POST /v1/playground/seed-conversation", () => {
     expect(res.status).toBe(404);
 
     const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("NOT_FOUND");
+    // Distinct from `conversation_not_found` so the Swift client can
+    // surface the right toast text without sniffing the URL path.
+    expect(body.error.code).toBe("playground_disabled");
   });
 
   test("seeds N turns as 2N messages and returns conversation id", async () => {

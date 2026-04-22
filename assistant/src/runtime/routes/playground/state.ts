@@ -14,8 +14,8 @@
 import { getConfig } from "../../../config/loader.js";
 import { estimatePromptTokens } from "../../../context/token-estimator.js";
 import type { Conversation } from "../../../daemon/conversation.js";
-import { httpError } from "../../http-errors.js";
 import type { RouteDefinition } from "../../http-router.js";
+import { conversationNotFoundResponse } from "./conversation-not-found.js";
 import { assertPlaygroundEnabled, type PlaygroundRouteDeps } from "./index.js";
 
 /**
@@ -68,11 +68,7 @@ export function stateRouteDefinitions(
 
         const conversation = deps.getConversationById(params.id);
         if (!conversation) {
-          return httpError(
-            "NOT_FOUND",
-            `Conversation ${params.id} not found`,
-            404,
-          );
+          return conversationNotFoundResponse(params.id);
         }
 
         return Response.json(buildCompactionStateResponse(conversation));

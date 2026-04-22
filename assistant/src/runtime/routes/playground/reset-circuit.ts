@@ -24,11 +24,11 @@
 import { getConfig } from "../../../config/loader.js";
 import { estimatePromptTokens } from "../../../context/token-estimator.js";
 import type { Conversation } from "../../../daemon/conversation.js";
-import { httpError } from "../../http-errors.js";
 import type { RouteDefinition } from "../../http-router.js";
 // Import directly from the source modules (not ./index.js) — index.ts imports
 // this file's `resetCircuitRouteDefinitions`, so pulling its re-exports back
 // through the barrel would create a cycle.
+import { conversationNotFoundResponse } from "./conversation-not-found.js";
 import type { PlaygroundRouteDeps } from "./deps.js";
 import { assertPlaygroundEnabled } from "./guard.js";
 
@@ -48,11 +48,7 @@ export function resetCircuitRouteDefinitions(
 
         const conversation = deps.getConversationById(params.id);
         if (!conversation) {
-          return httpError(
-            "NOT_FOUND",
-            `Conversation ${params.id} not found`,
-            404,
-          );
+          return conversationNotFoundResponse(params.id);
         }
 
         conversation.consecutiveCompactionFailures = 0;

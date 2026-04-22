@@ -98,15 +98,17 @@ describe("GET conversations/:id/playground/compaction-state", () => {
     expect(route.tags).toEqual(["playground"]);
   });
 
-  test("returns 404 when the playground flag is disabled", async () => {
+  test("returns 404 with playground_disabled code when the playground flag is disabled", async () => {
     const deps = makeDeps({ isPlaygroundEnabled: () => false });
     const res = await invokeRoute(deps);
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("NOT_FOUND");
+    // Distinct from `conversation_not_found` so the Swift client can
+    // surface the right toast text without sniffing the URL path.
+    expect(body.error.code).toBe("playground_disabled");
   });
 
-  test("returns 404 when the conversation does not exist", async () => {
+  test("returns 404 with conversation_not_found code when the conversation does not exist", async () => {
     const deps = makeDeps({
       getConversationById: () => undefined,
     });
@@ -115,7 +117,7 @@ describe("GET conversations/:id/playground/compaction-state", () => {
     const body = (await res.json()) as {
       error: { code: string; message: string };
     };
-    expect(body.error.code).toBe("NOT_FOUND");
+    expect(body.error.code).toBe("conversation_not_found");
     expect(body.error.message).toContain("missing-id");
   });
 

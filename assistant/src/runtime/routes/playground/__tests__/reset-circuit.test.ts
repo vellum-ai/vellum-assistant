@@ -165,7 +165,7 @@ describe("reset-circuit route — gating", () => {
     fake = makeFakeConversation();
   });
 
-  test("returns 404 when the playground flag is disabled", async () => {
+  test("returns 404 with playground_disabled code when the playground flag is disabled", async () => {
     const deps = makeDeps({
       isPlaygroundEnabled: () => false,
       getConversationById: () => fake.conversation,
@@ -178,14 +178,16 @@ describe("reset-circuit route — gating", () => {
     const body = (await readJsonBody(response)) as {
       error: { code: string; message: string };
     };
-    expect(body.error.code).toBe("NOT_FOUND");
+    // Distinct from `conversation_not_found` so the Swift client can
+    // surface the right toast text without sniffing the URL path.
+    expect(body.error.code).toBe("playground_disabled");
     // State must not be mutated and no event emitted on the disabled path.
     expect(fake.state.consecutiveCompactionFailures).toBe(0);
     expect(fake.state.compactionCircuitOpenUntil).toBeNull();
     expect(fake.sent).toHaveLength(0);
   });
 
-  test("returns 404 when the conversation is missing", async () => {
+  test("returns 404 with conversation_not_found code when the conversation is missing", async () => {
     const deps = makeDeps({
       getConversationById: () => undefined,
     });
@@ -199,7 +201,7 @@ describe("reset-circuit route — gating", () => {
     const body = (await readJsonBody(response)) as {
       error: { code: string; message: string };
     };
-    expect(body.error.code).toBe("NOT_FOUND");
+    expect(body.error.code).toBe("conversation_not_found");
     expect(body.error.message).toContain("missing-id");
   });
 });
