@@ -44,6 +44,7 @@ import { releaseNotesLatexRenderingMigration } from "./043-release-notes-latex-r
 import { bumpStaleProviderStreamTimeoutMigration } from "./044-bump-stale-provider-stream-timeout.js";
 import { releaseNotesMeetAvatarMigration } from "./045-release-notes-meet-avatar.js";
 import { seedConversationStartersCallsiteMigration } from "./046-seed-conversation-starters-callsite.js";
+import { releaseNotesDefaultSonnetMigration } from "./047-release-notes-default-sonnet.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -99,4 +100,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   bumpStaleProviderStreamTimeoutMigration,
   releaseNotesMeetAvatarMigration,
   seedConversationStartersCallsiteMigration,
+  releaseNotesDefaultSonnetMigration,
 ];
