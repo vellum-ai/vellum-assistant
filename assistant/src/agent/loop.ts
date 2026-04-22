@@ -7,7 +7,6 @@ import {
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import { truncateOversizedToolResults } from "../context/tool-result-truncation.js";
-import { getHookManager } from "../hooks/manager.js";
 import type {
   ContentBlock,
   Message,
@@ -354,22 +353,6 @@ export class AgentLoop {
           providerConfig.callSite = callSite;
         }
 
-        const preLlmResult = await getHookManager().trigger("pre-llm-call", {
-          systemPrompt: turnSystemPrompt,
-          messages: history,
-          toolCount: currentTools.length,
-        });
-
-        if (preLlmResult.blocked) {
-          onEvent({
-            type: "error",
-            error: new Error(
-              `LLM call blocked by hook "${preLlmResult.blockedBy}"`,
-            ),
-          });
-          break;
-        }
-
         // Rate-limit consecutive LLM calls to prevent spin when tools return instantly
         const minInterval = this.config.minTurnIntervalMs ?? 0;
         if (minInterval > 0 && lastLlmCallTime > 0) {
@@ -482,14 +465,6 @@ export class AgentLoop {
           rawRequest: response.rawRequest,
           rawResponse: response.rawResponse,
           estimatedInputTokens: preSendEstimatedTokens,
-        });
-
-        void getHookManager().trigger("post-llm-call", {
-          model: response.model,
-          inputTokens: response.usage.inputTokens,
-          outputTokens: response.usage.outputTokens,
-          contentBlockCount: response.content.length,
-          durationMs: providerDurationMs,
         });
 
         // Flush any buffered streaming text from the substitution pipeline
