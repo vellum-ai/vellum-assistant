@@ -766,6 +766,124 @@ describe("repairHistory", () => {
       is_error: true,
     });
   });
+
+  test("strips thinking blocks from earlier message on assistant-assistant merge", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Go" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "reasoning…", signature: "sig-1" },
+          { type: "text", text: "First reply" },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Second reply" }],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(stats.consecutiveSameRoleMerged).toBe(1);
+    expect(stats.thinkingBlocksStrippedOnMerge).toBe(1);
+    expect(repaired).toHaveLength(2);
+    const assistantMsg = repaired[1];
+    expect(assistantMsg.role).toBe("assistant");
+    // thinking block from the earlier message is dropped; both text blocks remain
+    expect(assistantMsg.content).toEqual([
+      { type: "text", text: "First reply" },
+      { type: "text", text: "Second reply" },
+    ]);
+  });
+
+  test("strips both thinking and redacted_thinking blocks on merge", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Go" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "plain", signature: "sig-1" },
+          { type: "redacted_thinking", data: "opaque" },
+          { type: "text", text: "First" },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Second" }],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(stats.thinkingBlocksStrippedOnMerge).toBe(2);
+    const assistantMsg = repaired[1];
+    expect(
+      assistantMsg.content.every(
+        (b) => b.type !== "thinking" && b.type !== "redacted_thinking",
+      ),
+    ).toBe(true);
+  });
+
+  test("preserves thinking block on a single un-merged assistant message", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Go" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "reasoning…", signature: "sig-1" },
+          { type: "text", text: "Reply" },
+        ],
+      },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(stats.thinkingBlocksStrippedOnMerge).toBe(0);
+    expect(repaired[1].content).toEqual([
+      { type: "thinking", thinking: "reasoning…", signature: "sig-1" },
+      { type: "text", text: "Reply" },
+    ]);
+  });
+
+  test("heals poisoned conversation with two consecutive assistant messages carrying thinking", () => {
+    // Simulates the shape left behind by yesterday's 400 flood: two
+    // consecutive assistant messages persisted, the first carrying
+    // thinking blocks at index 0 that would become invalid once merged.
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Prompt" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "step 1", signature: "sig-1" },
+          { type: "text", text: "Partial reply" },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "step 2", signature: "sig-2" },
+          { type: "text", text: "Continuation" },
+        ],
+      },
+      { role: "user", content: [{ type: "text", text: "Follow up" }] },
+    ];
+
+    const { messages: repaired, stats } = repairHistory(messages);
+
+    expect(stats.consecutiveSameRoleMerged).toBe(1);
+    // earlier message's thinking block is stripped; the later message's
+    // thinking block is preserved because it still sits in its original
+    // position within the merged content.
+    expect(stats.thinkingBlocksStrippedOnMerge).toBe(1);
+    expect(repaired).toHaveLength(3);
+    const assistantMsg = repaired[1];
+    expect(assistantMsg.content).toEqual([
+      { type: "text", text: "Partial reply" },
+      { type: "thinking", thinking: "step 2", signature: "sig-2" },
+      { type: "text", text: "Continuation" },
+    ]);
+  });
 });
 
 describe("deepRepairHistory", () => {
@@ -849,5 +967,37 @@ describe("deepRepairHistory", () => {
     expect(stats.assistantToolResultsMigrated).toBe(0);
     expect(stats.missingToolResultsInserted).toBe(0);
     expect(stats.orphanToolResultsDowngraded).toBe(0);
+    expect(stats.thinkingBlocksStrippedOnMerge).toBe(0);
+  });
+
+  test("strips thinking blocks from earlier message when deep-merging consecutive assistants", () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "Go" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "r1", signature: "sig-1" },
+          { type: "text", text: "First" },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Second" }],
+      },
+    ];
+
+    const { messages: repaired, stats } = deepRepairHistory(messages);
+
+    expect(stats.thinkingBlocksStrippedOnMerge).toBeGreaterThanOrEqual(1);
+    const assistantMsg = repaired[1];
+    expect(assistantMsg.role).toBe("assistant");
+    expect(
+      assistantMsg.content.every(
+        (b) => b.type !== "thinking" && b.type !== "redacted_thinking",
+      ),
+    ).toBe(true);
+    expect(assistantMsg.content.filter((b) => b.type === "text")).toHaveLength(
+      2,
+    );
   });
 });

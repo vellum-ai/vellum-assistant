@@ -344,6 +344,49 @@ describe("classifyConversationError", () => {
     });
   });
 
+  describe("modified thinking block errors", () => {
+    const cases = [
+      "messages.42: thinking blocks cannot be modified",
+      "thinking block cannot be modified",
+      "messages.10.content.0: redacted_thinking blocks cannot be modified",
+      "redacted_thinking block cannot be modified",
+    ];
+
+    for (const msg of cases) {
+      it(`classifies "${msg.slice(0, 50)}…" as PROVIDER_MODIFIED_THINKING`, () => {
+        const result = classifyConversationError(new Error(msg), baseCtx);
+        expect(result.code).toBe("PROVIDER_MODIFIED_THINKING");
+        expect(result.retryable).toBe(true);
+        expect(result.errorCategory).toBe("modified_thinking_block");
+        expect(result.userMessage).toBe(
+          "Modified thinking blocks in conversation history. Please try again.",
+        );
+      });
+    }
+
+    it("classifies 400 ProviderError with thinking-block payload", () => {
+      const err = new ProviderError(
+        'Anthropic API error (400): {"error":{"type":"invalid_request_error","message":"messages.42.content.0: thinking blocks cannot be modified"}}',
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_MODIFIED_THINKING");
+      expect(result.errorCategory).toBe("modified_thinking_block");
+    });
+
+    it("classifies 400 ProviderError with redacted_thinking payload", () => {
+      const err = new ProviderError(
+        'Anthropic API error (400): {"error":{"type":"invalid_request_error","message":"messages.12.content.1: redacted_thinking blocks cannot be modified"}}',
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_MODIFIED_THINKING");
+      expect(result.errorCategory).toBe("modified_thinking_block");
+    });
+  });
+
   describe("provider not configured errors", () => {
     it("classifies ProviderNotConfiguredError as PROVIDER_NOT_CONFIGURED", () => {
       const err = new ProviderNotConfiguredError("anthropic", []);

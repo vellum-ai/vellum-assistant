@@ -287,7 +287,8 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
     stats.assistantToolResultsMigrated > 0 ||
     stats.missingToolResultsInserted > 0 ||
     stats.orphanToolResultsDowngraded > 0 ||
-    stats.consecutiveSameRoleMerged > 0
+    stats.consecutiveSameRoleMerged > 0 ||
+    stats.thinkingBlocksStrippedOnMerge > 0
   ) {
     log.warn(
       { conversationId: ctx.conversationId, phase: "load", ...stats },

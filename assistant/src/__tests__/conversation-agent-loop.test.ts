@@ -323,6 +323,8 @@ mock.module("../daemon/conversation-error.js", () => ({
     ...classified,
   }),
   isContextTooLarge: (msg: string) => /context.?length.?exceeded/i.test(msg),
+  isModifiedThinkingBlock: (msg: string) =>
+    /(?:thinking|redacted_thinking) blocks? cannot be modified/i.test(msg),
 }));
 
 mock.module("../daemon/conversation-slash.js", () => ({
@@ -1573,6 +1575,134 @@ describe("session-agent-loop", () => {
         onEvent({
           type: "error",
           error: new Error("messages ordering error"),
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 100,
+          outputTokens: 0,
+          model: "test-model",
+          providerDurationMs: 50,
+        });
+        return messages;
+      };
+
+      const ctx = makeCtx({ agentLoopRun });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      const conversationError = events.find(
+        (e) => e.type === "conversation_error",
+      );
+      expect(conversationError).toBeDefined();
+    });
+  });
+
+  describe("provider modified thinking-block retry", () => {
+    test("retries once with thinking-stripped history", async () => {
+      const events: ServerMessage[] = [];
+      let callCount = 0;
+      const invocationHistories: Message[][] = [];
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        callCount++;
+        invocationHistories.push(messages.map((m) => ({ ...m })));
+        if (callCount === 1) {
+          onEvent({
+            type: "error",
+            error: new Error(
+              "messages.42.content.0: thinking blocks cannot be modified",
+            ),
+          });
+          onEvent({
+            type: "usage",
+            inputTokens: 100,
+            outputTokens: 0,
+            model: "test-model",
+            providerDurationMs: 50,
+          });
+          return messages;
+        }
+        onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "fixed" }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 50,
+          outputTokens: 25,
+          model: "test-model",
+          providerDurationMs: 100,
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text", text: "fixed" }] as ContentBlock[],
+          },
+        ];
+      };
+
+      // Seed the conversation with a middle assistant turn carrying a
+      // thinking block and a trailing assistant turn. The one-shot retry
+      // strips thinking from the middle turn (non-latest) and leaves the
+      // trailing turn intact.
+      const priorHistory: Message[] = [
+        { role: "user", content: [{ type: "text", text: "q1" }] },
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "middle-r", signature: "sig-mid" },
+            { type: "text", text: "middle reply" },
+          ],
+        },
+        { role: "user", content: [{ type: "text", text: "q2" }] },
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "latest-r", signature: "sig-latest" },
+            { type: "text", text: "latest reply" },
+          ],
+        },
+      ];
+      const ctx = makeCtx({ agentLoopRun, messages: priorHistory });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(callCount).toBe(2);
+      // The retry strips thinking from the middle assistant turn but keeps
+      // it on the most recent assistant turn (where Anthropic still needs
+      // the original signature for any in-flight tool chain).
+      const retryHistory = invocationHistories[1];
+      const assistantMessages = retryHistory.filter(
+        (m) => m.role === "assistant",
+      );
+      // Only the latest assistant turn may carry a thinking block.
+      const lastAssistantIdx = assistantMessages.length - 1;
+      for (let i = 0; i < assistantMessages.length; i++) {
+        const hasThinking = assistantMessages[i].content.some(
+          (b) => b.type === "thinking" || b.type === "redacted_thinking",
+        );
+        if (i === lastAssistantIdx) {
+          expect(hasThinking).toBe(true);
+        } else {
+          expect(hasThinking).toBe(false);
+        }
+      }
+      // A poisoned conversation now completes successfully.
+      const complete = events.find((e) => e.type === "message_complete");
+      expect(complete).toBeDefined();
+    });
+
+    test("emits deferred modified-thinking error when retry also fails", async () => {
+      const events: ServerMessage[] = [];
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        onEvent({
+          type: "error",
+          error: new Error(
+            "messages.42.content.0: thinking blocks cannot be modified",
+          ),
         });
         onEvent({
           type: "usage",

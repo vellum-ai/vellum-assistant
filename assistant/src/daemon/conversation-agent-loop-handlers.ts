@@ -47,6 +47,7 @@ import {
   buildConversationErrorMessage,
   classifyConversationError,
   isContextTooLarge,
+  isModifiedThinkingBlock,
 } from "./conversation-error.js";
 import { isProviderOrderingError } from "./conversation-slash.js";
 import type { ServerMessage } from "./message-protocol.js";
@@ -80,6 +81,9 @@ export interface EventHandlerState {
   model: string;
   orderingErrorDetected: boolean;
   deferredOrderingError: string | null;
+  /** Anthropic rejected with "thinking blocks cannot be modified" — retry once after stripping historical thinking blocks. */
+  modifiedThinkingBlockDetected: boolean;
+  deferredModifiedThinkingBlockError: string | null;
   contextTooLargeDetected: boolean;
   /**
    * The provider error object when context_too_large is detected, preserved
@@ -157,6 +161,8 @@ export function createEventHandlerState(): EventHandlerState {
     model: "",
     orderingErrorDetected: false,
     deferredOrderingError: null,
+    modifiedThinkingBlockDetected: false,
+    deferredModifiedThinkingBlockError: null,
     contextTooLargeDetected: false,
     contextTooLargeError: null,
     providerErrorUserMessage: null,
@@ -624,7 +630,10 @@ export function handleError(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "error" }>,
 ): void {
-  if (isProviderOrderingError(event.error.message)) {
+  if (isModifiedThinkingBlock(event.error.message)) {
+    state.modifiedThinkingBlockDetected = true;
+    state.deferredModifiedThinkingBlockError = event.error.message;
+  } else if (isProviderOrderingError(event.error.message)) {
     state.orderingErrorDetected = true;
     state.deferredOrderingError = event.error.message;
   } else if (isContextOverflowError(event.error)) {
@@ -641,6 +650,9 @@ export function handleError(
     if (classified.code === "CONTEXT_TOO_LARGE") {
       state.contextTooLargeDetected = true;
       state.contextTooLargeError = event.error;
+    } else if (classified.code === "PROVIDER_MODIFIED_THINKING") {
+      state.modifiedThinkingBlockDetected = true;
+      state.deferredModifiedThinkingBlockError = event.error.message;
     } else if (
       classified.code === "PROVIDER_ORDERING" ||
       classified.code === "PROVIDER_WEB_SEARCH"

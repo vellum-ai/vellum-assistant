@@ -329,6 +329,8 @@ mock.module("../daemon/conversation-error.js", () => ({
     /context.?length.?exceeded|prompt.?is.?too.?long|too many.*input.*tokens/i.test(
       msg,
     ),
+  isModifiedThinkingBlock: (msg: string) =>
+    /(?:thinking|redacted_thinking) blocks? cannot be modified/i.test(msg),
 }));
 
 mock.module("../daemon/conversation-slash.js", () => ({

@@ -147,6 +147,7 @@ import type {
 } from "./message-protocol.js";
 import type { MemoryRecalled } from "./message-types/memory.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
+import { stripHistoricalThinkingBlocks } from "./thinking-history.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
@@ -1196,7 +1197,8 @@ export async function runAgentLoopImpl(
       preRunRepair.stats.assistantToolResultsMigrated > 0 ||
       preRunRepair.stats.missingToolResultsInserted > 0 ||
       preRunRepair.stats.orphanToolResultsDowngraded > 0 ||
-      preRunRepair.stats.consecutiveSameRoleMerged > 0
+      preRunRepair.stats.consecutiveSameRoleMerged > 0 ||
+      preRunRepair.stats.thinkingBlocksStrippedOnMerge > 0
     ) {
       rlog.warn(
         { phase: "pre_run", ...preRunRepair.stats },
@@ -1448,6 +1450,43 @@ export async function runAgentLoopImpl(
         rlog.error(
           { phase: "retry" },
           "Deep-repair retry also failed with ordering error. Consider starting a new conversation if this persists.",
+        );
+      }
+    }
+
+    // One-shot modified-thinking-block retry. Anthropic rejects requests
+    // whose prior assistant turns contain thinking/redacted_thinking blocks
+    // that have been moved or mutated. Stripping them from all but the
+    // latest assistant turn is a safe heal — the model does not need them
+    // to continue, and migration 209 already scrubs them at rest.
+    if (
+      state.modifiedThinkingBlockDetected &&
+      updatedHistory.length === preRunHistoryLength
+    ) {
+      rlog.warn(
+        { phase: "retry" },
+        "Provider rejected modified thinking blocks, stripping historical thinking and retrying",
+      );
+      const thinkingStrip = stripHistoricalThinkingBlocks(runMessages);
+      runMessages = thinkingStrip.messages;
+      preRepairMessages = runMessages;
+      preRunHistoryLength = runMessages.length;
+      state.modifiedThinkingBlockDetected = false;
+      state.deferredModifiedThinkingBlockError = null;
+
+      updatedHistory = await ctx.agentLoop.run(
+        runMessages,
+        eventHandler,
+        abortController.signal,
+        reqId,
+        onCheckpoint,
+        turnCallSite,
+      );
+
+      if (state.modifiedThinkingBlockDetected) {
+        rlog.error(
+          { phase: "retry" },
+          "Thinking-strip retry also failed with modified-thinking-block error.",
         );
       }
     }
@@ -1760,6 +1799,14 @@ export async function runAgentLoopImpl(
     if (state.deferredOrderingError) {
       const classified = classifyConversationError(
         new Error(state.deferredOrderingError),
+        { phase: "agent_loop" },
+      );
+      onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
+    }
+
+    if (state.deferredModifiedThinkingBlockError) {
+      const classified = classifyConversationError(
+        new Error(state.deferredModifiedThinkingBlockError),
         { phase: "agent_loop" },
       );
       onEvent(buildConversationErrorMessage(ctx.conversationId, classified));

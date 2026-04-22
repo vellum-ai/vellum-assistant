@@ -94,6 +94,13 @@ const STALE_WEB_SEARCH_CONTENT_PATTERNS = [
   /invalid\s+`?encrypted_content`?\s+in\s+`?(?:web_)?search_result`?\s+block/i,
 ];
 
+// Anthropic rejects requests whose prior assistant turns contain
+// thinking / redacted_thinking blocks that have been mutated, re-ordered,
+// or shifted away from their original position. Errors surface as
+// "thinking blocks cannot be modified" or variants naming `redacted_thinking`.
+const MODIFIED_THINKING_BLOCK_PATTERN =
+  /(?:thinking|redacted_thinking)\s+blocks?\s+cannot\s+be\s+modified/i;
+
 // Streaming corruption patterns (Anthropic SDK throws non-HTTP errors for SSE issues)
 const STREAMING_ERROR_PATTERNS = [
   /unexpected event order/i,
@@ -319,6 +326,15 @@ function classifyCore(
           errorCategory: "stale_web_search_content",
         };
       }
+      if (isModifiedThinkingBlock(message)) {
+        return {
+          code: "PROVIDER_MODIFIED_THINKING",
+          userMessage:
+            "Modified thinking blocks in conversation history. Please try again.",
+          retryable: true,
+          errorCategory: "modified_thinking_block",
+        };
+      }
       if (isOrderingError(message)) {
         return {
           code: "PROVIDER_ORDERING",
@@ -378,6 +394,15 @@ export function isWebSearchOrderingError(message: string): boolean {
  */
 export function isStaleWebSearchContent(message: string): boolean {
   return STALE_WEB_SEARCH_CONTENT_PATTERNS.some((p) => p.test(message));
+}
+
+/**
+ * Check whether an error message indicates an Anthropic rejection for
+ * modified `thinking` or `redacted_thinking` blocks in prior assistant
+ * turns. See `stripHistoricalThinkingBlocks()` for the reactive mitigation.
+ */
+export function isModifiedThinkingBlock(message: string): boolean {
+  return MODIFIED_THINKING_BLOCK_PATTERN.test(message);
 }
 
 /** Check whether an error message indicates a tool_use/tool_result ordering failure. */
@@ -447,6 +472,15 @@ function classifyByMessage(
         "Stale web-search results in conversation history. Please try again.",
       retryable: true,
       errorCategory: "stale_web_search_content",
+    };
+  }
+  if (isModifiedThinkingBlock(message)) {
+    return {
+      code: "PROVIDER_MODIFIED_THINKING",
+      userMessage:
+        "Modified thinking blocks in conversation history. Please try again.",
+      retryable: true,
+      errorCategory: "modified_thinking_block",
     };
   }
 

@@ -11,6 +11,14 @@ export interface RepairStats {
   missingToolResultsInserted: number;
   orphanToolResultsDowngraded: number;
   consecutiveSameRoleMerged: number;
+  /**
+   * thinking/redacted_thinking blocks stripped from earlier assistant
+   * messages while merging consecutive same-role assistant messages.
+   * These blocks must stay byte-identical at their original index in the
+   * original response — merging them into a different position is an
+   * invalid mutation, so the merger drops them instead.
+   */
+  thinkingBlocksStrippedOnMerge: number;
 }
 
 export interface RepairResult {
@@ -32,6 +40,7 @@ export function repairHistory(messages: Message[]): RepairResult {
     missingToolResultsInserted: 0,
     orphanToolResultsDowngraded: 0,
     consecutiveSameRoleMerged: 0,
+    thinkingBlocksStrippedOnMerge: 0,
   };
 
   const result: Message[] = [];
@@ -219,7 +228,15 @@ export function repairHistory(messages: Message[]): RepairResult {
   for (const msg of result) {
     const prev = merged[merged.length - 1];
     if (prev && prev.role === msg.role) {
-      prev.content = [...prev.content, ...msg.content];
+      // For assistant-assistant merges, strip thinking/redacted_thinking
+      // from the earlier message before concat. Those blocks are validated
+      // by position in their original response; reassembling them inside a
+      // merged envelope at a different index is invalid.
+      const prevContent =
+        prev.role === "assistant"
+          ? stripThinkingBlocks(prev.content, stats)
+          : prev.content;
+      prev.content = [...prevContent, ...msg.content];
       stats.consecutiveSameRoleMerged++;
     } else {
       merged.push({ role: msg.role, content: [...msg.content] });
@@ -227,6 +244,21 @@ export function repairHistory(messages: Message[]): RepairResult {
   }
 
   return { messages: merged, stats };
+}
+
+function stripThinkingBlocks(
+  content: ContentBlock[],
+  stats: RepairStats,
+): ContentBlock[] {
+  const out: ContentBlock[] = [];
+  for (const block of content) {
+    if (block.type === "thinking" || block.type === "redacted_thinking") {
+      stats.thinkingBlocksStrippedOnMerge++;
+      continue;
+    }
+    out.push(block);
+  }
+  return out;
 }
 
 function buildResultMessage(
@@ -270,19 +302,40 @@ export function deepRepairHistory(messages: Message[]): RepairResult {
     cleaned = cleaned.slice(1);
   }
 
-  // 3. Merge consecutive same-role messages
+  // 3. Merge consecutive same-role messages. For assistant-assistant merges
+  //    we must strip thinking/redacted_thinking from the earlier message —
+  //    see the identical guard in repairHistory's final merge pass.
   const merged: Message[] = [];
+  const deepStats = emptyStats();
   for (const msg of cleaned) {
     const prev = merged[merged.length - 1];
     if (prev && prev.role === msg.role) {
-      prev.content = [...prev.content, ...msg.content];
+      const prevContent =
+        prev.role === "assistant"
+          ? stripThinkingBlocks(prev.content, deepStats)
+          : prev.content;
+      prev.content = [...prevContent, ...msg.content];
     } else {
       merged.push({ role: msg.role, content: [...msg.content] });
     }
   }
 
-  // 4. Apply standard tool-use/tool-result repair on top
-  return repairHistory(merged);
+  // 4. Apply standard tool-use/tool-result repair on top, then fold in the
+  //    deep-pass thinking-strip counts so the caller sees a single total.
+  const repaired = repairHistory(merged);
+  repaired.stats.thinkingBlocksStrippedOnMerge +=
+    deepStats.thinkingBlocksStrippedOnMerge;
+  return repaired;
+}
+
+function emptyStats(): RepairStats {
+  return {
+    assistantToolResultsMigrated: 0,
+    missingToolResultsInserted: 0,
+    orphanToolResultsDowngraded: 0,
+    consecutiveSameRoleMerged: 0,
+    thinkingBlocksStrippedOnMerge: 0,
+  };
 }
 
 function downgradeResult(tr: {
