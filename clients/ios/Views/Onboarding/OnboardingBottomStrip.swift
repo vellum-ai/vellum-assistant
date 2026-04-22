@@ -36,6 +36,7 @@ struct OnboardingBottomStrip: View {
             .frame(width: geo.size.width, height: geo.size.height, alignment: .bottom)
         }
         .frame(height: 88)
+        .accessibilityHidden(true)
     }
 
     private func clusterOrder(width: CGFloat) -> [FlowerAccent] {
