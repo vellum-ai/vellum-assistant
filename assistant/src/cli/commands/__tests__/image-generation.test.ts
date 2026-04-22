@@ -107,6 +107,13 @@ mock.module("../../../media/image-service.js", () => ({
       return `Mapped error (${String(provider)}): ${error.message}`;
     return "An unexpected error occurred during image generation.";
   },
+  providerForModel: (model: string | undefined, fallback: string) => {
+    if (!model) return fallback;
+    if (model.startsWith("gpt-") || model.startsWith("dall-e-"))
+      return "openai";
+    if (model.startsWith("gemini-")) return "gemini";
+    return fallback;
+  },
 }));
 
 mock.module("../../../util/logger.js", () => ({
