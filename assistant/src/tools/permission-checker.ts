@@ -57,10 +57,6 @@ export class PermissionChecker {
     context: ToolContext,
     executionTarget: ExecutionTarget,
     emitLifecycleEvent: (event: ToolLifecycleEvent) => void,
-    sanitizeToolInput: (
-      toolName: string,
-      input: Record<string, unknown>,
-    ) => Record<string, unknown>,
     startTime: number,
     computePreviewDiff: (
       toolName: string,
