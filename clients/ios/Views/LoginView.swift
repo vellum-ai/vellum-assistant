@@ -98,7 +98,7 @@ struct LoginView: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: 40)
                         .background(VColor.primaryBase)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.window))
                     }
                     .buttonStyle(.plain)
                     .disabled(authManager.isSubmitting && !isReplay)
@@ -109,7 +109,7 @@ struct LoginView: View {
                 Text("2026 Vellum Inc.")
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentDisabled)
-                    .padding(.top, 40)
+                    .padding(.top, VSpacing.xxxl)
 
                 Spacer().frame(maxHeight: 120)
             }
