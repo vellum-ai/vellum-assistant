@@ -173,15 +173,28 @@ export function estimateUnconditionalStubTokens(
     const msg = messages[msgIndex];
     for (const block of msg.content) {
       if (block.type === "image" && msgIndex !== latestUserIndex) {
-        stubTokens += estimateContentBlockTokens(imageBlockToStub(block), options);
+        stubTokens += estimateContentBlockTokens(
+          imageBlockToStub(block),
+          options,
+        );
       } else if (block.type === "file" && msgIndex !== latestUserIndex) {
-        stubTokens += estimateContentBlockTokens(fileBlockToStub(block), options);
-      } else if (block.type === "tool_result" && block.contentBlocks) { // guard:allow-tool-result-only — web_search_tool_result has no contentBlocks
+        stubTokens += estimateContentBlockTokens(
+          fileBlockToStub(block),
+          options,
+        );
+      } else if (block.type === "tool_result" && block.contentBlocks) {
+        // guard:allow-tool-result-only — web_search_tool_result has no contentBlocks
         for (const cb of block.contentBlocks) {
           if (cb.type === "image") {
-            stubTokens += estimateContentBlockTokens(imageBlockToStub(cb), options);
+            stubTokens += estimateContentBlockTokens(
+              imageBlockToStub(cb),
+              options,
+            );
           } else if (cb.type === "file") {
-            stubTokens += estimateContentBlockTokens(fileBlockToStub(cb), options);
+            stubTokens += estimateContentBlockTokens(
+              fileBlockToStub(cb),
+              options,
+            );
           }
         }
       }

@@ -46,17 +46,10 @@ function mockAttachmentList(
   attachments = [SAMPLE_ATTACHMENT_1, SAMPLE_ATTACHMENT_2],
   status = 200,
 ): void {
-  mockFetch(
-    "/attachments/",
-    {},
-    { body: { results: attachments }, status },
-  );
+  mockFetch("/attachments/", {}, { body: { results: attachments }, status });
 }
 
-function mockAttachmentDetail(
-  att = SAMPLE_ATTACHMENT_1,
-  status = 200,
-): void {
+function mockAttachmentDetail(att = SAMPLE_ATTACHMENT_1, status = 200): void {
   mockFetch(`/attachments/${att.id}/`, {}, { body: att, status });
 }
 
@@ -224,7 +217,9 @@ describe("assistant email attachment", () => {
 
     expect(existsSync(join(tmpDir, "invoice.pdf"))).toBe(true);
     expect(existsSync(join(tmpDir, "screenshot.png"))).toBe(true);
-    expect(readFileSync(join(tmpDir, "invoice.pdf"), "utf-8")).toBe("pdf-bytes");
+    expect(readFileSync(join(tmpDir, "invoice.pdf"), "utf-8")).toBe(
+      "pdf-bytes",
+    );
     expect(readFileSync(join(tmpDir, "screenshot.png"), "utf-8")).toBe(
       "png-bytes",
     );
@@ -285,12 +280,7 @@ describe("assistant email attachment", () => {
   test("calls correct list URL", async () => {
     mockAttachmentList();
 
-    await runAssistantCommand(
-      "email",
-      "attachment",
-      MESSAGE_ID,
-      "--list",
-    );
+    await runAssistantCommand("email", "attachment", MESSAGE_ID, "--list");
 
     // Filter out the CLI bootstrap fetch to /v1/feature-flags so this test
     // focuses on the attachment-related calls it actually cares about.

@@ -119,9 +119,7 @@ export async function ensureBackupKey(keyPath: string): Promise<Buffer> {
       // Another caller won the race. Return their bytes, not ours.
       const winner = await readBackupKey(keyPath);
       if (!winner) {
-        throw new Error(
-          `link() reported EEXIST but ${keyPath} is unreadable`,
-        );
+        throw new Error(`link() reported EEXIST but ${keyPath} is unreadable`);
       }
       return winner;
     }

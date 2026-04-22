@@ -303,7 +303,12 @@ Examples:
         json?: boolean;
         groupBy: string;
       }) => {
-        const validDimensions = new Set(["actor", "provider", "model", "conversation"]);
+        const validDimensions = new Set([
+          "actor",
+          "provider",
+          "model",
+          "conversation",
+        ]);
         if (!validDimensions.has(opts.groupBy)) {
           log.error(
             `Invalid --group-by value: '${opts.groupBy}'. Must be one of: actor, provider, model, conversation`,

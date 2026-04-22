@@ -7,11 +7,7 @@
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import {
-  getProvider,
-  initializeProviders,
-  listProviders,
-} from "./registry.js";
+import { getProvider, initializeProviders, listProviders } from "./registry.js";
 import type {
   ContentBlock,
   Message,
@@ -68,7 +64,10 @@ export async function resolveConfiguredProvider(
     }
   }
 
-  const inferenceProvider = resolveCallSiteConfig(callSite, config.llm).provider;
+  const inferenceProvider = resolveCallSiteConfig(
+    callSite,
+    config.llm,
+  ).provider;
 
   try {
     const provider = getProvider(inferenceProvider);

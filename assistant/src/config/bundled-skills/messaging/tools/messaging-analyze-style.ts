@@ -67,7 +67,8 @@ function upsertMemoryItem(opts: {
         created: now,
         lastAccessed: now,
         lastConsolidated: now,
-        emotionalCharge: '{"valence":0,"intensity":0.1,"decayCurve":"linear","decayRate":0.05,"originalIntensity":0.1}',
+        emotionalCharge:
+          '{"valence":0,"intensity":0.1,"decayCurve":"linear","decayRate":0.05,"originalIntensity":0.1}',
         fidelity: "vivid",
         confidence: 0.8,
         significance: clampUnitInterval(opts.importance),

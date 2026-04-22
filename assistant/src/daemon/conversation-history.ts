@@ -191,10 +191,7 @@ export function consolidateAssistantMessages(
 
     // Clean up Qdrant vectors (fire-and-forget)
     if (allSegmentIds.length > 0) {
-      cleanupQdrantVectors(
-        conversationId,
-        allSegmentIds,
-      ).catch((err) => {
+      cleanupQdrantVectors(conversationId, allSegmentIds).catch((err) => {
         log.warn(
           { err, conversationId },
           "Qdrant cleanup after consolidation failed (non-fatal)",
@@ -326,10 +323,7 @@ export function consolidateAssistantMessages(
 
   // Clean up Qdrant vectors (fire-and-forget)
   if (allSegmentIds.length > 0) {
-    cleanupQdrantVectors(
-      conversationId,
-      allSegmentIds,
-    ).catch((err) => {
+    cleanupQdrantVectors(conversationId, allSegmentIds).catch((err) => {
       log.warn(
         { err, conversationId },
         "Qdrant cleanup after consolidation failed (non-fatal)",
@@ -534,15 +528,14 @@ export async function regenerate(
   }
 
   // Clean up Qdrant vectors (fire-and-forget).
-  cleanupQdrantVectors(
-    conversation.conversationId,
-    allSegmentIds,
-  ).catch((err) => {
-    log.warn(
-      { err, conversationId: conversation.conversationId },
-      "Qdrant cleanup after regenerate failed (non-fatal)",
-    );
-  });
+  cleanupQdrantVectors(conversation.conversationId, allSegmentIds).catch(
+    (err) => {
+      log.warn(
+        { err, conversationId: conversation.conversationId },
+        "Qdrant cleanup after regenerate failed (non-fatal)",
+      );
+    },
+  );
 
   // Re-extract the user message content for the agent loop.
   // Use all content blocks (text, image, file) so attachments are

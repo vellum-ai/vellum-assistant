@@ -29,9 +29,7 @@ function handleGetConfig(filingService?: FilingService): Response {
   });
 }
 
-async function handleRunNow(
-  filingService?: FilingService,
-): Promise<Response> {
+async function handleRunNow(filingService?: FilingService): Promise<Response> {
   if (!filingService) {
     return httpError(
       "SERVICE_UNAVAILABLE",

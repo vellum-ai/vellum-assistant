@@ -561,10 +561,7 @@ class BrowserManager {
    * any prior value so an explicit `browser_mode` override on one call
    * becomes the default for subsequent `auto`-mode calls.
    */
-  setPreferredBackendKind(
-    conversationId: string,
-    kind: CdpClientKind,
-  ): void {
+  setPreferredBackendKind(conversationId: string, kind: CdpClientKind): void {
     this.preferredBackendKinds.set(conversationId, kind);
   }
 

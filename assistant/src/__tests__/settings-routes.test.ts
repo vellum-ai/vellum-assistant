@@ -35,10 +35,7 @@ function resetContactTables(): void {
 // RouteContext helpers (mirrors workspace-routes.test.ts)
 // ---------------------------------------------------------------------------
 
-function makeCtx(
-  endpoint: string,
-  searchParams: Record<string, string> = {},
-) {
+function makeCtx(endpoint: string, searchParams: Record<string, string> = {}) {
   const url = new URL(`http://localhost/v1/${endpoint}`);
   for (const [k, v] of Object.entries(searchParams)) {
     url.searchParams.set(k, v);

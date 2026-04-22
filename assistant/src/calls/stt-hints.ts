@@ -5,7 +5,10 @@ import {
   listGuardianChannels,
 } from "../contacts/contact-store.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
-import { DEFAULT_USER_REFERENCE, resolveGuardianName } from "../prompts/user-reference.js";
+import {
+  DEFAULT_USER_REFERENCE,
+  resolveGuardianName,
+} from "../prompts/user-reference.js";
 import { getLogger } from "../util/logger.js";
 
 const logger = getLogger("stt-hints");
@@ -45,26 +48,41 @@ export function buildSttHints(input: SttHintsInput): string {
     hints.push(input.guardianName.trim());
   }
 
-  if (input.inviteFriendName != null && input.inviteFriendName.trim().length > 0) {
+  if (
+    input.inviteFriendName != null &&
+    input.inviteFriendName.trim().length > 0
+  ) {
     hints.push(input.inviteFriendName.trim());
   }
 
-  if (input.inviteGuardianName != null && input.inviteGuardianName.trim().length > 0) {
+  if (
+    input.inviteGuardianName != null &&
+    input.inviteGuardianName.trim().length > 0
+  ) {
     hints.push(input.inviteGuardianName.trim());
   }
 
-  if (input.targetContactName != null && input.targetContactName.trim().length > 0) {
+  if (
+    input.targetContactName != null &&
+    input.targetContactName.trim().length > 0
+  ) {
     hints.push(input.targetContactName.trim());
   }
 
-  if (input.callerContactName != null && input.callerContactName.trim().length > 0) {
+  if (
+    input.callerContactName != null &&
+    input.callerContactName.trim().length > 0
+  ) {
     hints.push(input.callerContactName.trim());
   }
 
   // Extract potential proper nouns from task description.
   // Split on sentence boundaries, then for each sentence take words
   // after the first that start with an uppercase letter.
-  if (input.taskDescription != null && input.taskDescription.trim().length > 0) {
+  if (
+    input.taskDescription != null &&
+    input.taskDescription.trim().length > 0
+  ) {
     // Split on sentence-ending punctuation followed by whitespace, but avoid
     // splitting on periods after common abbreviations (Dr., Mr., etc.) so that
     // names like "Dr. Smith" aren't fragmented and dropped by the first-word skip.

@@ -204,12 +204,12 @@ export const PROCEDURAL_WEIGHTS: ScoringWeights = {
  * what's being discussed right now — not general high-significance memories.
  */
 export const PER_TURN_WEIGHTS: ScoringWeights = {
-  semanticSimilarity: 0.60,
+  semanticSimilarity: 0.6,
   effectiveSignificance: 0.05,
   emotionalIntensity: 0.05,
   temporalBoost: 0.0,
   recencyBoost: 0.05,
-  triggerBoost: 0.20,
+  triggerBoost: 0.2,
   activationBoost: 0.05,
 };
 

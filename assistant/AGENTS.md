@@ -14,7 +14,7 @@ When you introduce a new env var that the assistant process needs to read at run
 
 ## Daemon startup philosophy
 
-The daemon must **never** block startup under *any circumstance*. All possible errors should be logged so that the assistant can recover from it's corrupted state after the fact.
+The daemon must **never** block startup under _any circumstance_. All possible errors should be logged so that the assistant can recover from it's corrupted state after the fact.
 
 ## Code comments
 

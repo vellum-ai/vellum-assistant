@@ -54,7 +54,7 @@ export async function semanticSearch(
   limit: number,
   excludedMessageIds: string[] = [],
   scopeIds?: string[],
-  sparseVector?: QdrantSparseVector
+  sparseVector?: QdrantSparseVector,
 ): Promise<Candidate[]> {
   if (limit <= 0) return [];
 
@@ -79,7 +79,7 @@ export async function semanticSearch(
         filter,
         limit: fetchLimit,
         prefetchLimit: fetchLimit,
-      })
+      }),
     );
   } else {
     results = await withQdrantBreaker(() =>
@@ -88,8 +88,8 @@ export async function semanticSearch(
         fetchLimit,
         ["summary", "segment", "media"],
         excludedMessageIds,
-        scopeIds
-      )
+        scopeIds,
+      ),
     );
   }
 
@@ -144,7 +144,6 @@ export async function semanticSearch(
       .all();
     for (const row of rows) mediaScopeMap.set(row.id, row.memoryScopeId);
   }
-
 
   const candidates: Candidate[] = [];
   for (const result of results) {
@@ -258,7 +257,7 @@ export async function semanticSearch(
  */
 function buildHybridFilter(
   excludeMessageIds: string[],
-  scopeIds?: string[]
+  scopeIds?: string[],
 ): Record<string, unknown> {
   const mustConditions: Array<Record<string, unknown>> = [
     {
@@ -302,6 +301,6 @@ export function mapCosineToUnit(value: number): number {
 export function isQdrantConnectionError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   return /ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|fetch failed/i.test(
-    err.message
+    err.message,
   );
 }

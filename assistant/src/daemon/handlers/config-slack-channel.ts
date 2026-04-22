@@ -209,7 +209,9 @@ export async function setSlackChannelConfig(
       botToken,
     );
     if (!stored) {
-      return currentErrorSnapshot("Failed to store bot token in secure storage");
+      return currentErrorSnapshot(
+        "Failed to store bot token in secure storage",
+      );
     }
 
     ensureBotTokenInjectionTemplates();
@@ -262,8 +264,7 @@ export async function setSlackChannelConfig(
           data.team_id !== metadata.teamId
         ) {
           shouldClear = true;
-          clearReason =
-            "User token from a different workspace was removed.";
+          clearReason = "User token from a different workspace was removed.";
         }
       } catch (err) {
         // Transient failure (DNS error, network blip, connection reset,
@@ -310,7 +311,9 @@ export async function setSlackChannelConfig(
       appToken,
     );
     if (!stored) {
-      return currentErrorSnapshot("Failed to store app token in secure storage");
+      return currentErrorSnapshot(
+        "Failed to store app token in secure storage",
+      );
     }
 
     upsertCredentialMetadata("slack_channel", "app_token", {});
@@ -344,9 +347,7 @@ export async function setSlackChannelConfig(
       userTeamId = data.team_id;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return currentErrorSnapshot(
-        `Failed to validate user token: ${message}`,
-      );
+      return currentErrorSnapshot(`Failed to validate user token: ${message}`);
     }
 
     // Cross-check: if a bot token has already been configured, the user token

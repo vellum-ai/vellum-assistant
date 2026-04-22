@@ -50,7 +50,7 @@ mock.module("../qdrant-client.js", () => ({
 
 // Circuit breaker — pass-through.
 mock.module("../qdrant-circuit-breaker.js", () => ({
-  withQdrantBreaker: async <T,>(fn: () => Promise<T>) => fn(),
+  withQdrantBreaker: async <T>(fn: () => Promise<T>) => fn(),
 }));
 
 // indexPkbFile is not invoked from the reconcile path (we enqueue jobs

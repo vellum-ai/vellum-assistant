@@ -157,7 +157,8 @@ export function chunkPkbFile(content: string): string[] {
   }
   for (let i = 0; i < headingIndices.length; i++) {
     const start = headingIndices[i];
-    const end = i + 1 < headingIndices.length ? headingIndices[i + 1] : content.length;
+    const end =
+      i + 1 < headingIndices.length ? headingIndices[i + 1] : content.length;
     chunks.push(content.slice(start, end));
   }
   return chunks;

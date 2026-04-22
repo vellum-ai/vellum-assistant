@@ -64,7 +64,8 @@ function injectFakeSubagent(
   const internals = asInternals(manager);
 
   internals.subagents.set(subagentId, {
-    conversation: conversation === undefined ? makeFakeConversation() : conversation,
+    conversation:
+      conversation === undefined ? makeFakeConversation() : conversation,
     state,
     parentSendToClient: parentSendToClient ?? (() => {}),
   });

@@ -207,7 +207,9 @@ function handleListConversationStarters(url: URL): Response {
       db
         .select({ value: memoryCheckpoints.value })
         .from(memoryCheckpoints)
-        .where(eq(memoryCheckpoints.key, checkpointKey(CK_LAST_GEN_AT, scopeId)))
+        .where(
+          eq(memoryCheckpoints.key, checkpointKey(CK_LAST_GEN_AT, scopeId)),
+        )
         .get()?.value,
     );
     const staleByAge =

@@ -1,13 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { getWorkspacePromptPath } from "../util/platform.js";
 
@@ -107,9 +100,8 @@ mock.module("../runtime/agent-wake.js", () => ({
   },
 }));
 
-const { runUpdateBulletinJobIfNeeded } = await import(
-  "../prompts/update-bulletin-job.js"
-);
+const { runUpdateBulletinJobIfNeeded } =
+  await import("../prompts/update-bulletin-job.js");
 
 const HASH_CHECKPOINT_KEY = "updates:last_processed_hash";
 const EMPTY_HASH = "empty";

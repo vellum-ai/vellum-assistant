@@ -26,10 +26,19 @@ describe("parseSubagentMessages", () => {
     const messages = [
       msg("user", [{ type: "text", text: "Do something" }]),
       msg("assistant", [
-        { type: "tool_use", id: "t1", name: "web_search", input: { query: "test" } },
+        {
+          type: "tool_use",
+          id: "t1",
+          name: "web_search",
+          input: { query: "test" },
+        },
       ]),
       msg("user", [
-        { type: "tool_result", tool_use_id: "t1", content: "Search results here" },
+        {
+          type: "tool_result",
+          tool_use_id: "t1",
+          content: "Search results here",
+        },
       ]),
     ];
 
@@ -44,7 +53,12 @@ describe("parseSubagentMessages", () => {
     const messages = [
       msg("user", [{ type: "text", text: "Do something" }]),
       msg("assistant", [
-        { type: "tool_use", id: "t2", name: "file_read", input: { file_path: "/tmp/test.txt" } },
+        {
+          type: "tool_use",
+          id: "t2",
+          name: "file_read",
+          input: { file_path: "/tmp/test.txt" },
+        },
       ]),
       msg("user", [
         {
@@ -69,11 +83,14 @@ describe("parseSubagentMessages", () => {
     const messages = [
       msg("user", [{ type: "text", text: "Do something" }]),
       msg("assistant", [
-        { type: "tool_use", id: "t3", name: "bash", input: { command: "echo hi" } },
+        {
+          type: "tool_use",
+          id: "t3",
+          name: "bash",
+          input: { command: "echo hi" },
+        },
       ]),
-      msg("user", [
-        { type: "tool_result", tool_use_id: "t3", content: null },
-      ]),
+      msg("user", [{ type: "tool_result", tool_use_id: "t3", content: null }]),
     ];
 
     const result = parseSubagentMessages("sub-1", messages);

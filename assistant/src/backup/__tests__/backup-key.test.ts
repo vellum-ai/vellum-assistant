@@ -15,14 +15,7 @@ import {
 import * as fsPromises from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  spyOn,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
 import { ensureBackupKey, readBackupKey } from "../backup-key.js";
 
@@ -110,17 +103,13 @@ describe("backup-key", () => {
       // Simulate flaky storage (EIO / ESTALE). If pathExists swallowed
       // these, the key file would appear "missing" and be silently
       // regenerated, rotating away bytes used to encrypt existing data.
-      const statSpy = spyOn(fsPromises, "stat").mockImplementation(
-        async () => {
-          const err = new Error("simulated EIO") as NodeJS.ErrnoException;
-          err.code = "EIO";
-          throw err;
-        },
-      );
+      const statSpy = spyOn(fsPromises, "stat").mockImplementation(async () => {
+        const err = new Error("simulated EIO") as NodeJS.ErrnoException;
+        err.code = "EIO";
+        throw err;
+      });
       try {
-        await expect(ensureBackupKey(keyPath)).rejects.toThrow(
-          /simulated EIO/,
-        );
+        await expect(ensureBackupKey(keyPath)).rejects.toThrow(/simulated EIO/);
         // And the key file must NOT have been created as a side effect.
         expect(() => statSync(keyPath)).toThrow();
       } finally {

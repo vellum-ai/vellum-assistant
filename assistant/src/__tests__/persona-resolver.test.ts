@@ -32,18 +32,14 @@ import {
 // ── Mock state ────────────────────────────────────────────────────
 
 let mockWorkspaceDir: string = "";
-let mockVellumGuardian:
-  | {
-      contact: { userFile: string | null };
-      channel: Record<string, unknown>;
-    }
-  | null = null;
-let mockAnyGuardian:
-  | {
-      contact: { userFile: string | null };
-      channels: Record<string, unknown>[];
-    }
-  | null = null;
+let mockVellumGuardian: {
+  contact: { userFile: string | null };
+  channel: Record<string, unknown>;
+} | null = null;
+let mockAnyGuardian: {
+  contact: { userFile: string | null };
+  channels: Record<string, unknown>[];
+} | null = null;
 
 // ── Mock modules (must precede imports from the module under test) ──
 
@@ -138,7 +134,8 @@ describe("ensureGuardianPersonaFile", () => {
     const userFile = "alice.md";
     const dir = join(mockWorkspaceDir, "users");
     const filePath = join(dir, userFile);
-    const existingContent = "# Existing user notes\n\n- Likes sparkling water\n";
+    const existingContent =
+      "# Existing user notes\n\n- Likes sparkling water\n";
 
     mkdirSync(dir, { recursive: true });
     writeFileSync(filePath, existingContent, "utf-8");

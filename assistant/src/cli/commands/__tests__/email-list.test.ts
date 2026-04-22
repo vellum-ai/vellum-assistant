@@ -17,7 +17,10 @@ import { runAssistantCommand } from "../../__tests__/run-assistant-command.js";
 
 const ASSISTANT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 const API_KEY_CREDENTIAL = credentialKey("vellum", "assistant_api_key");
-const ASSISTANT_ID_CREDENTIAL = credentialKey("vellum", "platform_assistant_id");
+const ASSISTANT_ID_CREDENTIAL = credentialKey(
+  "vellum",
+  "platform_assistant_id",
+);
 
 /**
  * Return the recorded fetch calls, excluding the feature-flag fetch that

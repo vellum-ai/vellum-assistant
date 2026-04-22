@@ -30,7 +30,10 @@ export function getToolResultFilePath(
   conversationDir: string,
   toolUseId: string,
 ): string {
-  const hash = createHash("sha256").update(toolUseId).digest("hex").slice(0, 12);
+  const hash = createHash("sha256")
+    .update(toolUseId)
+    .digest("hex")
+    .slice(0, 12);
   return join(conversationDir, TOOL_RESULT_DIR, `${hash}.txt`);
 }
 
@@ -45,7 +48,11 @@ export function buildTruncatedContent(
 ): string {
   const half = Math.floor(TARGET_CHARS / 2);
   const prefix = safeStringSlice(original, 0, half);
-  const suffix = safeStringSlice(original, original.length - half, original.length);
+  const suffix = safeStringSlice(
+    original,
+    original.length - half,
+    original.length,
+  );
   const omittedChars = original.length - TARGET_CHARS;
   const estimatedTokens = Math.round(omittedChars / 4);
   return `${prefix}\n\n...(${estimatedTokens} tokens omitted ${TRUNCATION_MARKER} ${filePath})\n\n${suffix}`;

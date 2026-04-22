@@ -3,14 +3,7 @@
  * file changes and triggers debounced recompile + surface refresh.
  */
 
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mocks — must be set up before importing the module under test
@@ -19,7 +12,9 @@ import {
 const TEST_APPS_DIR = "/tmp/test-apps";
 const testDirNameMap = new Map<string, string>([["my-app", "app-id-1"]]);
 
-let capturedWatchCallback: ((eventType: string, filename: string | null) => void) | null = null;
+let capturedWatchCallback:
+  | ((eventType: string, filename: string | null) => void)
+  | null = null;
 const mockWatcher = { close: mock(() => {}) };
 const mockExistsSync = mock((p: string): boolean => p === TEST_APPS_DIR);
 const mockWatch = mock(

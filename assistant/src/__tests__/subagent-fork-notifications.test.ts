@@ -183,9 +183,7 @@ describe("Fork completion notifications", () => {
     await asInternals(manager).runSubagent(subagentId, "Analyze data");
 
     expect(notifications).toHaveLength(1);
-    expect(notifications[0].message).toContain(
-      '[Fork "Analysis fork" failed]',
-    );
+    expect(notifications[0].message).toContain('[Fork "Analysis fork" failed]');
     expect(notifications[0].message).toContain("Context too large");
     expect(notifications[0].message).not.toContain("[Subagent");
 

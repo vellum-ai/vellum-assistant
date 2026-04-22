@@ -541,10 +541,10 @@ Preferences are sanitized against prompt injection (angle brackets replaced with
 The decision engine and preference extractor pick their per-call LLM config
 from the unified `llm` block. Override defaults by setting either of:
 
-| Key                                  | Type    | Default        | Description                                                                 |
-| ------------------------------------ | ------- | -------------- | --------------------------------------------------------------------------- |
-| `llm.callSites.notificationDecision` | object  | _(unset)_      | Provider/model/effort/etc. override for the decision engine call site       |
-| `llm.callSites.preferenceExtraction` | object  | _(unset)_      | Provider/model/effort/etc. override for the preference extractor call site  |
+| Key                                  | Type   | Default   | Description                                                                |
+| ------------------------------------ | ------ | --------- | -------------------------------------------------------------------------- |
+| `llm.callSites.notificationDecision` | object | _(unset)_ | Provider/model/effort/etc. override for the decision engine call site      |
+| `llm.callSites.preferenceExtraction` | object | _(unset)_ | Provider/model/effort/etc. override for the preference extractor call site |
 
 When a call site override is unset, the resolver falls back to `llm.default`.
 

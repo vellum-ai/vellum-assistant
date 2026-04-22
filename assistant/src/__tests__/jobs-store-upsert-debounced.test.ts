@@ -16,10 +16,7 @@ mock.module("../config/loader.js", () => ({
 import { eq } from "drizzle-orm";
 
 import { getDb, initializeDb } from "../memory/db.js";
-import {
-  enqueueMemoryJob,
-  upsertDebouncedJob,
-} from "../memory/jobs-store.js";
+import { enqueueMemoryJob, upsertDebouncedJob } from "../memory/jobs-store.js";
 import { memoryJobs } from "../memory/schema.js";
 
 describe("upsertDebouncedJob payload refresh", () => {

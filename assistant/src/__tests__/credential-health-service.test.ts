@@ -63,11 +63,8 @@ mock.module("../util/logger.js", () => ({
 
 // ── Import under test ────────────────────────────────────────────────
 
-const {
-  checkAllCredentials,
-  checkCredentialForProvider,
-  _setFetchFn,
-} = await import("../credential-health/credential-health-service.js");
+const { checkAllCredentials, checkCredentialForProvider, _setFetchFn } =
+  await import("../credential-health/credential-health-service.js");
 
 // Inject mock fetch via the test helper (Bun's global fetch can't be
 // overridden via globalThis assignment).
@@ -125,10 +122,7 @@ function addConnection(
 }
 
 function setToken(connectionId: string, token = "mock-token") {
-  secureKeyValues.set(
-    `oauth_connection/${connectionId}/access_token`,
-    token,
-  );
+  secureKeyValues.set(`oauth_connection/${connectionId}/access_token`, token);
 }
 
 // ── Tests ────────────────────────────────────────────────────────────

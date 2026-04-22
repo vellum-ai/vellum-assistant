@@ -113,9 +113,8 @@ mock.module("../runtime/services/analyze-conversation.js", () => ({
     // Mirror the auto-path behavior: create a rolling analysis
     // conversation with source="auto-analysis" and
     // forkParentConversationId set to the source.
-    const { createConversation, findAnalysisConversationFor } = await import(
-      "../memory/conversation-crud.js"
-    );
+    const { createConversation, findAnalysisConversationFor } =
+      await import("../memory/conversation-crud.js");
     const existing = findAnalysisConversationFor(conversationId);
     if (existing) {
       return { analysisConversationId: existing.id };
@@ -213,10 +212,7 @@ async function indexMessages(
   }
 }
 
-function countJobsOfType(
-  type: string,
-  conversationId?: string,
-): number {
+function countJobsOfType(type: string, conversationId?: string): number {
   const db = getDb();
   const rows = db
     .select()
@@ -426,9 +422,9 @@ describe("auto-analysis batch trigger uses analysis.batchSize cadence", () => {
     // Analysis batch (size 5) is NOT crossed by 4 messages → zero
     // batch-triggered analysis jobs. The idle-debounced enqueue
     // upserts a single far-future row; that's not a duplicate.
-    expect(countJobsOfType("conversation_analyze", source.id)).toBeLessThanOrEqual(
-      1,
-    );
+    expect(
+      countJobsOfType("conversation_analyze", source.id),
+    ).toBeLessThanOrEqual(1);
 
     // Stronger: any pending analysis job must be debounced (runAfter
     // far in the future), not the immediate batch fire.

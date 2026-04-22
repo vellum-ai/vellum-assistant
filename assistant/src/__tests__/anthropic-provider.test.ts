@@ -1417,9 +1417,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(isPlaceholderSentinelText("")).toBe(false);
     expect(isPlaceholderSentinelText("__PLACEHOLDER__")).toBe(false);
     expect(
-      isPlaceholderSentinelText(
-        "prefix __PLACEHOLDER__[empty assistant turn]",
-      ),
+      isPlaceholderSentinelText("prefix __PLACEHOLDER__[empty assistant turn]"),
     ).toBe(false);
   });
 
@@ -2046,9 +2044,8 @@ describe("OpenRouterProvider — Anthropic dispatch", () => {
   });
 
   test("anthropic/ models are routed to Anthropic Messages API with Bearer auth", async () => {
-    const { OpenRouterProvider } = await import(
-      "../providers/openrouter/client.js"
-    );
+    const { OpenRouterProvider } =
+      await import("../providers/openrouter/client.js");
     const provider = new OpenRouterProvider(
       "or-key",
       "anthropic/claude-sonnet-4.6",
@@ -2065,9 +2062,8 @@ describe("OpenRouterProvider — Anthropic dispatch", () => {
   });
 
   test("custom baseURL has trailing /v1 stripped for Messages API", async () => {
-    const { OpenRouterProvider } = await import(
-      "../providers/openrouter/client.js"
-    );
+    const { OpenRouterProvider } =
+      await import("../providers/openrouter/client.js");
     const provider = new OpenRouterProvider(
       "ast-key",
       "anthropic/claude-opus-4.6",
@@ -2083,9 +2079,8 @@ describe("OpenRouterProvider — Anthropic dispatch", () => {
   });
 
   test("thinking config flows through to Anthropic Messages API natively", async () => {
-    const { OpenRouterProvider } = await import(
-      "../providers/openrouter/client.js"
-    );
+    const { OpenRouterProvider } =
+      await import("../providers/openrouter/client.js");
     const provider = new OpenRouterProvider(
       "or-key",
       "anthropic/claude-sonnet-4.6",
@@ -2101,9 +2096,8 @@ describe("OpenRouterProvider — Anthropic dispatch", () => {
   });
 
   test("per-request model override routes based on the overridden model", async () => {
-    const { OpenRouterProvider } = await import(
-      "../providers/openrouter/client.js"
-    );
+    const { OpenRouterProvider } =
+      await import("../providers/openrouter/client.js");
     // Default model is non-Anthropic, but the request overrides with an
     // Anthropic model — dispatch must honour the request-level model.
     const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");

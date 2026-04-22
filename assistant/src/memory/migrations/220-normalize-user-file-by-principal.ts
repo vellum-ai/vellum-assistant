@@ -82,9 +82,7 @@ export function isAutoIncrementedUserFile(
  * left untouched; the code path in `upsertContact` will populate them on the
  * next write.
  */
-export function migrateNormalizeUserFileByPrincipal(
-  database: DrizzleDb,
-): void {
+export function migrateNormalizeUserFileByPrincipal(database: DrizzleDb): void {
   withCrashRecovery(
     database,
     "migration_normalize_user_file_by_principal_v1",
@@ -129,21 +127,17 @@ export function migrateNormalizeUserFileByPrincipal(
         // classification is a regex that SQLite's GLOB can't express cleanly
         // (unbounded digit count, date-pattern exclusion), and keeping the
         // logic in one place avoids SQL/JS drift.
-        const selectCandidates = raw.prepare(
-          /*sql*/ `
+        const selectCandidates = raw.prepare(/*sql*/ `
           SELECT user_file, display_name, created_at, id FROM contacts
           WHERE principal_id = ? AND user_file IS NOT NULL
-          `,
-        );
+          `);
 
-        const updateSiblings = raw.prepare(
-          /*sql*/ `
+        const updateSiblings = raw.prepare(/*sql*/ `
           UPDATE contacts
           SET user_file = ?, updated_at = ?
           WHERE principal_id = ?
             AND (user_file IS NULL OR user_file != ?)
-          `,
-        );
+          `);
 
         for (const { principal_id } of principals) {
           const candidates = selectCandidates.all(principal_id) as Array<{
@@ -168,12 +162,7 @@ export function migrateNormalizeUserFileByPrincipal(
           });
 
           const canonical = candidates[0]!.user_file;
-          updateSiblings.run(
-            canonical,
-            Date.now(),
-            principal_id,
-            canonical,
-          );
+          updateSiblings.run(canonical, Date.now(), principal_id, canonical);
         }
 
         raw.exec("COMMIT");

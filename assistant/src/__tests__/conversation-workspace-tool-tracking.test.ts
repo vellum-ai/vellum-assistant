@@ -31,7 +31,7 @@ mock.module("../providers/registry.js", () => ({
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-    
+
     llm: {
       default: {
         provider: "mock-provider",

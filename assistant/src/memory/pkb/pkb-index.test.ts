@@ -100,7 +100,7 @@ mock.module("../qdrant-client.js", () => ({
 
 // The circuit breaker is a thin wrapper; just call the function through.
 mock.module("../qdrant-circuit-breaker.js", () => ({
-  withQdrantBreaker: async <T,>(fn: () => Promise<T>) => fn(),
+  withQdrantBreaker: async <T>(fn: () => Promise<T>) => fn(),
 }));
 
 import {

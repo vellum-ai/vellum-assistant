@@ -450,7 +450,10 @@ export function getEdgesForNode(
       ? eq(memoryGraphEdges.sourceNodeId, nodeId)
       : direction === "incoming"
         ? eq(memoryGraphEdges.targetNodeId, nodeId)
-        : or(eq(memoryGraphEdges.sourceNodeId, nodeId), eq(memoryGraphEdges.targetNodeId, nodeId));
+        : or(
+            eq(memoryGraphEdges.sourceNodeId, nodeId),
+            eq(memoryGraphEdges.targetNodeId, nodeId),
+          );
 
   // Exclude edges where either endpoint has fidelity='gone' (soft-deleted)
   const condition = and(
@@ -577,12 +580,7 @@ export function getActiveTriggersByType(
       memoryGraphNodes,
       eq(memoryGraphTriggers.nodeId, memoryGraphNodes.id),
     )
-    .where(
-      and(
-        ...conditions,
-        sql`${memoryGraphNodes.fidelity} != 'gone'`,
-      ),
-    )
+    .where(and(...conditions, sql`${memoryGraphNodes.fidelity} != 'gone'`))
     .all();
   return rows.map((r) => rowToTrigger(r.trigger));
 }

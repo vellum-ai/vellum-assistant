@@ -194,7 +194,9 @@ function loadAllowedExtensionOrigins(): ReadonlySet<string> {
   // 2. Local override. Silently absent is fine; malformed warns but doesn't
   //    block other sources.
   try {
-    for (const id of readIdsFromFile(LOCAL_OVERRIDE_PATH, { allowEmpty: true })) {
+    for (const id of readIdsFromFile(LOCAL_OVERRIDE_PATH, {
+      allowEmpty: true,
+    })) {
       merged.add(`chrome-extension://${id}/`);
     }
   } catch (err) {

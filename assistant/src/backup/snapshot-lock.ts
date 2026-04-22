@@ -348,9 +348,7 @@ export async function acquireSnapshotLock(
     }
 
     if (isProcessAlive(holder.pid)) {
-      throw new Error(
-        `snapshot in progress (locked by pid ${holder.pid})`,
-      );
+      throw new Error(`snapshot in progress (locked by pid ${holder.pid})`);
     }
 
     // --- Step 3: stale takeover via rename-aside ---
