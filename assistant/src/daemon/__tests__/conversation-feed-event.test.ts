@@ -69,44 +69,55 @@ mock.module("../../memory/conversation-crud.js", () => ({
  * This mirrors the block inserted after `message_complete` so we can test it
  * in isolation without spinning up the full agent loop infrastructure.
  */
+/**
+ * Tracks the last warning logged by simulateFeedEventEmission, so tests can
+ * assert that malformed content is swallowed gracefully.
+ */
+let lastFeedEventWarning: unknown = undefined;
+
 function simulateFeedEventEmission(
   conversationId: string,
   lastAssistantMessageId: string | undefined,
 ): void {
-  const conv = getConversationSpy(conversationId);
-  if (
-    conv &&
-    (conv.conversationType === "background" ||
-      conv.conversationType === "scheduled")
-  ) {
-    const lastMsg = lastAssistantMessageId
-      ? getMessageByIdSpy(lastAssistantMessageId, conversationId)
-      : undefined;
-    let summary: string;
-    if (lastMsg) {
-      const parsed: unknown = JSON.parse(lastMsg.content);
-      if (typeof parsed === "string") {
-        summary = parsed.slice(0, 200);
-      } else if (Array.isArray(parsed)) {
-        const textBlock = (
-          parsed as Array<{ type?: string; text?: string }>
-        ).find((b) => b.type === "text");
-        summary =
-          typeof textBlock?.text === "string"
-            ? textBlock.text.slice(0, 200)
-            : (conv.title ?? "Background task completed.");
+  lastFeedEventWarning = undefined;
+  try {
+    const conv = getConversationSpy(conversationId);
+    if (
+      conv &&
+      (conv.conversationType === "background" ||
+        conv.conversationType === "scheduled")
+    ) {
+      const lastMsg = lastAssistantMessageId
+        ? getMessageByIdSpy(lastAssistantMessageId, conversationId)
+        : undefined;
+      let summary: string;
+      if (lastMsg) {
+        const parsed: unknown = JSON.parse(lastMsg.content);
+        if (typeof parsed === "string") {
+          summary = parsed.slice(0, 200);
+        } else if (Array.isArray(parsed)) {
+          const textBlock = (
+            parsed as Array<{ type?: string; text?: string }>
+          ).find((b) => b.type === "text");
+          summary =
+            typeof textBlock?.text === "string"
+              ? textBlock.text.slice(0, 200)
+              : (conv.title ?? "Background task completed.");
+        } else {
+          summary = conv.title ?? "Background task completed.";
+        }
       } else {
         summary = conv.title ?? "Background task completed.";
       }
-    } else {
-      summary = conv.title ?? "Background task completed.";
+      void emitFeedEventSpy({
+        source: "assistant",
+        title: conv.title ?? "Background Task",
+        summary,
+        dedupKey: `bg-conv:${conversationId}`,
+      });
     }
-    void emitFeedEventSpy({
-      source: "assistant",
-      title: conv.title ?? "Background Task",
-      summary,
-      dedupKey: `bg-conv:${conversationId}`,
-    });
+  } catch (feedErr) {
+    lastFeedEventWarning = feedErr;
   }
 }
 
@@ -281,5 +292,26 @@ describe("background conversation feed event", () => {
     expect(emitFeedEventSpy.mock.calls[1]![0].dedupKey).toBe(
       `bg-conv:${convId}`,
     );
+  });
+
+  test("swallows malformed JSON content without throwing", () => {
+    const convId = "conv-bg-badjson";
+    const msgId = "msg-badjson";
+
+    getConversationSpy.mockReturnValue({
+      conversationType: "background",
+      title: "Bad JSON Task",
+    });
+    getMessageByIdSpy.mockReturnValue({
+      id: msgId,
+      content: "this is not valid JSON {{{",
+    });
+
+    // Should not throw
+    expect(() => simulateFeedEventEmission(convId, msgId)).not.toThrow();
+    // The error was caught and logged as a warning
+    expect(lastFeedEventWarning).toBeInstanceOf(SyntaxError);
+    // emitFeedEvent should NOT have been called
+    expect(emitFeedEventSpy).not.toHaveBeenCalled();
   });
 });

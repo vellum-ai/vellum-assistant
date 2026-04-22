@@ -2037,49 +2037,56 @@ export async function runAgentLoopImpl(
             ? { messageId: state.lastAssistantMessageId }
             : {}),
         });
-      }
 
-      // Emit a home-feed event for background/scheduled conversation completions.
-      {
-        const conv = getConversation(ctx.conversationId);
-        if (
-          conv &&
-          (conv.conversationType === "background" ||
-            conv.conversationType === "scheduled")
-        ) {
-          const lastMsg = state.lastAssistantMessageId
-            ? getMessageById(state.lastAssistantMessageId, ctx.conversationId)
-            : undefined;
-          let summary: string;
-          if (lastMsg) {
-            const parsed: unknown = JSON.parse(lastMsg.content);
-            if (typeof parsed === "string") {
-              summary = parsed.slice(0, 200);
-            } else if (Array.isArray(parsed)) {
-              const textBlock = parsed.find(
-                (b: { type?: string }) => b.type === "text",
-              );
-              summary =
-                typeof textBlock?.text === "string"
-                  ? textBlock.text.slice(0, 200)
-                  : (conv.title ?? "Background task completed.");
+        // Emit a home-feed event for background/scheduled conversation completions.
+        // Scoped to message_complete only (not cancelled/handoff), wrapped in
+        // try-catch so malformed message content can never propagate errors.
+        try {
+          const conv = getConversation(ctx.conversationId);
+          if (
+            conv &&
+            (conv.conversationType === "background" ||
+              conv.conversationType === "scheduled")
+          ) {
+            const lastMsg = state.lastAssistantMessageId
+              ? getMessageById(state.lastAssistantMessageId, ctx.conversationId)
+              : undefined;
+            let summary: string;
+            if (lastMsg) {
+              const parsed: unknown = JSON.parse(lastMsg.content);
+              if (typeof parsed === "string") {
+                summary = parsed.slice(0, 200);
+              } else if (Array.isArray(parsed)) {
+                const textBlock = parsed.find(
+                  (b: { type?: string }) => b.type === "text",
+                );
+                summary =
+                  typeof textBlock?.text === "string"
+                    ? textBlock.text.slice(0, 200)
+                    : (conv.title ?? "Background task completed.");
+              } else {
+                summary = conv.title ?? "Background task completed.";
+              }
             } else {
               summary = conv.title ?? "Background task completed.";
             }
-          } else {
-            summary = conv.title ?? "Background task completed.";
+            void emitFeedEvent({
+              source: "assistant",
+              title: conv.title ?? "Background Task",
+              summary,
+              dedupKey: `bg-conv:${ctx.conversationId}`,
+            }).catch((err) => {
+              log.warn(
+                { err, conversationId: ctx.conversationId },
+                "Failed to emit background conversation feed event",
+              );
+            });
           }
-          void emitFeedEvent({
-            source: "assistant",
-            title: conv.title ?? "Background Task",
-            summary,
-            dedupKey: `bg-conv:${ctx.conversationId}`,
-          }).catch((err) => {
-            log.warn(
-              { err, conversationId: ctx.conversationId },
-              "Failed to emit background conversation feed event",
-            );
-          });
+        } catch (feedErr) {
+          log.warn(
+            { err: feedErr, conversationId: ctx.conversationId },
+            "Failed to build home-feed event for background conversation",
+          );
         }
       }
     }
