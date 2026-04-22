@@ -11,7 +11,8 @@ public protocol TrustRuleClientProtocol {
         pattern: String,
         scope: String,
         decision: String,
-        executionTarget: String?
+        executionTarget: String?,
+        riskLevel: String?
     ) async throws
     func removeTrustRule(id: String) async throws
     func updateTrustRule(
@@ -59,7 +60,8 @@ public struct TrustRuleClient: TrustRuleClientProtocol {
         pattern: String,
         scope: String,
         decision: String,
-        executionTarget: String? = nil
+        executionTarget: String? = nil,
+        riskLevel: String? = nil
     ) async throws {
         var body: [String: Any] = [
             "toolName": toolName,
@@ -68,6 +70,7 @@ public struct TrustRuleClient: TrustRuleClientProtocol {
             "decision": decision,
         ]
         if let executionTarget { body["executionTarget"] = executionTarget }
+        if let riskLevel { body["riskLevel"] = riskLevel }
 
         let response = try await GatewayHTTPClient.post(
             path: "assistants/{assistantId}/trust-rules/manage", json: body, timeout: 10

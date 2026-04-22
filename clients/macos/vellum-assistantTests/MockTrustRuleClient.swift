@@ -32,7 +32,8 @@ final class MockTrustRuleClient: TrustRuleClientProtocol {
         pattern: String,
         scope: String,
         decision: String,
-        executionTarget: String?
+        executionTarget: String?,
+        riskLevel: String? = nil
     ) async throws {
         addTrustRuleCalls.append((toolName, pattern, scope, decision, executionTarget))
         if let error = addTrustRuleError { throw error }
