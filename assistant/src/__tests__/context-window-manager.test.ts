@@ -1750,11 +1750,10 @@ describe("stripCompactionOnlyInjections", () => {
   });
 
   test("preserves user prose that merely mentions ambiguous tag names", () => {
-    // These are the common-word bare tags whose previous prefix-only match
-    // would false-positive on legitimate user messages discussing XML or
-    // referring to system terminology. Each case should survive stripping
-    // because it is not shaped like a runtime injection (no leading newline
-    // after the tag, or other prose surrounds the tag).
+    // Common-word bare tags embedded in legitimate user prose (discussions of
+    // XML, system terminology, etc.) must survive stripping because they are
+    // not shaped like a runtime injection — no leading newline after the
+    // open tag, or other prose surrounds the tag.
     const messages: Message[] = [
       {
         role: "user",
@@ -1810,10 +1809,12 @@ describe("stripCompactionOnlyInjections", () => {
   });
 
   test("still strips runtime-shaped wrapped blocks for ambiguous tag names", () => {
-    // Legacy pre-`__injected` history still emits bare-tag blocks with a
-    // newline after the open tag and a matching close tag. Those must
-    // continue to be stripped even though the prefix list no longer names
-    // them — the wrapped-match path covers the legacy shape.
+    // Bare-tag blocks with a newline after the open tag and a matching close
+    // tag (e.g. `<memory>\n...\n</memory>`) match the wrapped-strip path.
+    // This covers both the current runtime emission shape and blocks
+    // persisted before the `__injected` attribute existed — the prefix list
+    // handles `__injected`-attributed tags, and the wrapped matcher handles
+    // the bare-tag wrap shape.
     const messages: Message[] = [
       {
         role: "user",
