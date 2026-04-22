@@ -61,8 +61,9 @@ struct OnboardingView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             OnboardingBottomStrip()
+                .ignoresSafeArea(edges: .bottom)
         }
-        .ignoresSafeArea(.container, edges: .bottom)
+        .ignoresSafeArea(edges: .bottom)
         .overlay(alignment: .topLeading) {
             // Scope the cancel affordance to an overlay so the step ZStack's
             // default center alignment is preserved for ReadyStep and
