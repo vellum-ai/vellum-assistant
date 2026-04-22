@@ -16,12 +16,16 @@ struct LoginView: View {
             VColor.surfaceOverlay.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Vertical rhythm matches Figma Light 169:
-                // - Capped top gap so content doesn't drift to the middle.
-                // - Flexible gap between icon and welcome text absorbs the
-                //   screen-height variance (this is the largest gap in Figma).
-                // - Compact welcome→button and button→footer gaps.
-                Spacer().frame(maxHeight: 80)
+                // Vertical rhythm tuned to Figma Light 169 proportions:
+                //   icon top   ≈ 30% of screen height
+                //   welcome    ≈ 51%
+                //   button     ≈ 70%
+                //   footer     ≈ 82%
+                // Approach: capped Spacer at top + fixed gaps between
+                // elements + capped Spacer at bottom. The caps bias content
+                // toward the center-low region matching Figma rather than
+                // spreading it across full available height.
+                Spacer().frame(maxHeight: 240)
 
                 ZStack {
                     Circle()
@@ -40,8 +44,10 @@ struct LoginView: View {
 
                     VellumAppIconView()
                 }
-
-                Spacer()
+                // Limit the icon block's layout height to the icon itself;
+                // the 160pt radial glow bleeds visually but doesn't inflate
+                // VStack sizing.
+                .frame(height: 88)
 
                 VStack(spacing: VSpacing.lg) {
                     Text("Welcome to Vellum")
@@ -54,17 +60,16 @@ struct LoginView: View {
                         .foregroundStyle(VColor.contentSecondary)
                         .multilineTextAlignment(.center)
                 }
+                .padding(.top, 96)
                 .padding(.horizontal, VSpacing.lg)
-
-                Spacer().frame(maxHeight: VSpacing.xxxl)
 
                 if let error = authManager.errorMessage {
                     Text(error)
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.systemNegativeStrong)
                         .multilineTextAlignment(.center)
+                        .padding(.top, VSpacing.xxxl)
                         .padding(.horizontal, VSpacing.xl)
-                        .padding(.bottom, VSpacing.sm)
                 }
 
                 VStack(spacing: VSpacing.sm) {
@@ -98,13 +103,15 @@ struct LoginView: View {
                     .buttonStyle(.plain)
                     .disabled(authManager.isSubmitting && !isReplay)
                 }
+                .padding(.top, authManager.errorMessage == nil ? 60 : VSpacing.sm)
                 .padding(.horizontal, VSpacing.lg)
 
                 Text("2026 Vellum Inc.")
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentDisabled)
-                    .padding(.top, VSpacing.xl)
-                    .padding(.bottom, VSpacing.md)
+                    .padding(.top, 40)
+
+                Spacer().frame(maxHeight: 120)
             }
         }
     }
