@@ -173,9 +173,16 @@ describe("startContentBridge bot→content fan-out", () => {
       // the first retry fires, a leave arrives — the later message must
       // cancel the stale join so we don't join a session the bot has
       // already decided to leave.
+      //
+      // The join finds no tab (so it queues a retry). The leave finds a
+      // tab and delivers on its first attempt — that way only the join's
+      // retry behavior is under test and leave's own retry cadence can't
+      // leak into the assertion. We assert the invariant directly: the
+      // stale `join` frame must never reach `chrome.tabs.sendMessage`.
+      let tabsAvailable: chrome.tabs.Tab[] = [];
       fake.tabs.query = async (q) => {
         fake.queryCalls.push(q);
-        return [];
+        return tabsAvailable;
       };
       const join: BotToExtensionMessage = {
         type: "join",
@@ -186,20 +193,68 @@ describe("startContentBridge bot→content fan-out", () => {
       const leave: BotToExtensionMessage = { type: "leave", reason: "cancel" };
       port.emitFromBot(join);
       await flushMicrotasks();
-      // One query from the join attempt, no tabs -> sleeping 100ms.
-      const queriesAfterJoin = fake.queryCalls.length;
-      expect(queriesAfterJoin).toBe(1);
-      // Now the leave supersedes. Let it run — its own query will count.
+      // Join queried once, no tabs — it's now sleeping 100ms before retry.
+      expect(fake.queryCalls.length).toBe(1);
+      // Now a tab exists and the leave supersedes the pending join.
+      tabsAvailable = [{ id: 1 } as chrome.tabs.Tab];
       port.emitFromBot(leave);
-      // Wait long enough for the join's first retry (100ms) to fire if
-      // the generation guard weren't in place, plus margin.
+      // Wait past the join's first retry delay (100ms) plus margin.
       await new Promise((resolve) => setTimeout(resolve, 250));
-      // We expect: queriesAfterJoin (1) + 1 for leave's attempt (which also
-      // found no tabs and is itself sleeping). The stale join retry must
-      // not have added another query after the leave bumped the generation.
-      // So total should be exactly 2 (one from join, one from leave's first
-      // attempt) — the join's 100ms retry was skipped.
-      expect(fake.queryCalls.length).toBe(2);
+      const byType = (t: string) =>
+        fake.sendMessageCalls.filter(
+          (c) => (c.msg as { type: string }).type === t,
+        );
+      // The stale join must not have been delivered.
+      expect(byType("join")).toHaveLength(0);
+      // Leave was delivered (this is the positive invariant — without it
+      // the test would pass if the bridge silently dropped everything).
+      expect(byType("leave").length).toBeGreaterThanOrEqual(1);
+    },
+    5_000,
+  );
+
+  test(
+    "two send_chat messages both deliver — neither supersedes the other",
+    async () => {
+      // send_chat is outside any superseding category, so a rapidly-issued
+      // pair must both reach the content script. Guard: before PR 27314's
+      // follow-up, the generation counter was bumped for every message,
+      // which silently aborted the first send_chat while it was sleeping
+      // between retries.
+      let tabsAvailable: chrome.tabs.Tab[] = [];
+      fake.tabs.query = async (q) => {
+        fake.queryCalls.push(q);
+        return tabsAvailable;
+      };
+      const first: BotToExtensionMessage = {
+        type: "send_chat",
+        text: "hello",
+        requestId: "req-1",
+      };
+      const second: BotToExtensionMessage = {
+        type: "send_chat",
+        text: "world",
+        requestId: "req-2",
+      };
+      // First send_chat: no tab yet, queues a retry.
+      port.emitFromBot(first);
+      await flushMicrotasks();
+      expect(fake.queryCalls.length).toBe(1);
+      // Second send_chat arrives before the first retry fires. A tab is
+      // now mounted so both should be able to deliver.
+      tabsAvailable = [{ id: 1 } as chrome.tabs.Tab];
+      port.emitFromBot(second);
+      // Wait past the first's retry delay (100ms) plus margin.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const chatDeliveries = fake.sendMessageCalls.filter(
+        (c) => (c.msg as { type: string }).type === "send_chat",
+      );
+      expect(chatDeliveries).toHaveLength(2);
+      const deliveredIds = chatDeliveries.map(
+        (c) => (c.msg as { requestId: string }).requestId,
+      );
+      expect(deliveredIds).toContain("req-1");
+      expect(deliveredIds).toContain("req-2");
     },
     5_000,
   );

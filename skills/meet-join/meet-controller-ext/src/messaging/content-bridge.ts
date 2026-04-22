@@ -95,17 +95,44 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Monotonic counter bumped on every fan-out. A pending retry loop compares
-// its captured generation against this value after each sleep and aborts
-// when it has been superseded — e.g. a `join` that is still waiting for the
-// content script to mount must not fire if a later `leave` has already
-// been dispatched for the same session.
-let fanOutGeneration = 0;
+// Per-category monotonic counters bumped when a new command enters that
+// category. A pending retry loop captures the counter value(s) for its own
+// categories and aborts when any captured value is stale — i.e. a newer
+// command in the same category has arrived.
+//
+// Categories (see `supersedingCategoriesFor`):
+//   - `lifecycle` (join, leave): newer supersedes older — a pending `join`
+//     retry must not fire once a `leave` has been dispatched for the same
+//     session, and a newer `join`/`leave` cancels any older `join`/`leave`.
+//   - `camera` (camera.enable, camera.disable): newer toggle supersedes
+//     older toggle so a rapid `disable` after `enable` doesn't end with the
+//     stale `enable` winning the race.
+//
+// Messages outside any category (currently `send_chat`) never supersede
+// and are never superseded — two `send_chat`s must both deliver.
+const fanOutGenerations: Record<"lifecycle" | "camera", number> = {
+  lifecycle: 0,
+  camera: 0,
+};
+
+function supersedingCategoriesFor(
+  type: BotToExtensionMessage["type"],
+): Array<keyof typeof fanOutGenerations> {
+  if (type === "join" || type === "leave") return ["lifecycle"];
+  if (type === "camera.enable" || type === "camera.disable") return ["camera"];
+  return [];
+}
 
 async function fanOutToMeetTabs(msg: BotToExtensionMessage): Promise<void> {
-  const myGeneration = ++fanOutGeneration;
+  const categories = supersedingCategoriesFor(msg.type);
+  const captured = categories.map((cat) => ({
+    cat,
+    gen: ++fanOutGenerations[cat],
+  }));
+  const isSuperseded = (): boolean =>
+    captured.some(({ cat, gen }) => fanOutGenerations[cat] !== gen);
   for (let attempt = 0; attempt <= DELIVERY_RETRY_DELAYS_MS.length; attempt++) {
-    if (myGeneration !== fanOutGeneration) {
+    if (isSuperseded()) {
       console.warn(
         `[meet-ext] aborting stale bot->content fan-out type=${msg.type}; superseded by newer message`,
       );
