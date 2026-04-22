@@ -87,7 +87,14 @@ describe("plugin core types", () => {
       },
       tools: [{ name: "sample-tool" }],
       routes: [{ path: "/sample" }],
-      skills: [{ name: "sample-skill" }],
+      skills: [
+        {
+          id: "sample-skill",
+          name: "Sample Skill",
+          description: "Demo plugin-contributed skill",
+          body: "## Sample\n\nPlugin-provided skill body.",
+        },
+      ],
       injectors: [injector],
       middleware: {
         turn: passthrough,

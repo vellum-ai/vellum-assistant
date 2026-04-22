@@ -275,16 +275,57 @@ export interface Injector {
 }
 
 // ─── Model-visible capability slots (placeholder shapes) ─────────────────────
-// Concrete shapes are defined by the tool/route/skill registries. Typing
-// them as `unknown`-tagged aliases here keeps the Plugin interface decoupled
-// until later PRs wire real registrations.
+// Tool and route shapes stay `unknown` until their respective contribution PRs
+// (31 and 32) land. Skill contributions (PR 33) ship with a concrete shape
+// below so plugins can declare catalog-discoverable skills today.
 
 /** Tool registration contributed by a plugin. Concrete shape TBD. */
 export type PluginToolRegistration = unknown;
 /** HTTP route registration contributed by a plugin. Concrete shape TBD. */
 export type PluginRouteRegistration = unknown;
-/** Skill registration contributed by a plugin. Concrete shape TBD. */
-export type PluginSkillRegistration = unknown;
+
+/**
+ * A skill contributed by a plugin.
+ *
+ * When a plugin declares {@link Plugin.skills}, the bootstrap registers each
+ * entry into an in-memory side catalog that {@link loadSkillCatalog} merges
+ * into its output. The entry is then discoverable by the model's `skill_load`
+ * / `skill_execute` flow under `source: "plugin"` — the same code paths used
+ * for filesystem-backed skills.
+ *
+ * The fields mirror the subset of `SkillSummary` / `SkillDefinition` that
+ * makes sense for an in-memory contribution. Inline commands and reference
+ * files are out of scope for plugin skills in this PR — add them later if a
+ * real plugin needs them.
+ */
+export interface PluginSkillRegistration {
+  /** Stable skill id (kebab-case). Must be unique across the catalog. */
+  id: string;
+  /**
+   * Skill "name" as surfaced to the model. Matches the SKILL.md frontmatter
+   * `name` field for filesystem skills.
+   */
+  name: string;
+  /**
+   * Human-readable display name shown in UI lists. Defaults to `name` when
+   * omitted — matches the filesystem-skill default.
+   */
+  displayName?: string;
+  /** One-line description shown by `skill_load` / UI. */
+  description: string;
+  /** Full skill body returned when `skill_load` fires for this skill. */
+  body: string;
+  /** Optional emoji shown beside the skill in UI surfaces. */
+  emoji?: string;
+  /** Optional assistant feature-flag key — when set and the flag is OFF, the skill is filtered out. */
+  featureFlag?: string;
+  /** Compact routing cues injected into `<available_skills>` to guide selection. */
+  activationHints?: string[];
+  /** Conditions under which this skill should NOT be loaded. */
+  avoidWhen?: string[];
+  /** IDs of child skills that this skill includes (metadata-only, not auto-activated). */
+  includes?: string[];
+}
 
 // ─── Plugin ──────────────────────────────────────────────────────────────────
 
