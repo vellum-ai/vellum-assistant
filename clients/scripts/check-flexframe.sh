@@ -70,7 +70,16 @@ fi
 # (lines whose first non-whitespace is `//` or `///`). AGENTS.md-style
 # warnings like `// ⚠️ No .frame(maxWidth:) in LazyVStack cells` would
 # otherwise false-positive.
-RAW_HITS=$(rg -n --no-heading "$PATTERN" "${SCAN_DIRS[@]}" 2>/dev/null \
+#
+# `-U --multiline-dotall` enables multiline matching so `.frame(` wrapped
+# across lines (opening paren on one line, `maxWidth:` on the next) is
+# caught. Without this, code formatted as `.frame(\n    maxWidth: …\n)`
+# bypasses the lint silently — a real escape already present at
+# ChatLoadingSkeleton.swift before this PR. ripgrep reports only the
+# START line of a multiline match, so the comment filter (which only
+# inspects that line) stays correct: the outer `.frame(` never itself
+# starts with `//`.
+RAW_HITS=$(rg -U --multiline-dotall -n --no-heading "$PATTERN" "${SCAN_DIRS[@]}" 2>/dev/null \
   | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//' \
   || true)
 
@@ -131,9 +140,17 @@ HEADER
 fi
 
 # Load the allowlist (strip comments + blank lines), preserving multiplicity.
+#
+# `grep -v` exits 1 when no lines match — under `set -euo pipefail` that
+# would abort the script if the allowlist is ever header-only (e.g. after
+# a full cleanup or `--update-baseline` with zero observed violations).
+# `|| true` tolerates that edge case so a clean state stays clean.
 ALLOWLIST_ENTRIES=""
 if [[ -f "$ALLOWLIST_FILE" ]]; then
-  ALLOWLIST_ENTRIES=$(grep -vE '^([[:space:]]*#|[[:space:]]*$)' "$ALLOWLIST_FILE" | sort)
+  ALLOWLIST_RAW=$(grep -vE '^([[:space:]]*#|[[:space:]]*$)' "$ALLOWLIST_FILE" || true)
+  if [[ -n "$ALLOWLIST_RAW" ]]; then
+    ALLOWLIST_ENTRIES=$(printf '%s\n' "$ALLOWLIST_RAW" | sort)
+  fi
 fi
 
 # New violations = observed - allowlist (multiset difference preserved by `comm -23`).

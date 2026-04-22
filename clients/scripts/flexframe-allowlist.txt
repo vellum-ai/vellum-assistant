@@ -40,11 +40,13 @@ clients/macos/vellum-assistant/Features/Chat/ChatEmptyStateView.swift|.frame(max
 clients/macos/vellum-assistant/Features/Chat/ChatEmptyStateView.swift|.frame(maxWidth: VSpacing.chatBubbleMaxWidth)
 clients/macos/vellum-assistant/Features/Chat/ChatErrorToastView.swift|.frame(maxWidth: .infinity)
 clients/macos/vellum-assistant/Features/Chat/ChatErrorToastView.swift|.frame(maxWidth: .infinity, alignment: .leading)
+clients/macos/vellum-assistant/Features/Chat/ChatLoadingSkeleton.swift|.frame(
 clients/macos/vellum-assistant/Features/Chat/ChatLoadingSkeleton.swift|.frame(maxWidth: .infinity, alignment: .trailing)
 clients/macos/vellum-assistant/Features/Chat/ChatLoadingSkeleton.swift|.frame(maxWidth: VSpacing.chatBubbleMaxWidth * 0.45, alignment: .trailing)
 clients/macos/vellum-assistant/Features/Chat/ChatLoadingSkeleton.swift|.frame(maxWidth: VSpacing.chatBubbleMaxWidth * 0.65)
 clients/macos/vellum-assistant/Features/Chat/ChatLoadingSkeleton.swift|.frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
 clients/macos/vellum-assistant/Features/Chat/ChatLoadingSkeleton.swift|.frame(maxWidth: VSpacing.chatColumnMaxWidth, alignment: .leading)
+clients/macos/vellum-assistant/Features/Chat/ChatLoadingSkeleton.swift|maxWidth: VSpacing.chatBubbleMaxWidth * assistantLineWidths[idx],
 clients/macos/vellum-assistant/Features/Chat/ChatView.swift|.frame(maxWidth: .infinity, maxHeight: .infinity)
 clients/macos/vellum-assistant/Features/Chat/ChatView.swift|.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 clients/macos/vellum-assistant/Features/Chat/ChatView.swift|.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
