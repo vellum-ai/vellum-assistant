@@ -208,6 +208,24 @@ export interface DockerRunResult {
   boundPorts: BoundPort[];
 }
 
+/**
+ * Result of a successful `wait` call. Mirrors Docker's
+ * `POST /containers/<id>/wait` response body:
+ *
+ * ```
+ *   { "StatusCode": <int>, "Error": { "Message": "<...>" } | null }
+ * ```
+ *
+ * `Error` is only present when the wait itself could not be completed
+ * engine-side; a container that exits with a non-zero code is NOT an error
+ * from the wait endpoint's point of view — the caller reads `StatusCode` to
+ * learn what happened.
+ */
+export interface DockerWaitResult {
+  StatusCode: number;
+  Error?: { Message?: string } | null;
+}
+
 // ---------------------------------------------------------------------------
 // DockerRunner
 // ---------------------------------------------------------------------------
@@ -599,6 +617,37 @@ export class DockerRunner {
       `/${DOCKER_API_VERSION}/containers/${containerId}/json`,
       null,
     );
+  }
+
+  /**
+   * Block until the container exits, then resolve with the engine-reported
+   * exit code. Wraps `POST /containers/<id>/wait` — the engine holds the
+   * HTTP connection open until the container terminates, then replies with
+   * `{ StatusCode, Error? }`.
+   *
+   * Used by the session-manager's container-exit watcher to detect
+   * unexpected bot deaths (e.g. external `docker kill`, OOM reaper, a stray
+   * concurrent daemon reaping the container) so a `meet.error` can be
+   * synthesized and session state torn down — without this hook the
+   * daemon would keep the session pinned in `this.sessions` indefinitely
+   * and all subsequent `meet_*` tool calls would fail against a dead bot.
+   *
+   * A 404 (container removed before `wait` could observe the exit — typical
+   * when our own `remove()` races the watcher on the graceful-leave path)
+   * resolves with `{ StatusCode: 0 }` rather than throwing so the watcher
+   * doesn't need a special-case branch. Any other non-2xx surfaces as a
+   * {@link DockerApiError} so the watcher can log + bail.
+   */
+  async wait(containerId: string): Promise<DockerWaitResult> {
+    const path = `/${DOCKER_API_VERSION}/containers/${containerId}/wait`;
+    try {
+      return await this.request<DockerWaitResult>("POST", path, null);
+    } catch (err) {
+      if (err instanceof DockerApiError && err.status === 404) {
+        return { StatusCode: 0 };
+      }
+      throw err;
+    }
   }
 
   /**

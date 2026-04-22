@@ -344,6 +344,65 @@ describe("DockerRunner.inspect", () => {
   });
 });
 
+describe("DockerRunner.wait", () => {
+  let mock: MockDocker;
+
+  afterEach(async () => {
+    await mock?.close();
+  });
+
+  test("issues POST /containers/<id>/wait and returns the exit code", async () => {
+    mock = await startMockDocker();
+    mock.queueResponse({ status: 200, body: { StatusCode: 137 } });
+
+    const runner = new DockerRunner({ socketPath: mock.socketPath });
+    const result = await runner.wait("cid");
+
+    expect(result.StatusCode).toBe(137);
+    expect(mock.captured).toHaveLength(1);
+    expect(mock.captured[0].method).toBe("POST");
+    expect(mock.captured[0].url).toContain("/containers/cid/wait");
+  });
+
+  test("treats 404 (container already removed) as an exit-code-0 observation", async () => {
+    // The session-manager's container-exit watcher races the graceful
+    // `leave()` path — when `leave()` calls `runner.remove()` the engine
+    // can reply to a still-open `wait()` with a 404 rather than the exit
+    // record. The watcher checks `leaveInitiatedByDaemon` before
+    // publishing `meet.error`, but relies on `wait()` resolving (not
+    // throwing) so the promise chain completes. Asserting 0 here
+    // documents the branch `DockerRunner.wait` takes to make that work.
+    mock = await startMockDocker();
+    mock.queueResponse({ status: 404, body: "no such container" });
+
+    const runner = new DockerRunner({ socketPath: mock.socketPath });
+    const result = await runner.wait("cid");
+    expect(result.StatusCode).toBe(0);
+  });
+
+  test("propagates non-404 errors so the watcher can log + bail", async () => {
+    mock = await startMockDocker();
+    mock.queueResponse({ status: 500, body: "engine down" });
+
+    const runner = new DockerRunner({ socketPath: mock.socketPath });
+    await expect(runner.wait("cid")).rejects.toThrow(DockerApiError);
+  });
+
+  test("surfaces engine-reported Error payload in the resolved shape", async () => {
+    mock = await startMockDocker();
+    mock.queueResponse({
+      status: 200,
+      body: { StatusCode: 143, Error: { Message: "wait interrupted" } },
+    });
+
+    const runner = new DockerRunner({ socketPath: mock.socketPath });
+    const result = await runner.wait("cid");
+
+    expect(result.StatusCode).toBe(143);
+    expect(result.Error?.Message).toBe("wait interrupted");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Helper-function unit tests
 // ---------------------------------------------------------------------------
