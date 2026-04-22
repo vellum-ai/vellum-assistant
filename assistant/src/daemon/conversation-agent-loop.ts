@@ -74,9 +74,12 @@ import {
   type GraphMemoryPayload,
   runDefaultMemoryRetrieval,
 } from "../plugins/defaults/memory-retrieval.js";
+import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
+  EstimateArgs,
+  EstimateResult,
   MemoryArgs,
   MemoryResult,
   TurnContext as PluginTurnContext,
@@ -1082,18 +1085,53 @@ export async function runAgentLoopImpl(
     let reducerState: ReducerState | undefined;
 
     const toolTokenBudget = ctx.agentLoop.getToolTokenBudget(runMessages);
-    // Canonical calibration key used at every `estimatePromptTokens` site in
-    // this function. Matches the key recorded by `handleUsage` for wrapper
-    // providers (OpenRouter routing to Anthropic → key is `"anthropic"`).
+    // Canonical calibration key — passed to the `tokenEstimate` pipeline for
+    // every preflight/mid-loop estimate, the overflow reducer config, and the
+    // convergence-path `estimatePromptTokens` call. Matches the key recorded
+    // by `handleUsage` for wrapper providers (OpenRouter routing to
+    // Anthropic → key is `"anthropic"`).
     const estimationProviderName = getCalibrationProviderKey(ctx.provider);
-    const preflightTokens = estimatePromptTokens(
-      runMessages,
-      ctx.systemPrompt,
-      {
-        providerName: estimationProviderName,
-        toolTokenBudget,
+
+    // Shared `TurnContext` for every `tokenEstimate` pipeline invocation in
+    // this turn. The pipeline is the extension point for plugins that want
+    // to substitute an alternate estimator (e.g. provider-native tokenization)
+    // without touching orchestrator code.
+    //
+    // `turnIndex` is 0 at the orchestrator level — the per-tool-use turn
+    // index advances inside `agent/loop.ts` and is surfaced through
+    // `CheckpointInfo` to sites that need it. Here it just satisfies the
+    // pipeline's log record. `trust` falls back to the inbound
+    // `vellum`/`unknown` default when the actor hasn't been resolved yet —
+    // the same fallback `resolveTrustClass` uses — because preflight can run
+    // before trust context is available (e.g. regenerate after daemon restart).
+    const pipelineTurnCtx: PluginTurnContext = {
+      requestId: reqId,
+      conversationId: ctx.conversationId,
+      turnIndex: 0,
+      trust: ctx.trustContext ?? {
+        sourceChannel: "vellum",
+        trustClass: "unknown",
       },
-    );
+    };
+
+    const runTokenEstimatePipeline = (
+      history: Message[],
+    ): Promise<EstimateResult> =>
+      runPipeline<EstimateArgs, EstimateResult>(
+        "tokenEstimate",
+        getMiddlewaresFor("tokenEstimate"),
+        defaultTokenEstimateTerminal,
+        {
+          history,
+          systemPrompt: ctx.systemPrompt,
+          tools: ctx.agentLoop.getResolvedTools(history),
+          providerName: estimationProviderName,
+        },
+        pipelineTurnCtx,
+        DEFAULT_TIMEOUTS.tokenEstimate,
+      );
+
+    const preflightTokens = await runTokenEstimatePipeline(runMessages);
 
     if (overflowRecovery.enabled && preflightTokens > preflightBudget) {
       rlog.warn(
@@ -1195,14 +1233,7 @@ export async function runAgentLoopImpl(
         // Re-estimate with injections included — step.estimatedTokens was
         // computed on bare history (ctx.messages) and doesn't account for
         // tokens added by runtime injections.
-        const postInjectionTokens = estimatePromptTokens(
-          runMessages,
-          ctx.systemPrompt,
-          {
-            providerName: estimationProviderName,
-            toolTokenBudget,
-          },
-        );
+        const postInjectionTokens = await runTokenEstimatePipeline(runMessages);
 
         if (postInjectionTokens <= preflightBudget) break;
       }
@@ -1259,7 +1290,9 @@ export async function runAgentLoopImpl(
 
     let yieldedForBudget = false;
 
-    const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
+    const onCheckpoint = async (
+      checkpoint: CheckpointInfo,
+    ): Promise<CheckpointDecision> => {
       state.currentTurnToolNames = [];
 
       if (ctx.canHandoffAtCheckpoint()) {
@@ -1272,14 +1305,7 @@ export async function runAgentLoopImpl(
       // conversation-agent-loop run compaction before the provider rejects.
       if (overflowRecovery.enabled) {
         const midLoopThreshold = preflightBudget * 0.85;
-        const estimated = estimatePromptTokens(
-          checkpoint.history,
-          ctx.systemPrompt,
-          {
-            providerName: estimationProviderName,
-            toolTokenBudget,
-          },
-        );
+        const estimated = await runTokenEstimatePipeline(checkpoint.history);
         if (estimated > midLoopThreshold) {
           rlog.warn(
             { phase: "mid-loop", estimated, threshold: midLoopThreshold },

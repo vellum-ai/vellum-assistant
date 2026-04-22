@@ -71,12 +71,23 @@ mock.module("../config/loader.js", () => ({
 // Token estimator — controllable per-test via mockEstimateTokens.
 // Can be a number (constant), a no-arg function, or a function that
 // receives the messages array for dynamic behavior based on content.
+// Both the calibrated entry point (`estimatePromptTokens`, used in the
+// convergence path) and the raw entry point (`estimatePromptTokensRaw`,
+// used by the default `tokenEstimate` plugin pipeline for preflight/mid-
+// loop) are stubbed so either call site can drive the test.
 let mockEstimateTokens: number | ((msgs?: Message[]) => number) = 1000;
 mock.module("../context/token-estimator.js", () => ({
   estimatePromptTokens: (msgs: Message[]) =>
     typeof mockEstimateTokens === "function"
       ? mockEstimateTokens(msgs)
       : mockEstimateTokens,
+  estimatePromptTokensRaw: (msgs: Message[]) =>
+    typeof mockEstimateTokens === "function"
+      ? mockEstimateTokens(msgs)
+      : mockEstimateTokens,
+  // Default plugin multiplies-in tool tokens via this helper; 0 keeps the
+  // stubbed raw value unchanged.
+  estimateToolsTokens: () => 0,
   // Conversation agent loop now calls this helper to canonicalize the
   // provider key shared with the calibration system. The tests here
   // don't exercise that path, so a passthrough mock is fine.
@@ -359,7 +370,9 @@ type AgentLoopRun = (
   onEvent: (event: AgentEvent) => void,
   signal?: AbortSignal,
   requestId?: string,
-  onCheckpoint?: (checkpoint: CheckpointInfo) => CheckpointDecision,
+  onCheckpoint?: (
+    checkpoint: CheckpointInfo,
+  ) => CheckpointDecision | Promise<CheckpointDecision>,
 ) => Promise<Message[]>;
 
 function makeCtx(
@@ -389,6 +402,7 @@ function makeCtx(
     agentLoop: {
       run: agentLoopRun,
       getToolTokenBudget: () => 0,
+      getResolvedTools: () => [],
       // Tests in this file don't exercise calibration, so returning
       // undefined is fine — the estimator falls back to the per-provider
       // aggregate key.
@@ -1369,7 +1383,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
           // Call onCheckpoint — this should trigger the mid-loop budget check
           // which sees 170_000 > 161_500 and returns "yield"
           if (onCheckpoint) {
-            const decision = onCheckpoint({
+            const decision = await onCheckpoint({
               turnIndex: 0,
               toolCount: 1,
               hasToolUse: true,
@@ -1543,7 +1557,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
             });
 
             if (onCheckpoint) {
-              const decision = onCheckpoint({
+              const decision = await onCheckpoint({
                 turnIndex: i,
                 toolCount: 1,
                 hasToolUse: true,
@@ -1727,7 +1741,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
       // Always yield at checkpoint — simulates compaction not helping
       if (onCheckpoint) {
-        const decision = onCheckpoint({
+        const decision = await onCheckpoint({
           turnIndex: 0,
           toolCount: 1,
           hasToolUse: true,
@@ -1883,7 +1897,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
       // Always yield at checkpoint — simulates reduction not helping enough
       if (onCheckpoint) {
-        const decision = onCheckpoint({
+        const decision = await onCheckpoint({
           turnIndex: 0,
           toolCount: 1,
           hasToolUse: true,

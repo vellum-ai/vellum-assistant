@@ -76,9 +76,13 @@ mock.module("../config/loader.js", () => ({
 }));
 
 // Token estimator: return a small value (well within budget) so preflight
-// does not trigger in existing tests.
+// does not trigger in existing tests. Stub both the calibrated and raw
+// entry points — the latter backs the default `tokenEstimate` plugin
+// pipeline now used by the orchestrator's preflight / mid-loop checkpoints.
 mock.module("../context/token-estimator.js", () => ({
   estimatePromptTokens: () => 1000,
+  estimatePromptTokensRaw: () => 1000,
+  estimateToolsTokens: () => 0,
 }));
 
 // Overflow recovery module mocks — the convergence loop delegates to these
@@ -255,6 +259,9 @@ mock.module("../agent/loop.js", () => ({
     constructor() {}
     getToolTokenBudget() {
       return 0;
+    }
+    getResolvedTools() {
+      return [];
     }
     getActiveModel() {
       return undefined;

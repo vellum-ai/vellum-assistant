@@ -43,6 +43,7 @@ import { defaultEmptyResponsePlugin } from "../plugins/defaults/empty-response.j
 import { defaultInjectorsPlugin } from "../plugins/defaults/injectors.js";
 import { defaultLlmCallPlugin } from "../plugins/defaults/llm-call.js";
 import { defaultMemoryRetrievalPlugin } from "../plugins/defaults/memory-retrieval.js";
+import { defaultTokenEstimatePlugin } from "../plugins/defaults/token-estimate.js";
 import { defaultToolErrorPlugin } from "../plugins/defaults/tool-error.js";
 import { defaultToolExecutePlugin } from "../plugins/defaults/tool-execute.js";
 import { defaultToolResultTruncatePlugin } from "../plugins/defaults/tool-result-truncate.js";
@@ -180,6 +181,7 @@ function registerDefaultPlugins(): void {
     defaultToolErrorPlugin,
     defaultMemoryRetrievalPlugin,
     defaultInjectorsPlugin,
+    defaultTokenEstimatePlugin,
   ];
   for (const plugin of defaults) {
     try {

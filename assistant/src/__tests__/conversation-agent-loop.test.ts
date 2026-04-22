@@ -57,10 +57,19 @@ mock.module("../config/loader.js", () => ({
 // ── Overflow recovery mocks ──────────────────────────────────────────
 
 // Token estimator returns a small value by default (well within budget)
-// so preflight does not trigger unless the test overrides it.
+// so preflight does not trigger unless the test overrides it. Both the
+// calibrated entry point (`estimatePromptTokens`, used in the convergence
+// path) and the raw entry point (`estimatePromptTokensRaw`, used by the
+// default `tokenEstimate` plugin pipeline for preflight/mid-loop) are
+// stubbed so either call site can drive the test.
 let mockEstimateTokens = 1000;
 mock.module("../context/token-estimator.js", () => ({
   estimatePromptTokens: () => mockEstimateTokens,
+  estimatePromptTokensRaw: () => mockEstimateTokens,
+  // Pass-through: the default plugin computes `toolTokenBudget` via this
+  // helper before delegating to the raw estimator. Return 0 so the mocked
+  // raw estimate is not perturbed.
+  estimateToolsTokens: () => 0,
 }));
 
 // Reducer: by default returns the input untouched and marks exhausted
@@ -353,7 +362,9 @@ type AgentLoopRun = (
   onEvent: (event: AgentEvent) => void,
   signal?: AbortSignal,
   requestId?: string,
-  onCheckpoint?: (checkpoint: CheckpointInfo) => CheckpointDecision,
+  onCheckpoint?: (
+    checkpoint: CheckpointInfo,
+  ) => CheckpointDecision | Promise<CheckpointDecision>,
 ) => Promise<Message[]>;
 
 function makeCtx(
@@ -383,6 +394,7 @@ function makeCtx(
     agentLoop: {
       run: agentLoopRun,
       getToolTokenBudget: () => 0,
+      getResolvedTools: () => [],
       // Tests here don't exercise calibration; returning undefined makes
       // the estimator use the per-provider aggregate key.
       getActiveModel: () => undefined,
@@ -1571,7 +1583,7 @@ describe("session-agent-loop", () => {
           providerDurationMs: 100,
         });
         if (onCheckpoint) {
-          const decision = onCheckpoint({
+          const decision = await onCheckpoint({
             turnIndex: 0,
             toolCount: 1,
             hasToolUse: true,
@@ -1639,7 +1651,7 @@ describe("session-agent-loop", () => {
           providerDurationMs: 100,
         });
         if (onCheckpoint) {
-          onCheckpoint({
+          await onCheckpoint({
             turnIndex: 0,
             toolCount: 1,
             hasToolUse: true,
