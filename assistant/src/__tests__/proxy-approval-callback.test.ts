@@ -381,13 +381,79 @@ describe("createProxyApprovalCallback", () => {
       // Verify the confirmation request uses the network_request tool name
       expect(msg.toolName).toBe("network_request");
       expect(msg.input).toHaveProperty("url", "https://api.fal.ai:443/v1/run");
-      expect(msg.input).toHaveProperty("matching_patterns", ["*.fal.ai"]);
+      expect(msg.input).toHaveProperty("scheme", "https");
+      expect(msg.input).toHaveProperty("known_credential_patterns", [
+        "*.fal.ai",
+      ]);
+      expect(msg.input.reason).toMatch(/No credential in this session/);
+      expect(msg.input).not.toHaveProperty("proxy_session_id");
       prompter.resolveConfirmation(msg.requestId, "allow");
       return p;
     };
 
     const callback = createProxyApprovalCallback(prompter, ctx);
     await callback(makeAskMissingCredentialRequest());
+  });
+
+  test("surfaces method and curated headers when the proxy has HTTP-level context", async () => {
+    const ctx = makeContext();
+    const prompterSendToClient = mock(() => {});
+    const prompter = new PermissionPrompter(prompterSendToClient);
+
+    const originalPrompt = prompter.prompt.bind(prompter);
+    prompter.prompt = async (...args) => {
+      const p = originalPrompt(...args);
+      await new Promise((r) => setTimeout(r, 10));
+      const call = (prompterSendToClient.mock.calls as unknown[][])[0];
+      const msg = call[0] as {
+        requestId: string;
+        input: Record<string, unknown>;
+      };
+      expect(msg.input).toHaveProperty("method", "POST");
+      expect(msg.input).toHaveProperty("request_headers", {
+        "content-type": "application/json",
+        "user-agent": "curl/8.5.0",
+      });
+      expect(msg.input).not.toHaveProperty("connection_detail_available");
+      prompter.resolveConfirmation(msg.requestId, "allow");
+      return p;
+    };
+
+    const callback = createProxyApprovalCallback(prompter, ctx);
+    await callback(
+      makeAskUnauthenticatedRequest({
+        method: "POST",
+        requestHeaders: {
+          "content-type": "application/json",
+          "user-agent": "curl/8.5.0",
+        },
+      }),
+    );
+  });
+
+  test("marks connection_detail_available=no for HTTPS CONNECT approvals", async () => {
+    const ctx = makeContext();
+    const prompterSendToClient = mock(() => {});
+    const prompter = new PermissionPrompter(prompterSendToClient);
+
+    const originalPrompt = prompter.prompt.bind(prompter);
+    prompter.prompt = async (...args) => {
+      const p = originalPrompt(...args);
+      await new Promise((r) => setTimeout(r, 10));
+      const call = (prompterSendToClient.mock.calls as unknown[][])[0];
+      const msg = call[0] as {
+        requestId: string;
+        input: Record<string, unknown>;
+      };
+      expect(msg.input).toHaveProperty("connection_detail_available", "no");
+      expect(msg.input).not.toHaveProperty("method");
+      expect(msg.input).not.toHaveProperty("request_headers");
+      prompter.resolveConfirmation(msg.requestId, "allow");
+      return p;
+    };
+
+    const callback = createProxyApprovalCallback(prompter, ctx);
+    await callback(makeAskUnauthenticatedRequest());
   });
 
   test("sends correct tool name for ask_unauthenticated decisions", async () => {

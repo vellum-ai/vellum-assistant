@@ -27,12 +27,19 @@ const HOP_BY_HOP = new Set([
  * Optional callback for credential injection or policy gating.
  * Called before the upstream request is sent. Returns extra headers
  * to merge, or null to reject the request.
+ *
+ * `method` and `requestHeaders` are populated for plain-HTTP proxied
+ * requests (absolute-URL form). For HTTPS CONNECT tunnels the proxy has
+ * not yet terminated TLS and cannot see HTTP-level details, so these are
+ * left undefined.
  */
 export type PolicyCallback = (
   hostname: string,
   port: number | null,
   path: string,
   scheme: "http" | "https",
+  method?: string,
+  requestHeaders?: IncomingMessage["headers"],
 ) => Promise<Record<string, string> | null>;
 
 /**
@@ -141,6 +148,8 @@ export function forwardHttpRequest(
       parsed.port ? Number(parsed.port) : null,
       path,
       "http",
+      clientReq.method,
+      clientReq.headers,
     )
       .then((extraHeaders) => {
         if (extraHeaders == null) {
