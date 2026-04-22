@@ -1768,50 +1768,55 @@ describe("Permission Checker", () => {
       expect(options[options.length - 1].label).toBe("gh *");
     });
 
-    test("shell allowlist for complex command offers exact + program wildcards", async () => {
+    // These tests run with permission-controls-v3 OFF (default config), so
+    // generateAllowlistOptions falls through to shellAllowlistStrategy which
+    // uses buildShellAllowlistOptions (action: key patterns).
+
+    test("shell allowlist for complex command offers exact compound option", async () => {
       const input = { command: 'git add . && git commit -m "fix"' };
       await classifyRisk("bash", input);
       const options = await generateAllowlistOptions("bash", input);
-      // Classifier produces exact match + per-program wildcards for multi-segment commands
-      expect(options[0].description).toBe("This exact command");
+      // buildShellAllowlistOptions: compound commands get "This exact compound command"
+      expect(options[0].description).toBe("This exact compound command");
       expect(options.length).toBeGreaterThanOrEqual(1);
     });
 
-    test("compound command via pipeline yields exact + program wildcard options", async () => {
+    test("compound command via pipeline yields exact + action key options", async () => {
       const input = { command: "git log | grep fix" };
       await classifyRisk("bash", input);
       const options = await generateAllowlistOptions("bash", input);
       expect(options.length).toBeGreaterThanOrEqual(2);
-      expect(options[0].description).toBe("This exact command");
+      // buildShellAllowlistOptions: pipelines get "This exact compound command"
+      expect(options[0].description).toBe("This exact compound command");
       expect(options[0].label).toContain("git log");
-      // Classifier offers per-program wildcards for pipelines
-      expect(options.some((o) => o.label.includes("*"))).toBe(true);
+      // Action keys from the first segment before the pipe
+      expect(options.some((o) => o.pattern.startsWith("action:"))).toBe(true);
     });
 
-    test("compound command via && yields exact + program wildcard options", async () => {
+    test("compound command via && yields exact compound option", async () => {
       const input = { command: "git add . && git push" };
       await classifyRisk("bash", input);
       const options = await generateAllowlistOptions("bash", input);
-      // Classifier produces exact match + per-program wildcards for multi-segment commands
-      expect(options[0].description).toBe("This exact command");
+      // buildShellAllowlistOptions: compound commands get "This exact compound command"
+      expect(options[0].description).toBe("This exact compound command");
       expect(options.length).toBeGreaterThanOrEqual(1);
     });
 
-    test("shell allowlist for single-word command produces classifier scope options", async () => {
+    test("shell allowlist for single-word command produces action key options", async () => {
       const input = { command: "ls -la" };
       await classifyRisk("bash", input);
       const options = await generateAllowlistOptions("bash", input);
       expect(options[0].label).toBe("ls -la");
       expect(options[0].description).toBe("This exact command");
-      // Should have broader "ls *" option
-      expect(options.some((o) => o.label === "ls *")).toBe(true);
+      // Should have broader action key options
+      expect(options.some((o) => o.pattern === "action:ls")).toBe(true);
     });
 
     test("shell allowlist exact option includes full command with setup prefixes", async () => {
       const input = { command: "cd /tmp && rm -rf build" };
       await classifyRisk("bash", input);
       const options = await generateAllowlistOptions("bash", input);
-      // The exact option must use the full command text
+      // buildShellAllowlistOptions: setup prefix + action gets action keys
       expect(options[0].description).toBe("This exact command");
       expect(options[0].label).toContain("rm -rf build");
     });
@@ -5388,14 +5393,14 @@ describe("integration regressions (PR 11)", () => {
       );
     });
 
-    test("compound command prompt offers exact + program wildcards", async () => {
+    test("compound command prompt offers exact compound option", async () => {
       const input = {
         command: 'git add . && git commit -m "fix" && git push',
       };
       await classifyRisk("host_bash", input);
       const options = await generateAllowlistOptions("host_bash", input);
-      // Classifier produces exact match + per-program wildcards
-      expect(options[0].description).toBe("This exact command");
+      // buildShellAllowlistOptions: compound commands get "This exact compound command"
+      expect(options[0].description).toBe("This exact compound command");
       expect(options.length).toBeGreaterThanOrEqual(1);
     });
   });

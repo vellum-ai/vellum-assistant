@@ -34,6 +34,7 @@ import {
 } from "./risk-types.js";
 import {
   analyzeShellCommand,
+  buildShellAllowlistOptions,
   cachedParse,
   deriveShellActionKeys,
   type ParsedCommand,
@@ -766,6 +767,14 @@ type AllowlistStrategy = (
   input: Record<string, unknown>,
 ) => Promise<AllowlistOption[]> | AllowlistOption[];
 
+function shellAllowlistStrategy(
+  _toolName: string,
+  input: Record<string, unknown>,
+): Promise<AllowlistOption[]> {
+  const command = ((input.command as string) ?? "").trim();
+  return buildShellAllowlistOptions(command);
+}
+
 function fileAllowlistStrategy(
   toolName: string,
   input: Record<string, unknown>,
@@ -935,6 +944,8 @@ function skillLoadAllowlistStrategy(
 }
 
 const ALLOWLIST_STRATEGIES: Record<string, AllowlistStrategy> = {
+  bash: shellAllowlistStrategy,
+  host_bash: shellAllowlistStrategy,
   file_read: fileAllowlistStrategy,
   file_write: fileAllowlistStrategy,
   file_edit: fileAllowlistStrategy,
@@ -955,21 +966,26 @@ export async function generateAllowlistOptions(
 ): Promise<AllowlistOption[]> {
   signal?.throwIfAborted();
 
-  // Check if a classifier already produced allowlist options during
-  // classifyRisk(). If so, return those directly — avoids duplicate
-  // computation and keeps scope option generation unified with risk
-  // classification.
-  const aKey = assessmentCacheKey(toolName, input);
-  const cachedAssessment = assessmentCache.get(aKey);
-  if (
-    cachedAssessment?.allowlistOptions &&
-    cachedAssessment.allowlistOptions.length > 0
-  ) {
-    return cachedAssessment.allowlistOptions;
+  // When permission-controls-v3 is enabled, use classifier-produced options
+  // from the assessment cache (populated by BashRiskClassifier.classify()).
+  // When the flag is off, fall through to the legacy per-tool strategies
+  // (e.g. shellAllowlistStrategy for bash/host_bash) to avoid changing the
+  // allowlist pattern format for users who haven't opted in.
+  const config = getConfig();
+  if (isAssistantFeatureFlagEnabled("permission-controls-v3", config)) {
+    const aKey = assessmentCacheKey(toolName, input);
+    const cachedAssessment = assessmentCache.get(aKey);
+    if (
+      cachedAssessment?.allowlistOptions &&
+      cachedAssessment.allowlistOptions.length > 0
+    ) {
+      return cachedAssessment.allowlistOptions;
+    }
   }
 
-  // Fall back to the per-tool strategy function for tools that don't have
-  // classifier-produced options (e.g. file tools, web tools, skill tools).
+  // Fall back to the per-tool strategy function. For bash/host_bash when the
+  // flag is off, this uses shellAllowlistStrategy (action: key patterns).
+  // For other tools, this is the only path.
   if (Object.hasOwn(ALLOWLIST_STRATEGIES, toolName)) {
     return ALLOWLIST_STRATEGIES[toolName](toolName, input);
   }
