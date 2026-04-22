@@ -636,6 +636,24 @@
       "compatibility": "Designed for Vellum personal assistants. Requires Python 3, bun, and the assistant credentials CLI."
     },
     {
+      "id": "vellum-heartbeat",
+      "name": "vellum-heartbeat",
+      "description": "Configure periodic background checklist runs",
+      "metadata": {
+        "emoji": "\\U0001F493",
+        "vellum": {
+          "display-name": "Heartbeat",
+          "activation-hints": [
+            "Set up a heartbeat, periodic checklist, background health check, or recurring background task"
+          ],
+          "avoid-when": [
+            "One-off or recurring schedules with specific payloads - use the schedule skill instead"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "vellum-oauth-integrations",
       "name": "vellum-oauth-integrations",
       "description": "Act on behalf of your user in any third-party software that supports OAuth 2.0",
