@@ -883,9 +883,13 @@ Examples:
           if (opts.setupNotes !== undefined)
             params.setupNotes = JSON.parse(opts.setupNotes);
           if (opts.availableScopes !== undefined) {
-            params.availableScopes = opts.availableScopes.startsWith("http")
-              ? opts.availableScopes
-              : JSON.parse(opts.availableScopes);
+            if (opts.availableScopes === "") {
+              params.availableScopes = null;
+            } else {
+              params.availableScopes = opts.availableScopes.startsWith("http")
+                ? opts.availableScopes
+                : JSON.parse(opts.availableScopes);
+            }
           }
 
           // Check if any fields were actually provided
