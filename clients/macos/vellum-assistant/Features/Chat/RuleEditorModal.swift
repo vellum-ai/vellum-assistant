@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 // MARK: - Helper Types
 
