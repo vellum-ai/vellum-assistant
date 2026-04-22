@@ -3,7 +3,7 @@ import SwiftUI
 /// Compact status indicator: count, dot, or text label with semantic tone.
 /// For categorization with colored backgrounds and icons, use `VTag` instead.
 /// Use `init(label:tone:)` for tone-aware label badges and `init(count:tone:)` for tone-aware count badges.
-/// Accent tone pairs adaptive `primaryBase` backgrounds with adaptive `contentInset` foregrounds so text stays legible in both light and dark mode.
+/// For the `.accent` tone with `.solid` emphasis, the adaptive `primaryBase` background is paired with adaptive `contentInset` foreground so text stays legible in both light and dark mode; other tone/emphasis pairs use their own fg/bg tokens (see `toneForegroundColor` / `toneBackgroundColor`).
 public struct VBadge: View {
     public enum Style {
         case count(Int)
