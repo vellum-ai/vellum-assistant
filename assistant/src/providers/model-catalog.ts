@@ -143,7 +143,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         pricing: {
           inputPer1mTokens: 2.5,
-          outputPer1mTokens: 10.0,
+          outputPer1mTokens: 15.0,
           cacheReadPer1mTokens: 0.25,
         },
       },
@@ -157,8 +157,8 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         pricing: {
-          inputPer1mTokens: 3.0,
-          outputPer1mTokens: 12.0,
+          inputPer1mTokens: 1.75,
+          outputPer1mTokens: 14.0,
           cacheReadPer1mTokens: 0.3,
         },
       },
@@ -173,7 +173,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsToolUse: true,
         pricing: {
           inputPer1mTokens: 0.5,
-          outputPer1mTokens: 2.0,
+          outputPer1mTokens: 3.0,
           cacheReadPer1mTokens: 0.05,
         },
       },
@@ -187,8 +187,8 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         pricing: {
-          inputPer1mTokens: 0.1,
-          outputPer1mTokens: 0.4,
+          inputPer1mTokens: 0.2,
+          outputPer1mTokens: 1.25,
           cacheReadPer1mTokens: 0.01,
         },
       },
