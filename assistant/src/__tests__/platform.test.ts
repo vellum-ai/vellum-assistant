@@ -59,8 +59,9 @@ afterEach(() => {
 // otherwise under ~/.vellum/workspace.
 describe("path characterization", () => {
   test("all path helpers resolve to expected locations", () => {
-    // Without VELLUM_WORKSPACE_DIR override, workspace is under ~/.vellum
+    // Without VELLUM_WORKSPACE_DIR or BASE_DATA_DIR override, everything is under ~/.vellum
     delete process.env.VELLUM_WORKSPACE_DIR;
+    delete process.env.BASE_DATA_DIR;
     const root = join(homedir(), ".vellum");
     const ws = getWorkspaceDir();
     const data = getDataDir();
@@ -87,6 +88,7 @@ describe("path characterization", () => {
   });
 
   test("VELLUM_WORKSPACE_DIR overrides workspace location", () => {
+    delete process.env.BASE_DATA_DIR;
     process.env.VELLUM_WORKSPACE_DIR = "/tmp/custom-workspace";
     expect(getWorkspaceDir()).toBe("/tmp/custom-workspace");
     expect(getDataDir()).toBe("/tmp/custom-workspace/data");
@@ -115,6 +117,7 @@ describe("path characterization", () => {
 
   test("hooks directory is inside the workspace boundary", () => {
     delete process.env.VELLUM_WORKSPACE_DIR;
+    delete process.env.BASE_DATA_DIR;
     expect(getWorkspaceHooksDir().startsWith(getWorkspaceDir())).toBe(true);
   });
 
@@ -122,6 +125,7 @@ describe("path characterization", () => {
     // Use a temp VELLUM_WORKSPACE_DIR so ensureDataDir writes to a temp dir
     // rather than the real ~/.vellum. Root-level dirs still go to ~/.vellum
     // but we only verify workspace dirs here to avoid side effects.
+    delete process.env.BASE_DATA_DIR;
     const wsDir = join(tmpdir(), `platform-test-ws-${Date.now()}`);
     process.env.VELLUM_WORKSPACE_DIR = wsDir;
 
