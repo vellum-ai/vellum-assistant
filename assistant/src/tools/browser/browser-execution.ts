@@ -2303,7 +2303,10 @@ async function checkExtensionModeStatus(
       details: {
         proxyBound,
         proxyConnected,
-        transport: isMacOS ? "macos-sse" : "extension-ws",
+        transport:
+          isMacOS && !context.hostBrowserRegistryRouted
+            ? "macos-sse"
+            : "extension-ws",
       },
     };
   }
@@ -2324,7 +2327,10 @@ async function checkExtensionModeStatus(
       details: {
         proxyBound,
         proxyConnected,
-        transport: isMacOS ? "macos-sse" : "extension-ws",
+        transport:
+          isMacOS && !context.hostBrowserRegistryRouted
+            ? "macos-sse"
+            : "extension-ws",
       },
     };
   }
@@ -2348,7 +2354,10 @@ async function checkExtensionModeStatus(
         proxyBound,
         proxyConnected,
         backendKind: probe.backendKind,
-        transport: isMacOS ? "macos-sse" : "extension-ws",
+        transport:
+          isMacOS && !context.hostBrowserRegistryRouted
+            ? "macos-sse"
+            : "extension-ws",
       },
     };
   }
@@ -2373,7 +2382,10 @@ async function checkExtensionModeStatus(
         errorCode: probe.error.code,
         diagnostic: probe.diagnostic,
         attemptDiagnostics: probe.error.attemptDiagnostics ?? [],
-        transport: isMacOS ? "macos-sse" : "extension-ws",
+        transport:
+          isMacOS && !context.hostBrowserRegistryRouted
+            ? "macos-sse"
+            : "extension-ws",
       },
     };
   }
@@ -2396,7 +2408,10 @@ async function checkExtensionModeStatus(
       errorCode: probe.error.code,
       diagnostic: probe.diagnostic,
       attemptDiagnostics: probe.error.attemptDiagnostics ?? [],
-      transport: isMacOS ? "macos-sse" : "extension-ws",
+      transport:
+        isMacOS && !context.hostBrowserRegistryRouted
+          ? "macos-sse"
+          : "extension-ws",
     },
   };
 }

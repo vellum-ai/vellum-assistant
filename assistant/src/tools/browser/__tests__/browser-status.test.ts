@@ -188,6 +188,27 @@ describe("executeBrowserStatus", () => {
     expect(extension.details.transport).toBe("macos-sse");
   });
 
+  test("macOS: reports transport as extension-ws when hostBrowserRegistryRouted is true", async () => {
+    const result = await executeBrowserStatus(
+      {},
+      makeContext({
+        transportInterface: "macos",
+        hostBrowserRegistryRouted: true,
+        hostBrowserProxy: {
+          isAvailable: () => true,
+        } as ToolContext["hostBrowserProxy"],
+      }),
+    );
+    expect(result.isError).toBe(false);
+    const payload = JSON.parse(result.content);
+    const extension = payload.modes.find(
+      (m: { mode: string }) => m.mode === BROWSER_STATUS_MODE.EXTENSION,
+    );
+    expect(extension).toBeDefined();
+    expect(extension.available).toBe(true);
+    expect(extension.details.transport).toBe("extension-ws");
+  });
+
   test("macOS: reports proxy unbound with macOS-specific actions when no proxy is present", async () => {
     const result = await executeBrowserStatus(
       {},
