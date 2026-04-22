@@ -123,7 +123,10 @@ import {
   cleanupPidFileIfOwner,
   writePid,
 } from "./daemon-control.js";
-import { bootstrapPlugins } from "./external-plugins-bootstrap.js";
+import {
+  bootstrapPlugins,
+  registerFirstPartyDefaults,
+} from "./external-plugins-bootstrap.js";
 import {
   createGuardianActionCopyGenerator,
   createGuardianFollowUpConversationGenerator,
@@ -698,11 +701,17 @@ export async function runDaemon(): Promise<void> {
       }
     }
 
-    // Bootstrap registered plugins. Runs after the plugin registry is
-    // populated (which happens via static side-effect imports — none exist
-    // in this PR, so the call is a no-op against an empty registry) and
-    // before the DaemonServer starts handling conversations. Credential
-    // resolution + per-plugin storage directory creation happen here.
+    // Register every first-party default plugin before bootstrapping so the
+    // registry is populated by the time `bootstrapPlugins` walks it. The
+    // helper is a pure registration call — no async work, no I/O — which
+    // keeps the boot sequence observable and lets tests register additional
+    // plugins between this and the bootstrap call.
+    registerFirstPartyDefaults();
+
+    // Bootstrap registered plugins. Credential resolution and per-plugin
+    // storage directory creation happen here. Runs before the DaemonServer
+    // starts handling conversations so `init()` failures surface during
+    // startup rather than mid-turn.
     await bootstrapPlugins({ config, assistantVersion: APP_VERSION });
 
     // Start the DaemonServer (conversation manager) before Qdrant so HTTP

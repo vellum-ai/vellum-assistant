@@ -14,6 +14,8 @@ import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import {
   type Injector,
   type Middleware,
+  type OverflowReduceArgs,
+  type OverflowReduceResult,
   type Plugin,
   PluginExecutionError,
   type PluginInitContext,
@@ -52,6 +54,27 @@ describe("plugin core types", () => {
       { output: unknown }
     > = async (args, next, _ctx) => next(args);
 
+    // Typed passthrough for the pipelines whose args/result shapes have
+    // landed as concrete types in M2 PRs. Uses `satisfies` to keep each
+    // pipeline's signature in sync with its declared slot in
+    // `PipelineMiddlewareMap`. As more pipelines migrate away from the
+    // `{ input: unknown }` placeholder, add their typed passthroughs here.
+    const overflowReducePassthrough: Middleware<
+      OverflowReduceArgs,
+      OverflowReduceResult
+    > = async (args, _next, _ctx) => ({
+      messages: args.messages,
+      runMessages: args.runMessages,
+      injectionMode: "full",
+      reducerState: {
+        appliedTiers: [],
+        injectionMode: "full",
+        exhausted: true,
+      },
+      reducerCompacted: false,
+      attempts: 0,
+    });
+
     const injector: Injector = {
       name: "sample-injector",
       order: 10,
@@ -86,7 +109,7 @@ describe("plugin core types", () => {
         historyRepair: passthrough,
         tokenEstimate: passthrough,
         compaction: passthrough,
-        overflowReduce: passthrough,
+        overflowReduce: overflowReducePassthrough,
         persistence: passthrough,
         titleGenerate: passthrough,
         toolResultTruncate: passthrough,

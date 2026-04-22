@@ -35,6 +35,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AssistantConfig } from "../config/schema.js";
+import { registerDefaultOverflowReducePlugin } from "../plugins/defaults/overflow-reduce.js";
 import {
   ASSISTANT_API_VERSIONS,
   getRegisteredPlugins,
@@ -132,6 +133,24 @@ function ensurePluginStorageDir(pluginName: string): string {
   const dir = join(vellumRoot(), "plugins-data", pluginName);
   mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+/**
+ * Register every first-party default plugin in the canonical order the
+ * registry should compose them. Call once at daemon startup immediately
+ * before {@link bootstrapPlugins} so the registry is populated before
+ * bootstrap walks it.
+ *
+ * Kept separate from `bootstrapPlugins` so the bootstrap-plumbing tests can
+ * continue to assert against a clean, empty-registry baseline without being
+ * coupled to the specific set of first-party plugins the daemon ships with
+ * today. Middleware composition order follows registration order — defaults
+ * register first so they run innermost and any externally-registered plugin
+ * wrapping the same slot observes the historical behavior as the terminal
+ * step.
+ */
+export function registerFirstPartyDefaults(): void {
+  registerDefaultOverflowReducePlugin();
 }
 
 /**
