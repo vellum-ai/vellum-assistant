@@ -364,6 +364,7 @@ export class Conversation {
     toolName?: string,
     toolUseId?: string,
   ) => void;
+  private cacheWarmAbort?: AbortController;
 
   constructor(
     conversationId: string,
@@ -557,6 +558,61 @@ export class Conversation {
 
   getOnboardingContext(): OnboardingContext | undefined {
     return this.onboardingContext;
+  }
+
+  // ── Prompt Cache Warming ─────────────────────────────────────────
+
+  /**
+   * Fire-and-forget LLM call with max_tokens=1 to populate the provider's
+   * prompt cache (system prompt + tools). Called after the canned first
+   * greeting so the user's next real message gets a cache hit.
+   */
+  warmPromptCache(): void {
+    this.cacheWarmAbort?.abort();
+    const abort = new AbortController();
+    this.cacheWarmAbort = abort;
+
+    const systemPrompt = this.hasSystemPromptOverride
+      ? this.systemPrompt
+      : (() => {
+          const persona = resolvePersonaContext(
+            this.currentTurnTrustContext,
+            this.currentTurnChannelCapabilities,
+          );
+          return buildSystemPrompt({
+            hasNoClient: this.hasNoClient,
+            userPersona: persona.userPersona,
+            channelPersona: persona.channelPersona,
+            userSlug: persona.userSlug,
+            onboardingContext: this.getOnboardingContext(),
+          });
+        })();
+    const tools = buildToolDefinitions();
+    const provider = this.provider;
+
+    const warmMessage: Message = {
+      role: "user",
+      content: [{ type: "text", text: "hi" }],
+    };
+
+    provider
+      .sendMessage([warmMessage], tools, systemPrompt, {
+        config: { max_tokens: 1, callSite: "mainAgent" },
+        signal: abort.signal,
+      })
+      .then(() => {
+        log.info("Prompt cache warmed successfully");
+      })
+      .catch((err) => {
+        if (!abort.signal.aborted) {
+          log.warn({ err }, "Prompt cache warming failed (non-fatal)");
+        }
+      })
+      .finally(() => {
+        if (this.cacheWarmAbort === abort) {
+          this.cacheWarmAbort = undefined;
+        }
+      });
   }
 
   // ── Lifecycle ────────────────────────────────────────────────────
@@ -1425,6 +1481,8 @@ export class Conversation {
     options?: { isInteractive?: boolean; callSite?: LLMCallSite },
     displayContent?: string,
   ): Promise<string> {
+    this.cacheWarmAbort?.abort();
+    this.cacheWarmAbort = undefined;
     return processMessageImpl(
       this as ProcessConversationContext,
       content,
