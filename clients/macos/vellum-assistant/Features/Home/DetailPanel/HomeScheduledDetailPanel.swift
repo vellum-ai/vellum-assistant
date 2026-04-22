@@ -110,8 +110,12 @@ struct HomeScheduledDetailPanel: View {
 
             detailsCard
         }
-        .padding(.horizontal, VSpacing.lg)
-        .padding(.top, VSpacing.lg)
+        .padding(EdgeInsets(
+            top: VSpacing.lg,
+            leading: VSpacing.lg,
+            bottom: 0,
+            trailing: VSpacing.lg
+        ))
     }
 
     private var detailsCard: some View {
@@ -166,13 +170,8 @@ struct HomeScheduledDetailPanel: View {
                         Text(secondaryActionLabel)
                             .font(VFont.bodyMediumDefault)
                             .foregroundStyle(VColor.contentEmphasized)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
+                            .padding(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
                             .frame(height: 32)
-                            .background(
-                                RoundedRectangle(cornerRadius: VRadius.md, style: .continuous)
-                                    .fill(Color.clear)
-                            )
                             .overlay(
                                 RoundedRectangle(cornerRadius: VRadius.md, style: .continuous)
                                     .strokeBorder(VColor.borderElement, lineWidth: 1)
@@ -188,8 +187,7 @@ struct HomeScheduledDetailPanel: View {
                     Text(primaryActionLabel)
                         .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentInset)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
+                        .padding(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
                         .frame(height: 32)
                         .background(
                             RoundedRectangle(cornerRadius: VRadius.md, style: .continuous)
@@ -204,29 +202,4 @@ struct HomeScheduledDetailPanel: View {
             .padding(VSpacing.lg)
         }
     }
-}
-
-// MARK: - Preview
-
-#Preview {
-    HomeScheduledDetailPanel(
-        title: "Scheduled Thing",
-        description: "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.",
-        rows: [
-            .init(key: "Name", value: "Morning check-in"),
-            .init(key: "Syntax", value: "cron"),
-            .init(key: "Mode", value: "notify"),
-            .init(key: "Schedule", value: "Every day at 9:00 AM (Europe/Ljubljana)"),
-            .init(key: "Enabled", value: "true"),
-            .init(key: "Next Run", value: "Apr 23, 2026 at 9:00 AM GMT+2"),
-        ],
-        primaryActionLabel: "Action",
-        secondaryActionLabel: "Action",
-        onClose: {},
-        onPrimaryAction: {},
-        onSecondaryAction: {}
-    )
-    .frame(width: 601, height: 786)
-    .padding()
-    .background(VColor.surfaceBase)
 }
