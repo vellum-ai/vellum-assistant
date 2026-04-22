@@ -75,7 +75,13 @@ describe("plugin core types", () => {
         // no-op
       },
       tools: [{ name: "sample-tool" }],
-      routes: [{ path: "/sample" }],
+      routes: [
+        {
+          pattern: /^\/sample$/,
+          methods: ["GET"],
+          handler: async () => new Response("ok", { status: 200 }),
+        },
+      ],
       skills: [{ name: "sample-skill" }],
       injectors: [injector],
       middleware: {

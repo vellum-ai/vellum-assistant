@@ -37,6 +37,40 @@ export function registerSkillRoute(route: SkillRoute): void {
 }
 
 /**
+ * Unregister a previously-registered skill route.
+ *
+ * Matches by `RegExp` identity first (the common case — a caller passes back
+ * the same `pattern` reference it handed to {@link registerSkillRoute}) and
+ * falls back to `pattern.source + flags` equality so callers that rebuild an
+ * equivalent regex still succeed. Removes at most one route per call — if two
+ * routes were registered with identical patterns, the first match is dropped
+ * and subsequent calls remove the rest.
+ *
+ * Returns `true` if a route was removed, `false` otherwise. Not finding a
+ * match is not an error: the plugin-shutdown path calls this best-effort for
+ * every route a plugin contributed, and a stale reference (e.g. the registry
+ * was cleared externally) should not crash shutdown.
+ */
+export function unregisterSkillRoute(pattern: RegExp): boolean {
+  const index = routes.findIndex(
+    (route) =>
+      route.pattern === pattern ||
+      (route.pattern.source === pattern.source &&
+        route.pattern.flags === pattern.flags),
+  );
+  if (index === -1) {
+    log.warn(
+      { pattern: pattern.source },
+      "unregisterSkillRoute: no matching route found",
+    );
+    return false;
+  }
+  routes.splice(index, 1);
+  log.info({ pattern: pattern.source }, "Skill route unregistered");
+  return true;
+}
+
+/**
  * Try to match an inbound request path + method against registered skill routes.
  *
  * - Returns `{ kind: "match", ... }` when a route matches both path and method.
@@ -64,8 +98,6 @@ export function matchSkillRoute(
     pathMatches.push(route);
   }
   if (pathMatches.length === 0) return null;
-  const allow = Array.from(
-    new Set(pathMatches.flatMap((r) => r.methods)),
-  );
+  const allow = Array.from(new Set(pathMatches.flatMap((r) => r.methods)));
   return { kind: "methodMismatch", allow };
 }

@@ -44,6 +44,10 @@ import {
   PluginExecutionError,
   type PluginInitContext,
 } from "../plugins/types.js";
+import {
+  registerSkillRoute,
+  unregisterSkillRoute,
+} from "../runtime/skill-route-registry.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { vellumRoot } from "../util/platform.js";
@@ -206,6 +210,19 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
       }
     }
 
+    // Route contributions — registered after init() succeeds so a plugin that
+    // fails to initialize never exposes a half-wired HTTP surface. Mirrors the
+    // skill-route registry shape; see {@link PluginRouteRegistration}.
+    if (plugin.routes && plugin.routes.length > 0) {
+      for (const route of plugin.routes) {
+        registerSkillRoute(route);
+      }
+      log.info(
+        { plugin: name, count: plugin.routes.length },
+        "plugin routes registered",
+      );
+    }
+
     log.info({ plugin: name }, "plugin initialized");
   }
 
@@ -218,6 +235,24 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
     for (let i = shutdownSnapshot.length - 1; i >= 0; i--) {
       const plugin = shutdownSnapshot[i]!;
       const name = plugin.manifest.name;
+
+      // Contributed routes come out before onShutdown() runs so the plugin's
+      // hook observes the same HTTP surface it expected during init — i.e.,
+      // no inbound traffic hitting a handler the plugin is about to tear
+      // down. Unregister is best-effort; a missing pattern logs and continues.
+      if (plugin.routes && plugin.routes.length > 0) {
+        for (const route of plugin.routes) {
+          try {
+            unregisterSkillRoute(route.pattern);
+          } catch (err) {
+            log.warn(
+              { err, plugin: name, pattern: route.pattern.source },
+              "plugin route unregister failed (continuing)",
+            );
+          }
+        }
+      }
+
       if (!plugin.onShutdown) continue;
       try {
         await plugin.onShutdown();

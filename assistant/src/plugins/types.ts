@@ -17,6 +17,7 @@
  */
 
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
@@ -254,8 +255,14 @@ export interface Injector {
 
 /** Tool registration contributed by a plugin. Concrete shape TBD. */
 export type PluginToolRegistration = unknown;
-/** HTTP route registration contributed by a plugin. Concrete shape TBD. */
-export type PluginRouteRegistration = unknown;
+/**
+ * HTTP route registration contributed by a plugin. Plugins express routes as
+ * {@link SkillRoute} values — the same shape the skill-route registry
+ * consumes — so `registerSkillRoute`/`unregisterSkillRoute` can accept them
+ * directly. Bootstrap wires the registrations after `init()` succeeds and
+ * tears them down on shutdown.
+ */
+export type PluginRouteRegistration = SkillRoute;
 /** Skill registration contributed by a plugin. Concrete shape TBD. */
 export type PluginSkillRegistration = unknown;
 
