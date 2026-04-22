@@ -95,3 +95,26 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
   resetPluginRegistryForTests();
   registerDefaultPlugins();
 }
+
+// Module-load side effect: register every first-party default plugin so
+// downstream consumers (production bootstrap AND tests that skip
+// `bootstrapPlugins()`) observe a fully-populated registry by default.
+// Idempotent via swallowed duplicate-name errors so repeat imports,
+// test resets followed by re-imports, etc. don't throw.
+//
+// This preserves the G3.2/R3 plan intent: default plugins are the innermost
+// layer, and user plugins registered later via `loadUserPlugins()` wrap
+// them uniformly across all 14 pipelines. Because `loadUserPlugins()` runs
+// inside `bootstrapPlugins()` — strictly AFTER all static side-effect
+// imports have executed — the onion ordering (defaults inner, user
+// middleware outer) holds in production. Test harnesses that skip
+// `bootstrapPlugins()` inherit the defaults automatically, fixing the
+// persistence / emptyResponse / toolError pipeline terminals that throw
+// under strict-fail semantics.
+//
+// Note: pipeline-unit tests that call `resetPluginRegistryForTests()` in
+// `beforeEach` are unaffected because this side-effect runs exactly once,
+// at module load, and the reset helper only clears the registry — it
+// doesn't re-run the module body. Those tests that need defaults back
+// should call `resetPluginRegistryAndRegisterDefaults()` instead.
+registerDefaultPlugins();
