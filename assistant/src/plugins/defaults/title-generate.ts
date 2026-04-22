@@ -18,7 +18,6 @@
  */
 
 import { queueGenerateConversationTitle } from "../../memory/conversation-title-service.js";
-import { registerPlugin } from "../registry.js";
 import type { Plugin, TitleArgs, TitleResult } from "../types.js";
 
 /**
@@ -66,7 +65,3 @@ export const defaultTitleGeneratePlugin: Plugin = {
     },
   },
 };
-
-// Side-effect registration. Importing this module adds the plugin to the
-// registry; `bootstrapPlugins` then runs its (currently empty) `init()`.
-registerPlugin(defaultTitleGeneratePlugin);

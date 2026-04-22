@@ -55,7 +55,7 @@ mock.module("../providers/registry.js", () => ({
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-    
+
     llm: {
       default: {
         provider: "mock-provider",
@@ -330,7 +330,9 @@ interface PendingRun {
   reject: (err: Error) => void;
   messages: Message[];
   onEvent: (event: AgentEvent) => void;
-  onCheckpoint?: (checkpoint: CheckpointInfo) => CheckpointDecision;
+  onCheckpoint?: (
+    checkpoint: CheckpointInfo,
+  ) => CheckpointDecision | Promise<CheckpointDecision>;
 }
 
 let pendingRuns: PendingRun[] = [];
@@ -341,6 +343,9 @@ mock.module("../agent/loop.js", () => ({
     getToolTokenBudget() {
       return 0;
     }
+    getResolvedTools() {
+      return [];
+    }
     getActiveModel() {
       return undefined;
     }
@@ -349,7 +354,9 @@ mock.module("../agent/loop.js", () => ({
       onEvent: (event: AgentEvent) => void,
       _signal?: AbortSignal,
       _requestId?: string,
-      onCheckpoint?: (checkpoint: CheckpointInfo) => CheckpointDecision,
+      onCheckpoint?: (
+        checkpoint: CheckpointInfo,
+      ) => CheckpointDecision | Promise<CheckpointDecision>,
     ): Promise<Message[]> {
       return new Promise<Message[]>((resolve, reject) => {
         pendingRuns.push({ resolve, reject, messages, onEvent, onCheckpoint });
@@ -1728,7 +1735,7 @@ describe("Conversation checkpoint handoff", () => {
     // Simulate the agent loop calling it at a turn boundary.
     const run = pendingRuns[0];
     expect(run.onCheckpoint).toBeDefined();
-    const decision = run.onCheckpoint!({
+    const decision = await run.onCheckpoint!({
       turnIndex: 0,
       toolCount: 1,
       hasToolUse: true,
@@ -1771,7 +1778,7 @@ describe("Conversation checkpoint handoff", () => {
     // The pending run should have an onCheckpoint callback
     const run = pendingRuns[0];
     expect(run.onCheckpoint).toBeDefined();
-    const decision = run.onCheckpoint!({
+    const decision = await run.onCheckpoint!({
       turnIndex: 0,
       toolCount: 1,
       hasToolUse: true,
@@ -1813,7 +1820,7 @@ describe("Conversation checkpoint handoff", () => {
     // Simulate the agent loop yielding at the checkpoint (first run is mid-tool-use)
     const run0 = pendingRuns[0];
     expect(run0.onCheckpoint).toBeDefined();
-    const decision = run0.onCheckpoint!({
+    const decision = await run0.onCheckpoint!({
       turnIndex: 0,
       toolCount: 1,
       hasToolUse: true,
@@ -1871,7 +1878,7 @@ describe("Conversation checkpoint handoff", () => {
 
     // Simulate multiple tool-use turns before the checkpoint fires
     // Turn 0 — checkpoint yields because msg-2 is waiting
-    const decision = run.onCheckpoint!({
+    const decision = await run.onCheckpoint!({
       turnIndex: 0,
       toolCount: 1,
       hasToolUse: true,
@@ -1966,7 +1973,7 @@ describe("Conversation checkpoint handoff", () => {
     const runA = pendingRuns[0];
     expect(runA.onCheckpoint).toBeDefined();
     expect(
-      runA.onCheckpoint!({
+      await runA.onCheckpoint!({
         turnIndex: 0,
         toolCount: 1,
         hasToolUse: true,
@@ -1983,7 +1990,7 @@ describe("Conversation checkpoint handoff", () => {
     const runB = pendingRuns[1];
     expect(runB.onCheckpoint).toBeDefined();
     expect(
-      runB.onCheckpoint!({
+      await runB.onCheckpoint!({
         turnIndex: 0,
         toolCount: 1,
         hasToolUse: true,
@@ -1998,7 +2005,7 @@ describe("Conversation checkpoint handoff", () => {
     expect(runC.onCheckpoint).toBeDefined();
     // Only D remains, still should yield
     expect(
-      runC.onCheckpoint!({
+      await runC.onCheckpoint!({
         turnIndex: 0,
         toolCount: 1,
         hasToolUse: true,
@@ -2012,7 +2019,7 @@ describe("Conversation checkpoint handoff", () => {
     const runD = pendingRuns[3];
     expect(runD.onCheckpoint).toBeDefined();
     expect(
-      runD.onCheckpoint!({
+      await runD.onCheckpoint!({
         turnIndex: 0,
         toolCount: 1,
         hasToolUse: true,
@@ -2450,7 +2457,7 @@ describe("Conversation attachment event payloads", () => {
     const run = pendingRuns[0];
     expect(run.onCheckpoint).toBeDefined();
     expect(
-      run.onCheckpoint!({
+      await run.onCheckpoint!({
         turnIndex: 0,
         toolCount: 1,
         hasToolUse: true,

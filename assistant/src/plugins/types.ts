@@ -16,8 +16,24 @@
  * Design doc: `.private/plans/agent-plugin-system.md`.
  */
 
-import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
-import type { Provider } from "../providers/types.js";
+import type { ContextWindowConfig } from "../config/schemas/inference.js";
+import type { ContextWindowResult } from "../context/window-manager.js";
+import type { ReducerState } from "../daemon/context-overflow-reducer.js";
+import type {
+  InjectionMode,
+  TrustContext,
+} from "../daemon/conversation-runtime-assembly.js";
+import type { RepairResult } from "../daemon/history-repair.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
+import type {
+  ContentBlock,
+  Message,
+  Provider,
+  ProviderResponse,
+  SendMessageOptions,
+  ToolDefinition,
+} from "../providers/types.js";
+import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
@@ -122,29 +138,357 @@ export type PipelineName =
 export type TurnArgs = { readonly input: unknown };
 export type TurnResult = { readonly output: unknown };
 
-export type LLMCallArgs = { readonly input: unknown };
-export type LLMCallResult = { readonly output: unknown };
+/**
+ * Pipeline arguments for `llmCall` — mirrors the inputs to
+ * {@link Provider.sendMessage}. The terminal handler (the default plugin)
+ * delegates straight to `args.provider.sendMessage(args.messages, args.tools,
+ * args.systemPrompt, args.options)`; middleware may observe or rewrite any
+ * field before that call, short-circuit with a synthetic {@link LLMCallResult},
+ * or post-process the response on the way out.
+ *
+ * `provider` is passed in `args` (rather than resolved from the runtime) so
+ * middleware can swap it deterministically per-call. `options` carries the
+ * full `SendMessageOptions` bag — `config`, `onEvent`, and `signal` — so
+ * middleware can substitute streaming handlers or cancellation signals
+ * without reconstructing them.
+ */
+export type LLMCallArgs = {
+  readonly provider: Provider;
+  readonly messages: Message[];
+  readonly tools?: ToolDefinition[];
+  readonly systemPrompt?: string;
+  readonly options?: SendMessageOptions;
+};
+export type LLMCallResult = ProviderResponse;
 
-export type ToolExecuteArgs = { readonly input: unknown };
-export type ToolExecuteResult = { readonly output: unknown };
+/**
+ * Arguments passed to the `toolExecute` pipeline — mirrors the public
+ * {@link ToolExecutor.execute} signature so middleware can observe (and
+ * mutate) the tool name, input payload, and the full {@link ToolContext}
+ * before the terminal runs the actual execution.
+ */
+export interface ToolExecuteArgs {
+  readonly name: string;
+  readonly input: Record<string, unknown>;
+  readonly context: ToolContext;
+}
 
-export type MemoryRetrievalArgs = { readonly input: unknown };
-export type MemoryRetrievalResult = { readonly output: unknown };
+/**
+ * Result returned from the `toolExecute` pipeline — identical to
+ * {@link ToolExecutionResult} so short-circuit middleware can supply a
+ * synthetic result without invoking the terminal.
+ */
+export type ToolExecuteResult = ToolExecutionResult;
 
-export type HistoryRepairArgs = { readonly input: unknown };
-export type HistoryRepairResult = { readonly output: unknown };
+/**
+ * A single retrieved memory artifact.
+ *
+ * The memory-graph retriever emits complex, tightly-coupled state (content
+ * blocks, query vectors, metrics, events, etc.) that downstream code in the
+ * agent loop consumes holistically. Representing each memory-graph output as
+ * an opaque `MemoryBlock` lets plugins swap in completely different shapes
+ * (custom retrievers, mocks for testing) without requiring the plugin surface
+ * to re-declare the graph result schema here. Refined by consumers via
+ * runtime narrowing — the default retriever attaches a structural marker so
+ * the agent loop can safely unwrap its own output.
+ */
+export type MemoryBlock = unknown;
 
-export type TokenEstimateArgs = { readonly input: unknown };
-export type TokenEstimateResult = { readonly output: unknown };
+/**
+ * Inputs to the memory-retrieval pipeline. The pipeline takes only
+ * identifiers and the trust context — the actual data sources (PKB files,
+ * NOW.md, memory graph) are side-effectful and read by the terminal.
+ */
+export interface MemoryArgs {
+  readonly conversationId: string;
+  readonly trustContext: TrustContext | undefined;
+  readonly turnIndex: number;
+}
 
-export type CompactionArgs = { readonly input: unknown };
-export type CompactionResult = { readonly output: unknown };
+/**
+ * Outputs of the memory-retrieval pipeline.
+ *
+ * - `pkbContent` / `nowContent`: trimmed file contents ready for injection,
+ *   or `null` when the file is missing/empty.
+ * - `memoryGraphBlocks`: zero or one memory-graph retrievals (the default
+ *   retriever yields exactly one when the actor is trusted and the graph
+ *   produced output, zero otherwise). Multi-entry arrays are reserved for
+ *   future multi-source retrievers; the current agent loop consumes only
+ *   the first entry.
+ */
+export interface MemoryResult {
+  readonly pkbContent: string | null;
+  readonly nowContent: string | null;
+  readonly memoryGraphBlocks: ReadonlyArray<MemoryBlock>;
+}
 
-export type OverflowReduceArgs = { readonly input: unknown };
-export type OverflowReduceResult = { readonly output: unknown };
+/**
+ * Arguments for the `historyRepair` pipeline. `history` is the pre-repair
+ * message list scheduled for the next provider call; `provider` is the
+ * downstream provider key (`ctx.provider.name`) so plugins that want to
+ * special-case repair per provider can discriminate without looking up the
+ * ambient provider from `TurnContext`.
+ *
+ * The pipeline currently wraps only the standard pre-run repair pass
+ * (`repairHistory`). The orchestrator's one-shot deep-repair fallback
+ * (`deepRepairHistory`), invoked only after a provider ordering error,
+ * remains a direct call. Adding a `mode` discriminator here would be
+ * premature — deep-repair has no known plugin-level consumer yet.
+ */
+export type HistoryRepairArgs = {
+  readonly history: Message[];
+  readonly provider: string;
+};
 
-export type PersistenceArgs = { readonly input: unknown };
-export type PersistenceResult = { readonly output: unknown };
+/**
+ * Result of the `historyRepair` pipeline. Carries both the repaired message
+ * list and the `RepairStats` record the orchestrator logs when any repair
+ * happened — the default plugin forwards the shape unchanged from
+ * {@link repairHistory}.
+ */
+export type HistoryRepairResult = RepairResult;
+
+/**
+ * Inputs to the `tokenEstimate` pipeline. The default middleware delegates
+ * these straight to {@link estimatePromptTokensRaw}; custom plugins may
+ * substitute an alternate estimator (e.g. provider-native tokenization) by
+ * short-circuiting the pipeline with their own {@link EstimateResult}.
+ *
+ * Fields:
+ * - `history` — current message list to estimate over.
+ * - `systemPrompt` — system prompt string, or `undefined` when absent.
+ * - `tools` — tool definitions visible on this turn. The default plugin
+ *   sums their token budget via `estimateToolsTokens(tools)` and hands the
+ *   result to the raw estimator via `toolTokenBudget`. Plugins that want to
+ *   ignore tool cost can skip that term.
+ * - `providerName` — canonical calibration provider key (the value returned
+ *   by `getCalibrationProviderKey(provider)`). Drives provider-specific
+ *   heuristics inside the raw estimator (e.g. Anthropic image sizing).
+ */
+export type EstimateArgs = {
+  readonly history: Message[];
+  readonly systemPrompt: string | undefined;
+  readonly tools: ToolDefinition[];
+  readonly providerName: string | undefined;
+};
+
+/** Result of the `tokenEstimate` pipeline — total estimated prompt tokens. */
+export type EstimateResult = number;
+
+/** Alias retained for symmetry with the rest of the pipeline-name family. */
+export type TokenEstimateArgs = EstimateArgs;
+/** Alias retained for symmetry with the rest of the pipeline-name family. */
+export type TokenEstimateResult = EstimateResult;
+
+/**
+ * Pipeline inputs for the `compaction` slot — the arguments the assistant
+ * would otherwise have passed to {@link ContextWindowManager.maybeCompact}.
+ *
+ * Typed via `unknown`-forwarded aliases to keep this module free of runtime
+ * imports from `context/window-manager.ts` (which would pull the full
+ * compaction machinery into anything that merely imports plugin types).
+ * The default compaction plugin re-casts back to the concrete types before
+ * delegating to the manager.
+ */
+export type CompactionArgs = {
+  /** The message history to consider for compaction. */
+  readonly messages: unknown;
+  /** Abort signal forwarded to the compaction summary call. */
+  readonly signal?: AbortSignal;
+  /** `ContextWindowCompactOptions` — options block forwarded verbatim. */
+  readonly options?: unknown;
+};
+/**
+ * Pipeline result for the `compaction` slot — the full
+ * {@link import("../context/window-manager.js").ContextWindowResult}
+ * object returned by `maybeCompact()`. Kept as `unknown` here for the
+ * same decoupling reason as {@link CompactionArgs}; consumers in
+ * `daemon/conversation-agent-loop.ts` cast back to the concrete shape.
+ */
+export type CompactionResult = unknown;
+
+/**
+ * Input to the `overflowReduce` pipeline. Captures everything the reducer
+ * tier loop needs, including the message history, reducer configuration,
+ * and side-effect callbacks that bridge the pipeline back to the orchestrator's
+ * mutable per-turn state (context-window manager, activity emitter, runtime
+ * injection reassembly, memory reinjection).
+ *
+ * The callbacks are supplied by the orchestrator because the reducer loop
+ * needs to coordinate with state that lives on the `AgentLoopConversationContext`
+ * (message mutation, compaction event emission, circuit breaker tracking,
+ * injection block reassembly). Keeping them as explicit callbacks — rather
+ * than pulling the whole context into the pipeline — preserves the rule that
+ * `TurnContext` stays minimal and pipeline-agnostic.
+ */
+export interface OverflowReduceArgs {
+  /** Bare persisted message history (mutable copy — the default middleware
+   *  applies reducer results in-place via the `applyMessages` callback). */
+  readonly messages: Message[];
+  /** Current run-time message array with runtime injections applied. */
+  readonly runMessages: Message[];
+  /** System prompt used for post-step token estimation. */
+  readonly systemPrompt: string;
+  /** Provider name used for token estimation (calibration provider key). */
+  readonly providerName: string;
+  /** Context window config (drives compaction behavior). */
+  readonly contextWindow: ContextWindowConfig;
+  /** Token budget the reducer must get below (preflight budget). */
+  readonly preflightBudget: number;
+  /** Tool-token overhead included in every estimation call. */
+  readonly toolTokenBudget?: number;
+  /** Maximum reducer iterations before the loop exits unconditionally. */
+  readonly maxAttempts: number;
+  /** Abort signal threaded through compaction calls. */
+  readonly abortSignal?: AbortSignal;
+  /**
+   * Compaction callback — the reducer never owns the ContextWindowManager
+   * instance. The orchestrator supplies this closure so the default plugin
+   * can delegate the forced-compaction tier without crossing the
+   * pipeline/infra boundary on its own.
+   */
+  readonly compactFn: (
+    messages: Message[],
+    signal: AbortSignal | undefined,
+    options: unknown,
+  ) => Promise<ContextWindowResult>;
+  /**
+   * Invoked before each reducer iteration to emit the `context_compacting`
+   * activity state. The orchestrator owns activity emission because the
+   * signal is trust/channel aware.
+   */
+  readonly emitActivityState: () => void;
+  /**
+   * Invoked after each reducer step that produced a successful compaction.
+   * Handles circuit-breaker tracking, event emission, and context mutation.
+   * The pipeline passes back `didCompact` so the orchestrator can flip its
+   * `reducerCompacted` / `shouldInjectWorkspace` flags and the next
+   * re-injection uses the fresh messages.
+   */
+  readonly onCompactionResult: (
+    result: ContextWindowResult,
+  ) => void | Promise<void>;
+  /**
+   * Invoked after each step to rebuild `runMessages` from the step's
+   * reduced history with the requested injection mode. The orchestrator
+   * owns this helper so the full per-turn injection options object doesn't
+   * leak into the pipeline surface. The plugin passes the current reduced
+   * messages array explicitly so the orchestrator doesn't need to read
+   * mutable shared state. Returns the new `runMessages`.
+   */
+  readonly reinjectForMode: (
+    messages: Message[],
+    mode: InjectionMode,
+    didCompact: boolean,
+  ) => Promise<Message[]>;
+  /**
+   * Invoked after each step to post-estimate the rebuilt `runMessages`.
+   * Pulled out so the orchestrator controls how estimation is performed
+   * (and which fields feed it) without the pipeline reimplementing it.
+   */
+  readonly estimatePostInjection: (runMessages: Message[]) => number;
+}
+
+/** Output of the `overflowReduce` pipeline. */
+export interface OverflowReduceResult {
+  /** Final reduced `ctx.messages` value (mutated in place by the reducer). */
+  readonly messages: Message[];
+  /** Final `runMessages` with re-applied runtime injections. */
+  readonly runMessages: Message[];
+  /** Final injection mode (may be `"minimal"` if the downgrade tier fired). */
+  readonly injectionMode: InjectionMode;
+  /** Accumulated reducer state at exit. */
+  readonly reducerState: ReducerState;
+  /** True if any step successfully compacted history. */
+  readonly reducerCompacted: boolean;
+  /** How many iterations of the tier loop executed. */
+  readonly attempts: number;
+}
+
+/**
+ * Pipeline arguments for `persistence` — a discriminated union over the
+ * message-CRUD operations plugins may observe, redirect, or short-circuit:
+ *
+ * - `add`    — append a new message (`addMessage`). Mirrors
+ *              `addMessage(conversationId, role, content, metadata?, opts?)`.
+ *              When `syncToDisk` is set, the default plugin also runs
+ *              {@link syncMessageToDisk} against the just-persisted row so
+ *              the JSONL disk view stays consistent. The `createdAtMs` field
+ *              carries the conversation's creation timestamp — needed to
+ *              resolve the disk-view directory path.
+ * - `update` — shallow-merge metadata into an existing message
+ *              (`updateMessageMetadata`). Returns `void`.
+ * - `delete` — remove a single message (`deleteMessageById`). Returns the
+ *              {@link DeletedMemoryIds}-shaped segment/summary IDs the caller
+ *              must clean up out-of-band.
+ *
+ * The discriminated `op` field lets plugin middleware narrow the union and
+ * tailor behavior per-operation (e.g. "only observe deletes", "redirect
+ * adds to a mock store").
+ */
+export type PersistAddArgs = {
+  readonly op: "add";
+  readonly conversationId: string;
+  readonly role: string;
+  readonly content: string;
+  readonly metadata?: Record<string, unknown>;
+  readonly addOptions?: { readonly skipIndexing?: boolean };
+  /**
+   * When `true`, the default plugin additionally invokes
+   * {@link syncMessageToDisk} with the returned message's id. Requires
+   * {@link createdAtMs} to resolve the conversation's disk-view directory.
+   */
+  readonly syncToDisk?: boolean;
+  /** Conversation creation timestamp — only read when `syncToDisk` is true. */
+  readonly createdAtMs?: number;
+};
+
+export type PersistUpdateArgs = {
+  readonly op: "update";
+  readonly messageId: string;
+  readonly updates: Record<string, unknown>;
+};
+
+export type PersistDeleteArgs = {
+  readonly op: "delete";
+  readonly messageId: string;
+};
+
+export type PersistArgs =
+  | PersistAddArgs
+  | PersistUpdateArgs
+  | PersistDeleteArgs;
+
+/**
+ * Result row returned by an `add` op — matches the shape produced by
+ * {@link addMessage}. Kept structural (not imported from `memory/`) so the
+ * plugin types module stays decoupled from the storage layer.
+ */
+export type PersistAddResult = {
+  readonly op: "add";
+  readonly message: {
+    readonly id: string;
+    readonly conversationId: string;
+    readonly role: string;
+    readonly content: string;
+    readonly createdAt: number;
+    readonly metadata?: string;
+  };
+};
+
+export type PersistUpdateResult = { readonly op: "update" };
+
+/** IDs of segments/summaries the caller must remove from Qdrant. */
+export type PersistDeleteResult = {
+  readonly op: "delete";
+  readonly segmentIds: string[];
+  readonly deletedSummaryIds: string[];
+};
+
+export type PersistResult =
+  | PersistAddResult
+  | PersistUpdateResult
+  | PersistDeleteResult;
 
 /**
  * Arguments for the `titleGenerate` pipeline. Mirrors the parameters of
@@ -184,17 +528,160 @@ export type TitleGenerateArgs = TitleArgs;
  */
 export type TitleGenerateResult = TitleResult;
 
-export type ToolResultTruncateArgs = { readonly input: unknown };
-export type ToolResultTruncateResult = { readonly output: unknown };
+/**
+ * Input to the `toolResultTruncate` pipeline: the raw tool-result text and
+ * the character budget the caller computed from the context-window share
+ * (see `calculateMaxToolResultChars` in `context/tool-result-truncation.ts`).
+ */
+export type ToolResultTruncateArgs = {
+  readonly content: string;
+  readonly maxChars: number;
+};
 
-export type EmptyResponseArgs = { readonly input: unknown };
-export type EmptyResponseResult = { readonly output: unknown };
+/**
+ * Output of the `toolResultTruncate` pipeline: the (possibly truncated)
+ * content and a boolean flag indicating whether the pipeline actually
+ * shortened the input. Callers use `truncated` for telemetry / warnings.
+ */
+export type ToolResultTruncateResult = {
+  readonly content: string;
+  readonly truncated: boolean;
+};
 
-export type ToolErrorArgs = { readonly input: unknown };
-export type ToolErrorResult = { readonly output: unknown };
+/**
+ * Snapshot of the just-completed assistant turn plus retry/context counters
+ * the `emptyResponse` pipeline needs to decide whether to nudge, accept, or
+ * surface an error.
+ *
+ * `emptyResponseRetries` is the *current* retry counter — the pipeline may
+ * compare it to `maxEmptyResponseRetries` to implement a retry cap. The loop
+ * increments the counter only after a `"nudge"` decision; the pipeline is
+ * stateless across turns.
+ *
+ * `priorAssistantHadVisibleText` signals that an earlier turn in the current
+ * `run()` invocation already delivered user-visible text. When true, an
+ * empty follow-up is the model correctly ending its turn and nudging would
+ * mislead it into resending text the user already saw.
+ */
+export interface EmptyResponseArgs {
+  /** Content blocks produced by the assistant on this turn. */
+  readonly responseContent: ReadonlyArray<ContentBlock>;
+  /**
+   * Number of `tool_use` blocks in `responseContent`. Mirrors the loop's own
+   * count so middleware doesn't have to recompute it. When > 0 the turn is
+   * not empty — the model issued tool calls.
+   */
+  readonly toolUseBlocksLength: number;
+  /** 0-based index of the tool-use turn being evaluated. */
+  readonly toolUseTurns: number;
+  /** How many empty-response nudges the loop has already issued this run. */
+  readonly emptyResponseRetries: number;
+  /** Upper bound for `emptyResponseRetries`. The default is 1. */
+  readonly maxEmptyResponseRetries: number;
+  /**
+   * Whether ANY prior assistant turn in the current `run()` call carried
+   * visible text. See `agent/loop.ts` for why the whole-run scan matters.
+   */
+  readonly priorAssistantHadVisibleText: boolean;
+}
 
-export type CircuitBreakerArgs = { readonly input: unknown };
-export type CircuitBreakerResult = { readonly output: unknown };
+/**
+ * Decision produced by the `emptyResponse` pipeline.
+ *
+ * - `"nudge"`  — loop appends `nudgeText` as a `user` message and retries.
+ *                `nudgeText` MUST be present; it is what the model will see.
+ * - `"accept"` — loop treats the turn as complete (pushes the assistant
+ *                message to history and exits the tool-use chain normally).
+ * - `"error"`  — loop surfaces a clear error. Reserved for middleware that
+ *                wants to escalate an empty response rather than absorb it.
+ */
+export interface EmptyResponseDecision {
+  readonly action: "nudge" | "accept" | "error";
+  /** Nudge text the loop will push to history. Required when `action === "nudge"`. */
+  readonly nudgeText?: string;
+}
+
+/** Alias so the {@link PipelineMiddlewareMap} entry names its own result shape. */
+export type EmptyResponseResult = EmptyResponseDecision;
+
+/**
+ * Arguments to the `toolError` pipeline — invoked by the agent loop once per
+ * turn that produced tool results, BEFORE the turn's tool-result user message
+ * is pushed into history.
+ *
+ * `hasToolError` is true when at least one tool in the current turn returned
+ * `isError: true`. `consecutiveErrorTurns` is the running count of
+ * back-to-back error turns (reset to 0 on a clean turn, incremented on each
+ * error turn). `maxConsecutiveErrorNudges` is the default cap the agent loop
+ * currently applies; plugins receive it so they can match the default
+ * threshold exactly or compute a relative offset.
+ */
+export type ToolErrorArgs = {
+  readonly hasToolError: boolean;
+  readonly consecutiveErrorTurns: number;
+  readonly maxConsecutiveErrorNudges: number;
+};
+
+/**
+ * Decision returned by the `toolError` pipeline. When `action` is `"nudge"`,
+ * the agent loop appends a text block with `nudgeText` to the turn's tool
+ * results so the next LLM turn sees the nudge. When `action` is `"skip"`, no
+ * nudge is injected and the tool results pass through unchanged.
+ */
+export type ToolErrorDecision =
+  | { readonly action: "nudge"; readonly nudgeText: string }
+  | { readonly action: "skip" };
+
+/** Alias kept so `PipelineMiddlewareMap.toolError` reads result-shaped. */
+export type ToolErrorResult = ToolErrorDecision;
+
+/**
+ * Arguments for the `circuitBreaker` pipeline.
+ *
+ * A single call pattern handles both querying and updating the breaker:
+ * - `{ key }` — query-only. Returns the current `{ open, cooldownRemainingMs? }`.
+ * - `{ key, outcome }` — update state, then return the post-update decision.
+ *
+ * `key` identifies the circuit bucket so independent circuits (e.g. per
+ * conversation, per provider) can coexist. The default compaction plugin
+ * uses `"compaction:<conversationId>"`.
+ *
+ * `state` is a pragmatic extension beyond the minimal `{ key, outcome? }`
+ * shape: the `Conversation` owns `consecutiveCompactionFailures` and
+ * `compactionCircuitOpenUntil` because dev-only playground routes read and
+ * mutate those fields directly. The default plugin reads/updates the same
+ * container so the pipeline stays a pure wrapper rather than forking state
+ * ownership.
+ *
+ * `onEvent` is optional — when provided, the default plugin emits
+ * `compaction_circuit_open` / `compaction_circuit_closed` transition events
+ * through it. Callers that just want to query without emitting (or without
+ * a `ServerMessage` sink handy) can omit it.
+ */
+export type CircuitBreakerArgs = {
+  readonly key: string;
+  readonly outcome?: "success" | "failure";
+  readonly state: {
+    readonly conversationId: string;
+    consecutiveCompactionFailures: number;
+    compactionCircuitOpenUntil: number | null;
+  };
+  readonly onEvent?: (msg: ServerMessage) => void;
+};
+
+/**
+ * Result of a `circuitBreaker` pipeline invocation.
+ *
+ * - `open` — `true` when the breaker is currently tripped (auto paths must
+ *   skip). `false` when closed (auto paths may proceed).
+ * - `cooldownRemainingMs` — when `open` is `true`, the number of ms until
+ *   the breaker auto-closes (for informational display). Omitted when the
+ *   breaker is closed.
+ */
+export type CircuitBreakerResult = {
+  readonly open: boolean;
+  readonly cooldownRemainingMs?: number;
+};
 
 /**
  * Mapping from {@link PipelineName} to the middleware signature the registry
@@ -205,12 +692,12 @@ export interface PipelineMiddlewareMap {
   turn: Middleware<TurnArgs, TurnResult>;
   llmCall: Middleware<LLMCallArgs, LLMCallResult>;
   toolExecute: Middleware<ToolExecuteArgs, ToolExecuteResult>;
-  memoryRetrieval: Middleware<MemoryRetrievalArgs, MemoryRetrievalResult>;
+  memoryRetrieval: Middleware<MemoryArgs, MemoryResult>;
   historyRepair: Middleware<HistoryRepairArgs, HistoryRepairResult>;
   tokenEstimate: Middleware<TokenEstimateArgs, TokenEstimateResult>;
   compaction: Middleware<CompactionArgs, CompactionResult>;
   overflowReduce: Middleware<OverflowReduceArgs, OverflowReduceResult>;
-  persistence: Middleware<PersistenceArgs, PersistenceResult>;
+  persistence: Middleware<PersistArgs, PersistResult>;
   titleGenerate: Middleware<TitleArgs, TitleResult>;
   toolResultTruncate: Middleware<
     ToolResultTruncateArgs,
@@ -284,16 +771,57 @@ export interface Injector {
 }
 
 // ─── Model-visible capability slots (placeholder shapes) ─────────────────────
-// Concrete shapes are defined by the tool/route/skill registries. Typing
-// them as `unknown`-tagged aliases here keeps the Plugin interface decoupled
-// until later PRs wire real registrations.
+// Tool and route shapes stay `unknown` until their respective contribution PRs
+// (31 and 32) land. Skill contributions (PR 33) ship with a concrete shape
+// below so plugins can declare catalog-discoverable skills today.
 
 /** Tool registration contributed by a plugin. Concrete shape TBD. */
 export type PluginToolRegistration = unknown;
 /** HTTP route registration contributed by a plugin. Concrete shape TBD. */
 export type PluginRouteRegistration = unknown;
-/** Skill registration contributed by a plugin. Concrete shape TBD. */
-export type PluginSkillRegistration = unknown;
+
+/**
+ * A skill contributed by a plugin.
+ *
+ * When a plugin declares {@link Plugin.skills}, the bootstrap registers each
+ * entry into an in-memory side catalog that {@link loadSkillCatalog} merges
+ * into its output. The entry is then discoverable by the model's `skill_load`
+ * / `skill_execute` flow under `source: "plugin"` — the same code paths used
+ * for filesystem-backed skills.
+ *
+ * The fields mirror the subset of `SkillSummary` / `SkillDefinition` that
+ * makes sense for an in-memory contribution. Inline commands and reference
+ * files are out of scope for plugin skills in this PR — add them later if a
+ * real plugin needs them.
+ */
+export interface PluginSkillRegistration {
+  /** Stable skill id (kebab-case). Must be unique across the catalog. */
+  id: string;
+  /**
+   * Skill "name" as surfaced to the model. Matches the SKILL.md frontmatter
+   * `name` field for filesystem skills.
+   */
+  name: string;
+  /**
+   * Human-readable display name shown in UI lists. Defaults to `name` when
+   * omitted — matches the filesystem-skill default.
+   */
+  displayName?: string;
+  /** One-line description shown by `skill_load` / UI. */
+  description: string;
+  /** Full skill body returned when `skill_load` fires for this skill. */
+  body: string;
+  /** Optional emoji shown beside the skill in UI surfaces. */
+  emoji?: string;
+  /** Optional assistant feature-flag key — when set and the flag is OFF, the skill is filtered out. */
+  featureFlag?: string;
+  /** Compact routing cues injected into `<available_skills>` to guide selection. */
+  activationHints?: string[];
+  /** Conditions under which this skill should NOT be loaded. */
+  avoidWhen?: string[];
+  /** IDs of child skills that this skill includes (metadata-only, not auto-activated). */
+  includes?: string[];
+}
 
 // ─── Plugin ──────────────────────────────────────────────────────────────────
 
