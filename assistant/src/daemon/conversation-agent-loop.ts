@@ -46,7 +46,6 @@ import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { getApp, listAppFiles, resolveAppDir } from "../memory/app-store.js";
 import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
 import {
-  addMessage,
   clearStrippedInjectionMetadataForConversation,
   getConversation,
   getConversationOriginChannel,
@@ -55,7 +54,6 @@ import {
   getMessageById,
   provenanceFromTrustContext,
   updateConversationContextWindow,
-  updateMessageMetadata,
 } from "../memory/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
@@ -68,6 +66,13 @@ import type { ConversationGraphMemory } from "../memory/graph/conversation-graph
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
+import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
+import { getMiddlewaresFor } from "../plugins/registry.js";
+import type {
+  PersistArgs,
+  PersistResult,
+  TurnContext,
+} from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
@@ -147,6 +152,39 @@ import type { TraceEmitter } from "./trace-emitter.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");
+
+/**
+ * Build a minimal {@link TurnContext} for the orchestrator's pipeline calls.
+ * Mirrors the handler-side helper in `conversation-agent-loop-handlers.ts`
+ * so both the orchestrator and the event handlers populate `trust` from
+ * `ctx.trustContext` when available and fall back to a safe default
+ * otherwise.
+ */
+function buildOrchestratorTurnContext(
+  ctx: AgentLoopConversationContext,
+  reqId: string,
+): TurnContext {
+  return {
+    requestId: reqId,
+    conversationId: ctx.conversationId,
+    turnIndex: ctx.turnCount,
+    trust: ctx.trustContext ?? {
+      sourceChannel: "vellum",
+      trustClass: "unknown",
+    },
+  };
+}
+
+/**
+ * Terminal fed into the `persistence` pipeline. The default plugin (registered
+ * at daemon bootstrap) always handles each op, so reaching the terminal
+ * signals a configuration bug.
+ */
+function persistenceTerminal(_args: PersistArgs): Promise<PersistResult> {
+  throw new Error(
+    "persistence terminal reached: the default plugin should handle every op",
+  );
+}
 
 /** Title-cased friendly labels for tool names, used in confirmation chips. */
 const TOOL_FRIENDLY_LABEL: Record<string, string> = {
@@ -680,12 +718,24 @@ export async function runAgentLoopImpl(
 
       // Persist the injected block text in message metadata so it survives
       // conversation reloads (eviction, restart, fork). loadFromDb re-injects
-      // from metadata.
+      // from metadata. Routed through the `persistence` pipeline so plugins
+      // can observe or override metadata updates alongside add/delete.
       if (graphResult.injectedBlockText) {
         try {
-          updateMessageMetadata(userMessageId, {
-            memoryInjectedBlock: graphResult.injectedBlockText,
-          });
+          await runPipeline<PersistArgs, PersistResult>(
+            "persistence",
+            getMiddlewaresFor("persistence"),
+            persistenceTerminal,
+            {
+              op: "update",
+              messageId: userMessageId,
+              updates: {
+                memoryInjectedBlock: graphResult.injectedBlockText,
+              },
+            },
+            buildOrchestratorTurnContext(ctx, reqId),
+            DEFAULT_TIMEOUTS.persistence,
+          );
         } catch (err) {
           rlog.warn(
             { err },
@@ -1006,7 +1056,18 @@ export async function runAgentLoopImpl(
         if (injection.blocks.pkbContextBlock) {
           metadataUpdates.pkbContextBlock = injection.blocks.pkbContextBlock;
         }
-        updateMessageMetadata(userMessageId, metadataUpdates);
+        await runPipeline<PersistArgs, PersistResult>(
+          "persistence",
+          getMiddlewaresFor("persistence"),
+          persistenceTerminal,
+          {
+            op: "update",
+            messageId: userMessageId,
+            updates: metadataUpdates,
+          },
+          buildOrchestratorTurnContext(ctx, reqId),
+          DEFAULT_TIMEOUTS.persistence,
+        );
       } catch (err) {
         rlog.warn({ err }, "Failed to persist injection metadata (non-fatal)");
       }
@@ -1772,11 +1833,19 @@ export async function runAgentLoopImpl(
         assistantMessageInterface:
           capturedTurnInterfaceContext.assistantMessageInterface,
       };
-      await addMessage(
-        ctx.conversationId,
-        "user",
-        JSON.stringify(toolResultBlocks),
-        toolResultMetadata,
+      await runPipeline<PersistArgs, PersistResult>(
+        "persistence",
+        getMiddlewaresFor("persistence"),
+        persistenceTerminal,
+        {
+          op: "add",
+          conversationId: ctx.conversationId,
+          role: "user",
+          content: JSON.stringify(toolResultBlocks),
+          metadata: toolResultMetadata,
+        },
+        buildOrchestratorTurnContext(ctx, reqId),
+        DEFAULT_TIMEOUTS.persistence,
       );
       state.pendingToolResults.clear();
     }
@@ -1810,11 +1879,19 @@ export async function runAgentLoopImpl(
       const errorAssistantMessage = createAssistantMessage(
         state.providerErrorUserMessage,
       );
-      await addMessage(
-        ctx.conversationId,
-        "assistant",
-        JSON.stringify(errorAssistantMessage.content),
-        errChannelMeta,
+      await runPipeline<PersistArgs, PersistResult>(
+        "persistence",
+        getMiddlewaresFor("persistence"),
+        persistenceTerminal,
+        {
+          op: "add",
+          conversationId: ctx.conversationId,
+          role: "assistant",
+          content: JSON.stringify(errorAssistantMessage.content),
+          metadata: errChannelMeta,
+        },
+        buildOrchestratorTurnContext(ctx, reqId),
+        DEFAULT_TIMEOUTS.persistence,
       );
       newMessages.push(errorAssistantMessage);
       // Do NOT send assistant_text_delta here — handleProviderError already

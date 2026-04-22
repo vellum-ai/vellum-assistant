@@ -14,6 +14,8 @@ import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import {
   type Injector,
   type Middleware,
+  type PersistArgs,
+  type PersistResult,
   type Plugin,
   PluginExecutionError,
   type PluginInitContext,
@@ -52,6 +54,16 @@ describe("plugin core types", () => {
       { output: unknown }
     > = async (args, next, _ctx) => next(args);
 
+    // `persistence` has concrete discriminated-union arg/result types
+    // (upgraded from the initial `{ input }/{ output }` placeholder in PR 27)
+    // so it gets its own passthrough rather than sharing the generic one
+    // above.
+    const persistPassthrough: Middleware<PersistArgs, PersistResult> = async (
+      args,
+      next,
+      _ctx,
+    ) => next(args);
+
     const injector: Injector = {
       name: "sample-injector",
       order: 10,
@@ -87,7 +99,7 @@ describe("plugin core types", () => {
         tokenEstimate: passthrough,
         compaction: passthrough,
         overflowReduce: passthrough,
-        persistence: passthrough,
+        persistence: persistPassthrough,
         titleGenerate: passthrough,
         toolResultTruncate: passthrough,
         emptyResponse: passthrough,
