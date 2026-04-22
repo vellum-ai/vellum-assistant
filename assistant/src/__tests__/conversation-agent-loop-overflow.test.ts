@@ -18,8 +18,11 @@ import type {
   CheckpointInfo,
 } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import { registerDefaultOverflowReducePlugin } from "../plugins/defaults/overflow-reduce.js";
-import { resetPluginRegistryForTests } from "../plugins/registry.js";
+import { defaultOverflowReducePlugin } from "../plugins/defaults/overflow-reduce.js";
+import {
+  registerPlugin,
+  resetPluginRegistryForTests,
+} from "../plugins/registry.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 
 // ── Module mocks (must precede imports of the module under test) ─────
@@ -575,7 +578,7 @@ beforeEach(() => {
   // preflight reducer through `runPipeline("overflowReduce", …)` which
   // needs the default in place to reach the mocked `reduceContextOverflow`.
   resetPluginRegistryForTests();
-  registerDefaultOverflowReducePlugin();
+  registerPlugin(defaultOverflowReducePlugin);
 });
 
 describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
