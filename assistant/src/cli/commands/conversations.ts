@@ -13,7 +13,6 @@ import {
   createConversation,
   getConversation,
   getMessages,
-  updateConversationTitle,
   wipeConversation,
 } from "../../memory/conversation-crud.js";
 import { listConversations } from "../../memory/conversation-queries.js";
@@ -126,9 +125,8 @@ Arguments:
                    60 characters) and descriptive of the current topic.
 
 Renames the conversation to the given title and marks it as a manual rename
-(auto-generated titles will not overwrite it). When the assistant is running,
-delegates via IPC so connected clients update in real time. Otherwise
-updates the local database directly.
+(auto-generated titles will not overwrite it). Requires the assistant to be
+running — communicates via IPC so connected clients update in real time.
 
 Examples:
   $ assistant conversations rename abc123 "Project planning"
@@ -141,59 +139,27 @@ Examples:
         process.exit(1);
       }
 
-      initializeDb();
-
-      // Resolve conversation with prefix matching
-      let conversation = getConversation(conversationId);
-      if (!conversation) {
-        const all = listConversations(Number.MAX_SAFE_INTEGER);
-        const match = all.find((c) => c.id.startsWith(conversationId));
-        if (match) {
-          conversation = match;
-        } else {
-          log.error(
-            `Conversation not found: ${conversationId}. Run 'assistant conversations list' to see available conversations.`,
-          );
-          process.exit(1);
-        }
-      }
-
-      // Prefer IPC when the daemon is running so connected clients
-      // see real-time title updates and event broadcasts.
       const ipcResult = await cliIpcCall<{ ok: boolean; error?: string }>(
         "rename_conversation",
-        { conversationId: conversation.id, title: trimmedTitle },
+        { conversationId, title: trimmedTitle },
       );
 
-      if (ipcResult.ok) {
-        const result = ipcResult.result!;
-        if (!result.ok) {
-          log.error(`Rename failed: ${result.error}`);
-          process.exit(1);
-        }
-        log.info(
-          `Renamed conversation to "${trimmedTitle}" (${conversation.id})`,
+      if (!ipcResult.ok) {
+        log.error(
+          `Rename failed: ${ipcResult.error}. Run 'assistant conversations list' to verify the conversation exists.`,
         );
-        return;
-      }
-
-      // Only fall back to direct DB access when the daemon is genuinely
-      // unreachable. Other IPC errors (timeout, handler failure) should
-      // be surfaced so users don't get silent partial renames.
-      const isConnectionError = ipcResult.error?.includes(
-        "Could not connect to assistant daemon",
-      );
-      if (!isConnectionError) {
-        log.error(`Rename failed: ${ipcResult.error}`);
         process.exit(1);
       }
 
-      // Daemon not reachable — update the database directly.
-      // isAutoTitle = 0 prevents auto-generation from overwriting it.
-      updateConversationTitle(conversation.id, trimmedTitle, 0);
-      log.info(
-        `Renamed conversation to "${trimmedTitle}" (${conversation.id})`,
-      );
+      const result = ipcResult.result!;
+      if (!result.ok) {
+        log.error(
+          `Rename failed: ${result.error}. Run 'assistant conversations list' to see available conversations.`,
+        );
+        process.exit(1);
+      }
+
+      log.info(`Renamed conversation to "${trimmedTitle}" (${conversationId})`);
     });
 
   conversations
