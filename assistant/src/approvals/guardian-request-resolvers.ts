@@ -921,6 +921,14 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
         }
       }
 
+      void emitFeedEvent({
+        source: "assistant",
+        title: "Tool Grant Denied",
+        summary: `Denied grant request for ${request.toolName ?? "unknown tool"}.`,
+        dedupKey: `guardian-grant:${request.id}`,
+        urgency: "medium",
+      });
+
       return { ok: true, applied: true };
     }
 
@@ -1018,6 +1026,14 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
         );
       }
     }
+
+    void emitFeedEvent({
+      source: "assistant",
+      title: "Tool Grant Approved",
+      summary: `Approved grant request for ${request.toolName ?? "unknown tool"}.`,
+      dedupKey: `guardian-grant:${request.id}`,
+      urgency: undefined,
+    });
 
     return { ok: true, applied: true, grantMinted: false };
   },
