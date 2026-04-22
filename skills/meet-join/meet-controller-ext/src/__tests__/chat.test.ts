@@ -435,6 +435,192 @@ describe("startChatReader", () => {
   });
 });
 
+describe("startChatReader — structural fallback (live Meet DOM shape)", () => {
+  let reader: { stop: () => void } | null = null;
+  let installed: InstalledDom | null = null;
+
+  /**
+   * Append a chat message shaped like live Meet's current DOM:
+   * `role="listitem"` with NO `data-message-id`, and sender/timestamp/text
+   * carried on plain <span>/<time>/<div> children with no data-*
+   * markers. The fixture-shaped `appendMessage` helper always emits those
+   * attrs, so structural-fallback coverage needs its own builder.
+   *
+   * The list's aria-label is swapped to "In-call messages" (what live Meet
+   * ships today) before the first append so the structural selector in
+   * `chatSelectors.MESSAGE_NODE` also exercises the case-insensitive
+   * aria-label-substring match.
+   */
+  function appendStructuralMessage(
+    sender: string,
+    text: string,
+    opts: { datetime?: string } = {},
+  ): void {
+    const dom = installed!.dom;
+    const document = dom.window.document;
+    let list = document.querySelector(chatSelectors.MESSAGE_LIST);
+    if (!list) {
+      // Panel closed — relying on fixture invariants would call
+      // `ensurePanelOpen()` in production; for this test we just mount a
+      // fresh list under the aside directly.
+      const aside = document.querySelector("aside");
+      const fresh = document.createElement("div");
+      fresh.setAttribute("role", "list");
+      fresh.setAttribute("aria-label", "In-call messages");
+      aside?.insertBefore(fresh, aside.firstChild);
+      list = fresh;
+    } else {
+      // Swap the pre-existing list's label so the structural aria-label
+      // matcher fires against both common Meet shipped values.
+      list.setAttribute("aria-label", "In-call messages");
+    }
+    const node = document.createElement("div");
+    node.setAttribute("role", "listitem");
+    const senderEl = document.createElement("span");
+    senderEl.textContent = sender;
+    const timeEl = document.createElement("time");
+    timeEl.setAttribute("datetime", opts.datetime ?? new Date().toISOString());
+    timeEl.textContent = "12:00 PM";
+    const bubble = document.createElement("div");
+    const textEl = document.createElement("div");
+    textEl.textContent = text;
+    bubble.appendChild(textEl);
+    node.appendChild(senderEl);
+    node.appendChild(timeEl);
+    node.appendChild(bubble);
+    list.appendChild(node);
+  }
+
+  beforeEach(() => {
+    reader = null;
+    installed = installChatDom();
+    // The fixture ships with a data-message-id message from Alice that
+    // would otherwise pollute the "structural fallback engaged" counts
+    // and the event stream. Drop it so each test starts with a list that
+    // only carries the structural-shape messages it explicitly appends.
+    installed.dom.window.document
+      .querySelectorAll(chatSelectors.MESSAGE_NODE)
+      .forEach((el) => el.remove());
+  });
+
+  afterEach(() => {
+    if (reader) {
+      reader.stop();
+      reader = null;
+    }
+    if (installed) {
+      (installed.dom as unknown as { __restore: () => void }).__restore();
+      installed = null;
+    }
+  });
+
+  test("emits chat.inbound for a listitem without data-* markers", async () => {
+    const events: ExtensionToBotMessage[] = [];
+    reader = startChatReader({
+      meetingId: "m-live",
+      selfName: "Bot",
+      onEvent: (ev) => events.push(ev),
+    });
+
+    appendStructuralMessage("Alice", "hello there");
+    await flushMicrotasks();
+
+    const chatEvents = events.filter((e) => e.type === "chat.inbound");
+    expect(chatEvents.length).toBe(1);
+    const ev = chatEvents[0] as Extract<
+      ExtensionToBotMessage,
+      { type: "chat.inbound" }
+    >;
+    expect(ev.fromName).toBe("Alice");
+    expect(ev.text).toBe("hello there");
+    expect(ev.meetingId).toBe("m-live");
+  });
+
+  test("emits a diagnostic when the structural fallback is actually used", async () => {
+    const events: ExtensionToBotMessage[] = [];
+    reader = startChatReader({
+      meetingId: "m-live",
+      selfName: "Bot",
+      onEvent: (ev) => events.push(ev),
+    });
+
+    appendStructuralMessage("Alice", "hello there");
+    await flushMicrotasks();
+
+    const diagnostics = events.filter((e) => e.type === "diagnostic");
+    expect(diagnostics.length).toBe(1);
+    const diag = diagnostics[0] as Extract<
+      ExtensionToBotMessage,
+      { type: "diagnostic" }
+    >;
+    expect(diag.level).toBe("info");
+    expect(diag.message).toContain("structural fallback engaged");
+  });
+
+  test("dedupes structural-shape messages by (sender, text, timestamp)", async () => {
+    const events: ExtensionToBotMessage[] = [];
+    reader = startChatReader({
+      meetingId: "m-live",
+      selfName: "Bot",
+      onEvent: (ev) => events.push(ev),
+    });
+
+    appendStructuralMessage("Alice", "hello there", {
+      datetime: "2026-04-22T07:08:30Z",
+    });
+    appendStructuralMessage("Alice", "hello there", {
+      datetime: "2026-04-22T07:08:30Z",
+    });
+    await flushMicrotasks();
+
+    const chatEvents = events.filter((e) => e.type === "chat.inbound");
+    expect(chatEvents.length).toBe(1);
+  });
+
+  test("name-match self-filter drops the bot's own structural-shape messages", async () => {
+    const events: ExtensionToBotMessage[] = [];
+    reader = startChatReader({
+      meetingId: "m-live",
+      selfName: "Bot",
+      onEvent: (ev) => events.push(ev),
+    });
+
+    appendStructuralMessage("Bot", "hi there — this is me talking");
+    appendStructuralMessage("Alice", "hello there");
+    await flushMicrotasks();
+
+    const chatEvents = events
+      .filter((e) => e.type === "chat.inbound")
+      .map(
+        (e) =>
+          (e as Extract<ExtensionToBotMessage, { type: "chat.inbound" }>)
+            .fromName,
+      );
+    expect(chatEvents).toEqual(["Alice"]);
+  });
+
+  test("emits the 'stopped without emitting' diagnostic on a silent session", async () => {
+    const events: ExtensionToBotMessage[] = [];
+    reader = startChatReader({
+      meetingId: "m-live",
+      selfName: "Bot",
+      onEvent: (ev) => events.push(ev),
+    });
+
+    // No messages appended at all.
+    reader.stop();
+    reader = null;
+
+    const diagnostics = events.filter((e) => e.type === "diagnostic");
+    expect(diagnostics.length).toBe(1);
+    const diag = diagnostics[0] as Extract<
+      ExtensionToBotMessage,
+      { type: "diagnostic" }
+    >;
+    expect(diag.message).toContain("stopped without emitting");
+  });
+});
+
 describe("sendChat", () => {
   let installed: InstalledDom | null = null;
 

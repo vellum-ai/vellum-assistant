@@ -142,20 +142,37 @@ export const chatSelectors = {
   SEND_BUTTON: 'button[aria-label^="Send a message"]',
 
   /**
-   * Container that holds the list of chat messages. Used to detect whether the
-   * chat panel is open (the container is mounted even when no messages exist).
+   * Container that holds the list of chat messages. Two shapes are accepted
+   * (historical → current), joined with a comma so `querySelector` returns
+   * whichever Meet is rendering:
+   *
+   *   1. `[aria-label="Chat messages"]` — the original fixture shape.
+   *   2. `[aria-label="In-call messages"]` — what late-April-2026 Meet
+   *      actually renders in the opened side panel (matches the panel
+   *      header text visible in the UI). The chat reader's `MESSAGE_NODE`
+   *      fallback scopes to any list whose aria-label *contains* "message",
+   *      so this constant stays authoritative for the panel-open probe.
    */
-  MESSAGE_LIST: '[role="list"][aria-label="Chat messages"]',
+  MESSAGE_LIST:
+    '[role="list"][aria-label="Chat messages"], [role="list"][aria-label="In-call messages"]',
 
   /**
-   * Root node for a single rendered chat message. We use a data attribute
-   * rather than a class because Meet's message-list classes change often.
+   * Root node for a single rendered chat message. Two clauses are accepted
+   * so the reader works against both the hand-authored fixture and the
+   * live Meet DOM Google is actually shipping:
+   *
+   *   1. `[role="listitem"][data-message-id]` — the original fixture shape.
+   *      Retained so unit tests keep passing and, if Meet ever exposes a
+   *      stable data-* id, we prefer it for dedup.
+   *   2. `[role="list"][aria-label*="message" i] [role="listitem"]` —
+   *      structural fallback. Scopes to whichever side-panel `role="list"`
+   *      has "message" in its aria-label (covers "Chat messages" and
+   *      "In-call messages"; case-insensitive to ride through any casing
+   *      drift). This is what catches actual inbound chats today —
+   *      `data-message-id` is not emitted by Meet.
    */
-  // TODO(meet-dom): Meet does not currently expose a stable per-message data
-  // attribute. The selector below assumes we either inject a MutationObserver-
-  // driven marker or rely on a recognizable ARIA structure. Verify during
-  // fixture refresh and swap to whatever Meet actually emits.
-  MESSAGE_NODE: 'div[role="listitem"][data-message-id]',
+  MESSAGE_NODE:
+    '[role="listitem"][data-message-id], [role="list"][aria-label*="message" i] [role="listitem"]',
 
   /** Subselectors applied within a MESSAGE_NODE to extract rendered fields. */
   MESSAGE_SENDER: "[data-sender-name]",
