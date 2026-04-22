@@ -105,6 +105,7 @@ import {
   getInterfacesDir,
   getWorkspaceDir,
 } from "../util/platform.js";
+import { APP_VERSION } from "../version.js";
 import {
   listWorkItems,
   updateWorkItem,
@@ -122,6 +123,7 @@ import {
   cleanupPidFileIfOwner,
   writePid,
 } from "./daemon-control.js";
+import { bootstrapPlugins } from "./external-plugins-bootstrap.js";
 import {
   createGuardianActionCopyGenerator,
   createGuardianFollowUpConversationGenerator,
@@ -695,6 +697,13 @@ export async function runDaemon(): Promise<void> {
         });
       }
     }
+
+    // Bootstrap registered plugins. Runs after the plugin registry is
+    // populated (which happens via static side-effect imports — none exist
+    // in this PR, so the call is a no-op against an empty registry) and
+    // before the DaemonServer starts handling conversations. Credential
+    // resolution + per-plugin storage directory creation happen here.
+    await bootstrapPlugins({ config, assistantVersion: APP_VERSION });
 
     // Start the DaemonServer (conversation manager) before Qdrant so HTTP
     // routes can begin accepting requests while Qdrant initializes.
