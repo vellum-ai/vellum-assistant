@@ -69,11 +69,17 @@ struct HomeNudgeDetailPanel: View {
         HomeDetailPanel(
             icon: icon,
             title: title,
+            iconForeground: iconForeground,
+            iconBackground: iconBackground,
             onDismiss: onClose,
-            scrollable: true
+            scrollable: false
         ) {
             VStack(alignment: .leading, spacing: 0) {
-                bodySection
+                ScrollView {
+                    bodySection
+                }
+                .layoutPriority(1)
+
                 footer
             }
         }
