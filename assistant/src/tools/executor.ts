@@ -5,6 +5,13 @@ import { bridgeCesApproval } from "../credential-execution/approval-bridge.js";
 import { isCesShellLockdownEnabled } from "../credential-execution/feature-gates.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
+import { runPipeline } from "../plugins/pipeline.js";
+import { getMiddlewaresFor } from "../plugins/registry.js";
+import type {
+  ToolExecuteArgs,
+  ToolExecuteResult,
+  TurnContext,
+} from "../plugins/types.js";
 import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
 import { redactSensitiveFields } from "../security/redaction.js";
 import { TokenExpiredError } from "../security/token-manager.js";
@@ -42,6 +49,47 @@ export class ToolExecutor {
   }
 
   async execute(
+    name: string,
+    input: Record<string, unknown>,
+    context: ToolContext,
+  ): Promise<ToolExecutionResult> {
+    // Compute the per-tool timeout budget upfront so the pipeline timeout
+    // matches the existing per-tool timeout. `toolExecute` is intentionally
+    // `null` in `DEFAULT_TIMEOUTS` because `ToolExecutor` already enforces
+    // per-tool timeouts inside `executeWithTimeout`; we pass the same
+    // budget to `runPipeline` so a runaway middleware doesn't silently
+    // exceed the tool's configured limit, without double-enforcing on the
+    // happy path (the pipeline race is a cheap backstop).
+    const perToolTimeoutMs = computePerToolTimeoutMs(name, input);
+
+    // Build a TurnContext for the pipeline runner. The executor is called
+    // outside the provider loop's TurnContext today, so we synthesize one
+    // from the ToolContext — middleware that needs richer turn state will
+    // be wired as later PRs thread a real TurnContext through.
+    const turnCtx: TurnContext = {
+      requestId: context.requestId ?? "",
+      conversationId: context.conversationId,
+      turnIndex: 0,
+      trust: {
+        sourceChannel: "vellum",
+        trustClass: context.trustClass,
+      },
+    };
+
+    const middlewares = getMiddlewaresFor("toolExecute");
+    const pipelineArgs: ToolExecuteArgs = { name, input, context };
+
+    return runPipeline<ToolExecuteArgs, ToolExecuteResult>(
+      "toolExecute",
+      middlewares,
+      (args) => this.executeInternal(args.name, args.input, args.context),
+      pipelineArgs,
+      turnCtx,
+      perToolTimeoutMs,
+    );
+  }
+
+  private async executeInternal(
     name: string,
     input: Record<string, unknown>,
     context: ToolContext,
@@ -137,29 +185,11 @@ export class ToolExecutor {
         }
       }
 
-      // Execute the tool - proxy tools delegate to an external resolver
+      // Execute the tool - proxy tools delegate to an external resolver.
+      // Use the shared per-tool timeout helper so the pipeline runner and
+      // the inner execute-with-timeout wrapper agree on the same budget.
       let execResult: ToolExecutionResult;
-      let toolTimeoutMs: number;
-      if (name === "bash" || name === "host_bash") {
-        // Shell tools manage their own timeouts (SIGKILL on expiry).
-        // Compute the same effective timeout so the executor wrapper
-        // doesn't prematurely kill them with the generic toolExecutionTimeoutSec.
-        const { shellDefaultTimeoutSec, shellMaxTimeoutSec } =
-          getConfig().timeouts;
-        const requestedSec =
-          typeof input.timeout_seconds === "number"
-            ? input.timeout_seconds
-            : shellDefaultTimeoutSec;
-        const shellTimeoutSec = Math.max(
-          1,
-          Math.min(requestedSec, shellMaxTimeoutSec),
-        );
-        // Buffer so the shell's own timeout fires first and handles cleanup
-        toolTimeoutMs = (shellTimeoutSec + 5) * 1000;
-      } else {
-        const rawTimeoutSec = getConfig().timeouts.toolExecutionTimeoutSec;
-        toolTimeoutMs = safeTimeoutMs(rawTimeoutSec);
-      }
+      const toolTimeoutMs = computePerToolTimeoutMs(name, input);
 
       const execContext = context;
 
@@ -423,6 +453,44 @@ export { isSideEffectTool } from "./side-effects.js";
 
 // Re-export PermissionChecker for consumers that need direct access
 export { PermissionChecker } from "./permission-checker.js";
+
+/**
+ * Compute the effective per-tool execution timeout in milliseconds.
+ *
+ * Shell tools (`bash`, `host_bash`) manage their own timeouts with SIGKILL
+ * on expiry. We add a 5s buffer so the shell's own deadline fires first and
+ * handles cleanup before the executor wrapper trips. Non-shell tools use
+ * the generic `toolExecutionTimeoutSec` configuration value.
+ *
+ * Called from two sites:
+ * 1. The public `ToolExecutor.execute` wrapper — passes the result to
+ *    `runPipeline` as the pipeline-level timeout so middleware inherits
+ *    the same budget the tool enforces internally.
+ * 2. `executeInternal` — passes the result to `executeWithTimeout` around
+ *    the actual tool invocation.
+ *
+ * Both sites see the same value because `getConfig()` returns a cached
+ * object; there is no observable divergence.
+ */
+function computePerToolTimeoutMs(
+  name: string,
+  input: Record<string, unknown>,
+): number {
+  if (name === "bash" || name === "host_bash") {
+    const { shellDefaultTimeoutSec, shellMaxTimeoutSec } = getConfig().timeouts;
+    const requestedSec =
+      typeof input.timeout_seconds === "number"
+        ? input.timeout_seconds
+        : shellDefaultTimeoutSec;
+    const shellTimeoutSec = Math.max(
+      1,
+      Math.min(requestedSec, shellMaxTimeoutSec),
+    );
+    return (shellTimeoutSec + 5) * 1000;
+  }
+  const rawTimeoutSec = getConfig().timeouts.toolExecutionTimeoutSec;
+  return safeTimeoutMs(rawTimeoutSec);
+}
 
 /**
  * Sanitize tool inputs before they are emitted in lifecycle events.
