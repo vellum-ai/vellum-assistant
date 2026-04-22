@@ -35,9 +35,11 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AssistantConfig } from "../config/schema.js";
+import { defaultInjectorsPlugin } from "../plugins/defaults/injectors.js";
 import {
   ASSISTANT_API_VERSIONS,
   getRegisteredPlugins,
+  registerPlugin,
 } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -48,6 +50,28 @@ import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { vellumRoot } from "../util/platform.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
+
+/**
+ * Register first-party default plugins into the registry.
+ *
+ * Called by {@link bootstrapPlugins} before it walks the registry so every
+ * default plugin's `init()` runs alongside any third-party plugins loaded
+ * via side-effect imports earlier in the boot sequence.
+ *
+ * Idempotent: skips any default plugin already present in the registry (by
+ * manifest name). This lets tests pre-register a stub `default-injectors`
+ * plugin to override the real chain, and keeps re-entry safe when a caller
+ * invokes `bootstrapPlugins` multiple times in the same process (e.g.
+ * hot-reload).
+ */
+function registerDefaultPlugins(): void {
+  const existingNames = new Set(
+    getRegisteredPlugins().map((p) => p.manifest.name),
+  );
+  if (!existingNames.has(defaultInjectorsPlugin.manifest.name)) {
+    registerPlugin(defaultInjectorsPlugin);
+  }
+}
 
 const log = getLogger("plugins-bootstrap");
 
@@ -147,11 +171,18 @@ function ensurePluginStorageDir(pluginName: string): string {
  * run) and before the first conversation is served.
  */
 export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
+  // Register first-party default plugins before walking the registry so the
+  // default injector chain (`defaultInjectorsPlugin`) is present on every
+  // boot. Third-party plugins register themselves via side-effect imports
+  // earlier in the boot sequence; they remain in whatever order they loaded.
+  registerDefaultPlugins();
+
   const plugins = getRegisteredPlugins();
   if (plugins.length === 0) {
-    // No-op fast path — the registry is empty (no first-party plugins have
-    // been wired yet in this PR). Emit a debug log so the call site is
-    // observable in startup traces and return.
+    // No-op fast path — the registry is empty. After this PR the default
+    // injectors are always present, but this branch stays defensive for
+    // tests that call `resetPluginRegistryForTests()` and stub the
+    // default registration.
     log.debug("bootstrapPlugins: registry empty — skipping");
     return;
   }
