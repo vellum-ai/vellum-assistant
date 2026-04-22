@@ -23,37 +23,51 @@ struct OnboardingView: View {
     @State private var managedBootstrapError: String?
 
     var body: some View {
-        ZStack {
-            if isBootstrappingManaged {
-                managedBootstrapView
-                    .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
-            } else {
-                switch currentStep {
-                case .login:
-                    LoginView(
-                        authManager: authManager,
-                        isReplay: isReplay,
-                        onContinue: {
-                            if isReplay {
-                                // Skip bootstrap in replay — the user is already
-                                // authenticated and we must not mutate state.
-                                currentStep = .ready
-                            } else {
-                                Task { await performManagedBootstrap() }
-                            }
-                        }
-                    )
-                    .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
-                case .ready:
-                    ReadyStep(isCompleted: $isCompleted, isReplay: isReplay)
+        // The strip is the last child of a root VStack and the VStack ignores
+        // the bottom safe area, so the image's bottom edge sits at the
+        // physical screen bottom and bleeds under the home indicator.
+        // Earlier attempts using .safeAreaInset + .ignoresSafeArea on the art
+        // failed because .aspectRatio(.fit) centers the rendered image inside
+        // any extended frame — the VStack-last-child pattern is the reliable
+        // one here.
+        VStack(spacing: 0) {
+            ZStack {
+                if isBootstrappingManaged {
+                    managedBootstrapView
                         .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
+                } else {
+                    switch currentStep {
+                    case .login:
+                        LoginView(
+                            authManager: authManager,
+                            isReplay: isReplay,
+                            onContinue: {
+                                if isReplay {
+                                    // Skip bootstrap in replay — the user is already
+                                    // authenticated and we must not mutate state.
+                                    currentStep = .ready
+                                } else {
+                                    Task { await performManagedBootstrap() }
+                                }
+                            }
+                        )
+                        .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
+                    case .ready:
+                        ReadyStep(isCompleted: $isCompleted, isReplay: isReplay)
+                            .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
+                    }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            OnboardingBottomStrip()
         }
+        .ignoresSafeArea(.container, edges: .bottom)
         .overlay(alignment: .topLeading) {
-            // Scope the cancel affordance to an overlay so the ZStack's default
-            // center alignment is preserved for ReadyStep and managedBootstrapView
-            // (bare VStacks that would otherwise render top-leading).
+            // Scope the cancel affordance to an overlay so the step ZStack's
+            // default center alignment is preserved for ReadyStep and
+            // managedBootstrapView (bare VStacks that would otherwise render
+            // top-leading).
             if isReplay {
                 Button("Cancel") {
                     isCompleted = true
@@ -63,9 +77,6 @@ struct OnboardingView: View {
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.top, VSpacing.sm)
             }
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            OnboardingBottomStrip()
         }
         .animation(.easeInOut, value: currentStep)
         .animation(.easeInOut, value: isBootstrappingManaged)
