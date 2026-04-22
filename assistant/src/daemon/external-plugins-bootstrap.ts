@@ -162,17 +162,16 @@ function validatePluginConfig(
 }
 
 /**
- * Read `config.plugins.<name>` defensively. The AssistantConfig schema does
- * not (yet) declare a `plugins` block, so accessing it goes through
- * `unknown` casts rather than compile-time field access.
+ * Read `config.plugins.<name>`. `AssistantConfigSchema` declares `plugins` as
+ * an optional `Record<string, unknown>`, so the field is type-safe at the
+ * schema boundary; per-plugin validation happens downstream via
+ * `plugin.manifest.config` in `validatePluginConfig`.
  */
 function getPluginConfigRaw(
   config: AssistantConfig,
   pluginName: string,
 ): unknown {
-  const plugins = (config as { plugins?: Record<string, unknown> }).plugins;
-  if (plugins == null || typeof plugins !== "object") return undefined;
-  return plugins[pluginName];
+  return config.plugins?.[pluginName];
 }
 
 /**

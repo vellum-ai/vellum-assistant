@@ -328,6 +328,19 @@ export const AssistantConfigSchema = z
       NotificationsConfigSchema.parse({}),
     ),
     ui: UiConfigSchema.default(UiConfigSchema.parse({})),
+    // Per-plugin config blocks keyed by plugin name. The schema is intentionally
+    // permissive — each plugin's manifest supplies its own validator which the
+    // plugin bootstrap (`external-plugins-bootstrap.ts`) runs against the raw
+    // block under `plugins.<name>` before handing the parsed result to the
+    // plugin's `init()`. Keeping this open here means adding a new plugin does
+    // not require a core-schema change, while invalid configs still surface
+    // through the plugin's own validator at bootstrap.
+    plugins: z
+      .record(z.string(), z.unknown())
+      .optional()
+      .describe(
+        "Per-plugin configuration keyed by plugin name. Validated downstream by each plugin's manifest.config validator at bootstrap.",
+      ),
     collectUsageData: z
       .boolean()
       .default(true)
