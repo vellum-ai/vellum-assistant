@@ -574,10 +574,19 @@ export class Conversation {
 
     const systemPrompt = this.hasSystemPromptOverride
       ? this.systemPrompt
-      : buildSystemPrompt({
-          hasNoClient: this.hasNoClient,
-          onboardingContext: this.getOnboardingContext(),
-        });
+      : (() => {
+          const persona = resolvePersonaContext(
+            this.currentTurnTrustContext,
+            this.currentTurnChannelCapabilities,
+          );
+          return buildSystemPrompt({
+            hasNoClient: this.hasNoClient,
+            userPersona: persona.userPersona,
+            channelPersona: persona.channelPersona,
+            userSlug: persona.userSlug,
+            onboardingContext: this.getOnboardingContext(),
+          });
+        })();
     const tools = buildToolDefinitions();
     const provider = this.provider;
 
@@ -588,7 +597,7 @@ export class Conversation {
 
     provider
       .sendMessage([warmMessage], tools, systemPrompt, {
-        config: { max_tokens: 1 },
+        config: { max_tokens: 1, callSite: "mainAgent" },
         signal: abort.signal,
       })
       .then(() => {
