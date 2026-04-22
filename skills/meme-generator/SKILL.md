@@ -43,45 +43,45 @@ All operations use `bash` with `curl` and `python3`.
 Find a template by keyword:
 
 ```bash
-curl -s "https://api.memegen.link/templates" | python3 -c "
+curl -s "https://api.memegen.link/templates" | python3 - "SEARCH_TERM" <<'PYEOF'
 import json, sys
 templates = json.load(sys.stdin)
-query = 'SEARCH_TERM'.lower()
+query = sys.argv[1].lower()
 matches = [t for t in templates if query in t['name'].lower() or query in t['id'].lower() or any(query in k.lower() for k in t.get('keywords', []))]
 for t in matches[:15]:
-    print(f\"{t['id']:25s} | {t['name']:45s} | {t['lines']} lines | Keywords: {', '.join(t.get('keywords', []))}\"  )
-print(f'\\n{len(matches)} matches')
-"
+    print(f"{t['id']:25s} | {t['name']:45s} | {t['lines']} lines | Keywords: {', '.join(t.get('keywords', []))}")
+print(f'\n{len(matches)} matches')
+PYEOF
 ```
 
 ### Browse Popular Templates
 
 Quick reference for the most Twitter-worthy templates:
 
-| ID | Name | Lines | Best For |
-|----|------|-------|----------|
-| `drake` | Drakeposting | 2 | "This not that" comparisons |
-| `db` | Distracted Boyfriend | 3 | Three-way tension (boyfriend, girlfriend, other) |
-| `fine` | This is Fine | 2 | Denial of obvious problems |
-| `cmm` | Change My Mind | 1 | Hot takes, controversial opinions |
-| `astronaut` | Always Has Been | 4 | "Wait it was X?" / "Always has been" |
-| `pigeon` | Is This a Pigeon? | 2 | Misidentifying something obvious |
-| `exit` | Left Exit 12 Off Ramp | 3 | Choosing the wrong/chaotic option |
-| `gru` | Gru's Plan | 4 | Plan that backfires in step 3-4 |
-| `pooh` | Tuxedo Winnie the Pooh | 2 | Basic vs. sophisticated version |
-| `rollsafe` | Roll Safe | 2 | Galaxy-brain "logic" |
-| `chair` | American Chopper Argument | 6 | Multi-panel heated debate |
-| `ds` | Daily Struggle | 3 | Two-button dilemma |
-| `same` | They're The Same Picture | 3 | Two things that are identical |
-| `midwit` | Midwit | 3 | Beginner and expert agree, midwit overthinks |
-| `gb` | Galaxy Brain | 4 | Escalating "big brain" ideas |
-| `right` | Anakin and Padme | 3 | "Right...?" meme — dawning realization |
-| `harold` | Hide the Pain Harold | 2 | Suffering in silence |
-| `vince` | Vince McMahon Reaction | 4 | Escalating excitement |
-| `home` | We Have Food at Home | 2 | Wanting X, getting budget X |
-| `panik-kalm-panik` | Panik Kalm Panik | 3 | Emotional rollercoaster |
-| `woman-cat` | Woman Yelling at a Cat | 2 | Accusation vs. unbothered response |
-| `spiderman` | Spider-Man Pointing | 2 | Two identical things |
+| ID                 | Name                      | Lines | Best For                                         |
+| ------------------ | ------------------------- | ----- | ------------------------------------------------ |
+| `drake`            | Drakeposting              | 2     | "This not that" comparisons                      |
+| `db`               | Distracted Boyfriend      | 3     | Three-way tension (boyfriend, girlfriend, other) |
+| `fine`             | This is Fine              | 2     | Denial of obvious problems                       |
+| `cmm`              | Change My Mind            | 1     | Hot takes, controversial opinions                |
+| `astronaut`        | Always Has Been           | 4     | "Wait it was X?" / "Always has been"             |
+| `pigeon`           | Is This a Pigeon?         | 2     | Misidentifying something obvious                 |
+| `exit`             | Left Exit 12 Off Ramp     | 3     | Choosing the wrong/chaotic option                |
+| `gru`              | Gru's Plan                | 4     | Plan that backfires in step 3-4                  |
+| `pooh`             | Tuxedo Winnie the Pooh    | 2     | Basic vs. sophisticated version                  |
+| `rollsafe`         | Roll Safe                 | 2     | Galaxy-brain "logic"                             |
+| `chair`            | American Chopper Argument | 6     | Multi-panel heated debate                        |
+| `ds`               | Daily Struggle            | 3     | Two-button dilemma                               |
+| `same`             | They're The Same Picture  | 3     | Two things that are identical                    |
+| `midwit`           | Midwit                    | 3     | Beginner and expert agree, midwit overthinks     |
+| `gb`               | Galaxy Brain              | 4     | Escalating "big brain" ideas                     |
+| `right`            | Anakin and Padme          | 3     | "Right...?" meme — dawning realization           |
+| `harold`           | Hide the Pain Harold      | 2     | Suffering in silence                             |
+| `vince`            | Vince McMahon Reaction    | 4     | Escalating excitement                            |
+| `home`             | We Have Food at Home      | 2     | Wanting X, getting budget X                      |
+| `panik-kalm-panik` | Panik Kalm Panik          | 3     | Emotional rollercoaster                          |
+| `woman-cat`        | Woman Yelling at a Cat    | 2     | Accusation vs. unbothered response               |
+| `spiderman`        | Spider-Man Pointing       | 2     | Two identical things                             |
 
 ### Generate a Meme
 
@@ -94,20 +94,20 @@ curl -sL "https://api.memegen.link/images/{template_id}/{line1}/{line2}.{format}
 
 **Text encoding rules** (critical — get these right):
 
-| Character | Encoding | Example |
-|-----------|----------|---------|
-| Space | `_` or `-` | `hello_world` |
-| Literal underscore | `__` | `my__variable` |
-| Literal dash | `--` | `mind--blowing` |
-| Question mark | `~q` | `is_this_real~q` |
-| Exclamation | `~e` | `wow~e` |
-| Hashtag | `~h` | `~hAI` |
-| Ampersand | `~a` | `this_~a_that` |
-| Percent | `~p` | `100~p` |
-| Slash | `~s` | `either~sor` |
-| Newline | `~n` | `line_one~nline_two` |
-| Double quote | `''` (two single quotes) | `he_said_''hi''` |
-| Emoji | Direct or alias | `👍` or `:thumbsup:` |
+| Character          | Encoding                 | Example              |
+| ------------------ | ------------------------ | -------------------- |
+| Space              | `_` or `-`               | `hello_world`        |
+| Literal underscore | `__`                     | `my__variable`       |
+| Literal dash       | `--`                     | `mind--blowing`      |
+| Question mark      | `~q`                     | `is_this_real~q`     |
+| Exclamation        | `~e`                     | `wow~e`              |
+| Hashtag            | `~h`                     | `~hAI`               |
+| Ampersand          | `~a`                     | `this_~a_that`       |
+| Percent            | `~p`                     | `100~p`              |
+| Slash              | `~s`                     | `either~sor`         |
+| Newline            | `~n`                     | `line_one~nline_two` |
+| Double quote       | `''` (two single quotes) | `he_said_''hi''`     |
+| Emoji              | Direct or alias          | `👍` or `:thumbsup:` |
 
 **Multi-line templates:** Some templates support 3+ lines. Each line is a path segment:
 
@@ -134,12 +134,12 @@ curl -sL "https://api.memegen.link/images/drake/top/bottom.png?width=1200" \
 
 **Fonts:**
 
-| Font | ID | Alias |
-|------|----|-------|
+| Font                | ID             | Alias   |
+| ------------------- | -------------- | ------- |
 | Titillium Web Black | `titilliumweb` | `thick` |
-| Kalam Regular | `kalam` | `comic` |
-| Impact | `impact` | — |
-| Noto Sans Bold | `notosans` | — |
+| Kalam Regular       | `kalam`        | `comic` |
+| Impact              | `impact`       | —       |
+| Noto Sans Bold      | `notosans`     | —       |
 
 ```bash
 curl -sL "https://api.memegen.link/images/cmm/hot_take.png?font=impact" \

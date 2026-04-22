@@ -30,6 +30,10 @@ API_BASE="https://api.memegen.link"
 encode_text() {
   local text="$1"
   # Apply memegen encoding rules
+  # IMPORTANT: escape literal underscores and dashes BEFORE converting spaces,
+  # since memegen treats _ and - as spaces in caption text.
+  text="${text//_/__}"       # literal _ → __ (must be before space→_)
+  text="${text//-/--}"       # literal - → -- (must be before space→-)
   text="${text// /_}"        # spaces → underscores
   text="${text//\?/~q}"      # ? → ~q
   text="${text//\!/~e}"      # ! → ~e
@@ -53,19 +57,19 @@ usage() {
 
 cmd_search() {
   local query="${1:?Usage: meme search <query>}"
-  curl -s "${API_BASE}/templates" | python3 -c "
+  curl -s "${API_BASE}/templates" | python3 - "$query" <<'PYEOF'
 import json, sys
 templates = json.load(sys.stdin)
-query = '${query}'.lower()
+query = sys.argv[1].lower()
 matches = [t for t in templates if query in t['name'].lower() or query in t['id'].lower() or any(query in k.lower() for k in t.get('keywords', []))]
 if not matches:
-    print('No templates found matching: ${query}')
+    print(f'No templates found matching: {sys.argv[1]}')
     sys.exit(0)
 for t in matches[:20]:
     kw = ', '.join(t.get('keywords', []))
-    print(f\"  {t['id']:25s} {t['name']:45s} {t['lines']} lines  {kw}\")
+    print(f"  {t['id']:25s} {t['name']:45s} {t['lines']} lines  {kw}")
 print(f'\n  {len(matches)} match(es)')
-"
+PYEOF
 }
 
 cmd_list() {
