@@ -34,69 +34,18 @@ struct HomeScheduledDetailPanel: View {
     let onSecondaryAction: (() -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-
-            Rectangle()
-                .fill(VColor.borderHover)
-                .frame(height: 1)
-                .accessibilityHidden(true)
-
-            bodySection
-
-            Spacer(minLength: VSpacing.lg)
-
-            footer
-        }
-        .frame(minWidth: 480, idealWidth: 600, maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
-                .fill(VColor.surfaceLift)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
-                .strokeBorder(VColor.borderHover, lineWidth: 1)
-        )
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text(title))
-    }
-
-    // MARK: - Header
-
-    private var header: some View {
-        HStack(alignment: .center) {
-            HStack(spacing: VSpacing.sm) {
-                ZStack {
-                    Circle().fill(VColor.feedThreadWeak)
-                    VIconView(.calendar, size: 12)
-                        .foregroundStyle(VColor.feedThreadStrong)
-                }
-                .frame(width: 26, height: 26)
-                .accessibilityHidden(true)
-
-                Text(title)
-                    .font(VFont.titleSmall)
-                    .foregroundStyle(VColor.contentEmphasized)
-                    .accessibilityAddTraits(.isHeader)
+        HomeDetailPanel(
+            icon: .calendar,
+            title: title,
+            onDismiss: onClose,
+            scrollable: false
+        ) {
+            VStack(alignment: .leading, spacing: 0) {
+                bodySection
+                Spacer(minLength: VSpacing.lg)
+                footer
             }
-
-            Spacer(minLength: 0)
-
-            Button(action: onClose) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: VRadius.md, style: .continuous)
-                        .strokeBorder(VColor.borderElement, lineWidth: 1)
-                    VIconView(.x, size: 9)
-                        .foregroundStyle(VColor.contentEmphasized)
-                }
-                .frame(width: 32, height: 32)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .accessibilityLabel(Text("Close"))
         }
-        .padding(VSpacing.lg)
     }
 
     // MARK: - Body
