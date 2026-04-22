@@ -43,7 +43,6 @@ import {
   ToolProfiler,
 } from "../events/tool-profiling-listener.js";
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
-import { getHookManager } from "../hooks/manager.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import {
   getConversationOriginChannel,
@@ -542,11 +541,6 @@ export class Conversation {
       systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
       config: llmDefault.contextWindow,
       toolTokenBudget: this.agentLoop.getToolTokenBudget(),
-    });
-
-    void getHookManager().trigger("conversation-start", {
-      conversationId: this.conversationId,
-      workingDir: this.workingDir,
     });
   }
 
