@@ -74,12 +74,21 @@ public final class SettingsStore: ObservableObject {
     static let availableImageGenModels: [String] = [
         "gemini-3.1-flash-image-preview",
         "gemini-3-pro-image-preview",
+        "gpt-image-2",
     ]
 
     static let imageGenModelDisplayNames: [String: String] = [
         "gemini-3.1-flash-image-preview": "Nano Banana 2",
         "gemini-3-pro-image-preview": "Nano Banana Pro",
+        "gpt-image-2": "GPT Image 2",
     ]
+
+    static func imageGenProvider(forModel model: String) -> String {
+        if model.hasPrefix("gpt-") || model.hasPrefix("dall-e-") {
+            return "openai"
+        }
+        return "gemini"
+    }
 
     // MARK: - Settings Values
 
