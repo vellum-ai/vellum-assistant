@@ -34,6 +34,15 @@
 
 FROM oven/bun:1.3.11@sha256:0733e50325078969732ebe3b15ce4c4be5082f18c4ac1a0f0ca4839c2e4e42a7
 
+# UTF-8 locale for every process in the image. Without this the container
+# defaults to POSIX/C locale and locale-aware tools refuse non-ASCII bytes —
+# `xdotool type` aborts a chat message on the first multi-byte character
+# (curly apostrophe, em-dash, emoji) with `Invalid multi-byte sequence
+# encountered`, leaving the composer holding a truncated message that the
+# subsequent send click then commits. Modern Debian (the base for
+# `oven/bun`) ships `C.UTF-8` without needing the `locales` package.
+ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
+
 # System dependencies. Keep this list grouped and sorted so future PRs can
 # add/remove packages cleanly.
 #

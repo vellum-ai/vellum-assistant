@@ -89,6 +89,27 @@ describe("xdotoolType", () => {
     expect(fake.calls[0]!.options.env?.DISPLAY).toBe(":99");
   });
 
+  test("forces LANG=C.UTF-8 so xdotool can type non-ASCII characters", async () => {
+    // Without an explicit UTF-8 locale, xdotool runs in POSIX/C and aborts
+    // a chat message on the first multi-byte byte (em-dash, curly
+    // apostrophe, emoji) with "Invalid multi-byte sequence encountered",
+    // leaving a partial string in the composer. Pin the env so that
+    // failure mode can't return if the bot is invoked outside the
+    // container (e.g. local dev) where the host locale may not be UTF-8.
+    const child = makeFakeChild();
+    const fake = makeFakeSpawn(child);
+
+    const pending = xdotoolType({
+      text: "Hi — I'm the note-taker, don't mind me.",
+      display: ":99",
+      spawn: fake.spawn,
+    });
+    child.__simulateExit(0);
+    await pending;
+
+    expect(fake.calls[0]!.options.env?.LANG).toBe("C.UTF-8");
+  });
+
   test("passes text starting with '-' safely via the '--' end-of-options marker", async () => {
     // Regression: without `--` before the text token, xdotool parses
     // anything starting with `-` as an option flag (e.g. a negative number
