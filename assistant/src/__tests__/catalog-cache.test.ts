@@ -214,4 +214,43 @@ describe("getCatalog", () => {
       Date.now = originalNow;
     }
   });
+
+  test("resets TTL on stale-cache fallback so subsequent calls hit cache", async () => {
+    mockFetchCatalogResult = sampleCatalog;
+
+    // Prime cache.
+    await getCatalog();
+    expect(fetchCatalogCallCount).toBe(1);
+
+    // Expire TTL, trigger fallback once.
+    const originalNow = Date.now;
+    let clock = originalNow() + 5 * 60 * 1000 + 1;
+    Date.now = () => clock;
+    try {
+      mockFetchCatalogError = new Error("Network timeout");
+      const first = await getCatalog();
+      expect(first).toEqual(sampleCatalog);
+      expect(fetchCatalogCallCount).toBe(2);
+
+      // Advance clock by less than the TTL — subsequent calls must be served
+      // from the refreshed cache window without re-entering fetchCatalog().
+      clock += 60 * 1000;
+      const second = await getCatalog();
+      expect(second).toEqual(sampleCatalog);
+      expect(fetchCatalogCallCount).toBe(2);
+
+      clock += 2 * 60 * 1000;
+      const third = await getCatalog();
+      expect(third).toEqual(sampleCatalog);
+      expect(fetchCatalogCallCount).toBe(2);
+
+      // Once the refreshed TTL elapses, the next call retries the remote.
+      clock += 5 * 60 * 1000 + 1;
+      const fourth = await getCatalog();
+      expect(fourth).toEqual(sampleCatalog);
+      expect(fetchCatalogCallCount).toBe(3);
+    } finally {
+      Date.now = originalNow;
+    }
+  });
 });

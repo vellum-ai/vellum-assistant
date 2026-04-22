@@ -42,6 +42,9 @@ export async function getCatalog(): Promise<CatalogSkill[]> {
         { err },
         "Failed to fetch Vellum catalog, keeping stale merged cache",
       );
+      // Reset the TTL window so subsequent calls during the outage are served
+      // from cache instead of re-entering fetchCatalog() on every call.
+      cacheTimestamp = Date.now();
       return cachedCatalog;
     }
     if (local.length > 0) {
