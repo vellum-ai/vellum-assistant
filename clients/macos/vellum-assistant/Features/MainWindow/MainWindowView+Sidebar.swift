@@ -15,6 +15,9 @@ extension MainWindowView {
         }
         // When an app is open, keep it visible and switch the conversation
         // context instead of navigating away to a full-screen conversation.
+        // `ConversationManager` is synced by the `onChange(of: windowState.selection)`
+        // handler in `MainWindowView.body`, which yields before the heavy VM
+        // work so SwiftUI commits the sidebar highlight on the current frame.
         if let appId = windowState.activeAppId {
             windowState.setAppEditing(appId: appId, conversationId: conversation.id)
         } else {
@@ -26,17 +29,6 @@ extension MainWindowView {
         if let groupId = conversation.groupId,
            !sidebar.expandedSections.contains(groupId) {
             sidebar.expandedSections.insert(groupId)
-        }
-
-        // Yield to the run loop before the heavy VM work so SwiftUI commits
-        // the sidebar highlight change above on the current frame. A
-        // cache-miss path through `ConversationManager.selectConversation`
-        // synchronously builds a new `ChatViewModel` and wires three
-        // Combine observers — without the yield, the main thread is busy
-        // for that entire window and the click appears to do nothing until
-        // the conversation has fully loaded.
-        Task { @MainActor in
-            conversationManager.selectConversation(id: conversation.id)
         }
     }
 
