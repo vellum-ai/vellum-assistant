@@ -65,7 +65,7 @@ struct IntegrationDetailModal: View {
     }
 
     private var isPaid: Bool {
-        providerMeta?.isPaid ?? yourOwnMeta?.isPaid ?? false
+        (providerMeta?.isPaid ?? false) || (yourOwnMeta?.isPaid ?? false)
     }
 
     // MARK: - Body
