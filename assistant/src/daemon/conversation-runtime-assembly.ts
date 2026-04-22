@@ -18,7 +18,6 @@ import {
   countMemoryPrefixBlocks,
   extractMemoryPrefixBlocks,
 } from "../memory/graph/conversation-graph-memory.js";
-import { searchPkbFiles } from "../memory/pkb/pkb-search.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import {
@@ -28,7 +27,12 @@ import {
 } from "../messaging/providers/slack/render-transcript.js";
 import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
 import { getInjectors } from "../plugins/registry.js";
-import type { TurnContext } from "../plugins/types.js";
+import type {
+  InjectionBlock,
+  InjectionPlacement,
+  TurnContext,
+  TurnInjectionInputs,
+} from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import {
   type ActorTrustContext,
@@ -38,17 +42,10 @@ import {
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
-import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { filterMessagesForUntrustedActor } from "./conversation-lifecycle.js";
-import {
-  getInContextPkbPaths,
-  type PkbContextConversation,
-} from "./pkb-context-tracker.js";
-import { buildPkbReminder } from "./pkb-reminder-builder.js";
-
-const pkbReminderLog = getLogger("pkb-reminder");
+import { type PkbContextConversation } from "./pkb-context-tracker.js";
 
 /**
  * Describes the capabilities of the channel through which the user is
@@ -524,16 +521,11 @@ export function buildSubagentStatusBlock(
   return lines.join("\n");
 }
 
-/** Append a subagent status block to the last user message. */
-export function injectSubagentStatus(
-  message: Message,
-  statusBlock: string,
-): Message {
-  return {
-    ...message,
-    content: [...message.content, { type: "text" as const, text: statusBlock }],
-  };
-}
+// `injectSubagentStatus` was removed in G2.1 — the subagent-status default
+// injector (`plugins/defaults/injectors.ts`) now emits the block as an
+// `append-user-tail` placement. Use {@link applyRuntimeInjections} with
+// `options.subagentStatusBlock` set, or drive the injector chain directly
+// via `collectInjectorBlocks`.
 
 /**
  * Append voice call-control protocol instructions to the last user
@@ -577,42 +569,11 @@ export function readNowScratchpad(): string | null {
 }
 
 /**
- * Insert NOW.md scratchpad content into the user message, after any
- * injected context blocks (e.g. memory_context) but before the user's
- * original content.  This keeps the user's actual message as the last
- * thing the model reads.
+ * `injectNowScratchpad` was removed in G2.1 — the now-md default injector
+ * (`plugins/defaults/injectors.ts`) now emits the `<NOW.md>` block as an
+ * `after-memory-prefix` placement. Use {@link applyRuntimeInjections} with
+ * `options.nowScratchpad` set.
  */
-export function injectNowScratchpad(
-  message: Message,
-  content: string,
-): Message {
-  const scratchpadBlock = {
-    type: "text" as const,
-    text: `<NOW.md Always keep this up to date; keep under 10 lines>\n${content}\n</NOW.md>`,
-  };
-
-  // Find insertion point: skip any leading injected-context text blocks
-  // (e.g. memory_context) so the scratchpad lands between injected context
-  // and the user's original content.
-  let insertIdx = 0;
-  for (let i = 0; i < message.content.length; i++) {
-    const block = message.content[i];
-    if (block.type === "text" && block.text.startsWith("<memory_context")) {
-      insertIdx = i + 1;
-    } else {
-      break;
-    }
-  }
-
-  return {
-    ...message,
-    content: [
-      ...message.content.slice(0, insertIdx),
-      scratchpadBlock,
-      ...message.content.slice(insertIdx),
-    ],
-  };
-}
 
 /** Strip `<NOW.md>` blocks injected by `injectNowScratchpad`. */
 export function stripNowScratchpad(messages: Message[]): Message[] {
@@ -639,16 +600,6 @@ const AUTOINJECT_FILENAME = "_autoinject.md";
 
 /** Max buffer.md lines injected into prompts — keeps context bounded even when filing is off. */
 const MAX_BUFFER_LINES = 50;
-
-/** Minimum hybrid-search score for a PKB path to surface as an injection hint. */
-const PKB_HINT_THRESHOLD = 0.5;
-
-/**
- * Stricter hint threshold for PKB entries under `archive/`. Archive files are
- * date-indexed dumps of older notes — they match loosely and are rarely the
- * most relevant read, so require a higher bar before recommending them.
- */
-const PKB_HINT_ARCHIVE_THRESHOLD = 0.7;
 
 /**
  * Read `_autoinject.md` from the PKB directory and return the list of
@@ -730,49 +681,10 @@ export function readPkbContext(): string | null {
   return parts.length > 0 ? parts.join("\n\n") : null;
 }
 
-/**
- * Insert PKB context into the user message, after any injected memory
- * blocks but before NOW.md and the user's original content.
- */
-export function injectPkbContext(message: Message, content: string): Message {
-  // Escape closing tags that could break out of the XML wrapper
-  const escaped = content.replace(
-    /<\/knowledge_base\s*>/gi,
-    "&lt;/knowledge_base&gt;",
-  );
-  const pkbBlock = {
-    type: "text" as const,
-    text: `<knowledge_base>\n${escaped}\n</knowledge_base>`,
-  };
-
-  // Find insertion point: skip any leading memory/image blocks
-  let insertIdx = 0;
-  for (let i = 0; i < message.content.length; i++) {
-    const block = message.content[i];
-    if (
-      block.type === "text" &&
-      (block.text.startsWith("<memory") ||
-        block.text.startsWith("</memory_image>") ||
-        block.text.startsWith("<memory_context"))
-    ) {
-      insertIdx = i + 1;
-    } else if (block.type === "image") {
-      // Memory images precede the memory text block
-      insertIdx = i + 1;
-    } else {
-      break;
-    }
-  }
-
-  return {
-    ...message,
-    content: [
-      ...message.content.slice(0, insertIdx),
-      pkbBlock,
-      ...message.content.slice(insertIdx),
-    ],
-  };
-}
+// `injectPkbContext` was removed in G2.1 — the pkb default injector
+// (`plugins/defaults/injectors.ts`) now emits the `<knowledge_base>`
+// block as an `after-memory-prefix` placement on the same splice site.
+// Use {@link applyRuntimeInjections} with `options.pkbContext` set.
 
 /** Strip `<knowledge_base>` blocks injected by `injectPkbContext`. */
 export function stripPkbContext(messages: Message[]): Message[] {
@@ -1148,18 +1060,11 @@ export function stripChannelCapabilityContext(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, ["<channel_capabilities>"]);
 }
 
-/**
- * Prepend workspace top-level directory context to a user message.
- */
-export function injectWorkspaceTopLevelContext(
-  message: Message,
-  contextText: string,
-): Message {
-  return {
-    ...message,
-    content: [{ type: "text", text: contextText }, ...message.content],
-  };
-}
+// `injectWorkspaceTopLevelContext` was removed in G2.1 — the
+// workspace-context default injector (`plugins/defaults/injectors.ts`)
+// now emits the workspace block as a `prepend-user-tail` placement.
+// Use {@link applyRuntimeInjections} with
+// `options.workspaceTopLevelContext` set.
 
 /**
  * Strip `<active_workspace>` (and legacy `<active_dynamic_page>`) blocks
@@ -1751,6 +1656,28 @@ export interface RuntimeInjectionResult {
 }
 
 /**
+ * Run every registered {@link Injector}'s `produce()` in ascending `order`
+ * and return every non-null block the chain produced.
+ *
+ * Injectors returning `null` are omitted from the result. The returned array
+ * preserves ascending-`order` sort so downstream callers (notably
+ * {@link applyRuntimeInjections}) can group blocks by `placement` and apply
+ * them declaratively without losing per-injector ordering within each slot.
+ */
+export async function collectInjectorBlocks(
+  ctx: TurnContext,
+): Promise<InjectionBlock[]> {
+  const injectors = getInjectors();
+  if (injectors.length === 0) return [];
+  const out: InjectionBlock[] = [];
+  for (const injector of injectors) {
+    const block = await injector.produce(ctx);
+    if (block) out.push(block);
+  }
+  return out;
+}
+
+/**
  * Run every registered {@link Injector}'s `produce()` in ascending
  * `order`, concatenate the non-null results into a single block of text,
  * and return it.
@@ -1759,152 +1686,424 @@ export interface RuntimeInjectionResult {
  * skipped entirely (no leading/trailing blank lines). When no injector
  * contributes, the function returns an empty string.
  *
- * Used by {@link applyRuntimeInjections} to expose a deterministic
- * composition point that plugin-registered injectors can slot into. The
- * default injectors registered by `defaultInjectorsPlugin` placeholder-return
- * `null` in this PR; later PRs in the `agent-plugin-system` plan lift their
- * real bodies from the hardcoded `applyRuntimeInjections` branches.
+ * Kept for the PR 21 test suite (which asserts the concatenation contract)
+ * and for callers that want a single informational string view of the chain.
+ * The canonical integration point is {@link applyRuntimeInjections}, which
+ * uses {@link collectInjectorBlocks} + placement-aware application to splice
+ * each block into the per-turn message array.
  */
 export async function composeInjectorChain(ctx: TurnContext): Promise<string> {
-  const injectors = getInjectors();
-  if (injectors.length === 0) return "";
+  const blocks = await collectInjectorBlocks(ctx);
   const pieces: string[] = [];
-  for (const injector of injectors) {
-    const block = await injector.produce(ctx);
-    if (block && block.text.length > 0) {
-      pieces.push(block.text);
-    }
+  for (const block of blocks) {
+    if (block.text.length > 0) pieces.push(block.text);
   }
   return pieces.join("\n\n");
 }
 
 /**
- * Apply a chain of user-message injections to `runMessages`.
+ * Default block placement. Kept in sync with {@link InjectionBlock} so
+ * blocks produced without an explicit `placement` (e.g. third-party
+ * injectors written against the pre-G2.1 API) behave predictably.
+ */
+const DEFAULT_PLACEMENT: InjectionPlacement = "append-user-tail";
+
+/**
+ * Count leading memory-prefix blocks on a user message's `content`.
  *
- * Each injection is optional — pass `null`/`undefined` to skip it.
- * Returns the final message array ready for the provider along with a
- * `blocks` object holding the exact injected text for each block that was
- * applied, so callers can persist those bytes to message metadata for later
- * byte-exact rehydration.
+ * Delegates to {@link countMemoryPrefixBlocks} from
+ * `memory/graph/conversation-graph-memory.js` — the same state-machine the
+ * pre-migration PKB-reminder branch used to find its splice point. The
+ * pre-migration `injectPkbContext` and `injectNowScratchpad` helpers used
+ * slightly simpler rules inline; reusing the canonical counter here
+ * collapses the three near-identical splice rules into one source of truth
+ * so the ordering of PKB-context / PKB-reminder / NOW blocks relative to
+ * any memory prefix is stable and testable. For the common case (just
+ * `<memory __injected>` text, no images), the output is byte-identical to
+ * the pre-migration helpers.
+ */
+function countMemoryPrefixBlocksOnContent(content: ContentBlock[]): number {
+  return countMemoryPrefixBlocks(content);
+}
+
+/**
+ * Apply one injector block to a `runMessages` array according to its
+ * declared {@link InjectionPlacement}.
+ *
+ * Preserves the byte-for-byte positional semantics of the pre-migration
+ * `inject*` helpers:
+ *  - `"prepend-user-tail"` — prepend to the tail user message's content.
+ *  - `"append-user-tail"`  — append to the tail user message's content.
+ *  - `"after-memory-prefix"` — splice immediately after any leading memory
+ *    prefix blocks (mirrors `injectPkbContext` / `injectNowScratchpad`).
+ *  - `"replace-run-messages"` — replace `runMessages` wholesale with
+ *    `block.messagesOverride`.
+ *
+ * Blocks with empty `text` on non-replace placements are no-ops (the
+ * pre-migration branches also short-circuited on empty strings).
+ */
+function applyInjectionBlock(
+  runMessages: Message[],
+  block: InjectionBlock,
+): Message[] {
+  const placement = block.placement ?? DEFAULT_PLACEMENT;
+
+  if (placement === "replace-run-messages") {
+    if (!block.messagesOverride) return runMessages;
+    return block.messagesOverride;
+  }
+
+  if (block.text.length === 0) return runMessages;
+
+  const userTail = runMessages[runMessages.length - 1];
+  if (!userTail || userTail.role !== "user") return runMessages;
+
+  const textBlock = { type: "text" as const, text: block.text };
+
+  switch (placement) {
+    case "prepend-user-tail":
+      return [
+        ...runMessages.slice(0, -1),
+        { ...userTail, content: [textBlock, ...userTail.content] },
+      ];
+    case "append-user-tail":
+      return [
+        ...runMessages.slice(0, -1),
+        { ...userTail, content: [...userTail.content, textBlock] },
+      ];
+    case "after-memory-prefix": {
+      const memoryPrefixCount = countMemoryPrefixBlocksOnContent(
+        userTail.content,
+      );
+      return [
+        ...runMessages.slice(0, -1),
+        {
+          ...userTail,
+          content: [
+            ...userTail.content.slice(0, memoryPrefixCount),
+            textBlock,
+            ...userTail.content.slice(memoryPrefixCount),
+          ],
+        },
+      ];
+    }
+  }
+}
+
+/**
+ * Per-turn options accepted by {@link applyRuntimeInjections}.
+ *
+ * Most fields flow through to the per-injector {@link TurnInjectionInputs}
+ * bag attached to the {@link TurnContext} the caller provides (or to an
+ * ephemeral {@link TurnContext} synthesized for test call sites). A small
+ * number of fields drive hardcoded branches that live outside the injector
+ * chain — `activeSurface`, `channelCapabilities`, `channelCommandContext`,
+ * `voiceCallControlPrompt`, `transportHints`, and `isNonInteractive` —
+ * because they are orchestrator-owned content that never made sense as
+ * plugin-overridable default injectors.
+ */
+export interface RuntimeInjectionOptions {
+  /**
+   * Active dashboard-surface context (read from `<active_workspace>`). Kept
+   * on the options bag rather than an injector because it is a
+   * channel-capability concern that has never been gated as a default
+   * injector.
+   */
+  activeSurface?: ActiveSurfaceContext | null;
+  workspaceTopLevelContext?: string | null;
+  channelCapabilities?: ChannelCapabilities | null;
+  channelCommandContext?: ChannelCommandContext | null;
+  unifiedTurnContext?: string | null;
+  voiceCallControlPrompt?: string | null;
+  pkbContext?: string | null;
+  pkbActive?: boolean;
+  /**
+   * Dense query vector surfaced from the graph memory retriever (PR 3).
+   * When present together with `pkbActive`, used to run `searchPkbFiles`
+   * to surface relevance hints in the PKB system reminder. When missing,
+   * the reminder falls back to the flat static text.
+   */
+  pkbQueryVector?: number[];
+  /** Optional sparse vector accompanying `pkbQueryVector`. */
+  pkbSparseVector?: QdrantSparseVector;
+  /** Memory scope id used to filter PKB search results. */
+  pkbScopeId?: string;
+  /**
+   * The live conversation (or a minimal shape containing `messages`) used
+   * to compute which PKB paths are already "in context" and therefore
+   * suppressed from hint suggestions.
+   */
+  pkbConversation?: PkbContextConversation;
+  /** Auto-injected PKB filenames (resolved relative to `pkbRoot`). */
+  pkbAutoInjectList?: string[];
+  /** Absolute path to the PKB directory (e.g. `<workspace>/pkb`). */
+  pkbRoot?: string;
+  /**
+   * Working directory against which relative `file_read` tool paths
+   * resolve, used to detect workspace-relative reads like
+   * `pkb/threads.md`. Falls back to `pkbRoot` when omitted.
+   */
+  pkbWorkingDir?: string;
+  nowScratchpad?: string | null;
+  subagentStatusBlock?: string | null;
+  isNonInteractive?: boolean;
+  transportHints?: string[] | null;
+  /**
+   * Pre-rendered Slack chronological transcript that replaces the
+   * default `runMessages` history for any Slack conversation (channels
+   * and DMs alike).
+   *
+   * When `channelCapabilities` describes a Slack conversation and this
+   * array is non-empty, the `slack-messages` default injector emits a
+   * `replace-run-messages` block that swaps `runMessages` with this
+   * transcript. Channel renders include sibling-thread tags; DM renders
+   * are flat (DMs have no threads). The `transportHints` pipeline is
+   * skipped for any Slack conversation so the persisted view isn't
+   * duplicated by gateway-side hints.
+   *
+   * Callers build this via `loadSlackChronologicalMessages` (or the
+   * underlying `assembleSlackChronologicalMessages`) before invoking
+   * this function so the assembly path stays free of direct DB calls
+   * and remains easy to test.
+   */
+  slackChronologicalMessages?: Message[] | null;
+  /**
+   * Pre-rendered `<active_thread>` focus block listing the messages of
+   * the thread the current inbound user message belongs to.
+   *
+   * Appended to the FINAL user message ONLY when `channelCapabilities`
+   * describes a Slack non-DM channel. The block is non-persisted: history
+   * rebuilds re-derive it from storage on each turn, and
+   * `RUNTIME_INJECTION_PREFIXES` strips any `<active_thread>` blocks from
+   * prior turns so they do not accumulate.
+   *
+   * Callers build this via `loadSlackActiveThreadFocusBlock` (or the
+   * underlying `assembleSlackActiveThreadFocusBlock`). Pass `null` /
+   * `undefined` when the inbound is a top-level (non-thread) post.
+   */
+  slackActiveThreadFocusBlock?: string | null;
+  mode?: InjectionMode;
+  /**
+   * Per-turn {@link TurnContext} forwarded to plugin-registered
+   * {@link Injector}s via {@link collectInjectorBlocks}. When omitted,
+   * `applyRuntimeInjections` synthesizes an ephemeral context (with a
+   * fallback `trust` classification) so the default-injector chain still
+   * runs — test call sites that pass option fields without a matching
+   * `turnContext` continue to exercise the same code path.
+   *
+   * When provided, the caller's `trust`, `conversationId`, `turnIndex`,
+   * etc. are preserved; the function layers its per-turn
+   * {@link TurnInjectionInputs} onto a shallow clone so the caller's
+   * `TurnContext` is not mutated.
+   */
+  turnContext?: TurnContext;
+}
+
+/**
+ * Build the {@link TurnInjectionInputs} bag from the options bag.
+ *
+ * Exposed so callers that already hold a {@link TurnContext} can layer the
+ * same per-turn inputs onto it before handing control to
+ * {@link collectInjectorBlocks} directly — useful for tests and for the
+ * overflow-reducer reinject path.
+ */
+export function buildTurnInjectionInputs(
+  options: RuntimeInjectionOptions,
+): TurnInjectionInputs {
+  return {
+    mode: options.mode,
+    workspaceTopLevelContext: options.workspaceTopLevelContext,
+    unifiedTurnContext: options.unifiedTurnContext,
+    pkbContext: options.pkbContext,
+    pkbActive: options.pkbActive,
+    pkbQueryVector: options.pkbQueryVector,
+    pkbSparseVector: options.pkbSparseVector,
+    pkbScopeId: options.pkbScopeId,
+    pkbConversation: options.pkbConversation,
+    pkbAutoInjectList: options.pkbAutoInjectList,
+    pkbRoot: options.pkbRoot,
+    pkbWorkingDir: options.pkbWorkingDir,
+    nowScratchpad: options.nowScratchpad,
+    subagentStatusBlock: options.subagentStatusBlock,
+    channelCapabilities: options.channelCapabilities,
+    slackChronologicalMessages: options.slackChronologicalMessages,
+    slackActiveThreadFocusBlock: options.slackActiveThreadFocusBlock,
+    activeSurface: options.activeSurface,
+    channelCommandContext: options.channelCommandContext,
+    voiceCallControlPrompt: options.voiceCallControlPrompt,
+    transportHints: options.transportHints,
+    isNonInteractive: options.isNonInteractive,
+  };
+}
+
+/** Minimal synthetic TurnContext used when the caller omits one. */
+function synthesizeFallbackTurnContext(
+  inputs: TurnInjectionInputs,
+): TurnContext {
+  return {
+    requestId: "runtime-assembly-fallback",
+    conversationId: "runtime-assembly-fallback",
+    turnIndex: 0,
+    trust: {
+      sourceChannel: inputs.channelCapabilities?.channel
+        ? (inputs.channelCapabilities.channel as TrustContext["sourceChannel"])
+        : "vellum",
+      trustClass: "unknown",
+    },
+    injectionInputs: inputs,
+  };
+}
+
+/**
+ * Apply the runtime-injection chain to `runMessages`.
+ *
+ * The canonical per-turn assembly pipeline for every provider call:
+ *
+ *  1. Build the per-turn {@link TurnInjectionInputs} bag from `options`.
+ *  2. Layer it onto a {@link TurnContext} — either the one the caller
+ *     supplies via `options.turnContext` (preserving its `requestId`,
+ *     trust, and other fields) or an ephemeral fallback synthesized here.
+ *  3. Drive the default + third-party {@link Injector} chain via
+ *     {@link collectInjectorBlocks}.
+ *  4. Apply the chain's `"replace-run-messages"` block (Slack chronological
+ *     transcript) first so subsequent hardcoded branches operate on the
+ *     replaced tail. When replacement fires, re-prepend any memory-prefix
+ *     blocks that `graphMemory.prepareMemory` had attached to the original
+ *     tail — the Slack transcript is rendered fresh from persisted rows and
+ *     carries no memory prefix of its own.
+ *  5. Run the remaining hardcoded branches (`isNonInteractive`,
+ *     `voiceCallControlPrompt`, `activeSurface`, `channelCapabilities`,
+ *     `channelCommandContext`, `transportHints`) in their historical order.
+ *  6. Finally, apply the chain's remaining blocks by placement:
+ *     `"after-memory-prefix"` in ascending `order`, `"append-user-tail"` in
+ *     ascending `order`, `"prepend-user-tail"` in descending `order` so the
+ *     lowest-`order` prepend lands topmost in the user tail content.
+ *
+ * Returns the final message array plus a `blocks` object holding the exact
+ * injected text for each captured block — callers persist those bytes to
+ * message metadata for later byte-exact rehydration.
  */
 export async function applyRuntimeInjections(
   runMessages: Message[],
-  options: {
-    activeSurface?: ActiveSurfaceContext | null;
-    workspaceTopLevelContext?: string | null;
-    channelCapabilities?: ChannelCapabilities | null;
-    channelCommandContext?: ChannelCommandContext | null;
-    unifiedTurnContext?: string | null;
-    voiceCallControlPrompt?: string | null;
-    pkbContext?: string | null;
-    pkbActive?: boolean;
-    /**
-     * Dense query vector surfaced from the graph memory retriever (PR 3).
-     * When present together with `pkbActive`, used to run `searchPkbFiles`
-     * to surface relevance hints in the PKB system reminder. When missing,
-     * the reminder falls back to the flat static text.
-     */
-    pkbQueryVector?: number[];
-    /** Optional sparse vector accompanying `pkbQueryVector`. */
-    pkbSparseVector?: QdrantSparseVector;
-    /** Memory scope id used to filter PKB search results. */
-    pkbScopeId?: string;
-    /**
-     * The live conversation (or a minimal shape containing `messages`) used
-     * to compute which PKB paths are already "in context" and therefore
-     * suppressed from hint suggestions.
-     */
-    pkbConversation?: PkbContextConversation;
-    /** Auto-injected PKB filenames (resolved relative to `pkbRoot`). */
-    pkbAutoInjectList?: string[];
-    /** Absolute path to the PKB directory (e.g. `<workspace>/pkb`). */
-    pkbRoot?: string;
-    /**
-     * Working directory against which relative `file_read` tool paths
-     * resolve, used to detect workspace-relative reads like
-     * `pkb/threads.md`. Falls back to `pkbRoot` when omitted.
-     */
-    pkbWorkingDir?: string;
-    nowScratchpad?: string | null;
-    subagentStatusBlock?: string | null;
-    isNonInteractive?: boolean;
-    transportHints?: string[] | null;
-    /**
-     * Pre-rendered Slack chronological transcript that replaces the
-     * default `runMessages` history for any Slack conversation (channels
-     * and DMs alike).
-     *
-     * When `channelCapabilities` describes a Slack conversation and this
-     * array is non-empty, it overrides `runMessages` so the model sees one
-     * chronologically-ordered transcript built from the stored Slack
-     * metadata. Channel renders include sibling-thread tags; DM renders
-     * are flat (DMs have no threads). The `transportHints` pipeline is
-     * skipped for any Slack conversation so the persisted view isn't
-     * duplicated by gateway-side hints.
-     *
-     * Callers build this via `loadSlackChronologicalMessages` (or the
-     * underlying `assembleSlackChronologicalMessages`) before invoking
-     * this function so the assembly path stays free of direct DB calls
-     * and remains easy to test.
-     */
-    slackChronologicalMessages?: Message[] | null;
-    /**
-     * Pre-rendered `<active_thread>` focus block listing the messages of
-     * the thread the current inbound user message belongs to.
-     *
-     * Appended (tail-block) to the FINAL user message ONLY when
-     * `channelCapabilities` describes a Slack non-DM channel. The block is
-     * non-persisted: history rebuilds re-derive it from storage on each
-     * turn, and `RUNTIME_INJECTION_PREFIXES` strips any `<active_thread>`
-     * blocks from prior turns so they do not accumulate.
-     *
-     * Callers build this via `loadSlackActiveThreadFocusBlock` (or the
-     * underlying `assembleSlackActiveThreadFocusBlock`). Pass `null` /
-     * `undefined` when the inbound is a top-level (non-thread) post.
-     */
-    slackActiveThreadFocusBlock?: string | null;
-    mode?: InjectionMode;
-    /**
-     * Per-turn {@link TurnContext} forwarded to plugin-registered
-     * {@link Injector}s via {@link composeInjectorChain}. When omitted, the
-     * injector chain is skipped entirely (its output stays `undefined` on
-     * the returned `blocks`). The hardcoded injection branches above still
-     * run — the injector chain is additive in this PR and will take over
-     * individual injections in later PRs.
-     */
-    turnContext?: TurnContext;
-  },
+  options: RuntimeInjectionOptions,
 ): Promise<RuntimeInjectionResult> {
   const mode = options.mode ?? "full";
-  let pkbSystemReminderCaptured: string | undefined;
-  const slackChannel = isSlackChannelConversation(options.channelCapabilities);
-  // Slack DMs and channels both assemble context from persisted message
-  // rows, so suppress hint injection for any Slack conversation. Other
-  // channels (telegram, email, etc.) keep the generic hint pipeline.
   const slackConversation = options.channelCapabilities?.channel === "slack";
+
+  // Build the per-injector inputs and attach them to the caller's
+  // TurnContext (without mutating it). When the caller didn't supply one,
+  // synthesize a minimal fallback so the chain still runs — test call sites
+  // that drive injection via `options` without constructing a full context
+  // continue to work.
+  const injectionInputs = buildTurnInjectionInputs(options);
+  const turnCtx: TurnContext = options.turnContext
+    ? { ...options.turnContext, injectionInputs }
+    : synthesizeFallbackTurnContext(injectionInputs);
+
+  const chainBlocks = await collectInjectorBlocks(turnCtx);
+
+  // Split the chain output by placement so the downstream assembly can
+  // process each slot with the correct ordering rule.
+  const prepends: InjectionBlock[] = [];
+  const appends: InjectionBlock[] = [];
+  const afterMemory: InjectionBlock[] = [];
+  let replaceBlock: InjectionBlock | null = null;
+  for (const block of chainBlocks) {
+    switch (block.placement ?? "append-user-tail") {
+      case "replace-run-messages":
+        // Later replace-run-messages blocks would overwrite earlier ones;
+        // the default chain only registers one (the Slack transcript).
+        replaceBlock = block;
+        break;
+      case "after-memory-prefix":
+        afterMemory.push(block);
+        break;
+      case "prepend-user-tail":
+        prepends.push(block);
+        break;
+      case "append-user-tail":
+        appends.push(block);
+        break;
+    }
+  }
+
+  // Track captured text for metadata persistence. Each field corresponds
+  // to a specific default-injector block id so the loop below can pick up
+  // the right capture without re-rendering.
+  //
+  // The capture is gated on the tail actually being a user message — if it
+  // isn't, `applyInjectionBlock` no-ops the block and no content is actually
+  // injected, so the persisted metadata must be undefined (matches
+  // pre-migration behaviour where the `inject*` helpers short-circuited the
+  // same way).
   let turnContextCaptured: string | undefined;
   let workspaceCaptured: string | undefined;
   let nowScratchpadCaptured: string | undefined;
   let pkbContextCaptured: string | undefined;
+  let pkbSystemReminderCaptured: string | undefined;
+  const initialTail = runMessages[runMessages.length - 1];
+  const initialTailIsUser = !!initialTail && initialTail.role === "user";
+  if (initialTailIsUser) {
+    for (const block of chainBlocks) {
+      switch (block.id) {
+        case "unified-turn-context":
+          turnContextCaptured = block.text;
+          break;
+        case "workspace-context":
+          workspaceCaptured = block.text;
+          break;
+        case "now-md":
+          nowScratchpadCaptured = block.text;
+          break;
+        case "pkb":
+          // The pkb injector concatenates reminder + context into a single
+          // after-memory-prefix block. Recover each half from their known
+          // tag prefixes so the persisted metadata matches pre-migration
+          // bytes: `pkbSystemReminderBlock` is the raw reminder text (no
+          // `<system_reminder>` wrapper — `buildPkbReminder` supplies it)
+          // and `pkbContextBlock` is the `<knowledge_base>` block.
+          {
+            const text = block.text;
+            const kbStart = text.indexOf("<knowledge_base>");
+            if (kbStart >= 0) {
+              const reminder = text.slice(0, kbStart).replace(/\n+$/, "");
+              if (reminder.length > 0) pkbSystemReminderCaptured = reminder;
+              pkbContextCaptured = text.slice(kbStart);
+            } else if (text.length > 0) {
+              // Reminder-only (no PKB context).
+              pkbSystemReminderCaptured = text;
+            }
+          }
+          break;
+      }
+    }
+  }
+
+  // Compose the block text into a single informational string for
+  // `injectorChainBlock`. Matches the pre-migration behaviour where the
+  // field captured the composed view of every third-party injector on
+  // the turn. We include default injectors here too so downstream
+  // observers see the full set.
+  const injectorChainPieces: string[] = [];
+  for (const block of chainBlocks) {
+    if (block.text.length > 0) injectorChainPieces.push(block.text);
+  }
+  const injectorChainBlock =
+    injectorChainPieces.length > 0
+      ? injectorChainPieces.join("\n\n")
+      : undefined;
+
   let result = runMessages;
-  // Slack channels AND DMs both override `runMessages` with a pre-rendered
-  // chronological transcript built from persisted message rows. The shared
-  // assembler (`assembleSlackChronologicalMessages`) renders thread tags
-  // for channels and a flat sequence for DMs, so the same branch handles
-  // both. The active-thread focus block below stays gated on `slackChannel`
-  // since DMs do not have threads.
-  if (
-    slackConversation &&
-    options.slackChronologicalMessages &&
-    options.slackChronologicalMessages.length > 0
-  ) {
+
+  // ── Step 1: Slack chronological replacement (chain "replace" block) ──
+  if (replaceBlock && replaceBlock.messagesOverride) {
     // `graphMemory.prepareMemory` prepends a `<memory __injected>` block
     // (and any memory-image groups) to the last user message before
     // runtime assembly runs. The Slack transcript is freshly rendered
     // from persisted rows and has no such prefix, so swap it in and then
     // re-prepend the captured prefix onto the new tail user message.
     const carriedMemoryBlocks = extractMemoryPrefixBlocks(runMessages);
-    result = options.slackChronologicalMessages;
+    result = replaceBlock.messagesOverride;
     if (carriedMemoryBlocks.length > 0) {
       const slackTail = result[result.length - 1];
       if (slackTail && slackTail.role === "user") {
@@ -1918,6 +2117,10 @@ export async function applyRuntimeInjections(
       }
     }
   }
+
+  // ── Step 2: hardcoded branches that stayed outside the injector chain ──
+  // These run in the same historical order as before G2.1 so their
+  // interleaving with any prior tail content stays stable.
 
   // For non-interactive conversations (scheduled jobs, work items), instruct the
   // model to never ask for clarification — there is no human present to answer.
@@ -1947,128 +2150,6 @@ export async function applyRuntimeInjections(
         ...result.slice(0, -1),
         injectVoiceCallControlContext(userTail, options.voiceCallControlPrompt),
       ];
-    }
-  }
-
-  if (mode === "full" && options.pkbContext) {
-    const userTail = result[result.length - 1];
-    if (userTail && userTail.role === "user") {
-      const injected = injectPkbContext(userTail, options.pkbContext);
-      // Capture the exact block text for metadata persistence. The injector
-      // escapes closing tags inside `pkbContext` and wraps it in
-      // `<knowledge_base>...</knowledge_base>`, so read back the inserted
-      // block rather than regenerating from the raw input.
-      const insertedBlock = injected.content.find(
-        (b): b is { type: "text"; text: string } =>
-          b.type === "text" && b.text.startsWith("<knowledge_base>"),
-      );
-      if (insertedBlock) pkbContextCaptured = insertedBlock.text;
-      result = [...result.slice(0, -1), injected];
-    }
-  }
-
-  // PKB behavioral nudge — injected on every turn when PKB is active so
-  // the model keeps reading topic files and calling `remember`. When a
-  // query vector is available from the graph memory retriever, run a
-  // hybrid PKB search to surface up to three relevance hints; fall back
-  // to the flat static reminder on empty results or any error.
-  if (mode === "full" && options.pkbActive) {
-    const userTail = result[result.length - 1];
-    if (userTail && userTail.role === "user") {
-      let hints: string[] = [];
-      const queryVector = options.pkbQueryVector;
-      if (
-        queryVector &&
-        queryVector.length > 0 &&
-        options.pkbScopeId &&
-        options.pkbConversation &&
-        options.pkbRoot
-      ) {
-        try {
-          const results = await searchPkbFiles(
-            queryVector,
-            options.pkbSparseVector,
-            8,
-            [options.pkbScopeId],
-          );
-          const workingDir = options.pkbWorkingDir ?? options.pkbRoot;
-          const inContext = getInContextPkbPaths(
-            options.pkbConversation,
-            options.pkbAutoInjectList ?? [],
-            options.pkbRoot,
-            workingDir,
-          );
-          const pkbRoot = options.pkbRoot;
-          // Gate on `denseScore` (cosine, [0, 1]) so the quality bar is stable
-          // regardless of whether sparse was provided. Rank by `hybridScore`
-          // (RRF) when available — that captures the sparse signal for
-          // re-ordering eligible hits. hybridScore and denseScore live on
-          // different scales, so items with hybridScore are ordered together
-          // and placed ahead of items that only have denseScore.
-          hints = results
-            .filter((r) => {
-              const abs = resolve(pkbRoot, r.path);
-              if (inContext.has(abs)) return false;
-              const threshold = r.path
-                .replace(/\\/g, "/")
-                .startsWith("archive/")
-                ? PKB_HINT_ARCHIVE_THRESHOLD
-                : PKB_HINT_THRESHOLD;
-              return r.denseScore >= threshold;
-            })
-            .sort((a, b) => {
-              const aHasHybrid = a.hybridScore !== undefined;
-              const bHasHybrid = b.hybridScore !== undefined;
-              if (aHasHybrid && !bHasHybrid) return -1;
-              if (!aHasHybrid && bHasHybrid) return 1;
-              if (aHasHybrid && bHasHybrid) {
-                return b.hybridScore! - a.hybridScore!;
-              }
-              return b.denseScore - a.denseScore;
-            })
-            .slice(0, 3)
-            .map((r) => r.path);
-        } catch (err) {
-          pkbReminderLog.warn(
-            { err: err instanceof Error ? err.message : String(err) },
-            "PKB hint search failed — falling back to flat reminder",
-          );
-          hints = [];
-        }
-      }
-
-      const reminder = buildPkbReminder(hints);
-      pkbSystemReminderCaptured = reminder;
-      // Splice the reminder in right after the memory prefix blocks so it
-      // lands above the user's typed text, producing the tail shape
-      // `[<turn_context>, <memory __injected>, <system_reminder>, ...your_text, ...later_appends]`
-      // after `unifiedTurnContext` later prepends `<turn_context>` at index 0.
-      const memoryPrefixCount = countMemoryPrefixBlocks(userTail.content);
-      result = [
-        ...result.slice(0, -1),
-        {
-          ...userTail,
-          content: [
-            ...userTail.content.slice(0, memoryPrefixCount),
-            { type: "text" as const, text: reminder },
-            ...userTail.content.slice(memoryPrefixCount),
-          ],
-        },
-      ];
-    }
-  }
-
-  if (mode === "full" && options.nowScratchpad) {
-    const userTail = result[result.length - 1];
-    if (userTail && userTail.role === "user") {
-      const injected = injectNowScratchpad(userTail, options.nowScratchpad);
-      const insertedBlock = injected.content.find(
-        (b): b is { type: "text"; text: string } =>
-          b.type === "text" &&
-          b.text.startsWith("<NOW.md Always keep this up to date"),
-      );
-      if (insertedBlock) nowScratchpadCaptured = insertedBlock.text;
-      result = [...result.slice(0, -1), injected];
     }
   }
 
@@ -2102,33 +2183,6 @@ export async function applyRuntimeInjections(
     }
   }
 
-  if (mode === "full" && options.subagentStatusBlock) {
-    const userTail = result[result.length - 1];
-    if (userTail && userTail.role === "user") {
-      result = [
-        ...result.slice(0, -1),
-        injectSubagentStatus(userTail, options.subagentStatusBlock),
-      ];
-    }
-  }
-
-  if (options.unifiedTurnContext) {
-    const userTail = result[result.length - 1];
-    if (userTail && userTail.role === "user") {
-      turnContextCaptured = options.unifiedTurnContext;
-      result = [
-        ...result.slice(0, -1),
-        {
-          ...userTail,
-          content: [
-            { type: "text" as const, text: options.unifiedTurnContext },
-            ...userTail.content,
-          ],
-        },
-      ];
-    }
-  }
-
   // Slack conversations (both channels and DMs) build their own
   // chronological transcript from persisted messages and intentionally do
   // not receive the per-turn `<transport_hints>` block — the rendered
@@ -2150,66 +2204,24 @@ export async function applyRuntimeInjections(
     }
   }
 
-  // Slack active-thread focus block: when the inbound user message lives
-  // inside a thread, append a non-persisted `<active_thread>` tail block
-  // listing that thread's parent + replies so the model can orient even
-  // when the channel-wide chronological transcript is long and
-  // interleaved. Stripped on subsequent rebuilds via the
-  // `RUNTIME_INJECTION_PREFIXES` list so focus blocks never accumulate.
-  if (
-    mode === "full" &&
-    slackChannel &&
-    typeof options.slackActiveThreadFocusBlock === "string" &&
-    options.slackActiveThreadFocusBlock.length > 0
-  ) {
-    const userTail = result[result.length - 1];
-    if (userTail && userTail.role === "user") {
-      result = [
-        ...result.slice(0, -1),
-        {
-          ...userTail,
-          content: [
-            ...userTail.content,
-            {
-              type: "text" as const,
-              text: options.slackActiveThreadFocusBlock,
-            },
-          ],
-        },
-      ];
-    }
+  // ── Step 3: apply remaining chain blocks by placement ──
+  // after-memory-prefix: ascending `order` so lower-order blocks end up
+  // closer to the memory prefix (later splices push earlier ones down).
+  for (const block of afterMemory) {
+    result = applyInjectionBlock(result, block);
   }
 
-  // Workspace top-level context is injected last so it appears first
-  // (prepended) in the user message content, keeping cache breakpoints
-  // anchored to the trailing blocks.
-  if (mode === "full" && options.workspaceTopLevelContext) {
-    const userTail = result[result.length - 1];
-    if (userTail && userTail.role === "user") {
-      workspaceCaptured = options.workspaceTopLevelContext;
-      result = [
-        ...result.slice(0, -1),
-        injectWorkspaceTopLevelContext(
-          userTail,
-          options.workspaceTopLevelContext,
-        ),
-      ];
-    }
+  // append-user-tail: ascending `order` so lower-order blocks come first
+  // in the append sequence.
+  for (const block of appends) {
+    result = applyInjectionBlock(result, block);
   }
 
-  // Plugin-registered injector chain: runs after all hardcoded branches so
-  // third-party injectors observe the same view of the turn. In this PR the
-  // default injectors placeholder-return `null`, so the composed output is
-  // an empty string unless a third-party plugin registered an injector that
-  // emits content. Skip entirely when the caller doesn't pass a
-  // `turnContext` — the composition is informational today and the absence
-  // of a context is treated as "no chain output".
-  let injectorChainBlock: string | undefined;
-  if (options.turnContext) {
-    const composed = await composeInjectorChain(options.turnContext);
-    if (composed.length > 0) {
-      injectorChainBlock = composed;
-    }
+  // prepend-user-tail: descending `order` so the lowest-order block lands
+  // topmost in the tail content (each successive prepend pushes the
+  // previous one further down).
+  for (let i = prepends.length - 1; i >= 0; i--) {
+    result = applyInjectionBlock(result, prepends[i]);
   }
 
   return {

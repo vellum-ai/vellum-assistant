@@ -23,11 +23,16 @@ import type {
 } from "../context/window-manager.js";
 import type { ReducerState } from "../daemon/context-overflow-reducer.js";
 import type {
+  ActiveSurfaceContext,
+  ChannelCapabilities,
+  ChannelCommandContext,
   InjectionMode,
   TrustContext,
 } from "../daemon/conversation-runtime-assembly.js";
 import type { RepairResult } from "../daemon/history-repair.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { PkbContextConversation } from "../daemon/pkb-context-tracker.js";
+import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import type {
   ContentBlock,
   Message,
@@ -730,6 +735,98 @@ export interface PipelineMiddlewareMap {
 // ─── TurnContext ─────────────────────────────────────────────────────────────
 
 /**
+ * Per-turn injection inputs threaded to every {@link Injector}.
+ *
+ * These fields carry the text, gating state, and PKB-search parameters that
+ * the orchestrator resolves once per turn and hands to the injector chain so
+ * each default injector can derive its own {@link InjectionBlock} output.
+ *
+ * The orchestrator populates this bag inside
+ * `buildPluginTurnContextWithInjectionInputs` (called from
+ * `conversation-agent-loop.ts` right before `applyRuntimeInjections`). Call
+ * sites that synthesize a {@link TurnContext} outside of the agent loop
+ * (tests, overflow-reducer reinjection, etc.) may omit the bag entirely —
+ * every field is optional and every default injector treats a missing input
+ * as "no injection on this turn".
+ */
+export interface TurnInjectionInputs {
+  /**
+   * Controls which runtime injections are applied. `"full"` (default) runs
+   * every gating branch; `"minimal"` skips high-token optional blocks
+   * (workspace, PKB, NOW.md, subagent status) and only emits safety-critical
+   * context (unified turn context, etc.). Drives per-injector gating.
+   */
+  readonly mode?: InjectionMode;
+  /** Workspace top-level context text (`<workspace>...`) or null to skip. */
+  readonly workspaceTopLevelContext?: string | null;
+  /** Pre-built unified-turn-context text (`<turn_context>...`) or null to skip. */
+  readonly unifiedTurnContext?: string | null;
+  /** PKB auto-injected content (`<knowledge_base>...`) or null to skip. */
+  readonly pkbContext?: string | null;
+  /**
+   * Whether PKB is active for this turn — drives the `<system_reminder>` /
+   * hybrid-search relevance-hint branch.
+   */
+  readonly pkbActive?: boolean;
+  /** Dense query vector surfaced from the graph memory retriever for PKB hints. */
+  readonly pkbQueryVector?: number[];
+  /** Optional sparse vector accompanying `pkbQueryVector`. */
+  readonly pkbSparseVector?: QdrantSparseVector;
+  /** Memory scope id used to filter PKB search results. */
+  readonly pkbScopeId?: string;
+  /**
+   * Live conversation (or a minimal shape containing `messages`) used to
+   * compute which PKB paths are already "in context" and therefore suppressed
+   * from hint suggestions.
+   */
+  readonly pkbConversation?: PkbContextConversation;
+  /** Auto-injected PKB filenames resolved relative to `pkbRoot`. */
+  readonly pkbAutoInjectList?: string[];
+  /** Absolute path to the PKB directory (e.g. `<workspace>/pkb`). */
+  readonly pkbRoot?: string;
+  /**
+   * Working directory against which relative `file_read` paths resolve.
+   * Falls back to `pkbRoot` when omitted.
+   */
+  readonly pkbWorkingDir?: string;
+  /** NOW.md scratchpad content or null to skip. */
+  readonly nowScratchpad?: string | null;
+  /** Pre-built `<active_subagents>` block or null to skip. */
+  readonly subagentStatusBlock?: string | null;
+  /** Channel capabilities — drives slack gating. */
+  readonly channelCapabilities?: ChannelCapabilities | null;
+  /**
+   * Pre-rendered Slack chronological transcript that overrides `runMessages`
+   * for any Slack conversation (channels and DMs alike). Null/undefined means
+   * the default `runMessages` array is used unchanged.
+   */
+  readonly slackChronologicalMessages?: Message[] | null;
+  /**
+   * Pre-rendered `<active_thread>` focus block to append to the final user
+   * turn when the inbound lives inside a Slack thread. Null/undefined means
+   * no focus block is appended.
+   */
+  readonly slackActiveThreadFocusBlock?: string | null;
+  /**
+   * Active dashboard-surface context (read from `<active_workspace>`). Kept
+   * on the injection inputs bag (not its own injector) because it is
+   * orchestrator-owned surface state, not a default-chain element.
+   */
+  readonly activeSurface?: ActiveSurfaceContext | null;
+  /** Channel command context (e.g. Telegram /start) or null to skip. */
+  readonly channelCommandContext?: ChannelCommandContext | null;
+  /** Voice call-control prompt or null to skip. */
+  readonly voiceCallControlPrompt?: string | null;
+  /** Gateway-provided transport hints (e.g. Slack thread context). */
+  readonly transportHints?: string[] | null;
+  /**
+   * When true, inject the `<non_interactive_context>` block so the model
+   * knows no human is present to answer clarification questions.
+   */
+  readonly isNonInteractive?: boolean;
+}
+
+/**
  * Per-turn execution context threaded through every middleware invocation.
  *
  * Combines turn-level identifiers (`requestId`, `conversationId`,
@@ -772,23 +869,83 @@ export interface TurnContext {
    * construct valid `TurnContext` literals without attaching a manager.
    */
   contextWindowManager?: ContextWindowManager;
+  /**
+   * Per-turn injection inputs consumed by the default injector chain.
+   *
+   * Omitted for call sites that don't drive runtime injection (pipeline-runner
+   * tests, synthesized handler contexts, some background jobs). Each default
+   * injector treats missing/absent fields as "no injection on this turn", so
+   * a context without `injectionInputs` produces an empty injection chain.
+   */
+  injectionInputs?: TurnInjectionInputs;
 }
 
 // ─── Injectors ───────────────────────────────────────────────────────────────
 
 /**
- * A structured fragment injected into the system prompt (or a comparable
- * assembly point). Concrete shape is intentionally loose at this stage; M2
- * PRs refine it into a tagged block with deterministic ordering semantics.
+ * Where an {@link InjectionBlock} should be grafted onto the per-turn
+ * `runMessages` array.
+ *
+ * - `"prepend-user-tail"` — prepend the block as a `text` content block to
+ *   the tail user message's `content` array. Used when the block should
+ *   appear before any other user content on this turn (e.g. the unified
+ *   turn context, workspace top-level context).
+ * - `"append-user-tail"` — append the block as a `text` content block to
+ *   the tail user message. Used for blocks that should sit *after* the
+ *   user's typed text (e.g. subagent status, slack active-thread focus).
+ * - `"after-memory-prefix"` — insert the block immediately after any leading
+ *   memory-prefix blocks (`<memory_context>`, `<memory __injected>`) on the
+ *   tail user message. Preserves the splice behaviour of `injectPkbContext`
+ *   and `injectNowScratchpad` so memory/PKB/NOW ordering matches the
+ *   pre-migration output byte-for-byte.
+ * - `"replace-run-messages"` — replace the full `runMessages` array with the
+ *   block's `messagesOverride`. Used by the Slack chronological-transcript
+ *   injector (the transcript is a whole new message list rendered from the
+ *   persisted rows, not a tail-block mutation).
  */
-export type InjectionBlock = {
+export type InjectionPlacement =
+  | "prepend-user-tail"
+  | "append-user-tail"
+  | "after-memory-prefix"
+  | "replace-run-messages";
+
+/**
+ * A structured fragment contributed by an {@link Injector}.
+ *
+ * Each block carries the rendered `text` plus a {@link InjectionPlacement}
+ * that tells `applyRuntimeInjections` where to graft it onto the per-turn
+ * message array. The placement vocabulary preserves the positional
+ * semantics of the hardcoded `inject*` helpers the default injectors
+ * replaced — prepends, appends, and splices relative to memory-prefix
+ * blocks all remain expressible.
+ *
+ * `placement` defaults to `"append-user-tail"` when omitted so the existing
+ * ordering-contract tests (PR 21) that produce `{ id, text }` blocks
+ * continue to compose via `composeInjectorChain` into a single
+ * blank-line-separated string.
+ *
+ * `messagesOverride` is only consulted for `"replace-run-messages"` — other
+ * placements ignore it.
+ */
+export interface InjectionBlock {
   /** Stable block identifier (used for dedupe/ordering). */
   readonly id: string;
   /** Plain-text body to insert. */
   readonly text: string;
+  /**
+   * Position within the tail user message (or the full runMessages array,
+   * for `"replace-run-messages"`). Defaults to `"append-user-tail"` when
+   * omitted.
+   */
+  readonly placement?: InjectionPlacement;
+  /**
+   * Replacement `runMessages` value for `"replace-run-messages"` placements.
+   * Required when `placement === "replace-run-messages"`; ignored otherwise.
+   */
+  readonly messagesOverride?: Message[];
   /** Optional metadata the renderer may use. */
   readonly meta?: Readonly<Record<string, unknown>>;
-};
+}
 
 /**
  * A named producer of {@link InjectionBlock}s.

@@ -1197,12 +1197,19 @@ export async function runAgentLoopImpl(
 
     let currentInjectionMode: InjectionMode = "full";
 
+    // Canonical per-turn TurnContext forwarded to the injector chain. The
+    // per-turn injection inputs are built inside `applyRuntimeInjections`
+    // from the `injectionOpts` bag; we only need to hand in identity +
+    // trust here so third-party injectors see the real turn metadata.
+    const injectionTurnCtx = buildPluginTurnContext(ctx, reqId);
+
     const injection = await applyRuntimeInjections(runMessages, {
       ...injectionOpts,
       slackChronologicalMessages: reducerCompacted
         ? null
         : injectionOpts.slackChronologicalMessages,
       mode: currentInjectionMode,
+      turnContext: injectionTurnCtx,
     });
     runMessages = injection.messages;
 
@@ -1402,6 +1409,7 @@ export async function runAgentLoopImpl(
               ? null
               : injectionOpts.slackChronologicalMessages,
             mode,
+            turnContext: buildPluginTurnContext(ctx, reqId),
           });
           let next = injection.messages;
           if (isTrustedActor && mode !== "minimal") {
@@ -1667,6 +1675,7 @@ export async function runAgentLoopImpl(
           ? null
           : injectionOpts.slackChronologicalMessages,
         mode: currentInjectionMode,
+        turnContext: buildPluginTurnContext(ctx, reqId),
       });
       runMessages = injection.messages;
       if (isTrustedActor && currentInjectionMode !== "minimal") {
@@ -1896,6 +1905,7 @@ export async function runAgentLoopImpl(
             ? null
             : injectionOpts.slackChronologicalMessages,
           mode: currentInjectionMode,
+          turnContext: buildPluginTurnContext(ctx, reqId),
         });
         runMessages = injection.messages;
         if (isTrustedActor && currentInjectionMode !== "minimal") {
@@ -2030,6 +2040,7 @@ export async function runAgentLoopImpl(
               ? null
               : injectionOpts.slackChronologicalMessages,
             mode: currentInjectionMode,
+            turnContext: buildPluginTurnContext(ctx, reqId),
           });
           runMessages = injection.messages;
           if (isTrustedActor && currentInjectionMode !== "minimal") {
