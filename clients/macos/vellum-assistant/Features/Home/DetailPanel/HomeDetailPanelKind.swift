@@ -19,31 +19,19 @@ enum HomeDetailPanelKind: Equatable {
     case toolPermission(FeedItem)
     case updatesList(FeedItem)
 
-    /// Maps a `FeedItem` to its detail-panel kind, or returns `nil` when the
-    /// item should keep the existing conversation-open flow.
-    ///
-    /// Checks `item.detailPanel` first (server-driven dispatch). Falls back
-    /// to legacy heuristics when the field is absent:
-    ///   - `.thread` + `.calendar` source → `.scheduled`
-    ///   - `.nudge` (any source)          → `.nudge`
-    ///   - everything else                → `nil`
+    /// Resolves from the wire-contract `detailPanel` field. Returns `nil`
+    /// when absent.
     static func resolve(for item: FeedItem) -> HomeDetailPanelKind? {
-        if let panel = item.detailPanel {
-            switch panel.kind {
-            case .emailDraft: return .emailDraft(item)
-            case .documentPreview: return .documentPreview(item)
-            case .permissionChat: return .permissionChat(item)
-            case .paymentAuth: return .paymentAuth(item)
-            case .toolPermission: return .toolPermission(item)
-            case .updatesList: return .updatesList(item)
-            }
+        guard let panel = item.detailPanel else {
+            return nil
         }
-        if item.type == .thread && item.source == .calendar {
-            return .scheduled(item)
+        switch panel.kind {
+        case .emailDraft: return .emailDraft(item)
+        case .documentPreview: return .documentPreview(item)
+        case .permissionChat: return .permissionChat(item)
+        case .paymentAuth: return .paymentAuth(item)
+        case .toolPermission: return .toolPermission(item)
+        case .updatesList: return .updatesList(item)
         }
-        if item.type == .nudge {
-            return .nudge(item)
-        }
-        return nil
     }
 }
