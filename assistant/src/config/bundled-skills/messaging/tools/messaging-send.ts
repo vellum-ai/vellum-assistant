@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 
+import { emitFeedEvent } from "../../../../home/emit-feed-event.js";
 import {
   addMessage,
   getConversation,
@@ -149,6 +150,14 @@ export async function run(
             ccList.length > 0
               ? `To: ${toList.join(", ")}; Cc: ${ccList.join(", ")}`
               : `To: ${toList.join(", ")}`;
+          void emitFeedEvent({
+            source: "gmail",
+            title: "Email Draft Created",
+            summary: `Drafted reply to ${recipientSummary}.`,
+            dedupKey: `email-draft:${draft.id}`,
+          }).catch((err) => {
+            log.warn({ err }, "Failed to emit email draft feed event");
+          });
           return ok(
             `Gmail draft created with ${attachments.length} attachment(s): ${filenames} (Draft ID: ${draft.id}). ${recipientSummary}. Review in Gmail Drafts, then tell me to send it or send it yourself.`,
           );
@@ -169,6 +178,14 @@ export async function run(
           ccList.length > 0
             ? `To: ${toList.join(", ")}; Cc: ${ccList.join(", ")}`
             : `To: ${toList.join(", ")}`;
+        void emitFeedEvent({
+          source: "gmail",
+          title: "Email Draft Created",
+          summary: `Drafted reply to ${recipientSummary}.`,
+          dedupKey: `email-draft:${draft.id}`,
+        }).catch((err) => {
+          log.warn({ err }, "Failed to emit email draft feed event");
+        });
         return ok(
           `Gmail draft created (ID: ${draft.id}). ${recipientSummary}. Review in Gmail Drafts, then tell me to send it or send it yourself.`,
         );
@@ -195,6 +212,14 @@ export async function run(
         const draft = await createDraftRaw(gmailConn, raw, threadId);
 
         const filenames = attachments.map((a) => a.filename).join(", ");
+        void emitFeedEvent({
+          source: "gmail",
+          title: "Email Draft Created",
+          summary: `Drafted reply to ${conversationId}.`,
+          dedupKey: `email-draft:${draft.id}`,
+        }).catch((err) => {
+          log.warn({ err }, "Failed to emit email draft feed event");
+        });
         return ok(
           `Gmail draft created with ${attachments.length} attachment(s): ${filenames} (Draft ID: ${draft.id}). Review in Gmail Drafts, then tell me to send it or send it yourself.`,
         );
@@ -211,6 +236,14 @@ export async function run(
         undefined,
         threadId,
       );
+      void emitFeedEvent({
+        source: "gmail",
+        title: "Email Draft Created",
+        summary: `Drafted reply to ${conversationId}.`,
+        dedupKey: `email-draft:${draft.id}`,
+      }).catch((err) => {
+        log.warn({ err }, "Failed to emit email draft feed event");
+      });
       return ok(
         `Gmail draft created (ID: ${draft.id}). Review it in your Gmail Drafts, then tell me to send it or send it yourself from Gmail.`,
       );
@@ -222,6 +255,15 @@ export async function run(
       inReplyTo,
       threadId,
       assistantId: context.assistantId,
+    });
+
+    void emitFeedEvent({
+      source: platform === "slack" ? "slack" : "gmail",
+      title: platform === "slack" ? "Slack Message Sent" : "Email Sent",
+      summary: `Sent message to ${conversationId}.`,
+      dedupKey: `message-sent:${result.id}`,
+    }).catch((err) => {
+      log.warn({ err }, "Failed to emit message send feed event");
     });
 
     const threadSuffix = result.threadId
