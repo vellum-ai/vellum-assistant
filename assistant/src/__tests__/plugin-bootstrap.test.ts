@@ -244,9 +244,11 @@ describe("plugin bootstrap", () => {
     expect(callOrder).toEqual(["second-registered", "first-registered"]);
   });
 
-  test("empty registry: bootstrap is a no-op", async () => {
-    // Nothing registered. Bootstrap must not throw, and there is no shutdown
-    // hook registered (so downstream shutdown runs are unaffected).
+  test("empty registry: bootstrap registers first-party defaults only", async () => {
+    // No external plugins registered. Bootstrap must still register the
+    // first-party default plugins (e.g. `default-tool-result-truncate`) so
+    // every wrapped pipeline has a terminal-like middleware — and it must
+    // not throw in the process.
     await bootstrapPlugins(fakeCtx);
   });
 });

@@ -69,12 +69,28 @@ import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction.js";
-import { runPipeline } from "../plugins/pipeline.js";
+import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair.js";
+import {
+  asDefaultGraphPayload,
+  type DefaultMemoryRetrievalDeps,
+  type GraphMemoryPayload,
+  runDefaultMemoryRetrieval,
+} from "../plugins/defaults/memory-retrieval.js";
+import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate.js";
+import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
   CompactionArgs,
   CompactionResult,
-  TurnContext,
+  EstimateArgs,
+  EstimateResult,
+  HistoryRepairArgs,
+  HistoryRepairResult,
+  MemoryArgs,
+  MemoryResult,
+  OverflowReduceArgs,
+  OverflowReduceResult,
+  TurnContext as PluginTurnContext,
 } from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
@@ -132,8 +148,6 @@ import {
   inboundActorContextFromTrustContext,
   loadSlackActiveThreadFocusBlock,
   loadSlackChronologicalMessages,
-  readNowScratchpad,
-  readPkbContext,
   stripInjectionsForCompaction,
 } from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
@@ -141,7 +155,7 @@ import { markSurfaceCompleted } from "./conversation-surfaces.js";
 import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { recordUsage } from "./conversation-usage.js";
 import { formatTurnTimestamp } from "./date-context.js";
-import { deepRepairHistory, repairHistory } from "./history-repair.js";
+import { deepRepairHistory } from "./history-repair.js";
 import type {
   DynamicPageSurfaceData,
   ServerMessage,
@@ -173,6 +187,39 @@ const TOOL_FRIENDLY_LABEL: Record<string, string> = {
 type GitServiceInitializer = {
   ensureInitialized(): Promise<void>;
 };
+
+/**
+ * Build a {@link TurnContext} for plugin pipeline invocations inside
+ * `runAgentLoopImpl`. The orchestrator does not itself carry a
+ * `TurnContext` — it composes one on demand at each pipeline call site from
+ * ambient state.
+ *
+ * `turnIndex` is approximated by the current persisted message count: at the
+ * time the pipeline fires, this reflects the position of the next assistant
+ * turn in the conversation, which is the best stable identifier plugins can
+ * key against without threading a counter through the orchestrator.
+ *
+ * When `trustContext` is unavailable (e.g. an internal heartbeat turn that
+ * never bound an actor), we synthesize an "unknown" trust shape so the
+ * required `TurnContext.trust` field stays populated. Plugins that need a
+ * real trust class should guard on `trust.trustClass !== "unknown"`.
+ */
+function buildHistoryRepairTurnContext(
+  requestId: string,
+  conversationId: string,
+  turnIndex: number,
+  trustContext: TrustContext | undefined,
+): PluginTurnContext {
+  return {
+    requestId,
+    conversationId,
+    turnIndex,
+    trust: trustContext ?? {
+      sourceChannel: "vellum",
+      trustClass: "unknown",
+    },
+  };
+}
 
 // ── Compaction circuit-breaker constants ────────────────────────────
 //
@@ -288,10 +335,10 @@ const FALLBACK_TURN_TRUST: TrustContext = {
 function buildPluginTurnContext(
   ctx: AgentLoopConversationContext,
   requestId: string,
-): TurnContext {
+): PluginTurnContext {
   const trust =
     ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
-  const base: TurnContext = {
+  const base: PluginTurnContext = {
     requestId,
     conversationId: ctx.conversationId,
     turnIndex: ctx.turnCount,
@@ -304,7 +351,7 @@ function buildPluginTurnContext(
     // depend on orchestrator-internal handles.
     ...({
       contextWindowManager: ctx.contextWindowManager,
-    } as Partial<TurnContext>),
+    } as Partial<PluginTurnContext>),
   };
 }
 
@@ -712,21 +759,61 @@ export async function runAgentLoopImpl(
 
     let runMessages = ctx.messages;
 
-    // Memory graph retrieval — dispatches to context-load / per-turn based on
-    // conversation state. Keep the query vector around so the PKB reminder
-    // can reuse it for relevance-hint search (see `applyRuntimeInjections`).
+    // Memory retrieval pipeline — fetches PKB, NOW.md, and memory-graph
+    // outputs through a single `memoryRetrieval` pipeline. Plugins may
+    // replace the terminal behavior by registering a middleware that
+    // short-circuits with its own `MemoryResult`; the default terminal
+    // below runs `runDefaultMemoryRetrieval` which reproduces the prior
+    // in-lined behavior (PKB/NOW reads + gated graph call).
+    const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
+    const memoryPluginTurnCtx: PluginTurnContext = {
+      requestId: reqId,
+      conversationId: ctx.conversationId,
+      turnIndex: ctx.turnCount,
+      ...(ctx.trustContext
+        ? { trust: ctx.trustContext }
+        : {
+            trust: {
+              sourceChannel: capturedTurnChannelContext.userMessageChannel,
+              trustClass: "unknown" as const,
+            },
+          }),
+    };
+    const memoryArgs: MemoryArgs = {
+      conversationId: ctx.conversationId,
+      trustContext: ctx.trustContext,
+      turnIndex: ctx.turnCount,
+    };
+    const memoryDeps: DefaultMemoryRetrievalDeps = {
+      messages: ctx.messages,
+      graphMemory: ctx.graphMemory,
+      config: getConfig(),
+      abortSignal: abortController.signal,
+      onEvent,
+      isTrustedActor,
+    };
+    const memoryResult: MemoryResult = await runPipeline(
+      "memoryRetrieval",
+      getMiddlewaresFor("memoryRetrieval"),
+      (args) => runDefaultMemoryRetrieval(args, memoryDeps),
+      memoryArgs,
+      memoryPluginTurnCtx,
+      DEFAULT_TIMEOUTS.memoryRetrieval,
+    );
+
+    // Consume the memory-graph block when the default retriever emitted
+    // one. Custom plugins that substitute their own blocks without the
+    // default discriminator are expected to handle their own side effects
+    // (event emission, metric persistence) inside their middleware; this
+    // block short-circuits to the original no-op behavior in that case.
+    const defaultGraphPayload: GraphMemoryPayload | null =
+      asDefaultGraphPayload(memoryResult.memoryGraphBlocks);
     let pkbQueryVector: number[] | undefined;
     let pkbSparseVector:
       | import("../memory/qdrant-client.js").QdrantSparseVector
       | undefined;
-    const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
-    if (isTrustedActor) {
-      const graphResult = await ctx.graphMemory.prepareMemory(
-        ctx.messages,
-        getConfig(),
-        abortController.signal,
-        onEvent,
-      );
+    if (defaultGraphPayload) {
+      const graphResult = defaultGraphPayload.result;
       runMessages = graphResult.runMessages;
       // Select dense+sparse as a matched pair so RRF fusion combines two
       // signals aligned to the same query text:
@@ -934,11 +1021,13 @@ export async function runAgentLoopImpl(
     // Inject NOW.md and PKB content only on the first turn (or after
     // compaction re-strips them).  Old injections persist in history and
     // are never stripped on normal turns — this preserves the cached prefix.
-    const currentNowContent = readNowScratchpad();
+    // PKB/NOW content is sourced from the `memoryRetrieval` pipeline above
+    // so plugins can override either source without touching the agent loop.
+    const currentNowContent = memoryResult.nowContent;
     const shouldInjectNowAndPkb = isFirstMessage || compactedThisTurn;
     const nowScratchpad = shouldInjectNowAndPkb ? currentNowContent : null;
 
-    const currentPkbContent = readPkbContext();
+    const currentPkbContent = memoryResult.pkbContent;
     const pkbContext = shouldInjectNowAndPkb ? currentPkbContent : null;
     const pkbActive = currentPkbContent !== null;
 
@@ -1096,18 +1185,53 @@ export async function runAgentLoopImpl(
     let reducerState: ReducerState | undefined;
 
     const toolTokenBudget = ctx.agentLoop.getToolTokenBudget(runMessages);
-    // Canonical calibration key used at every `estimatePromptTokens` site in
-    // this function. Matches the key recorded by `handleUsage` for wrapper
-    // providers (OpenRouter routing to Anthropic → key is `"anthropic"`).
+    // Canonical calibration key — passed to the `tokenEstimate` pipeline for
+    // every preflight/mid-loop estimate, the overflow reducer config, and the
+    // convergence-path `estimatePromptTokens` call. Matches the key recorded
+    // by `handleUsage` for wrapper providers (OpenRouter routing to
+    // Anthropic → key is `"anthropic"`).
     const estimationProviderName = getCalibrationProviderKey(ctx.provider);
-    const preflightTokens = estimatePromptTokens(
-      runMessages,
-      ctx.systemPrompt,
-      {
-        providerName: estimationProviderName,
-        toolTokenBudget,
+
+    // Shared `TurnContext` for every `tokenEstimate` pipeline invocation in
+    // this turn. The pipeline is the extension point for plugins that want
+    // to substitute an alternate estimator (e.g. provider-native tokenization)
+    // without touching orchestrator code.
+    //
+    // `turnIndex` is 0 at the orchestrator level — the per-tool-use turn
+    // index advances inside `agent/loop.ts` and is surfaced through
+    // `CheckpointInfo` to sites that need it. Here it just satisfies the
+    // pipeline's log record. `trust` falls back to the inbound
+    // `vellum`/`unknown` default when the actor hasn't been resolved yet —
+    // the same fallback `resolveTrustClass` uses — because preflight can run
+    // before trust context is available (e.g. regenerate after daemon restart).
+    const pipelineTurnCtx: PluginTurnContext = {
+      requestId: reqId,
+      conversationId: ctx.conversationId,
+      turnIndex: 0,
+      trust: ctx.trustContext ?? {
+        sourceChannel: "vellum",
+        trustClass: "unknown",
       },
-    );
+    };
+
+    const runTokenEstimatePipeline = (
+      history: Message[],
+    ): Promise<EstimateResult> =>
+      runPipeline<EstimateArgs, EstimateResult>(
+        "tokenEstimate",
+        getMiddlewaresFor("tokenEstimate"),
+        defaultTokenEstimateTerminal,
+        {
+          history,
+          systemPrompt: ctx.systemPrompt,
+          tools: ctx.agentLoop.getResolvedTools(history),
+          providerName: estimationProviderName,
+        },
+        pipelineTurnCtx,
+        DEFAULT_TIMEOUTS.tokenEstimate,
+      );
+
+    const preflightTokens = await runTokenEstimatePipeline(runMessages);
 
     if (overflowRecovery.enabled && preflightTokens > preflightBudget) {
       rlog.warn(
@@ -1119,112 +1243,175 @@ export async function runAgentLoopImpl(
         "Preflight budget exceeded — running overflow reducer before provider call",
       );
 
-      reducerState = createInitialReducerState();
-      let preflightAttempts = 0;
-
-      while (
-        preflightAttempts < overflowRecovery.maxAttempts &&
-        !reducerState.exhausted
-      ) {
-        preflightAttempts++;
-        ctx.emitActivityState(
-          "thinking",
-          "context_compacting",
-          "assistant_turn",
-          reqId,
-        );
-        const step = await reduceContextOverflow(
-          ctx.messages,
-          {
-            providerName: estimationProviderName,
-            systemPrompt: ctx.systemPrompt,
-            contextWindow: config.llm.default.contextWindow,
-            targetTokens: preflightBudget,
-            toolTokenBudget,
-          },
-          reducerState,
-          (msgs, signal, opts) =>
-            ctx.contextWindowManager.maybeCompact(msgs, signal!, opts),
-          abortController.signal,
-        );
-
-        reducerState = step.state;
-        ctx.messages = step.messages;
-        currentInjectionMode = step.state.injectionMode;
-
-        // Track circuit-breaker state whenever the reducer invoked compaction.
-        // The reducer's forced_compaction tier uses force:true, so it bypasses
-        // the open-circuit check, but we still want failure tracking to detect
-        // a run of broken summaries and clear the counter on success. Only
-        // track when the summary LLM actually ran — `summaryFailed === undefined`
-        // indicates an early return (no eligible messages, truncation-only
-        // path, etc.) that shouldn't influence the breaker.
-        if (
-          step.compactionResult &&
-          step.compactionResult.summaryFailed !== undefined
-        ) {
-          trackCompactionOutcome(
-            ctx,
-            step.compactionResult.summaryFailed,
-            onEvent,
+      // Overflow reduction runs through the plugin pipeline. The default
+      // middleware (`default-overflow-reduce`, registered at bootstrap)
+      // contains the historical tier loop — forced compaction → tool-result
+      // truncation → media stubbing → injection downgrade — plus the
+      // re-inject/re-estimate convergence check. The callbacks below are
+      // the orchestrator-specific side effects that the plugin coordinates
+      // per iteration (activity emission, compaction application, runtime
+      // injection reassembly, token re-estimation). Registered plugins that
+      // wrap the `overflowReduce` slot see each iteration through their own
+      // middleware `next` callback.
+      const overflowArgs: OverflowReduceArgs = {
+        messages: ctx.messages,
+        runMessages,
+        systemPrompt: ctx.systemPrompt,
+        providerName: estimationProviderName,
+        contextWindow: config.llm.default.contextWindow,
+        preflightBudget,
+        toolTokenBudget,
+        maxAttempts: overflowRecovery.maxAttempts,
+        abortSignal: abortController.signal,
+        compactFn: (msgs, signal, opts) =>
+          ctx.contextWindowManager.maybeCompact(
+            msgs,
+            signal!,
+            opts as Parameters<ContextWindowManager["maybeCompact"]>[2],
+          ),
+        emitActivityState: () => {
+          ctx.emitActivityState(
+            "thinking",
+            "context_compacting",
+            "assistant_turn",
+            reqId,
           );
-        }
+        },
+        onCompactionResult: (result) => {
+          // Track circuit-breaker state whenever the reducer invoked
+          // compaction. The reducer's forced_compaction tier uses
+          // force:true, so it bypasses the open-circuit check, but we
+          // still want failure tracking to detect a run of broken
+          // summaries and clear the counter on success. Only track when
+          // the summary LLM actually ran — `summaryFailed === undefined`
+          // indicates an early return (no eligible messages,
+          // truncation-only path, etc.) that shouldn't influence the
+          // breaker.
+          if (result.summaryFailed !== undefined) {
+            trackCompactionOutcome(ctx, result.summaryFailed, onEvent);
+          }
+          if (result.compacted) {
+            applyCompactionResult(ctx, result, onEvent, reqId);
+            shouldInjectWorkspace = true;
+          }
+        },
+        reinjectForMode: async (reducedMessages, mode, didCompact) => {
+          // Mirror the pre-PR-23 behavior: `ctx.messages` must track the
+          // reducer's latest output before re-injection runs, because other
+          // sites consulted through `injectionOpts` (`workspaceTopLevelContext`,
+          // slack history, etc.) depend on it and `applyCompactionResult`
+          // only updates `ctx.messages` on a compaction tier. Assigning here
+          // keeps non-compaction tiers (tool-result truncation, media
+          // stubbing, injection downgrade) observable to downstream
+          // injection assembly on the same turn.
+          ctx.messages = reducedMessages;
 
-        if (step.compactionResult?.compacted) {
-          applyCompactionResult(ctx, step.compactionResult, onEvent, reqId);
-          shouldInjectWorkspace = true;
-          reducerCompacted = true;
-        }
-
-        // Re-inject with potentially downgraded injection mode.
-        // When compaction ran it strips existing NOW.md / PKB blocks, so we
-        // must re-inject the current content. Otherwise rely on the deduplicated
-        // value from injectionOpts to avoid duplicate injection.
-        const injection = await applyRuntimeInjections(ctx.messages, {
-          ...injectionOpts,
-          ...(step.compactionResult?.compacted && {
-            pkbContext: currentPkbContent,
-          }),
-          ...(step.compactionResult?.compacted && {
-            nowScratchpad: currentNowContent,
-          }),
-          workspaceTopLevelContext: shouldInjectWorkspace
-            ? ctx.workspaceTopLevelContext
-            : null,
-          // Once the reducer has compacted `ctx.messages`, the captured
-          // `slackChronologicalMessages` snapshot (built from the full
-          // persisted transcript) would overwrite the compacted history
-          // and undo compaction. Suppress the override from here on.
-          slackChronologicalMessages: reducerCompacted
-            ? null
-            : injectionOpts.slackChronologicalMessages,
-          mode: currentInjectionMode,
-        });
-        runMessages = injection.messages;
-        if (isTrustedActor && currentInjectionMode !== "minimal") {
-          const memResult = ctx.graphMemory.reinjectCachedMemory(runMessages);
-          runMessages = memResult.runMessages;
-        }
-
-        // Re-estimate with injections included — step.estimatedTokens was
-        // computed on bare history (ctx.messages) and doesn't account for
-        // tokens added by runtime injections.
-        const postInjectionTokens = estimatePromptTokens(
-          runMessages,
-          ctx.systemPrompt,
-          {
+          // When compaction ran it strips existing NOW.md / PKB blocks,
+          // so we must re-inject the current content. Otherwise rely on
+          // the deduplicated value from injectionOpts to avoid duplicate
+          // injection.
+          const injection = await applyRuntimeInjections(reducedMessages, {
+            ...injectionOpts,
+            ...(didCompact && { pkbContext: currentPkbContent }),
+            ...(didCompact && { nowScratchpad: currentNowContent }),
+            workspaceTopLevelContext: shouldInjectWorkspace
+              ? ctx.workspaceTopLevelContext
+              : null,
+            // Once the reducer has compacted `ctx.messages`, the captured
+            // `slackChronologicalMessages` snapshot (built from the full
+            // persisted transcript) would overwrite the compacted history
+            // and undo compaction. Suppress the override from here on.
+            slackChronologicalMessages: didCompact
+              ? null
+              : injectionOpts.slackChronologicalMessages,
+            mode,
+          });
+          let next = injection.messages;
+          if (isTrustedActor && mode !== "minimal") {
+            const memResult = ctx.graphMemory.reinjectCachedMemory(next);
+            next = memResult.runMessages;
+          }
+          return next;
+        },
+        estimatePostInjection: (runMsgs) =>
+          estimatePromptTokens(runMsgs, ctx.systemPrompt, {
             providerName: estimationProviderName,
             toolTokenBudget,
-          },
-        );
+          }),
+      };
 
-        if (postInjectionTokens <= preflightBudget) break;
+      const overflowResult = await runPipeline<
+        OverflowReduceArgs,
+        OverflowReduceResult
+      >(
+        "overflowReduce",
+        getMiddlewaresFor("overflowReduce"),
+        // Terminal — only reached when every registered middleware calls
+        // `next` and delegates past the innermost layer. The default plugin
+        // is a terminal itself (it doesn't call `next`), so in practice
+        // this fallback fires only when the default has been explicitly
+        // deregistered (tests) and no user plugin replaces it. In that
+        // case the safest behavior is to return the history untouched —
+        // the subsequent provider call will then surface the overflow as
+        // a normal `context_too_large` error, which the convergence loop
+        // below handles.
+        async (args) => ({
+          messages: args.messages,
+          runMessages: args.runMessages,
+          injectionMode: "full" as const,
+          reducerState: {
+            appliedTiers: [],
+            injectionMode: "full",
+            exhausted: true,
+          },
+          reducerCompacted: false,
+          attempts: 0,
+        }),
+        overflowArgs,
+        {
+          requestId: reqId,
+          conversationId: ctx.conversationId,
+          turnIndex: ctx.turnCount,
+          trust: ctx.currentTurnTrustContext ??
+            ctx.trustContext ?? {
+              sourceChannel: "vellum",
+              trustClass: "guardian",
+            },
+        },
+        30000,
+      );
+
+      ctx.messages = overflowResult.messages;
+      runMessages = overflowResult.runMessages;
+      currentInjectionMode = overflowResult.injectionMode;
+      reducerState = overflowResult.reducerState;
+      if (overflowResult.reducerCompacted) {
+        reducerCompacted = true;
       }
     }
 
-    // Pre-run repair
+    // Pre-run repair — routed through the `historyRepair` plugin pipeline so
+    // plugins can observe or override repair behavior. The default plugin
+    // (registered in `external-plugins-bootstrap.ts`) delegates to
+    // `repairHistory` unchanged, preserving existing behavior.
     let preRepairMessages = runMessages;
-    const preRunRepair = repairHistory(runMessages);
+    const preRunRepairCtx = buildHistoryRepairTurnContext(
+      reqId,
+      ctx.conversationId,
+      ctx.messages.length,
+      ctx.trustContext,
+    );
+    const preRunRepair = await runPipeline<
+      HistoryRepairArgs,
+      HistoryRepairResult
+    >(
+      "historyRepair",
+      getMiddlewaresFor("historyRepair"),
+      async (args) => defaultHistoryRepairTerminal(args),
+      { history: runMessages, provider: ctx.provider.name },
+      preRunRepairCtx,
+      DEFAULT_TIMEOUTS.historyRepair,
+    );
     if (
       preRunRepair.stats.assistantToolResultsMigrated > 0 ||
       preRunRepair.stats.missingToolResultsInserted > 0 ||
@@ -1273,7 +1460,9 @@ export async function runAgentLoopImpl(
 
     let yieldedForBudget = false;
 
-    const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
+    const onCheckpoint = async (
+      checkpoint: CheckpointInfo,
+    ): Promise<CheckpointDecision> => {
       state.currentTurnToolNames = [];
 
       if (ctx.canHandoffAtCheckpoint()) {
@@ -1286,14 +1475,7 @@ export async function runAgentLoopImpl(
       // conversation-agent-loop run compaction before the provider rejects.
       if (overflowRecovery.enabled) {
         const midLoopThreshold = preflightBudget * 0.85;
-        const estimated = estimatePromptTokens(
-          checkpoint.history,
-          ctx.systemPrompt,
-          {
-            providerName: estimationProviderName,
-            toolTokenBudget,
-          },
-        );
+        const estimated = await runTokenEstimatePipeline(checkpoint.history);
         if (estimated > midLoopThreshold) {
           rlog.warn(
             { phase: "mid-loop", estimated, threshold: midLoopThreshold },
