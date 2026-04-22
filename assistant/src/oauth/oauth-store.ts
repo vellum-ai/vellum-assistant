@@ -85,6 +85,7 @@ export function seedProviders(
     scopeSeparator?: string;
     authorizeParams?: Record<string, string>;
     managedServiceConfigKey?: string;
+    managedServiceIsPaid?: boolean;
     displayLabel?: string;
     description?: string;
     dashboardUrl?: string | null;
@@ -146,6 +147,7 @@ export function seedProviders(
       ? JSON.stringify(p.authorizeParams)
       : null;
     const managedServiceConfigKey = p.managedServiceConfigKey ?? null;
+    const managedServiceIsPaid = p.managedServiceIsPaid === true;
     const displayLabel = p.displayLabel ?? null;
     const description = p.description ?? null;
     const dashboardUrl = p.dashboardUrl ?? null;
@@ -193,6 +195,7 @@ export function seedProviders(
         revokeUrl,
         revokeBodyTemplate,
         managedServiceConfigKey,
+        managedServiceIsPaid,
         displayLabel,
         description,
         dashboardUrl,
@@ -235,6 +238,7 @@ export function seedProviders(
           revokeUrl,
           revokeBodyTemplate,
           managedServiceConfigKey,
+          managedServiceIsPaid,
           displayLabel,
           description,
           dashboardUrl,
@@ -300,6 +304,7 @@ export function registerProvider(params: {
   scopeSeparator?: string;
   authorizeParams?: Record<string, string>;
   managedServiceConfigKey?: string;
+  managedServiceIsPaid?: boolean;
   displayLabel?: string;
   description?: string;
   dashboardUrl?: string;
@@ -361,6 +366,7 @@ export function registerProvider(params: {
       ? JSON.stringify(params.revokeBodyTemplate)
       : null,
     managedServiceConfigKey: params.managedServiceConfigKey ?? null,
+    managedServiceIsPaid: params.managedServiceIsPaid === true,
     displayLabel: params.displayLabel ?? null,
     description: params.description ?? null,
     dashboardUrl: params.dashboardUrl ?? null,
@@ -423,7 +429,7 @@ export function updateProvider(
     revokeBodyTemplate: Record<string, string> | null;
     baseUrl: string;
     defaultScopes: string[];
-    availableScopes: AvailableScopes;
+    availableScopes: AvailableScopes | null;
     scopeSeparator: string;
     authorizeParams: Record<string, string>;
     displayLabel: string;
@@ -449,6 +455,7 @@ export function updateProvider(
     identityFormat: string;
     identityOkField: string;
     featureFlag: string;
+    managedServiceIsPaid: boolean;
   }>,
 ): OAuthProviderRow | undefined {
   const existing = getProvider(provider);
@@ -483,7 +490,10 @@ export function updateProvider(
   if (params.defaultScopes !== undefined)
     set.defaultScopes = JSON.stringify(params.defaultScopes);
   if (params.availableScopes !== undefined)
-    set.availableScopes = JSON.stringify(params.availableScopes);
+    set.availableScopes =
+      params.availableScopes === null
+        ? null
+        : JSON.stringify(params.availableScopes);
   if (params.scopeSeparator !== undefined)
     // Coerce empty string to the default space separator (see seedProviders).
     set.scopeSeparator = params.scopeSeparator || " ";
@@ -517,6 +527,8 @@ export function updateProvider(
   if (params.identityOkField !== undefined)
     set.identityOkField = params.identityOkField;
   if (params.featureFlag !== undefined) set.featureFlag = params.featureFlag;
+  if (params.managedServiceIsPaid !== undefined)
+    set.managedServiceIsPaid = params.managedServiceIsPaid;
 
   db.update(oauthProviders)
     .set(set)

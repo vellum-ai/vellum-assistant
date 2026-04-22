@@ -82,6 +82,36 @@ const ALLOWED_HOST_PATTERNS: readonly string[] = (() => {
 })();
 
 /**
+ * Non-sensitive HTTP request headers that are safe to surface in the
+ * `network_request` approval prompt. Strict allowlist to keep Authorization,
+ * Cookie, X-Api-Key, and other custom credential-bearing headers off-screen.
+ */
+const APPROVAL_HEADER_ALLOWLIST: readonly string[] = [
+  "content-type",
+  "content-length",
+  "user-agent",
+  "accept",
+];
+
+/**
+ * Project an incoming header map onto {@link APPROVAL_HEADER_ALLOWLIST},
+ * collapsing multi-value arrays to a comma-joined string. Returns undefined
+ * when no headers are available (e.g. HTTPS CONNECT path).
+ */
+function filterApprovalHeaders(
+  raw: Record<string, string | string[] | undefined> | undefined,
+): Record<string, string> | undefined {
+  if (!raw) return undefined;
+  const out: Record<string, string> = {};
+  for (const key of APPROVAL_HEADER_ALLOWLIST) {
+    const value = raw[key];
+    if (value === undefined) continue;
+    out[key] = Array.isArray(value) ? value.join(", ") : value;
+  }
+  return out;
+}
+
+/**
  * Returns `true` when `hostname` matches any entry in
  * {@link ALLOWED_HOST_PATTERNS}.
  */
@@ -292,12 +322,16 @@ function buildSessionStartHooks(): SessionStartHooks {
         return allKnownCache;
       }
 
-      // Build the policy callback for HTTP/CONNECT request gating
+      // Build the policy callback for HTTP/CONNECT request gating.
+      // `method` / `reqHeaders` are populated for plain-HTTP proxied requests
+      // and undefined for HTTPS CONNECT tunnels (TLS not yet terminated).
       const policyCallback: PolicyCallback = async (
         hostname: string,
         port: number | null,
         reqPath: string,
         scheme: "http" | "https",
+        method?: string,
+        reqHeaders?: Record<string, string | string[] | undefined>,
       ) => {
         if (isAllowedHost(hostname)) {
           log.debug({ hostname }, "Allowing always-permitted host");
@@ -356,6 +390,8 @@ function buildSessionStartHooks(): SessionStartHooks {
               const approved = await managed.approvalCallback({
                 decision,
                 sessionId: managed.session.id,
+                method,
+                requestHeaders: filterApprovalHeaders(reqHeaders),
               });
               return approved ? {} : null;
             }

@@ -43,6 +43,7 @@ struct QueuedMessagesDrawer: View {
                 .strokeBorder(VColor.borderBase, lineWidth: 1)
         )
         .fixedSize(horizontal: false, vertical: true)
+        .layoutHangSignpost("chat.queuedMessagesDrawer.fixedSize")
         .widthCap(VSpacing.chatColumnMaxWidth)
     }
 

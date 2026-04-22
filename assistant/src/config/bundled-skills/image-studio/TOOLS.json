@@ -29,7 +29,8 @@
             "type": "string",
             "enum": [
               "gemini-3.1-flash-image-preview",
-              "gemini-3-pro-image-preview"
+              "gemini-3-pro-image-preview",
+              "gpt-image-2"
             ],
             "description": "Which model to use for generation. If omitted, uses the user's configured preference."
           },

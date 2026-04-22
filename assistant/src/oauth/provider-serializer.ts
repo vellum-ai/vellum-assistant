@@ -32,6 +32,7 @@ export interface SerializedProviderSummary {
   requires_client_secret: boolean;
   logo_url: string | null;
   supports_managed_mode: boolean;
+  managed_service_is_paid: boolean;
   feature_flag: string | null;
 }
 
@@ -86,6 +87,7 @@ function _serializeProvider(
     clientIdPlaceholder: row.clientIdPlaceholder ?? null,
     requiresClientSecret: !!(row.requiresClientSecret ?? 1),
     supportsManagedMode: !!row.managedServiceConfigKey,
+    managedServiceIsPaid: !!row.managedServiceIsPaid,
     defaultScopes: row.defaultScopes ? JSON.parse(row.defaultScopes) : [],
     availableScopes: row.availableScopes
       ? JSON.parse(row.availableScopes)
@@ -142,6 +144,7 @@ export function serializeProviderSummary(
     requires_client_secret: !!(row.requiresClientSecret ?? 1),
     logo_url: row.logoUrl ?? null,
     supports_managed_mode: !!row.managedServiceConfigKey,
+    managed_service_is_paid: !!row.managedServiceIsPaid,
     feature_flag: row.featureFlag ?? null,
   };
 }

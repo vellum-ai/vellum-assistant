@@ -117,6 +117,7 @@ import {
   migrateOAuthProvidersFeatureFlag,
   migrateOAuthProvidersLogoUrl,
   migrateOAuthProvidersManagedServiceConfigKey,
+  migrateOAuthProvidersManagedServiceIsPaid,
   migrateOAuthProvidersPingConfig,
   migrateOAuthProvidersPingUrl,
   migrateOAuthProvidersRefreshUrl,
@@ -377,6 +378,7 @@ export function initializeDb(): void {
     migrateNormalizeUserFileByPrincipal,
     migrateConversationsArchivedAt,
     migrateStripPlaceholderSentinelsFromMessages,
+    migrateOAuthProvidersManagedServiceIsPaid,
     migrateOAuthProvidersAvailableScopes,
   ];
 

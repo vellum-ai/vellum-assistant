@@ -914,6 +914,7 @@ struct ActiveChatViewWrapper: View {
                     onBack: dismissInspector
                 )
                 .transition(.move(edge: .trailing).combined(with: .opacity))
+                .layoutHangSignpost("panel.messageInspector")
             }
         }
         .animation(VAnimation.standard, value: windowState.inspectorMessageId)

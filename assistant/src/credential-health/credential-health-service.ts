@@ -16,6 +16,7 @@ import {
   oauthConnectionAccessTokenPath,
 } from "@vellumai/credential-storage";
 
+import { manualTokenAccessCredentialKey } from "../oauth/manual-token-connection.js";
 import {
   getProvider,
   listActiveConnectionsByProvider,
@@ -100,7 +101,9 @@ async function pingProvider(
 
   const body =
     method !== "GET" && pingBody
-      ? (typeof pingBody === "string" ? pingBody : JSON.stringify(pingBody))
+      ? typeof pingBody === "string"
+        ? pingBody
+        : JSON.stringify(pingBody)
       : undefined;
 
   try {
@@ -155,12 +158,22 @@ async function checkConnection(
     pingBody,
   } = opts;
 
-  const base = { connectionId, provider, accountInfo, missingScopes: [] as string[] };
+  const base = {
+    connectionId,
+    provider,
+    accountInfo,
+    missingScopes: [] as string[],
+  };
 
-  // 1. Check token presence
-  const token = await getSecureKeyAsync(
-    oauthConnectionAccessTokenPath(connectionId),
-  );
+  // 1. Check token presence. Manual-token providers (e.g. slack_channel,
+  // telegram) store their primary token under credential/<provider>/<field>
+  // rather than oauth_connection/<id>/access_token, so resolve the correct
+  // path before looking up the token — otherwise the lookup always returns
+  // null and marks these providers as "missing_token".
+  const tokenPath =
+    manualTokenAccessCredentialKey(provider) ??
+    oauthConnectionAccessTokenPath(connectionId);
+  const token = await getSecureKeyAsync(tokenPath);
   if (!token) {
     return {
       ...base,

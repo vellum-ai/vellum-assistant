@@ -118,6 +118,7 @@ struct MemoriesPanel: View {
                         .frame(width: 400)
                         .frame(maxHeight: .infinity)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
+                        .layoutHangSignpost("panel.memories.detailSheet")
                         .onKeyPress(.escape) {
                             withAnimation(VAnimation.panel) { selectedItem = nil }
                             return .handled

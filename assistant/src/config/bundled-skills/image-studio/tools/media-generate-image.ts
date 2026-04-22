@@ -1,16 +1,12 @@
 import { getConfig } from "../../../../config/loader.js";
+import { resolveImageGenCredentials } from "../../../../media/image-credentials.js";
 import {
   generateImage,
-  type ImageGenCredentials,
-  mapGeminiError,
-} from "../../../../media/gemini-image-service.js";
+  mapImageGenError,
+  providerForModel,
+} from "../../../../media/image-service.js";
 import { getFilePathBySourcePath } from "../../../../memory/attachments-store.js";
-import {
-  buildManagedBaseUrl,
-  resolveManagedProxyContext,
-} from "../../../../providers/managed-proxy/context.js";
 import type { ImageContent } from "../../../../providers/types.js";
-import { getProviderKeyAsync } from "../../../../security/secure-keys.js";
 import { sandboxPolicy } from "../../../../tools/shared/filesystem/path-policy.js";
 import type {
   ToolContext,
@@ -22,42 +18,27 @@ export async function run(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const config = getConfig();
-  const imageGenMode = config.services["image-generation"].mode;
-
-  // Resolve credentials strictly based on mode — no cross-mode fallbacks
-  let credentials: ImageGenCredentials | undefined;
-
-  if (imageGenMode === "managed") {
-    const managedBaseUrl = await buildManagedBaseUrl("gemini");
-    if (managedBaseUrl) {
-      const ctx = await resolveManagedProxyContext();
-      credentials = {
-        type: "managed-proxy",
-        assistantApiKey: ctx.assistantApiKey,
-        baseUrl: managedBaseUrl,
-      };
-    }
-  } else {
-    const apiKey = await getProviderKeyAsync("gemini");
-    if (apiKey) {
-      credentials = { type: "direct", apiKey };
-    }
-  }
-
+  const svc = config.services["image-generation"];
+  const modelOverride = input.model as string | undefined;
+  // Derive provider from the explicit model when supplied so that requesting
+  // e.g. `gpt-image-2` while config.provider === "gemini" routes to OpenAI
+  // instead of silently falling back to the Gemini default model.
+  const provider = providerForModel(modelOverride, svc.provider);
+  const { credentials, errorHint } = await resolveImageGenCredentials({
+    provider,
+    mode: svc.mode,
+  });
   if (!credentials) {
-    const hint =
-      imageGenMode === "managed"
-        ? "Managed proxy is not available. Please log in to Vellum or switch to Your Own mode."
-        : "No Gemini API key configured. Please set your Gemini API key in Settings > Models & Services.";
-    return { content: hint, isError: true };
+    return {
+      content: errorHint ?? "Image generation is not configured.",
+      isError: true,
+    };
   }
 
   const prompt = input.prompt as string;
   const mode = (input.mode as "generate" | "edit") ?? "generate";
   const sourcePaths = input.source_paths as string[] | undefined;
-  const model =
-    (input.model as string | undefined) ??
-    config.services["image-generation"].model;
+  const model = modelOverride ?? config.services["image-generation"].model;
   const variants = input.variants as number | undefined;
 
   // Resolve source images from file paths (sandboxed to workingDir, edit mode only)
@@ -111,7 +92,7 @@ export async function run(
   }
 
   try {
-    const result = await generateImage(credentials, {
+    const result = await generateImage(provider, credentials, {
       prompt,
       mode,
       sourceImages,
@@ -147,7 +128,7 @@ export async function run(
     };
   } catch (error) {
     return {
-      content: mapGeminiError(error),
+      content: mapImageGenError(provider, error),
       isError: true,
     };
   }

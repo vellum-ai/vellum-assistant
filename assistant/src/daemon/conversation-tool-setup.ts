@@ -376,10 +376,23 @@ export function createProxyApprovalCallback(
 
     const input: Record<string, unknown> = {
       url,
-      proxy_session_id: request.sessionId,
+      scheme,
     };
+    if (request.method) {
+      input.method = request.method;
+    }
+    if (request.requestHeaders && Object.keys(request.requestHeaders).length) {
+      input.request_headers = request.requestHeaders;
+    }
+    input.reason =
+      decision.kind === "ask_missing_credential"
+        ? "No credential in this session matches this host. Approving will send the request without authentication."
+        : "This host isn't covered by any known credential template. Approving will send the request as-is.";
     if (decision.kind === "ask_missing_credential") {
-      input.matching_patterns = decision.matchingPatterns;
+      input.known_credential_patterns = decision.matchingPatterns;
+    }
+    if (!request.method) {
+      input.connection_detail_available = "no";
     }
 
     const riskLevel: string = "medium";

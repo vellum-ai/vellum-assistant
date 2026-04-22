@@ -14,6 +14,7 @@ struct MainWindowZoomIndicator: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .padding(.top, 40)
                 .shadow(color: VColor.auxBlack.opacity(0.15), radius: 8, y: 2)
+                .layoutHangSignpost("mainWindow.zoomIndicator")
         }
     }
 }

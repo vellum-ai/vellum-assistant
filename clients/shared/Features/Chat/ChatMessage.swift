@@ -113,6 +113,13 @@ public struct ToolConfirmationData: Equatable {
                 return "The assistant wants to open \(host)"
             }
             return "The assistant wants to open a page"
+        case "network_request":
+            let url = (input["url"]?.value as? String) ?? ""
+            let host = URL(string: url)?.host ?? "an external host"
+            if let method = input["method"]?.value as? String {
+                return "The assistant wants to send a \(method) request to \(host)"
+            }
+            return "The assistant wants to open a connection to \(host)"
         case "schedule_create":
             let name = (input["name"]?.value as? String) ?? ""
             return name.isEmpty
@@ -152,6 +159,27 @@ public struct ToolConfirmationData: Equatable {
                 return command + "\n\ntimeout_seconds: \(timeout)"
             }
             return command
+        case "network_request":
+            var parts: [String] = []
+            if let url = input["url"]?.value as? String { parts.append("URL: \(url)") }
+            if let method = input["method"]?.value as? String { parts.append("Method: \(method)") }
+            if let reason = input["reason"]?.value as? String { parts.append("\nReason: \(reason)") }
+            if let headers = input["request_headers"]?.value as? [String: Any], !headers.isEmpty {
+                parts.append("\nHeaders:")
+                for (k, v) in headers.sorted(by: { $0.key < $1.key }) {
+                    parts.append("  \(k): \(v)")
+                }
+            }
+            if let patterns = input["known_credential_patterns"]?.value as? [Any] {
+                let strs = patterns.compactMap { $0 as? String }
+                if !strs.isEmpty {
+                    parts.append("\nKnown credential patterns: \(strs.joined(separator: ", "))")
+                }
+            }
+            if (input["method"]?.value as? String) == nil {
+                parts.append("\n(HTTPS connection \u{2014} method, headers, and body are encrypted and not visible to the proxy.)")
+            }
+            return parts.joined(separator: "\n")
         default:
             break
         }
@@ -167,6 +195,9 @@ public struct ToolConfirmationData: Equatable {
                 formatted = "\(num)"
             } else if let num = value as? Double {
                 formatted = "\(num)"
+            } else if let arr = value as? [Any] {
+                let strs = arr.compactMap { $0 as? String }
+                formatted = strs.isEmpty ? "\(value)" : strs.joined(separator: ", ")
             } else {
                 formatted = "\(value)"
             }
@@ -739,6 +770,16 @@ public func confirmationHumanDescription(
             return "Allow opening \(host)?"
         }
         return "Allow opening a page?"
+    case "network_request":
+        let url = (input["url"]?.value as? String) ?? ""
+        let host = URL(string: url)?.host
+        let scheme = (input["scheme"]?.value as? String) ?? "https"
+        let method = input["method"]?.value as? String
+        if let host {
+            if let method { return "Allow \(method) \(scheme)://\(host)?" }
+            return "Allow \(scheme.uppercased()) connection to \(host)?"
+        }
+        return "Allow a network request?"
     case "credential_store":
         let action = (input["action"]?.value as? String) ?? ""
         let service = (input["service"]?.value as? String) ?? ""

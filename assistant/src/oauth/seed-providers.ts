@@ -8,7 +8,7 @@ import { seedProviders } from "./oauth-store.js";
  * every startup. Only Vellum implementation fields (authorizeUrl, tokenExchangeUrl,
  * refreshUrl, tokenEndpointAuthMethod, userinfoUrl, authorizeParams,
  * pingUrl, pingMethod, pingHeaders, pingBody, revokeUrl, revokeBodyTemplate,
- * managedServiceConfigKey,
+ * managedServiceConfigKey, managedServiceIsPaid,
  * loopbackPort, injectionTemplates, appType, setupNotes,
  * identityUrl, identityMethod, identityHeaders, identityBody,
  * identityResponsePaths, identityFormat, identityOkField, featureFlag,
@@ -43,6 +43,7 @@ export const PROVIDER_SEED_DATA: Record<
     scopeSeparator?: string;
     authorizeParams?: Record<string, string>;
     managedServiceConfigKey?: string;
+    managedServiceIsPaid?: boolean;
     displayLabel: string;
     description: string;
     dashboardUrl: string | null;
@@ -225,6 +226,7 @@ export const PROVIDER_SEED_DATA: Record<
     tokenEndpointAuthMethod: "client_secret_basic",
     loopbackPort: 17335,
     managedServiceConfigKey: "twitter-oauth",
+    managedServiceIsPaid: true,
     injectionTemplates: [
       {
         hostPattern: "api.x.com",

@@ -29,6 +29,7 @@ function makeRow(overrides: Partial<OAuthProviderRow> = {}): OAuthProviderRow {
     revokeUrl: null,
     revokeBodyTemplate: null,
     managedServiceConfigKey: null,
+    managedServiceIsPaid: false,
     displayLabel: null,
     description: null,
     dashboardUrl: null,
@@ -288,6 +289,7 @@ describe("serializeProviderSummary", () => {
       requires_client_secret: true,
       logo_url: null,
       supports_managed_mode: true,
+      managed_service_is_paid: false,
       feature_flag: null,
     });
   });
