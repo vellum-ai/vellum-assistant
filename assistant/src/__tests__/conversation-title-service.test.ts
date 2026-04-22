@@ -214,6 +214,122 @@ describe("conversation-title-service", () => {
     );
   });
 
+  test("rejects meta-failure outputs like 'Missing Context' and uses fallback", async () => {
+    mockRunBtwSidechain.mockImplementationOnce(async () => ({
+      text: "Missing Context",
+      hadTextDeltas: true,
+      response: {
+        content: [{ type: "text", text: "Missing Context" }],
+        model: "test-model",
+        usage: { inputTokens: 10, outputTokens: 5 },
+        stopReason: "end_turn",
+      },
+    }));
+
+    const provider = {
+      name: "test-provider",
+      sendMessage: mock(async () => {
+        throw new Error("should not call directly");
+      }),
+    };
+
+    const result = await generateAndPersistConversationTitle({
+      conversationId: "conv-1",
+      provider,
+      userMessage: "so about that t-shirt...",
+    });
+
+    expect(result.title).toBe("Untitled Conversation");
+    expect(mockUpdateConversationTitle).toHaveBeenCalledWith(
+      "conv-1",
+      "Untitled Conversation",
+      1,
+    );
+  });
+
+  test.each([
+    "missing context",
+    "No Context",
+    "Insufficient Context",
+    "Unclear Request",
+    "No Topic",
+    "Empty Conversation",
+  ])("rejects meta-failure variant: %s", async (bad) => {
+    mockRunBtwSidechain.mockImplementationOnce(async () => ({
+      text: bad,
+      hadTextDeltas: true,
+      response: {
+        content: [{ type: "text", text: bad }],
+        model: "test-model",
+        usage: { inputTokens: 10, outputTokens: 5 },
+        stopReason: "end_turn",
+      },
+    }));
+
+    const provider = {
+      name: "test-provider",
+      sendMessage: mock(async () => {
+        throw new Error("should not call directly");
+      }),
+    };
+
+    const result = await generateAndPersistConversationTitle({
+      conversationId: "conv-1",
+      provider,
+      userMessage: "something",
+    });
+
+    expect(result.title).toBe("Untitled Conversation");
+  });
+
+  test("regeneration skips LLM call when recent messages have no extractable text", async () => {
+    mockGetMessages.mockReturnValueOnce([
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          { type: "tool_use", id: "toolu_1", name: "bash", input: {} },
+        ]),
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_1",
+            content: [{ type: "image", source: {} }],
+          },
+        ]),
+      },
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          { type: "tool_use", id: "toolu_2", name: "bash", input: {} },
+        ]),
+      },
+    ]);
+
+    mockGetConversation.mockReturnValueOnce({
+      title: "Existing Title",
+      isAutoTitle: 1,
+    });
+
+    const provider = {
+      name: "test-provider",
+      sendMessage: mock(async () => {
+        throw new Error("should not call directly");
+      }),
+    };
+
+    const result = await regenerateConversationTitle({
+      conversationId: "conv-1",
+      provider,
+    });
+
+    expect(mockRunBtwSidechain).not.toHaveBeenCalled();
+    expect(mockUpdateConversationTitle).not.toHaveBeenCalled();
+    expect(result).toEqual({ title: "Existing Title", updated: false });
+  });
+
   test("title prompt content does not contain generation instructions", async () => {
     const provider = {
       name: "test-provider",

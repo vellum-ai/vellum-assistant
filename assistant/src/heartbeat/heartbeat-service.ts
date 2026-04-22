@@ -431,7 +431,7 @@ ${checklist}
     if (unhealthyProviders.length > 0) {
       const providers = unhealthyProviders.join(", ");
       prompt += `\n\n<credential-status>
-The following providers have broken or expired OAuth credentials: ${providers}.
+The following providers have broken or expired credentials: ${providers}.
 Do NOT attempt to use tools for these providers — they will fail. Skip any checklist items that depend on them and note the outage in your summary.
 </credential-status>`;
     }
