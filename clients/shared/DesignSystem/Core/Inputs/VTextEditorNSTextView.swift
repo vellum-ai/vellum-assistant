@@ -54,6 +54,11 @@ struct VTextEditorNSTextView: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay
+        // `VTextEditor` renders its focus state via `.vInputChrome`; suppress
+        // the native AppKit focus ring on both the scroll view and the
+        // embedded text view so only one border is drawn.
+        // https://developer.apple.com/documentation/appkit/nsview/1483335-focusringtype
+        scrollView.focusRingType = .none
 
         // Build an explicit TextKit 1 stack to avoid the implicit TextKit 2→1
         // downgrade that occurs when accessing `layoutManager` on a default
@@ -82,6 +87,7 @@ struct VTextEditorNSTextView: NSViewRepresentable {
         textView.importsGraphics = false
         textView.drawsBackground = false
         textView.backgroundColor = .clear
+        textView.focusRingType = .none
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextCompletionEnabled = false

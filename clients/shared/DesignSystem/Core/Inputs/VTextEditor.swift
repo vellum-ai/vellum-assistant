@@ -66,6 +66,11 @@ public struct VTextEditor: View {
         )
         .focusable(true)
         .focused($isFocused)
+        // The focus state is rendered visually by `.vInputChrome` on the
+        // outer container; suppress SwiftUI's default keyboard-focus ring on
+        // the focusable representable so only one border is drawn.
+        // https://developer.apple.com/documentation/swiftui/view/focuseffectdisabled(_:)
+        .focusEffectDisabled()
         #else
         TextEditor(text: $text)
             .font(VFont.bodyMediumLighter)
