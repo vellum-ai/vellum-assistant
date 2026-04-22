@@ -132,19 +132,30 @@ struct VTextEditorNSTextView: NSViewRepresentable {
             textView.string = text
         }
 
-        if coordinator.lastAppliedFont != font {
+        let fontChanged = coordinator.lastAppliedFont != font
+        let textColorChanged = coordinator.lastAppliedTextColor != textColor
+
+        if fontChanged {
             coordinator.lastAppliedFont = font
             textView.font = font
+        }
+
+        if textColorChanged {
+            coordinator.lastAppliedTextColor = textColor
+            textView.textColor = textColor
+            textView.insertionPointColor = textColor
+        }
+
+        // `typingAttributes` governs the attributes applied to newly typed
+        // characters and is not recomputed from `font` / `textColor` — it
+        // must be re-seeded whenever either input changes, or text typed
+        // after an appearance-mode switch (light ↔ dark) will carry the
+        // stale foreground color.
+        if fontChanged || textColorChanged {
             textView.typingAttributes = [
                 .font: font,
                 .foregroundColor: textColor,
             ]
-        }
-
-        if coordinator.lastAppliedTextColor != textColor {
-            coordinator.lastAppliedTextColor = textColor
-            textView.textColor = textColor
-            textView.insertionPointColor = textColor
         }
 
         if coordinator.lastAccessibilityLabel != accessibilityLabel {
