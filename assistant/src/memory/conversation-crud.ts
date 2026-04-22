@@ -1078,6 +1078,7 @@ export function selectSlackMetaCandidateMetadata(
         like(messages.metadata, '%"slackMeta"%'),
       ),
     )
+    .orderBy(asc(messages.createdAt))
     .limit(limit)
     .offset(offset)
     .all();
