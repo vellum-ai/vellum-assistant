@@ -39,7 +39,7 @@ public struct PrivacyConfig: Decodable, Sendable, Equatable {
 }
 
 /// A feature flag sourced from the gateway API, used by the settings UI.
-public struct AssistantFeatureFlag: Decodable, Identifiable, Sendable {
+public struct AssistantFeatureFlag: Decodable, Identifiable, Sendable, Equatable {
     public let key: String
     public let enabled: Bool
     public let defaultEnabled: Bool?
