@@ -53,6 +53,7 @@ assistant skills add <owner>/<repo>@<skill-name>
 ```
 
 For example:
+
 ```bash
 assistant skills add vercel-labs/skills@find-skills
 ```
