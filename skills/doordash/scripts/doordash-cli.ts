@@ -906,4 +906,3 @@ export function registerDoordashCommand(program: Command): void {
       });
     });
 }
-
