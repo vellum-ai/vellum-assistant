@@ -50,7 +50,7 @@ function safeJsonParse<T>(value: string | null | undefined, fallback: T): T {
 export interface OAuthConnectOptions {
   /** Canonical service name (e.g. "google", "slack"). */
   service: string;
-  /** Scopes to request beyond the provider's defaults. */
+  /** Scopes to request. When provided, used instead of the provider's default scopes. */
   requestedScopes?: string[];
   /** OAuth2 client ID (required). */
   clientId: string;
