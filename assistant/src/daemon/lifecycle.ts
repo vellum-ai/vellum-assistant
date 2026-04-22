@@ -43,8 +43,6 @@ import {
   startFeedScheduler,
 } from "../home/feed-scheduler.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
-import { getHookManager } from "../hooks/manager.js";
-import { installTemplates } from "../hooks/templates.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
@@ -340,8 +338,7 @@ export async function runDaemon(): Promise<void> {
 
     seedInterfaceFiles();
 
-    log.info("Daemon startup: installing templates and initializing DB");
-    installTemplates();
+    log.info("Daemon startup: initializing DB");
     ensurePromptFiles();
 
     // DB must be initialized before workspace migrations because some
@@ -1367,13 +1364,6 @@ export async function runDaemon(): Promise<void> {
       log.warn({ err }, "Assistant symlink installation failed — continuing");
     }
 
-    const hookManager = getHookManager();
-    hookManager.watch();
-
-    void hookManager.trigger("daemon-start", {
-      pid: process.pid,
-    });
-
     // Download embedding runtime in background (non-blocking).
     // If download fails, local embeddings gracefully fall back to cloud backends.
     void (async () => {
@@ -1487,7 +1477,6 @@ export async function runDaemon(): Promise<void> {
       workspaceHeartbeat,
       heartbeat,
       filing,
-      hookManager,
       runtimeHttp,
       scheduler,
       feedScheduler,

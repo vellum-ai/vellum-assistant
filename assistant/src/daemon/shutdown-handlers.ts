@@ -3,7 +3,6 @@ import * as Sentry from "@sentry/node";
 import type { BackupWorkerHandle } from "../backup/backup-worker.js";
 import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
-import type { HookManager } from "../hooks/manager.js";
 import type { McpServerManager } from "../mcp/manager.js";
 import { getSqlite, resetDb } from "../memory/db.js";
 import type { QdrantManager } from "../memory/qdrant-manager.js";
@@ -23,7 +22,6 @@ export interface ShutdownDeps {
   workspaceHeartbeat: WorkspaceHeartbeatService;
   heartbeat: HeartbeatService;
   filing: FilingService;
-  hookManager: HookManager;
   runtimeHttp: RuntimeHttpServer | null;
   scheduler: { stop(): void };
   feedScheduler: { stop(): void } | null;
@@ -44,11 +42,9 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     shuttingDown = true;
     log.info("Shutting down daemon...");
 
-    deps.hookManager.stopWatching();
-
     // Force exit if graceful shutdown takes too long.
-    // Set this BEFORE awaiting heartbeat stop and triggering daemon-stop hooks
-    // so it covers all potentially-blocking async shutdown work.
+    // Set this BEFORE awaiting heartbeat stop so it covers all
+    // potentially-blocking async shutdown work.
     //
     // 20s budget: 15s reserved for Meet session teardown
     // (`MeetSessionManager.shutdownAll`), plus ~5s for the remaining
@@ -66,12 +62,6 @@ export function installShutdownHandlers(deps: ShutdownDeps): void {
     await deps.workspaceHeartbeat.stop();
     await deps.heartbeat.stop();
     await deps.filing.stop();
-
-    try {
-      await deps.hookManager.trigger("daemon-stop", { pid: process.pid });
-    } catch {
-      // Don't let hook failures block shutdown
-    }
 
     // Run registered skill shutdown hooks (e.g. meet-join session teardown)
     // before stopping the server so any HTTP round-trips and SSE emissions
