@@ -35,8 +35,10 @@ import type {
   InjectionMode,
   TrustContext,
 } from "../daemon/conversation-runtime-assembly.js";
-import { defaultOverflowReduceMiddleware } from "../plugins/defaults/overflow-reduce.js";
-import { registerDefaultOverflowReducePlugin } from "../plugins/defaults/overflow-reduce.js";
+import {
+  defaultOverflowReduceMiddleware,
+  defaultOverflowReducePlugin,
+} from "../plugins/defaults/overflow-reduce.js";
 import { runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,
@@ -305,7 +307,7 @@ function buildArgs(messages: Message[]): {
 describe("overflow-reduce pipeline", () => {
   beforeEach(() => {
     resetPluginRegistryForTests();
-    registerDefaultOverflowReducePlugin();
+    registerPlugin(defaultOverflowReducePlugin);
   });
 
   describe("default middleware matches historical inline loop", () => {
@@ -446,7 +448,7 @@ describe("overflow-reduce pipeline", () => {
       // outer→inner). The default therefore runs as the spy's downstream.
       resetPluginRegistryForTests();
       registerPlugin(spyPlugin);
-      registerDefaultOverflowReducePlugin();
+      registerPlugin(defaultOverflowReducePlugin);
 
       const { args } = buildArgs(history);
       const result = await runPipeline<
@@ -501,7 +503,7 @@ describe("overflow-reduce pipeline", () => {
         },
         middleware: { overflowReduce: shortCircuit },
       });
-      registerDefaultOverflowReducePlugin();
+      registerPlugin(defaultOverflowReducePlugin);
 
       const { args, compactionResults, reinjectCalls } = buildArgs(history);
       const result = await runPipeline<
