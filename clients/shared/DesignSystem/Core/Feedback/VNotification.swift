@@ -132,7 +132,7 @@ public struct VNotification: View {
 
     private var foregroundColor: Color {
         switch (tone, style) {
-        case (.warning, .strong): return VColor.primaryBase
+        case (.warning, .strong): return VColor.auxBlack
         case (_, .strong): return VColor.contentInset
         case (.positive, .weak): return VColor.systemPositiveStrong
         case (.negative, .weak): return VColor.systemNegativeStrong
