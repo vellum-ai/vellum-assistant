@@ -140,8 +140,23 @@ function sortKey(msg: RenderableSlackMessage): number {
 /**
  * Render a single non-reaction message (post-upgrade or legacy) as one
  * tagged line.
+ *
+ * Assistant rows emit their content verbatim with no bracketed wrapper.
+ * The `role` slot already conveys identity, and the assistant replies
+ * ~immediately after the triggering user message so the chronological
+ * adjacency carries the same information as a timestamp. Keeping a
+ * `[MM/DD/YY HH:MM]:` prefix on the assistant's own past turns caused
+ * the model to mimic the exact format as a literal prefix in new
+ * outbound Slack replies (`[04/22/26 21:25]: on it. ...`). Deleted
+ * assistant rows collapse to the short `[deleted]` sentinel so chronology
+ * is preserved without carrying a mimickable timestamp.
  */
 function renderMessage(msg: RenderableSlackMessage): string {
+  if (msg.role === "assistant") {
+    if (msg.metadata?.deletedAt !== undefined) return "[deleted]";
+    return msg.content;
+  }
+
   const meta = msg.metadata;
   const senderPart = msg.senderLabel ? ` ${msg.senderLabel}` : "";
   if (!meta) {

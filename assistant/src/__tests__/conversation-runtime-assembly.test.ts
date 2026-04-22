@@ -2702,7 +2702,7 @@ describe("Slack channel chronological rendering — multi-thread", () => {
           },
           {
             role: "assistant",
-            content: [{ type: "text", text: "[11/14/23 14:26]: prior reply" }],
+            content: [{ type: "text", text: "prior reply" }],
           },
         ],
       },
@@ -3826,7 +3826,7 @@ describe("assembleSlackChronologicalMessages", () => {
       },
       {
         role: "assistant",
-        content: [{ type: "text", text: "[11/14/23 14:26]: hi back!" }],
+        content: [{ type: "text", text: "hi back!" }],
       },
       {
         role: "user",
@@ -3877,9 +3877,9 @@ describe("assembleSlackChronologicalMessages", () => {
     expect(result!.map((m) => (m.content[0] as { text: string }).text)).toEqual(
       [
         "[11/14/23 14:25]: old hi",
-        "[11/14/23 14:26]: old reply",
+        "old reply",
         "[11/14/23 14:28 @alice]: fresh hi",
-        "[11/14/23 14:30]: fresh reply",
+        "fresh reply",
       ],
     );
     expect(result!.map((m) => m.role)).toEqual([
@@ -4035,7 +4035,7 @@ describe("assembleSlackChronologicalMessages", () => {
     expect(rendered[1]!).toEqual({
       role: "assistant",
       content: [
-        { type: "text", text: "[11/14/23 14:26]: looking it up" },
+        { type: "text", text: "looking it up" },
         {
           type: "tool_use",
           id: "tu_1",
@@ -4357,11 +4357,11 @@ describe("assembleSlackChronologicalMessages", () => {
       role: "user",
       content: [{ type: "text", text: "[11/14/23 23:03 @alice]: hi" }],
     });
-    // Row 2: assistant tag line + tool_use(abc).
+    // Row 2: assistant content + tool_use(abc) — no tag line.
     expect(result![1]).toEqual({
       role: "assistant",
       content: [
-        { type: "text", text: "[11/14/23 23:03]: checking..." },
+        { type: "text", text: "checking..." },
         {
           type: "tool_use",
           id: "tu_abc",
@@ -4377,11 +4377,11 @@ describe("assembleSlackChronologicalMessages", () => {
         { type: "tool_result", tool_use_id: "tu_abc", content: "result 1" },
       ],
     });
-    // Row 4: assistant tag line + tool_use(def).
+    // Row 4: assistant content + tool_use(def) — no tag line.
     expect(result![3]).toEqual({
       role: "assistant",
       content: [
-        { type: "text", text: "[11/14/23 23:03]: one more lookup..." },
+        { type: "text", text: "one more lookup..." },
         {
           type: "tool_use",
           id: "tu_def",
@@ -4397,10 +4397,10 @@ describe("assembleSlackChronologicalMessages", () => {
         { type: "tool_result", tool_use_id: "tu_def", content: "result 2" },
       ],
     });
-    // Row 6: assistant final text-only answer, rendered as tag line only.
+    // Row 6: assistant final text-only answer, content-only (no tag line).
     expect(result![5]).toEqual({
       role: "assistant",
-      content: [{ type: "text", text: "[11/14/23 23:03]: all done" }],
+      content: [{ type: "text", text: "all done" }],
     });
     // Row 7: user follow-up tag line.
     expect(result![6]).toEqual({
