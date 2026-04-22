@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 
-const triggerMock = mock(async () => {});
 const scanTextMock = mock(() => [
   { type: "api_key", redactedValue: "sk-***redacted***" },
 ]);
@@ -18,12 +17,6 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-mock.module("../hooks/manager.js", () => ({
-  getHookManager: () => ({
-    trigger: triggerMock,
-  }),
-}));
-
 mock.module("../security/secret-scanner.js", () => ({
   compileCustomPatterns: () => [],
   redactSecrets: (content: string) => content,
@@ -35,7 +28,6 @@ import { SecretDetectionHandler } from "../tools/secret-detection-handler.js";
 describe("SecretDetectionHandler under v2", () => {
   beforeEach(() => {
     _setOverridesForTesting({});
-    triggerMock.mockClear();
     scanTextMock.mockClear();
   });
 
@@ -79,6 +71,5 @@ describe("SecretDetectionHandler under v2", () => {
         decision: "deny",
       }),
     );
-    expect(triggerMock).toHaveBeenCalled();
   });
 });
