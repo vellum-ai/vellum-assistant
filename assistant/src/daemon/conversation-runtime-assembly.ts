@@ -1715,11 +1715,12 @@ export function findLastInjectedNowContent(messages: Message[]): string | null {
 export type InjectionMode = "full" | "minimal";
 
 /**
- * Per-turn injection bytes captured for later persistence to message
- * metadata. Persisting these lets `loadFromDb` rehydrate historical user
- * messages byte-for-byte after a daemon restart or conversation eviction,
- * which keeps Anthropic's prefix cache anchored to msg[0] instead of
- * invalidating every turn on reload.
+ * Per-turn injection bytes captured so `loadFromDb` can rehydrate historical
+ * user messages byte-for-byte after a daemon restart or conversation
+ * eviction. Persisting the exact injected text onto message metadata keeps
+ * Anthropic's prefix cache anchored to msg[0] instead of invalidating every
+ * turn on reload. Any field left `undefined` means that block was not
+ * injected on this turn.
  */
 export interface RuntimeInjectionBlocks {
   unifiedTurnContext?: string;
@@ -1738,8 +1739,10 @@ export interface RuntimeInjectionResult {
  * Apply a chain of user-message injections to `runMessages`.
  *
  * Each injection is optional — pass `null`/`undefined` to skip it.
- * Returns the final message array ready for the provider, along with a
- * `blocks` object reserved for captured injection bytes (currently empty).
+ * Returns the final message array ready for the provider along with a
+ * `blocks` object holding the exact injected text for each block that was
+ * applied, so callers can persist those bytes to message metadata for later
+ * byte-exact rehydration.
  */
 export async function applyRuntimeInjections(
   runMessages: Message[],
