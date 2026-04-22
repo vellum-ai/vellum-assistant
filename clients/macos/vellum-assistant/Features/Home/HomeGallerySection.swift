@@ -488,10 +488,22 @@ struct HomeGallerySection: View {
 
                 GallerySectionHeader(
                     title: "HomeEmailEditor",
-                    description: "Pure body content for the email editor variant of the Home detail panel."
+                    description: "Pure body content for the email editor variant of the Home detail panel. Footer actions are right-aligned (Discard + primary). The primary CTA depends on Google OAuth state: \"Send\" when connected, otherwise a \"Connect to Google OAuth\" banner appears above the footer and the primary CTA becomes \"Copy to Clipboard\"."
                 )
 
-                HomeEmailEditorDemo()
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    Text("Google connected (primary = Send)")
+                        .font(VFont.bodySmallEmphasised)
+                        .foregroundStyle(VColor.contentSecondary)
+
+                    HomeEmailEditorDemo(isGmailConnected: true)
+
+                    Text("Google not connected (primary = Copy to Clipboard, banner visible)")
+                        .font(VFont.bodySmallEmphasised)
+                        .foregroundStyle(VColor.contentSecondary)
+
+                    HomeEmailEditorDemo(isGmailConnected: false)
+                }
             }
 
             // MARK: - HomeDocumentPreview
@@ -739,10 +751,17 @@ struct HomeGallerySection: View {
 /// sample content matching the Figma mock (thread name, recipient, subject,
 /// body, and a single attachment). Kept private to the gallery so it can
 /// own the `@State` bindings required by the editor's field text.
+///
+/// The `isGmailConnected` flag flips the primary CTA between "Send" (when
+/// true) and "Copy to Clipboard" with a visible "Connect to Google OAuth"
+/// banner (when false). Default is true so the connected flow is shown
+/// first.
 private struct HomeEmailEditorDemo: View {
     private static let sampleAttachments: [HomeEmailEditor.Attachment] = [
         .init(id: UUID(), fileName: "nba-2025-invoice-224468.pdf", fileSize: "24 kb"),
     ]
+
+    let isGmailConnected: Bool
 
     @State private var toAddress: String = "john@johnstown.com"
     @State private var subject: String = "looking for a basketball scholarship"
@@ -757,10 +776,14 @@ private struct HomeEmailEditorDemo: View {
     Rok
     """
 
+    init(isGmailConnected: Bool = true) {
+        self.isGmailConnected = isGmailConnected
+    }
+
     var body: some View {
         HomeDetailPanel(
             icon: nil,
-            title: "Thread Name Here",
+            title: "Email Draft to John Wick",
             onGoToThread: {},
             onDismiss: {},
             scrollable: false
@@ -771,7 +794,11 @@ private struct HomeEmailEditorDemo: View {
                 bodyText: $bodyText,
                 attachments: Self.sampleAttachments,
                 onAttachmentTap: { _ in },
-                onSend: {}
+                isGmailConnected: isGmailConnected,
+                onSend: {},
+                onCopyToClipboard: {},
+                onDiscard: {},
+                onConnectGoogle: {}
             )
         }
         .frame(height: 640)
@@ -859,7 +886,8 @@ private struct HomeSplitLayoutDemo: View {
                     bodyText: $bodyText,
                     attachments: Self.sampleAttachments,
                     onAttachmentTap: { _ in },
-                    onSend: {}
+                    onSend: {},
+                    onDiscard: {}
                 )
             }
         case .document:
