@@ -9,7 +9,10 @@ mock.module("../util/logger.js", () => ({
 
 import { getDb, initializeDb } from "../memory/db.js";
 import { scheduleRouteDefinitions } from "../runtime/routes/schedule-routes.js";
-import { createSchedule } from "../schedule/schedule-store.js";
+import {
+  createSchedule,
+  createScheduleRun,
+} from "../schedule/schedule-store.js";
 import { scheduleTask } from "../tasks/task-scheduler.js";
 import { createTask } from "../tasks/task-store.js";
 
@@ -158,5 +161,132 @@ describe("schedule run-now trust propagation", () => {
     expect(processCalls[0][6]).toEqual({ isInteractive: false });
     expect(typeof observedTaskRunIds[0]).toBe("string");
     expect(fakeConversation.taskRunId).toBeUndefined();
+  });
+});
+
+// ── schedules/:id/runs limit handling ─────────────────────────────────────
+
+function getRunsHandler() {
+  const route = scheduleRouteDefinitions({
+    sendMessageDeps: {} as never,
+  }).find(
+    (candidate) =>
+      candidate.endpoint === "schedules/:id/runs" &&
+      candidate.method === "GET",
+  );
+  if (!route) throw new Error("Runs schedule route not found");
+  return route.handler;
+}
+
+async function callRunsHandler(
+  jobId: string,
+  limitParam?: string,
+): Promise<{ status: number; body: unknown }> {
+  const handler = getRunsHandler();
+  const suffix = limitParam !== undefined ? `?limit=${limitParam}` : "";
+  const urlStr = `http://localhost/v1/schedules/${jobId}/runs${suffix}`;
+  const response = await handler({
+    req: new Request(urlStr),
+    url: new URL(urlStr),
+    server: {} as never,
+    authContext: {} as never,
+    params: { id: jobId },
+  });
+  return { status: response.status, body: await response.json() };
+}
+
+describe("schedule runs list — limit handling", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  test("returns 200 with default limit when no param is provided", async () => {
+    const job = createSchedule({
+      name: "runs default",
+      cronExpression: "* * * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+    for (let i = 0; i < 3; i += 1) {
+      createScheduleRun(job.id, `conv-${i}`);
+    }
+    const { status, body } = await callRunsHandler(job.id);
+    expect(status).toBe(200);
+    expect(Array.isArray((body as { runs: unknown[] }).runs)).toBe(true);
+    expect((body as { runs: unknown[] }).runs).toHaveLength(3);
+  });
+
+  test("non-numeric limit falls back to default (does not 500)", async () => {
+    const job = createSchedule({
+      name: "runs nan",
+      cronExpression: "* * * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+    createScheduleRun(job.id, "conv");
+    const { status } = await callRunsHandler(job.id, "abc");
+    expect(status).toBe(200);
+  });
+
+  test("negative limit is clamped to 1 (does not bypass cap)", async () => {
+    const job = createSchedule({
+      name: "runs negative",
+      cronExpression: "* * * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+    for (let i = 0; i < 5; i += 1) {
+      createScheduleRun(job.id, `conv-${i}`);
+    }
+    const { status, body } = await callRunsHandler(job.id, "-5");
+    expect(status).toBe(200);
+    // clamped to 1, not interpreted as "no limit"
+    expect((body as { runs: unknown[] }).runs).toHaveLength(1);
+  });
+
+  test("zero limit is clamped to 1", async () => {
+    const job = createSchedule({
+      name: "runs zero",
+      cronExpression: "* * * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+    for (let i = 0; i < 3; i += 1) {
+      createScheduleRun(job.id, `conv-${i}`);
+    }
+    const { status, body } = await callRunsHandler(job.id, "0");
+    expect(status).toBe(200);
+    expect((body as { runs: unknown[] }).runs).toHaveLength(1);
+  });
+
+  test("limit above 100 is capped at 100", async () => {
+    const job = createSchedule({
+      name: "runs huge",
+      cronExpression: "* * * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+    // 5 runs, requesting 9999 → bounded at 100, actual returns = 5
+    for (let i = 0; i < 5; i += 1) {
+      createScheduleRun(job.id, `conv-${i}`);
+    }
+    const { status, body } = await callRunsHandler(job.id, "9999");
+    expect(status).toBe(200);
+    expect((body as { runs: unknown[] }).runs).toHaveLength(5);
+  });
+
+  test("fractional limit is floored", async () => {
+    const job = createSchedule({
+      name: "runs frac",
+      cronExpression: "* * * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+    for (let i = 0; i < 5; i += 1) {
+      createScheduleRun(job.id, `conv-${i}`);
+    }
+    const { status, body } = await callRunsHandler(job.id, "2.7");
+    expect(status).toBe(200);
+    expect((body as { runs: unknown[] }).runs).toHaveLength(2);
   });
 });

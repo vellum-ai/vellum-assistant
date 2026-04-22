@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { removeWorkspaceHooksMigration } from "../workspace/migrations/046-remove-workspace-hooks.js";
+import { removeWorkspaceHooksMigration } from "../workspace/migrations/047-remove-workspace-hooks.js";
 
 let workspaceDir: string;
 let hooksDir: string;
@@ -30,9 +30,9 @@ afterEach(() => {
   }
 });
 
-describe("046-remove-workspace-hooks migration", () => {
+describe("047-remove-workspace-hooks migration", () => {
   test("has correct migration id", () => {
-    expect(removeWorkspaceHooksMigration.id).toBe("046-remove-workspace-hooks");
+    expect(removeWorkspaceHooksMigration.id).toBe("047-remove-workspace-hooks");
   });
 
   test("removes a populated hooks directory", () => {

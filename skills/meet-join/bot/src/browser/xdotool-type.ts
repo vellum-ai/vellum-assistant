@@ -116,8 +116,19 @@ export async function xdotoolType(opts: XdotoolTypeOptions): Promise<void> {
       else resolve();
     };
 
+    // Force `LANG=C.UTF-8` for the xdotool process. xdotool's text-typing
+    // path uses the inherited locale to decode the argv string, and in the
+    // POSIX/C locale it rejects any non-ASCII byte with `Invalid multi-byte
+    // sequence encountered`, aborting partway through the message. The bot
+    // container's Dockerfile already sets `LANG=C.UTF-8`, but pinning it
+    // here keeps non-container callers (tests, local dev) from re-breaking
+    // the typing path if their host locale drifts.
     const child = spawnFn(binary, args, {
-      env: { ...process.env, DISPLAY: opts.display },
+      env: {
+        ...process.env,
+        DISPLAY: opts.display,
+        LANG: "C.UTF-8",
+      },
     });
 
     let stderr = "";

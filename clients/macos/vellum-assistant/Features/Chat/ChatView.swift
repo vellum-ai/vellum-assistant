@@ -259,6 +259,7 @@ struct ChatView: View {
 
     @ViewBuilder
     private func mainContentStack(containerWidth: CGFloat) -> some View {
+        let layoutMetrics = MessageListLayoutMetrics(containerWidth: containerWidth)
         VStack(spacing: 0) {
             if showSkeleton {
                 ChatLoadingSkeleton()
@@ -266,6 +267,11 @@ struct ChatView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Loading chat history")
+                // Render the composer below the skeleton in a non-interactive
+                // state so the layout stays put across the load → active
+                // transition — swapping between skeleton (no composer) and
+                // active (with composer) caused the input to appear/move.
+                composerSection(width: layoutMetrics.chatColumnWidth, isInteractionEnabled: false)
             } else if isEmptyState && isBootstrapping {
                 if isBootstrapTimedOut {
                     ChatBootstrapTimeoutView(onSendLogs: onBootstrapSendLogs)
@@ -293,7 +299,8 @@ struct ChatView: View {
                         onDictateToggle: onDictateToggle,
                         onVoiceModeToggle: onVoiceModeToggle,
                         conversationId: conversationId,
-                        conversationHostAccessControl: conversationHostAccessControl
+                        conversationHostAccessControl: conversationHostAccessControl,
+                        showThresholdPicker: showThresholdPicker
                     )
                 } else {
                     ChatEmptyStateView(
@@ -321,7 +328,8 @@ struct ChatView: View {
                         conversationStartersLoading: conversationStartersEnabled && viewModel.conversationStartersLoading,
                         onSelectStarter: { starter in viewModel.inputText = starter.prompt },
                         onFetchConversationStarters: { viewModel.fetchConversationStarters() },
-                        conversationHostAccessControl: conversationHostAccessControl
+                        conversationHostAccessControl: conversationHostAccessControl,
+                        showThresholdPicker: showThresholdPicker
                     )
                     .id(conversationId)
                 }
@@ -476,51 +484,60 @@ struct ChatView: View {
                 }
                 .animation(nil, value: queuedMessages.isEmpty)
             } else {
-                centeredChatColumn(width: layoutMetrics.chatColumnWidth) {
-                    ComposerSection(
-                        inputText: $viewModel.inputText,
-                        isSending: viewModel.isSending,
-                        isAssistantBusy: viewModel.isAssistantBusy,
-                        hasPendingConfirmation: viewModel.activePendingRequestId != nil,
-                        onAllowPendingConfirmation: {
-                            if let requestId = viewModel.activePendingRequestId {
-                                viewModel.respondToConfirmation(requestId: requestId, decision: "allow")
-                            }
-                        },
-                        isRecording: viewModel.isRecording,
-                        suggestion: viewModel.suggestion,
-                        pendingAttachments: viewModel.pendingAttachments,
-                        isLoadingAttachment: viewModel.isLoadingAttachment,
-                        onSend: { sendMessage() },
-                        onStop: { viewModel.stopGenerating() },
-                        onAcceptSuggestion: { viewModel.acceptSuggestion() },
-                        onAttach: { presentFilePicker() },
-                        onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
-                        onPaste: { viewModel.addAttachmentFromPasteboard() },
-                        onMicrophoneToggle: onMicrophoneToggle,
-                        watchSession: watchSession,
-                        onStopWatch: { viewModel.stopWatchSession() },
-                        voiceModeManager: voiceModeManager,
-                        voiceModeState: voiceModeManager?.state ?? .off,
-                        voiceService: voiceService,
-                        onEndVoiceMode: onEndVoiceMode,
-                        recordingAmplitude: viewModel.recordingAmplitude,
-                        onDictateToggle: onDictateToggle,
-                        onVoiceModeToggle: onVoiceModeToggle,
-                        conversationId: conversationId,
-                        isInteractionEnabled: isInteractionEnabled,
-                        contextWindowFillRatio: viewModel.contextWindowFillRatio,
-                        contextWindowTokens: viewModel.contextWindowTokens,
-                        contextWindowMaxTokens: viewModel.contextWindowMaxTokens,
-                        conversationHostAccessControl: conversationHostAccessControl,
-                        showThresholdPicker: showThresholdPicker
-                    )
-                    .equatable()
-                }
-                .animation(nil, value: queuedMessages.isEmpty)
+                composerSection(width: layoutMetrics.chatColumnWidth, isInteractionEnabled: isInteractionEnabled)
+                    .animation(nil, value: queuedMessages.isEmpty)
             }
         }
         .animation(.spring(duration: 0.28, bounce: 0.15), value: queuedMessages.isEmpty)
+    }
+
+    /// Renders the chat composer centered to the standard chat-column width.
+    /// Used from both the active conversation body and the loading-skeleton
+    /// branch (with `isInteractionEnabled: false`) so the input stays in a
+    /// stable screen position across the load → active transition.
+    @ViewBuilder
+    private func composerSection(width: CGFloat, isInteractionEnabled: Bool) -> some View {
+        centeredChatColumn(width: width) {
+            ComposerSection(
+                inputText: $viewModel.inputText,
+                isSending: viewModel.isSending,
+                isAssistantBusy: viewModel.isAssistantBusy,
+                hasPendingConfirmation: viewModel.activePendingRequestId != nil,
+                onAllowPendingConfirmation: {
+                    if let requestId = viewModel.activePendingRequestId {
+                        viewModel.respondToConfirmation(requestId: requestId, decision: "allow")
+                    }
+                },
+                isRecording: viewModel.isRecording,
+                suggestion: viewModel.suggestion,
+                pendingAttachments: viewModel.pendingAttachments,
+                isLoadingAttachment: viewModel.isLoadingAttachment,
+                onSend: { sendMessage() },
+                onStop: { viewModel.stopGenerating() },
+                onAcceptSuggestion: { viewModel.acceptSuggestion() },
+                onAttach: { presentFilePicker() },
+                onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
+                onPaste: { viewModel.addAttachmentFromPasteboard() },
+                onMicrophoneToggle: onMicrophoneToggle,
+                watchSession: watchSession,
+                onStopWatch: { viewModel.stopWatchSession() },
+                voiceModeManager: voiceModeManager,
+                voiceModeState: voiceModeManager?.state ?? .off,
+                voiceService: voiceService,
+                onEndVoiceMode: onEndVoiceMode,
+                recordingAmplitude: viewModel.recordingAmplitude,
+                onDictateToggle: onDictateToggle,
+                onVoiceModeToggle: onVoiceModeToggle,
+                conversationId: conversationId,
+                isInteractionEnabled: isInteractionEnabled,
+                contextWindowFillRatio: viewModel.contextWindowFillRatio,
+                contextWindowTokens: viewModel.contextWindowTokens,
+                contextWindowMaxTokens: viewModel.contextWindowMaxTokens,
+                conversationHostAccessControl: conversationHostAccessControl,
+                showThresholdPicker: showThresholdPicker
+            )
+            .equatable()
+        }
     }
 
     private func toggleConversationHostAccess() {

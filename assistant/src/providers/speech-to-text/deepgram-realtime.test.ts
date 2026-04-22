@@ -806,6 +806,66 @@ describe("DeepgramRealtimeTranscriber", () => {
   });
 
   // ─────────────────────────────────────────────────────────────────
+  // KeepAlive
+  // ─────────────────────────────────────────────────────────────────
+
+  test("sends KeepAlive frames at the configured interval while open", async () => {
+    const { transcriber } = await startSession({
+      keepaliveIntervalMs: 30,
+    });
+
+    // Wait long enough for at least two KeepAlives to fire.
+    await new Promise((resolve) => setTimeout(resolve, 95));
+
+    const keepalives = mockWs.sentData.filter(
+      (d) => typeof d === "string" && d === '{"type":"KeepAlive"}',
+    );
+    expect(keepalives.length).toBeGreaterThanOrEqual(2);
+
+    transcriber.stop();
+  });
+
+  test("KeepAlive timer stops firing after stop()", async () => {
+    const { transcriber } = await startSession({
+      keepaliveIntervalMs: 30,
+    });
+
+    // Let one KeepAlive fire so we know the interval is running.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const beforeStop = mockWs.sentData.filter(
+      (d) => typeof d === "string" && d === '{"type":"KeepAlive"}',
+    ).length;
+    expect(beforeStop).toBeGreaterThanOrEqual(1);
+
+    transcriber.stop();
+
+    // Drain the close grace flow.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    // The interval should be cleared — count must not have grown beyond
+    // what was already buffered before stop(). Tolerate one extra fire
+    // racing with stop()'s synchronous clear path, but no more.
+    const afterStop = mockWs.sentData.filter(
+      (d) => typeof d === "string" && d === '{"type":"KeepAlive"}',
+    ).length;
+    expect(afterStop).toBeLessThanOrEqual(beforeStop + 1);
+  });
+
+  test("keepaliveIntervalMs=0 disables the timer entirely", async () => {
+    const { transcriber } = await startSession({
+      keepaliveIntervalMs: 0,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const keepalives = mockWs.sentData.filter(
+      (d) => typeof d === "string" && d === '{"type":"KeepAlive"}',
+    );
+    expect(keepalives).toHaveLength(0);
+
+    transcriber.stop();
+  });
+
+  // ─────────────────────────────────────────────────────────────────
   // WebSocket URL construction
   // ─────────────────────────────────────────────────────────────────
 

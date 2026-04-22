@@ -28,6 +28,7 @@ import type {
   UserRule,
 } from "./risk-types.js";
 import { cachedParse } from "./shell-identity.js";
+import type { AllowlistOption } from "./types.js";
 
 const log = getLogger("bash-risk-classifier");
 
@@ -225,7 +226,7 @@ function resolveSubcommand(
     return { spec, remainingArgs: args };
   }
 
-  const valueFlagsList = spec.argSchema?.valueFlags ?? spec.globalValueFlags;
+  const valueFlagsList = spec.argSchema?.valueFlags;
   const valueFlags = valueFlagsList ? new Set(valueFlagsList) : undefined;
   const subcommandName = firstPositionalArg(args, valueFlags);
 
@@ -365,12 +366,50 @@ export function classifySegment(
     let argRuleReason = "";
 
     const allArgs = segment.args;
-    for (let i = 0; i < allArgs.length; i++) {
-      const arg = allArgs[i];
-      let matched = false;
-      for (const rule of argRules) {
-        // Standard match: flag or positional against this arg
-        if (matchesArgRule(rule, arg)) {
+
+    // Parse args using the resolved spec's argSchema for structured lookups.
+    const schema = resolvedSpec.argSchema ?? {};
+    const parsed = parseArgs(allArgs, schema);
+
+    // Track which positionals have been covered by a rule.
+    const matchedPositionalIndices = new Set<number>();
+
+    for (const rule of argRules) {
+      if (rule.flags && rule.flags.length > 0 && rule.valuePattern) {
+        // ── Rules with flags + valuePattern ──────────────────────────────
+        // Look up each rule flag in parsed.flags. If the flag has a string
+        // value (consumed by parseArgs), test that value against the pattern.
+        // This replaces the manual next-token lookahead.
+        // Also check for --flag=value forms already handled by parseArgs.
+        //
+        // Known limitation: parseArgs stores flags in a Map (last value wins),
+        // so repeated flags like `curl -d @/etc/shadow -d safe` only check
+        // the last value. A future improvement could store flag values as
+        // arrays to catch all occurrences.
+        let flagValueMatched = false;
+        for (const flag of rule.flags) {
+          const flagVal = parsed.flags.get(flag);
+          if (typeof flagVal === "string") {
+            if (getCompiledPattern(rule.valuePattern).test(flagVal)) {
+              flagValueMatched = true;
+              break;
+            }
+          }
+        }
+
+        // Also check raw args for inline --flag=value forms where the flag
+        // name is NOT in the argSchema.valueFlags (parseArgs wouldn't split
+        // it). matchesArgRule handles this case.
+        if (!flagValueMatched) {
+          for (const arg of allArgs) {
+            if (matchesArgRule(rule, arg)) {
+              flagValueMatched = true;
+              break;
+            }
+          }
+        }
+
+        if (flagValueMatched) {
           if (
             !anyArgRuleMatched ||
             riskOrd(rule.risk) > riskOrd(argRuleMaxRisk)
@@ -379,38 +418,125 @@ export function classifySegment(
             argRuleReason = rule.reason;
           }
           anyArgRuleMatched = true;
-          matched = true;
-          break; // first match per arg wins
         }
-        // Flag+value lookahead: if this arg is a flag listed in the rule and
-        // the rule has a valuePattern, check the NEXT arg against the pattern.
-        // This handles `curl -d @file` where `-d` is the flag and `@file` is
-        // the value in the next token.
-        if (
-          rule.flags &&
-          rule.valuePattern &&
-          rule.flags.includes(arg) &&
-          i + 1 < allArgs.length
-        ) {
-          const nextArg = allArgs[i + 1];
-          if (getCompiledPattern(rule.valuePattern).test(nextArg)) {
-            if (
-              !anyArgRuleMatched ||
-              riskOrd(rule.risk) > riskOrd(argRuleMaxRisk)
-            ) {
-              argRuleMaxRisk = rule.risk;
-              argRuleReason = rule.reason;
-            }
-            anyArgRuleMatched = true;
-            matched = true;
+      } else if (rule.flags && rule.flags.length > 0) {
+        // ── Rules with flags only (no valuePattern) ──────────────────────
+        // Check flag presence in parsed.flags Map.
+        // Also scan raw allArgs for combined short flags like `-rf` that
+        // parseArgs treats as a single boolean flag token.
+        let flagMatched = false;
+        for (const flag of rule.flags) {
+          if (parsed.flags.has(flag)) {
+            flagMatched = true;
             break;
           }
         }
+
+        // Fallback: scan raw args for combined short flags (e.g. `-rf`)
+        // and --flag=value forms (e.g. `--set=managed`) that parseArgs
+        // doesn't split when the flag isn't in argSchema.valueFlags.
+        // matchesArgRule handles both cases via its flag splitting logic.
+        if (!flagMatched) {
+          for (const arg of allArgs) {
+            if (matchesArgRule(rule, arg)) {
+              flagMatched = true;
+              break;
+            }
+          }
+        }
+
+        if (flagMatched) {
+          if (
+            !anyArgRuleMatched ||
+            riskOrd(rule.risk) > riskOrd(argRuleMaxRisk)
+          ) {
+            argRuleMaxRisk = rule.risk;
+            argRuleReason = rule.reason;
+          }
+          anyArgRuleMatched = true;
+        }
+      } else if (rule.valuePattern) {
+        // ── Rules with valuePattern only (no flags) ──────────────────────
+        // Test each positional against the pattern.
+        const re = getCompiledPattern(rule.valuePattern);
+        let positionalMatched = false;
+        for (let pi = 0; pi < parsed.positionals.length; pi++) {
+          if (re.test(parsed.positionals[pi])) {
+            positionalMatched = true;
+            matchedPositionalIndices.add(pi);
+          }
+        }
+
+        // Also check raw allArgs for backward compatibility — some patterns
+        // may match flag-like tokens or args that parseArgs classified
+        // differently.
+        if (!positionalMatched) {
+          for (const arg of allArgs) {
+            if (re.test(arg)) {
+              positionalMatched = true;
+              break;
+            }
+          }
+        }
+
+        if (positionalMatched) {
+          if (
+            !anyArgRuleMatched ||
+            riskOrd(rule.risk) > riskOrd(argRuleMaxRisk)
+          ) {
+            argRuleMaxRisk = rule.risk;
+            argRuleReason = rule.reason;
+          }
+          anyArgRuleMatched = true;
+        }
+      } else {
+        // No flags and no valuePattern — always matches (unusual but allowed)
+        if (
+          !anyArgRuleMatched ||
+          riskOrd(rule.risk) > riskOrd(argRuleMaxRisk)
+        ) {
+          argRuleMaxRisk = rule.risk;
+          argRuleReason = rule.reason;
+        }
+        anyArgRuleMatched = true;
       }
-      // Track unmatched non-flag args. Flags (starting with -) are structural
-      // and don't need rule coverage for de-escalation safety.
-      if (!matched && !arg.startsWith("-")) {
+    }
+
+    // Check for unmatched positionals — any positional not covered by a
+    // valuePattern-only rule prevents de-escalation.
+    for (let pi = 0; pi < parsed.positionals.length; pi++) {
+      if (!matchedPositionalIndices.has(pi)) {
         hasUnmatchedNonFlagArg = true;
+        break;
+      }
+    }
+
+    // Also check raw allArgs for non-flag args that parseArgs may have
+    // classified as flags (e.g. combined short flags like `-rf` are boolean
+    // flags in parseArgs but are non-flag args in the old iteration model).
+    // We only need to track unmatched non-flag args from the raw iteration
+    // perspective for backward compatibility.
+    if (!hasUnmatchedNonFlagArg) {
+      for (const arg of allArgs) {
+        if (arg.startsWith("-")) continue;
+        // Check if this positional was matched by any rule
+        let wasMatched = false;
+        for (const rule of argRules) {
+          if (matchesArgRule(rule, arg)) {
+            wasMatched = true;
+            break;
+          }
+          // Check flag+value lookahead match (arg as a flag value)
+          if (rule.flags && rule.valuePattern && rule.flags.includes(arg)) {
+            // This arg is a flag that matched a rule flag — it's structural
+            wasMatched = true;
+            break;
+          }
+        }
+        if (!wasMatched) {
+          hasUnmatchedNonFlagArg = true;
+          break;
+        }
       }
     }
 
@@ -498,10 +624,19 @@ export function generateScopeOptions(
     options.push({ pattern, label });
   }
 
-  // For multi-segment commands (pipelines), use the full command as exact match
-  // and individual segment programs for broader options
+  // For multi-segment commands (pipelines, &&, etc.), use the full command as
+  // exact match and individual segment programs for broader options.
+  // Reconstruct using actual operators from the parsed segments (not hardcoded " | ").
   if (parsed.segments.length > 1) {
-    const fullCommand = parsed.segments.map((s) => s.command).join(" | ");
+    const parts: string[] = [];
+    for (let i = 0; i < parsed.segments.length; i++) {
+      const seg = parsed.segments[i];
+      if (i > 0 && seg.operator) {
+        parts.push(seg.operator);
+      }
+      parts.push(seg.command);
+    }
+    const fullCommand = parts.join(" ");
     addOption(`^${escapeRegex(fullCommand)}$`, fullCommand);
     // Add command-level wildcards for each unique program
     const programs = new Set(parsed.segments.map((s) => s.program));
@@ -528,14 +663,35 @@ export function generateScopeOptions(
     return options;
   }
 
-  // Separate args into flags and positionals
-  const flags: string[] = [];
-  const positionals: string[] = [];
-  for (const arg of seg.args) {
-    if (arg.startsWith("-")) {
-      flags.push(arg);
-    } else {
-      positionals.push(arg);
+  // Separate args into flags and positionals.
+  // When the command has an argSchema, use parseArgs for accurate flag/positional
+  // separation (correctly handles value-consuming flags like `find -name "*.ts"`).
+  // Otherwise, fall back to the naive `startsWith("-")` heuristic.
+  let flags: string[];
+  let positionals: string[];
+
+  if (spec?.argSchema) {
+    const parsedArgs = parseArgs(seg.args, spec.argSchema);
+    // Convert the flags Map to a flat string array: for value-consuming flags,
+    // include both the flag and its value as separate entries; for boolean flags,
+    // include just the flag.
+    flags = [];
+    for (const [flagName, flagValue] of parsedArgs.flags) {
+      flags.push(flagName);
+      if (typeof flagValue === "string") {
+        flags.push(flagValue);
+      }
+    }
+    positionals = parsedArgs.positionals;
+  } else {
+    flags = [];
+    positionals = [];
+    for (const arg of seg.args) {
+      if (arg.startsWith("-")) {
+        flags.push(arg);
+      } else {
+        positionals.push(arg);
+      }
     }
   }
 
@@ -549,12 +705,19 @@ export function generateScopeOptions(
   }
 
   // 2. Wildcard positionals right-to-left
-  if (positionals.length > 1) {
-    for (let drop = 1; drop < positionals.length; drop++) {
-      const kept = positionals.slice(0, positionals.length - drop);
-      const parts = [programName, ...flags, ...kept].filter(Boolean);
+  // When a subcommand is detected, exclude it from the positionals that get
+  // wildcarded — it's placed explicitly before flags in the label.
+  const wildcardPositionals = subcommand ? positionals.slice(1) : positionals;
+  if (wildcardPositionals.length > 1) {
+    for (let drop = 1; drop < wildcardPositionals.length; drop++) {
+      const kept = wildcardPositionals.slice(
+        0,
+        wildcardPositionals.length - drop,
+      );
+      const sub = subcommand ? [subcommand] : [];
+      const parts = [programName, ...sub, ...flags, ...kept].filter(Boolean);
       const pattern = `^${parts.map(escapeRegex).join("\\s+")}\\s+.*$`;
-      const label = [programName, ...flags, ...kept, "*"].join(" ");
+      const label = [programName, ...sub, ...flags, ...kept, "*"].join(" ");
       addOption(pattern, label);
     }
   }
@@ -587,6 +750,82 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// ── Scope → Allowlist conversion ─────────────────────────────────────────────
+
+/**
+ * Extract stable tokens from a scope option label: program and subcommand
+ * words, skipping flags (starting with `-`) and wildcards (`*`).
+ * Returns an `action:` prefixed pattern that matches the action key
+ * candidates produced by `buildCommandCandidates()`.
+ */
+function labelToActionPattern(label: string): string {
+  const tokens = label
+    .split(/\s+/)
+    .filter((t) => !t.startsWith("-") && t !== "*");
+  return `action:${tokens.join(" ")}`;
+}
+
+/**
+ * Convert classifier-produced `ScopeOption[]` to `AllowlistOption[]` format.
+ *
+ * Patterns must be glob-compatible (not regex) because trust rules use
+ * Minimatch for matching against command candidates produced by
+ * `buildCommandCandidates()`. The format:
+ * - First option (exact match): raw command string
+ * - Intermediate options: `action:<program> <subcommand>` patterns that match
+ *   action key candidates (labels reorder args so can't be used as globs directly)
+ * - Command-level wildcards: `action:<program>` matching the broadest action key
+ *
+ * Deduplicates by pattern to avoid redundant options when multiple scope levels
+ * collapse to the same action key.
+ */
+export function scopeOptionsToAllowlistOptions(
+  scopeOptions: ScopeOption[],
+  _parsed: ParsedCommand,
+): AllowlistOption[] {
+  if (scopeOptions.length === 0) return [];
+
+  const results: AllowlistOption[] = [];
+  const seenPatterns = new Set<string>();
+
+  for (let i = 0; i < scopeOptions.length; i++) {
+    const opt = scopeOptions[i];
+    let description: string;
+    let pattern: string;
+
+    if (i === 0) {
+      // Exact match: raw command string (matches the raw candidate)
+      description = "This exact command";
+      pattern = opt.label;
+    } else if (
+      opt.label.endsWith(" *") &&
+      !opt.label.slice(0, -2).includes(" ")
+    ) {
+      // Command-level wildcard (label is "<program> *"): use action: prefix
+      // to match action key candidates from buildCommandCandidates()
+      const prog = opt.label.slice(0, -2);
+      description = `Any ${prog} command`;
+      pattern = `action:${prog}`;
+    } else {
+      // Intermediate wildcard: use action:<tokens> pattern to match action key
+      // candidates. We can't use the label as a glob directly because the scope
+      // ladder reorders args (flags before positionals), but command candidates
+      // preserve user arg order.
+      const actionPattern = labelToActionPattern(opt.label);
+      description = "Commands matching this pattern";
+      pattern = actionPattern;
+    }
+
+    // Deduplicate: skip options that produce the same pattern as a prior one
+    if (seenPatterns.has(pattern)) continue;
+    seenPatterns.add(pattern);
+
+    results.push({ label: opt.label, description, pattern });
+  }
+
+  return results;
+}
+
 // ── Main classifier ──────────────────────────────────────────────────────────
 
 /**
@@ -617,6 +856,7 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
         reason: "Empty command",
         scopeOptions: [],
         matchType: "registry",
+        allowlistOptions: [],
       };
     }
 
@@ -676,12 +916,17 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
     }
 
     const scopeOptions = generateScopeOptions(parsed, this.registry);
+    const allowlistOptions = scopeOptionsToAllowlistOptions(
+      scopeOptions,
+      parsed,
+    );
 
     const assessment: RiskAssessment = {
       riskLevel: maxRiskLevel,
       reason: maxReason,
       scopeOptions,
       matchType,
+      allowlistOptions,
     };
 
     // Risk assessment analytics

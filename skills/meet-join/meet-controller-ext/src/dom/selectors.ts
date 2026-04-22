@@ -142,20 +142,37 @@ export const chatSelectors = {
   SEND_BUTTON: 'button[aria-label^="Send a message"]',
 
   /**
-   * Container that holds the list of chat messages. Used to detect whether the
-   * chat panel is open (the container is mounted even when no messages exist).
+   * Container that holds the list of chat messages. Two shapes are accepted
+   * (historical → current), joined with a comma so `querySelector` returns
+   * whichever Meet is rendering:
+   *
+   *   1. `[aria-label="Chat messages"]` — the original fixture shape.
+   *   2. `[aria-label="In-call messages"]` — what late-April-2026 Meet
+   *      actually renders in the opened side panel (matches the panel
+   *      header text visible in the UI). The chat reader's `MESSAGE_NODE`
+   *      fallback scopes to any list whose aria-label *contains* "message",
+   *      so this constant stays authoritative for the panel-open probe.
    */
-  MESSAGE_LIST: '[role="list"][aria-label="Chat messages"]',
+  MESSAGE_LIST:
+    '[role="list"][aria-label="Chat messages"], [role="list"][aria-label="In-call messages"]',
 
   /**
-   * Root node for a single rendered chat message. We use a data attribute
-   * rather than a class because Meet's message-list classes change often.
+   * Root node for a single rendered chat message. Two clauses are accepted
+   * so the reader works against both the hand-authored fixture and the
+   * live Meet DOM Google is actually shipping:
+   *
+   *   1. `[role="listitem"][data-message-id]` — the original fixture shape.
+   *      Retained so unit tests keep passing and, if Meet ever exposes a
+   *      stable data-* id, we prefer it for dedup.
+   *   2. `[role="list"][aria-label*="message" i] [role="listitem"]` —
+   *      structural fallback. Scopes to whichever side-panel `role="list"`
+   *      has "message" in its aria-label (covers "Chat messages" and
+   *      "In-call messages"; case-insensitive to ride through any casing
+   *      drift). This is what catches actual inbound chats today —
+   *      `data-message-id` is not emitted by Meet.
    */
-  // TODO(meet-dom): Meet does not currently expose a stable per-message data
-  // attribute. The selector below assumes we either inject a MutationObserver-
-  // driven marker or rely on a recognizable ARIA structure. Verify during
-  // fixture refresh and swap to whatever Meet actually emits.
-  MESSAGE_NODE: 'div[role="listitem"][data-message-id]',
+  MESSAGE_NODE:
+    '[role="listitem"][data-message-id], [role="list"][aria-label*="message" i] [role="listitem"]',
 
   /** Subselectors applied within a MESSAGE_NODE to extract rendered fields. */
   MESSAGE_SENDER: "[data-sender-name]",
@@ -232,31 +249,45 @@ export const controlSelectors = {
    * Post-admission-only "ready" indicator used as the canonical signal that
    * the bot has actually entered the meeting.
    *
-   * Why this exists: the `LEAVE_BUTTON` selector (`button[aria-label="Leave
-   * call"]`) is ambiguous — Meet renders the same red hang-up button in BOTH
-   * the waiting-room UI AND the in-meeting UI, so `waitForSelector(LEAVE_
-   * BUTTON)` resolves immediately after the user clicks "Ask to join",
-   * BEFORE the host has actually admitted the bot. Callers that used
-   * LEAVE_BUTTON as an admission signal (e.g. the join flow's step 5)
-   * would then race ahead and try to interact with in-meeting surfaces
-   * (chat panel, participant list) that don't exist in the waiting room,
-   * producing spurious "chat input not found"-style failures.
+   * Why this exists: several obvious admission-signal candidates alias onto
+   * earlier join surfaces and would fire before the bot is in-meeting,
+   * racing step 6's consent post against a DOM that doesn't yet have the
+   * chat composer:
    *
-   * We re-use `MIC_TOGGLE` as the signal because the microphone toggle's
-   * dual aria-label (`"Turn off microphone"` / `"Turn on microphone"`) is
-   * a post-admission-only affordance — the waiting-room mic preview
-   * controls use a different labeling scheme and are not rendered by the
-   * bottom-bar toolbar that hosts this button. Matching MIC_TOGGLE
-   * therefore guarantees the bot is inside the meeting (bottom toolbar
-   * is mounted) rather than still on the prejoin surface.
+   *   - `LEAVE_BUTTON` (`button[aria-label="Leave call"]`) renders in BOTH
+   *     the waiting-room UI and the in-meeting UI. Using it makes
+   *     `waitForSelector` resolve the moment the bot clicks "Ask to join",
+   *     before the host has admitted it.
+   *   - `MIC_TOGGLE` (`"Turn off microphone"` / `"Turn on microphone"`)
+   *     renders on the **prejoin lobby** too: Meet shows a fully-wired
+   *     device-preview toolbar with the same dual aria-label on the
+   *     pre-admission screen. `waitForSelector(MIC_TOGGLE)` therefore
+   *     resolves synchronously on the lobby DOM — before the bot has
+   *     even clicked "Ask to join" — and step 5 short-circuits so hard
+   *     that `onAdmitted` fires while the bot is still sitting on the
+   *     lobby. Step 6 then tries to post consent into a DOM that has
+   *     no chat panel button at all, and the `[ext] consent post failed:
+   *     chat input not found` diagnostic is the first sign anything
+   *     went wrong.
    *
-   * This constant is an alias for {@link MIC_TOGGLE}; it exists as a
-   * separate name so the join flow reads clearly ("wait for the in-meeting
-   * UI to be ready") and so future DOM drift can move the signal to a
-   * different post-admission-only element without changing the call site.
+   * We use the chat / participants panel toggles instead. Both are
+   * bottom-toolbar buttons that Meet mounts only once the user is
+   * actually in the meeting — they do not render on the prejoin lobby
+   * (which only shows device-preview controls) or in the waiting room
+   * (which shows only the leave button and an "asking to be let in"
+   * label). Matching either one guarantees the in-meeting toolbar has
+   * mounted and that step 6's `ensurePanelOpen` will find `PANEL_BUTTON`
+   * in the DOM a beat later.
+   *
+   * This lives as a dedicated constant (not an alias for `PANEL_BUTTON`)
+   * so future DOM drift can move the signal to a different post-
+   * admission-only element without changing the join flow's call site,
+   * and so the OR-list can fail over to `"Show everyone"` if Meet ever
+   * renames / hides the chat toggle (e.g. "continuous chat is turned
+   * off" host configurations).
    */
   INGAME_READY_INDICATOR:
-    'button[aria-label="Turn off microphone"], button[aria-label="Turn on microphone"]',
+    'button[aria-label="Chat with everyone"], button[aria-label="Show everyone"]',
 } as const;
 
 /**

@@ -93,6 +93,14 @@ interface MakeDepsOpts {
   xdotoolClickError?: Error;
   /** Force `xdotoolType` to reject. */
   xdotoolTypeError?: Error;
+  /**
+   * Delay before `xdotoolType` resolves. Used by serialization tests to
+   * simulate the real xdotool's 25ms-per-key wall-clock cost so the
+   * queue behavior is observable in-process.
+   */
+  xdotoolTypeDelayMs?: number;
+  /** Delay before `xdotoolClick` resolves — same rationale as above. */
+  xdotoolClickDelayMs?: number;
   /** Force `startXvfb` to reject. */
   xvfbError?: Error;
   /** Short-circuit `waitForReady` to reject with this error. */
@@ -264,7 +272,11 @@ function makeDeps(opts: MakeDepsOpts = {}): {
         y: clickOpts.y,
         display: clickOpts.display,
       });
+      if (opts.xdotoolClickDelayMs !== undefined) {
+        await new Promise((r) => setTimeout(r, opts.xdotoolClickDelayMs));
+      }
       if (opts.xdotoolClickError) throw opts.xdotoolClickError;
+      calls.push({ kind: "xdotool.click.end" });
     },
     xdotoolType: async (typeOpts) => {
       calls.push({
@@ -274,7 +286,11 @@ function makeDeps(opts: MakeDepsOpts = {}): {
         display: typeOpts.display,
         timeoutMs: typeOpts.timeoutMs,
       });
+      if (opts.xdotoolTypeDelayMs !== undefined) {
+        await new Promise((r) => setTimeout(r, opts.xdotoolTypeDelayMs));
+      }
       if (opts.xdotoolTypeError) throw opts.xdotoolTypeError;
+      calls.push({ kind: "xdotool.type.end" });
     },
     startAudioCapture: async (audioOpts) => {
       calls.push({
@@ -705,6 +721,91 @@ describe("runBot — extension message routing", () => {
     const counts = handles.stopCounts();
     expect(counts.chrome).toBe(0);
     expect(counts.xvfb).toBe(0);
+  });
+
+  test("serializes trusted_type + trusted_click — click waits for type to finish", async () => {
+    // Regression guard for the consent-message truncation bug: when the
+    // extension emits `trusted_type` immediately followed by a
+    // `trusted_click` for the send button, the bot must NOT spawn the
+    // two xdotool processes concurrently. Running them concurrently
+    // lets the click shift focus mid-type and the composer submits a
+    // truncated message (observed in the field as ~30 chars of a
+    // ~90-char consent message).
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps({
+      // Slow type mimics real xdotool's per-keystroke wall-clock cost.
+      xdotoolTypeDelayMs: 40,
+      // Fast click mimics real xdotool click latency.
+      xdotoolClickDelayMs: 2,
+    });
+    await bootHappyPath(deps, handles);
+
+    // Fire type and click back-to-back — same pattern as the
+    // extension's post-panel-open path in `features/chat.ts`.
+    handles.fireExtensionMessage({
+      type: "trusted_type",
+      text: "Hi, I'm Bot, an AI assistant joining to take notes.",
+    });
+    handles.fireExtensionMessage({
+      type: "trusted_click",
+      x: 1598,
+      y: 611,
+    });
+
+    // Wait long enough for both operations to fully complete.
+    await new Promise((r) => setTimeout(r, 120));
+
+    // Extract the sequence of xdotool start/end events.
+    const sequence = handles.calls
+      .filter((c) => c.kind.startsWith("xdotool."))
+      .map((c) => c.kind);
+
+    // The type must start, end, then the click may start.
+    const typeStartIdx = sequence.indexOf("xdotool.type");
+    const typeEndIdx = sequence.indexOf("xdotool.type.end");
+    const clickStartIdx = sequence.indexOf("xdotool.click");
+
+    expect(typeStartIdx).toBeGreaterThanOrEqual(0);
+    expect(typeEndIdx).toBeGreaterThan(typeStartIdx);
+    expect(clickStartIdx).toBeGreaterThan(typeEndIdx);
+  });
+
+  test("queue continues after an xdotool failure — next op still runs", async () => {
+    // If a `trusted_type` fails (e.g. the "Invalid multi-byte sequence"
+    // error we've seen when xdotool can't map a char to a keysym), the
+    // queue must not stall — subsequent clicks/types must continue to
+    // execute so the bot stays usable.
+    BotState.__resetForTests();
+    const { deps, handles } = makeDeps({
+      xdotoolTypeError: new Error("xdotool type exit code 1"),
+    });
+    await bootHappyPath(deps, handles);
+
+    handles.fireExtensionMessage({
+      type: "trusted_type",
+      text: "this will fail",
+    });
+    handles.fireExtensionMessage({
+      type: "trusted_click",
+      x: 100,
+      y: 200,
+    });
+
+    await new Promise((r) => setTimeout(r, 30));
+
+    // Both xdotool invocations must have been attempted despite the
+    // type failure, and the click must have completed.
+    expect(
+      handles.errors.some((m) => m.includes("trusted_type failed")),
+    ).toBe(true);
+    expect(
+      handles.calls.some(
+        (c) => c.kind === "xdotool.click" && c.x === 100 && c.y === 200,
+      ),
+    ).toBe(true);
+    expect(handles.calls.some((c) => c.kind === "xdotool.click.end")).toBe(
+      true,
+    );
   });
 
   test("diagnostic messages go through the logger, not the daemon", async () => {

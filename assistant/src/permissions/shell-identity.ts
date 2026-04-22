@@ -227,47 +227,6 @@ export function deriveShellActionKeys(
 }
 
 /**
- * Build an ordered list of command candidates for trust-rule matching.
- *
- * Candidate ordering:
- *   1. Raw command (most specific match — the full command as written)
- *   2. Canonical primary command (if simple action) — the full primary segment text
- *   3. Action keys from narrowest to broadest (if simple action or pipeline)
- *
- * Complex non-pipeline commands (multi-action chains, semicolons, etc.) only
- * return the raw candidate.
- */
-export async function buildShellCommandCandidates(
-  command: string,
-  preParsed?: ParsedCommand,
-): Promise<string[]> {
-  const trimmed = command.trim();
-  if (!trimmed) return [trimmed];
-
-  const analysis = await analyzeShellCommand(trimmed, preParsed);
-  const actionResult = deriveShellActionKeys(analysis);
-
-  const candidates: string[] = [trimmed];
-
-  // Add action keys as candidates if available (simple actions AND pipelines)
-  if (actionResult.keys.length > 0) {
-    // For simple actions, also add the canonical primary command text
-    if (actionResult.isSimpleAction && actionResult.primarySegment) {
-      const canonical = actionResult.primarySegment.command;
-      if (canonical !== trimmed) {
-        candidates.push(canonical);
-      }
-    }
-    for (const actionKey of actionResult.keys) {
-      candidates.push(actionKey.key);
-    }
-  }
-
-  // Deduplicate while preserving order
-  return [...new Set(candidates)];
-}
-
-/**
  * Build allowlist options for shell commands using parser-derived identity.
  *
  * For simple actions (optional setup prefix + one action), options are:
@@ -310,7 +269,7 @@ export async function buildShellAllowlistOptions(
 
   const options: AllowlistOption[] = [];
 
-  // Full original command text — "this exact command" means exactly what the user approved
+  // Full original command text
   options.push({
     label: trimmed,
     description: "This exact command",
@@ -335,3 +294,4 @@ export async function buildShellAllowlistOptions(
     return true;
   });
 }
+

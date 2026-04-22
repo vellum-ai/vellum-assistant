@@ -1,39 +1,64 @@
 /**
- * MeetChatOpportunityDetector — watches meeting transcript and chat for
- * moments when the AI assistant chiming in via meeting chat would be
- * appropriate and helpful. Fires `onOpportunity(reason)` on positive
- * verdicts so a downstream orchestrator (PR 7) can decide what to post.
+ * MeetChatOpportunityDetector — watches meeting transcript, chat, and
+ * participant changes for moments when the assistant should respond.
+ * Fires `onOpportunity({ reason, kind })` through the injected callback
+ * so a downstream orchestrator (the session manager) can wake the agent.
  *
- * Two-tier design:
+ * The detector runs in one of two modes per event, keyed on the live
+ * participant count:
  *
- *   1. **Tier 1 (regex fast filter)** — synchronous on every final
- *      transcript chunk and every inbound chat message. Default patterns
- *      cover direct assistant-name mentions, `(hey|hi|…) <name>, … ?` style
- *      address-then-question forms, and generic "can you / does anyone
- *      know" requests. A hit feeds Tier 2 with a short trigger reason.
+ *   **Group mode (participantCount >= 3)** — the two-tier chat-opportunity
+ *   pipeline:
  *
- *   2. **Tier 2 (LLM confirmation)** — fires on every Tier 1 hit,
- *      subject to a configurable debounce. The prompt includes the
- *      rolling transcript (last N seconds), the most recent 5 chat
- *      messages, the trigger chunk, and the Tier 1 reason, and asks for
- *      strict JSON `{ shouldRespond: boolean, reason: string }`. Positive
- *      verdicts are rate-limited further by an "escalation cooldown" so
- *      a chatty meeting can't fire the callback repeatedly.
+ *     1. **Tier 1 (regex fast filter)** — synchronous on every final
+ *        transcript chunk. Default patterns cover direct assistant-name
+ *        mentions, `(hey|hi|…) <name>, … ?` style address-then-question
+ *        forms, and generic "can you / does anyone know" requests. A hit
+ *        feeds Tier 2 with a short trigger reason.
  *
- * The detector is intentionally inert until wired: it does not itself
- * post to meeting chat, consult any session manager, or share state with
- * other meetings. PR 7 of the meet-phase-2-chat plan is responsible for
- * plumbing `onOpportunity` into the session manager and actually
- * constructing the chat reply.
+ *        Inbound chat messages intentionally **bypass** Tier 1 and proceed
+ *        straight to Tier 2 with a synthetic `"tier1:chat-always-on"`
+ *        reason. Chat volume is orders of magnitude lower than transcript
+ *        (typically <1/5s even on chatty meetings), so the regex gate's
+ *        cost savings don't pay off there — and users typing in chat
+ *        expect the assistant to read every message rather than be filtered
+ *        by an English-interrogative keyword list.
+ *
+ *     2. **Tier 2 (LLM confirmation)** — fires on every Tier 1 hit and
+ *        every inbound chat, subject to a configurable debounce. The
+ *        prompt includes the rolling transcript (last N seconds), the
+ *        most recent 5 chat messages, the trigger chunk, and the Tier 1
+ *        reason, and asks for strict JSON `{ shouldRespond: boolean,
+ *        reason: string }`.
+ *
+ *     Positive Tier 2 verdicts clear the escalation cooldown and fire
+ *     `onOpportunity({ kind: "chat" })`.
+ *
+ *   **1:1 voice mode (voiceMode.enabled && participantCount === 2)** —
+ *   Tier 1 and Tier 2 are both skipped for transcript: every utterance
+ *   in a 1:1 is addressed to the bot, so there is nothing to filter for,
+ *   and the extra Tier 2 LLM call adds ~500ms of latency per turn. Instead,
+ *   the detector schedules a short silence-debounce timer
+ *   (`voiceMode.eouDebounceMs`, default 800ms) on each final chunk. When
+ *   the timer fires with no newer chunk having arrived, the detector
+ *   treats that as end-of-utterance and fires
+ *   `onOpportunity({ kind: "voice" })`. Inbound chat continues to run
+ *   through the Tier-2-only chat path (which still wakes the agent).
+ *
+ *   The escalation cooldown remains the shared safety rail for both
+ *   modes — one positive wake per `escalationCooldownSec` regardless of
+ *   trigger path.
  *
  * Dependency injection keeps the detector fully testable: the LLM call
- * is reached via a `callDetectorLLM(prompt)` callable, and the router
- * subscription can be overridden with an in-memory shim.
+ * is reached via a `callDetectorLLM(prompt)` callable, the router
+ * subscription can be overridden, and voice-mode timers can be driven
+ * via `deps.setTimer` / `deps.clearTimer` injections.
  */
 
 import type {
   InboundChatEvent,
   MeetBotEvent,
+  ParticipantChangeEvent,
   TranscriptChunkEvent,
 } from "../contracts/index.js";
 
@@ -61,8 +86,21 @@ export type ChatOpportunityLLMAsk = (
   prompt: string,
 ) => Promise<ChatOpportunityDecision>;
 
+/**
+ * Discriminator on the opportunity callback so downstream code can route
+ * chat-opportunity wakes and 1:1 voice-turn wakes to different agent
+ * sources (e.g. different `source` strings on `wakeAgent`).
+ */
+export type ChatOpportunityKind = "chat" | "voice";
+
+/** Payload fired when an opportunity clears the escalation cooldown. */
+export interface ChatOpportunityEvent {
+  reason: string;
+  kind: ChatOpportunityKind;
+}
+
 /** Callback fired when an opportunity clears Tier 2 and cooldown. */
-export type ChatOpportunityCallback = (reason: string) => void;
+export type ChatOpportunityCallback = (event: ChatOpportunityEvent) => void;
 
 /**
  * Configuration block mirrored from `services.meet.proactiveChat`. Carried
@@ -77,14 +115,25 @@ export interface ProactiveChatConfig {
   tier2MaxTranscriptSec: number;
 }
 
-/** Stats snapshot exposed to PR 7 for telemetry/debug surfaces. */
+/** Configuration block mirrored from `services.meet.voiceMode`. */
+export interface VoiceModeConfig {
+  enabled: boolean;
+  eouDebounceMs: number;
+}
+
+/** Stats snapshot exposed to session-manager for telemetry/debug surfaces. */
 export interface ChatOpportunityDetectorStats {
   tier1Hits: number;
   tier2Calls: number;
   tier2PositiveCount: number;
   escalationsFired: number;
   escalationsSuppressed: number;
+  /** Voice-mode wakes that made it past the escalation cooldown. */
+  voiceWakesFired: number;
 }
+
+/** Timer handle type-erased so tests can swap `setTimeout` for a manual driver. */
+export type TimerHandle = unknown;
 
 export interface MeetChatOpportunityDetectorDeps {
   meetingId: string;
@@ -95,6 +144,7 @@ export interface MeetChatOpportunityDetectorDeps {
    */
   assistantDisplayName: string;
   config: ProactiveChatConfig;
+  voiceConfig: VoiceModeConfig;
   callDetectorLLM: ChatOpportunityLLMAsk;
   onOpportunity: ChatOpportunityCallback;
   /** Override the dispatcher subscribe (tests). */
@@ -104,6 +154,13 @@ export interface MeetChatOpportunityDetectorDeps {
   ) => MeetEventUnsubscribe;
   /** Override `Date.now` for deterministic tests. */
   now?: () => number;
+  /**
+   * Override the voice-mode EOU timer scheduler. Defaults to
+   * `setTimeout`. Tests inject a manual driver so they can advance
+   * the debounce window deterministically without real wall-clock waits.
+   */
+  setTimer?: (cb: () => void, ms: number) => TimerHandle;
+  clearTimer?: (handle: TimerHandle) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +224,7 @@ export class MeetChatOpportunityDetector {
   private readonly meetingId: string;
   private readonly assistantDisplayName: string;
   private readonly config: ProactiveChatConfig;
+  private readonly voiceConfig: VoiceModeConfig;
   private readonly callDetectorLLM: ChatOpportunityLLMAsk;
   private readonly onOpportunity: ChatOpportunityCallback;
   private readonly subscribe: (
@@ -174,6 +232,8 @@ export class MeetChatOpportunityDetector {
     cb: MeetEventSubscriber,
   ) => MeetEventUnsubscribe;
   private readonly now: () => number;
+  private readonly setTimer: (cb: () => void, ms: number) => TimerHandle;
+  private readonly clearTimer: (handle: TimerHandle) => void;
 
   private unsubscribe: MeetEventUnsubscribe | null = null;
   private disposed = false;
@@ -184,6 +244,15 @@ export class MeetChatOpportunityDetector {
   private readonly transcriptBuffer: TranscriptEntry[] = [];
   private readonly chatBuffer: ChatEntry[] = [];
 
+  /**
+   * Live participant count (bot + humans) as reported by the
+   * `participant.change` stream. The scraper's first poll emits every
+   * currently-visible participant in `joined` including the bot row, so
+   * starting at 0 and tracking deltas produces a correct running count
+   * without needing an explicit seed from the session manager.
+   */
+  private participantCount = 0;
+
   /** Wall-clock ms of the last Tier 2 call (regardless of outcome). */
   private lastTier2CallAt: number | null = null;
   /** Wall-clock ms of the last positive escalation (`shouldRespond: true`). */
@@ -191,22 +260,41 @@ export class MeetChatOpportunityDetector {
   /** In-flight flag so overlapping Tier 1 hits don't race Tier 2 calls. */
   private tier2InFlight = false;
 
+  /**
+   * Active end-of-utterance timer for 1:1 voice mode. Reset on every
+   * new final transcript chunk, fires `onOpportunity` once the debounce
+   * window elapses with no new chunk. Null when no timer is pending.
+   */
+  private voiceEouTimer: TimerHandle | null = null;
+  /** Last voice-mode trigger text — carried into the wake hint when the timer fires. */
+  private voicePendingTriggerText: string | null = null;
+
   private readonly stats: ChatOpportunityDetectorStats = {
     tier1Hits: 0,
     tier2Calls: 0,
     tier2PositiveCount: 0,
     escalationsFired: 0,
     escalationsSuppressed: 0,
+    voiceWakesFired: 0,
   };
 
   constructor(deps: MeetChatOpportunityDetectorDeps) {
     this.meetingId = deps.meetingId;
     this.assistantDisplayName = deps.assistantDisplayName;
     this.config = deps.config;
+    this.voiceConfig = deps.voiceConfig;
     this.callDetectorLLM = deps.callDetectorLLM;
     this.onOpportunity = deps.onOpportunity;
     this.subscribe = deps.subscribe ?? subscribeToMeetingEvents;
     this.now = deps.now ?? Date.now;
+    this.setTimer =
+      deps.setTimer ??
+      ((cb: () => void, ms: number): TimerHandle => setTimeout(cb, ms));
+    this.clearTimer =
+      deps.clearTimer ??
+      ((handle: TimerHandle): void => {
+        clearTimeout(handle as ReturnType<typeof setTimeout>);
+      });
 
     this.patterns = this.config.enabled
       ? this.buildPatterns(
@@ -214,6 +302,20 @@ export class MeetChatOpportunityDetector {
           this.config.detectorKeywords,
         )
       : [];
+  }
+
+  /**
+   * Whether the detector currently considers the meeting a 1:1
+   * (exactly bot + one human, participantCount === 2). The scraper's
+   * first poll emits every currently-visible participant (including
+   * the bot row with `isSelf: true`), so an established 1:1 meeting
+   * ticks through to 2. Any value other than 2 — 0 or 1 (pre-poll /
+   * bot alone) or ≥ 3 (group) — takes the Tier 1 + Tier 2 path, which
+   * is both the safe default when the detector has no participant
+   * information and the correct behavior for multi-party meetings.
+   */
+  private isOneOnOne(): boolean {
+    return this.participantCount === 2;
   }
 
   /**
@@ -236,6 +338,7 @@ export class MeetChatOpportunityDetector {
    */
   dispose(): void {
     this.disposed = true;
+    this.cancelVoiceEouTimer();
     if (this.unsubscribe) {
       try {
         this.unsubscribe();
@@ -257,8 +360,16 @@ export class MeetChatOpportunityDetector {
   // ── Event handling ────────────────────────────────────────────────────────
 
   private onEvent(event: MeetBotEvent): void {
-    if (!this.config.enabled) return;
     try {
+      // Participant changes are tracked regardless of `config.enabled`
+      // so the mode-switch stays correct even when proactive-chat is
+      // off — voice mode is independently gated and benefits from the
+      // same live count.
+      if (event.type === "participant.change") {
+        this.onParticipantChange(event);
+        return;
+      }
+      if (!this.config.enabled) return;
       if (event.type === "transcript.chunk") {
         this.onTranscriptChunk(event);
         return;
@@ -275,6 +386,21 @@ export class MeetChatOpportunityDetector {
     }
   }
 
+  private onParticipantChange(event: ParticipantChangeEvent): void {
+    const wasOneOnOne = this.isOneOnOne();
+    this.participantCount += event.joined.length - event.left.length;
+    if (this.participantCount < 0) this.participantCount = 0;
+
+    // If a third participant just joined, cancel any pending voice EOU
+    // timer — we should not fire a voice wake for an utterance that
+    // happened while the meeting was 1:1 if the mode flipped before
+    // the debounce window elapsed. The next utterance will take the
+    // group-mode (Tier 1 + Tier 2) branch.
+    if (wasOneOnOne && !this.isOneOnOne()) {
+      this.cancelVoiceEouTimer();
+    }
+  }
+
   private onTranscriptChunk(event: TranscriptChunkEvent): void {
     if (!event.isFinal) return;
     const raw = event.text ?? "";
@@ -288,6 +414,15 @@ export class MeetChatOpportunityDetector {
       text: raw,
     });
     this.trimTranscriptBuffer();
+
+    if (this.voiceConfig.enabled && this.isOneOnOne()) {
+      // 1:1 voice mode: skip Tier 1 + Tier 2 entirely. Every utterance
+      // is necessarily addressed to the bot, so both filters are pure
+      // overhead. The EOU silence debounce decides when to fire;
+      // escalation cooldown remains the safety rail.
+      this.scheduleVoiceEouWake(raw);
+      return;
+    }
 
     const reason = this.tier1Match(raw);
     if (reason !== null) {
@@ -307,11 +442,15 @@ export class MeetChatOpportunityDetector {
     });
     while (this.chatBuffer.length > CHAT_BUFFER_SIZE) this.chatBuffer.shift();
 
-    const reason = this.tier1Match(raw);
-    if (reason !== null) {
-      this.stats.tier1Hits += 1;
-      void this.maybeRunTier2(reason, raw);
-    }
+    // Every non-empty inbound chat proceeds to Tier 2 unconditionally.
+    // Chat volume is low enough (<1/5s typical) that the debounce +
+    // escalation cooldown are sufficient throttles on their own, and a
+    // keyword gate silently drops natural-but-unkeyworded invitations
+    // like "yo where's that deck" or "wait which one". The synthetic
+    // `tier1:chat-always-on` reason keeps log-grep patterns (`tier1:*`)
+    // working and signals the bypass path in telemetry.
+    this.stats.tier1Hits += 1;
+    void this.maybeRunTier2("tier1:chat-always-on", raw);
   }
 
   // ── Tier 1 ────────────────────────────────────────────────────────────────
@@ -426,45 +565,11 @@ export class MeetChatOpportunityDetector {
         return;
       }
       this.stats.tier2PositiveCount += 1;
-
-      // Escalation cooldown — suppress back-to-back fires.
-      const cooldownMs = this.config.escalationCooldownSec * 1_000;
-      const nowAfter = this.now();
-      if (
-        this.lastEscalationAt !== null &&
-        nowAfter - this.lastEscalationAt < cooldownMs
-      ) {
-        this.stats.escalationsSuppressed += 1;
-        log.debug(
-          {
-            event: "chat_opportunity.escalation.suppressed",
-            meetingId: this.meetingId,
-            msSinceLast: nowAfter - this.lastEscalationAt,
-          },
-          "MeetChatOpportunityDetector: escalation suppressed by cooldown",
-        );
-        return;
-      }
-
-      this.lastEscalationAt = nowAfter;
-      this.stats.escalationsFired += 1;
-      log.info(
-        {
-          event: "chat_opportunity.escalation.fired",
-          meetingId: this.meetingId,
-          triggerReason,
-          decisionReason: decision.reason,
-        },
-        "MeetChatOpportunityDetector: firing opportunity callback",
-      );
-      try {
-        this.onOpportunity(decision.reason);
-      } catch (err) {
-        log.error(
-          { err, meetingId: this.meetingId },
-          "MeetChatOpportunityDetector: onOpportunity callback threw",
-        );
-      }
+      this.tryFireOpportunity({
+        reason: decision.reason,
+        kind: "chat",
+        logContext: { triggerReason, decisionReason: decision.reason },
+      });
     } catch (err) {
       // Restore the debounce clock on failure so the next trigger isn't
       // silently suppressed for the remainder of the debounce window.
@@ -502,6 +607,106 @@ export class MeetChatOpportunityDetector {
       "and helpful here? Reply JSON only: " +
       "{ shouldRespond: bool, reason: string }"
     );
+  }
+
+  // ── Shared opportunity fire (escalation cooldown) ─────────────────────────
+
+  /**
+   * Run the escalation cooldown check and, if it passes, invoke
+   * `onOpportunity` with the supplied kind. Shared between the Tier 2
+   * (chat) path and the voice EOU path so both modes are gated by a
+   * single `escalationCooldownSec` window. A wake for either kind
+   * suppresses subsequent wakes of either kind for the cooldown
+   * duration — the rationale is that "she already spoke" is a human-
+   * facing property, not per-channel.
+   */
+  private tryFireOpportunity(opts: {
+    reason: string;
+    kind: ChatOpportunityKind;
+    logContext?: Record<string, unknown>;
+  }): void {
+    const cooldownMs = this.config.escalationCooldownSec * 1_000;
+    const nowAfter = this.now();
+    if (
+      this.lastEscalationAt !== null &&
+      nowAfter - this.lastEscalationAt < cooldownMs
+    ) {
+      this.stats.escalationsSuppressed += 1;
+      log.debug(
+        {
+          event: "chat_opportunity.escalation.suppressed",
+          meetingId: this.meetingId,
+          kind: opts.kind,
+          msSinceLast: nowAfter - this.lastEscalationAt,
+        },
+        "MeetChatOpportunityDetector: escalation suppressed by cooldown",
+      );
+      return;
+    }
+
+    this.lastEscalationAt = nowAfter;
+    this.stats.escalationsFired += 1;
+    if (opts.kind === "voice") this.stats.voiceWakesFired += 1;
+    log.info(
+      {
+        event: "chat_opportunity.escalation.fired",
+        meetingId: this.meetingId,
+        kind: opts.kind,
+        ...opts.logContext,
+      },
+      "MeetChatOpportunityDetector: firing opportunity callback",
+    );
+    try {
+      this.onOpportunity({ reason: opts.reason, kind: opts.kind });
+    } catch (err) {
+      log.error(
+        { err, meetingId: this.meetingId, kind: opts.kind },
+        "MeetChatOpportunityDetector: onOpportunity callback threw",
+      );
+    }
+  }
+
+  // ── Voice EOU (1:1 mode) ──────────────────────────────────────────────────
+
+  /**
+   * Reset the EOU debounce timer on every new final transcript chunk.
+   * If no new chunk arrives within `voiceConfig.eouDebounceMs`, the
+   * timer fires and we treat that as end-of-utterance. The trigger
+   * text is truncated into the opportunity hint so the agent knows
+   * what the user just said without having to re-read the transcript.
+   */
+  private scheduleVoiceEouWake(triggerText: string): void {
+    this.cancelVoiceEouTimer();
+    this.voicePendingTriggerText = triggerText;
+    this.voiceEouTimer = this.setTimer(() => {
+      this.voiceEouTimer = null;
+      this.onVoiceEouFire();
+    }, this.voiceConfig.eouDebounceMs);
+  }
+
+  private cancelVoiceEouTimer(): void {
+    if (this.voiceEouTimer !== null) {
+      this.clearTimer(this.voiceEouTimer);
+      this.voiceEouTimer = null;
+    }
+    this.voicePendingTriggerText = null;
+  }
+
+  private onVoiceEouFire(): void {
+    if (this.disposed) return;
+    const trigger = this.voicePendingTriggerText ?? "";
+    this.voicePendingTriggerText = null;
+    // Double-check the mode at fire time — a third participant may
+    // have joined while the timer was pending. If so, drop rather than
+    // wake under group-meeting assumptions.
+    if (!this.isOneOnOne() || !this.voiceConfig.enabled) return;
+
+    const snippet = trigger.length > 120 ? `${trigger.slice(0, 117)}...` : trigger;
+    this.tryFireOpportunity({
+      reason: `voice-turn: ${snippet}`,
+      kind: "voice",
+      logContext: { triggerText: snippet, participantCount: this.participantCount },
+    });
   }
 
   // ── Buffer maintenance ────────────────────────────────────────────────────

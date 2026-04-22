@@ -96,6 +96,7 @@ mock.module("../qdrant-client.js", () => ({
       return scrollReturnPoints;
     },
   }),
+  resolveQdrantUrl: () => "http://127.0.0.1:6333",
 }));
 
 // The circuit breaker is a thin wrapper; just call the function through.

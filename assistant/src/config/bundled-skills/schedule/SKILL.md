@@ -8,7 +8,7 @@ metadata:
     display-name: "Schedule"
 ---
 
-Manage scheduled automations. Schedules can be **recurring** (cron or RRULE expression) or **one-shot** (a single `fire_at` timestamp). Both recurring and one-shot schedules support two modes: **execute** (run a message through the assistant) and **notify** (send a notification to the user).
+Manage scheduled automations. Schedules can be **recurring** (cron or RRULE expression) or **one-shot** (a single `fire_at` timestamp). Schedules support three modes: **execute** (run a message through the assistant), **notify** (send a notification to the user), and **script** (run a shell command directly without LLM involvement).
 
 ## Schedule Syntax
 

@@ -56,6 +56,7 @@ mock.module("../qdrant-client.js", () => ({
       return denseResults;
     },
   }),
+  resolveQdrantUrl: () => "http://127.0.0.1:6333",
 }));
 
 const { searchPkbFiles } = await import("./pkb-search.js");

@@ -152,15 +152,19 @@ struct EarnCreditsModal: View {
     // MARK: - Terms Link
 
     private var termsLink: some View {
-        Button {
-            withAnimation { showTerms = true }
-        } label: {
-            Text("View Terms and Conditions")
-                .font(VFont.bodySmallDefault)
-                .foregroundStyle(VColor.contentTertiary)
+        VStack(alignment: .leading, spacing: VSpacing.lg) {
+            SettingsDivider()
+
+            Button {
+                withAnimation { showTerms = true }
+            } label: {
+                Text("View Terms and Conditions")
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
-        .buttonStyle(.plain)
-        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     // MARK: - Terms Content

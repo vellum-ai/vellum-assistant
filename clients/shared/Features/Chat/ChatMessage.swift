@@ -37,6 +37,8 @@ public struct ToolConfirmationData: Equatable {
     public let toolName: String
     public let input: [String: AnyCodable]
     public let riskLevel: String
+    /// Human-readable reason for the risk classification (v3 prompt).
+    public let riskReason: String?
     public let diff: ConfirmationRequestDiff?
     public let allowlistOptions: [ConfirmationRequestAllowlistOption]
     public let scopeOptions: [ConfirmationRequestScopeOption]
@@ -545,11 +547,12 @@ public struct ToolConfirmationData: Equatable {
         )
     }
 
-    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: ConfirmationRequestDiff? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption] = [], scopeOptions: [ConfirmationRequestScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], toolUseId: String? = nil, state: ToolConfirmationState = .pending) {
+    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, riskReason: String? = nil, diff: ConfirmationRequestDiff? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption] = [], scopeOptions: [ConfirmationRequestScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], toolUseId: String? = nil, state: ToolConfirmationState = .pending) {
         self.requestId = requestId
         self.toolName = toolName
         self.input = input
         self.riskLevel = riskLevel
+        self.riskReason = riskReason
         self.diff = diff
         self.allowlistOptions = allowlistOptions
         self.scopeOptions = scopeOptions
@@ -834,6 +837,15 @@ public struct ToolCallData: Identifiable, Equatable {
     public var buildingStatus: String?
     /// Non-technical reason for the tool call, extracted from the `reason` field of tool input.
     public var reasonDescription: String?
+    /// Risk level classification from the permission checker ("low", "medium", "high", "unknown").
+    public var riskLevel: String?
+    /// Human-readable reason for the risk classification.
+    public var riskReason: String?
+    /// Scope options ladder for the rule editor (pattern + label pairs, narrowest to broadest).
+    public var riskScopeOptions: [ToolResultRiskScopeOption]?
+    /// Working directory for this tool call (extracted from confirmation scope options).
+    /// Persists after pendingConfirmation is cleared so the rule editor modal can use it.
+    public var workingDir: String?
     /// Accumulated streaming output from tool_output_chunk events (plain text only).
     /// Capped at 5000 characters (keeps the tail when exceeded).
     public var partialOutput: String = ""
@@ -876,6 +888,7 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.confirmationDecision == rhs.confirmationDecision
             && lhs.confirmationLabel == rhs.confirmationLabel
             && lhs.pendingConfirmation == rhs.pendingConfirmation
+            && lhs.riskLevel == rhs.riskLevel
     }
 
     public init(id: UUID = UUID(), toolName: String, inputSummary: String, inputFull: String? = nil, inputRawValue: String? = nil, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageDataList: [String]? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {
@@ -1828,6 +1841,7 @@ public struct ChatMessage: Identifiable, Equatable {
             hasher.combine(tc.completedAt)
             hasher.combine(tc.confirmationDecision)
             hasher.combine(tc.confirmationLabel)
+            hasher.combine(tc.riskLevel)
         }
         return hasher.finalize()
     }

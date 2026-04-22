@@ -20,7 +20,9 @@ import {
   DockerRunner,
   dockerSocketUnreachableMessage,
   extractBoundPorts,
+  getMeetBotInstanceHash,
   HOST_GATEWAY_ALIAS,
+  MEET_BOT_INSTANCE_LABEL,
   MEET_BOT_LABEL,
   MEET_BOT_MEETING_ID_LABEL,
   reapOrphanedMeetBots,
@@ -341,6 +343,65 @@ describe("DockerRunner.inspect", () => {
     expect(result.State?.Running).toBe(true);
     expect(mock.captured[0].method).toBe("GET");
     expect(mock.captured[0].url).toContain("/containers/cid/json");
+  });
+});
+
+describe("DockerRunner.wait", () => {
+  let mock: MockDocker;
+
+  afterEach(async () => {
+    await mock?.close();
+  });
+
+  test("issues POST /containers/<id>/wait and returns the exit code", async () => {
+    mock = await startMockDocker();
+    mock.queueResponse({ status: 200, body: { StatusCode: 137 } });
+
+    const runner = new DockerRunner({ socketPath: mock.socketPath });
+    const result = await runner.wait("cid");
+
+    expect(result.StatusCode).toBe(137);
+    expect(mock.captured).toHaveLength(1);
+    expect(mock.captured[0].method).toBe("POST");
+    expect(mock.captured[0].url).toContain("/containers/cid/wait");
+  });
+
+  test("treats 404 (container already removed) as an exit-code-0 observation", async () => {
+    // The session-manager's container-exit watcher races the graceful
+    // `leave()` path — when `leave()` calls `runner.remove()` the engine
+    // can reply to a still-open `wait()` with a 404 rather than the exit
+    // record. The watcher checks `leaveInitiatedByDaemon` before
+    // publishing `meet.error`, but relies on `wait()` resolving (not
+    // throwing) so the promise chain completes. Asserting 0 here
+    // documents the branch `DockerRunner.wait` takes to make that work.
+    mock = await startMockDocker();
+    mock.queueResponse({ status: 404, body: "no such container" });
+
+    const runner = new DockerRunner({ socketPath: mock.socketPath });
+    const result = await runner.wait("cid");
+    expect(result.StatusCode).toBe(0);
+  });
+
+  test("propagates non-404 errors so the watcher can log + bail", async () => {
+    mock = await startMockDocker();
+    mock.queueResponse({ status: 500, body: "engine down" });
+
+    const runner = new DockerRunner({ socketPath: mock.socketPath });
+    await expect(runner.wait("cid")).rejects.toThrow(DockerApiError);
+  });
+
+  test("surfaces engine-reported Error payload in the resolved shape", async () => {
+    mock = await startMockDocker();
+    mock.queueResponse({
+      status: 200,
+      body: { StatusCode: 143, Error: { Message: "wait interrupted" } },
+    });
+
+    const runner = new DockerRunner({ socketPath: mock.socketPath });
+    const result = await runner.wait("cid");
+
+    expect(result.StatusCode).toBe(143);
+    expect(result.Error?.Message).toBe("wait interrupted");
   });
 });
 
@@ -727,11 +788,13 @@ describe("buildCreateBody labels", () => {
       labels: {
         [MEET_BOT_LABEL]: "true",
         [MEET_BOT_MEETING_ID_LABEL]: "meeting-a",
+        [MEET_BOT_INSTANCE_LABEL]: "abc1234567890def",
       },
     });
     expect(body.Labels).toEqual({
       "vellum.meet.bot": "true",
       "vellum.meet.meetingId": "meeting-a",
+      "vellum.meet.instance": "abc1234567890def",
     });
   });
 });
@@ -845,6 +908,13 @@ function silentLogger() {
 }
 
 describe("reapOrphanedMeetBots", () => {
+  // Shared hash values used across test scenarios. `OWN_HASH` matches the
+  // caller's instance (the bot containers "we" own); `OTHER_HASH` simulates
+  // a sibling daemon instance on the same host (prod/dev/test/local side-
+  // by-side — common on developer machines).
+  const OWN_HASH = "own-instance-hash";
+  const OTHER_HASH = "other-instance-hash";
+
   test("kills containers whose meetingId is not in the active set, keeps the rest", async () => {
     const killCalls: Array<{ id: string; signal: string | undefined }> = [];
     const docker: FakeDocker = {
@@ -854,6 +924,7 @@ describe("reapOrphanedMeetBots", () => {
           Labels: {
             [MEET_BOT_LABEL]: "true",
             [MEET_BOT_MEETING_ID_LABEL]: "meeting-a",
+            [MEET_BOT_INSTANCE_LABEL]: OWN_HASH,
           },
         },
         {
@@ -861,6 +932,7 @@ describe("reapOrphanedMeetBots", () => {
           Labels: {
             [MEET_BOT_LABEL]: "true",
             [MEET_BOT_MEETING_ID_LABEL]: "meeting-b",
+            [MEET_BOT_INSTANCE_LABEL]: OWN_HASH,
           },
         },
       ],
@@ -872,11 +944,13 @@ describe("reapOrphanedMeetBots", () => {
     const result = await reapOrphanedMeetBots({
       docker,
       activeMeetingIds: new Set(["meeting-b"]),
+      instanceHash: OWN_HASH,
       logger: silentLogger(),
     });
 
     expect(result.killed).toEqual(["c-a"]);
     expect(result.kept).toEqual(["c-b"]);
+    expect(result.skippedUnlabeled).toEqual([]);
     // SIGTERM went out synchronously during the sweep. The delayed SIGKILL
     // is scheduled via unref'd setTimeout — we assert only the SIGTERM here.
     expect(killCalls.filter((c) => c.signal === "SIGTERM")).toEqual([
@@ -894,9 +968,10 @@ describe("reapOrphanedMeetBots", () => {
     const result = await reapOrphanedMeetBots({
       docker,
       activeMeetingIds: new Set(),
+      instanceHash: OWN_HASH,
       logger: silentLogger(),
     });
-    expect(result).toEqual({ killed: [], kept: [] });
+    expect(result).toEqual({ killed: [], kept: [], skippedUnlabeled: [] });
   });
 
   test("continues sweeping when one container's kill throws", async () => {
@@ -908,6 +983,7 @@ describe("reapOrphanedMeetBots", () => {
           Labels: {
             [MEET_BOT_LABEL]: "true",
             [MEET_BOT_MEETING_ID_LABEL]: "meeting-a",
+            [MEET_BOT_INSTANCE_LABEL]: OWN_HASH,
           },
         },
         {
@@ -915,6 +991,7 @@ describe("reapOrphanedMeetBots", () => {
           Labels: {
             [MEET_BOT_LABEL]: "true",
             [MEET_BOT_MEETING_ID_LABEL]: "meeting-b",
+            [MEET_BOT_INSTANCE_LABEL]: OWN_HASH,
           },
         },
         {
@@ -922,6 +999,7 @@ describe("reapOrphanedMeetBots", () => {
           Labels: {
             [MEET_BOT_LABEL]: "true",
             [MEET_BOT_MEETING_ID_LABEL]: "meeting-c",
+            [MEET_BOT_INSTANCE_LABEL]: OWN_HASH,
           },
         },
       ],
@@ -935,6 +1013,7 @@ describe("reapOrphanedMeetBots", () => {
     const result = await reapOrphanedMeetBots({
       docker,
       activeMeetingIds: new Set(),
+      instanceHash: OWN_HASH,
       logger: silentLogger(),
     });
 
@@ -942,6 +1021,7 @@ describe("reapOrphanedMeetBots", () => {
     expect(killed).toEqual(["c-a", "c-c"]);
     expect(result.killed).toEqual(["c-a", "c-c"]);
     expect(result.kept).toEqual([]);
+    expect(result.skippedUnlabeled).toEqual([]);
   });
 
   test("skips containers created at or after createdBefore cutoff", async () => {
@@ -954,6 +1034,7 @@ describe("reapOrphanedMeetBots", () => {
           Labels: {
             [MEET_BOT_LABEL]: "true",
             [MEET_BOT_MEETING_ID_LABEL]: "meeting-old",
+            [MEET_BOT_INSTANCE_LABEL]: OWN_HASH,
           },
         },
         {
@@ -962,6 +1043,7 @@ describe("reapOrphanedMeetBots", () => {
           Labels: {
             [MEET_BOT_LABEL]: "true",
             [MEET_BOT_MEETING_ID_LABEL]: "meeting-new",
+            [MEET_BOT_INSTANCE_LABEL]: OWN_HASH,
           },
         },
       ],
@@ -973,12 +1055,14 @@ describe("reapOrphanedMeetBots", () => {
     const result = await reapOrphanedMeetBots({
       docker,
       activeMeetingIds: new Set(),
+      instanceHash: OWN_HASH,
       createdBefore: 2000,
       logger: silentLogger(),
     });
 
     expect(result.killed).toEqual(["c-old"]);
     expect(result.kept).toEqual(["c-new"]);
+    expect(result.skippedUnlabeled).toEqual([]);
     expect(killCalls.filter((c) => c.signal === "SIGTERM")).toEqual([
       { id: "c-old", signal: "SIGTERM" },
     ]);
@@ -994,6 +1078,7 @@ describe("reapOrphanedMeetBots", () => {
           Labels: {
             [MEET_BOT_LABEL]: "true",
             [MEET_BOT_MEETING_ID_LABEL]: "meeting-a",
+            [MEET_BOT_INSTANCE_LABEL]: OWN_HASH,
           },
         },
         {
@@ -1001,6 +1086,7 @@ describe("reapOrphanedMeetBots", () => {
           Labels: {
             [MEET_BOT_LABEL]: "true",
             [MEET_BOT_MEETING_ID_LABEL]: "meeting-b",
+            [MEET_BOT_INSTANCE_LABEL]: OWN_HASH,
           },
         },
       ],
@@ -1015,11 +1101,13 @@ describe("reapOrphanedMeetBots", () => {
     const result = await reapOrphanedMeetBots({
       docker,
       activeMeetingIds: () => live,
+      instanceHash: OWN_HASH,
       logger: silentLogger(),
     });
 
     expect(result.killed).toEqual(["c-a"]);
     expect(result.kept).toEqual(["c-b"]);
+    expect(result.skippedUnlabeled).toEqual([]);
   });
 
   test("returns empty result and logs a warning if listContainers throws", async () => {
@@ -1034,8 +1122,173 @@ describe("reapOrphanedMeetBots", () => {
     const result = await reapOrphanedMeetBots({
       docker,
       activeMeetingIds: new Set(),
+      instanceHash: OWN_HASH,
       logger: silentLogger(),
     });
-    expect(result).toEqual({ killed: [], kept: [] });
+    expect(result).toEqual({ killed: [], kept: [], skippedUnlabeled: [] });
+  });
+
+  // -------------------------------------------------------------------------
+  // Per-instance label scoping (regression: multi-instance cross-kill)
+  // -------------------------------------------------------------------------
+
+  test("keeps containers from a different instance (different vellum.meet.instance label)", async () => {
+    const killCalls: Array<{ id: string; signal: string | undefined }> = [];
+    const docker: FakeDocker = {
+      listContainers: async () => [
+        {
+          Id: "c-own",
+          Labels: {
+            [MEET_BOT_LABEL]: "true",
+            [MEET_BOT_MEETING_ID_LABEL]: "meeting-own",
+            [MEET_BOT_INSTANCE_LABEL]: OWN_HASH,
+          },
+        },
+        {
+          Id: "c-other",
+          Labels: {
+            [MEET_BOT_LABEL]: "true",
+            [MEET_BOT_MEETING_ID_LABEL]: "meeting-other",
+            [MEET_BOT_INSTANCE_LABEL]: OTHER_HASH,
+          },
+        },
+      ],
+      kill: async (id, signal) => {
+        killCalls.push({ id, signal });
+      },
+    };
+
+    const result = await reapOrphanedMeetBots({
+      docker,
+      activeMeetingIds: new Set(),
+      instanceHash: OWN_HASH,
+      logger: silentLogger(),
+    });
+
+    // c-own is an orphan from this instance → reaped.
+    // c-other belongs to a different daemon instance on the same host →
+    // left alone (neither killed nor listed as skippedUnlabeled).
+    expect(result.killed).toEqual(["c-own"]);
+    expect(result.kept).toEqual(["c-other"]);
+    expect(result.skippedUnlabeled).toEqual([]);
+    expect(killCalls.filter((c) => c.signal === "SIGTERM")).toEqual([
+      { id: "c-own", signal: "SIGTERM" },
+    ]);
+  });
+
+  test("skips containers with no vellum.meet.instance label (pre-upgrade fossils)", async () => {
+    const killCalls: Array<{ id: string; signal: string | undefined }> = [];
+    const docker: FakeDocker = {
+      listContainers: async () => [
+        {
+          Id: "c-prelabel",
+          Labels: {
+            [MEET_BOT_LABEL]: "true",
+            [MEET_BOT_MEETING_ID_LABEL]: "meeting-old",
+            // No MEET_BOT_INSTANCE_LABEL — this container was created by a
+            // daemon version before the instance-scope change shipped.
+          },
+        },
+        {
+          Id: "c-orphan",
+          Labels: {
+            [MEET_BOT_LABEL]: "true",
+            [MEET_BOT_MEETING_ID_LABEL]: "meeting-new",
+            [MEET_BOT_INSTANCE_LABEL]: OWN_HASH,
+          },
+        },
+      ],
+      kill: async (id, signal) => {
+        killCalls.push({ id, signal });
+      },
+    };
+
+    const result = await reapOrphanedMeetBots({
+      docker,
+      activeMeetingIds: new Set(),
+      instanceHash: OWN_HASH,
+      logger: silentLogger(),
+    });
+
+    // Pre-label container goes into `skippedUnlabeled` — observable signal
+    // for users that a manual `docker rm` may be needed, but we never kill
+    // them (they could belong to another installation on the same host).
+    expect(result.skippedUnlabeled).toEqual(["c-prelabel"]);
+    expect(result.killed).toEqual(["c-orphan"]);
+    expect(result.kept).toEqual([]);
+    // Only the same-instance orphan got a SIGTERM.
+    expect(killCalls.filter((c) => c.signal === "SIGTERM")).toEqual([
+      { id: "c-orphan", signal: "SIGTERM" },
+    ]);
+  });
+
+  test("still kills orphans from the same instance when meetingId is not active", async () => {
+    // Regression guard for the pre-label reaper behavior: a same-instance
+    // container whose meetingId is not in the active set is still an orphan
+    // and must be reaped.
+    const killCalls: Array<{ id: string; signal: string | undefined }> = [];
+    const docker: FakeDocker = {
+      listContainers: async () => [
+        {
+          Id: "c-dead",
+          Labels: {
+            [MEET_BOT_LABEL]: "true",
+            [MEET_BOT_MEETING_ID_LABEL]: "meeting-gone",
+            [MEET_BOT_INSTANCE_LABEL]: OWN_HASH,
+          },
+        },
+        {
+          Id: "c-live",
+          Labels: {
+            [MEET_BOT_LABEL]: "true",
+            [MEET_BOT_MEETING_ID_LABEL]: "meeting-alive",
+            [MEET_BOT_INSTANCE_LABEL]: OWN_HASH,
+          },
+        },
+      ],
+      kill: async (id, signal) => {
+        killCalls.push({ id, signal });
+      },
+    };
+
+    const result = await reapOrphanedMeetBots({
+      docker,
+      activeMeetingIds: new Set(["meeting-alive"]),
+      instanceHash: OWN_HASH,
+      logger: silentLogger(),
+    });
+
+    expect(result.killed).toEqual(["c-dead"]);
+    expect(result.kept).toEqual(["c-live"]);
+    expect(result.skippedUnlabeled).toEqual([]);
+    expect(killCalls.filter((c) => c.signal === "SIGTERM")).toEqual([
+      { id: "c-dead", signal: "SIGTERM" },
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getMeetBotInstanceHash
+// ---------------------------------------------------------------------------
+
+describe("getMeetBotInstanceHash", () => {
+  test("returns a deterministic 16-char lowercase hex string", () => {
+    const hash = getMeetBotInstanceHash();
+    expect(hash).toMatch(/^[0-9a-f]{16}$/);
+    expect(hash).toBe(getMeetBotInstanceHash());
+  });
+
+  test("changes when BASE_DATA_DIR changes (per-instance scoping)", () => {
+    const prev = process.env.BASE_DATA_DIR;
+    try {
+      process.env.BASE_DATA_DIR = "/tmp/instance-one";
+      const hashOne = getMeetBotInstanceHash();
+      process.env.BASE_DATA_DIR = "/tmp/instance-two";
+      const hashTwo = getMeetBotInstanceHash();
+      expect(hashOne).not.toBe(hashTwo);
+    } finally {
+      if (prev === undefined) delete process.env.BASE_DATA_DIR;
+      else process.env.BASE_DATA_DIR = prev;
+    }
   });
 });

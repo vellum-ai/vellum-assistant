@@ -86,6 +86,16 @@ let checkFnOverride:
 /** Override for generateScopeOptions — when set, returns this value instead of the default. */
 let scopeOptionsOverride: ScopeOption[] | undefined;
 
+/** Override for getCachedAssessment — when set, returns this value. */
+let cachedAssessmentOverride:
+  | {
+      riskLevel: string;
+      reason: string;
+      scopeOptions: Array<{ pattern: string; label: string }>;
+      matchType: string;
+    }
+  | undefined;
+
 /** Spy on addRule to capture calls without replacing the real implementation. */
 let addRuleSpy: ReturnType<typeof spyOn> | undefined;
 
@@ -127,6 +137,7 @@ mock.module("../permissions/checker.js", () => ({
   ],
   generateScopeOptions: () =>
     scopeOptionsOverride ?? [{ label: "/tmp", scope: "/tmp" }],
+  getCachedAssessment: () => cachedAssessmentOverride,
 }));
 
 // Mock every export so downstream test files that dynamically import modules
@@ -196,6 +207,7 @@ describe("ToolExecutor allowedToolNames gating", () => {
     getToolOverride = undefined;
     checkResultOverride = undefined;
     checkFnOverride = undefined;
+    cachedAssessmentOverride = undefined;
     if (addRuleSpy) {
       addRuleSpy.mockRestore();
       addRuleSpy = undefined;
@@ -272,6 +284,7 @@ describe("ToolExecutor policy context plumbing", () => {
     getToolOverride = undefined;
     checkResultOverride = undefined;
     checkFnOverride = undefined;
+    cachedAssessmentOverride = undefined;
     if (addRuleSpy) {
       addRuleSpy.mockRestore();
       addRuleSpy = undefined;
@@ -754,6 +767,7 @@ describe("ToolExecutor strict mode + high-risk integration (PR 25)", () => {
     getToolOverride = undefined;
     checkResultOverride = undefined;
     checkFnOverride = undefined;
+    cachedAssessmentOverride = undefined;
     if (addRuleSpy) {
       addRuleSpy.mockRestore();
       addRuleSpy = undefined;
@@ -1259,6 +1273,7 @@ describe("ToolExecutor baseline: allow rule auto-allows file_edit guardian perso
     getToolOverride = undefined;
     checkResultOverride = undefined;
     checkFnOverride = undefined;
+    cachedAssessmentOverride = undefined;
     if (addRuleSpy) {
       addRuleSpy.mockRestore();
       addRuleSpy = undefined;
@@ -1376,6 +1391,7 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     getToolOverride = undefined;
     checkResultOverride = undefined;
     checkFnOverride = undefined;
+    cachedAssessmentOverride = undefined;
     promptCalled = false;
     if (addRuleSpy) {
       addRuleSpy.mockRestore();
@@ -2131,6 +2147,7 @@ describe("ToolExecutor persistent-allow lifecycle", () => {
     getToolOverride = undefined;
     checkResultOverride = undefined;
     checkFnOverride = undefined;
+    cachedAssessmentOverride = undefined;
     if (addRuleSpy) {
       addRuleSpy.mockRestore();
       addRuleSpy = undefined;
@@ -2307,5 +2324,122 @@ describe("integration regressions — prompt payload (PR 11)", () => {
     expect(capturedScopes).toBeDefined();
     expect(capturedScopes!.length).toBeGreaterThan(0);
     expect(capturedScopes![0]).toHaveProperty("scope");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Risk metadata on ToolExecutionResult (PR 5 — scope-ladder-v1)
+// ---------------------------------------------------------------------------
+
+describe("ToolExecutionResult includes risk metadata from classifier assessment", () => {
+  beforeEach(() => {
+    fakeToolResult = { content: "ok", isError: false };
+    lastCheckArgs = undefined;
+    getToolOverride = undefined;
+    checkResultOverride = undefined;
+    checkFnOverride = undefined;
+    cachedAssessmentOverride = undefined;
+    if (addRuleSpy) {
+      addRuleSpy.mockRestore();
+      addRuleSpy = undefined;
+    }
+  });
+
+  test("auto-approved tool result includes risk metadata when classifier assessment exists", async () => {
+    cachedAssessmentOverride = {
+      riskLevel: "medium",
+      reason: "Writes to a file outside the workspace",
+      scopeOptions: [
+        { pattern: "file_write:/tmp/test.txt", label: "This file only" },
+        { pattern: "file_write:/tmp/**", label: "Anything in tmp/" },
+      ],
+      matchType: "registry",
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "file_read",
+      { path: "README.md" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.riskLevel).toBe("medium");
+    expect(result.riskReason).toBe("Writes to a file outside the workspace");
+    expect(result.riskScopeOptions).toEqual([
+      { pattern: "file_write:/tmp/test.txt", label: "This file only" },
+      { pattern: "file_write:/tmp/**", label: "Anything in tmp/" },
+    ]);
+  });
+
+  test("tool result omits risk metadata when no classifier assessment exists (e.g. MCP tools)", async () => {
+    // cachedAssessmentOverride is undefined (no classifier ran)
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "file_read",
+      { path: "README.md" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.riskLevel).toBeUndefined();
+    expect(result.riskReason).toBeUndefined();
+    expect(result.riskScopeOptions).toBeUndefined();
+  });
+
+  test("denied tool result includes risk metadata", async () => {
+    checkResultOverride = {
+      decision: "deny",
+      reason: "Blocked by deny rule",
+    };
+    cachedAssessmentOverride = {
+      riskLevel: "high",
+      reason: "Recursive force delete",
+      scopeOptions: [{ pattern: "bash:rm -rf*", label: "rm -rf commands" }],
+      matchType: "registry",
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "bash",
+      { command: "rm -rf /" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.riskLevel).toBe("high");
+    expect(result.riskReason).toBe("Recursive force delete");
+    expect(result.riskScopeOptions).toEqual([
+      { pattern: "bash:rm -rf*", label: "rm -rf commands" },
+    ]);
+  });
+
+  test("prompted-then-approved tool result includes risk metadata", async () => {
+    checkResultOverride = {
+      decision: "prompt",
+      reason: "Medium risk: requires approval",
+    };
+    cachedAssessmentOverride = {
+      riskLevel: "medium",
+      reason: "Package manager installation",
+      scopeOptions: [
+        { pattern: "bash:npm install*", label: "npm install commands" },
+        { pattern: "bash:npm*", label: "All npm commands" },
+      ],
+      matchType: "registry",
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute(
+      "bash",
+      { command: "npm install lodash" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toBe("ok");
+    expect(result.riskLevel).toBe("medium");
+    expect(result.riskReason).toBe("Package manager installation");
+    expect(result.riskScopeOptions).toHaveLength(2);
   });
 });

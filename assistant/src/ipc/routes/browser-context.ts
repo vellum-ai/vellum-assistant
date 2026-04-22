@@ -20,6 +20,8 @@ export interface BrowserIpcContextResolution {
   trustClass: TrustClass;
   hostBrowserProxy?: HostBrowserProxy;
   transportInterface?: InterfaceId;
+  /** True when the browser proxy sender is registry-routed (extension-backed). */
+  hostBrowserRegistryRouted?: boolean;
 }
 
 export type BrowserIpcContextResolver = (

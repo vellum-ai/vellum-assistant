@@ -439,6 +439,9 @@ extension ChatViewModel {
             // Keep cachedImages for display, nil out raw base64 to save memory
             messages[msgIndex].toolCalls[tcIndex].cachedImages = decoded
             messages[msgIndex].toolCalls[tcIndex].imageDataList = decoded.isEmpty ? msg.imageDataList : nil
+            messages[msgIndex].toolCalls[tcIndex].riskLevel = msg.riskLevel
+            messages[msgIndex].toolCalls[tcIndex].riskReason = msg.riskReason
+            messages[msgIndex].toolCalls[tcIndex].riskScopeOptions = msg.riskScopeOptions
             if let status = msg.status, !status.isEmpty {
                 messages[msgIndex].toolCalls[tcIndex].buildingStatus = status
             }

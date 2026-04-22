@@ -59,6 +59,12 @@ export function normalizeAssistantId(assistantId: string): string {
  * Docker mode relocates the workspace via `VELLUM_WORKSPACE_DIR` rather
  * than `BASE_DATA_DIR`, so honoring `BASE_DATA_DIR` here does not affect
  * containerized deployments.
+ *
+ * Exported so other daemon-side consumers (e.g. the meet-join orphan reaper
+ * in `skills/meet-join/daemon/docker-runner.ts`) can derive a per-instance
+ * identifier from the same canonical root. Do not replace with ad-hoc
+ * `process.env.BASE_DATA_DIR` reads — this helper is the single source of
+ * truth for per-instance path resolution.
  */
 export function vellumRoot(): string {
   const baseDataDir = process.env.BASE_DATA_DIR?.trim();

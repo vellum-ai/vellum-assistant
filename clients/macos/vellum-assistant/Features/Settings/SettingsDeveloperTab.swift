@@ -4,18 +4,6 @@ import SwiftUI
 import VellumAssistantShared
 import os
 
-/// Wraps both `AssistantFeatureFlag` and `MacOSFeatureFlagState` into a single
-/// type so the Developer tab can render all flags in one card.
-private struct UnifiedFeatureFlag: Identifiable {
-    let id: String
-    let key: String
-    let label: String
-    let description: String
-    let defaultEnabled: Bool
-    let enabled: Bool
-    let scope: FeatureFlagScope
-}
-
 /// Developer settings tab — consolidates all internal tooling: assistant info,
 /// switching/wake controls, gateway settings, hatch, retire, advanced dev tools
 /// (permission simulator, feature flags, env vars), and Sentry testing.
@@ -68,9 +56,6 @@ struct SettingsDeveloperTab: View {
     @State private var sentryDismissTask: Task<Void, Never>?
     @State private var isSentryEnabled: Bool = true
 
-    @State private var featureFlagSearchText: String = ""
-    @State private var featureFlagScopeFilter: String = "all"
-
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // Platform URL (inferred from environment)
@@ -117,7 +102,13 @@ struct SettingsDeveloperTab: View {
             }
 
             // Feature Flags
-            featureFlagSection
+            FeatureFlagsCard(
+                assistantFlags: $assistantFlags,
+                macOSFlagStates: $macOSFlagStates,
+                assistantFlagsError: assistantFlagsError,
+                isLoadingAssistantFlags: isLoadingAssistantFlags,
+                featureFlagClient: featureFlagClient
+            )
             // Environment Variables
             environmentVariablesSection
             // Hello World VM
@@ -914,210 +905,6 @@ struct SettingsDeveloperTab: View {
             }
         }
         isLoadingAssistantFlags = false
-    }
-
-    private var unifiedFlags: [UnifiedFeatureFlag] {
-        let fromAssistant: [UnifiedFeatureFlag] = assistantFlags.map { flag in
-            UnifiedFeatureFlag(
-                id: flag.key,
-                key: flag.key,
-                label: flag.displayName,
-                description: flag.description ?? "",
-                defaultEnabled: flag.defaultEnabled ?? true,
-                enabled: flag.enabled,
-                scope: .assistant
-            )
-        }
-        let fromMacOS: [UnifiedFeatureFlag] = macOSFlagStates.map { state in
-            UnifiedFeatureFlag(
-                id: state.key,
-                key: state.key,
-                label: state.label,
-                description: state.description,
-                defaultEnabled: state.defaultEnabled,
-                enabled: state.enabled,
-                scope: .macos
-            )
-        }
-        // Deduplicate: if a flag key exists in both macOS and assistant scopes,
-        // keep the macOS entry and drop the assistant duplicate.
-        let macOSKeys = Set(fromMacOS.map { $0.key })
-        let dedupedAssistant = fromAssistant.filter { !macOSKeys.contains($0.key) }
-        return (dedupedAssistant + fromMacOS).sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
-    }
-
-    private var filteredUnifiedFlags: [UnifiedFeatureFlag] {
-        var flags = unifiedFlags
-        if featureFlagScopeFilter == "assistant" {
-            flags = flags.filter { $0.scope == .assistant }
-        } else if featureFlagScopeFilter == "macos" {
-            flags = flags.filter { $0.scope == .macos }
-        }
-        if !featureFlagSearchText.isEmpty {
-            flags = flags.filter { flag in
-                flag.label.localizedCaseInsensitiveContains(featureFlagSearchText) ||
-                flag.description.localizedCaseInsensitiveContains(featureFlagSearchText) ||
-                flag.key.localizedCaseInsensitiveContains(featureFlagSearchText)
-            }
-        }
-        return flags
-    }
-
-    private var featureFlagSection: some View {
-        SettingsCard(title: "Feature Flags", subtitle: "Toggle feature flags for the assistant and macOS app.") {
-            HStack(spacing: VSpacing.sm) {
-                VSearchBar(placeholder: "Search flags...", text: $featureFlagSearchText)
-                VDropdown(
-                    placeholder: "All",
-                    selection: $featureFlagScopeFilter,
-                    options: [
-                        (label: "All", value: "all"),
-                        (label: "Assistant", value: "assistant"),
-                        (label: "macOS", value: "macos")
-                    ],
-                    maxWidth: 130
-                )
-            }
-
-            if isLoadingAssistantFlags {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                        .controlSize(.small)
-                        .progressViewStyle(.circular)
-                }
-            }
-
-            if let error = assistantFlagsError {
-                HStack(spacing: VSpacing.xs) {
-                    VIconView(.triangleAlert, size: 12)
-                        .foregroundStyle(VColor.systemNegativeHover)
-                    Text(error)
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.systemNegativeStrong)
-                }
-            }
-
-            if unifiedFlags.isEmpty && !isLoadingAssistantFlags {
-                Text("No feature flags available.")
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentTertiary)
-            } else if filteredUnifiedFlags.isEmpty && (!featureFlagSearchText.isEmpty || featureFlagScopeFilter != "all") {
-                Text("No matching flags.")
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundStyle(VColor.contentTertiary)
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        ForEach(filteredUnifiedFlags) { flag in
-                            unifiedFlagRow(flag: flag)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(maxHeight: 400)
-            }
-        }
-    }
-
-    private func unifiedFlagRow(flag: UnifiedFeatureFlag) -> some View {
-        let flagBinding = Binding<Bool>(
-            get: {
-                switch flag.scope {
-                case .assistant:
-                    return assistantFlags.first(where: { $0.key == flag.key })?.enabled ?? flag.enabled
-                case .macos:
-                    return macOSFlagStates.first(where: { $0.key == flag.key })?.enabled ?? flag.enabled
-                }
-            },
-            set: { newValue in
-                switch flag.scope {
-                case .assistant:
-                    let previousValue = assistantFlags.first(where: { $0.key == flag.key })?.enabled ?? flag.enabled
-                    if let index = assistantFlags.firstIndex(where: { $0.key == flag.key }) {
-                        assistantFlags[index] = AssistantFeatureFlag(
-                            key: flag.key,
-                            enabled: newValue,
-                            defaultEnabled: flag.defaultEnabled,
-                            description: flag.description.isEmpty ? nil : flag.description,
-                            label: flag.label
-                        )
-                    }
-                    NotificationCenter.default.post(
-                        name: .assistantFeatureFlagDidChange,
-                        object: nil,
-                        userInfo: ["key": flag.key, "enabled": newValue]
-                    )
-                    AssistantFeatureFlagResolver.mergeCachedFlag(key: flag.key, enabled: newValue)
-                    Task {
-                        do {
-                            try await featureFlagClient.setFeatureFlag(key: flag.key, enabled: newValue)
-                        } catch {
-                            await MainActor.run {
-                                guard let index = assistantFlags.firstIndex(where: { $0.key == flag.key }) else { return }
-                                // Avoid clobbering a newer user toggle while this request was in flight.
-                                guard assistantFlags[index].enabled == newValue else { return }
-                                assistantFlags[index] = AssistantFeatureFlag(
-                                    key: flag.key,
-                                    enabled: previousValue,
-                                    defaultEnabled: flag.defaultEnabled,
-                                    description: flag.description.isEmpty ? nil : flag.description,
-                                    label: flag.label
-                                )
-                                NotificationCenter.default.post(
-                                    name: .assistantFeatureFlagDidChange,
-                                    object: nil,
-                                    userInfo: ["key": flag.key, "enabled": previousValue]
-                                )
-                                AssistantFeatureFlagResolver.mergeCachedFlag(key: flag.key, enabled: previousValue)
-                            }
-                            os.Logger(subsystem: Bundle.appBundleIdentifier, category: "FeatureFlags")
-                                .warning("Failed to sync feature flag '\(flag.key)' to gateway; reverted local toggle: \(error.localizedDescription)")
-                        }
-                    }
-                case .macos:
-                    if let index = macOSFlagStates.firstIndex(where: { $0.key == flag.key }) {
-                        macOSFlagStates[index].enabled = newValue
-                    }
-                    MacOSClientFeatureFlagManager.shared.setOverride(flag.key, enabled: newValue)
-                    NotificationCenter.default.post(
-                        name: .assistantFeatureFlagDidChange,
-                        object: nil,
-                        userInfo: ["key": flag.key, "enabled": newValue]
-                    )
-                }
-            }
-        )
-        return HStack(alignment: .top, spacing: VSpacing.sm) {
-            VToggle(isOn: flagBinding)
-                .accessibilityLabel(flag.label)
-                .padding(.top, 2)
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                HStack(spacing: VSpacing.xs) {
-                    Text(flag.label)
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.contentSecondary)
-                    VBadge(label: flag.scope == .assistant ? "Assistant" : "macOS",
-                           tone: flag.scope == .assistant ? .accent : .neutral,
-                           emphasis: .subtle)
-                }
-                if !flag.description.isEmpty {
-                    Text(flag.description)
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentTertiary)
-                }
-                HStack(spacing: VSpacing.xxs) {
-                    Text("Default:")
-                        .font(VFont.labelSmall)
-                        .foregroundStyle(VColor.contentTertiary)
-                    VBadge(label: flag.defaultEnabled ? "On" : "Off",
-                           tone: flag.defaultEnabled ? .danger : .neutral,
-                           emphasis: .subtle)
-                }
-            }
-        }
-        .contentShape(Rectangle())
-        .onTapGesture { withAnimation { flagBinding.wrappedValue.toggle() } }
     }
 
     // MARK: - Environment Variables

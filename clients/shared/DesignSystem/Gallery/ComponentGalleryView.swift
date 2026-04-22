@@ -67,6 +67,10 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("progressIndicators", "TypingIndicatorView", keywords: ["progress indicators", "typing", "running"], description: "Animated dots indicating the assistant is typing or processing."),
                 GalleryComponent("toolConfirmations", "ToolConfirmationBubble", keywords: ["tool confirmations", "permission", "approval"], description: "Approval bubble for tool calls that require user permission before execution."),
                 GalleryComponent("surfaceActions", "Surface Action Buttons", keywords: ["surface actions", "action pills", "inline buttons", "pick something"], description: "Inline action pills in assistant bubbles letting users pick from options. Supports secondary, primary, and destructive styles."),
+                GalleryComponent("chatConversationErrorToast", "ChatConversationErrorToast", keywords: ["error toast", "above composer", "conversation error", "retry"], description: "Unified error toast rendered above the chat composer. Solid-accent background with white text; category-driven icon, color, and retry label for typed ConversationError, plus an unstructured init for custom icon/color/action."),
+                GalleryComponent("creditsExhaustedBanner", "CreditsExhaustedBanner", keywords: ["credits exhausted", "balance", "add funds", "above composer"], description: "Surface-colored above-composer panel shown when the user's balance runs out. Title + subtitle + primary \"Add Funds\" CTA."),
+                GalleryComponent("compactionCircuitOpenBanner", "CompactionCircuitOpenBanner", keywords: ["compaction", "circuit open", "auto-compaction paused", "cooldown"], description: "Solid-accent warning banner shown when auto-compaction is paused after repeated summary failures. No buttons — auto-dismisses on a 1-minute ticker once openUntil elapses."),
+                GalleryComponent("missingApiKeyBanner", "MissingApiKeyBanner", keywords: ["missing api key", "api key", "open settings", "above composer"], description: "Surface-colored above-composer panel with a top-right dismiss, title, subtitle, and a full-width \"Open Settings\" CTA."),
             ]
         case .display:
             return [
@@ -114,10 +118,28 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("homeFeedGroupHeader", "HomeFeedGroupHeader", keywords: ["feed", "group", "header", "section", "today", "yesterday"], description: "Section header for time-bucketed feed groups (Today / Yesterday / Older)."),
                 GalleryComponent("homeRecapRow", "HomeRecapRow", keywords: ["recap", "row", "feed", "bucket"], description: "Compact row used in the time-bucketed Home feed with tinted icon and optional trailing action."),
                 GalleryComponent(
+                    "homeRecapGroupRow",
+                    "HomeRecapGroupRow",
+                    keywords: ["recap", "group", "row", "feed", "collapsed", "low priority", "digest"],
+                    description: "Grouped Home feed row: parent summary header with a nested list of child rows. Used when HomeFeedGrouping collapses 3+ contiguous low-priority digests into a single card."
+                ),
+                GalleryComponent(
                     "homeDetailPanel",
                     "HomeDetailPanel",
                     keywords: ["detail panel", "side panel", "home", "container"],
                     description: "Reusable white right-side panel container with standardized header (icon + title + primary/secondary actions + dismiss)."
+                ),
+                GalleryComponent(
+                    "homeScheduledDetailPanel",
+                    "HomeScheduledDetailPanel",
+                    keywords: ["scheduled", "detail panel", "thread", "calendar", "home"],
+                    description: "Right-hand detail panel surfaced when a scheduled (.thread, source: .calendar) feed item is tapped. Shows schedule metadata (Name, Syntax, Mode, Schedule, Enabled, Next Run) plus outlined secondary + filled primary actions."
+                ),
+                GalleryComponent(
+                    "homeNudgeDetailPanel",
+                    "HomeNudgeDetailPanel",
+                    keywords: ["nudge", "detail panel", "cards", "issues", "heartbeat", "home"],
+                    description: "Right-hand detail panel surfaced when a .nudge feed item is tapped. Description + stack of N cards with optional action buttons, plus a right-aligned footer with secondary + primary actions (e.g. Clear All / Resolve All)."
                 ),
                 GalleryComponent(
                     "homeEmailEditor",
@@ -174,12 +196,6 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("vTextEditor", "VTextEditor", keywords: ["text editor", "multiline"], description: "Multi-line text editor with placeholder and configurable min/max height."),
                 GalleryComponent("vToggle", "VToggle", keywords: ["toggle", "switch"], description: "Custom toggle switch with optional label and animated knob transition."),
                 GalleryComponent("vDropdown", "VDropdown", keywords: ["dropdown", "select", "picker"], description: "Generic dropdown picker with label, error, icon, and size variants (.regular, .small).", useInsteadOf: "Raw Menu + Picker with manual styling"),
-                GalleryComponent(
-                    "vFormattingToolbar",
-                    "VFormattingToolbar",
-                    keywords: ["formatting", "toolbar", "rich text", "bold italic underline"],
-                    description: "Horizontal row of icon-only formatting action buttons (B/I/U, alignment, link, lists, quote). Stateless — fires callbacks on tap."
-                ),
                 GalleryComponent("combinedForm", "Combined Form", keywords: ["form", "combined"], description: "Example of VTextField and VDropdown composed together in a form layout."),
             ]
         case .layout:
@@ -430,7 +446,16 @@ struct ComponentGalleryView: View {
 
         switch category {
         case .buttons: ButtonsGallerySection()
-        case .chat: ChatGallerySection()
+        case .chat:
+            // Render the shared chat sections first, then append any
+            // platform-specific sections registered for the "chat" category
+            // (mirrors the .home extensibility pattern). Platform-local
+            // sections filter themselves so they no-op for filters the
+            // shared section handles.
+            ChatGallerySection()
+            if let factory = ComponentGalleryView.externalOverviewFactories["chat"] {
+                factory()
+            }
         case .display: DisplayGallerySection()
         case .feedback: FeedbackGallerySection()
         case .home:
@@ -450,7 +475,14 @@ struct ComponentGalleryView: View {
     private func componentContent(for category: ComponentGalleryCategory, componentID: String) -> some View {
         switch category {
         case .buttons: ButtonsGallerySection.componentPage(componentID)
-        case .chat: ChatGallerySection.componentPage(componentID)
+        case .chat:
+            // Render both the shared and external component pages — each
+            // emits EmptyView for IDs it doesn't own, so at most one
+            // produces visible content. See `.chat` overview case above.
+            ChatGallerySection.componentPage(componentID)
+            if let factory = ComponentGalleryView.externalComponentPageFactories["chat"] {
+                factory(componentID)
+            }
         case .display: DisplayGallerySection.componentPage(componentID)
         case .feedback: FeedbackGallerySection.componentPage(componentID)
         case .home:

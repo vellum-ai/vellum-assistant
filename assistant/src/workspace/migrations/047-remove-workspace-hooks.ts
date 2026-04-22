@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { getLogger } from "../../util/logger.js";
 import type { WorkspaceMigration } from "./types.js";
 
-const log = getLogger("workspace-migration-046-remove-workspace-hooks");
+const log = getLogger("workspace-migration-047-remove-workspace-hooks");
 
 /**
  * Count files under `dir` recursively. Best-effort — returns the count we
@@ -50,7 +50,7 @@ function countFilesRecursive(dir: string): number {
 }
 
 export const removeWorkspaceHooksMigration: WorkspaceMigration = {
-  id: "046-remove-workspace-hooks",
+  id: "047-remove-workspace-hooks",
   description:
     "Remove legacy workspace/hooks/ directory now that the hook system is gone",
 

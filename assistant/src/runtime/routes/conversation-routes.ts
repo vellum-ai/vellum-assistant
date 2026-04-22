@@ -1,7 +1,13 @@
 /**
  * Route handlers for conversation messages and suggestions.
  */
-import { existsSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join, relative } from "node:path";
 
 import { z } from "zod";
@@ -1283,31 +1289,49 @@ export function persistOnboardingArtifacts(onboarding: {
   const assistantName = onboarding.assistantName?.trim();
   if (assistantName) {
     const identityPath = getWorkspacePromptPath("IDENTITY.md");
-    if (!existsSync(identityPath)) {
-      try {
+    try {
+      if (existsSync(identityPath)) {
+        const content = readFileSync(identityPath, "utf-8");
+        const updated = content.replace(
+          /^- (?:\*\*)?Name:(?:\*\*)?\s*.*$/m,
+          () => `- **Name:** ${assistantName}`,
+        );
+        if (updated !== content) {
+          writeFileSync(identityPath, updated, "utf-8");
+        }
+      } else {
         writeFileSync(
           identityPath,
-          `# Identity\n\n- Name: ${assistantName}\n`,
+          `# Identity\n\n- **Name:** ${assistantName}\n`,
           "utf-8",
         );
-      } catch (err) {
-        log.warn(
-          { err, identityPath },
-          "Failed to seed IDENTITY.md from onboarding",
-        );
       }
+    } catch (err) {
+      log.warn(
+        { err, identityPath },
+        "Failed to seed IDENTITY.md from onboarding",
+      );
     }
   }
 
   const userName = onboarding.userName?.trim();
   if (userName) {
     const userPath = getWorkspacePromptPath("USER.md");
-    if (!existsSync(userPath)) {
-      try {
-        writeFileSync(userPath, `# User\n\n- Name: ${userName}\n`, "utf-8");
-      } catch (err) {
-        log.warn({ err, userPath }, "Failed to seed USER.md from onboarding");
+    try {
+      if (existsSync(userPath)) {
+        const content = readFileSync(userPath, "utf-8");
+        const updated = content.replace(
+          /^- (?:\*\*)?Name:(?:\*\*)?\s*.*$/m,
+          () => `- **Name:** ${userName}`,
+        );
+        if (updated !== content) {
+          writeFileSync(userPath, updated, "utf-8");
+        }
+      } else {
+        writeFileSync(userPath, `# User\n\n- **Name:** ${userName}\n`, "utf-8");
       }
+    } catch (err) {
+      log.warn({ err, userPath }, "Failed to seed USER.md from onboarding");
     }
   }
 
@@ -1501,14 +1525,15 @@ export async function handleSendMessage(
   );
 
   // Store pre-chat onboarding context on the conversation when this is the
-  // very first message (no prior messages loaded). Also persist the
-  // onboarding selections so the Home page shows onboarding-sourced
-  // chips immediately, and seed IDENTITY.md / USER.md so subsequent
-  // turn-boundary recomputes of relationship-state have a stable
-  // persona source beyond the in-memory conversation object.
-  if (body.onboarding && conversation.messages.length === 0) {
-    conversation.setOnboardingContext(body.onboarding);
-    persistOnboardingArtifacts(body.onboarding);
+  // very first message (no prior messages loaded). Artifact persistence
+  // (IDENTITY.md, USER.md, sidecar) is deferred: on the canned greeting
+  // path it runs inside the setTimeout right before warmPromptCache() so
+  // the warmed system prompt includes the identity; on the normal LLM
+  // path it runs immediately before inference starts.
+  const isFirstOnboarding =
+    !!body.onboarding && conversation.messages.length === 0;
+  if (isFirstOnboarding) {
+    conversation.setOnboardingContext(body.onboarding!);
   }
 
   // Resolve guardian context from the AuthContext's actorPrincipalId.
@@ -1618,14 +1643,13 @@ export async function handleSendMessage(
     conversation.hostBrowserSenderOverride = undefined;
   }
 
-  // Provision the host browser proxy. For interfaces that natively support
-  // host_browser (chrome-extension), always provision it. For macOS, the
-  // static capability check returns false (supportsHostProxy("macos",
-  // "host_browser") === false) because the extension isn't guaranteed to be
-  // attached — but when the registry confirms an active extension
-  // connection, we provision the proxy anyway so macOS turns can drive the
-  // user's real Chrome session. When no extension is connected, macOS skips
-  // provisioning and browser tools fall through to cdp-inspect/local.
+  // Provision the host browser proxy. Both macOS and chrome-extension
+  // natively support host_browser. For macOS, the proxy is wired to the
+  // SSE sender by default so `host_browser_request` frames reach the
+  // desktop client directly. When the guardian also has an active extension
+  // connection (isRegistryRouted), the registry-routed sender is used
+  // instead so browser tools route through the user's real Chrome session.
+  // For chrome-extension, the registry sender is always used.
   const shouldProvisionBrowserProxy =
     supportsHostProxy(sourceInterface, "host_browser") ||
     (canServiceRegistryBrowser(sourceInterface) && isRegistryRouted);
@@ -1688,9 +1712,10 @@ export async function handleSendMessage(
     skipProxySenderUpdate: preservingProxies,
   });
   // Re-enable the browser proxy for turns that provisioned one. This covers:
+  // - macOS: always provisioned (SSE sender or registry-routed when extension
+  //   is connected)
   // - chrome-extension: natively supports host_browser (non-interactive but
   //   has a connected client for host_browser_request events)
-  // - macOS with extension: provisioned above when isRegistryRouted is true
   //
   // The helper bypasses the `hasNoClient` gate so chrome-extension turns can
   // drive the browser via CDP without leaking host_bash/host_file tool
@@ -1775,6 +1800,9 @@ export async function handleSendMessage(
           "canned-greeting queue drain",
         );
 
+        if (isFirstOnboarding) {
+          persistOnboardingArtifacts(body.onboarding!);
+        }
         conversation.warmPromptCache();
       }, 0);
 
@@ -1790,6 +1818,10 @@ export async function handleSendMessage(
         silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
       }
     }
+  }
+
+  if (isFirstOnboarding) {
+    persistOnboardingArtifacts(body.onboarding!);
   }
 
   const attachments = hasAttachments
@@ -2249,11 +2281,15 @@ async function generateLlmSuggestion(
     `Write the user's next reply, focusing on the LAST question or call-to-action in the assistant message. Keep it short (under 15 words), casual, and in the user's voice. Respond in this exact format:\n\n` +
     `<reply>YOUR_REPLY_HERE</reply>`;
 
+  // Single user message only — no assistant-role prefill. Anthropic
+  // rejects assistant prefill whenever the request triggers extended
+  // thinking (e.g. Opus 4.x at `effort: "xhigh"`), and the call-site
+  // config is user-controlled, so we can't statically guarantee a
+  // prefill-safe model. Keep `stop_sequences: ["</reply>"]` as an
+  // early-termination hint; the parser below handles both tagged and
+  // untagged responses so untagged "casual answer" replies still work.
   const response = await provider.sendMessage(
-    [
-      { role: "user", content: [{ type: "text", text: userPrompt }] },
-      { role: "assistant", content: [{ type: "text", text: "<reply>" }] },
-    ],
+    [{ role: "user", content: [{ type: "text", text: userPrompt }] }],
     [], // no tools
     systemPrompt,
     {
@@ -2268,7 +2304,12 @@ async function generateLlmSuggestion(
 
   const textBlock = response.content.find((b) => b.type === "text");
   const raw = textBlock && "text" in textBlock ? textBlock.text : "";
-  const stripped = raw
+  // Prefer the content inside <reply>…</reply> when the model honors the
+  // tag format. If the response has no tags, fall back to the raw text —
+  // a plain "Sure, tomorrow works" without tags is still a valid chip.
+  const tagMatch = raw.match(/<reply>([\s\S]*?)(?:<\/reply>|$)/i);
+  const extracted = tagMatch ? tagMatch[1] : raw;
+  const stripped = extracted
     .replace(/<\/?reply>/gi, "")
     .replace(/^["'`]+|["'`]+$/g, "")
     .trim();

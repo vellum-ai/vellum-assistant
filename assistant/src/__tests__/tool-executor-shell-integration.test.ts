@@ -3,9 +3,9 @@
  *
  * Unlike tool-executor.test.ts, this file does NOT mock ../permissions/checker.js,
  * so generateAllowlistOptions and generateScopeOptions run through the actual
- * implementation (buildShellAllowlistOptions → analyzeShellCommand → tree-sitter
- * WASM parser). This validates the full e2e chain from executor to parser-derived
- * allowlist options.
+ * implementation. With permission-controls-v3 OFF (the default), bash tools use
+ * the legacy shellAllowlistStrategy (buildShellAllowlistOptions → action: key
+ * patterns). With the flag ON, they use classifier-produced scope ladder options.
  */
 import { beforeAll, describe, expect, mock, test } from "bun:test";
 
@@ -186,6 +186,10 @@ beforeAll(async () => {
 });
 
 describe("ToolExecutor → real shell allowlist integration", () => {
+  // These tests run with permission-controls-v3 OFF (default), so
+  // generateAllowlistOptions falls through to shellAllowlistStrategy
+  // which uses action: key patterns from buildShellAllowlistOptions.
+
   test("simple command produces parser-derived action keys", async () => {
     const { prompter, getAllowlist, getScopes } = makeCapturingPrompter();
     const executor = new ToolExecutor(prompter);

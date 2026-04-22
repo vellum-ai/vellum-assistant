@@ -66,6 +66,7 @@ export class PermissionPrompter {
     temporaryOptionsAvailable?: Array<"allow_10m" | "allow_conversation">,
     toolUseId?: string,
     hostAccessEnablePrompt?: boolean,
+    riskReason?: string,
   ): Promise<{
     decision: UserDecision;
     selectedPattern?: string;
@@ -116,6 +117,7 @@ export class PermissionPrompter {
         toolName,
         input: redactSensitiveFields(input),
         riskLevel,
+        riskReason,
         allowlistOptions: allowlistOptions.map((o) => ({
           label: o.label,
           description: o.description,

@@ -90,6 +90,9 @@ export type AgentEvent =
       };
       status?: string;
       contentBlocks?: ContentBlock[];
+      riskLevel?: string;
+      riskReason?: string;
+      riskScopeOptions?: Array<{ pattern: string; label: string }>;
     }
   | { type: "tool_use_preview_start"; toolUseId: string; toolName: string }
   | {
@@ -267,6 +270,9 @@ export type LoopToolExecutor = (
   contentBlocks?: ContentBlock[];
   sensitiveBindings?: SensitiveOutputBinding[];
   yieldToUser?: boolean;
+  riskLevel?: string;
+  riskReason?: string;
+  riskScopeOptions?: Array<{ pattern: string; label: string }>;
 }>;
 
 export class AgentLoop {
@@ -965,6 +971,9 @@ export class AgentLoop {
             diff: result.diff,
             status: result.status,
             contentBlocks: result.contentBlocks,
+            riskLevel: result.riskLevel,
+            riskReason: result.riskReason,
+            riskScopeOptions: result.riskScopeOptions,
           });
         }
 

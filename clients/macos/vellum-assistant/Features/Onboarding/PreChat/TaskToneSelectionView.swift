@@ -6,7 +6,6 @@ struct TaskToneSelectionView: View {
     // MARK: - Bindings
 
     @Binding var selectedTasks: Set<String>
-    @Binding var toneValue: Double
 
     // MARK: - Callbacks
 
@@ -26,28 +25,17 @@ struct TaskToneSelectionView: View {
         let id: String
         let icon: VIcon
         let label: String
+        let sublabel: String
     }
 
     private let taskCategories: [TaskCategory] = [
-        TaskCategory(id: "code-building", icon: .wrench, label: "Code & building"),
-        TaskCategory(id: "writing", icon: .pencil, label: "Writing & communication"),
-        TaskCategory(id: "research", icon: .search, label: "Research & analysis"),
-        TaskCategory(id: "project-management", icon: .clipboardList, label: "Project management"),
-        TaskCategory(id: "scheduling", icon: .calendar, label: "Scheduling & calendar"),
-        TaskCategory(id: "personal", icon: .user, label: "Personal / life stuff"),
+        TaskCategory(id: "code-building", icon: .wrench, label: "Building", sublabel: "code, apps, tools"),
+        TaskCategory(id: "writing", icon: .pencil, label: "Writing", sublabel: "docs, emails, content"),
+        TaskCategory(id: "research", icon: .search, label: "Researching", sublabel: "digging into stuff, analysis"),
+        TaskCategory(id: "project-management", icon: .clipboardList, label: "Planning & coordinating", sublabel: "roadmaps, specs, tracking work"),
+        TaskCategory(id: "scheduling", icon: .calendar, label: "Scheduling", sublabel: "meetings, calendar, logistics"),
+        TaskCategory(id: "personal", icon: .user, label: "Life admin", sublabel: "bills, travel, household, errands"),
     ]
-
-    // MARK: - Tone Label
-
-    private var toneLabel: String {
-        if toneValue < 0.25 {
-            return "Casual"
-        } else if toneValue > 0.75 {
-            return "Professional"
-        } else {
-            return "Balanced"
-        }
-    }
 
     // MARK: - Body
 
@@ -77,9 +65,11 @@ struct TaskToneSelectionView: View {
         .offset(y: showTitle ? 0 : 8)
         .padding(.bottom, VSpacing.sm)
 
-        Text("Choose anything that applies to you")
+        Text("Pick the one or two you do most — you can select more if it really is all of it.")
             .font(VFont.bodyMediumLighter)
             .foregroundStyle(VColor.contentSecondary)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, VSpacing.xxl)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.xl)
@@ -91,34 +81,6 @@ struct TaskToneSelectionView: View {
                 ForEach(taskCategories) { category in
                     taskRow(category)
                 }
-            }
-
-            // Tone slider section
-            VStack(spacing: VSpacing.sm) {
-                Text("Communication tone")
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                VStack(spacing: VSpacing.xs) {
-                    Slider(value: $toneValue, in: 0...1, step: 0.5)
-                        .tint(VColor.primaryBase)
-
-                    HStack {
-                        Text("Casual")
-                            .font(VFont.bodySmallDefault)
-                            .foregroundStyle(VColor.contentTertiary)
-                        Spacer()
-                        Text("Professional")
-                            .font(VFont.bodySmallDefault)
-                            .foregroundStyle(VColor.contentTertiary)
-                    }
-                }
-
-                Text(toneLabel)
-                    .font(VFont.bodySmallEmphasised)
-                    .foregroundStyle(VColor.contentDefault)
-                    .frame(maxWidth: .infinity, alignment: .center)
             }
 
             // Footer buttons
@@ -168,9 +130,15 @@ struct TaskToneSelectionView: View {
                     .foregroundStyle(isSelected ? VColor.primaryBase : VColor.contentSecondary)
                     .frame(width: 24, alignment: .center)
 
-                Text(category.label)
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentDefault)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(category.label)
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentDefault)
+
+                    Text(category.sublabel)
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
 
                 Spacer()
 

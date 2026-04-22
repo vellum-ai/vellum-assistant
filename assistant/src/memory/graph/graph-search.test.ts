@@ -49,6 +49,7 @@ mock.module("../qdrant-client.js", () => ({
     },
   }),
   initQdrantClient: () => {},
+  resolveQdrantUrl: () => "http://127.0.0.1:6333",
   VellumQdrantClient: class {},
 }));
 

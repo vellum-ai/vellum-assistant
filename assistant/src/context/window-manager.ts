@@ -47,15 +47,19 @@ const SUMMARY_COMPRESSION_PRESSURE_RATIO = 0.6;
  *
  * This list intentionally overlaps with `RUNTIME_INJECTION_PREFIXES` in
  * `conversation-runtime-assembly.ts`. That list governs in-flight turn
- * assembly; this one governs compaction input only. Keep them in sync
- * when new injection types are added.
+ * assembly via pure prefix matching; this one governs compaction input.
+ * Keep the two lists in sync when a new injection type is added.
  *
- * Only internal-vocabulary tags are listed here. Tags whose bare form
- * collides with ordinary English words a user might actually type
+ * Compaction strip coverage is two-tier: this prefix list catches
+ * internal-vocabulary tags and any tag carrying the `__injected`
+ * attribute, while `COMPACTION_ONLY_WRAPPED_STRIP_TAGS` below matches
+ * ambiguous bare-tag blocks that are shaped like a runtime-emitted
+ * open/close wrap. A new ambiguous tag added upstream needs to be
+ * evaluated against both tiers — internal-vocabulary names go here,
+ * and names whose bare form collides with ordinary English
  * (`<memory>`, `<workspace>`, `<knowledge_base>`, `<pkb>`,
- * `<system_reminder>`) are handled by `COMPACTION_ONLY_WRAPPED_STRIP_TAGS`
- * below with a tighter match that requires the whole text block to be a
- * runtime-shaped open/close wrap.
+ * `<system_reminder>`) go in the wrapped-strip list so user prose
+ * mentioning the tag is preserved.
  */
 const COMPACTION_ONLY_STRIP_PREFIXES = [
   "<memory __injected>",
@@ -87,14 +91,12 @@ const COMPACTION_ONLY_STRIP_PREFIXES = [
  * Tags whose bare form (`<tag>`) is common English vocabulary or markup a
  * user might legitimately type in prose. For these we only strip a text
  * block if it is shaped exactly like a runtime injection: starts with
- * `<tag>\n` and ends with `</tag>`. Runtime always emits these blocks with
- * a newline after the opening tag and a matching closing tag; a user who
- * mentions `<memory>` in a sentence or inlines `<workspace>...</workspace>`
- * within other prose will not match this shape.
- *
- * Covers both current-format bare emissions and legacy pre-`__injected`
- * history (e.g. `<memory>...</memory>` from before `<memory __injected>`
- * was introduced).
+ * `<tag>\n` and ends with `</tag>`. This bare-tag wrapped shape
+ * (e.g. `<memory>\n...\n</memory>`) appears in persisted history
+ * alongside the `__injected`-attributed variants, which the prefix list
+ * above already catches via `<memory __injected>`. A user who mentions
+ * `<memory>` in a sentence or inlines `<workspace>...</workspace>` within
+ * other prose will not match this shape.
  */
 const COMPACTION_ONLY_WRAPPED_STRIP_TAGS = [
   "memory",

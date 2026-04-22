@@ -175,24 +175,28 @@ function spyOnClick(doc: Document, sel: string): string[] {
 }
 
 /**
- * Insert the post-admission bottom toolbar buttons — the "Leave call" button
- * AND the mic toggle — into the DOM to simulate admission. We run this
- * *synchronously* before calling {@link runJoinFlow} so the step-5 wait
- * short-circuits on the initial `querySelector` check rather than racing
- * against the observer. The separation-of-concerns test goals here are
- * "does the flow locate the in-meeting UI?" — not "does the observer fire
- * on a late mutation?" — so pre-insertion is the cleaner assertion target.
+ * Insert the post-admission bottom toolbar buttons — the leave button,
+ * mic toggle, AND the chat/participants panel toggles — into the DOM to
+ * simulate admission. We run this *synchronously* before calling
+ * {@link runJoinFlow} so the step-5 wait short-circuits on the initial
+ * `querySelector` check rather than racing against the observer. The
+ * separation-of-concerns test goals here are "does the flow locate the
+ * in-meeting UI?" — not "does the observer fire on a late mutation?" —
+ * so pre-insertion is the cleaner assertion target.
  *
- * The mic toggle is what `runJoinFlow` step 5 actually waits on
- * (`INGAME_READY_INDICATOR`); the leave button is kept alongside it so the
- * post-admission fixture mirrors live Meet (which renders both). Omitting
- * the mic toggle is how {@link insertLeaveButtonOnly} below simulates the
- * original bug: Meet's leave button mounts in the waiting room too, so the
- * bot-side code used to short-circuit step 5 before actual admission.
+ * The chat panel button is what `runJoinFlow` step 5 actually waits on
+ * (`INGAME_READY_INDICATOR`); the other buttons are kept alongside it so
+ * the post-admission fixture mirrors live Meet (which renders all four).
+ * Omitting the panel toggles is how {@link insertLeaveButtonOnly} and
+ * {@link insertLobbyDevicePreviewToolbar} simulate the two historical
+ * short-circuit bugs: the leave button also mounts in the waiting room,
+ * and the mic toggle also mounts on the prejoin device-preview lobby.
  */
 function insertPostAdmissionToolbar(doc: Document): {
   leave: HTMLButtonElement;
   micToggle: HTMLButtonElement;
+  chatPanelButton: HTMLButtonElement;
+  participantsPanelButton: HTMLButtonElement;
 } {
   const leave = doc.createElement("button");
   leave.setAttribute("type", "button");
@@ -206,9 +210,62 @@ function insertPostAdmissionToolbar(doc: Document): {
   micToggle.textContent = "Microphone";
   doc.body.appendChild(micToggle);
 
+  const chatPanelButton = doc.createElement("button");
+  chatPanelButton.setAttribute("type", "button");
+  chatPanelButton.setAttribute("aria-label", "Chat with everyone");
+  chatPanelButton.textContent = "Chat";
+  doc.body.appendChild(chatPanelButton);
+
+  const participantsPanelButton = doc.createElement("button");
+  participantsPanelButton.setAttribute("type", "button");
+  participantsPanelButton.setAttribute("aria-label", "Show everyone");
+  participantsPanelButton.textContent = "People";
+  doc.body.appendChild(participantsPanelButton);
+
   return {
     leave: leave as HTMLButtonElement,
     micToggle: micToggle as HTMLButtonElement,
+    chatPanelButton: chatPanelButton as HTMLButtonElement,
+    participantsPanelButton: participantsPanelButton as HTMLButtonElement,
+  };
+}
+
+/**
+ * Insert a prejoin-lobby device-preview toolbar — a mic toggle and
+ * camera toggle with the same aria-labels Meet uses on the in-meeting
+ * bottom bar — but NOT the chat/participants panel buttons. This
+ * simulates the state just after the bot clicked "Ask to join" but
+ * before Meet has mounted the in-meeting toolbar: the xdotool click is
+ * still queued, so `PREJOIN_NAME_INPUT` may still be in the DOM too.
+ *
+ * Before this aliasing fix, `INGAME_READY_INDICATOR` was the mic toggle
+ * selector and `waitForSelector` resolved synchronously on this DOM —
+ * step 5 returned instantly, `onAdmitted` fired, and step 6 tried to
+ * post the consent message into a DOM that had no chat panel at all.
+ * The symptom in production was a `[ext] consent post failed: chat
+ * input not found` diagnostic emitted while the bot was still on the
+ * lobby screen (aria-labels dump showed `BUTTON[Ask to join without
+ * camera]` and `INPUT[Your name]`).
+ */
+function insertLobbyDevicePreviewToolbar(doc: Document): {
+  micToggle: HTMLButtonElement;
+  cameraToggle: HTMLButtonElement;
+} {
+  const micToggle = doc.createElement("button");
+  micToggle.setAttribute("type", "button");
+  micToggle.setAttribute("aria-label", "Turn off microphone");
+  micToggle.textContent = "Microphone";
+  doc.body.appendChild(micToggle);
+
+  const cameraToggle = doc.createElement("button");
+  cameraToggle.setAttribute("type", "button");
+  cameraToggle.setAttribute("aria-label", "Turn off camera");
+  cameraToggle.textContent = "Camera";
+  doc.body.appendChild(cameraToggle);
+
+  return {
+    micToggle: micToggle as HTMLButtonElement,
+    cameraToggle: cameraToggle as HTMLButtonElement,
   };
 }
 
@@ -832,9 +889,9 @@ describe("runJoinFlow (content-script port)", () => {
     const { doc } = loadPrejoinDom();
     removeMediaModal(doc);
     // Deliberately do NOT insert the post-admission toolbar — the
-    // INGAME_READY_INDICATOR (mic toggle) never mounts, so step 5 should
-    // reject. The beforeEach setTimeout patch collapses the 90s wait to a
-    // single tick so the test runs quickly.
+    // INGAME_READY_INDICATOR (chat/participants panel toggles) never
+    // mounts, so step 5 should reject. The beforeEach setTimeout patch
+    // collapses the 90s wait to a single tick so the test runs quickly.
 
     const events: unknown[] = [];
     await expect(
@@ -963,11 +1020,12 @@ describe("runJoinFlow (content-script port)", () => {
 
   test("resolves step 5 against the committed ingame fixture", async () => {
     // Load the prejoin fixture (for steps 1-4), then splice in the committed
-    // ingame fixture's body contents so `INGAME_READY_INDICATOR` (the mic
-    // toggle) is visible to step 5. This gives us an end-to-end assertion
-    // that the selector chosen in `dom/selectors.ts` actually matches the
-    // real captured post-admission markup — not just the synthesized toolbar
-    // used by the other happy-path tests.
+    // ingame fixture's body contents so `INGAME_READY_INDICATOR` (the
+    // chat/participants panel toggles) is visible to step 5. This gives
+    // us an end-to-end assertion that the selector chosen in
+    // `dom/selectors.ts` actually matches the real captured post-
+    // admission markup — not just the synthesized toolbar used by the
+    // other happy-path tests.
     const { doc } = loadPrejoinDom();
     removeMediaModal(doc);
     spliceIngameFixture(doc);
@@ -988,7 +1046,7 @@ describe("runJoinFlow (content-script port)", () => {
       restore();
     }
 
-    // Sanity-check: the mic toggle came in via the ingame fixture.
+    // Sanity-check: the panel toggles came in via the ingame fixture.
     expect(doc.querySelector(selectors.INGAME_READY_INDICATOR)).not.toBeNull();
 
     // And no error diagnostics fired — step 5 resolved cleanly.
@@ -1068,6 +1126,49 @@ describe("runJoinFlow (content-script port)", () => {
         displayName: "Vellum Bot",
         consentMessage: "Hi, Vellum is listening.",
         meetingId: "mtg-leave-button-alone",
+        onEvent: (e) => events.push(e),
+        doc,
+      }),
+    ).rejects.toThrow(/in-meeting UI did not appear/i);
+
+    // Diagnostic was emitted before the throw.
+    const diag = events.find(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as { type?: string }).type === "diagnostic" &&
+        (e as { level?: string }).level === "error",
+    );
+    expect(diag).toBeDefined();
+  });
+
+  test("regression: the prejoin lobby's mic toggle is NOT accepted as the in-meeting signal", async () => {
+    // Paired with the waiting-room regression above: before this fix,
+    // `INGAME_READY_INDICATOR` was `MIC_TOGGLE` on the assumption that
+    // the dual `"Turn off microphone"` / `"Turn on microphone"` aria-
+    // label only appears post-admission. In practice Meet renders the
+    // same device-preview toolbar on the prejoin lobby with identical
+    // aria-labels, so `waitForSelector(INGAME_READY_INDICATOR)` resolved
+    // synchronously before the bot even clicked "Ask to join" — step 5
+    // returned instantly, `onAdmitted` fired, and step 6's consent post
+    // failed against the lobby DOM with `chat input not found`.
+    //
+    // We simulate the lobby surface by inserting only the mic + camera
+    // toggles (no chat panel button, no participants panel button) and
+    // assert the join flow now times out at step 5 instead of racing
+    // ahead. The `beforeEach` setTimeout patch collapses the 90s wait
+    // to a single tick so the test runs quickly.
+    const { doc } = loadPrejoinDom();
+    removeMediaModal(doc);
+    insertLobbyDevicePreviewToolbar(doc);
+
+    const events: unknown[] = [];
+    await expect(
+      runJoinFlow({
+        meetingUrl: "https://meet.google.com/abc-defg-hij",
+        displayName: "Vellum Bot",
+        consentMessage: "Hi, Vellum is listening.",
+        meetingId: "mtg-lobby-mic-toggle-alone",
         onEvent: (e) => events.push(e),
         doc,
       }),

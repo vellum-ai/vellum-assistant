@@ -15,6 +15,11 @@ const DEFAULT_PROACTIVE_CHAT = {
   tier2MaxTranscriptSec: 30,
 };
 
+const DEFAULT_VOICE_MODE = {
+  enabled: true,
+  eouDebounceMs: 800,
+};
+
 const DEFAULT_AVATAR = {
   enabled: false,
   renderer: "noop",
@@ -35,6 +40,7 @@ describe("MeetServiceSchema", () => {
       dockerNetwork: "bridge",
       maxMeetingMinutes: 240,
       proactiveChat: DEFAULT_PROACTIVE_CHAT,
+      voiceMode: DEFAULT_VOICE_MODE,
       avatar: DEFAULT_AVATAR,
     });
   });
@@ -67,6 +73,7 @@ describe("MeetServiceSchema", () => {
     expect(parsed).toEqual({
       ...input,
       proactiveChat: DEFAULT_PROACTIVE_CHAT,
+      voiceMode: DEFAULT_VOICE_MODE,
       avatar: DEFAULT_AVATAR,
     });
   });

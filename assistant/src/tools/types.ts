@@ -207,6 +207,18 @@ export interface ToolContext {
    * to cdp-inspect or local Playwright.
    */
   transportInterface?: InterfaceId;
+  /**
+   * True when the host browser proxy's sender was overridden by a
+   * registry-routed extension connection (ChromeExtensionRegistry WebSocket).
+   * The CDP factory uses this to distinguish between an SSE-backed proxy
+   * (macOS, no extension) and an extension-backed proxy: only the latter
+   * should suppress desktop-auto cdp-inspect when temporarily unavailable,
+   * because the extension transport was explicitly expected and the
+   * disconnection is transient. An SSE-backed proxy that reports
+   * unavailable (e.g. non-interactive turn) should NOT suppress
+   * cdp-inspect — the proxy was never expected to service browser requests.
+   */
+  hostBrowserRegistryRouted?: boolean;
 }
 
 export interface DiffInfo {
@@ -242,6 +254,12 @@ export interface ToolExecutionResult {
    * the LLM voluntarily end its turn.
    */
   yieldToUser?: boolean;
+  /** Risk level from the classifier (populated during permission check). */
+  riskLevel?: string;
+  /** Human-readable reason for the risk classification. */
+  riskReason?: string;
+  /** Scope options ladder for the rule editor (narrowest to broadest). */
+  riskScopeOptions?: Array<{ pattern: string; label: string }>;
   /**
    * When present, indicates that a CES tool returned an `approval_required`
    * response. The executor uses the approval bridge to prompt the guardian,

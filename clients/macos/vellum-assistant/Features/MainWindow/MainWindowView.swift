@@ -112,7 +112,19 @@ struct MainWindowView: View {
     /// as the Home stores) so the panel is wired up the moment the user
     /// lands on Home, without having to refresh.
     @State var meetStatusViewModel: MeetStatusViewModel
-    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
+    /// When non-nil, the Home panel splits into a two-pane layout and
+    /// renders ``HomeScheduledDetailPanel`` on the trailing edge for the
+    /// tapped scheduled (`.thread`) feed item. Owned here (rather than
+    /// inside ``HomePageView``) so the selection survives any @ViewBuilder
+    /// rebuild of the Home panel wrapper.
+    @State var selectedScheduledItemId: String? = nil
+    /// Parallel to ``selectedScheduledItemId``: when non-nil, the Home
+    /// panel renders ``HomeNudgeDetailPanel`` for the tapped `.nudge`
+    /// feed item, surfacing the nudge's associated action cards.
+    /// At most one of `selectedScheduledItemId` / `selectedNudgeItemId`
+    /// is non-nil at a time — opening one clears the other.
+    @State var selectedNudgeItemId: String? = nil
+    init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil, initialAssistantName: String? = nil) {
         self.conversationManager = conversationManager
         self.listStore = conversationManager.listStore
         self.appListManager = appListManager
@@ -133,8 +145,8 @@ struct MainWindowView: View {
         self.updateManager = updateManager
         self.onSendWakeUp = onSendWakeUp
         let cached = IdentityInfo.loadFromDiskCache()
-        self._cachedAssistantName = State(initialValue: AssistantDisplayName.resolve(cached?.name, fallback: "Your Assistant"))
-        self._assistantNameResolved = State(initialValue: cached != nil)
+        self._cachedAssistantName = State(initialValue: AssistantDisplayName.resolve(cached?.name, initialAssistantName, fallback: "Your Assistant"))
+        self._assistantNameResolved = State(initialValue: cached != nil || initialAssistantName != nil)
         self._showComingAlive = State(initialValue: onSendWakeUp != nil)
         // Show skeleton loading only for normal launches (not post-onboarding where
         // ComingAliveOverlay handles the transition).
@@ -322,6 +334,7 @@ struct MainWindowView: View {
 
     var body: some View {
         coreLayoutView
+            .environment(assistantFeatureFlagStore)
             .opacity(showComingAlive ? 0 : 1)
             .overlay {
                 if showComingAlive {
@@ -345,13 +358,16 @@ struct MainWindowView: View {
                 }
             }
             .onChange(of: windowState.selection) { oldSelection, newSelection in
-                // When selection transitions to .conversation, ensure ConversationManager is synced
-                // so chat content targets the correct conversation (e.g. after dismissOverlay).
-                // Guard against archived conversations: if the conversation was archived while an
-                // overlay was open, persistentConversationId may still point to the stale ID.
+                // Validate the new selection synchronously so that if the target
+                // is stale (archived / abandoned draft) we can correct the
+                // selection on the current frame before it commits as an
+                // invalid state. The heavy `ConversationManager` sync is
+                // deferred below so SwiftUI can paint the selection change
+                // before we block on VM creation.
+                var conversationIdToActivate: UUID?
                 if case .conversation(let id) = newSelection {
                     if listStore.conversations.contains(where: { $0.id == id && !$0.isArchived }) {
-                        conversationManager.selectConversation(id: id)
+                        conversationIdToActivate = id
                     } else {
                         // Conversation was archived/deleted — fall back to the first visible conversation
                         if let fallback = listStore.visibleConversations.first {
@@ -371,11 +387,8 @@ struct MainWindowView: View {
                     let isCommittedAndVisible = listStore.conversations.contains { $0.id == id && !$0.isArchived }
                     let isCurrentDraft = conversationManager.draftLocalId == id
                     if isCommittedAndVisible {
-                        // Sync ConversationManager so the chat dock targets
-                        // this conversation even when we arrived here via a
-                        // history replay rather than a sidebar click.
                         if conversationManager.activeConversationId != id {
-                            conversationManager.selectConversation(id: id)
+                            conversationIdToActivate = id
                         }
                     } else if !isCurrentDraft {
                         // Stale target — drop the dock but keep the app visible.
@@ -383,11 +396,26 @@ struct MainWindowView: View {
                     }
                 }
 
-                // Sync surface and chat dock state when selection changes
-                let expanded = windowState.isDynamicExpanded
-                let docked = windowState.isChatDockOpen
-                conversationManager.activeViewModel?.activeSurfaceId = expanded ? windowState.activeDynamicSurface?.surfaceId : nil
-                conversationManager.activeViewModel?.isChatDockedToSide = expanded && docked
+                // Yield to the run loop before the heavy `ConversationManager`
+                // sync so SwiftUI commits the selection-driven UI change
+                // (sidebar highlight, chat container swap) on the current
+                // frame. A cache-miss through `selectConversation(id:)`
+                // synchronously builds a new `ChatViewModel` and wires three
+                // Combine observers — without the yield, the main thread
+                // stays busy for that entire window and a click appears to
+                // do nothing until the conversation has fully loaded.
+                // Surface / dock sync lives in the same Task because it
+                // reads `activeViewModel`, which only reflects the new
+                // conversation after `selectConversation` has run.
+                Task { @MainActor in
+                    if let id = conversationIdToActivate {
+                        conversationManager.selectConversation(id: id)
+                    }
+                    let expanded = windowState.isDynamicExpanded
+                    let docked = windowState.isChatDockOpen
+                    conversationManager.activeViewModel?.activeSurfaceId = expanded ? windowState.activeDynamicSurface?.surfaceId : nil
+                    conversationManager.activeViewModel?.isChatDockedToSide = expanded && docked
+                }
 
                 // Reset expanded state and active surface when navigating away from app/generated
                 let oldIsApp: Bool = {

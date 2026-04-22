@@ -67,7 +67,7 @@ final class ReturningUserRouter {
     // MARK: - Dependencies
 
     private let organizationIdProvider: () -> String?
-    private let authServiceProvider: () -> ManagedAssistantBootstrapAuthServicing?
+    private let authServiceProvider: @MainActor () -> ManagedAssistantBootstrapAuthServicing?
     private let lockfileLoader: () -> [LockfileAssistant]
     private let multiAssistantFlagProvider: () -> Bool
 
@@ -77,7 +77,7 @@ final class ReturningUserRouter {
         organizationIdProvider: @escaping () -> String? = {
             UserDefaults.standard.string(forKey: "connectedOrganizationId")
         },
-        authServiceProvider: @escaping () -> ManagedAssistantBootstrapAuthServicing? = {
+        authServiceProvider: @MainActor @escaping () -> ManagedAssistantBootstrapAuthServicing? = {
             AuthService.shared
         },
         lockfileLoader: @escaping () -> [LockfileAssistant] = {

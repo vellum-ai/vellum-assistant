@@ -1,8 +1,20 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
-/// Multi-line text input with native placeholder support.
-/// Uses `TextField(axis: .vertical)` so the placeholder, typed text,
-/// and caret all share the same text container and align correctly.
+/// Multi-line free-form text input.
+///
+/// On macOS, backed by an `NSViewRepresentable` wrapping `NSTextView` so
+/// text-container insets (`lineFragmentPadding`, `textContainerInset`) can be
+/// set explicitly. SwiftUI's `TextEditor` does not expose these values and
+/// their effective defaults drift across macOS versions, which prevents a
+/// sibling placeholder overlay from aligning with the rendered caret.
+///
+/// On iOS, backed by SwiftUI's native `TextEditor`.
+///
+/// The placeholder overlay uses the same inset values as the underlying
+/// `NSTextView` so it sits directly behind the first caret position.
 public struct VTextEditor: View {
     public let placeholder: String
     @Binding public var text: String
@@ -19,17 +31,74 @@ public struct VTextEditor: View {
     }
 
     public var body: some View {
-        TextField(placeholder, text: $text, axis: .vertical)
-            .lineLimit(1...100)
-            .textFieldStyle(.plain)
+        ZStack(alignment: .topLeading) {
+            editor
+
+            if text.isEmpty {
+                Text(placeholder)
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundStyle(VColor.contentTertiary)
+                    .padding(.leading, placeholderInsetX)
+                    .padding(.top, placeholderInsetY)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .frame(minHeight: minHeight, maxHeight: maxHeight, alignment: .topLeading)
+        .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.md, bottom: VSpacing.sm, trailing: VSpacing.md))
+        .contentShape(Rectangle())
+        .simultaneousGesture(TapGesture().onEnded { isFocused = true })
+        .vInputChrome(isFocused: isFocused)
+    }
+
+    @ViewBuilder
+    private var editor: some View {
+        #if os(macOS)
+        VTextEditorNSTextView(
+            text: $text,
+            shouldFocus: isFocused,
+            font: VFont.nsBodyMediumLighter,
+            textColor: NSColor(VColor.contentDefault),
+            accessibilityLabel: placeholder,
+            onFocusChanged: { newValue in
+                if isFocused != newValue { isFocused = newValue }
+            }
+        )
+        .focusable(true)
+        .focused($isFocused)
+        // The focus state is rendered visually by `.vInputChrome` on the
+        // outer container; suppress SwiftUI's default keyboard-focus ring on
+        // the focusable representable so only one border is drawn.
+        // https://developer.apple.com/documentation/swiftui/view/focuseffectdisabled(_:)
+        .focusEffectDisabled()
+        #else
+        TextEditor(text: $text)
             .font(VFont.bodyMediumLighter)
             .foregroundStyle(VColor.contentDefault)
+            .scrollContentBackground(.hidden)
+            .background(Color.clear)
             .focused($isFocused)
-            .frame(minHeight: minHeight, maxHeight: maxHeight, alignment: .topLeading)
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.sm)
-            .contentShape(Rectangle())
-            .simultaneousGesture(TapGesture().onEnded { isFocused = true })
-            .vInputChrome(isFocused: isFocused)
+            .accessibilityLabel(placeholder)
+        #endif
+    }
+
+    /// Horizontal placeholder offset matches the underlying editor's leading
+    /// text inset so the placeholder sits directly over the caret.
+    private var placeholderInsetX: CGFloat {
+        #if os(macOS)
+        VTextEditorNSTextView.textInsetX
+        #else
+        5
+        #endif
+    }
+
+    /// Vertical placeholder offset matches the underlying editor's top text
+    /// inset so the placeholder sits directly over the caret.
+    private var placeholderInsetY: CGFloat {
+        #if os(macOS)
+        VTextEditorNSTextView.textInsetY
+        #else
+        8
+        #endif
     }
 }

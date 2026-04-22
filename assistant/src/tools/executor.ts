@@ -171,6 +171,13 @@ export class ToolExecutor {
       // Exception: requireFreshApproval tools always go through the
       // permission check even when a grant was consumed - the grant does
       // not substitute for an interactive human review.
+      let permRiskMeta:
+        | {
+            riskLevel: string;
+            riskReason: string;
+            riskScopeOptions: Array<{ pattern: string; label: string }>;
+          }
+        | undefined;
       if (!gateResult.grantConsumed || context.requireFreshApproval) {
         // Check permissions via the extracted PermissionChecker
         const permResult = await this.permissionChecker.checkPermission(
@@ -186,9 +193,16 @@ export class ToolExecutor {
 
         riskLevel = permResult.riskLevel;
         decision = permResult.decision;
+        permRiskMeta = permResult.riskMeta;
 
         if (!permResult.allowed) {
-          return { content: permResult.content, isError: true };
+          return {
+            content: permResult.content,
+            isError: true,
+            riskLevel: permRiskMeta?.riskLevel,
+            riskReason: permRiskMeta?.riskReason,
+            riskScopeOptions: permRiskMeta?.riskScopeOptions,
+          };
         }
 
         if (permResult.wasPrompted) {
@@ -396,6 +410,18 @@ export class ToolExecutor {
         durationMs,
         result: safeResult,
       });
+
+      // Merge risk metadata from the classifier assessment cache onto the
+      // tool result so downstream consumers (AgentEvent → handleToolResult →
+      // ToolResult SSE message) can forward it to the client.
+      if (permRiskMeta) {
+        execResult = {
+          ...execResult,
+          riskLevel: permRiskMeta.riskLevel,
+          riskReason: permRiskMeta.riskReason,
+          riskScopeOptions: permRiskMeta.riskScopeOptions,
+        };
+      }
 
       return execResult;
     } catch (err) {

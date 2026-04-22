@@ -12,8 +12,6 @@ import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import {
   getPlatformAssistantId,
-  getQdrantHttpPortEnv,
-  getQdrantUrlEnv,
   getRuntimeHttpHost,
   getRuntimeHttpPort,
   setIngressPublicBaseUrl,
@@ -61,7 +59,7 @@ import {
 } from "../memory/embedding-backend.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { startMemoryJobsWorker } from "../memory/jobs-worker.js";
-import { initQdrantClient } from "../memory/qdrant-client.js";
+import { initQdrantClient, resolveQdrantUrl } from "../memory/qdrant-client.js";
 import { QdrantManager } from "../memory/qdrant-manager.js";
 import { rotateToolInvocations } from "../memory/tool-usage-store.js";
 import { deleteOldTraceEvents } from "../memory/trace-event-store.js";
@@ -759,13 +757,7 @@ export async function runDaemon(): Promise<void> {
     // Initialize Qdrant vector store and memory worker in the background so the
     // RuntimeHttpServer can start accepting requests without waiting for Qdrant.
     async function initializeQdrantAndMemory(): Promise<void> {
-      // Prefer QDRANT_HTTP_PORT (locally-spawned Qdrant on a specific port) over
-      // QDRANT_URL (external Qdrant instance) so the CLI can set the port without
-      // triggering QdrantManager's external mode which skips local process spawn.
-      const qdrantHttpPort = getQdrantHttpPortEnv();
-      const qdrantUrl = qdrantHttpPort
-        ? `http://127.0.0.1:${qdrantHttpPort}`
-        : getQdrantUrlEnv() || config.memory.qdrant.url;
+      const qdrantUrl = resolveQdrantUrl(config);
       log.info({ qdrantUrl }, "Daemon startup: initializing Qdrant");
       const manager = new QdrantManager({ url: qdrantUrl });
       bgRefs.qdrantManager = manager;

@@ -32,10 +32,12 @@ import {
   type RiskAssessment,
   riskToRiskLevel,
 } from "./risk-types.js";
+import { scheduleRiskClassifier } from "./schedule-risk-classifier.js";
 import {
+  analyzeShellCommand,
   buildShellAllowlistOptions,
-  buildShellCommandCandidates,
   cachedParse,
+  deriveShellActionKeys,
   type ParsedCommand,
 } from "./shell-identity.js";
 import { skillLoadRiskClassifier } from "./skill-risk-classifier.js";
@@ -253,10 +255,27 @@ async function buildCommandCandidates(
   preParsed?: ParsedCommand,
 ): Promise<string[]> {
   if (toolName === "bash" || toolName === "host_bash") {
-    return buildShellCommandCandidates(
-      getStringField(input, "command"),
-      preParsed,
-    );
+    const command = getStringField(input, "command").trim();
+    if (!command) return [command];
+
+    const analysis = await analyzeShellCommand(command, preParsed);
+    const actionResult = deriveShellActionKeys(analysis);
+
+    const candidates: string[] = [command];
+
+    if (actionResult.keys.length > 0) {
+      if (actionResult.isSimpleAction && actionResult.primarySegment) {
+        const canonical = actionResult.primarySegment.command;
+        if (canonical !== command) {
+          candidates.push(canonical);
+        }
+      }
+      for (const actionKey of actionResult.keys) {
+        candidates.push(actionKey.key);
+      }
+    }
+
+    return [...new Set(candidates)];
   }
 
   if (toolName === "skill_load") {
@@ -479,6 +498,19 @@ export async function classifyRisk(
         | "scaffold_managed_skill"
         | "delete_managed_skill",
       skillSelector: getStringField(input, "skill", "skill_id").trim(),
+    });
+    classifierAssessment = assessment;
+    result = {
+      level: riskToRiskLevel(assessment.riskLevel),
+      reason: assessment.reason,
+    };
+  }
+  // ── Schedule tools: delegate to ScheduleRiskClassifier ──────────────────
+  else if (toolName === "schedule_create" || toolName === "schedule_update") {
+    const assessment = await scheduleRiskClassifier.classify({
+      toolName,
+      mode: getStringField(input, "mode") || undefined,
+      script: getStringField(input, "script") || undefined,
     });
     classifierAssessment = assessment;
     result = {
@@ -754,10 +786,6 @@ function shellAllowlistStrategy(
   input: Record<string, unknown>,
 ): Promise<AllowlistOption[]> {
   const command = ((input.command as string) ?? "").trim();
-  // TODO(phase-3): Wire RiskAssessment.scopeOptions into permission prompts
-  // and retire buildShellAllowlistOptions + buildShellCommandCandidates from
-  // shell-identity.ts. The classifier's generateScopeOptions produces the
-  // canonical scope ladder; this legacy path should not diverge further.
   return buildShellAllowlistOptions(command);
 }
 
@@ -952,27 +980,43 @@ export async function generateAllowlistOptions(
 ): Promise<AllowlistOption[]> {
   signal?.throwIfAborted();
 
-  // Check if a classifier already produced allowlist options during
-  // classifyRisk(). If so, return those directly — avoids duplicate
-  // computation and keeps scope option generation unified with risk
-  // classification.
-  const aKey = assessmentCacheKey(toolName, input);
-  const cachedAssessment = assessmentCache.get(aKey);
-  if (
-    cachedAssessment?.allowlistOptions &&
-    cachedAssessment.allowlistOptions.length > 0
-  ) {
-    return cachedAssessment.allowlistOptions;
+  // When permission-controls-v3 is enabled, use classifier-produced options
+  // from the assessment cache (populated by BashRiskClassifier.classify()).
+  // When the flag is off, fall through to the legacy per-tool strategies
+  // (e.g. shellAllowlistStrategy for bash/host_bash) to avoid changing the
+  // allowlist pattern format for users who haven't opted in.
+  const config = getConfig();
+  if (isAssistantFeatureFlagEnabled("permission-controls-v3", config)) {
+    const aKey = assessmentCacheKey(toolName, input);
+    const cachedAssessment = assessmentCache.get(aKey);
+    if (
+      cachedAssessment?.allowlistOptions &&
+      cachedAssessment.allowlistOptions.length > 0
+    ) {
+      return cachedAssessment.allowlistOptions;
+    }
   }
 
-  // Fall back to the per-tool strategy function for tools that don't have
-  // classifier-produced options (e.g. bash tools use the shell identity
-  // strategy, or when the cache was missed).
+  // Fall back to the per-tool strategy function. For bash/host_bash when the
+  // flag is off, this uses shellAllowlistStrategy (action: key patterns).
+  // For other tools, this is the only path.
   if (Object.hasOwn(ALLOWLIST_STRATEGIES, toolName)) {
     return ALLOWLIST_STRATEGIES[toolName](toolName, input);
   }
 
   return [{ label: "*", description: "Everything", pattern: "*" }];
+}
+
+/**
+ * Retrieve a cached RiskAssessment for a given tool invocation.
+ * Returns `undefined` when no classifier-backed assessment exists
+ * (e.g. MCP tools, unknown tools that fall through to registry defaults).
+ */
+export function getCachedAssessment(
+  toolName: string,
+  input: Record<string, unknown>,
+): RiskAssessment | undefined {
+  return assessmentCache.get(assessmentCacheKey(toolName, input));
 }
 
 // Directory-based scope only applies to filesystem and shell tools.

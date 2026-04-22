@@ -1,7 +1,7 @@
 /**
  * Gateway-backed auto-approve threshold reader.
  *
- * When the `auto-approve-threshold-ui` feature flag is enabled, reads
+ * When the `permission-controls-v3` feature flag is enabled, reads
  * thresholds from the gateway REST API. Falls back to `undefined` (caller
  * uses config-based `resolveThreshold`) when the flag is off or the gateway
  * is unreachable.
@@ -105,7 +105,7 @@ export async function getAutoApproveThreshold(
   executionContext?: ExecutionContext,
 ): Promise<Threshold | undefined> {
   const config = getConfig();
-  if (!isAssistantFeatureFlagEnabled("auto-approve-threshold-ui", config)) {
+  if (!isAssistantFeatureFlagEnabled("permission-controls-v3", config)) {
     return undefined;
   }
 

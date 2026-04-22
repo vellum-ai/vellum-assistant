@@ -21,7 +21,7 @@ import { getWorkspaceDir } from "../../util/platform.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "../checkpoints.js";
 import { getDb, rawAll, rawGet, rawRun } from "../db.js";
 import { enqueueMemoryJob, hasActiveJobOfType } from "../jobs-store.js";
-import { initQdrantClient } from "../qdrant-client.js";
+import { initQdrantClient, resolveQdrantUrl } from "../qdrant-client.js";
 import { conversations, memoryGraphNodes, memorySegments } from "../schema.js";
 import { runGraphExtraction } from "./extraction.js";
 import { countNodes } from "./store.js";
@@ -71,7 +71,7 @@ export async function bootstrapFromHistory(
   // Initialize Qdrant client for inline embedding
   try {
     initQdrantClient({
-      url: config.memory.qdrant.url ?? "http://127.0.0.1:6333",
+      url: resolveQdrantUrl(config),
       collection: config.memory.qdrant.collection,
       vectorSize: config.memory.qdrant.vectorSize,
       onDisk: config.memory.qdrant.onDisk ?? true,
@@ -384,6 +384,10 @@ const KIND_TO_PREFIX: Record<string, string> = {
  * schema. ORM-based inserts include every column in the schema definition,
  * so adding a column in a later migration would cause this migration to
  * fail with "table has no column named …" on upgrade paths.
+ *
+ * The INSERT intentionally omits columns added by later migrations (e.g.
+ * `image_refs` from migration 205) since they default to NULL and
+ * including them would couple this migration to those later schema changes.
  */
 export function migrateToolCreatedItems(): void {
   if (getMemoryCheckpoint(MIGRATE_ITEMS_CHECKPOINT)) return;
@@ -446,8 +450,8 @@ export function migrateToolCreatedItems(): void {
         event_date, emotional_charge, fidelity, confidence, significance,
         stability, reinforcement_count, last_reinforced,
         source_conversations, source_type, narrative_role, part_of_story,
-        image_refs, scope_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        scope_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       content,
       "semantic",
@@ -464,7 +468,6 @@ export function migrateToolCreatedItems(): void {
       now,
       JSON.stringify([sourceKey]),
       "direct",
-      null,
       null,
       null,
       row.scope_id || "default",

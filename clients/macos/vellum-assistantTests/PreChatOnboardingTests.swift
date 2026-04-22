@@ -157,7 +157,6 @@ final class PreChatOnboardingTests: XCTestCase {
         state1.currentScreen = 2
         state1.selectedTools = ["slack", "notion"]
         state1.selectedTasks = ["code-building"]
-        state1.toneValue = 0.8
         state1.userName = "TestUser"
         state1.assistantName = "TestAssistant"
         state1.persist()
@@ -168,7 +167,6 @@ final class PreChatOnboardingTests: XCTestCase {
         XCTAssertEqual(state2.currentScreen, 2)
         XCTAssertEqual(state2.selectedTools, ["slack", "notion"])
         XCTAssertEqual(state2.selectedTasks, ["code-building"])
-        XCTAssertEqual(state2.toneValue, 0.8, accuracy: 0.01)
         XCTAssertEqual(state2.userName, "TestUser")
         XCTAssertEqual(state2.assistantName, "TestAssistant")
     }
@@ -187,21 +185,6 @@ final class PreChatOnboardingTests: XCTestCase {
         XCTAssertEqual(state2.currentScreen, 0)
         XCTAssertTrue(state2.selectedTools.isEmpty)
         XCTAssertTrue(state2.selectedTasks.isEmpty)
-    }
-
-    // MARK: - Tone Label
-
-    func testToneLabelMappings() {
-        let state = PreChatOnboardingState()
-
-        state.toneValue = 0.1
-        XCTAssertEqual(state.toneLabel, "casual")
-
-        state.toneValue = 0.5
-        XCTAssertEqual(state.toneLabel, "balanced")
-
-        state.toneValue = 0.9
-        XCTAssertEqual(state.toneLabel, "professional")
     }
 
     // MARK: - Skip Flow
@@ -238,14 +221,13 @@ final class PreChatOnboardingTests: XCTestCase {
         let state = PreChatOnboardingState()
         state.selectedTools = ["slack"]
         state.selectedTasks = ["writing"]
-        state.toneValue = 0.1
         state.userName = "Alex"
         state.assistantName = "Pax"
 
         let context = PreChatOnboardingContext(
             tools: Array(state.selectedTools).sorted(),
             tasks: Array(state.selectedTasks).sorted(),
-            tone: state.toneLabel,
+            tone: "balanced",
             userName: state.userName.isEmpty ? nil : state.userName,
             assistantName: state.assistantName.isEmpty ? nil : state.assistantName
         )
@@ -254,8 +236,40 @@ final class PreChatOnboardingTests: XCTestCase {
         XCTAssertNotNil(receivedContext)
         XCTAssertEqual(receivedContext?.tools, ["slack"])
         XCTAssertEqual(receivedContext?.tasks, ["writing"])
-        XCTAssertEqual(receivedContext?.tone, "casual")
+        XCTAssertEqual(receivedContext?.tone, "balanced")
         XCTAssertEqual(receivedContext?.userName, "Alex")
         XCTAssertEqual(receivedContext?.assistantName, "Pax")
+    }
+
+    // MARK: - Identity Cache Seeding
+
+    func testSeedCacheWritesAssistantNameToDiskCache() {
+        let testId = "test-assistant-\(UUID().uuidString)"
+
+        IdentityInfo.seedCache(name: "Wren", forAssistantId: testId)
+
+        let allCached = IdentityInfoStore.load()
+        XCTAssertEqual(allCached[testId]?.name, "Wren")
+    }
+
+    func testSeedCacheDoesNotOverwriteExistingEntry() {
+        let testId = "test-assistant-\(UUID().uuidString)"
+
+        IdentityInfo.seedCache(name: "Wren", forAssistantId: testId)
+        IdentityInfo.seedCache(name: "Pip", forAssistantId: testId)
+
+        let allCached = IdentityInfoStore.load()
+        XCTAssertEqual(allCached[testId]?.name, "Wren",
+                       "seedCache should not overwrite an existing entry")
+    }
+
+    func testAssistantDisplayNameResolvesFromSeedCache() {
+        let testId = "test-assistant-\(UUID().uuidString)"
+
+        IdentityInfo.seedCache(name: "Wren", forAssistantId: testId)
+
+        let cached = IdentityInfoStore.load()[testId]
+        let resolved = AssistantDisplayName.resolve(cached?.name, fallback: "Your Assistant")
+        XCTAssertEqual(resolved, "Wren")
     }
 }

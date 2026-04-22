@@ -11,7 +11,6 @@ final class PreChatOnboardingState {
     var currentScreen: Int = 0 // 0 = tools, 1 = tasks/tone, 2 = names
     var selectedTools: Set<String> = []
     var selectedTasks: Set<String> = []
-    var toneValue: Double = 0.5 // 0 = casual, 0.5 = balanced, 1 = professional
     var userName: String
     var assistantName: String
     var skippedAll: Bool = false
@@ -22,24 +21,17 @@ final class PreChatOnboardingState {
     /// Not persisted to UserDefaults — a fresh sample is drawn on each run.
     let displayedAssistantNames: [String]
 
-    var toneLabel: String {
-        if toneValue < 0.25 { return "casual" }
-        if toneValue > 0.75 { return "professional" }
-        return "balanced"
-    }
-
     // MARK: - Persistence Keys
 
     private static let prefix = "onboarding.prechat."
     private static let screenKey = "\(prefix)currentScreen"
     private static let toolsKey = "\(prefix)selectedTools"
     private static let tasksKey = "\(prefix)selectedTasks"
-    private static let toneKey = "\(prefix)toneValue"
     private static let userNameKey = "\(prefix)userName"
     private static let assistantNameKey = "\(prefix)assistantName"
 
     private static let allKeys: [String] = [
-        screenKey, toolsKey, tasksKey, toneKey,
+        screenKey, toolsKey, tasksKey,
         userNameKey, assistantNameKey,
     ]
 
@@ -62,10 +54,6 @@ final class PreChatOnboardingState {
             selectedTasks = Set(tasks)
         }
 
-        if defaults.object(forKey: Self.toneKey) != nil {
-            toneValue = defaults.double(forKey: Self.toneKey)
-        }
-
         if let name = defaults.string(forKey: Self.userNameKey) {
             userName = name
         } else {
@@ -85,7 +73,6 @@ final class PreChatOnboardingState {
         defaults.set(currentScreen, forKey: Self.screenKey)
         defaults.set(Array(selectedTools), forKey: Self.toolsKey)
         defaults.set(Array(selectedTasks), forKey: Self.tasksKey)
-        defaults.set(toneValue, forKey: Self.toneKey)
         defaults.set(userName, forKey: Self.userNameKey)
         defaults.set(assistantName, forKey: Self.assistantNameKey)
     }

@@ -180,45 +180,179 @@ export function startChatReader(opts: ChatReaderOptions): ChatReader {
   // idle — the same failure mode as before this helper went async.
   void ensurePanelOpen();
 
-  // Bot-side dedupe keyed on the rendered `data-message-id`. The in-page
-  // seen set is reset every time the panel close/reopens and the observer
-  // re-attaches, so we keep our own set to survive those cycles.
-  const seenDomIds = new Set<string>();
+  // Dedup across extract() calls. DOM-node identity is the primary key —
+  // a `role="listitem"` is not reinstantiated once the panel is open, so
+  // a WeakSet on the node is sufficient for the common case. A secondary
+  // content-hash set covers re-mounts (panel close → reopen): the node
+  // identity is new, but the rendered sender+text+time triple is stable
+  // enough to suppress a duplicate fire. `data-message-id` is preferred
+  // when Meet exposes it, but it's not present on the live DOM today.
+  const seenNodes = new WeakSet<Element>();
+  const seenContentHashes = new Set<string>();
+
+  let emittedCount = 0;
+  let diagnosticEmitted = false;
+  /**
+   * Fire a one-shot `[ext]` diagnostic the first time we observe a
+   * message list in which the listitem rows do NOT carry the
+   * `data-message-id` attribute that {@link chatSelectors.MESSAGE_NODE}'s
+   * primary clause depends on. That's the exact drift signature this
+   * reader's fallback path exists to handle — the diagnostic gives an
+   * operator enough DOM structure (attrs on the first listitem, nearby
+   * aria-labels) to write a more precise selector next time.
+   *
+   * Fixture tests (which carry `data-message-id` on every listitem) never
+   * trip this branch, so the diagnostic doesn't pollute their event
+   * streams.
+   */
+  const maybeEmitReaderDiagnostic = (): void => {
+    if (diagnosticEmitted) return;
+    const structuralItems = document.querySelectorAll(
+      '[role="list"][aria-label*="message" i] [role="listitem"]',
+    );
+    if (structuralItems.length === 0) return;
+
+    let structuralOnlyItem: Element | null = null;
+    for (const item of Array.from(structuralItems)) {
+      if (!item.hasAttribute("data-message-id")) {
+        structuralOnlyItem = item;
+        break;
+      }
+    }
+    // Fixture-shaped DOMs (every listitem has data-message-id) never emit
+    // the diagnostic — selector drift is the only case that trips it.
+    if (!structuralOnlyItem) return;
+    diagnosticEmitted = true;
+
+    const lists = document.querySelectorAll(chatSelectors.MESSAGE_LIST);
+    const summarizeItem = (el: Element): string => {
+      const attrs = Array.from(el.attributes)
+        .map((a) => `${a.name}${a.value ? `="${a.value.slice(0, 40)}"` : ""}`)
+        .join(" ");
+      const descendantAttrs = Array.from(el.querySelectorAll("[aria-label]"))
+        .slice(0, 4)
+        .map((child) => {
+          const label = (child.getAttribute("aria-label") ?? "")
+            .replace(/\s+/g, " ")
+            .slice(0, 40);
+          return `${child.tagName}[${label}]`;
+        })
+        .join(", ");
+      return `<${el.tagName} ${attrs}>${descendantAttrs ? ` aria-children: ${descendantAttrs}` : ""}`;
+    };
+
+    const listLabels = Array.from(lists)
+      .map((el) => el.getAttribute("aria-label") ?? "<no-label>")
+      .join(", ");
+    const msg =
+      `chat-reader: structural fallback engaged — ` +
+      `lists(${lists.length})=[${listLabels}] ` +
+      `structuralItems=${structuralItems.length} ` +
+      `firstItem=${summarizeItem(structuralOnlyItem)}`;
+    try {
+      opts.onEvent({ type: "diagnostic", level: "info", message: msg });
+    } catch {
+      // Never let a diagnostic emit throw kill the reader.
+    }
+  };
+
+  /**
+   * Best-effort sender + text extraction. Preferred path is the fixture's
+   * data-* attrs; structural fallbacks cover live Meet, which exposes
+   * neither. Returns `null` if the listitem doesn't carry both fields.
+   */
+  const extractFields = (
+    msg: Element,
+  ): { fromName: string; text: string; timestamp: string } | null => {
+    // Preferred: explicit markers on the fixture shape.
+    let fromName = (
+      msg.querySelector(chatSelectors.MESSAGE_SENDER)?.textContent ?? ""
+    ).trim();
+    let text = (
+      msg.querySelector(chatSelectors.MESSAGE_TEXT)?.textContent ?? ""
+    ).trim();
+
+    if (!fromName || !text) {
+      // Fallback: walk the listitem's text-bearing children. Meet renders
+      // a per-message row as <sender, timestamp> followed by one or more
+      // <bubble> text nodes. Collect all direct+nested text while skipping
+      // pure-whitespace nodes and the <time> subtree.
+      const lines: string[] = [];
+      const collect = (node: Element): void => {
+        for (const child of Array.from(node.children)) {
+          const tag = child.tagName;
+          if (tag === "TIME" || tag === "SCRIPT" || tag === "STYLE") continue;
+          if (child.children.length === 0) {
+            const raw = (child.textContent ?? "").trim();
+            if (raw.length > 0) lines.push(raw);
+          } else {
+            collect(child);
+          }
+        }
+      };
+      collect(msg);
+      if (lines.length >= 2) {
+        // Heuristic: first non-empty line is the sender, remaining lines
+        // (joined with newlines) are the message body. Covers the common
+        // Meet rendering of sender+timestamp on one "row" followed by the
+        // message bubble.
+        if (!fromName) fromName = lines[0];
+        if (!text) text = lines.slice(1).join("\n");
+      }
+    }
+
+    if (!fromName || !text) return null;
+
+    const timestamp =
+      msg.querySelector(chatSelectors.MESSAGE_TIMESTAMP)?.getAttribute(
+        "datetime",
+      ) ?? "";
+
+    return { fromName, text, timestamp };
+  };
 
   const extract = (node: Element): void => {
-    const messages = node.matches(chatSelectors.MESSAGE_NODE)
-      ? [node]
-      : Array.from(node.querySelectorAll(chatSelectors.MESSAGE_NODE));
+    // Probe — don't require membership in the current MESSAGE_NODE set; the
+    // structural fallback inside `chatSelectors.MESSAGE_NODE` is a descendant
+    // selector, so `matches()` won't return `true` even when a passed-in
+    // node is actually a listitem. Check both the strict (data-attr) and
+    // structural paths explicitly.
+    const isStructuralListItem =
+      node.getAttribute?.("role") === "listitem" &&
+      node.closest('[role="list"][aria-label*="message" i]') !== null;
+    const messages: Element[] =
+      node.matches?.(chatSelectors.MESSAGE_NODE) || isStructuralListItem
+        ? [node]
+        : Array.from(node.querySelectorAll(chatSelectors.MESSAGE_NODE));
+
     for (const msg of messages) {
-      const domId =
-        msg.getAttribute("data-message-id") ?? msg.getAttribute("id") ?? "";
-      if (!domId) continue;
-      if (seenDomIds.has(domId)) continue;
+      if (seenNodes.has(msg)) continue;
+      seenNodes.add(msg);
 
-      const senderEl = msg.querySelector(chatSelectors.MESSAGE_SENDER);
-      const textEl = msg.querySelector(chatSelectors.MESSAGE_TEXT);
+      const fields = extractFields(msg);
+      if (!fields) continue;
 
-      const fromName = (senderEl?.textContent ?? "").trim();
-      const text = (textEl?.textContent ?? "").trim();
-      if (!fromName || !text) continue;
+      const { fromName, text, timestamp } = fields;
 
       // Authoritative self-flag wins; otherwise match by display name.
+      // Meet's live DOM does not currently emit `data-is-self`, so the
+      // name-match branch is the one that fires in practice.
+      const senderEl = msg.querySelector(chatSelectors.MESSAGE_SENDER);
       const isSelf =
         msg.getAttribute("data-is-self") === "true" ||
         senderEl?.getAttribute("data-is-self") === "true" ||
         fromName === opts.selfName;
-      if (isSelf) {
-        // Record the DOM id anyway so we don't re-inspect the node on the
-        // next mutation.
-        seenDomIds.add(domId);
-        continue;
-      }
+      if (isSelf) continue;
+
+      // Content hash covers panel close → reopen remounts where the DOM
+      // node identity changes but the rendered message is the same.
+      const contentHash = `${fromName}\u0001${timestamp}\u0001${text}`;
+      if (seenContentHashes.has(contentHash)) continue;
+      seenContentHashes.add(contentHash);
 
       // Sender-side id when Meet exposes one; otherwise fall back to the
       // display name (stable enough within a meeting).
       const fromId = senderEl?.getAttribute("data-sender-id") ?? fromName;
-
-      seenDomIds.add(domId);
 
       const event: ExtensionInboundChatMessage = {
         type: "chat.inbound",
@@ -230,6 +364,7 @@ export function startChatReader(opts: ChatReaderOptions): ChatReader {
         fromName,
         text,
       };
+      emittedCount += 1;
       try {
         opts.onEvent(event);
       } catch {
@@ -240,6 +375,7 @@ export function startChatReader(opts: ChatReaderOptions): ChatReader {
 
   // Backfill any messages already in the DOM when the reader attaches —
   // otherwise we'd miss the pre-existing chat history.
+  maybeEmitReaderDiagnostic();
   for (const existing of document.querySelectorAll(
     chatSelectors.MESSAGE_NODE,
   )) {
@@ -247,6 +383,11 @@ export function startChatReader(opts: ChatReaderOptions): ChatReader {
   }
 
   const observer = new MutationObserver((mutations) => {
+    // Re-probe the diagnostic on each mutation batch until it fires — the
+    // chat list mounts asynchronously after `ensurePanelOpen()` clicks the
+    // toggle, and the backfill probe above often runs before the list is
+    // in the DOM.
+    maybeEmitReaderDiagnostic();
     for (const m of mutations) {
       for (const node of m.addedNodes) {
         if (node.nodeType === 1) extract(node as Element);
@@ -261,6 +402,23 @@ export function startChatReader(opts: ChatReaderOptions): ChatReader {
       if (stopped) return;
       stopped = true;
       observer.disconnect();
+      if (emittedCount === 0) {
+        // Trailing diagnostic so an operator reading `docker logs` after a
+        // silent session sees that the reader attached but saw nothing —
+        // typically a selector-drift signal that the primary MESSAGE_NODE
+        // clause no longer matches. Bounded emission (one per reader
+        // lifecycle) keeps the bot log quiet on healthy sessions.
+        try {
+          opts.onEvent({
+            type: "diagnostic",
+            level: "info",
+            message:
+              "chat-reader: stopped without emitting any chat.inbound events",
+          });
+        } catch {
+          // Never let a diagnostic emit throw kill teardown.
+        }
+      }
     },
   };
 }

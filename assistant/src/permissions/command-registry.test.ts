@@ -704,6 +704,45 @@ describe("command-registry", () => {
       expect(spec.sandboxAutoApprove).not.toBe(true);
     });
 
+    test("commands with value-consuming argRule flags have matching argSchema.valueFlags", () => {
+      // When an argRule has both `flags` and `valuePattern`, those flags consume
+      // the next token as a value — the valuePattern matches against that value.
+      // The command's argSchema.valueFlags must include those flags so that
+      // parseArgs() correctly pairs flags with their values.
+      const errors: string[] = [];
+
+      function checkSpec(spec: CommandRiskSpec, path: string): void {
+        if (spec.argRules) {
+          for (const rule of spec.argRules) {
+            if (rule.flags && rule.valuePattern) {
+              // This rule's flags consume a value — check argSchema coverage.
+              const schemaValueFlags = new Set(
+                spec.argSchema?.valueFlags ?? [],
+              );
+              for (const flag of rule.flags) {
+                if (!schemaValueFlags.has(flag)) {
+                  errors.push(
+                    `${path}/${rule.id}: flag "${flag}" consumes a value (has valuePattern) ` +
+                      `but is not listed in argSchema.valueFlags`,
+                  );
+                }
+              }
+            }
+          }
+        }
+        if (spec.subcommands) {
+          for (const [sub, subSpec] of Object.entries(spec.subcommands)) {
+            checkSpec(subSpec, `${path} ${sub}`);
+          }
+        }
+      }
+
+      for (const [name, spec] of Object.entries(DEFAULT_COMMAND_REGISTRY)) {
+        checkSpec(spec as CommandRiskSpec, name);
+      }
+      expect(errors).toEqual([]);
+    });
+
     test("system/privilege commands are NOT tagged with sandboxAutoApprove", () => {
       const systemCommands = [
         "sudo",

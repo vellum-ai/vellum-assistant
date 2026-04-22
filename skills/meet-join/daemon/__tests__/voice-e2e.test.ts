@@ -536,6 +536,10 @@ describe("Meet voice E2E (bridge + watcher + real assistant-event-hub)", () => {
         spawn,
         newStreamId: () => "stream-happy",
         newUtteranceId: () => "utt-happy",
+        // Disable the fast-fail window: this E2E asserts the watcher
+        // observes `_isBotSpeaking=true` while the POST is in-flight,
+        // which requires `speak()` to return before the stream settles.
+        speakFastFailWindowMs: 0,
       },
     );
 
@@ -630,6 +634,8 @@ describe("Meet voice E2E (bridge + watcher + real assistant-event-hub)", () => {
         providerFactory: () => provider,
         spawn,
         newStreamId: () => "stream-barge",
+        // See fast-fail opt-out note on the happy-path bridge above.
+        speakFastFailWindowMs: 0,
       },
     );
 
@@ -740,6 +746,8 @@ describe("Meet voice E2E (bridge + watcher + real assistant-event-hub)", () => {
         providerFactory: () => provider,
         spawn,
         newStreamId: () => "stream-cough",
+        // See fast-fail opt-out note on the happy-path bridge above.
+        speakFastFailWindowMs: 0,
       },
     );
 

@@ -32,6 +32,7 @@ struct ChatEmptyStateView: View {
     var onSelectStarter: ((ConversationStarter) -> Void)? = nil
     var onFetchConversationStarters: (() -> Void)? = nil
     var conversationHostAccessControl: ConversationHostAccessControlConfiguration? = nil
+    var showThresholdPicker: Bool = false
 
     @State private var visible = false
     @State private var fallbackPlaceholder: String = placeholderTexts.randomElement()!
@@ -178,7 +179,8 @@ struct ChatEmptyStateView: View {
                 onVoiceModeToggle: onVoiceModeToggle,
                 placeholderText: fallbackPlaceholder,
                 conversationId: conversationId,
-                conversationHostAccessControl: conversationHostAccessControl
+                conversationHostAccessControl: conversationHostAccessControl,
+                showThresholdPicker: showThresholdPicker
             )
             .equatable()
         }
@@ -405,6 +407,7 @@ struct ChatTemporaryChatEmptyStateView: View {
     var onVoiceModeToggle: (() -> Void)? = nil
     var conversationId: UUID?
     var conversationHostAccessControl: ConversationHostAccessControlConfiguration? = nil
+    var showThresholdPicker: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -451,7 +454,8 @@ struct ChatTemporaryChatEmptyStateView: View {
                     onVoiceModeToggle: onVoiceModeToggle,
                     placeholderText: "Ask anything...",
                     conversationId: conversationId,
-                    conversationHostAccessControl: conversationHostAccessControl
+                    conversationHostAccessControl: conversationHostAccessControl,
+                    showThresholdPicker: showThresholdPicker
                 )
                 .equatable()
             }

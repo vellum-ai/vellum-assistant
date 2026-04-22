@@ -54,6 +54,17 @@ const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
 const DEFAULT_INACTIVITY_TIMEOUT_MS = 30_000;
 
 /**
+ * Default interval (ms) for emitting Deepgram `KeepAlive` control frames
+ * during silent stretches. Deepgram's server-side timeout closes the
+ * socket if no real audio content arrives for ~10s; raw silence PCM does
+ * not reset that timer, only an explicit `{"type":"KeepAlive"}` message
+ * does. Sending one every 5s keeps the socket alive through arbitrary
+ * pauses (think: 1:1 voice mode while the user is thinking) without any
+ * meaningful bandwidth cost.
+ */
+const DEFAULT_KEEPALIVE_INTERVAL_MS = 5_000;
+
+/**
  * Maximum WebSocket bufferedAmount (bytes) before sendAudio applies
  * backpressure by dropping frames. This prevents unbounded memory growth
  * if the network or provider cannot keep up with the audio rate.
@@ -87,6 +98,13 @@ export interface DeepgramRealtimeOptions {
   connectTimeoutMs?: number;
   /** Inactivity timeout in milliseconds. Default: 30_000. */
   inactivityTimeoutMs?: number;
+  /**
+   * Interval (ms) between Deepgram `KeepAlive` control frames sent during
+   * silent stretches. Default: 5_000. Set to 0 to disable (not recommended
+   * outside tests — the server-side socket will close after ~10s of
+   * silence).
+   */
+  keepaliveIntervalMs?: number;
   /** Audio sample rate in Hz (default: 16000). Passed through from the client WebSocket connection. */
   sampleRate?: number;
   /**
@@ -222,6 +240,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   private readonly baseUrl: string;
   private readonly connectTimeoutMs: number;
   private readonly inactivityTimeoutMs: number;
+  private readonly keepaliveIntervalMs: number;
   private readonly sampleRate: number;
   /**
    * Whether speaker diarization is requested. Forwarded to the Deepgram
@@ -248,6 +267,13 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
   /** Close grace timer handle. */
   private closeGraceTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /**
+   * Periodic keepalive timer. Fires every {@link keepaliveIntervalMs} while
+   * the socket is open and emits a Deepgram `KeepAlive` control frame so
+   * silent stretches do not trip Deepgram's server-side inactivity close.
+   */
+  private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+
   constructor(apiKey: string, options: DeepgramRealtimeOptions = {}) {
     this.apiKey = apiKey;
     this.model = options.model ?? DEFAULT_MODEL;
@@ -260,6 +286,8 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
     this.inactivityTimeoutMs =
       options.inactivityTimeoutMs ?? DEFAULT_INACTIVITY_TIMEOUT_MS;
+    this.keepaliveIntervalMs =
+      options.keepaliveIntervalMs ?? DEFAULT_KEEPALIVE_INTERVAL_MS;
     this.sampleRate = options.sampleRate ?? 16_000;
     this.diarize = options.diarize ?? false;
   }
@@ -329,6 +357,7 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
     // the active session lifetime.
     this.attachSessionHandlers(ws);
     this.resetInactivityTimer();
+    this.startKeepaliveTimer();
 
     log.info("Deepgram realtime session opened");
   }
@@ -644,6 +673,34 @@ export class DeepgramRealtimeTranscriber implements StreamingTranscriber {
       clearTimeout(this.closeGraceTimer);
       this.closeGraceTimer = null;
     }
+    if (this.keepaliveTimer !== null) {
+      clearInterval(this.keepaliveTimer);
+      this.keepaliveTimer = null;
+    }
+  }
+
+  /**
+   * Start the periodic keepalive timer. Sends a Deepgram `KeepAlive`
+   * control frame every {@link keepaliveIntervalMs}; this is the only
+   * thing that resets Deepgram's server-side inactivity timer when the
+   * stream is carrying silence (raw silence PCM frames do not count).
+   *
+   * Skipped when {@link keepaliveIntervalMs} is 0 (test override) or the
+   * adapter is already closed/stopping.
+   */
+  private startKeepaliveTimer(): void {
+    if (this.closed || this.stopping) return;
+    if (this.keepaliveIntervalMs <= 0) return;
+    this.keepaliveTimer = setInterval(() => {
+      if (this.closed || this.stopping) return;
+      const ws = this.ws;
+      if (!ws || ws.readyState !== WS_OPEN) return;
+      try {
+        ws.send(JSON.stringify({ type: "KeepAlive" }));
+      } catch (err) {
+        log.warn({ err }, "Deepgram KeepAlive send failed");
+      }
+    }, this.keepaliveIntervalMs);
   }
 
   /**

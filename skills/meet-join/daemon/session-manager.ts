@@ -88,11 +88,13 @@ import {
   MeetBargeInWatcher,
 } from "./barge-in-watcher.js";
 import {
+  type ChatOpportunityCallback,
   type ChatOpportunityDecision,
   type ChatOpportunityDetectorStats,
   type ChatOpportunityLLMAsk,
   MeetChatOpportunityDetector,
   type ProactiveChatConfig,
+  type VoiceModeConfig,
 } from "./chat-opportunity-detector.js";
 import {
   MeetConsentMonitor,
@@ -104,10 +106,13 @@ import {
 } from "./conversation-bridge.js";
 import {
   DockerRunner,
+  getMeetBotInstanceHash,
+  MEET_BOT_INSTANCE_LABEL,
   MEET_BOT_LABEL,
   MEET_BOT_MEETING_ID_LABEL,
   reapOrphanedMeetBots,
   type DockerRunResult,
+  type DockerWaitResult,
 } from "./docker-runner.js";
 import {
   meetEventDispatcher,
@@ -404,6 +409,20 @@ interface ActiveSession extends MeetSession {
    * and torn down in `leave()` before the dispatcher is unregistered.
    */
   bargeInWatcher: MeetBargeInWatcherLike;
+  /**
+   * True once the daemon's own `leave()` path has begun tearing the session
+   * down. Used by the container-exit watcher to distinguish a
+   * daemon-initiated shutdown (expected exit, session cleanup already in
+   * flight) from an unexpected external death (e.g. `docker kill`, OOM
+   * reaper, stray concurrent daemon reaping the container). On the
+   * daemon-initiated path the watcher becomes a no-op; on the external
+   * path it synthesizes a `meet.error`, mirror-tears session-scoped
+   * resources, and drops the session so clients don't stay pinned in
+   * "joined" forever. Set at the TOP of `leave()` before any awaits so a
+   * race between the first teardown await and the engine-side exit
+   * notification still flags the watcher correctly.
+   */
+  leaveInitiatedByDaemon: boolean;
 }
 
 /**
@@ -554,15 +573,23 @@ export interface MeetChatOpportunityDetectorFactoryArgs {
   conversationId: string;
   assistantDisplayName: string;
   config: ProactiveChatConfig;
+  voiceConfig: VoiceModeConfig;
   callDetectorLLM: ChatOpportunityLLMAsk;
-  onOpportunity: (hint: string) => void;
+  onOpportunity: ChatOpportunityCallback;
 }
 
 export interface MeetSessionManagerDeps {
   /** Factory for the Docker runner — swapped in tests. */
   dockerRunnerFactory?: () => Pick<
     DockerRunner,
-    "run" | "stop" | "remove" | "inspect" | "logs" | "kill" | "listContainers"
+    | "run"
+    | "stop"
+    | "remove"
+    | "inspect"
+    | "logs"
+    | "kill"
+    | "listContainers"
+    | "wait"
   >;
   /** Override the function that fetches credentials. */
   getProviderKey?: (provider: string) => Promise<string | undefined>;
@@ -807,7 +834,8 @@ class MeetSessionManagerImpl {
     // transient docker-engine hiccup never tears down the session-manager
     // singleton. Tests opt out via {@link MeetSessionManagerDeps.disableStartupOrphanReaper}.
     //
-    // Two guards make the sweep race-safe with concurrent joins:
+    // Three guards make the sweep race-safe with concurrent joins and
+    // safe against cross-instance kills:
     //   1. `createdBefore` — Docker's `Created` timestamp for every
     //      container the reaper considers must predate this moment, so any
     //      container spawned by a join that races the sweep is skipped.
@@ -816,6 +844,11 @@ class MeetSessionManagerImpl {
     //      before the session lands in the map) per-container, so a join
     //      that lands mid-sweep is observed before its meeting ID is
     //      evaluated.
+    //   3. `instanceHash` — derived from `vellumRoot()`, the daemon's
+    //      per-instance data root. Multi-instance setups (prod/dev/test/
+    //      local side-by-side) are common; without this guard a second
+    //      daemon's startup reaper would SIGTERM the first daemon's live
+    //      bot containers. Only same-instance bots are reaped.
     if (!this.deps.disableStartupOrphanReaper) {
       const reaperDocker = this.deps.dockerRunnerFactory();
       const daemonStartEpochSeconds = Math.floor(Date.now() / 1000);
@@ -826,6 +859,7 @@ class MeetSessionManagerImpl {
           for (const id of this.pendingBotTokens.keys()) ids.add(id);
           return ids;
         },
+        instanceHash: getMeetBotInstanceHash(),
         createdBefore: daemonStartEpochSeconds,
         logger: log,
       }).catch((err: unknown) => {
@@ -1179,10 +1213,13 @@ class MeetSessionManagerImpl {
         network: meet.dockerNetwork,
         // Labels consumed by the orphan reaper on the next daemon boot.
         // See {@link reapOrphanedMeetBots} in `docker-runner.ts` for the
-        // full label scheme + reaper contract.
+        // full label scheme + reaper contract. The `vellum.meet.instance`
+        // label scopes the bot to this daemon's instance root so a
+        // concurrently-running second daemon cannot reap this container.
         labels: {
           [MEET_BOT_LABEL]: "true",
           [MEET_BOT_MEETING_ID_LABEL]: meetingId,
+          [MEET_BOT_INSTANCE_LABEL]: getMeetBotInstanceHash(),
         },
         // When avatar is enabled, pass through the v4l2loopback device so
         // the bot container can open `/dev/video10` (or whatever override
@@ -1296,6 +1333,7 @@ class MeetSessionManagerImpl {
     // the detector null when disabled means zero lifecycle overhead and
     // no event-handler cost on the dispatcher path.
     const proactiveChatConfig = meet.proactiveChat;
+    const voiceModeConfig = meet.voiceMode;
     const chatOpportunityDetector: MeetChatOpportunityDetectorLike | null =
       proactiveChatConfig.enabled
         ? this.deps.chatOpportunityDetectorFactory({
@@ -1309,17 +1347,27 @@ class MeetSessionManagerImpl {
               escalationCooldownSec: proactiveChatConfig.escalationCooldownSec,
               tier2MaxTranscriptSec: proactiveChatConfig.tier2MaxTranscriptSec,
             },
+            voiceConfig: {
+              enabled: voiceModeConfig.enabled,
+              eouDebounceMs: voiceModeConfig.eouDebounceMs,
+            },
             callDetectorLLM: defaultCallDetectorLLM,
-            onOpportunity: (hint: string) => {
+            onOpportunity: ({ reason, kind }) => {
+              // `kind` distinguishes chat-opportunity wakes (Tier 2
+              // positive verdict) from 1:1 voice-turn wakes. Thread it
+              // through as a distinct `source` so downstream telemetry
+              // and any future agent-side routing can branch on it.
+              const source =
+                kind === "voice" ? "meet-voice-turn" : "meet-chat-opportunity";
               void this.deps
                 .wakeAgent({
                   conversationId,
-                  hint,
-                  source: "meet-chat-opportunity",
+                  hint: reason,
+                  source,
                 })
                 .catch((err) => {
                   log.warn(
-                    { err, meetingId, conversationId },
+                    { err, meetingId, conversationId, kind },
                     "MeetChatOpportunityDetector: wakeAgent rejected — dropping opportunity",
                   );
                 });
@@ -1382,6 +1430,7 @@ class MeetSessionManagerImpl {
       ttsBridge,
       ttsLipsyncHandle,
       bargeInWatcher,
+      leaveInitiatedByDaemon: false,
     };
     this.sessions.set(meetingId, session);
     // `this.sessions` is now the authoritative source for the resolver;
@@ -1498,12 +1547,41 @@ class MeetSessionManagerImpl {
       });
     }, joinTimeoutMs);
 
-    // NOTE: a container-exit watcher still belongs here in a future PR —
-    // it would catch `docker stop`-driven exits that never emit a
-    // `lifecycle: left` event and synthesize a `meet.error` so the client
-    // doesn't hang in "joined" forever. Leaving as a follow-up; the
-    // timeout cap + explicit `leave()` path already cover the normal
-    // teardown routes.
+    // Container-exit watcher. Docker's `POST /containers/<id>/wait` holds a
+    // long-lived HTTP connection open until the container terminates and
+    // then replies with the exit code — a far cheaper signal than polling
+    // `docker inspect`. We fire-and-forget the wait: on the happy path the
+    // daemon's own `leave()` sets `leaveInitiatedByDaemon = true` before
+    // the container-remove fires, so when `wait` resolves (either with
+    // the container's real exit code or with `StatusCode: 0` via the 404
+    // branch in `DockerRunner.wait` when `remove()` ran first) the
+    // watcher sees the flag and becomes a no-op.
+    //
+    // The failure path this closes: some external process — a user
+    // `docker kill`, a concurrent stray daemon's reaper sweep, an OOM
+    // killer, a node-level pod eviction — terminates the bot container
+    // without going through our `leave()`. Without this watcher, the
+    // daemon's `this.sessions` keeps the meeting pinned as "joined"
+    // forever; subsequent `meet_speak`/`meet_send_chat` tool calls fail
+    // against a dead bot; the Swift client stays stuck in the "joined"
+    // state with no way to recover. Synthesizing a `meet.error` + tearing
+    // session state here lets the client observe the bot's death and the
+    // daemon reclaim the slot.
+    void runner
+      .wait(runResult.containerId)
+      .then(async (waitResult) => {
+        await this.handleContainerExit(
+          meetingId,
+          runResult.containerId,
+          waitResult,
+        );
+      })
+      .catch((err) => {
+        log.warn(
+          { err, meetingId, containerId: runResult.containerId },
+          "Container-exit watcher errored — cannot observe bot container exit",
+        );
+      });
 
     log.info(
       {
@@ -1530,6 +1608,16 @@ class MeetSessionManagerImpl {
       log.debug({ meetingId, reason }, "leave(): no active session — no-op");
       return;
     }
+
+    // Flag the container-exit watcher BEFORE any awaits. The watcher's
+    // `runner.wait(...)` promise resolves the instant `runner.remove()`
+    // below fires (the engine's 404 branch in `DockerRunner.wait`
+    // converts the "gone" response to `StatusCode: 0`), so without this
+    // flag set first a slow teardown path could still race the engine
+    // and have the watcher fire a duplicate `meet.error` before the
+    // synthetic `lifecycle:left` lands. Single synchronous assignment —
+    // no throw path to guard.
+    session.leaveInitiatedByDaemon = true;
 
     // Stop the consent monitor first — any pending LLM call can finish
     // harmlessly since `decided` is the only write path it has to the
@@ -1734,6 +1822,178 @@ class MeetSessionManagerImpl {
       },
       "Meet session left",
     );
+  }
+
+  /**
+   * Handle an unexpected bot container exit observed by the per-session
+   * container-exit watcher wired up in `join()`. Fires when
+   * `docker.wait(containerId)` resolves — which the Docker Engine does the
+   * moment the container terminates, regardless of cause.
+   *
+   * No-op in two cases:
+   *   1. The daemon's own `leave()` already set `leaveInitiatedByDaemon =
+   *      true` — the watcher is observing the graceful teardown's own
+   *      `runner.remove()`, and `leave()` is still mid-flight handling all
+   *      the cleanup. Firing here would duplicate the `meet.error` publish
+   *      and race the rest of the teardown.
+   *   2. The session is no longer in `this.sessions`. This can happen if
+   *      `leave()` already completed (ran to the `this.sessions.delete()`
+   *      line) before `wait` resolved, or if a rollback path dropped the
+   *      session without ever recording `leaveInitiatedByDaemon` because
+   *      the rollback fires before the watcher is installed. Either way
+   *      there's nothing left to tear down.
+   *
+   * On the real external-exit path we mirror `leave()`'s cleanup with two
+   * deliberate omissions:
+   *   - Skip `botLeaveFetch` — the bot container is already dead, so an
+   *     HTTP call would just hit `ECONNREFUSED` and burn 10s on the
+   *     timeout before we could even start the actual teardown.
+   *   - Skip `runner.stop` — likewise, stopping an already-exited container
+   *     surfaces a 304 or a cryptic engine error. We go straight to
+   *     `runner.remove()` (best-effort) to unregister the corpse so it
+   *     doesn't linger in `docker ps -a`.
+   *
+   * Publishes a `meet.error` with a human-readable `detail` identifying
+   * the unexpected exit so connected clients can render a useful error
+   * state instead of staying pinned in "joined" forever.
+   */
+  private async handleContainerExit(
+    meetingId: string,
+    containerId: string,
+    waitResult: DockerWaitResult,
+  ): Promise<void> {
+    const session = this.sessions.get(meetingId);
+    if (!session) return;
+    if (session.leaveInitiatedByDaemon) return;
+    // Defensive: if this watcher fires for a session whose `containerId`
+    // no longer matches (a subsequent join would replace the map entry —
+    // though the same-meeting-id guard in join() should make that
+    // impossible), treat it like the session-missing branch above.
+    if (session.containerId !== containerId) return;
+
+    const exitCode = waitResult.StatusCode;
+    const engineError = waitResult.Error?.Message ?? null;
+    const detail = engineError
+      ? `bot container exited unexpectedly (exitCode=${exitCode}, error=${engineError})`
+      : `bot container exited unexpectedly (exitCode=${exitCode})`;
+
+    log.info(
+      { meetingId, containerId, exitCode, engineError },
+      "Meet bot container exited unexpectedly — tearing session down",
+    );
+
+    void publishMeetEvent(
+      DAEMON_INTERNAL_ASSISTANT_ID,
+      meetingId,
+      "meet.error",
+      { detail },
+    );
+
+    // Claim the session before any awaits so a concurrent `leave()` call
+    // (e.g. from a tool handler reacting to the `meet.error` we just
+    // published) takes the no-op branch rather than double-tearing.
+    session.leaveInitiatedByDaemon = true;
+
+    // Symmetric teardown with `leave()` — same order, minus bot HTTP + stop.
+    try {
+      session.consentMonitor.stop();
+    } catch (err) {
+      log.warn(
+        { err, meetingId },
+        "MeetConsentMonitor.stop threw during container-exit teardown",
+      );
+    }
+    try {
+      session.chatOpportunityDetector?.dispose();
+    } catch (err) {
+      log.warn(
+        { err, meetingId },
+        "MeetChatOpportunityDetector.dispose threw during container-exit teardown",
+      );
+    }
+    try {
+      session.bargeInWatcher.stop();
+    } catch (err) {
+      log.warn(
+        { err, meetingId },
+        "MeetBargeInWatcher.stop threw during container-exit teardown",
+      );
+    }
+    try {
+      session.ttsLipsyncHandle.stop();
+    } catch (err) {
+      log.warn(
+        { err, meetingId },
+        "TtsLipsyncHandle.stop threw during container-exit teardown",
+      );
+    }
+    try {
+      await session.ttsBridge.cancelAll();
+    } catch (err) {
+      log.warn(
+        { err, meetingId },
+        "MeetTtsBridge.cancelAll threw during container-exit teardown",
+      );
+    }
+
+    if (session.timeoutHandle) {
+      clearTimeout(session.timeoutHandle);
+      session.timeoutHandle = null;
+    }
+    this.sessions.delete(meetingId);
+    this.pendingBotTokens.delete(meetingId);
+
+    try {
+      session.conversationBridge.unsubscribe();
+    } catch (err) {
+      log.warn(
+        { err, meetingId },
+        "MeetConversationBridge.unsubscribe threw during container-exit teardown",
+      );
+    }
+    try {
+      await session.storageWriter.stop();
+    } catch (err) {
+      log.warn(
+        { err, meetingId },
+        "MeetStorageWriter.stop threw during container-exit teardown",
+      );
+    }
+
+    for (const unsubscribe of session.eventUnsubscribes) {
+      try {
+        unsubscribe();
+      } catch (err) {
+        log.warn(
+          { err, meetingId },
+          "Meet event subscriber unsubscribe threw during container-exit teardown",
+        );
+      }
+    }
+    session.eventUnsubscribes = [];
+    unregisterMeetingDispatcher(meetingId);
+
+    // Container is already dead — skip `runner.stop`, but still best-effort
+    // `runner.remove()` so the exited container doesn't linger in
+    // `docker ps -a` forever.
+    const runner = this.deps.dockerRunnerFactory();
+    try {
+      await runner.remove(containerId);
+    } catch (err) {
+      log.warn(
+        { err, meetingId, containerId },
+        "DockerRunner.remove failed during container-exit teardown — container may linger in `docker ps -a`",
+      );
+    }
+
+    try {
+      await session.audioIngest.stop();
+    } catch (err) {
+      log.warn(
+        { err, meetingId },
+        "MeetAudioIngest.stop failed during container-exit teardown — socket or streaming STT session may leak",
+      );
+    }
   }
 
   /** Snapshot of currently-active sessions (excludes internal fields). */
@@ -2181,6 +2441,7 @@ function defaultChatOpportunityDetectorFactory(
     meetingId: args.meetingId,
     assistantDisplayName: args.assistantDisplayName,
     config: args.config,
+    voiceConfig: args.voiceConfig,
     callDetectorLLM: args.callDetectorLLM,
     onOpportunity: args.onOpportunity,
   });

@@ -478,10 +478,10 @@ describe("computeSummaryQualitySignals", () => {
   });
 
   test("flags tags that sit next to an underscore (word-boundary gap)", () => {
-    // These four tags are all stripped by COMPACTION_ONLY_STRIP_PREFIXES but
-    // the original regex missed them because `\b` does not assert between two
-    // word characters (e.g. the `e_` in `workspace_top_level`), so leakage
-    // telemetry was silently blind to them. Each tag must now flag.
+    // These four tags contain underscores, so `\b` only asserts between the
+    // full tag name and `>` (not between two word characters like the `e_` in
+    // `workspace_top_level`). Each tag must be detected as a memory echo when
+    // leaked into a summary.
     const cases = [
       "<workspace_top_level>\nlisting",
       "<active_subagents>\nstuff",

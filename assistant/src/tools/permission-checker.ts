@@ -6,6 +6,7 @@ import {
   classifyRisk,
   generateAllowlistOptions,
   generateScopeOptions,
+  getCachedAssessment,
 } from "../permissions/checker.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { addRule } from "../permissions/trust-store.js";
@@ -34,8 +35,25 @@ export type PermissionDecision =
       decision: string;
       riskLevel: string;
       wasPrompted?: boolean;
+      /** Risk metadata from the classifier assessment cache (when available). */
+      riskMeta?: {
+        riskLevel: string;
+        riskReason: string;
+        riskScopeOptions: Array<{ pattern: string; label: string }>;
+      };
     }
-  | { allowed: false; decision: string; riskLevel: string; content: string };
+  | {
+      allowed: false;
+      decision: string;
+      riskLevel: string;
+      content: string;
+      /** Risk metadata from the classifier assessment cache (when available). */
+      riskMeta?: {
+        riskLevel: string;
+        riskReason: string;
+        riskScopeOptions: Array<{ pattern: string; label: string }>;
+      };
+    };
 
 export class PermissionChecker {
   private prompter: PermissionPrompter;
@@ -106,6 +124,18 @@ export class PermissionChecker {
     );
     const riskLevel: string = risk;
 
+    // Look up the cached assessment to extract risk metadata for the tool result.
+    // This is populated by classifyRisk() for classifier-backed tools (bash, file, web, skill).
+    // For tools without classifiers (e.g. MCP tools), the cache returns undefined.
+    const cachedAssessment = getCachedAssessment(name, input);
+    const riskMeta = cachedAssessment
+      ? {
+          riskLevel: cachedAssessment.riskLevel,
+          riskReason: cachedAssessment.reason,
+          riskScopeOptions: cachedAssessment.scopeOptions,
+        }
+      : undefined;
+
     // Wrap the rest of permission evaluation so that any exception
     // carries the classified risk level back to the caller. Without
     // this, the executor's catch block would fall back to the default
@@ -174,6 +204,7 @@ export class PermissionChecker {
           decision: "denied",
           riskLevel,
           content: result.reason,
+          riskMeta,
         };
       }
 
@@ -194,7 +225,12 @@ export class PermissionChecker {
           { toolName: name, riskLevel },
           "Auto-approving bash tool for platform-hosted guardian session",
         );
-        return { allowed: true, decision: "platform_auto_approve", riskLevel };
+        return {
+          allowed: true,
+          decision: "platform_auto_approve",
+          riskLevel,
+          riskMeta,
+        };
       }
 
       if (result.decision === "prompt") {
@@ -246,6 +282,7 @@ export class PermissionChecker {
             allowed: true,
             decision: "guardian_auto_approve",
             riskLevel,
+            riskMeta,
           };
         }
 
@@ -276,6 +313,7 @@ export class PermissionChecker {
             decision: "denied",
             riskLevel,
             content: `Permission denied: tool "${name}" requires user approval but no interactive client is connected. The tool was not executed. To allow this tool in non-interactive sessions, add a trust rule via permission settings.`,
+            riskMeta,
           };
         }
 
@@ -300,7 +338,12 @@ export class PermissionChecker {
             },
             "Temporary approval override active - auto-approving without prompt",
           );
-          return { allowed: true, decision: "temporary_override", riskLevel };
+          return {
+            allowed: true,
+            decision: "temporary_override",
+            riskLevel,
+            riskMeta,
+          };
         }
 
         const previewDiff = computePreviewDiff(name, input, context.workingDir);
@@ -363,6 +406,7 @@ export class PermissionChecker {
           promptOptions.temporaryOptionsAvailable,
           context.toolUseId,
           v2ForcePrompt,
+          riskReason,
         );
 
         const decision =
@@ -403,6 +447,7 @@ export class PermissionChecker {
             decision,
             riskLevel,
             content: denialMessage,
+            riskMeta,
           };
         }
 
@@ -452,6 +497,7 @@ export class PermissionChecker {
             decision,
             riskLevel,
             content: denialMessage,
+            riskMeta,
           };
         }
 
@@ -505,11 +551,17 @@ export class PermissionChecker {
           );
         }
 
-        return { allowed: true, decision, riskLevel, wasPrompted: true };
+        return {
+          allowed: true,
+          decision,
+          riskLevel,
+          wasPrompted: true,
+          riskMeta,
+        };
       }
 
       // result.decision === 'allow'
-      return { allowed: true, decision: "allow", riskLevel };
+      return { allowed: true, decision: "allow", riskLevel, riskMeta };
     } catch (err) {
       if (err instanceof Error) {
         (err as Error & { riskLevel?: string }).riskLevel = riskLevel;

@@ -34,12 +34,14 @@
  *     container.
  */
 
+import { createHash } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { posix as posixPath } from "node:path";
 
 import type { DaemonRuntimeMode } from "../../../assistant/src/runtime/runtime-mode.js";
 import { getDaemonRuntimeMode } from "../../../assistant/src/runtime/runtime-mode.js";
 import { getLogger } from "../../../assistant/src/util/logger.js";
+import { vellumRoot } from "../../../assistant/src/util/platform.js";
 
 const log = getLogger("meet-docker-runner");
 
@@ -156,10 +158,12 @@ export interface DockerRunOptions {
   avatarDevicePath?: string;
   /**
    * Docker labels applied at container-create time. Meet-bot containers
-   * are tagged with `vellum.meet.bot=true` and
-   * `vellum.meet.meetingId=<id>` so the orphan reaper (see
-   * {@link reapOrphanedMeetBots}) can discover and clean them up after a
-   * crashed prior run without misidentifying unrelated containers.
+   * are tagged with `vellum.meet.bot=true`,
+   * `vellum.meet.meetingId=<id>`, and `vellum.meet.instance=<hash>` so
+   * the orphan reaper (see {@link reapOrphanedMeetBots}) can discover
+   * and clean them up after a crashed prior run without misidentifying
+   * unrelated containers or cross-killing bots from a different daemon
+   * instance on the same host.
    */
   labels?: Record<string, string>;
 }
@@ -206,6 +210,24 @@ export interface ContainerListEntry {
 export interface DockerRunResult {
   containerId: string;
   boundPorts: BoundPort[];
+}
+
+/**
+ * Result of a successful `wait` call. Mirrors Docker's
+ * `POST /containers/<id>/wait` response body:
+ *
+ * ```
+ *   { "StatusCode": <int>, "Error": { "Message": "<...>" } | null }
+ * ```
+ *
+ * `Error` is only present when the wait itself could not be completed
+ * engine-side; a container that exits with a non-zero code is NOT an error
+ * from the wait endpoint's point of view — the caller reads `StatusCode` to
+ * learn what happened.
+ */
+export interface DockerWaitResult {
+  StatusCode: number;
+  Error?: { Message?: string } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -602,6 +624,37 @@ export class DockerRunner {
   }
 
   /**
+   * Block until the container exits, then resolve with the engine-reported
+   * exit code. Wraps `POST /containers/<id>/wait` — the engine holds the
+   * HTTP connection open until the container terminates, then replies with
+   * `{ StatusCode, Error? }`.
+   *
+   * Used by the session-manager's container-exit watcher to detect
+   * unexpected bot deaths (e.g. external `docker kill`, OOM reaper, a stray
+   * concurrent daemon reaping the container) so a `meet.error` can be
+   * synthesized and session state torn down — without this hook the
+   * daemon would keep the session pinned in `this.sessions` indefinitely
+   * and all subsequent `meet_*` tool calls would fail against a dead bot.
+   *
+   * A 404 (container removed before `wait` could observe the exit — typical
+   * when our own `remove()` races the watcher on the graceful-leave path)
+   * resolves with `{ StatusCode: 0 }` rather than throwing so the watcher
+   * doesn't need a special-case branch. Any other non-2xx surfaces as a
+   * {@link DockerApiError} so the watcher can log + bail.
+   */
+  async wait(containerId: string): Promise<DockerWaitResult> {
+    const path = `/${DOCKER_API_VERSION}/containers/${containerId}/wait`;
+    try {
+      return await this.request<DockerWaitResult>("POST", path, null);
+    } catch (err) {
+      if (err instanceof DockerApiError && err.status === 404) {
+        return { StatusCode: 0 };
+      }
+      throw err;
+    }
+  }
+
+  /**
    * Fetch the container's accumulated stdout/stderr as a single string.
    *
    * Wraps `GET /containers/<id>/logs?stdout=1&stderr=1`. The API emits a
@@ -744,6 +797,37 @@ export const MEET_BOT_LABEL = "vellum.meet.bot";
  * kill the ones that belong to no live session.
  */
 export const MEET_BOT_MEETING_ID_LABEL = "vellum.meet.meetingId";
+
+/**
+ * Docker-label key that scopes a meet-bot container to a specific daemon
+ * instance. Value is a short hash derived from {@link vellumRoot} (the
+ * per-instance data directory, resolved via `BASE_DATA_DIR`). The orphan
+ * reaper compares this against the current instance's hash and refuses to
+ * kill any container whose hash differs — so a second concurrent daemon
+ * pointed at a different instance root cannot SIGTERM another instance's
+ * live bots.
+ *
+ * Containers from pre-label versions (missing this label entirely) are
+ * treated as ambiguous ownership and skipped by the reaper — they might
+ * belong to a different installation. Users upgrading across this change
+ * with a stale container still running must `docker rm` it manually once.
+ */
+export const MEET_BOT_INSTANCE_LABEL = "vellum.meet.instance";
+
+/**
+ * Derive the per-instance hash stamped onto meet-bot containers at create
+ * time. Uses SHA-256 truncated to 16 hex chars — plenty of collision
+ * resistance for the small set of instance roots on a single host, and
+ * short enough to stay readable in `docker ps`.
+ *
+ * The hash is over {@link vellumRoot}'s absolute path so the full filesystem
+ * path isn't leaked into Docker metadata. Deterministic for a given instance
+ * root — the stamp-side and the reap-side see the same value as long as the
+ * daemon process sees the same `BASE_DATA_DIR`.
+ */
+export function getMeetBotInstanceHash(): string {
+  return createHash("sha256").update(vellumRoot()).digest("hex").slice(0, 16);
+}
 
 /**
  * Resolve a workspace-relative `subpath` against the absolute `workspaceDir`
@@ -904,7 +988,7 @@ export const REAPER_TERM_KILL_GRACE_MS = 10_000;
  * Sweep orphaned meet-bot containers left behind by a crashed prior run.
  *
  * **Label scheme.** Every meet-bot container created by this daemon is
- * tagged at `/containers/create` time with two Docker labels:
+ * tagged at `/containers/create` time with three Docker labels:
  *
  *   - `vellum.meet.bot=true` — identifies the container as a meet-bot
  *     managed by this codebase (distinguishes from any other containers
@@ -913,6 +997,19 @@ export const REAPER_TERM_KILL_GRACE_MS = 10_000;
  *     so the reaper can match each labeled container against the currently-
  *     active in-process session set and only kill the ones that belong to
  *     no live session.
+ *   - `vellum.meet.instance=<hash>` — scopes the container to a specific
+ *     daemon instance root (see {@link getMeetBotInstanceHash}). The reaper
+ *     refuses to touch containers whose hash differs so a second daemon
+ *     pointed at a different instance root (common on developer machines
+ *     with prod/dev/test/local instances side-by-side) cannot cross-kill
+ *     another instance's live bots.
+ *
+ * **Filter semantics.** The reaper lists candidates filtered at the Docker
+ * API layer by `vellum.meet.bot=true` only — not by the instance label.
+ * This is deliberate: we need to *observe* pre-label containers (from a
+ * version before this change shipped) so we can skip them and log a
+ * breadcrumb, rather than silently hide them behind an API filter. Same-
+ * instance + different-instance + unlabeled branching happens in code.
  *
  * **Kill protocol.** Each orphan receives a `SIGTERM`, then after a
  * {@link REAPER_TERM_KILL_GRACE_MS}-ms grace window the reaper issues a
@@ -928,12 +1025,21 @@ export const REAPER_TERM_KILL_GRACE_MS = 10_000;
  *   in-process session. Accepts either a static set or a zero-arg getter;
  *   the getter is consulted per-container so a join that lands mid-sweep
  *   is observed before its container is evaluated.
+ * @param opts.instanceHash The current daemon instance's hash (from
+ *   {@link getMeetBotInstanceHash}). Required — not optional — so callers
+ *   cannot accidentally widen the sweep to all instances on the host.
+ *   Containers whose `vellum.meet.instance` label doesn't match go into
+ *   `kept`; containers missing the label go into `skippedUnlabeled`.
  * @param opts.createdBefore Optional Unix-epoch-seconds cutoff. Containers
  *   with `Created >= createdBefore` are kept unconditionally. Pass the
  *   daemon's start time during the startup sweep so new joins launched
  *   concurrently can never be misidentified as orphans from a prior run.
  * @param opts.logger Structured logger — one INFO line per kill.
- * @returns Summary of which container ids were killed vs kept.
+ * @returns Summary of which container ids were killed, kept, or skipped as
+ *   unlabeled. `skippedUnlabeled` is observability-only — pre-label
+ *   containers are never reaped because they might belong to another
+ *   installation; users upgrading with a stale unlabeled container must
+ *   `docker rm` it manually once.
  */
 /**
  * Structural subset of a pino-style structured logger — the reaper only
@@ -951,32 +1057,63 @@ export interface ReaperLogger {
 export async function reapOrphanedMeetBots(opts: {
   docker: DockerClientForReaper;
   activeMeetingIds: ReadonlySet<string> | (() => ReadonlySet<string>);
+  instanceHash: string;
   createdBefore?: number;
   logger: ReaperLogger;
-}): Promise<{ killed: string[]; kept: string[] }> {
-  const { docker, activeMeetingIds, createdBefore, logger } = opts;
+}): Promise<{ killed: string[]; kept: string[]; skippedUnlabeled: string[] }> {
+  const { docker, activeMeetingIds, instanceHash, createdBefore, logger } =
+    opts;
   const resolveActive =
     typeof activeMeetingIds === "function"
       ? activeMeetingIds
       : () => activeMeetingIds;
   const killed: string[] = [];
   const kept: string[] = [];
+  const skippedUnlabeled: string[] = [];
 
   let containers: ContainerListEntry[];
   try {
+    // List with the bot label only — not the instance label. We need to
+    // observe pre-label containers so we can skip them with a DEBUG
+    // breadcrumb; filtering on instance at the API layer would hide them.
+    // Same-instance vs different-instance vs unlabeled branching happens
+    // in code below.
     containers = await docker.listContainers({
       labels: { [MEET_BOT_LABEL]: "true" },
       all: false,
     });
   } catch (err) {
     logger.warn({ err }, "reapOrphanedMeetBots: listContainers failed");
-    return { killed, kept };
+    return { killed, kept, skippedUnlabeled };
   }
 
   for (const container of containers) {
     const containerId = container.Id;
     const labels = container.Labels ?? {};
     const meetingId = labels[MEET_BOT_MEETING_ID_LABEL];
+    const containerInstance = labels[MEET_BOT_INSTANCE_LABEL];
+
+    // Pre-label containers (from a version before the instance-label
+    // change shipped). Ownership is ambiguous — the container might
+    // belong to another installation on the same host — so the reaper
+    // never touches them. The user can `docker rm` manually if the
+    // container is actually stale.
+    if (containerInstance === undefined) {
+      logger.debug(
+        { containerId, meetingId },
+        "reapOrphanedMeetBots: skipping pre-label container (missing vellum.meet.instance)",
+      );
+      skippedUnlabeled.push(containerId);
+      continue;
+    }
+
+    // Containers from a different daemon instance on the same host. Leave
+    // them alone — the other instance's own reaper (or lifecycle) owns
+    // their cleanup.
+    if (containerInstance !== instanceHash) {
+      kept.push(containerId);
+      continue;
+    }
 
     // Skip containers created after the cutoff — they belong to this
     // daemon's lifetime (or later) and cannot be orphans from a prior run.
@@ -1021,5 +1158,5 @@ export async function reapOrphanedMeetBots(opts: {
     }
   }
 
-  return { killed, kept };
+  return { killed, kept, skippedUnlabeled };
 }

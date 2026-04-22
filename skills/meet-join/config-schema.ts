@@ -413,6 +413,36 @@ export const MeetServiceSchema = z
       .describe(
         "Proactive-chat opportunity detector tuning. The detector uses a Tier 1 regex fast filter plus a Tier 2 LLM confirmation before the assistant posts in meeting chat.",
       ),
+    voiceMode: z
+      .object({
+        enabled: z
+          .boolean({
+            error: "services.meet.voiceMode.enabled must be a boolean",
+          })
+          .default(true)
+          .describe(
+            "When on, 1:1 Meet calls (bot + one human) skip the proactive-chat Tier 1 regex and Tier 2 LLM and wake the agent after a short silence debounce on the last final transcript chunk. Group meetings (3+ participants) keep Tier 1 + Tier 2 behavior regardless of this flag.",
+          ),
+        eouDebounceMs: z
+          .number({
+            error: "services.meet.voiceMode.eouDebounceMs must be a number",
+          })
+          .int("services.meet.voiceMode.eouDebounceMs must be an integer")
+          .nonnegative(
+            "services.meet.voiceMode.eouDebounceMs must be non-negative",
+          )
+          .default(800)
+          .describe(
+            "Silence window after the last final transcript chunk before a 1:1 voice wake fires. Approximates end-of-utterance — long enough to ride through mid-sentence pauses, short enough to feel conversational.",
+          ),
+      })
+      .default({
+        enabled: true,
+        eouDebounceMs: 800,
+      })
+      .describe(
+        "1:1 voice-mode tuning. Active only when the live participant count is <= 2 (bot + one human).",
+      ),
     avatar: MeetAvatarSchema,
   })
   .describe(

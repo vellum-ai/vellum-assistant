@@ -356,4 +356,234 @@ describe("ExtensionCdpClient", () => {
     expect(err.message).toBe("CDP call aborted");
     expect(err.cdpMethod).toBe("Browser.getVersion");
   });
+
+  // ── Structured transport error classification ────────────────────────
+
+  test("structured error with code 'transport_error' is classified as transport_error", async () => {
+    const errorBody = {
+      code: "transport_error",
+      message: "Extension WebSocket disconnected",
+    };
+    const { proxy } = fakeProxy(async () => ({
+      content: JSON.stringify(errorBody),
+      isError: true,
+    }));
+
+    const client = createExtensionCdpClient(proxy, "conv-transport-1");
+
+    let caught: unknown;
+    try {
+      await client.send("Page.navigate", { url: "https://example.com" });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(CdpError);
+    const err = caught as CdpError;
+    expect(err.code).toBe("transport_error");
+    expect(err.message).toBe("Extension WebSocket disconnected");
+    expect(err.cdpMethod).toBe("Page.navigate");
+    expect(err.cdpParams).toEqual({ url: "https://example.com" });
+    expect(err.underlying).toEqual(errorBody);
+  });
+
+  test("structured error with code 'unreachable' is classified as transport_error", async () => {
+    const errorBody = {
+      code: "unreachable",
+      message: "Host browser not reachable",
+    };
+    const { proxy } = fakeProxy(async () => ({
+      content: JSON.stringify(errorBody),
+      isError: true,
+    }));
+
+    const client = createExtensionCdpClient(proxy, "conv-transport-2");
+
+    let caught: unknown;
+    try {
+      await client.send("Runtime.evaluate", { expression: "1+1" });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(CdpError);
+    const err = caught as CdpError;
+    expect(err.code).toBe("transport_error");
+    expect(err.message).toBe("Host browser not reachable");
+    expect(err.underlying).toEqual(errorBody);
+  });
+
+  test("structured error with code 'timeout' is classified as transport_error", async () => {
+    const errorBody = {
+      code: "timeout",
+      message: "CDP call timed out",
+    };
+    const { proxy } = fakeProxy(async () => ({
+      content: JSON.stringify(errorBody),
+      isError: true,
+    }));
+
+    const client = createExtensionCdpClient(proxy, "conv-transport-3");
+
+    let caught: unknown;
+    try {
+      await client.send("Page.captureScreenshot");
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(CdpError);
+    const err = caught as CdpError;
+    expect(err.code).toBe("transport_error");
+    expect(err.message).toBe("CDP call timed out");
+    expect(err.underlying).toEqual(errorBody);
+  });
+
+  test("structured error with code 'non_loopback' is classified as transport_error", async () => {
+    const errorBody = {
+      code: "non_loopback",
+      message: "Only loopback addresses are allowed",
+    };
+    const { proxy } = fakeProxy(async () => ({
+      content: JSON.stringify(errorBody),
+      isError: true,
+    }));
+
+    const client = createExtensionCdpClient(proxy, "conv-transport-4");
+
+    let caught: unknown;
+    try {
+      await client.send("Browser.getVersion");
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(CdpError);
+    const err = caught as CdpError;
+    expect(err.code).toBe("transport_error");
+    expect(err.message).toBe("Only loopback addresses are allowed");
+    expect(err.underlying).toEqual(errorBody);
+  });
+
+  // ── Command-level CDP errors remain cdp_error ────────────────────────
+
+  test("structured error with numeric code (CDP JSON-RPC) remains cdp_error", async () => {
+    const errorBody = {
+      code: -32000,
+      message: "Cannot find context with specified id",
+    };
+    const { proxy } = fakeProxy(async () => ({
+      content: JSON.stringify(errorBody),
+      isError: true,
+    }));
+
+    const client = createExtensionCdpClient(proxy, "conv-cdp-1");
+
+    let caught: unknown;
+    try {
+      await client.send("Runtime.evaluate", { expression: "boom" });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(CdpError);
+    const err = caught as CdpError;
+    expect(err.code).toBe("cdp_error");
+    expect(err.message).toBe("Cannot find context with specified id");
+  });
+
+  test("structured error with unknown string code remains cdp_error", async () => {
+    const errorBody = {
+      code: "some_unknown_code",
+      message: "Unrecognized error",
+    };
+    const { proxy } = fakeProxy(async () => ({
+      content: JSON.stringify(errorBody),
+      isError: true,
+    }));
+
+    const client = createExtensionCdpClient(proxy, "conv-cdp-2");
+
+    let caught: unknown;
+    try {
+      await client.send("Page.navigate", { url: "https://example.com" });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(CdpError);
+    const err = caught as CdpError;
+    expect(err.code).toBe("cdp_error");
+    expect(err.message).toBe("Unrecognized error");
+  });
+
+  test("structured error without code field remains cdp_error", async () => {
+    const errorBody = {
+      message: "Something went wrong",
+    };
+    const { proxy } = fakeProxy(async () => ({
+      content: JSON.stringify(errorBody),
+      isError: true,
+    }));
+
+    const client = createExtensionCdpClient(proxy, "conv-cdp-3");
+
+    let caught: unknown;
+    try {
+      await client.send("DOM.getDocument");
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(CdpError);
+    const err = caught as CdpError;
+    expect(err.code).toBe("cdp_error");
+    expect(err.message).toBe("Something went wrong");
+  });
+
+  test("structured error with code: null remains cdp_error", async () => {
+    const errorBody = {
+      code: null,
+      message: "Null code error",
+    };
+    const { proxy } = fakeProxy(async () => ({
+      content: JSON.stringify(errorBody),
+      isError: true,
+    }));
+
+    const client = createExtensionCdpClient(proxy, "conv-cdp-4");
+
+    let caught: unknown;
+    try {
+      await client.send("Browser.getVersion");
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(CdpError);
+    const err = caught as CdpError;
+    expect(err.code).toBe("cdp_error");
+  });
+
+  test("plain-text isError content still throws cdp_error (no failover)", async () => {
+    const { proxy } = fakeProxy(async () => ({
+      content: "Connection lost unexpectedly",
+      isError: true,
+    }));
+
+    const client = createExtensionCdpClient(proxy, "conv-cdp-5");
+
+    let caught: unknown;
+    try {
+      await client.send("Page.navigate", { url: "https://example.com" });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(CdpError);
+    const err = caught as CdpError;
+    expect(err.code).toBe("cdp_error");
+    expect(err.message).toBe("Connection lost unexpectedly");
+    expect(err.underlying).toBe("Connection lost unexpectedly");
+  });
 });
