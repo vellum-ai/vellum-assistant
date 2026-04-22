@@ -674,7 +674,7 @@ final class MarkdownSegmentViewTests: XCTestCase {
     func testMathImage_rendersScreenshotLatex() {
         let latex = #"m_\text{ferrite} \propto (\text{ferrite thickness}) \propto \frac{F_\text{required}}{F_\text{available per m}} \propto \frac{1}{\text{margin}}"#
         var math = MathImage(latex: latex, fontSize: 13, textColor: NSColor.black, labelMode: .display)
-        let (error, image) = math.asImage()
+        let (error, image, _) = math.asImage()
         XCTAssertNil(error, "SwiftMath rejected the screenshot LaTeX: \(error.map { String(describing: $0) } ?? "unknown")")
         XCTAssertNotNil(image)
         XCTAssertGreaterThan(image?.size.width ?? 0, 0)

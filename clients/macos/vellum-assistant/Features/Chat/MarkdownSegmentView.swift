@@ -965,7 +965,7 @@ private struct MathBlockView: View {
             textColor: nsTextColor,
             labelMode: labelMode
         )
-        let (error, image) = mathImage.asImage()
+        let (error, image, _) = mathImage.asImage()
         if let error = error {
             return .failure(error.localizedDescription)
         }
