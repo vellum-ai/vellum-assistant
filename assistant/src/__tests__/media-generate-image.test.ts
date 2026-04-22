@@ -10,14 +10,17 @@ import type { ToolContext } from "../tools/types.js";
 // Mock dependencies for the tool wrapper
 // ---------------------------------------------------------------------------
 
-let mockApiKey: string | undefined = "test-gemini-key";
+let mockGeminiKey: string | undefined = "test-gemini-key";
+let mockOpenAIKey: string | undefined = "test-openai-key";
 let mockImageGenMode: "your-own" | "managed" = "your-own";
+let mockImageGenProvider: "gemini" | "openai" = "gemini";
 let mockGenerateResult = {
   images: [{ mimeType: "image/png", dataBase64: "generated-data" }],
   text: "A beautiful image",
   resolvedModel: "gemini-3.1-flash-image-preview",
 };
 let mockGenerateError: Error | null = null;
+let lastGenerateProvider: unknown = null;
 let lastGenerateCredentials: unknown = null;
 
 mock.module("../config/loader.js", () => ({
@@ -31,7 +34,7 @@ mock.module("../config/loader.js", () => ({
       },
       "image-generation": {
         mode: mockImageGenMode,
-        provider: "gemini",
+        provider: mockImageGenProvider,
         model: "gemini-3.1-flash-image-preview",
       },
       "web-search": { mode: "your-own", provider: "inference-provider-native" },
@@ -41,27 +44,33 @@ mock.module("../config/loader.js", () => ({
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (account: string) => {
-    if (account === "gemini") return mockApiKey;
+    if (account === "gemini") return mockGeminiKey;
+    if (account === "openai") return mockOpenAIKey;
     return undefined;
   },
   getProviderKeyAsync: async (provider: string) => {
-    if (provider === "gemini") return mockApiKey;
+    if (provider === "gemini") return mockGeminiKey;
+    if (provider === "openai") return mockOpenAIKey;
     return undefined;
   },
 }));
 
-mock.module("../media/gemini-image-service.js", () => ({
+mock.module("../media/image-service.js", () => ({
   generateImage: async (
+    provider: unknown,
     credentials: unknown,
     _request: Record<string, unknown>,
   ) => {
+    lastGenerateProvider = provider;
     lastGenerateCredentials = credentials;
     if (mockGenerateError) throw mockGenerateError;
     return mockGenerateResult;
   },
-  mapGeminiError: (error: unknown) => {
-    if (error instanceof Error) return `Mock error: ${error.message}`;
-    return "Mock unknown error";
+  mapImageGenError: (provider: unknown, error: unknown) => {
+    const providerLabel = provider === "openai" ? "OpenAI" : "Gemini";
+    if (error instanceof Error)
+      return `Mock ${providerLabel} error: ${error.message}`;
+    return `Mock ${providerLabel} unknown error`;
   },
 }));
 
@@ -97,14 +106,17 @@ const CONFIG_DIR = join(
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  mockApiKey = "test-gemini-key";
+  mockGeminiKey = "test-gemini-key";
+  mockOpenAIKey = "test-openai-key";
   mockImageGenMode = "your-own";
+  mockImageGenProvider = "gemini";
   mockGenerateResult = {
     images: [{ mimeType: "image/png", dataBase64: "generated-data" }],
     text: "A beautiful image",
     resolvedModel: "gemini-3.1-flash-image-preview",
   };
   mockGenerateError = null;
+  lastGenerateProvider = null;
   lastGenerateCredentials = null;
   mockManagedBaseUrl = undefined;
   mockManagedProxyContext = {
@@ -127,7 +139,7 @@ describe("image-studio skill script wrapper", () => {
   });
 
   test("returns error when no API key and no managed proxy", async () => {
-    mockApiKey = undefined;
+    mockGeminiKey = undefined;
 
     const result = await run({ prompt: "a cat" }, fakeContext);
 
@@ -148,6 +160,7 @@ describe("image-studio skill script wrapper", () => {
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Generated 1 image");
+    expect(lastGenerateProvider).toBe("gemini");
     expect(lastGenerateCredentials).toEqual({
       type: "managed-proxy",
       assistantApiKey: "managed-key-123",
@@ -157,7 +170,7 @@ describe("image-studio skill script wrapper", () => {
 
   test("managed mode returns error when managed proxy is unavailable", async () => {
     mockImageGenMode = "managed";
-    mockApiKey = "direct-key"; // should be ignored in managed mode
+    mockGeminiKey = "direct-key"; // should be ignored in managed mode
     mockManagedBaseUrl = undefined;
 
     const result = await run({ prompt: "a cat" }, fakeContext);
@@ -168,7 +181,7 @@ describe("image-studio skill script wrapper", () => {
 
   test("your-own mode uses direct API key", async () => {
     mockImageGenMode = "your-own";
-    mockApiKey = "direct-key";
+    mockGeminiKey = "direct-key";
     mockManagedBaseUrl = "https://platform.example.com/v1/runtime-proxy/gemini";
     mockManagedProxyContext = {
       enabled: true,
@@ -178,10 +191,36 @@ describe("image-studio skill script wrapper", () => {
 
     await run({ prompt: "a cat" }, fakeContext);
 
+    expect(lastGenerateProvider).toBe("gemini");
     expect(lastGenerateCredentials).toEqual({
       type: "direct",
       apiKey: "direct-key",
     });
+  });
+
+  test("openai provider dispatches to OpenAI with its key", async () => {
+    mockImageGenProvider = "openai";
+    mockOpenAIKey = "openai-direct-key";
+
+    const result = await run({ prompt: "a robot" }, fakeContext);
+
+    expect(result.isError).toBe(false);
+    expect(lastGenerateProvider).toBe("openai");
+    expect(lastGenerateCredentials).toEqual({
+      type: "direct",
+      apiKey: "openai-direct-key",
+    });
+  });
+
+  test("openai provider returns OpenAI-specific error hint when no key", async () => {
+    mockImageGenProvider = "openai";
+    mockOpenAIKey = undefined;
+
+    const result = await run({ prompt: "a robot" }, fakeContext);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("OpenAI");
+    expect(result.content).not.toContain("No Gemini API key");
   });
 
   test("returns generated image with contentBlocks", async () => {
@@ -225,7 +264,17 @@ describe("image-studio skill script wrapper", () => {
     const result = await run({ prompt: "a cat" }, fakeContext);
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("Mock error: API failure");
+    expect(result.content).toContain("Mock Gemini error: API failure");
+  });
+
+  test("openai generation error uses OpenAI-specific mapping", async () => {
+    mockImageGenProvider = "openai";
+    mockGenerateError = new Error("openai failure");
+
+    const result = await run({ prompt: "a cat" }, fakeContext);
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Mock OpenAI error: openai failure");
   });
 
   test("reads source images from file paths on disk", async () => {
@@ -330,6 +379,7 @@ describe("image-studio TOOLS.json manifest", () => {
     expect(props.model.enum).toEqual([
       "gemini-3.1-flash-image-preview",
       "gemini-3-pro-image-preview",
+      "gpt-image-2",
     ]);
     expect(props.variants.type).toBe("number");
   });

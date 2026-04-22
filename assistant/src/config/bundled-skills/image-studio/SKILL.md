@@ -25,10 +25,11 @@ You are an image generation assistant. When the user asks you to create or edit 
 
 - `gemini-3.1-flash-image-preview` (default) - Nano Banana 2, fast, good quality
 - `gemini-3-pro-image-preview` - Nano Banana Pro, higher quality, slower
+- `gpt-image-2` - OpenAI GPT Image 2, high fidelity, slower
 
 ## Tips
 
 - Be descriptive in your prompts for better results. Include details about style, composition, lighting, and mood.
 - When editing images, clearly describe what changes you want made to the source image.
 - Use the `variants` parameter (1-4) to generate multiple options and pick the best one.
-- If no Gemini API key is configured, the tool will return an error - ask the user to set one up.
+- If no API key is configured for the selected model's provider (Gemini or OpenAI), the tool will return an error - ask the user to set one up.
