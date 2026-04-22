@@ -156,6 +156,14 @@ export type ExtensionTrustedClickMessage = z.infer<
 >;
 
 /**
+ * Google Meet's single-message chat cap. Shared across contracts so every
+ * site that sizes timeouts or validates length uses the same number, and
+ * so the daemon can clamp untrusted inputs before deriving a per-request
+ * timeout (see {@link trustedTypeHttpTimeoutMs}).
+ */
+export const MEET_CHAT_MAX_LENGTH = 2000;
+
+/**
  * Ask the bot to type text into the currently-focused input field via
  * `xdotool type` inside the bot container. This is the keyboard-input
  * analogue of {@link ExtensionTrustedClickMessageSchema}: Google Meet may
@@ -170,14 +178,6 @@ export type ExtensionTrustedClickMessage = z.infer<
  * message. The bot simply invokes `xdotool type` against whatever is
  * currently focused on the Xvfb display.
  */
-/**
- * Google Meet's single-message chat cap. Shared across contracts so every
- * site that sizes timeouts or validates length uses the same number, and
- * so the daemon can clamp untrusted inputs before deriving a per-request
- * timeout (see {@link trustedTypeHttpTimeoutMs}).
- */
-export const MEET_CHAT_MAX_LENGTH = 2000;
-
 export const ExtensionTrustedTypeMessageSchema = z.object({
   type: z.literal("trusted_type"),
   /** Text to type via `xdotool type`. Length-capped to Meet's 2000-char chat limit. */
