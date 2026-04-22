@@ -99,21 +99,14 @@ describe("first-greeting", () => {
       expect(greeting).toStartWith("Hello, Alex.");
     });
 
-    it("mentions selected tools", () => {
-      const greeting = getCannedFirstGreeting({
-        ...base,
-        tools: ["slack", "linear"],
-      });
-      expect(greeting).toContain("Slack");
-      expect(greeting).toContain("Linear");
-    });
-
-    it("truncates long tool lists", () => {
+    it("does not mention selected tools by name", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
         tools: ["slack", "linear", "gmail", "notion"],
       });
-      expect(greeting).toContain("Slack, Linear, and 2 more");
+      expect(greeting).not.toContain("Slack");
+      expect(greeting).not.toContain("Linear");
+      expect(greeting).not.toContain("Gmail");
     });
 
     it("suggests actions from selected tasks", () => {
@@ -122,6 +115,7 @@ describe("first-greeting", () => {
         tasks: ["code-building"],
       });
       expect(greeting).toContain("help you build something");
+      expect(greeting).not.toContain("?");
     });
 
     it("offers two suggestions when multiple tasks selected", () => {
@@ -131,11 +125,12 @@ describe("first-greeting", () => {
       });
       expect(greeting).toContain("draft or edit some writing");
       expect(greeting).toContain("dig into a research question");
+      expect(greeting).not.toContain("?");
     });
 
-    it("falls back to generic prompt when no tasks selected", () => {
+    it("falls back to direct prompt when no tasks selected", () => {
       const greeting = getCannedFirstGreeting({ ...base, tasks: [] });
-      expect(greeting).toContain("tackle first");
+      expect(greeting).not.toContain("?");
     });
 
     it("assembles a full personalized greeting", () => {
@@ -148,8 +143,8 @@ describe("first-greeting", () => {
       });
       expect(greeting).toStartWith("Hey Alex!");
       expect(greeting).toContain("I'm Pax");
-      expect(greeting).toContain("Slack");
-      expect(greeting).toContain("GitHub");
+      expect(greeting).not.toContain("Slack");
+      expect(greeting).not.toContain("GitHub");
       expect(greeting).toContain("help you build something");
     });
   });

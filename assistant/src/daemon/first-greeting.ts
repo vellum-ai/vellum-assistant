@@ -42,21 +42,6 @@ export function getCannedFirstGreeting(
   return CANNED_FIRST_GREETING;
 }
 
-const TOOL_LABELS: Record<string, string> = {
-  gmail: "Gmail",
-  outlook: "Outlook",
-  "google-calendar": "Google Calendar",
-  slack: "Slack",
-  notion: "Notion",
-  linear: "Linear",
-  jira: "Jira",
-  github: "GitHub",
-  figma: "Figma",
-  "google-drive": "Google Drive",
-  excel: "Excel",
-  "apple-notes": "Apple Notes",
-};
-
 const TASK_SUGGESTIONS: Record<string, string> = {
   "code-building": "help you build something",
   writing: "draft or edit some writing",
@@ -84,35 +69,22 @@ function buildPersonalizedGreeting(ctx: OnboardingGreetingContext): string {
     ? `I'm ${assistantName} — brand new and ready to learn how you work.`
     : "I'm brand new and ready to learn how you work.";
 
-  const toolNames = ctx.tools.map((t) => TOOL_LABELS[t] ?? t).filter(Boolean);
-
-  let toolLine = "";
-  if (toolNames.length > 0) {
-    const list =
-      toolNames.length <= 3
-        ? toolNames.join(", ")
-        : `${toolNames.slice(0, 2).join(", ")}, and ${toolNames.length - 2} more`;
-    toolLine = professional
-      ? `I see you work with ${list} — good to know.`
-      : `I see you use ${list} — noted.`;
-  }
-
   const suggestions = ctx.tasks.map((t) => TASK_SUGGESTIONS[t]).filter(Boolean);
 
   let actionLine = "";
   if (suggestions.length === 1) {
-    actionLine = `Want me to ${suggestions[0]}?`;
+    actionLine = `Ready to ${suggestions[0]} whenever you are.`;
   } else if (suggestions.length >= 2) {
     actionLine = professional
-      ? `I can ${suggestions[0]} or ${suggestions[1]} — which sounds useful?`
-      : `I could ${suggestions[0]}, or ${suggestions[1]} — what sounds good?`;
+      ? `Ready to ${suggestions[0]} or ${suggestions[1]} - just say the word.`
+      : `Ready to ${suggestions[0]}, or ${suggestions[1]} - just say the word.`;
   }
 
   if (!actionLine) {
     actionLine = professional
-      ? "What would be most useful to start with?"
-      : "What should we tackle first?";
+      ? "Tell me what you need."
+      : "Throw something at me.";
   }
 
-  return [opener, intro, toolLine, actionLine].filter(Boolean).join(" ");
+  return [opener, intro, actionLine].filter(Boolean).join(" ");
 }
