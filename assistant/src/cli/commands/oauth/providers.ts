@@ -141,10 +141,15 @@ function formatProviderDetail(p: SerializedProvider): string {
   if (p.identityFormat) lines.push(`  Identity format: ${p.identityFormat}`);
   if (p.identityOkField)
     lines.push(`  Identity ok field: ${p.identityOkField}`);
-  if (p.setupNotes)
-    lines.push(
-      `  Setup notes:\n${(p.setupNotes as string[]).map((n) => `    - ${n}`).join("\n")}`,
-    );
+  if (p.setupNotes) {
+    if (Array.isArray(p.setupNotes)) {
+      lines.push(
+        `  Setup notes:\n${(p.setupNotes as string[]).map((n) => `    - ${n}`).join("\n")}`,
+      );
+    } else {
+      lines.push(`  Setup notes: ${formatJsonValue(p.setupNotes)}`);
+    }
+  }
   if (p.featureFlag) lines.push(`  Feature flag: ${p.featureFlag}`);
   if (p.logoUrl) lines.push(`  Logo: ${p.logoUrl}`);
   lines.push(`  Created: ${p.createdAt}`);
