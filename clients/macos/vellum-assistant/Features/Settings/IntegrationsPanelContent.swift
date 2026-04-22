@@ -291,11 +291,16 @@ private struct IntegrationItemRow: View {
                 IntegrationIcon.image(for: provider, size: 32)
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text(provider.display_name ?? provider.provider_key)
-                        .font(VFont.titleSmall)
-                        .foregroundStyle(VColor.contentEmphasized)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    HStack(spacing: VSpacing.sm) {
+                        Text(provider.display_name ?? provider.provider_key)
+                            .font(VFont.titleSmall)
+                            .foregroundStyle(VColor.contentEmphasized)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        if provider.isPaid {
+                            VPaidBadge()
+                        }
+                    }
 
                     if let description = provider.description, !description.isEmpty {
                         Text(description)
