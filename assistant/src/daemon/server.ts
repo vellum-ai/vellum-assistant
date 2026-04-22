@@ -886,6 +886,7 @@ export class DaemonServer {
         trustClass: conversation.trustContext?.trustClass ?? "guardian",
         hostBrowserProxy: conversation.hostBrowserProxy,
         transportInterface: conversation.transportInterface,
+        hostBrowserRegistryRouted: !!conversation.hostBrowserSenderOverride,
       };
     });
 

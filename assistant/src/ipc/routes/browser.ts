@@ -82,6 +82,7 @@ export const browserExecuteRoute: IpcRoute = {
         trustClass: resolvedContext.trustClass,
         hostBrowserProxy: resolvedContext.hostBrowserProxy,
         transportInterface: resolvedContext.transportInterface,
+        hostBrowserRegistryRouted: resolvedContext.hostBrowserRegistryRouted,
       },
     );
 

@@ -1058,20 +1058,41 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
     expect(candidates[2].kind).toBe("local");
   });
 
-  test("macOS turn with proxy unavailable skips desktop-auto cdp-inspect (extension intent)", () => {
+  test("macOS turn with registry-routed proxy unavailable skips desktop-auto cdp-inspect (extension intent)", () => {
     const fakeProxy = makeUnavailableProxy();
     const ctx = makeContext({
       conversationId: "macos-proxy-unavailable-no-inspect",
       hostBrowserProxy: fakeProxy,
       transportInterface: "macos",
+      hostBrowserRegistryRouted: true,
     });
 
     const candidates = buildCandidateList(ctx);
 
     // Should only include local -- cdp-inspect is suppressed because extension
-    // transport is expected (proxy exists) but temporarily unavailable.
+    // transport is expected (registry-routed proxy) but temporarily unavailable.
     expect(candidates.length).toBe(1);
     expect(candidates[0].kind).toBe("local");
+  });
+
+  test("macOS turn with SSE-backed proxy unavailable still includes desktop-auto cdp-inspect", () => {
+    const fakeProxy = makeUnavailableProxy();
+    const ctx = makeContext({
+      conversationId: "macos-sse-proxy-unavailable-inspect-allowed",
+      hostBrowserProxy: fakeProxy,
+      transportInterface: "macos",
+      // hostBrowserRegistryRouted is NOT set -- SSE-backed proxy
+    });
+
+    const candidates = buildCandidateList(ctx);
+
+    // SSE-backed proxy that is unavailable (non-interactive turn) should NOT
+    // suppress cdp-inspect -- the SSE proxy was never expected to service
+    // browser requests, so cdp-inspect remains available as a fallback.
+    expect(candidates.length).toBe(2);
+    expect(candidates[0].kind).toBe("cdp-inspect");
+    expect(candidates[0].reason).toContain("desktopAuto");
+    expect(candidates[1].kind).toBe("local");
   });
 
   test("macOS turn with no proxy still includes desktop-auto cdp-inspect", () => {
@@ -1242,17 +1263,19 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
     expect(candidates[0].kind).toBe("local");
   });
 
-  test("macOS turn with proxy unavailable routes to local without trying cdp-inspect", async () => {
+  test("macOS turn with registry-routed proxy unavailable routes to local without trying cdp-inspect", async () => {
     const fakeProxy = makeUnavailableProxy();
     const ctx = makeContext({
       conversationId: "macos-proxy-unavail-route",
       hostBrowserProxy: fakeProxy,
       transportInterface: "macos",
+      hostBrowserRegistryRouted: true,
     });
 
     const client = getCdpClient(ctx);
 
     // Should go straight to local -- no cdp-inspect candidate inserted
+    // because the registry-routed extension was expected but is unavailable.
     expect(client.kind).toBe("local");
     const result = await client.send<{ ok: boolean; via: string }>(
       "Page.navigate",
@@ -1261,6 +1284,29 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
     expect(createCdpInspectClientMock).not.toHaveBeenCalled();
     expect(createExtensionCdpClientMock).not.toHaveBeenCalled();
     expect(createLocalCdpClientMock).toHaveBeenCalledTimes(1);
+    client.dispose();
+  });
+
+  test("macOS turn with SSE-backed proxy unavailable falls through to cdp-inspect", async () => {
+    const fakeProxy = makeUnavailableProxy();
+    const ctx = makeContext({
+      conversationId: "macos-sse-proxy-unavail-inspect",
+      hostBrowserProxy: fakeProxy,
+      transportInterface: "macos",
+      // hostBrowserRegistryRouted is NOT set -- SSE-backed proxy
+    });
+
+    const client = getCdpClient(ctx);
+
+    // SSE-backed proxy unavailable (non-interactive turn) should NOT
+    // suppress cdp-inspect -- it falls through to desktop-auto cdp-inspect.
+    expect(client.kind).toBe("cdp-inspect");
+    const result = await client.send<{ ok: boolean; via: string }>(
+      "Page.navigate",
+    );
+    expect(result).toEqual({ ok: true, via: "cdp-inspect" });
+    expect(createExtensionCdpClientMock).not.toHaveBeenCalled();
+    expect(createCdpInspectClientMock).toHaveBeenCalledTimes(1);
     client.dispose();
   });
 
