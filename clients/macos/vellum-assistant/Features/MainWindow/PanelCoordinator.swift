@@ -269,6 +269,63 @@ extension MainWindowView {
                         onSecondaryAction: { activeHomeDetailPanel = nil },
                         onCardAction: { _, _ in }
                     )
+                case .emailDraft(let item):
+                    HomeDetailPanel(
+                        icon: nil,
+                        title: item.title,
+                        onDismiss: { activeHomeDetailPanel = nil }
+                    ) {
+                        Text(item.summary)
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentSecondary)
+                            .padding(VSpacing.lg)
+                    }
+                case .documentPreview(let item):
+                    HomeDetailPanel(
+                        icon: nil,
+                        title: item.title,
+                        onDismiss: { activeHomeDetailPanel = nil }
+                    ) {
+                        Text(item.summary)
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentSecondary)
+                            .padding(VSpacing.lg)
+                    }
+                case .permissionChat(let item):
+                    HomeDetailPanel(
+                        icon: nil,
+                        title: item.title,
+                        onDismiss: { activeHomeDetailPanel = nil }
+                    ) {
+                        Text(item.summary)
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentSecondary)
+                            .padding(VSpacing.lg)
+                    }
+                case .paymentAuth(let item):
+                    HomeDetailPanel(
+                        icon: nil,
+                        title: item.title,
+                        onDismiss: { activeHomeDetailPanel = nil }
+                    ) {
+                        HomeAuthDetailCard(item: item)
+                    }
+                case .toolPermission(let item):
+                    HomeDetailPanel(
+                        icon: nil,
+                        title: item.title,
+                        onDismiss: { activeHomeDetailPanel = nil }
+                    ) {
+                        HomePermissionDetailCard(item: item)
+                    }
+                case .updatesList(let item):
+                    HomeDetailPanel(
+                        icon: nil,
+                        title: item.title,
+                        onDismiss: { activeHomeDetailPanel = nil }
+                    ) {
+                        HomeUpdatesListDetailCard(item: item)
+                    }
                 case nil:
                     EmptyView()
                 }
