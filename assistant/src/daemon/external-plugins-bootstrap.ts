@@ -7,10 +7,9 @@
  * {@link bootstrapPlugins} runs, the registry has been fully populated for
  * this boot cycle. This function:
  *
- * 1. Registers the canonical first-party default plugins (one per pipeline
- *    that has been wrapped so far — currently only `toolExecute` via
- *    {@link defaultToolExecutePlugin}). Registration is idempotent so
- *    repeat calls (e.g. during integration tests) do not throw.
+ * 1. Registers the canonical first-party default plugins via
+ *    {@link registerDefaultPlugins} (one per pipeline). Registration is
+ *    idempotent so repeat calls (e.g. during integration tests) do not throw.
  * 2. Walks {@link getRegisteredPlugins} in registration order.
  * 3. For each plugin, consults `manifest.requiresFlag` against
  *    {@link isAssistantFeatureFlagEnabled}. If any listed flag is disabled,
@@ -53,20 +52,7 @@ import { join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/schema.js";
-import { defaultCircuitBreakerPlugin } from "../plugins/defaults/circuit-breaker.js";
-import { defaultCompactionPlugin } from "../plugins/defaults/compaction.js";
-import { defaultEmptyResponsePlugin } from "../plugins/defaults/empty-response.js";
-import { defaultHistoryRepairPlugin } from "../plugins/defaults/history-repair.js";
-import { defaultInjectorsPlugin } from "../plugins/defaults/injectors.js";
-import { defaultLlmCallPlugin } from "../plugins/defaults/llm-call.js";
-import { defaultMemoryRetrievalPlugin } from "../plugins/defaults/memory-retrieval.js";
-import { defaultOverflowReducePlugin } from "../plugins/defaults/overflow-reduce.js";
-import { defaultPersistencePlugin } from "../plugins/defaults/persistence.js";
-import { defaultTitleGeneratePlugin } from "../plugins/defaults/title-generate.js";
-import { defaultTokenEstimatePlugin } from "../plugins/defaults/token-estimate.js";
-import { defaultToolErrorPlugin } from "../plugins/defaults/tool-error.js";
-import { defaultToolExecutePlugin } from "../plugins/defaults/tool-execute.js";
-import { defaultToolResultTruncatePlugin } from "../plugins/defaults/tool-result-truncate.js";
+import { registerDefaultPlugins } from "../plugins/defaults/index.js";
 import {
   registerPluginSkills,
   unregisterPluginSkills,
@@ -74,7 +60,6 @@ import {
 import {
   ASSISTANT_API_VERSIONS,
   getRegisteredPlugins,
-  registerPlugin,
 } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -177,50 +162,6 @@ function ensurePluginStorageDir(pluginName: string): string {
   const dir = join(vellumRoot(), "plugins-data", pluginName);
   mkdirSync(dir, { recursive: true });
   return dir;
-}
-
-/**
- * Register every first-party default plugin. Called from `bootstrapPlugins`
- * before enumerating the registry so the defaults are always present when
- * the daemon serves traffic. Each registration is guarded by a
- * `registeredPlugins` lookup via try/catch — the registry throws
- * `PluginExecutionError` on duplicate names, which we treat as "already
- * registered" so repeated bootstrap calls (notably in integration tests
- * that reuse a warmed-up registry) do not fail.
- */
-function registerDefaultPlugins(): void {
-  const defaults = [
-    defaultLlmCallPlugin,
-    defaultToolExecutePlugin,
-    defaultToolResultTruncatePlugin,
-    defaultEmptyResponsePlugin,
-    defaultToolErrorPlugin,
-    defaultMemoryRetrievalPlugin,
-    defaultInjectorsPlugin,
-    defaultTokenEstimatePlugin,
-    defaultOverflowReducePlugin,
-    defaultHistoryRepairPlugin,
-    defaultCompactionPlugin,
-    defaultCircuitBreakerPlugin,
-    defaultPersistencePlugin,
-    defaultTitleGeneratePlugin,
-  ];
-  for (const plugin of defaults) {
-    try {
-      registerPlugin(plugin);
-    } catch (err) {
-      // Duplicate-name registrations surface as PluginExecutionError with a
-      // specific "already registered" substring. Swallow that one case —
-      // every other error (shape failure, version mismatch) re-throws.
-      if (
-        err instanceof PluginExecutionError &&
-        err.message.includes("already registered")
-      ) {
-        continue;
-      }
-      throw err;
-    }
-  }
 }
 
 /**

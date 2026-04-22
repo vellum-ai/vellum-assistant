@@ -6,11 +6,7 @@ import type {
   CheckpointInfo,
 } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-import { defaultOverflowReducePlugin } from "../plugins/defaults/overflow-reduce.js";
-import {
-  registerPlugin,
-  resetPluginRegistryForTests,
-} from "../plugins/registry.js";
+import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 
 // ── Module mocks (must precede imports of the module under test) ─────
@@ -520,11 +516,12 @@ beforeEach(() => {
     () => {},
   );
   applyRuntimeInjectionsMock.mockClear();
-  // Orchestrator overflow reduction runs through the plugin pipeline; reset
-  // and re-register the default plugin so the pipeline dispatches to the
-  // mocked `reduceContextOverflow` that these tests rely on.
-  resetPluginRegistryForTests();
-  registerPlugin(defaultOverflowReducePlugin);
+  // Orchestrator pipelines (overflowReduce, persistence, …) run through the
+  // plugin registry; reset and re-register every default so the pipelines
+  // dispatch to middleware backed by the mocked collaborators these tests
+  // install (`reduceContextOverflow`, `syncMessageToDisk`, etc.) instead of
+  // hitting the bare terminals.
+  resetPluginRegistryAndRegisterDefaults();
 });
 
 describe("session-agent-loop", () => {

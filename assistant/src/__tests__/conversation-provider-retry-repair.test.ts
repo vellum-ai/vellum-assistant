@@ -2,11 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AgentEvent } from "../agent/loop.js";
 import type { UserMessageAttachment } from "../daemon/message-protocol.js";
-import { defaultOverflowReducePlugin } from "../plugins/defaults/overflow-reduce.js";
-import {
-  registerPlugin,
-  resetPluginRegistryForTests,
-} from "../plugins/registry.js";
+import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 import { ProviderError } from "../util/errors.js";
 
@@ -452,13 +448,12 @@ describe("provider ordering error retry", () => {
     firstRunErrorMode = "ordering";
     maybeCompactCalls = [];
     forceCompactionEnabled = false;
-    // Orchestrator overflow reduction runs through the plugin pipeline;
-    // ensure the default plugin is registered so the pipeline has a
-    // middleware to dispatch to (the `context-overflow-reducer` module
-    // itself is mocked above, so the default plugin's delegate goes
-    // through the mocked implementation).
-    resetPluginRegistryForTests();
-    registerPlugin(defaultOverflowReducePlugin);
+    // Orchestrator pipelines (`overflowReduce`, `persistence`, …) run through
+    // the plugin registry; re-register every default so each pipeline has a
+    // middleware to dispatch to. The `context-overflow-reducer` module itself
+    // (and other collaborators) are mocked above, so the default plugins'
+    // delegates go through the mocked implementations.
+    resetPluginRegistryAndRegisterDefaults();
   });
 
   test("simulated strict provider error triggers exactly one retry", async () => {
