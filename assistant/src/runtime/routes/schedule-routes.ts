@@ -404,8 +404,10 @@ export function scheduleRouteDefinitions(deps: {
         runs: z.array(z.unknown()).describe("Schedule run objects"),
       }),
       handler: ({ params, url }) => {
-        const limitParam = url.searchParams.get("limit");
-        const limit = limitParam ? Math.min(Number(limitParam), 100) : 10;
+        const rawLimit = Number(url.searchParams.get("limit") ?? 10);
+        const limit = Number.isFinite(rawLimit)
+          ? Math.min(Math.max(Math.floor(rawLimit), 1), 100)
+          : 10;
         return handleListScheduleRuns(params.id, limit);
       },
     },
