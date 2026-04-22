@@ -66,69 +66,23 @@ struct HomeNudgeDetailPanel: View {
     let onCardAction: (Card, CardAction) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-
-            Rectangle()
-                .fill(VColor.borderHover)
-                .frame(height: 1)
-                .accessibilityHidden(true)
-
-            ScrollView {
-                bodySection
-            }
-
-            footer
-        }
-        .frame(minWidth: 480, idealWidth: 600, maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
-                .fill(VColor.surfaceLift)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.xl, style: .continuous)
-                .strokeBorder(VColor.borderHover, lineWidth: 1)
-        )
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text(title))
-    }
-
-    // MARK: - Header
-
-    private var header: some View {
-        HStack(alignment: .center) {
-            HStack(spacing: VSpacing.sm) {
-                ZStack {
-                    Circle().fill(iconBackground)
-                    VIconView(icon, size: 12)
-                        .foregroundStyle(iconForeground)
+        HomeDetailPanel(
+            icon: icon,
+            title: title,
+            iconForeground: iconForeground,
+            iconBackground: iconBackground,
+            onDismiss: onClose,
+            scrollable: false
+        ) {
+            VStack(alignment: .leading, spacing: 0) {
+                ScrollView {
+                    bodySection
                 }
-                .frame(width: 26, height: 26)
-                .accessibilityHidden(true)
+                .layoutPriority(1)
 
-                Text(title)
-                    .font(VFont.titleSmall)
-                    .foregroundStyle(VColor.contentEmphasized)
-                    .accessibilityAddTraits(.isHeader)
+                footer
             }
-
-            Spacer(minLength: 0)
-
-            Button(action: onClose) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: VRadius.md, style: .continuous)
-                        .strokeBorder(VColor.borderElement, lineWidth: 1)
-                    VIconView(.x, size: 9)
-                        .foregroundStyle(VColor.contentEmphasized)
-                }
-                .frame(width: 32, height: 32)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .pointerCursor()
-            .accessibilityLabel(Text("Close"))
         }
-        .padding(VSpacing.lg)
     }
 
     // MARK: - Body
