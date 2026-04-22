@@ -1,7 +1,6 @@
 import type { Command } from "commander";
 
 import { getProvider, listConnections } from "../../../oauth/oauth-store.js";
-import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 import {
   fetchActiveConnections,
@@ -9,7 +8,36 @@ import {
   requirePlatformClient,
 } from "./shared.js";
 
-const log = getCliLogger("cli");
+// ---------------------------------------------------------------------------
+// Text formatting helpers
+// ---------------------------------------------------------------------------
+
+interface ConnectionSummary {
+  id: string;
+  account: string | null;
+  grantedScopes: string[];
+  status: string;
+  expiresAt?: string | null;
+  hasRefreshToken?: boolean;
+}
+
+function formatConnection(c: ConnectionSummary, mode: string): string {
+  const lines: string[] = [];
+  lines.push(`  ${c.account ?? "(no account)"}`);
+  lines.push(`    Connection ID: ${c.id}`);
+  lines.push(`    Status: ${c.status}`);
+  if (c.grantedScopes.length > 0) {
+    lines.push(`    Granted scopes: ${c.grantedScopes.join(", ")}`);
+  } else {
+    lines.push(`    Granted scopes: (none)`);
+  }
+  if (mode === "byo") {
+    if (c.expiresAt) lines.push(`    Expires: ${c.expiresAt}`);
+    if (c.hasRefreshToken !== undefined)
+      lines.push(`    Refresh token: ${c.hasRefreshToken ? "yes" : "no"}`);
+  }
+  return lines.join("\n");
+}
 
 // ---------------------------------------------------------------------------
 // Command registration
@@ -95,25 +123,20 @@ Examples:
               return;
             }
 
-            // Human output
+            // Text output
             if (connections.length === 0) {
-              log.info(
-                `No active connections for ${provider}. Connect with 'assistant oauth connect ${provider}'.`,
+              process.stdout.write(
+                `No active connections for ${provider}.\nConnect with \`assistant oauth connect ${provider}\`.\n`,
               );
               return;
             }
 
-            log.info(`Provider: ${provider} (managed)`);
-            log.info(`${connections.length} active connection(s):`);
-            for (const c of connections) {
-              const scopes =
-                c.grantedScopes.length > 0
-                  ? `[${c.grantedScopes.join(", ")}]`
-                  : "[]";
-              log.info(
-                `  \u2022 ${c.id}  ${c.account ?? "(no account)"}  ${scopes}  ${c.status}`,
-              );
-            }
+            const blocks = connections.map((c) =>
+              formatConnection(c, "managed"),
+            );
+            process.stdout.write(
+              `${provider} (managed) — ${connections.length} active connection(s):\n\n${blocks.join("\n\n")}\n`,
+            );
           } else {
             // ---------------------------------------------------------------
             // BYO path
@@ -155,31 +178,18 @@ Examples:
               return;
             }
 
-            // Human output
+            // Text output
             if (connections.length === 0) {
-              log.info(
-                `No active connections for ${provider}. Connect with 'assistant oauth connect ${provider}'.`,
+              process.stdout.write(
+                `No active connections for ${provider}.\nConnect with \`assistant oauth connect ${provider}\`.\n`,
               );
               return;
             }
 
-            log.info(`Provider: ${provider} (byo)`);
-            log.info(`${connections.length} active connection(s):`);
-            for (const c of connections) {
-              const scopes =
-                c.grantedScopes.length > 0
-                  ? `[${c.grantedScopes.join(", ")}]`
-                  : "[]";
-              const expires = c.expiresAt
-                ? `expires ${c.expiresAt}`
-                : "no expiry";
-              const refresh = c.hasRefreshToken
-                ? "refresh: yes"
-                : "refresh: no";
-              log.info(
-                `  \u2022 ${c.id}  ${c.account ?? "(no account)"}  ${scopes}  ${expires}  ${refresh}`,
-              );
-            }
+            const blocks = connections.map((c) => formatConnection(c, "byo"));
+            process.stdout.write(
+              `${provider} (byo) — ${connections.length} active connection(s):\n\n${blocks.join("\n\n")}\n`,
+            );
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
