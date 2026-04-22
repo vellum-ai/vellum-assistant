@@ -151,7 +151,9 @@ Examples:
         if (match) {
           conversation = match;
         } else {
-          log.error(`Conversation not found: ${conversationId}`);
+          log.error(
+            `Conversation not found: ${conversationId}. Run 'assistant conversations list' to see available conversations.`,
+          );
           process.exit(1);
         }
       }
