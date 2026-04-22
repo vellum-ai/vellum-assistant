@@ -37,6 +37,8 @@ struct HomeScheduledDetailPanel: View {
         HomeDetailPanel(
             icon: .calendar,
             title: title,
+            iconForeground: VColor.feedThreadStrong,
+            iconBackground: VColor.feedThreadWeak,
             onDismiss: onClose,
             scrollable: false
         ) {
