@@ -124,7 +124,7 @@ struct LoginView: View {
 private struct VellumAppIconView: View {
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 18)
+            RoundedRectangle(cornerRadius: VRadius.xxl)
                 .fill(
                     LinearGradient(
                         colors: [
