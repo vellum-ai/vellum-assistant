@@ -77,7 +77,10 @@ import { resolveTtsConfig } from "../../../assistant/src/tts/tts-config-resolver
 import type { TtsProvider } from "../../../assistant/src/tts/types.js";
 import { getLogger } from "../../../assistant/src/util/logger.js";
 import { getWorkspaceDir } from "../../../assistant/src/util/platform.js";
-import { trustedTypeHttpTimeoutMs } from "../contracts/native-messaging.js";
+import {
+  MEET_CHAT_MAX_LENGTH,
+  trustedTypeHttpTimeoutMs,
+} from "../contracts/native-messaging.js";
 import { getMeetConfig } from "../meet-config.js";
 import { MeetAudioIngest } from "./audio-ingest.js";
 import {
@@ -2425,9 +2428,16 @@ async function defaultBotSendChatFetch(
   // even when the extension eventually completes them successfully.
   // Scale per request via the shared helper; floor at the legacy fixed
   // budget so short messages keep the same (already-tight) ceiling.
+  //
+  // Clamp the length used for timeout sizing at Meet's 2000-char chat
+  // cap. The bot's `/send_chat` handler rejects anything longer, so a
+  // pathological oversized payload (e.g. 10k chars) must not inflate
+  // unreachable-bot latency from ~65s to ~265s+ before surfacing
+  // `MeetSessionUnreachableError`.
+  const clampedLength = Math.min(text.length, MEET_CHAT_MAX_LENGTH);
   const timeoutMs = Math.max(
     BOT_SEND_CHAT_HTTP_TIMEOUT_MS,
-    trustedTypeHttpTimeoutMs(text.length),
+    trustedTypeHttpTimeoutMs(clampedLength),
   );
   let response: Response;
   try {

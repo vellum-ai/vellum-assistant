@@ -170,10 +170,18 @@ export type ExtensionTrustedClickMessage = z.infer<
  * message. The bot simply invokes `xdotool type` against whatever is
  * currently focused on the Xvfb display.
  */
+/**
+ * Google Meet's single-message chat cap. Shared across contracts so every
+ * site that sizes timeouts or validates length uses the same number, and
+ * so the daemon can clamp untrusted inputs before deriving a per-request
+ * timeout (see {@link trustedTypeHttpTimeoutMs}).
+ */
+export const MEET_CHAT_MAX_LENGTH = 2000;
+
 export const ExtensionTrustedTypeMessageSchema = z.object({
   type: z.literal("trusted_type"),
   /** Text to type via `xdotool type`. Length-capped to Meet's 2000-char chat limit. */
-  text: z.string().min(1).max(2000),
+  text: z.string().min(1).max(MEET_CHAT_MAX_LENGTH),
   /** Optional per-keystroke delay (ms), passed as `xdotool --delay`. */
   delayMs: z.number().int().min(0).max(500).optional(),
 });
