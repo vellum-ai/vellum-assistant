@@ -367,6 +367,7 @@ public enum VFont {
         #if os(macOS)
         _ = nsChat
         _ = nsBodyMediumDefault
+        _ = nsBodyMediumLighter
         _ = nsBodySmallDefault
         _ = nsMono
         _ = nsMonoBold
