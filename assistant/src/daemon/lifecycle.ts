@@ -71,6 +71,7 @@ import {
 } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
+import { loadUserPlugins } from "../plugins/user-loader.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
@@ -698,11 +699,22 @@ export async function runDaemon(): Promise<void> {
       }
     }
 
+    // Populate the registry with user plugins from `~/.vellum/plugins/*`
+    // AFTER first-party plugins have already registered via their static
+    // side-effect imports. User plugins may fail to load individually; a
+    // failing user plugin is logged and skipped so one bad install can't
+    // prevent the daemon from starting. Ordering is load-bearing:
+    //   first-party registrations → user registrations → bootstrap (init).
+    // Both groups are fully registered before any `init()` runs so plugins
+    // that depend on each other's registration observably see a stable
+    // registry at init time.
+    await loadUserPlugins();
+
     // Bootstrap registered plugins. Runs after the plugin registry is
-    // populated (which happens via static side-effect imports — none exist
-    // in this PR, so the call is a no-op against an empty registry) and
-    // before the DaemonServer starts handling conversations. Credential
-    // resolution + per-plugin storage directory creation happen here.
+    // populated (first-party static side-effect imports + user plugins
+    // loaded above) and before the DaemonServer starts handling
+    // conversations. Credential resolution + per-plugin storage directory
+    // creation happen here.
     await bootstrapPlugins({ config, assistantVersion: APP_VERSION });
 
     // Start the DaemonServer (conversation manager) before Qdrant so HTTP
