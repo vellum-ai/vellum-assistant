@@ -63,11 +63,6 @@ struct HomePageView<DetailPanel: View>: View {
     /// the filter is a transient read-time affordance, not a setting.
     @State private var activeFilter: FeedItemType? = nil
 
-    /// IDs of group rows whose nested children list is currently expanded.
-    /// Deliberately view-local (not persisted): the expanded state is a
-    /// transient read-time affordance matched to the current group identity.
-    @State private var expandedGroupIds: Set<String> = []
-
     /// Editorial column width. Bumped from 600pt to 960pt to match the
     /// Figma redesign — the new three-block layout reads as a wider page,
     /// not a narrow column.
@@ -170,28 +165,15 @@ struct HomePageView<DetailPanel: View>: View {
                                                 title: child.title
                                             )
                                         },
-                                        isExpanded: Binding(
-                                            get: { expandedGroupIds.contains(parent.id) },
-                                            set: { newValue in
-                                                if newValue { expandedGroupIds.insert(parent.id) }
-                                                else { expandedGroupIds.remove(parent.id) }
-                                            }
-                                        ),
-                                        onParentTap: {
-                                            withAnimation(VAnimation.fast) {
-                                                if expandedGroupIds.contains(parent.id) {
-                                                    expandedGroupIds.remove(parent.id)
-                                                } else {
-                                                    expandedGroupIds.insert(parent.id)
-                                                }
-                                            }
-                                            // Preserve tap-to-open-conversation for the grouped parent item.
-                                            // Without this, `HomeFeedGrouping` would hide the first
-                                            // low-priority digest in each run behind an expand-only affordance,
-                                            // making it inaccessible to the conversation-open flow.
-                                            // (Codex P2 review feedback on PR #27466.)
-                                            openItem(parent)
-                                        },
+                                        // Always-expanded matches Figma `3679:21591` which shows the
+                                        // group's children already visible. Keeping expand/collapse as
+                                        // an affordance conflicted with tap-to-open (Devin P1 feedback
+                                        // on PR #27466 cycle 2) — any tap would either navigate away
+                                        // (losing the expand affordance) or block open (making the
+                                        // parent unreachable, Codex P2 cycle 1). Always-expanded keeps
+                                        // both open-tap AND visible children.
+                                        isExpanded: .constant(true),
+                                        onParentTap: { openItem(parent) },
                                         onChildTap: { child in
                                             if let feedChild = children.first(where: { $0.id == child.id }) {
                                                 openItem(feedChild)
