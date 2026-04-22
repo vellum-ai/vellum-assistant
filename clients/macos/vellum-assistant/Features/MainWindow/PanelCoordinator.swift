@@ -538,7 +538,7 @@ extension MainWindowView {
                 "permission-controls-v2"
             )
             let showThresholdPicker = assistantFeatureFlagStore.isEnabled(
-                "auto-approve-threshold-ui"
+                "permission-controls-v3"
             )
             ActiveChatViewWrapper(
                 viewModel: viewModel,

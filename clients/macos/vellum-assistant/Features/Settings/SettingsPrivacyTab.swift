@@ -51,7 +51,7 @@ struct SettingsPrivacyTab: View {
     @State private var hasUserInteracted: Bool = false
 
     var body: some View {
-        if assistantFeatureFlagStore.isEnabled("auto-approve-threshold-ui") {
+        if assistantFeatureFlagStore.isEnabled("permission-controls-v3") {
             RiskToleranceSection(
                 thresholdClient: thresholdClient,
                 assistantFeatureFlagStore: assistantFeatureFlagStore
