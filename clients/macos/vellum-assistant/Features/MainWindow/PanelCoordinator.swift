@@ -183,12 +183,15 @@ extension MainWindowView {
                     windowState.showToast(message: "Couldn't open the conversation.", style: .error)
                     return
                 }
-                // Codex P2 feedback (#27467): clear scheduled-detail selection
-                // before navigating away so re-entering Home doesn't show a
-                // stale split layout. Belt-and-suspenders with .onDisappear
-                // below in case the Home view stays mounted across this
-                // navigation path.
+                // Codex P2 (#27467) + Devin (#27475): clear BOTH detail-
+                // panel selections before navigating away so re-entering
+                // Home doesn't show a stale split layout. Belt-and-
+                // suspenders with .onDisappear below in case the Home
+                // view stays mounted across this navigation path. Both
+                // ids are cleared (not just scheduled) for consistency
+                // with the other navigation exit paths.
                 selectedScheduledItemId = nil
+                selectedNudgeItemId = nil
                 onDismiss()
                 windowState.selection = .conversation(uuid)
             },
@@ -200,6 +203,11 @@ extension MainWindowView {
                 // ``windowState.selection`` internally, and ``onDismiss``
                 // clears it, so running them in this order keeps the
                 // freshly-created conversation as the final selection.
+                // Clear detail-panel selections inline for consistency
+                // with the other Home exit paths (Devin feedback on
+                // PR #27475).
+                selectedScheduledItemId = nil
+                selectedNudgeItemId = nil
                 onDismiss()
                 startNewConversation()
             },
@@ -213,7 +221,11 @@ extension MainWindowView {
                 // the short pill label — the label is ~3 words, the
                 // prompt is the actual seed message the daemon authored).
                 // `forceNew: true` is critical — we always want the Home
-                // suggestion bar to create a fresh thread.
+                // suggestion bar to create a fresh thread. Clear detail-
+                // panel selections inline for consistency with the other
+                // Home exit paths (Devin feedback on PR #27475).
+                selectedScheduledItemId = nil
+                selectedNudgeItemId = nil
                 conversationManager.openConversation(message: suggestion.prompt, forceNew: true)
                 onDismiss()
                 if let id = conversationManager.activeConversationId {
