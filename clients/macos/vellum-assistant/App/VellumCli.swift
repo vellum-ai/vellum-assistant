@@ -203,7 +203,7 @@ final class VellumCli: AssistantManagementClient {
         let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: arguments)
 
         if status != 0 {
-            log.error("CLI hatch failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
+            log.error("CLI hatch failed with exit code \(status, privacy: .public): \(stderr, privacy: .public)")
             throw CLIError.daemonStartupFailed(Self.parseDaemonStartupError(from: stderr))
         }
 
@@ -211,7 +211,7 @@ final class VellumCli: AssistantManagementClient {
         // (e.g. it logged a warning and continued). Check stderr for the
         // DAEMON_ERROR sentinel so these failures still surface.
         if let startupError = Self.parseDaemonStartupErrorIfPresent(from: stderr) {
-            log.error("CLI hatch exited 0 but daemon reported startup error [\(startupError.category, privacy: .public)]: \(startupError.message, privacy: .private)")
+            log.error("CLI hatch exited 0 but daemon reported startup error [\(startupError.category, privacy: .public)]: \(startupError.message, privacy: .public)")
             throw CLIError.daemonStartupFailed(startupError)
         }
 
@@ -271,7 +271,7 @@ final class VellumCli: AssistantManagementClient {
                 guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else { return }
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
-                    log.warning("[retire stderr] \(trimmed, privacy: .private)")
+                    log.warning("[retire stderr] \(trimmed, privacy: .public)")
                 }
             }
 
@@ -322,7 +322,7 @@ final class VellumCli: AssistantManagementClient {
         let retireMs = retireElapsed.components.seconds * 1000 + Int64(retireElapsed.components.attoseconds / 1_000_000_000_000_000)
 
         if status != 0 {
-            log.error("CLI retire failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
+            log.error("CLI retire failed with exit code \(status, privacy: .public): \(stderr, privacy: .public)")
             log.warning("[audit] CLI done: retire exit=\(status) duration=\(retireMs)ms")
 
             // LUM-755: for managed assistants, swallow the CLI failure and
@@ -443,7 +443,7 @@ final class VellumCli: AssistantManagementClient {
         let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: ["wake", name])
 
         if status != 0 {
-            log.error("CLI wake failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
+            log.error("CLI wake failed with exit code \(status, privacy: .public): \(stderr, privacy: .public)")
             throw CLIError.executionFailed(stderr)
         }
         log.info("CLI wake completed successfully for '\(name, privacy: .public)'")
@@ -460,7 +460,7 @@ final class VellumCli: AssistantManagementClient {
         let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: ["sleep", name])
 
         if status != 0 {
-            log.error("CLI sleep failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
+            log.error("CLI sleep failed with exit code \(status, privacy: .public): \(stderr, privacy: .public)")
             throw CLIError.executionFailed(stderr)
         }
         log.info("CLI sleep completed successfully for '\(name, privacy: .public)'")
@@ -482,7 +482,7 @@ final class VellumCli: AssistantManagementClient {
         let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: arguments)
 
         if status != 0 {
-            log.error("CLI upgrade failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
+            log.error("CLI upgrade failed with exit code \(status, privacy: .public): \(stderr, privacy: .public)")
             if let cliError = Self.parseCliError(from: stderr) {
                 throw CLIError.structuredError(cliError)
             }
@@ -556,7 +556,7 @@ final class VellumCli: AssistantManagementClient {
         let (_, stderr, status) = try await runCLI(binaryURL: binaryURL, arguments: arguments)
 
         if status != 0 {
-            log.error("CLI rollback failed with exit code \(status, privacy: .public): \(stderr, privacy: .private)")
+            log.error("CLI rollback failed with exit code \(status, privacy: .public): \(stderr, privacy: .public)")
             if let cliError = Self.parseCliError(from: stderr) {
                 throw CLIError.structuredError(cliError)
             }
@@ -805,7 +805,7 @@ final class VellumCli: AssistantManagementClient {
             let detail = stderr.isEmpty
                 ? "Hatch process exited with code \(status)"
                 : stderr
-            log.error("CLI remote hatch failed with exit code \(status): \(detail, privacy: .private)")
+            log.error("CLI remote hatch failed with exit code \(status): \(detail, privacy: .public)")
             log.warning("[audit] CLI done: hatch(remote) exit=\(status) duration=\(remoteHatchMs)ms")
             throw CLIError.executionFailed(detail)
         }
@@ -981,7 +981,7 @@ final class VellumCli: AssistantManagementClient {
             let detail = stderr.isEmpty
                 ? "Pair process exited with code \(status)"
                 : stderr
-            log.error("CLI pair failed with exit code \(status): \(detail, privacy: .private)")
+            log.error("CLI pair failed with exit code \(status): \(detail, privacy: .public)")
             log.warning("[audit] CLI done: pair exit=\(status) duration=\(pairMs)ms")
             throw CLIError.executionFailed(detail)
         }
