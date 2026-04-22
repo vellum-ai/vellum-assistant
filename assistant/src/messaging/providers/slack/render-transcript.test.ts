@@ -12,6 +12,7 @@ import { describe, expect, test } from "bun:test";
 import type { Message } from "../../../providers/types.js";
 import {
   extractTagLineTexts,
+  isReactionTagLine,
   parentAlias,
   type RenderableSlackMessage,
   renderSlackTranscript,
@@ -381,6 +382,50 @@ describe("parentAlias", () => {
   test("starts with M and is 7 chars long (M + 6 hex)", () => {
     const a = parentAlias("1700000000.000100");
     expect(a).toMatch(/^M[0-9a-f]{6}$/);
+  });
+});
+
+// ── isReactionTagLine ────────────────────────────────────────────────────────
+
+describe("isReactionTagLine", () => {
+  // Pinned to the exact shapes `renderReaction` and the overflow trailer
+  // produce. The helper is the public contract that lets consumers
+  // re-label the transcript without double-attributing reaction lines,
+  // so drift here silently breaks `buildActiveThreadBlockFromRenderable`.
+  const alias = parentAlias("1700000000.000100");
+
+  test("matches reaction-add line", () => {
+    expect(
+      isReactionTagLine(`[11/14/23 14:28 @bob reacted 👍 to ${alias}]`),
+    ).toBe(true);
+  });
+
+  test("matches reaction-remove line", () => {
+    expect(
+      isReactionTagLine(`[11/14/23 14:28 @bob removed 👍 from ${alias}]`),
+    ).toBe(true);
+  });
+
+  test("matches overflow trailer line", () => {
+    expect(isReactionTagLine(`[…and 2 more reactions to ${alias}]`)).toBe(true);
+  });
+
+  test("does not match a regular message tag line", () => {
+    expect(isReactionTagLine("[11/14/23 14:25 @alice]: hi")).toBe(false);
+  });
+
+  test("does not match content-only assistant output", () => {
+    expect(isReactionTagLine("on it. here's the answer")).toBe(false);
+  });
+
+  test("does not match the `[deleted]` sentinel", () => {
+    expect(isReactionTagLine("[deleted]")).toBe(false);
+  });
+
+  test("does not match a user-deleted marker", () => {
+    expect(
+      isReactionTagLine("[11/14/23 14:25 @alice — deleted 11/14/23 14:32]"),
+    ).toBe(false);
   });
 });
 

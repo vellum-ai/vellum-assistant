@@ -96,6 +96,31 @@ export function parentAlias(channelTs: string): string {
 }
 
 /**
+ * Trailing signature of a reaction or reaction-overflow line, both of
+ * which end with a `parentAlias` target and a closing bracket:
+ * `[... reacted 👍 to M1a2b3c]`, `[... removed 👍 from M1a2b3c]`,
+ * `[…and N more reactions to M1a2b3c]`. Regular message tag lines end
+ * with the message body, not with `]`, so they never match.
+ */
+const REACTION_TAG_LINE_SUFFIX = /M[0-9a-f]{6}\]$/;
+
+/**
+ * Whether a rendered tag-line string was produced by the reaction or
+ * reaction-overflow code paths (`renderReaction` / the overflow trailer).
+ *
+ * Reaction lines already embed the actor attribution inline
+ * (`[11/14/23 14:28 @assistant reacted 👍 to M1a2b3c]`), so consumers
+ * that flatten the rendered transcript and re-apply role labels should
+ * skip these lines to avoid double-attribution.
+ *
+ * Co-located with `renderReaction` and `parentAlias` so the format
+ * knowledge lives with the functions that own the line shape.
+ */
+export function isReactionTagLine(text: string): boolean {
+  return REACTION_TAG_LINE_SUFFIX.test(text);
+}
+
+/**
  * Format a Slack ts (`"1700000000.000100"`) as `MM/DD/YY HH:MM` (UTC).
  *
  * Slack ts is `<unix-seconds>.<microseconds>`; we treat it as a unix epoch

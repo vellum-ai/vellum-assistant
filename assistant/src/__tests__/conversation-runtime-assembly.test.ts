@@ -3666,6 +3666,125 @@ describe("assembleSlackActiveThreadFocusBlock", () => {
     expect(result!).toContain("@user");
   });
 
+  test("assistant reactions are not double-attributed (`@assistant: [... @assistant reacted ...]`)", () => {
+    // `renderReaction` bakes `@assistant` into the reaction tag line
+    // (`[11/14/23 14:28 @assistant reacted 👍 to Mxxxxxx]`). The
+    // post-render step that prepends `@assistant: ` to assistant content
+    // lines must skip reaction lines, otherwise the flattened block
+    // produces `@assistant: [... @assistant reacted ...]` — two
+    // attributions for one event.
+    const rows: SlackTranscriptInputRow[] = [
+      buildRow(
+        "user",
+        "Parent",
+        1_000,
+        buildMeta({ channelTs: PARENT_TS, displayName: "@alice" }),
+      ),
+      // Assistant reply in the thread — gets an `@assistant:` prefix.
+      buildRow(
+        "assistant",
+        "Assistant reply",
+        2_000,
+        buildMeta({
+          channelTs: "1700000005.000001",
+          threadTs: PARENT_TS,
+        }),
+      ),
+      // Assistant reaction on the parent — must NOT get a second prefix.
+      buildRow(
+        "assistant",
+        "[reaction]",
+        3_000,
+        buildMeta({
+          channelTs: "1700000008.000002",
+          eventKind: "reaction",
+          reaction: {
+            emoji: "👍",
+            targetChannelTs: PARENT_TS,
+            op: "added",
+          },
+        }),
+      ),
+      // Latest user row in the thread — required for `detectActiveThreadTs`
+      // to lock onto PARENT_TS (the latest user turn is the anchor).
+      buildRow(
+        "user",
+        "User follow-up",
+        4_000,
+        buildMeta({
+          channelTs: REPLY_TS,
+          threadTs: PARENT_TS,
+          displayName: "@alice",
+        }),
+      ),
+    ];
+    const result = assembleSlackActiveThreadFocusBlock(rows, SLACK_CAPS);
+    expect(result).not.toBeNull();
+    // Double-attribution anti-pattern must NOT appear anywhere.
+    expect(result!).not.toContain("@assistant: [");
+    // Both the reaction attribution and the reply prefix are still present.
+    expect(result!).toContain("@assistant reacted 👍");
+    expect(result!).toContain("@assistant: Assistant reply");
+  });
+
+  test("assistant reaction overflow trailer is not double-attributed", () => {
+    // When assistant reactions overflow the per-target cap, `renderSlackTranscript`
+    // emits a trailer line (`[…and N more reactions to Mxxxxxx]`) whose role
+    // is inherited from the first overflowing reaction — i.e. `assistant`. The
+    // trailer embeds no actor attribution but ends with the parent alias and
+    // shares the same `M<hex>]` signature as a real reaction line, so it must
+    // be detected by `isReactionTagLine` and skipped by the prefix step.
+    const PARENT_ALIAS_TS = PARENT_TS;
+    const buildAssistantReaction = (ts: string, emoji: string) =>
+      buildRow(
+        "assistant",
+        "[reaction]",
+        Number.parseFloat(ts) * 1000,
+        buildMeta({
+          channelTs: ts,
+          eventKind: "reaction",
+          reaction: {
+            emoji,
+            targetChannelTs: PARENT_ALIAS_TS,
+            op: "added",
+          },
+        }),
+      );
+    const rows: SlackTranscriptInputRow[] = [
+      buildRow(
+        "user",
+        "Parent",
+        1_000,
+        buildMeta({ channelTs: PARENT_TS, displayName: "@alice" }),
+      ),
+      // Overflow the default per-target cap (5) with 7 reactions so the
+      // trailer line is emitted with 2 excess.
+      buildAssistantReaction("1700000100.000001", "👍"),
+      buildAssistantReaction("1700000100.000002", "🎉"),
+      buildAssistantReaction("1700000100.000003", "🔥"),
+      buildAssistantReaction("1700000100.000004", "💯"),
+      buildAssistantReaction("1700000100.000005", "👏"),
+      buildAssistantReaction("1700000100.000006", "👀"),
+      buildAssistantReaction("1700000100.000007", "🚀"),
+      // Latest user row in the thread — required for `detectActiveThreadTs`.
+      buildRow(
+        "user",
+        "Follow-up",
+        2_000_000,
+        buildMeta({
+          channelTs: REPLY_TS,
+          threadTs: PARENT_TS,
+          displayName: "@alice",
+        }),
+      ),
+    ];
+    const result = assembleSlackActiveThreadFocusBlock(rows, SLACK_CAPS);
+    expect(result).not.toBeNull();
+    expect(result!).toContain("more reactions");
+    // The trailer line must not be double-attributed.
+    expect(result!).not.toMatch(/@assistant: \[…and \d+ more reaction/);
+  });
+
   test("emits a block even when the parent has not been backfilled yet", () => {
     // The inbound reply detects an `activeThreadTs` from its own
     // `threadTs`, but the parent (`channelTs === activeThreadTs`) has not
