@@ -212,6 +212,9 @@ public enum VFont {
     /// DM Sans 400 at 14pt — NSFont equivalent of `VFont.bodyMediumDefault`.
     public static let nsBodyMediumDefault: NSFont = nsDmSans(weight: 400, size: 14)
 
+    /// DM Sans 300 at 14pt — NSFont equivalent of `VFont.bodyMediumLighter`.
+    public static let nsBodyMediumLighter: NSFont = nsDmSans(weight: 300, size: 14)
+
     /// DM Sans 400 at 12pt — NSFont equivalent of `VFont.bodySmallDefault`.
     public static let nsBodySmallDefault: NSFont = nsDmSans(weight: 400, size: 12)
 
