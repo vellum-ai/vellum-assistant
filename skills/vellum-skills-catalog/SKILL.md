@@ -1,5 +1,5 @@
 ---
-name: skills-catalog
+name: vellum-skills-catalog
 description: Discover bundled skills and search/install community skills from the skills.sh registry
 compatibility: "Designed for Vellum personal assistants"
 metadata:
