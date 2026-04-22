@@ -200,7 +200,7 @@ describe("migrateToolCreatedItems", () => {
         "%style:legacy-item-2%",
       );
       expect(node).not.toBeNull();
-      expect(node!.content).toBe("Formal tone: Always use formal language");
+      expect(node!.content).toBe("Formal tone\nAlways use formal language");
     } finally {
       rawRun("DROP TABLE IF EXISTS memory_items");
       // Restore the full schema for subsequent tests by re-adding image_refs
