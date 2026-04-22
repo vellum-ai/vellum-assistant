@@ -85,7 +85,7 @@ describe("AssistantConfigSchema", () => {
     // llm.default.{provider,model} (see PR 19 of unify-llm-callsites).
     expect(result.services.inference.mode).toBe("your-own");
     expect(result.llm.default.provider).toBe("anthropic");
-    expect(result.llm.default.model).toBe("claude-opus-4-7");
+    expect(result.llm.default.model).toBe("claude-sonnet-4-6");
     expect(result.services["image-generation"].provider).toBe("gemini");
     expect(result.services["image-generation"].model).toBe(
       "gemini-3.1-flash-image-preview",
@@ -305,7 +305,7 @@ describe("AssistantConfigSchema", () => {
       (result.services.inference as Record<string, unknown>).model,
     ).toBeUndefined();
     expect(result.llm.default.provider).toBe("anthropic");
-    expect(result.llm.default.model).toBe("claude-opus-4-7");
+    expect(result.llm.default.model).toBe("claude-sonnet-4-6");
   });
 
   test("partial llm config (empty `llm: {}`) doesn't trigger full config reset", () => {
@@ -320,7 +320,7 @@ describe("AssistantConfigSchema", () => {
     });
     expect(result.llm.default.maxTokens).toBe(32000);
     expect(result.llm.default.provider).toBe("anthropic");
-    expect(result.llm.default.model).toBe("claude-opus-4-7");
+    expect(result.llm.default.model).toBe("claude-sonnet-4-6");
   });
 
   test("llm.default with one missing field still parses (defaults applied)", () => {
@@ -2267,7 +2267,7 @@ describe("loadConfig with schema validation", () => {
     writeConfig({});
     const config = loadConfig();
     expect(config.llm.default.provider).toBe("anthropic");
-    expect(config.llm.default.model).toBe("claude-opus-4-7");
+    expect(config.llm.default.model).toBe("claude-sonnet-4-6");
     expect(config.llm.default.maxTokens).toBe(64000);
     expect(config.llm.default.thinking).toEqual({
       enabled: true,
