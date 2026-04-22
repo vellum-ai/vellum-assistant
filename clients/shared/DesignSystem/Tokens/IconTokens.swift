@@ -60,6 +60,7 @@ public enum VIcon: String, CaseIterable, Sendable {
     case circle = "lucide-circle"
     case circleDot = "lucide-circle-dot"
     case circleDashed = "lucide-circle-dashed"
+    case circleDollarSign = "lucide-circle-dollar-sign"
     case circleAlert = "lucide-circle-alert"
     case circleStop = "lucide-circle-stop"
     case badgeCheck = "lucide-badge-check"

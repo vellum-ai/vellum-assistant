@@ -611,6 +611,23 @@ struct FeedbackGallerySection: View {
                 }
             }
 
+            if filter == nil || filter == "vPaidBadge" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VPaidBadge
+                GallerySectionHeader(
+                    title: "VPaidBadge",
+                    description: "Pill badge marking an integration or feature as paid."
+                )
+
+                VCard {
+                    HStack(spacing: VSpacing.lg) {
+                        VPaidBadge()
+                    }
+                }
+            }
+
             if filter == nil || filter == "vContextWindowIndicator" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
@@ -689,6 +706,7 @@ extension FeedbackGallerySection {
         case "vBusyIndicator": FeedbackGallerySection(filter: "vBusyIndicator")
         case "vSkeletonBone": FeedbackGallerySection(filter: "vSkeletonBone")
         case "vSkillTypePill": FeedbackGallerySection(filter: "vSkillTypePill")
+        case "vPaidBadge": FeedbackGallerySection(filter: "vPaidBadge")
         case "vInfoTooltip": FeedbackGallerySection(filter: "vInfoTooltip")
         case "vContextWindowIndicator": FeedbackGallerySection(filter: "vContextWindowIndicator")
         default: EmptyView()
