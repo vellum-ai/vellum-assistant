@@ -1002,6 +1002,49 @@ describe("runJoinFlow (content-script port)", () => {
     expect(errorDiagnostics.length).toBe(0);
   });
 
+  test("regression: skips a hidden template name input and fills the real one", async () => {
+    // Step 3 used to run a raw `doc.querySelector(PREJOIN_NAME_INPUT)` with
+    // no interactable filter, so a hidden template copy of the input at the
+    // front of the tree would win the match and absorb the `displayName`
+    // write. React then never saw a value on the real input, and Step 4
+    // timed out waiting for the join button that stayed gated on an empty
+    // name. Parallels the same-flake filter applied to Step 4 in #27317.
+    const { doc } = loadPrejoinDom();
+    removeMediaModal(doc);
+
+    const real = doc.querySelector(
+      selectors.PREJOIN_NAME_INPUT,
+    ) as HTMLInputElement | null;
+    if (!real) throw new Error("fixture missing PREJOIN_NAME_INPUT");
+    const ghost = real.cloneNode(true) as HTMLInputElement;
+    // Mark the ghost demonstrably hidden so `isInteractable` rejects it.
+    // Insert it BEFORE the real input so `querySelector` would pick it.
+    ghost.setAttribute("aria-hidden", "true");
+    ghost.value = "";
+    real.parentElement!.insertBefore(ghost, real);
+
+    insertPostAdmissionToolbar(doc);
+    insertChatSurface(doc);
+    const restore = installGlobalDoc(doc);
+
+    try {
+      await runJoinFlow({
+        meetingUrl: "https://meet.google.com/abc-defg-hij",
+        displayName: "Vellum Bot",
+        consentMessage: "Hi, Vellum is listening.",
+        meetingId: "mtg-ghost-name",
+        onEvent: () => {},
+        doc,
+      });
+    } finally {
+      restore();
+    }
+
+    // The ghost stays empty, the real input receives the displayName.
+    expect(ghost.value).toBe("");
+    expect(real.value).toBe("Vellum Bot");
+  });
+
   test("regression: a lone Leave button is NOT accepted as the in-meeting signal", async () => {
     // This is the whole-point regression: before PR 4, step 5 waited on
     // `INGAME_LEAVE_BUTTON`, which Meet renders in BOTH the waiting-room and

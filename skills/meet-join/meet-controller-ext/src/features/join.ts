@@ -183,6 +183,20 @@ export async function runJoinFlow(opts: RunJoinFlowOptions): Promise<void> {
   // `firstVisible` to observe that the race resolved, then branch on live DOM.
   void firstVisible;
 
+  // Shared predicate used for Step 3 (name input) and Step 4 (admission
+  // buttons). Meet leaves hidden template / transition copies of these nodes
+  // in the tree during the prejoin mount, so `querySelector` alone can hit a
+  // ghost node. Iterate every `querySelectorAll` match and take the first
+  // interactable one instead, mirroring `waitForSelector({ interactable })`.
+  const findInteractable = (sel: string): Element | null => {
+    const nodes = doc.querySelectorAll(sel);
+    for (let i = 0; i < nodes.length; i++) {
+      const el = nodes[i]!;
+      if (isInteractable(el)) return el;
+    }
+    return null;
+  };
+
   // Step 3 — populate the name input if present. Meet doesn't render it for
   // signed-in users, in which case the account's name is used instead.
   //
@@ -192,7 +206,23 @@ export async function runJoinFlow(opts: RunJoinFlowOptions): Promise<void> {
   // pattern for programmatically setting a controlled input in React —
   // without it, Meet's internal state never registers the name change and
   // the join button remains gated as if the field were still empty.
-  const nameInput = doc.querySelector(selectors.PREJOIN_NAME_INPUT);
+  //
+  // Same flake pattern as Step 4: the input can be in the DOM but not yet
+  // interactable when Step 2's `waitForAny` race resolves on a join button
+  // a few frames ahead of the input's own mount. Writing into the ghost
+  // node leaves React's state empty and the real button stays gated on an
+  // empty name — which then makes Step 4 time out. Poll briefly so we pick
+  // up the real input once it becomes interactable, and short-circuit when
+  // no input nodes are in the tree at all (the signed-in variant, where the
+  // budget would otherwise be wasted on an input that will never appear).
+  let nameInput: Element | null = null;
+  const nameDeadline = Date.now() + 2_000;
+  while (Date.now() < nameDeadline) {
+    if (doc.querySelectorAll(selectors.PREJOIN_NAME_INPUT).length === 0) break;
+    nameInput = findInteractable(selectors.PREJOIN_NAME_INPUT);
+    if (nameInput) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
   if (nameInput) {
     const input = nameInput as HTMLInputElement;
     input.focus();
@@ -216,19 +246,10 @@ export async function runJoinFlow(opts: RunJoinFlowOptions): Promise<void> {
   // here races against that render. Poll with a short budget — the button
   // is visible in the DOM within a few hundred ms of the input event.
   //
-  // Apply the same interactable filter the Step 1/2 waits use: Meet leaves
-  // hidden template copies of the join buttons in the tree during prejoin,
-  // so the first `querySelector` hit can be a ghost node. Iterate every
-  // match and take the first interactable one so this poll stays consistent
-  // with the rest of the join flow.
-  const findInteractable = (sel: string): Element | null => {
-    const nodes = doc.querySelectorAll(sel);
-    for (let i = 0; i < nodes.length; i++) {
-      const el = nodes[i]!;
-      if (isInteractable(el)) return el;
-    }
-    return null;
-  };
+  // Apply the same interactable filter the Step 1/2 waits use (see the
+  // `findInteractable` helper hoisted above Step 3): Meet leaves hidden
+  // template copies of the join buttons in the tree during prejoin, so the
+  // first `querySelector` hit can be a ghost node.
   let admissionBtn: Element | null = null;
   const joinDeadline = Date.now() + 10_000;
   while (Date.now() < joinDeadline) {
