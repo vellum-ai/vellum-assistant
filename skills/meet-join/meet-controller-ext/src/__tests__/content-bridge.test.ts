@@ -260,6 +260,79 @@ describe("startContentBridge bot→content fan-out", () => {
   );
 
   test(
+    "pending send_chat retry aborts when a later leave arrives",
+    async () => {
+      // A stale send_chat must not deliver into a new meeting's tab after a
+      // lifecycle transition. send_chat carries no meeting identifier to
+      // re-validate on receipt, so once `leave` (or `join`) fires, any
+      // pending send_chat retry from the prior session must be cancelled.
+      let tabsAvailable: chrome.tabs.Tab[] = [];
+      fake.tabs.query = async (q) => {
+        fake.queryCalls.push(q);
+        return tabsAvailable;
+      };
+      const chat: BotToExtensionMessage = {
+        type: "send_chat",
+        text: "stale message",
+        requestId: "req-stale",
+      };
+      const leave: BotToExtensionMessage = { type: "leave", reason: "cancel" };
+      // send_chat finds no tab — queues a retry.
+      port.emitFromBot(chat);
+      await flushMicrotasks();
+      expect(fake.queryCalls.length).toBe(1);
+      // A tab is now available and `leave` fires, bumping the lifecycle
+      // counter and invalidating the pending send_chat retry.
+      tabsAvailable = [{ id: 1 } as chrome.tabs.Tab];
+      port.emitFromBot(leave);
+      // Wait past the first retry delay (100ms) plus margin.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const byType = (t: string) =>
+        fake.sendMessageCalls.filter(
+          (c) => (c.msg as { type: string }).type === t,
+        );
+      // The stale send_chat must not have been delivered.
+      expect(byType("send_chat")).toHaveLength(0);
+      // Leave was delivered (positive invariant).
+      expect(byType("leave").length).toBeGreaterThanOrEqual(1);
+    },
+    5_000,
+  );
+
+  test(
+    "pending camera.enable retry aborts when a later join arrives",
+    async () => {
+      // Same meeting-transition protection for camera toggles: a pending
+      // camera.enable retry must not deliver into a new session's tab.
+      let tabsAvailable: chrome.tabs.Tab[] = [];
+      fake.tabs.query = async (q) => {
+        fake.queryCalls.push(q);
+        return tabsAvailable;
+      };
+      const enable: BotToExtensionMessage = { type: "camera.enable" };
+      const join: BotToExtensionMessage = {
+        type: "join",
+        meetingUrl: "https://meet.google.com/abc-defg-hij",
+        displayName: "Bot",
+        consentMessage: "hello",
+      };
+      port.emitFromBot(enable);
+      await flushMicrotasks();
+      expect(fake.queryCalls.length).toBe(1);
+      tabsAvailable = [{ id: 1 } as chrome.tabs.Tab];
+      port.emitFromBot(join);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const byType = (t: string) =>
+        fake.sendMessageCalls.filter(
+          (c) => (c.msg as { type: string }).type === t,
+        );
+      expect(byType("camera.enable")).toHaveLength(0);
+      expect(byType("join").length).toBeGreaterThanOrEqual(1);
+    },
+    5_000,
+  );
+
+  test(
     "join retries when the only tab responds with {ok:false}",
     async () => {
       // Simulate a profile that has exactly one Meet tab open and that tab is

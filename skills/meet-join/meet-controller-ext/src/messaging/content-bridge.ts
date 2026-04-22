@@ -96,38 +96,64 @@ async function sleep(ms: number): Promise<void> {
 }
 
 // Per-category monotonic counters bumped when a new command enters that
-// category. A pending retry loop captures the counter value(s) for its own
-// categories and aborts when any captured value is stale — i.e. a newer
-// command in the same category has arrived.
+// category. A pending retry loop captures the counter value(s) it cares
+// about and aborts when any captured value is stale — i.e. a command that
+// invalidates it has arrived since.
 //
-// Categories (see `supersedingCategoriesFor`):
-//   - `lifecycle` (join, leave): newer supersedes older — a pending `join`
-//     retry must not fire once a `leave` has been dispatched for the same
-//     session, and a newer `join`/`leave` cancels any older `join`/`leave`.
-//   - `camera` (camera.enable, camera.disable): newer toggle supersedes
-//     older toggle so a rapid `disable` after `enable` doesn't end with the
-//     stale `enable` winning the race.
+// Two separate concepts, because "what this message bumps" and "what
+// invalidates this message" are not the same:
 //
-// Messages outside any category (currently `send_chat`) never supersede
-// and are never superseded — two `send_chat`s must both deliver.
+//   - `bumpingCategoriesFor(type)` — counters this message bumps on entry.
+//   - `invalidatingCategoriesFor(type)` — counters this message captures
+//     and watches for staleness.
+//
+// Categories:
+//   - `lifecycle` (join, leave): a meeting transition. On entry it bumps
+//     both `lifecycle` AND `camera` so any pending camera retry is
+//     invalidated. It only captures `lifecycle` for itself — newer
+//     lifecycle supersedes older, but a camera toggle should not cancel a
+//     pending join/leave.
+//   - `camera` (camera.enable, camera.disable): bumps `camera` so a rapid
+//     `disable` after `enable` doesn't end with the stale `enable` winning
+//     the race. Captures both `lifecycle` and `camera` so a meeting
+//     transition during the ~10s retry window aborts a stale toggle.
+//   - no-category messages (currently `send_chat`): bump nothing — two
+//     `send_chat`s must both deliver, they never supersede each other.
+//     But they still capture `lifecycle` so a pending chat retry aborts
+//     if the meeting transitions out from under it — otherwise a stale
+//     `send_chat` (which carries no meeting identifier to re-validate on
+//     receipt) could deliver into the new session's tab.
 const fanOutGenerations: Record<"lifecycle" | "camera", number> = {
   lifecycle: 0,
   camera: 0,
 };
 
-function supersedingCategoriesFor(
+type FanOutCategory = keyof typeof fanOutGenerations;
+
+function bumpingCategoriesFor(
   type: BotToExtensionMessage["type"],
-): Array<keyof typeof fanOutGenerations> {
-  if (type === "join" || type === "leave") return ["lifecycle"];
+): FanOutCategory[] {
+  if (type === "join" || type === "leave") return ["lifecycle", "camera"];
   if (type === "camera.enable" || type === "camera.disable") return ["camera"];
   return [];
 }
 
+function invalidatingCategoriesFor(
+  type: BotToExtensionMessage["type"],
+): FanOutCategory[] {
+  if (type === "join" || type === "leave") return ["lifecycle"];
+  if (type === "camera.enable" || type === "camera.disable")
+    return ["lifecycle", "camera"];
+  return ["lifecycle"];
+}
+
 async function fanOutToMeetTabs(msg: BotToExtensionMessage): Promise<void> {
-  const categories = supersedingCategoriesFor(msg.type);
-  const captured = categories.map((cat) => ({
+  for (const cat of bumpingCategoriesFor(msg.type)) {
+    fanOutGenerations[cat]++;
+  }
+  const captured = invalidatingCategoriesFor(msg.type).map((cat) => ({
     cat,
-    gen: ++fanOutGenerations[cat],
+    gen: fanOutGenerations[cat],
   }));
   const isSuperseded = (): boolean =>
     captured.some(({ cat, gen }) => fanOutGenerations[cat] !== gen);
