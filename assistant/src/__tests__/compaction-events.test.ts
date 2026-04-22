@@ -472,6 +472,22 @@ describe("computeSummaryQualitySignals", () => {
     expect(computeSummaryQualitySignals(nowLeak).hadMemoryEcho).toBe(true);
   });
 
+  test("flags tags that sit next to an underscore (word-boundary gap)", () => {
+    // These four tags are all stripped by COMPACTION_ONLY_STRIP_PREFIXES but
+    // the original regex missed them because `\b` does not assert between two
+    // word characters (e.g. the `e_` in `workspace_top_level`), so leakage
+    // telemetry was silently blind to them. Each tag must now flag.
+    const cases = [
+      "<workspace_top_level>\nlisting",
+      "<active_subagents>\nstuff",
+      "<active_workspace>\nstuff",
+      "<active_dynamic_page>\nstuff",
+    ];
+    for (const leaked of cases) {
+      expect(computeSummaryQualitySignals(leaked).hadMemoryEcho).toBe(true);
+    }
+  });
+
   test("does not flag ordinary mentions of the word 'memory'", () => {
     const clean =
       "## Facts\nThe user asked about their memory and remembered their dad's recipe.";

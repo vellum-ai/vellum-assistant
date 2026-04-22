@@ -2322,7 +2322,7 @@ export function collapseRawResponses(
  * worth surfacing via telemetry.
  */
 const SUMMARY_MEMORY_ECHO_PATTERN =
-  /<(?:memory|memory_context|memory_image|turn_context|workspace|knowledge_base|pkb|system_reminder|now_scratchpad|NOW\.md|active_thread|channel_capabilities|transport_hints|system_notice|non_interactive_context|temporal_context|guardian_context|inbound_actor_context|channel_turn_context|interface_turn_context|channel_command_context|voice_call_control)\b/i;
+  /<(?:memory|memory_context|memory_image|turn_context|workspace|workspace_top_level|knowledge_base|pkb|system_reminder|now_scratchpad|NOW\.md|active_thread|active_subagents|active_workspace|active_dynamic_page|channel_capabilities|transport_hints|system_notice|non_interactive_context|temporal_context|guardian_context|inbound_actor_context|channel_turn_context|interface_turn_context|channel_command_context|voice_call_control)\b/i;
 
 /**
  * Compute light-weight quality signals for a compaction summary. Emitted
