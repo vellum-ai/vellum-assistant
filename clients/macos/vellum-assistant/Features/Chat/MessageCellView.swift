@@ -162,8 +162,8 @@ struct MessageCellView: View, Equatable {
                 if !isConfirmationRenderedInline {
                     ToolConfirmationBubble(
                         confirmation: confirmation,
-                        isV3: MacOSClientFeatureFlagManager.shared.isEnabled("permission-controls-v3"),
                         isKeyboardActive: confirmation.requestId == activePendingRequestId,
+                        isV3: MacOSClientFeatureFlagManager.shared.isEnabled("permission-controls-v3"),
                         onAllow: { onConfirmationAllow?(confirmation.requestId) },
                         onDeny: { onConfirmationDeny?(confirmation.requestId) },
                         onAlwaysAllow: onAlwaysAllow ?? { _, _, _, _ in },

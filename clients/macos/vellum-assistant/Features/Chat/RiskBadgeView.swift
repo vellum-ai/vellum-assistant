@@ -1,4 +1,5 @@
 import SwiftUI
+import VellumAssistantShared
 
 /// A small colored pill that displays a risk level label.
 ///
