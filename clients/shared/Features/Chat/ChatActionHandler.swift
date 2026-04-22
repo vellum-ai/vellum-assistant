@@ -1197,6 +1197,7 @@ final class ChatActionHandler {
                 vm.messages[msgIdx].toolCalls[tcIdx].workingDir = confirmation.scopeOptions
                     .first(where: { $0.scope != "everywhere" })?.scope
             }
+            vm.messages[msgIdx].toolCalls[tcIdx].isContainerized = msg.isContainerized ?? false
         }
         let confirmMsg = ChatMessage(
             role: .assistant,

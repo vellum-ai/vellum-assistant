@@ -117,6 +117,7 @@ export class ToolExecutor {
             riskLevel: string;
             riskReason: string;
             riskScopeOptions: Array<{ pattern: string; label: string }>;
+            isContainerized?: boolean;
           }
         | undefined;
       if (!gateResult.grantConsumed || context.requireFreshApproval) {
@@ -420,6 +421,7 @@ export class ToolExecutor {
           riskLevel: permRiskMeta.riskLevel,
           riskReason: permRiskMeta.riskReason,
           riskScopeOptions: permRiskMeta.riskScopeOptions,
+          isContainerized: permRiskMeta.isContainerized,
         };
       }
 

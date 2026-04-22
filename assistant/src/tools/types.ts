@@ -258,6 +258,8 @@ export interface ToolExecutionResult {
   riskLevel?: string;
   /** Human-readable reason for the risk classification. */
   riskReason?: string;
+  /** Whether the daemon is running in a containerized (Docker) environment. */
+  isContainerized?: boolean;
   /** Scope options ladder for the rule editor (narrowest to broadest). */
   riskScopeOptions?: Array<{ pattern: string; label: string }>;
   /**

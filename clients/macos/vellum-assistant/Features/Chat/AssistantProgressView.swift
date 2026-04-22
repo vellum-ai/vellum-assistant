@@ -905,6 +905,7 @@ private struct StepDetailRow: View {
                 riskReason: tc.riskReason ?? "",
                 scopeOptions: Self.scopeOptions(from: tc),
                 workingDir: Self.workingDir(from: tc),
+                isContainerized: tc.isContainerized,
                 onSave: { rule in
                     Task {
                         try? await Self.trustRuleClient.addTrustRule(
