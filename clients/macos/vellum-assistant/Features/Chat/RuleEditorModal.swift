@@ -160,20 +160,15 @@ struct RuleEditorModal: View {
         Button {
             selectedPatternIndex = index
         } label: {
-            HStack(alignment: .top, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.sm) {
                 Image(systemName: selectedPatternIndex == index ? "circle.inset.filled" : "circle")
                     .foregroundStyle(selectedPatternIndex == index ? VColor.primaryBase : VColor.contentTertiary)
                     .font(.system(size: 14))
                     .accessibilityHidden(true)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(option.label)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(VColor.contentDefault)
-                    Text(option.description)
-                        .font(VFont.bodySmallDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                }
+                Text(option.label)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(VColor.contentDefault)
             }
             .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm))
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -186,12 +181,28 @@ struct RuleEditorModal: View {
             .contentShape(RoundedRectangle(cornerRadius: VRadius.sm))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(option.label): \(option.description)")
+        .accessibilityLabel(option.label)
         .accessibilityAddTraits(selectedPatternIndex == index ? [.isSelected] : [])
         .accessibilityValue(selectedPatternIndex == index ? "Selected" : "Not selected")
     }
 
     // MARK: - Section 3: Scope
+
+    /// Whether the working directory looks like a real user project (not an
+    /// internal sandbox/container path). When false, the "In [project]" scope
+    /// option is hidden — only "Everywhere" is offered.
+    private var isUserProjectDir: Bool {
+        // Internal sandbox paths contain "vellum-dev/assistants/", "vellum/assistants/",
+        // or "vellum-staging/assistants/" and are not meaningful to users.
+        let lower = workingDir.lowercased()
+        if lower.contains("/vellum-dev/assistants/")
+            || lower.contains("/vellum/assistants/")
+            || lower.contains("/vellum-staging/assistants/")
+            || lower.contains("/vellum-test/assistants/") {
+            return false
+        }
+        return true
+    }
 
     @ViewBuilder
     private var scopeSection: some View {
@@ -206,10 +217,12 @@ struct RuleEditorModal: View {
                     label: "Everywhere",
                     value: "everywhere"
                 )
-                scopeRadioButton(
-                    label: "In \(displayPath)",
-                    value: "project"
-                )
+                if isUserProjectDir {
+                    scopeRadioButton(
+                        label: "In \(displayPath)",
+                        value: "project"
+                    )
+                }
             }
         }
     }
