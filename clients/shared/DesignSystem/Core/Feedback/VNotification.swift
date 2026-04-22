@@ -36,7 +36,7 @@ public struct VNotification: View {
             if showsLeadingIcon {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(leadingIcon, size: 12)
-                        .foregroundStyle(foregroundColor)
+                        .foregroundStyle(iconColor)
                         .accessibilityHidden(true)
                     Text(message)
                         .font(textFont)
@@ -149,13 +149,19 @@ public struct VNotification: View {
 
     private var foregroundColor: Color {
         switch (tone, style) {
-        case (.warning, .strong): return VColor.auxBlack
         case (_, .strong): return VColor.contentInset
         case (.positive, .weak): return VColor.systemPositiveStrong
         case (.negative, .weak): return VColor.systemNegativeStrong
         case (.warning, .weak): return VColor.systemMidStrong
         case (.neutral, .weak): return VColor.contentTertiary
         }
+    }
+
+    private var iconColor: Color {
+        if case (.neutral, .weak) = (tone, style) {
+            return VColor.contentSecondary
+        }
+        return foregroundColor
     }
 
     private var dividerOpacity: Double {
