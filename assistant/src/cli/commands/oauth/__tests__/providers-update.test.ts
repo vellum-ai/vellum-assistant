@@ -148,7 +148,7 @@ const sampleProviderRow = {
   userinfoUrl: null,
   baseUrl: null,
   defaultScopes: "[]",
-  scopePolicy: "{}",
+  availableScopes: null,
   scopeSeparator: null,
   authorizeParams: null,
   managedServiceConfigKey: null,

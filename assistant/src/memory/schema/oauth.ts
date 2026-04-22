@@ -20,7 +20,7 @@ export const oauthProviders = sqliteTable("oauth_providers", {
   userinfoUrl: text("userinfo_url"),
   baseUrl: text("base_url"),
   defaultScopes: text("default_scopes").notNull().default("[]"),
-  scopePolicy: text("scope_policy").notNull().default("{}"),
+  availableScopes: text("available_scopes"),
   scopeSeparator: text("scope_separator").notNull().default(" "),
   authorizeParams: text("extra_params"),
   pingUrl: text("ping_url"),

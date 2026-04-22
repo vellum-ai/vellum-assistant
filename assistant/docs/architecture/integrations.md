@@ -149,7 +149,7 @@ sequenceDiagram
 | Decision                                   | Rationale                                                                                                                                                                                                                                                                                         |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | PKCE by default, optional client_secret    | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in the credential store (`oauth_app/{id}/client_secret`) for autonomous refresh                                                                                                                                |
-| Shared connect orchestrator                | All OAuth providers route through `orchestrateOAuthConnect()`, which resolves profiles, enforces scope policy, runs the flow, stores tokens, and verifies identity. Adding a provider is a declarative profile entry, not new orchestration code                                                  |
+| Shared connect orchestrator                | All OAuth providers route through `orchestrateOAuthConnect()`, which resolves profiles, resolves scopes, runs the flow, stores tokens, and verifies identity. Adding a provider is a declarative profile entry, not new orchestration code                                                        |
 | Canonical credential naming                | All reads and writes use `client_id`/`client_secret` as canonical field names                                                                                                                                                                                                                     |
 | Caller-driven callback transport           | Transport (`loopback` or `gateway`) is chosen per-flow via the `callbackTransport` option on the connect API, defaulting to loopback. Desktop clients use loopback (no tunnel needed); web clients can pass `callback_transport: "gateway"`. Provider configuration no longer dictates transport. |
 | Unified `MessagingProvider` interface      | All platforms implement the same contract; generic tools work immediately for new providers                                                                                                                                                                                                       |
@@ -161,34 +161,33 @@ sequenceDiagram
 
 ### Source Files
 
-| File                                             | Role                                                                                               |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
-| `assistant/src/security/oauth2.ts`               | OAuth2 flow: PKCE or client_secret, Bun.serve callback, token exchange                             |
-| `assistant/src/security/token-manager.ts`        | `withValidToken()` — auto-refresh, 401 retry, expiry buffer                                        |
-| `assistant/src/messaging/provider.ts`            | `MessagingProvider` interface                                                                      |
-| `assistant/src/messaging/provider-types.ts`      | Platform-agnostic types (Conversation, Message, SearchResult)                                      |
-| `assistant/src/messaging/registry.ts`            | Provider registry: register, lookup, list connected                                                |
-| `assistant/src/messaging/style-analyzer.ts`      | Writing style extraction from message corpus                                                       |
-| `assistant/src/messaging/draft-store.ts`         | Local draft storage (platform/id JSON files)                                                       |
-| `assistant/src/messaging/providers/slack/`       | Slack adapter, client, types                                                                       |
-| `assistant/src/messaging/providers/gmail/`       | Gmail adapter, client, types                                                                       |
-| `assistant/src/config/bundled-skills/messaging/` | Core messaging skill (send, read, search, reply across platforms)                                  |
-| `assistant/src/config/bundled-skills/sequences/` | Email sequence management skill (drip campaigns, enrollment, analytics)                            |
-| `assistant/src/watcher/providers/gmail.ts`       | Gmail watcher using History API                                                                    |
-| `assistant/src/watcher/providers/github.ts`      | GitHub watcher for PRs, issues, review requests, and mentions                                      |
-| `assistant/src/watcher/providers/linear.ts`      | Linear watcher for assigned issues, status changes, and @mentions                                  |
-| `assistant/src/oauth/seed-providers.ts`          | Provider seed data: injection templates, identity config, setup metadata (seeded to DB on startup) |
-| `assistant/src/oauth/connect-orchestrator.ts`    | Shared OAuth connect orchestrator: profile resolution, scope policy, flow execution, token storage |
-| `assistant/src/oauth/scope-policy.ts`            | Deterministic scope resolution and policy enforcement                                              |
-| `assistant/src/oauth/connect-types.ts`           | Shared types: `OAuthScopePolicy`, `OAuthConnectResult`                                             |
-| `assistant/src/oauth/token-persistence.ts`       | Token storage helper: persists tokens, metadata, and runs post-connect hooks                       |
-| `assistant/src/daemon/handlers/oauth-connect.ts` | Generic OAuth connect handler (`oauth_connect_start` / `oauth_connect_result`)                     |
+| File                                             | Role                                                                                                   |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `assistant/src/security/oauth2.ts`               | OAuth2 flow: PKCE or client_secret, Bun.serve callback, token exchange                                 |
+| `assistant/src/security/token-manager.ts`        | `withValidToken()` — auto-refresh, 401 retry, expiry buffer                                            |
+| `assistant/src/messaging/provider.ts`            | `MessagingProvider` interface                                                                          |
+| `assistant/src/messaging/provider-types.ts`      | Platform-agnostic types (Conversation, Message, SearchResult)                                          |
+| `assistant/src/messaging/registry.ts`            | Provider registry: register, lookup, list connected                                                    |
+| `assistant/src/messaging/style-analyzer.ts`      | Writing style extraction from message corpus                                                           |
+| `assistant/src/messaging/draft-store.ts`         | Local draft storage (platform/id JSON files)                                                           |
+| `assistant/src/messaging/providers/slack/`       | Slack adapter, client, types                                                                           |
+| `assistant/src/messaging/providers/gmail/`       | Gmail adapter, client, types                                                                           |
+| `assistant/src/config/bundled-skills/messaging/` | Core messaging skill (send, read, search, reply across platforms)                                      |
+| `assistant/src/config/bundled-skills/sequences/` | Email sequence management skill (drip campaigns, enrollment, analytics)                                |
+| `assistant/src/watcher/providers/gmail.ts`       | Gmail watcher using History API                                                                        |
+| `assistant/src/watcher/providers/github.ts`      | GitHub watcher for PRs, issues, review requests, and mentions                                          |
+| `assistant/src/watcher/providers/linear.ts`      | Linear watcher for assigned issues, status changes, and @mentions                                      |
+| `assistant/src/oauth/seed-providers.ts`          | Provider seed data: injection templates, identity config, setup metadata (seeded to DB on startup)     |
+| `assistant/src/oauth/connect-orchestrator.ts`    | Shared OAuth connect orchestrator: profile resolution, scope resolution, flow execution, token storage |
+| `assistant/src/oauth/connect-types.ts`           | Shared types: `AvailableScopes`, `OAuthConnectResult`                                                  |
+| `assistant/src/oauth/token-persistence.ts`       | Token storage helper: persists tokens, metadata, and runs post-connect hooks                           |
+| `assistant/src/daemon/handlers/oauth-connect.ts` | Generic OAuth connect handler (`oauth_connect_start` / `oauth_connect_result`)                         |
 
 ---
 
 ## OAuth Extensibility — DB-Driven Provider Config, Scope Policy, and Connect Orchestrator
 
-The OAuth extensibility layer makes adding a new OAuth provider a fully declarative operation. All provider configuration — protocol fields (auth URLs, token URLs, scopes, scope policy), behavioral fields (identity verification, injection templates, setup metadata), and display metadata — is stored in the `oauth_providers` SQLite table and seeded on startup via `seed-providers.ts`. The shared **connect orchestrator** handles the full flow from provider resolution through token storage.
+The OAuth extensibility layer makes adding a new OAuth provider a fully declarative operation. All provider configuration — protocol fields (auth URLs, token URLs, scopes), behavioral fields (identity verification, injection templates, setup metadata), and display metadata — is stored in the `oauth_providers` SQLite table and seeded on startup via `seed-providers.ts`. The shared **connect orchestrator** handles the full flow from provider resolution through token storage.
 
 ### Provider Configuration (DB-Driven)
 
@@ -199,24 +198,19 @@ Each provider row includes:
 | Column group              | Fields                                                                                                                           | Purpose                                                                                |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | **Protocol**              | `authUrl`, `tokenUrl`, `tokenEndpointAuthMethod`, `extraParams`, `loopbackPort`                                                  | OAuth2 flow parameters                                                                 |
-| **Scopes**                | `defaultScopes`, `scopePolicy`                                                                                                   | Deterministic scope resolution (user-customizable, preserved across seed restarts)     |
+| **Scopes**                | `defaultScopes`, `availableScopes`                                                                                               | Default scopes for connect flow; informational available scopes for assistant context  |
 | **Identity verification** | `identityUrl`, `identityMethod`, `identityHeaders`, `identityBody`, `identityResponsePaths`, `identityFormat`, `identityOkField` | Data-driven identity verifier fetches human-readable account info after token exchange |
 | **Injection templates**   | `injectionTemplates`                                                                                                             | Auto-applied credential injection rules for the script proxy                           |
 | **Setup metadata**        | `displayName`, `description`, `dashboardUrl`, `appType`, `setupNotes`, `requiresClientSecret`                                    | Metadata for the generic OAuth setup skill                                             |
 | **Ping config**           | `pingUrl`, `pingMethod`, `pingHeaders`, `pingBody`                                                                               | Health-check endpoint for `assistant oauth ping`                                       |
 
-### Scope Policy Engine
+### Scope Resolution
 
-`assistant/src/oauth/scope-policy.ts` exports `resolveScopes(profile, requestedScopes)`, which deterministically computes the final scope set:
+Scope resolution is simple — no validation layer:
 
-1. No requested scopes → returns `defaultScopes`.
-2. Requested scopes provided → starts with defaults, then validates each additional scope:
-   - Rejected if in `forbiddenScopes`.
-   - Rejected if `allowAdditionalScopes` is `false`.
-   - Rejected if not in `allowedOptionalScopes`.
-   - Accepted otherwise, added to the union.
-
-Returns `{ ok: true, scopes }` or `{ ok: false, error, allowedScopes }`.
+1. No requested scopes → uses `defaultScopes`.
+2. Requested scopes provided → uses the requested scopes directly (no validation — the OAuth provider rejects invalid scopes).
+3. `availableScopes` is informational context surfaced via CLI for the assistant to consult.
 
 ### Connect Orchestrator
 
@@ -224,7 +218,7 @@ Returns `{ ok: true, scopes }` or `{ ok: false, error, allowedScopes }`.
 
 1. **Receive canonical provider name** — the orchestrator receives the canonical provider name directly (e.g. `google`, `slack`).
 2. **Load provider row** — reads all config from the `oauth_providers` DB table.
-3. **Compute scopes** — `resolveScopes()` with scope policy enforcement.
+3. **Compute scopes** — uses requested scopes directly, or falls back to `defaultScopes`.
 4. **Build OAuth config** — assemble protocol-level config from the DB provider row.
 5. **Run flow** — interactive (opens browser, blocks until completion) or deferred (returns auth URL for the caller to deliver).
 6. **Verify identity** — runs the generic data-driven identity verifier using the provider row's identity columns.
@@ -246,7 +240,7 @@ This replaces provider-specific handlers — any provider in the registry can be
 ### Adding a New OAuth Provider
 
 1. **Add seed data** to `PROVIDER_SEED_DATA` in `assistant/src/oauth/seed-providers.ts`:
-   - Set protocol fields: `authUrl`, `tokenUrl`, `defaultScopes`, `scopePolicy`, `loopbackPort`.
+   - Set protocol fields: `authUrl`, `tokenUrl`, `defaultScopes`, `availableScopes`, `loopbackPort`.
    - Set identity verification: `identityUrl`, `identityMethod`, `identityHeaders`, `identityResponsePaths`, `identityFormat`.
    - Set injection templates: `injectionTemplates` for providers whose tokens should be auto-injected by the script proxy.
    - Set setup metadata: `displayName`, `dashboardUrl`, `appType` enable the generic OAuth setup skill to guide users through app creation.
@@ -259,9 +253,8 @@ This replaces provider-specific handlers — any provider in the registry can be
 | File                                             | Role                                                                        |
 | ------------------------------------------------ | --------------------------------------------------------------------------- |
 | `assistant/src/oauth/seed-providers.ts`          | Provider seed data and startup seeding                                      |
-| `assistant/src/oauth/scope-policy.ts`            | Scope resolution and policy enforcement (pure, no I/O)                      |
 | `assistant/src/oauth/connect-orchestrator.ts`    | Shared connect orchestrator (profile → scopes → flow → tokens)              |
-| `assistant/src/oauth/connect-types.ts`           | Shared types (`OAuthScopePolicy`, `OAuthConnectResult`)                     |
+| `assistant/src/oauth/connect-types.ts`           | Shared types (`AvailableScopes`, `OAuthConnectResult`)                      |
 | `assistant/src/oauth/token-persistence.ts`       | Token storage: credential store writes, metadata upsert, post-connect hooks |
 | `assistant/src/oauth/identity-verifier.ts`       | Generic data-driven identity verifier (reads config from provider DB row)   |
 | `assistant/src/daemon/handlers/oauth-connect.ts` | Generic `oauth_connect_start` / `oauth_connect_result` handler              |

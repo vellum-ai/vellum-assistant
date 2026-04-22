@@ -1,7 +1,7 @@
 /**
  * CRUD store for OAuth providers, apps, and connections.
  *
- * Backed by Drizzle + SQLite. All JSON fields (default_scopes, scope_policy,
+ * Backed by Drizzle + SQLite. All JSON fields (default_scopes, available_scopes,
  * extra_params, granted_scopes, metadata) are stored as serialized JSON strings.
  *
  * Note: TS field names use camelCase from the platform's naming
@@ -31,6 +31,7 @@ import {
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
+import type { AvailableScopes } from "./connect-types.js";
 import { tryRevokeOAuthToken } from "./revoke.js";
 
 const log = getLogger("oauth-store");
@@ -56,12 +57,10 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
  * loopbackPort, injectionTemplates, appType, setupNotes,
  * identityUrl, identityMethod, identityHeaders, identityBody,
  * identityResponsePaths, identityFormat, identityOkField, featureFlag,
- * scopeSeparator)
+ * scopeSeparator, defaultScopes, availableScopes)
  * and display metadata (displayLabel, description, dashboardUrl,
  * clientIdPlaceholder, logoUrl, requiresClientSecret) propagate to existing
- * installations on every startup, while user-customizable fields
- * (defaultScopes, scopePolicy) are only written on the
- * initial insert. baseUrl is backfilled from seed data when null
+ * installations on every startup. baseUrl is backfilled from seed data when null
  * (e.g. legacy rows created before the column existed) but preserved
  * if the user has set a custom value.
  */
@@ -82,7 +81,7 @@ export function seedProviders(
     revokeBodyTemplate?: Record<string, string>;
     baseUrl?: string;
     defaultScopes: string[];
-    scopePolicy: Record<string, unknown>;
+    availableScopes?: AvailableScopes;
     scopeSeparator?: string;
     authorizeParams?: Record<string, string>;
     managedServiceConfigKey?: string;
@@ -136,7 +135,9 @@ export function seedProviders(
       : null;
     const baseUrl = p.baseUrl ?? null;
     const defaultScopes = JSON.stringify(p.defaultScopes);
-    const scopePolicy = JSON.stringify(p.scopePolicy);
+    const availableScopes = p.availableScopes
+      ? JSON.stringify(p.availableScopes)
+      : null;
     // Coerce empty string to the default space separator. An empty separator
     // would join scopes into a single concatenated token (e.g. "readwrite"),
     // which is never a valid OAuth authorize URL value.
@@ -182,7 +183,7 @@ export function seedProviders(
         userinfoUrl,
         baseUrl,
         defaultScopes,
-        scopePolicy,
+        availableScopes,
         scopeSeparator,
         authorizeParams,
         pingUrl,
@@ -224,6 +225,7 @@ export function seedProviders(
           userinfoUrl,
           baseUrl: sql`COALESCE(${oauthProviders.baseUrl}, ${baseUrl})`,
           defaultScopes,
+          availableScopes,
           scopeSeparator,
           authorizeParams,
           pingUrl,
@@ -294,7 +296,7 @@ export function registerProvider(params: {
   revokeBodyTemplate?: Record<string, string>;
   baseUrl?: string;
   defaultScopes: string[];
-  scopePolicy: Record<string, unknown>;
+  availableScopes?: AvailableScopes;
   scopeSeparator?: string;
   authorizeParams?: Record<string, string>;
   managedServiceConfigKey?: string;
@@ -341,7 +343,9 @@ export function registerProvider(params: {
     userinfoUrl: params.userinfoUrl ?? null,
     baseUrl: params.baseUrl ?? null,
     defaultScopes: JSON.stringify(params.defaultScopes),
-    scopePolicy: JSON.stringify(params.scopePolicy),
+    availableScopes: params.availableScopes
+      ? JSON.stringify(params.availableScopes)
+      : null,
     // Coerce empty string to the default space separator (see seedProviders).
     scopeSeparator: params.scopeSeparator || " ",
     authorizeParams: params.authorizeParams
@@ -396,7 +400,7 @@ export function registerProvider(params: {
 /**
  * Update mutable fields on an existing provider. Only the fields explicitly
  * provided (not `undefined`) are written; everything else is left unchanged.
- * JSON fields (defaultScopes, scopePolicy, authorizeParams, pingHeaders, pingBody)
+ * JSON fields (defaultScopes, availableScopes, authorizeParams, pingHeaders, pingBody)
  * are serialized with JSON.stringify before storage.
  *
  * Returns the updated provider row, or `undefined` if no provider with the
@@ -419,7 +423,7 @@ export function updateProvider(
     revokeBodyTemplate: Record<string, string> | null;
     baseUrl: string;
     defaultScopes: string[];
-    scopePolicy: Record<string, unknown>;
+    availableScopes: AvailableScopes;
     scopeSeparator: string;
     authorizeParams: Record<string, string>;
     displayLabel: string;
@@ -478,8 +482,8 @@ export function updateProvider(
   if (params.baseUrl !== undefined) set.baseUrl = params.baseUrl;
   if (params.defaultScopes !== undefined)
     set.defaultScopes = JSON.stringify(params.defaultScopes);
-  if (params.scopePolicy !== undefined)
-    set.scopePolicy = JSON.stringify(params.scopePolicy);
+  if (params.availableScopes !== undefined)
+    set.availableScopes = JSON.stringify(params.availableScopes);
   if (params.scopeSeparator !== undefined)
     // Coerce empty string to the default space separator (see seedProviders).
     set.scopeSeparator = params.scopeSeparator || " ";

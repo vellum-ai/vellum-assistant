@@ -73,16 +73,8 @@ mock.module("../oauth/token-persistence.js", () => ({
   }),
 }));
 
-// Mock scope policy — always approves
-mock.module("../oauth/scope-policy.js", () => ({
-  resolveScopes: (
-    _profile: unknown,
-    requestedScopes: string[] | undefined,
-  ) => ({
-    ok: true,
-    scopes: requestedScopes ?? ["openid", "email"],
-  }),
-}));
+// No scope policy mock needed — scope validation has been removed.
+// The orchestrator uses requestedScopes directly or falls back to defaultScopes.
 
 // Provider store mock — configurable per test
 type ProviderRow = {
@@ -95,7 +87,7 @@ type ProviderRow = {
   userinfoUrl: string | null;
   baseUrl: string | null;
   defaultScopes: string;
-  scopePolicy: string;
+  availableScopes: string | null;
   scopeSeparator: string;
   authorizeParams: string | null;
   pingUrl: string | null;
@@ -174,8 +166,7 @@ function makeProviderRow(
     userinfoUrl: null,
     baseUrl: null,
     defaultScopes: '["openid","email"]',
-    scopePolicy:
-      '{"allowAdditionalScopes":false,"allowedOptionalScopes":[],"forbiddenScopes":[]}',
+    availableScopes: null,
     scopeSeparator: " ",
     authorizeParams: null,
     pingUrl: null,
