@@ -18,10 +18,6 @@ describe("BackupConfigSchema", () => {
     });
   });
 
-  // ATL-193: each .vbundle snapshot is a full copy (no dedup/incremental),
-  // so on-disk cost scales as retention × snapshot size × destinations.
-  // The default retention is deliberately low to bound that cost; this
-  // focused test guards against accidental drift upward.
   test("default retention is 3 (ATL-193 — snapshots are full copies, not incremental)", () => {
     const parsed = BackupConfigSchema.parse({});
     expect(parsed.retention).toBe(3);
