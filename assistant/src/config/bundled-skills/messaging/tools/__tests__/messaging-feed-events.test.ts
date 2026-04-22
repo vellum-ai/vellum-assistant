@@ -104,6 +104,7 @@ const { run: runSend } = await import("../messaging-send.js");
 const { run: runArchive } = await import("../messaging-archive-by-sender.js");
 
 const baseContext = {
+  workingDir: "/tmp/test",
   conversationId: "conv-xyz",
   assistantId: "assistant-1",
   triggeredBySurfaceAction: true,
@@ -170,8 +171,10 @@ describe("messaging-send feed events", () => {
 
     expect(emittedEvents).toHaveLength(1);
     expect(emittedEvents[0].source).toBe("gmail");
-    expect(emittedEvents[0].title).toBe("Email Sent");
-    expect(emittedEvents[0].summary).toBe("Sent message to user@example.com.");
+    // Mock resolveProvider returns id:"gmail" for non-slack platforms,
+    // so this goes through the Gmail draft path
+    expect(emittedEvents[0].title).toBe("Email Draft Created");
+    expect(emittedEvents[0].summary).toBe("Created an email draft.");
   });
 });
 

@@ -215,7 +215,7 @@ export async function run(
         void emitFeedEvent({
           source: "gmail",
           title: "Email Draft Created",
-          summary: `Drafted reply to ${conversationId}.`,
+          summary: "Created an email draft.",
           dedupKey: `email-draft:${draft.id}`,
         }).catch((err) => {
           log.warn({ err }, "Failed to emit email draft feed event");
@@ -239,7 +239,7 @@ export async function run(
       void emitFeedEvent({
         source: "gmail",
         title: "Email Draft Created",
-        summary: `Drafted reply to ${conversationId}.`,
+        summary: "Created an email draft.",
         dedupKey: `email-draft:${draft.id}`,
       }).catch((err) => {
         log.warn({ err }, "Failed to emit email draft feed event");
@@ -257,10 +257,12 @@ export async function run(
       assistantId: context.assistantId,
     });
 
+    const sendSummary =
+      provider.id === "slack" ? "Sent a Slack message." : "Sent an email.";
     void emitFeedEvent({
       source: provider.id === "slack" ? "slack" : "gmail",
       title: provider.id === "slack" ? "Slack Message Sent" : "Email Sent",
-      summary: `Sent message to ${conversationId}.`,
+      summary: sendSummary,
       dedupKey: `message-sent:${result.id}`,
     }).catch((err) => {
       log.warn({ err }, "Failed to emit message send feed event");
