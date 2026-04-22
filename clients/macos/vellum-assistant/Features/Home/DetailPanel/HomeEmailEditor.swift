@@ -43,6 +43,12 @@ struct HomeEmailEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Full-bleed divider flush to the panel edges separates the
+            // enclosing HomeDetailPanel header from the editor fields.
+            VColor.borderBase
+                .frame(height: 1)
+                .accessibilityHidden(true)
+
             VStack(alignment: .leading, spacing: 0) {
                 labeledField("to:", $toAddress)
 
@@ -54,9 +60,11 @@ struct HomeEmailEditor: View {
             }
 
             // Formatting toolbar sits between the subject divider and the
-            // body text, so the fields act as metadata and the toolbar
-            // frames the composable content below it.
+            // body text, so the fields read as a metadata header and the
+            // toolbar frames the composable content below it.
             VFormattingToolbar(onAction: onFormatAction)
+
+            insetHairline
 
             TextField("Compose your reply…", text: $bodyText, axis: .vertical)
                 .textFieldStyle(.plain)
