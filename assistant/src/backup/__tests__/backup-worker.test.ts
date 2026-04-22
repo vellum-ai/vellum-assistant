@@ -20,23 +20,13 @@ import {
 import { unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { BackupConfig, BackupDestination } from "../../config/schema.js";
 import { BackupConfigSchema } from "../../config/schema.js";
 import type { StreamExportVBundleResult } from "../../runtime/migrations/vbundle-builder.js";
 import type { BackupDeps } from "../backup-worker.js";
-import {
-  createSnapshotNow,
-  runBackupTick,
-} from "../backup-worker.js";
+import { createSnapshotNow, runBackupTick } from "../backup-worker.js";
 
 // ---------------------------------------------------------------------------
 // Test fixtures

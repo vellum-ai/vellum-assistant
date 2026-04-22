@@ -14,10 +14,7 @@
  * `< /TRANSCRIPT >`).
  */
 export function neutralizeTranscriptSentinel(transcript: string): string {
-  return transcript.replace(
-    /<\s*\/\s*transcript\s*>/gi,
-    "<\u200B/transcript>",
-  );
+  return transcript.replace(/<\s*\/\s*transcript\s*>/gi, "<\u200B/transcript>");
 }
 
 export function buildAutoAnalysisPrompt(transcript: string): string {

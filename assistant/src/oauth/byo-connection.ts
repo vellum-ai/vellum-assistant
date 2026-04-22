@@ -83,7 +83,10 @@ export class BYOOAuthConnection implements OAuthConnection {
           headers,
           body: req.body ? JSON.stringify(req.body) : undefined,
           signal: req.signal
-            ? AbortSignal.any([req.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
+            ? AbortSignal.any([
+                req.signal,
+                AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+              ])
             : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
 

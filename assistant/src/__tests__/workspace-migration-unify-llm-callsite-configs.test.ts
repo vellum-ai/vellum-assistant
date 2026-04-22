@@ -806,7 +806,9 @@ describe("038-unify-llm-callsite-configs migration", () => {
     // documented no-op — it leaves the config exactly as it found it,
     // whether the `llm` block is present or absent.
     const original = {
-      services: { inference: { mode: "your-own", provider: "openai", model: "gpt-5.4" } },
+      services: {
+        inference: { mode: "your-own", provider: "openai", model: "gpt-5.4" },
+      },
       maxTokens: 32000,
       llm: {
         default: {

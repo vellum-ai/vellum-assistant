@@ -24,9 +24,7 @@ export function saveGraphMemoryState(
 /**
  * Load graph memory state for a conversation, or null if none exists.
  */
-export function loadGraphMemoryState(
-  conversationId: string,
-): string | null {
+export function loadGraphMemoryState(conversationId: string): string | null {
   const db = getDb();
   const row = db
     .select({ stateJson: conversationGraphMemoryState.stateJson })

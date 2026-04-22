@@ -77,9 +77,12 @@ describe("POST /v1/conversations/:id/analyze", () => {
     );
     if (!route) throw new Error("analyze route missing");
 
-    const req = new Request("http://localhost/v1/conversations/conv-1/analyze", {
-      method: "POST",
-    });
+    const req = new Request(
+      "http://localhost/v1/conversations/conv-1/analyze",
+      {
+        method: "POST",
+      },
+    );
 
     const res = await route.handler({
       req,
@@ -143,9 +146,12 @@ describe("POST /v1/conversations/:id/analyze", () => {
     );
     if (!route) throw new Error("analyze route missing");
 
-    const req = new Request("http://localhost/v1/conversations/conv-1/analyze", {
-      method: "POST",
-    });
+    const req = new Request(
+      "http://localhost/v1/conversations/conv-1/analyze",
+      {
+        method: "POST",
+      },
+    );
 
     await route.handler({
       req,

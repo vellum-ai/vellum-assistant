@@ -341,4 +341,3 @@ export function formatTurnTimestamp(
 
   return `${dateStr} (${dayName}) ${hour}:${minute}:${second} ${offset} (${timeZone})`;
 }
-

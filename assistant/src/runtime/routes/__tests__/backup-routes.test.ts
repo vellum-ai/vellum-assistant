@@ -20,14 +20,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { BackupRunResult } from "../../../backup/backup-worker.js";
 import type { SnapshotEntry } from "../../../backup/list-snapshots.js";
@@ -52,9 +45,8 @@ mock.module("../../../util/logger.js", () => ({
 // enumeration when backup.offsite.enabled is false.
 
 const listSnapshotsCallLog: string[] = [];
-const { listSnapshotsInDir: realListSnapshotsInDir } = await import(
-  "../../../backup/list-snapshots.js"
-);
+const { listSnapshotsInDir: realListSnapshotsInDir } =
+  await import("../../../backup/list-snapshots.js");
 mock.module("../../../backup/list-snapshots.js", () => ({
   listSnapshotsInDir: async (dir: string) => {
     listSnapshotsCallLog.push(dir);
@@ -365,7 +357,9 @@ describe("handleBackupList", () => {
       offsite: { enabled: true, destinations: [] },
     });
 
-    const res = await handleBackupList(new Request("http://localhost/v1/backups"));
+    const res = await handleBackupList(
+      new Request("http://localhost/v1/backups"),
+    );
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       local: SnapshotEntry[];
@@ -395,7 +389,9 @@ describe("handleBackupList", () => {
       },
     });
 
-    const res = await handleBackupList(new Request("http://localhost/v1/backups"));
+    const res = await handleBackupList(
+      new Request("http://localhost/v1/backups"),
+    );
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       offsite: Array<{
@@ -430,7 +426,9 @@ describe("handleBackupList", () => {
       },
     });
 
-    const res = await handleBackupList(new Request("http://localhost/v1/backups"));
+    const res = await handleBackupList(
+      new Request("http://localhost/v1/backups"),
+    );
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       offsite: Array<{
@@ -459,7 +457,9 @@ describe("handleBackupList", () => {
       offsite: { enabled: true, destinations: [] },
     });
 
-    const res = await handleBackupList(new Request("http://localhost/v1/backups"));
+    const res = await handleBackupList(
+      new Request("http://localhost/v1/backups"),
+    );
     expect(res.status).toBe(200);
     const body = (await res.json()) as { nextRunAt: string | null };
     // 6 hours after 10:00 UTC is 16:00 UTC
@@ -476,7 +476,9 @@ describe("handleBackupList", () => {
       offsite: { enabled: true, destinations: [] },
     });
 
-    const res = await handleBackupList(new Request("http://localhost/v1/backups"));
+    const res = await handleBackupList(
+      new Request("http://localhost/v1/backups"),
+    );
     const body = (await res.json()) as { nextRunAt: string | null };
     expect(body.nextRunAt).toBeNull();
   });
@@ -496,9 +498,7 @@ describe("handleBackupList", () => {
       localDirectory: LOCAL_DIR,
       offsite: {
         enabled: false,
-        destinations: [
-          { path: configuredDestDir, encrypt: true },
-        ],
+        destinations: [{ path: configuredDestDir, encrypt: true }],
       },
     });
 
@@ -635,7 +635,9 @@ describe("handleBackupCreate", () => {
       new Request("http://localhost/v1/backups/create", { method: "POST" }),
     );
     expect(res.status).toBe(500);
-    const body = (await res.json()) as { error: { code: string; message: string } };
+    const body = (await res.json()) as {
+      error: { code: string; message: string };
+    };
     expect(body.error.code).toBe("INTERNAL_ERROR");
     expect(body.error.message).toBe("disk full");
   });
@@ -647,7 +649,11 @@ describe("handleBackupCreate", () => {
 
 describe("handleBackupRestore", () => {
   test("rejects path outside the allowed directories with 400", async () => {
-    const outsidePath = join(ROOT, "elsewhere", "backup-20260411-100000.vbundle");
+    const outsidePath = join(
+      ROOT,
+      "elsewhere",
+      "backup-20260411-100000.vbundle",
+    );
     mkdirSync(join(ROOT, "elsewhere"), { recursive: true });
     writeFileSync(outsidePath, "payload");
     mockBackupConfig = makeConfig({
@@ -659,7 +665,9 @@ describe("handleBackupRestore", () => {
       jsonRequest("POST", { path: outsidePath }),
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: { code: string; message: string } };
+    const body = (await res.json()) as {
+      error: { code: string; message: string };
+    };
     expect(body.error.code).toBe("BAD_REQUEST");
     expect(body.error.message).toMatch(/outside/i);
     expect(lastRestoreArgs).toBeNull();
@@ -748,7 +756,9 @@ describe("handleBackupRestore", () => {
       jsonRequest("POST", { path: snapshotPath }),
     );
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: { code: string; message: string } };
+    const body = (await res.json()) as {
+      error: { code: string; message: string };
+    };
     expect(body.error.code).toBe("BAD_REQUEST");
     expect(body.error.message).toMatch(/backup.key is missing/);
     // restoreFromSnapshot must NOT have been called — we bail before handing
@@ -841,7 +851,9 @@ describe("handleBackupRestore", () => {
   test("missing path field returns 400", async () => {
     const res = await handleBackupRestore(jsonRequest("POST", {}));
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: { code: string; message: string } };
+    const body = (await res.json()) as {
+      error: { code: string; message: string };
+    };
     expect(body.error.code).toBe("BAD_REQUEST");
   });
 
@@ -933,7 +945,11 @@ describe("handleBackupVerify", () => {
   });
 
   test("path outside allowed directories returns 400", async () => {
-    const outsidePath = join(ROOT, "elsewhere", "backup-20260411-100000.vbundle");
+    const outsidePath = join(
+      ROOT,
+      "elsewhere",
+      "backup-20260411-100000.vbundle",
+    );
     mkdirSync(join(ROOT, "elsewhere"), { recursive: true });
     writeFileSync(outsidePath, "payload");
     mockBackupConfig = makeConfig({

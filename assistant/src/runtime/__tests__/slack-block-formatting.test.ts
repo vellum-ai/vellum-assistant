@@ -161,8 +161,7 @@ describe("splitLongTextSegment", () => {
     // must recognize those as protected spans so it does not bisect the
     // URL token when deciding where to cut a long chunk.
     const filler = "lorem ipsum dolor sit amet. ".repeat(200);
-    const longUrl =
-      "ftp://example.com/" + "segment/".repeat(30) + "final-path";
+    const longUrl = "ftp://example.com/" + "segment/".repeat(30) + "final-path";
     const linkToken = `<${longUrl}|download>`;
     const text = filler + linkToken + " " + filler;
     expect(text.length).toBeGreaterThan(SLACK_SECTION_MAX_CHARS);
@@ -313,7 +312,8 @@ describe("textToSlackBlocks long-text splitting", () => {
     // `>`). Span-aware splitting must reject that boundary and either back
     // up to before the span or hard-slice safely.
     const filler = "a".repeat(2770);
-    const linkMarkdown = "[First sentence. Second sentence](https://example.com)";
+    const linkMarkdown =
+      "[First sentence. Second sentence](https://example.com)";
     const text = filler + linkMarkdown + " trailing content here. ".repeat(40);
     expect(text.length).toBeGreaterThan(SLACK_SECTION_MAX_CHARS);
 
@@ -365,9 +365,7 @@ describe("textToSlackBlocks long-text splitting", () => {
     }
 
     const combined = sectionBlocks.map((s) => s.text.text).join("\n");
-    expect(combined).toContain(
-      "<https://example.com/path|link text here>",
-    );
+    expect(combined).toContain("<https://example.com/path|link text here>");
   });
 
   test("does not split a **bold** span across section blocks when the bold text contains a sentence boundary near maxChars", () => {
@@ -466,9 +464,7 @@ describe("textToSlackBlocks long-text splitting", () => {
 
     // After the header: at least one section block (the second paragraph).
     const afterHeader = blocks!.slice(headerIndex + 1);
-    const sectionsAfterHeader = afterHeader.filter(
-      (b) => b.type === "section",
-    );
+    const sectionsAfterHeader = afterHeader.filter((b) => b.type === "section");
     expect(sectionsAfterHeader.length).toBeGreaterThanOrEqual(1);
 
     // Every section block stays under Slack's 3000-char ceiling.

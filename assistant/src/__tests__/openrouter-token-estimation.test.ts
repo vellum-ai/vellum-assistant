@@ -5,7 +5,11 @@ import { OpenRouterProvider } from "../providers/openrouter/client.js";
 import type { Message } from "../providers/types.js";
 
 /** Build a minimal valid PNG header encoding the given dimensions. */
-function makePngBase64(width: number, height: number, paddingBytes = 0): string {
+function makePngBase64(
+  width: number,
+  height: number,
+  paddingBytes = 0,
+): string {
   const header = Buffer.alloc(24);
   header[0] = 0x89;
   header[1] = 0x50;

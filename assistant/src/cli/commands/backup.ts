@@ -37,10 +37,7 @@ import { getMemoryCheckpoint } from "../../memory/checkpoints.js";
 import { resetDb } from "../../memory/db-connection.js";
 import { clearCache as clearTrustCache } from "../../permissions/trust-store.js";
 import { DefaultPathResolver } from "../../runtime/migrations/vbundle-import-analyzer.js";
-import {
-  getWorkspaceDir,
-  getWorkspaceHooksDir,
-} from "../../util/platform.js";
+import { getWorkspaceDir, getWorkspaceHooksDir } from "../../util/platform.js";
 import { log } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -199,13 +196,8 @@ export async function handleDestinationsList(): Promise<void> {
     return;
   }
 
-  const pathW = Math.max(
-    4,
-    ...destinations.map((d) => d.path.length),
-  );
-  log.info(
-    "Path".padEnd(pathW) + "  " + "Encrypted",
-  );
+  const pathW = Math.max(4, ...destinations.map((d) => d.path.length));
+  log.info("Path".padEnd(pathW) + "  " + "Encrypted");
   log.info("-".repeat(pathW + 2 + 9));
   for (const d of destinations) {
     log.info(d.path.padEnd(pathW) + "  " + (d.encrypt ? "yes" : "no"));
@@ -283,14 +275,10 @@ export function handleDestinationsSetEncrypt(
     return;
   }
 
-  const next = destinations.map((d, i) =>
-    i === idx ? { ...d, encrypt } : d,
-  );
+  const next = destinations.map((d, i) => (i === idx ? { ...d, encrypt } : d));
   setNestedValue(raw, "backup.offsite.destinations", next);
   saveRawConfig(raw);
-  log.info(
-    `Set ${path} encrypt=${encrypt ? "true" : "false"}`,
-  );
+  log.info(`Set ${path} encrypt=${encrypt ? "true" : "false"}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -300,13 +288,9 @@ export function handleDestinationsSetEncrypt(
 export async function handleStatus(): Promise<void> {
   const cfg = getConfig().backup;
 
-  log.info(
-    `Automatic backups: ${cfg.enabled ? "enabled" : "disabled"}`,
-  );
+  log.info(`Automatic backups: ${cfg.enabled ? "enabled" : "disabled"}`);
   log.info(`Interval:          every ${cfg.intervalHours}h`);
-  log.info(
-    `Retention:         ${cfg.retention} snapshots per destination`,
-  );
+  log.info(`Retention:         ${cfg.retention} snapshots per destination`);
 
   // Last / next run — both gated on a valid checkpoint. The daemon records
   // `backup:last_run_at` as a unix-millis string.
@@ -359,12 +343,8 @@ export async function handleStatus(): Promise<void> {
     const reachable = await isDestinationReachable(dest.path);
     const tag = reachable ? "[OK]" : "[unreachable]";
     const enc = dest.encrypt ? "encrypted" : "plaintext";
-    const snapshots = reachable
-      ? await listSnapshotsInDir(dest.path)
-      : [];
-    const suffix = reachable
-      ? ""
-      : "  -- parent directory not reachable";
+    const snapshots = reachable ? await listSnapshotsInDir(dest.path) : [];
+    const suffix = reachable ? "" : "  -- parent directory not reachable";
     log.info(
       `  ${tag} ${dest.path}  (${enc}, ${snapshots.length} snapshots)${suffix}`,
     );
@@ -376,10 +356,7 @@ export async function handleStatus(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /** Print a snapshot table for a group of entries. */
-function printSnapshotGroup(
-  heading: string,
-  entries: SnapshotEntry[],
-): void {
+function printSnapshotGroup(heading: string, entries: SnapshotEntry[]): void {
   log.info(heading);
   if (entries.length === 0) {
     log.info("  (none)");
@@ -449,9 +426,7 @@ export async function handleCreate(): Promise<void> {
             `    ok       ${r.destination.path}  -> ${r.entry.filename}`,
           );
         } else if (r.skipped) {
-          log.info(
-            `    skipped  ${r.destination.path}  (${r.skipped})`,
-          );
+          log.info(`    skipped  ${r.destination.path}  (${r.skipped})`);
         } else {
           log.info(
             `    error    ${r.destination.path}  (${r.error ?? "unknown"})`,
@@ -540,9 +515,7 @@ export async function handleRestore(opts: RestoreOptions): Promise<void> {
     return;
   }
   if (opts.path && opts.latest) {
-    log.error(
-      "Cannot combine --path and --latest. Drop one.",
-    );
+    log.error("Cannot combine --path and --latest. Drop one.");
     process.exitCode = 1;
     return;
   }

@@ -9,9 +9,7 @@ import type { SendMessageOptions } from "../providers/types.js";
 
 /** Expose the protected `buildExtraCreateParams` hook for assertion. */
 class ProbeOpenRouterProvider extends OpenRouterProvider {
-  public probeExtras(
-    options?: SendMessageOptions,
-  ): Record<string, unknown> {
+  public probeExtras(options?: SendMessageOptions): Record<string, unknown> {
     return this.buildExtraCreateParams(options);
   }
 }
@@ -61,7 +59,10 @@ describe("OpenRouter provider.only plumbing", () => {
 
     test("returns options unchanged when only list is empty", () => {
       const options = {
-        config: { model: "anthropic/claude-opus-4.7", openrouter: { only: [] } },
+        config: {
+          model: "anthropic/claude-opus-4.7",
+          openrouter: { only: [] },
+        },
       };
       expect(withOpenRouterBodyExtras(options)).toBe(options);
     });

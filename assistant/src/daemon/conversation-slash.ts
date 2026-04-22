@@ -313,7 +313,10 @@ function resolvePairCommand(
 ): SlashResolution | null {
   if (content.trim() !== "/pair") return null;
 
-  if (context?.userMessageInterface && context.userMessageInterface !== "macos") {
+  if (
+    context?.userMessageInterface &&
+    context.userMessageInterface !== "macos"
+  ) {
     return {
       kind: "unknown",
       message:

@@ -123,9 +123,7 @@ describe("stripOrphanedSurrogates", () => {
 
   test("handles two high surrogates in a row (both orphans)", () => {
     const s = `${HIGH}${HIGH}xyz`;
-    expect(stripOrphanedSurrogates(s)).toBe(
-      `${REPLACEMENT}${REPLACEMENT}xyz`,
-    );
+    expect(stripOrphanedSurrogates(s)).toBe(`${REPLACEMENT}${REPLACEMENT}xyz`);
   });
 
   test("produces output that round-trips through JSON", () => {

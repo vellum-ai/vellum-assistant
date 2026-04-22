@@ -215,7 +215,10 @@ function formatHourLabel(epochMillis: number, tz: string): string {
     hour12: true,
   });
   // "3 PM" → "3pm"
-  return formatter.format(new Date(epochMillis)).replace(/\s/g, "").toLowerCase();
+  return formatter
+    .format(new Date(epochMillis))
+    .replace(/\s/g, "")
+    .toLowerCase();
 }
 
 /** Format a short human-readable day label in `tz`, e.g. "Apr 11". */

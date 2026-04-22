@@ -155,7 +155,10 @@ describe("classifySlash is a pure classifier matching resolveSlash kinds", () =>
   // effects (/pair registers a pairing request and writes a QR PNG). The
   // pure classifier is synchronous, takes no side-effecting dependencies,
   // and must agree with resolveSlash's `kind`.
-  const cases: Array<{ input: string; kind: "passthrough" | "compact" | "unknown" }> = [
+  const cases: Array<{
+    input: string;
+    kind: "passthrough" | "compact" | "unknown";
+  }> = [
     { input: "/pair", kind: "unknown" },
     { input: "/models", kind: "unknown" },
     { input: "/status", kind: "unknown" },

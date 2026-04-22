@@ -10,17 +10,16 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { ConversationAnalysisDeps } from "../analyze-conversation.js";
-import {
-  getAnalysisDeps,
-  setAnalysisDeps,
-} from "../analyze-deps-singleton.js";
+import { getAnalysisDeps, setAnalysisDeps } from "../analyze-deps-singleton.js";
 
 // Helper: build a minimal ConversationAnalysisDeps object. The content is
 // irrelevant to the singleton — it only stores and returns the reference.
 function makeDeps(tag: string): ConversationAnalysisDeps {
   return {
     // The cast is safe: the singleton never dereferences these fields.
-    sendMessageDeps: { _tag: tag } as unknown as ConversationAnalysisDeps["sendMessageDeps"],
+    sendMessageDeps: {
+      _tag: tag,
+    } as unknown as ConversationAnalysisDeps["sendMessageDeps"],
     buildConversationDetailResponse: () => ({ tag }),
   };
 }

@@ -59,12 +59,17 @@ function createDiskViewDir(
   messagesJsonl?: string,
 ): string {
   const createdAt =
-    typeof meta.createdAt === "string" ? meta.createdAt : new Date().toISOString();
+    typeof meta.createdAt === "string"
+      ? meta.createdAt
+      : new Date().toISOString();
   const timestamp = createdAt.replace(/:/g, "-");
   const dirName = `${timestamp}_${id}`;
   const dirPath = join(conversationsDir, dirName);
   mkdirSync(dirPath, { recursive: true });
-  writeFileSync(join(dirPath, "meta.json"), JSON.stringify(meta, null, 2) + "\n");
+  writeFileSync(
+    join(dirPath, "meta.json"),
+    JSON.stringify(meta, null, 2) + "\n",
+  );
   if (messagesJsonl !== undefined) {
     writeFileSync(join(dirPath, "messages.jsonl"), messagesJsonl);
   }
@@ -99,7 +104,14 @@ describe("028-recover-conversations-from-disk-view migration", () => {
 
     createDiskViewDir(
       id,
-      { id, title: "Basic Recovery", type: "standard", channel: "desktop", createdAt, updatedAt },
+      {
+        id,
+        title: "Basic Recovery",
+        type: "standard",
+        channel: "desktop",
+        createdAt,
+        updatedAt,
+      },
       userLine + "\n" + assistantLine + "\n",
     );
 
@@ -147,7 +159,13 @@ describe("028-recover-conversations-from-disk-view migration", () => {
 
     createDiskViewDir(
       id,
-      { id, title: "Tool Test", type: "standard", createdAt, updatedAt: createdAt },
+      {
+        id,
+        title: "Tool Test",
+        type: "standard",
+        createdAt,
+        updatedAt: createdAt,
+      },
       toolCallLine + "\n" + toolResultLine + "\n",
     );
 
@@ -187,7 +205,13 @@ describe("028-recover-conversations-from-disk-view migration", () => {
 
     createDiskViewDir(
       id,
-      { id, title: "Mixed Test", type: "standard", createdAt, updatedAt: createdAt },
+      {
+        id,
+        title: "Mixed Test",
+        type: "standard",
+        createdAt,
+        updatedAt: createdAt,
+      },
       mixedLine + "\n",
     );
 
@@ -234,8 +258,18 @@ describe("028-recover-conversations-from-disk-view migration", () => {
     // Create matching disk-view dir with a message
     createDiskViewDir(
       id,
-      { id, title: "Already Here", type: "standard", createdAt, updatedAt: createdAt },
-      JSON.stringify({ role: "user", ts: createdAt, content: "Should not be imported" }) + "\n",
+      {
+        id,
+        title: "Already Here",
+        type: "standard",
+        createdAt,
+        updatedAt: createdAt,
+      },
+      JSON.stringify({
+        role: "user",
+        ts: createdAt,
+        content: "Should not be imported",
+      }) + "\n",
     );
 
     recoverConversationsFromDiskViewMigration.run(workspaceDir);
@@ -255,9 +289,25 @@ describe("028-recover-conversations-from-disk-view migration", () => {
 
     createDiskViewDir(
       id,
-      { id, title: "Idempotency Test", type: "standard", createdAt, updatedAt: createdAt },
-      JSON.stringify({ role: "user", ts: createdAt, content: "First message" }) + "\n" +
-        JSON.stringify({ role: "assistant", ts: "2026-03-18T17:01:00.000Z", content: "Reply" }) + "\n",
+      {
+        id,
+        title: "Idempotency Test",
+        type: "standard",
+        createdAt,
+        updatedAt: createdAt,
+      },
+      JSON.stringify({
+        role: "user",
+        ts: createdAt,
+        content: "First message",
+      }) +
+        "\n" +
+        JSON.stringify({
+          role: "assistant",
+          ts: "2026-03-18T17:01:00.000Z",
+          content: "Reply",
+        }) +
+        "\n",
     );
 
     recoverConversationsFromDiskViewMigration.run(workspaceDir);
@@ -282,10 +332,13 @@ describe("028-recover-conversations-from-disk-view migration", () => {
     const createdAt = "2026-03-18T18:00:00.000Z";
 
     // Create dir with only meta.json — no messages.jsonl
-    createDiskViewDir(
+    createDiskViewDir(id, {
       id,
-      { id, title: "No Messages", type: "standard", createdAt, updatedAt: createdAt },
-    );
+      title: "No Messages",
+      type: "standard",
+      createdAt,
+      updatedAt: createdAt,
+    });
 
     recoverConversationsFromDiskViewMigration.run(workspaceDir);
 
@@ -303,12 +356,22 @@ describe("028-recover-conversations-from-disk-view migration", () => {
     const id = "conv-028-malformed-jsonl";
     const createdAt = "2026-03-18T19:00:00.000Z";
 
-    const validLine = JSON.stringify({ role: "user", ts: createdAt, content: "Valid" });
+    const validLine = JSON.stringify({
+      role: "user",
+      ts: createdAt,
+      content: "Valid",
+    });
     const invalidLine = "{ this is not valid json }}}";
 
     createDiskViewDir(
       id,
-      { id, title: "Malformed JSONL", type: "standard", createdAt, updatedAt: createdAt },
+      {
+        id,
+        title: "Malformed JSONL",
+        type: "standard",
+        createdAt,
+        updatedAt: createdAt,
+      },
       validLine + "\n" + invalidLine + "\n",
     );
 
@@ -367,8 +430,15 @@ describe("028-recover-conversations-from-disk-view migration", () => {
       const ts = new Date(baseTime + i * 60_000).toISOString();
       createDiskViewDir(
         ids[i],
-        { id: ids[i], title: `Multi ${i + 1}`, type: "standard", createdAt: ts, updatedAt: ts },
-        JSON.stringify({ role: "user", ts, content: `Message ${i + 1}` }) + "\n",
+        {
+          id: ids[i],
+          title: `Multi ${i + 1}`,
+          type: "standard",
+          createdAt: ts,
+          updatedAt: ts,
+        },
+        JSON.stringify({ role: "user", ts, content: `Message ${i + 1}` }) +
+          "\n",
       );
     }
 

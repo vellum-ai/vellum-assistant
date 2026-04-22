@@ -10,14 +10,7 @@
  */
 
 import { Readable } from "node:stream";
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
 
@@ -201,8 +194,7 @@ mock.module("../../../backup/list-snapshots.js", () => ({
 }));
 
 mock.module("../../../backup/paths.js", () => ({
-  getLocalBackupsDir: (override?: string | null) =>
-    override ?? "/tmp/local",
+  getLocalBackupsDir: (override?: string | null) => override ?? "/tmp/local",
   getBackupKeyPath: () => "/tmp/backup.key",
   resolveOffsiteDestinations: (
     override?: BackupDestination[] | null,
@@ -213,10 +205,8 @@ mock.module("../../../backup/paths.js", () => ({
     return override;
   },
   getDefaultOffsiteBackupsDir: () => "/icloud/default",
-  formatBackupFilename: (
-    date: Date,
-    { encrypted }: { encrypted: boolean },
-  ) => `backup-${date.toISOString()}${encrypted ? ".vbundle.enc" : ".vbundle"}`,
+  formatBackupFilename: (date: Date, { encrypted }: { encrypted: boolean }) =>
+    `backup-${date.toISOString()}${encrypted ? ".vbundle.enc" : ".vbundle"}`,
   parseBackupTimestamp: () => null,
 }));
 
@@ -308,8 +298,7 @@ function getComputedBackupConfig(): BackupConfig {
         (offsite.destinations as BackupDestination[] | null | undefined) ??
         null,
     },
-    localDirectory:
-      (raw.localDirectory as string | null | undefined) ?? null,
+    localDirectory: (raw.localDirectory as string | null | undefined) ?? null,
   };
 }
 
@@ -388,9 +377,7 @@ describe("handleEnable", () => {
     handleEnable({});
     expect(mockSaveRawConfigCalls.length).toBe(1);
     const saved = mockSaveRawConfigCalls[0]!;
-    expect(
-      (saved.backup as Record<string, unknown>).enabled,
-    ).toBe(true);
+    expect((saved.backup as Record<string, unknown>).enabled).toBe(true);
     expect(
       (saved.backup as Record<string, unknown>).intervalHours,
     ).toBeUndefined();
@@ -430,13 +417,11 @@ describe("handleEnable", () => {
     const saved = mockSaveRawConfigCalls[0]!;
     const cfg = saved.backup as Record<string, unknown>;
     expect(cfg.enabled).toBe(true);
-    expect(
-      (cfg.offsite as Record<string, unknown>).enabled,
-    ).toBe(false);
+    expect((cfg.offsite as Record<string, unknown>).enabled).toBe(false);
     // destinations preserved exactly as-is
-    expect(
-      (cfg.offsite as Record<string, unknown>).destinations,
-    ).toEqual([{ path: "/tmp/x", encrypt: true }]);
+    expect((cfg.offsite as Record<string, unknown>).destinations).toEqual([
+      { path: "/tmp/x", encrypt: true },
+    ]);
   });
 });
 
@@ -632,9 +617,9 @@ describe("handleDestinationsList", () => {
       },
     };
     await handleDestinationsList();
-    expect(
-      mockLogInfo.some((m) => m.includes("No offsite destinations")),
-    ).toBe(true);
+    expect(mockLogInfo.some((m) => m.includes("No offsite destinations"))).toBe(
+      true,
+    );
   });
 
   test("lists all destinations with encryption flag", async () => {
@@ -821,9 +806,7 @@ describe("handleCreate", () => {
     await handleCreate();
     expect(process.exitCode).toBe(1);
     expect(
-      mockLogError.some((m) =>
-        m.toLowerCase().includes("already running"),
-      ),
+      mockLogError.some((m) => m.toLowerCase().includes("already running")),
     ).toBe(true);
   });
 });
@@ -855,12 +838,8 @@ describe("handleVerify", () => {
     mockVerifyResult = { valid: false, error: "bad checksum" };
     await handleVerify("/tmp/local/backup.vbundle");
     expect(process.exitCode).toBe(1);
-    expect(
-      mockLogError.some((m) => m.includes("Invalid:")),
-    ).toBe(true);
-    expect(
-      mockLogError.some((m) => m.includes("bad checksum")),
-    ).toBe(true);
+    expect(mockLogError.some((m) => m.includes("Invalid:"))).toBe(true);
+    expect(mockLogError.some((m) => m.includes("bad checksum"))).toBe(true);
   });
 });
 
@@ -919,9 +898,7 @@ describe("handleRestore", () => {
   test("without --path and without --latest errors", async () => {
     await handleRestore({});
     expect(process.exitCode).toBe(1);
-    expect(
-      mockLogError.some((m) => m.includes("--path")),
-    ).toBe(true);
+    expect(mockLogError.some((m) => m.includes("--path"))).toBe(true);
   });
 
   test("both --path and --latest errors", async () => {
@@ -931,18 +908,16 @@ describe("handleRestore", () => {
       yes: true,
     });
     expect(process.exitCode).toBe(1);
-    expect(
-      mockLogError.some((m) => m.includes("Cannot combine")),
-    ).toBe(true);
+    expect(mockLogError.some((m) => m.includes("Cannot combine"))).toBe(true);
   });
 
   test("--latest with no local snapshots errors", async () => {
     mockSnapshots["/tmp/local"] = [];
     await handleRestore({ latest: true, yes: true });
     expect(process.exitCode).toBe(1);
-    expect(
-      mockLogError.some((m) => m.includes("No local snapshots")),
-    ).toBe(true);
+    expect(mockLogError.some((m) => m.includes("No local snapshots"))).toBe(
+      true,
+    );
   });
 
   test("--latest picks newest local snapshot", async () => {
@@ -964,9 +939,7 @@ describe("handleRestore", () => {
     ];
     await handleRestore({ latest: true, yes: true });
     expect(process.exitCode).toBe(0);
-    expect(mockLogInfo.some((m) => m.includes("newest.vbundle"))).toBe(
-      true,
-    );
+    expect(mockLogInfo.some((m) => m.includes("newest.vbundle"))).toBe(true);
   });
 
   test("refuses to run while the assistant is running (no --force)", async () => {
@@ -1046,9 +1019,7 @@ describe("handleRestore", () => {
 // End-to-end: via Commander program
 // ---------------------------------------------------------------------------
 
-async function runProgram(
-  args: string[],
-): Promise<{ exitCode: number }> {
+async function runProgram(args: string[]): Promise<{ exitCode: number }> {
   process.exitCode = 0;
   try {
     const program = new Command();
@@ -1070,9 +1041,7 @@ describe("registerBackupCommand (end-to-end)", () => {
   test("vellum backup enable persists enabled=true via commander", async () => {
     const { exitCode } = await runProgram(["backup", "enable"]);
     expect(exitCode).toBe(0);
-    expect(
-      mockSaveRawConfigCalls.length,
-    ).toBeGreaterThanOrEqual(1);
+    expect(mockSaveRawConfigCalls.length).toBeGreaterThanOrEqual(1);
     expect(
       (mockSaveRawConfigCalls.at(-1)!.backup as Record<string, unknown>)
         .enabled,

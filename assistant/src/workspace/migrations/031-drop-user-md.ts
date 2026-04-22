@@ -300,10 +300,7 @@ export const dropUserMdMigration: WorkspaceMigration = {
         unlinkSync(userMdPath);
         log.info({ path: userMdPath }, "Deleted legacy workspace USER.md");
       } catch (err) {
-        log.warn(
-          { err, path: userMdPath },
-          "Failed to delete legacy USER.md",
-        );
+        log.warn({ err, path: userMdPath }, "Failed to delete legacy USER.md");
       }
     }
   },

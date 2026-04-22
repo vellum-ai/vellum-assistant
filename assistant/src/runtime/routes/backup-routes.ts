@@ -46,10 +46,7 @@ import type { BackupDestination } from "../../config/schema.js";
 import { getMemoryCheckpoint } from "../../memory/checkpoints.js";
 import { clearCache as clearTrustCache } from "../../permissions/trust-store.js";
 import { getLogger } from "../../util/logger.js";
-import {
-  getWorkspaceDir,
-  getWorkspaceHooksDir,
-} from "../../util/platform.js";
+import { getWorkspaceDir, getWorkspaceHooksDir } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import { DefaultPathResolver } from "../migrations/vbundle-import-analyzer.js";

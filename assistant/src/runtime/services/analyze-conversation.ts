@@ -64,9 +64,7 @@ export interface ConversationAnalysisDeps {
  * Discriminated union of analyze triggers. `manual` is user-initiated from
  * the HTTP route; `auto` is fired by the auto-analyze job worker.
  */
-export type AnalyzeOptions =
-  | { trigger: "manual" }
-  | { trigger: "auto" };
+export type AnalyzeOptions = { trigger: "manual" } | { trigger: "auto" };
 
 export interface AnalyzeResult {
   analysisConversationId: string;
@@ -161,9 +159,8 @@ export async function analyzeConversation(
   }
 
   // f. Build the analysis transcript
-  const { buildAnalysisTranscript } = await import(
-    "../../export/transcript-formatter.js"
-  );
+  const { buildAnalysisTranscript } =
+    await import("../../export/transcript-formatter.js");
   const transcript = buildAnalysisTranscript(resolvedId);
 
   // g. Resolve the analysis conversation + prompt + trust context based on
@@ -217,9 +214,7 @@ export async function analyzeConversation(
   // before mutating any state. See concurrency guard below.
   //
   const analysisConversation =
-    await deps.sendMessageDeps.getOrCreateConversation(
-      analysisConversationId,
-    );
+    await deps.sendMessageDeps.getOrCreateConversation(analysisConversationId);
 
   // h.1. Concurrency guard (auto trigger only). The rolling analysis
   // conversation is reused across runs; if a prior agent loop is still in

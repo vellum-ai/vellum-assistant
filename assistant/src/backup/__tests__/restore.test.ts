@@ -78,9 +78,10 @@ const NULL_RESOLVER: PathResolver = {
  * the file path along with the manifest the builder embedded so tests can
  * compare against it.
  */
-function writeTinyPlaintextBundle(
-  fileName: string,
-): { path: string; manifest: ManifestType } {
+function writeTinyPlaintextBundle(fileName: string): {
+  path: string;
+  manifest: ManifestType;
+} {
   const { archive, manifest } = buildVBundle({
     files: [
       {
@@ -297,9 +298,9 @@ describe("restoreFromSnapshot", () => {
     );
     expect(passed.preValidatedEntries).toBeDefined();
     expect(passed.preValidatedEntries?.has("manifest.json")).toBe(true);
-    expect(
-      passed.preValidatedEntries?.has("workspace/notes/hello.txt"),
-    ).toBe(true);
+    expect(passed.preValidatedEntries?.has("workspace/notes/hello.txt")).toBe(
+      true,
+    );
     // archiveData must be the actual bundle bytes.
     expect(passed.archiveData).toBeInstanceOf(Uint8Array);
     expect(passed.archiveData.length).toBeGreaterThan(0);
@@ -468,9 +469,7 @@ describe("restoreFromSnapshot", () => {
 
     // Stub that simulates a write failure (the importer returns this for
     // disk errors like permission denied or partial bundle writes).
-    const failingCommit = (
-      _opts: ImportCommitOptions,
-    ): ImportCommitResult => ({
+    const failingCommit = (_opts: ImportCommitOptions): ImportCommitResult => ({
       ok: false,
       reason: "write_failed",
       message: "disk full",

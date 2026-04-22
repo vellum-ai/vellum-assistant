@@ -275,7 +275,11 @@ describe("deepMergeOverwrite", () => {
       heartbeat: { activeHoursStart: null, activeHoursEnd: null },
     });
     expect(target).toEqual({
-      heartbeat: { intervalMs: 6000, activeHoursStart: null, activeHoursEnd: null },
+      heartbeat: {
+        intervalMs: 6000,
+        activeHoursStart: null,
+        activeHoursEnd: null,
+      },
     });
   });
 

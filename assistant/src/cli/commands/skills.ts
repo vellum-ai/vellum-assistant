@@ -77,9 +77,7 @@ Examples:
         const localCatalog = loadSkillCatalog();
         const config = getConfig();
         const resolved = resolveSkillStates(localCatalog, config);
-        const bundled = resolved.filter(
-          (r) => r.summary.source === "bundled",
-        );
+        const bundled = resolved.filter((r) => r.summary.source === "bundled");
         const installed = resolved.filter(
           (r) =>
             r.summary.source === "managed" ||
@@ -365,9 +363,7 @@ Examples:
 
         // ── Display bundled/installed results ─────────────────────────
         if (bundledMatches.length > 0) {
-          log.info(
-            `Bundled & installed skills (${bundledMatches.length}):\n`,
-          );
+          log.info(`Bundled & installed skills (${bundledMatches.length}):\n`);
           for (const s of bundledMatches) {
             const emoji = s.emoji ? `${s.emoji} ` : "";
             const tag = s.source === "bundled" ? " [bundled]" : " [installed]";

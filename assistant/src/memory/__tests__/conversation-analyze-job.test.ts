@@ -114,10 +114,7 @@ describe("conversationAnalyzeJob", () => {
   });
 
   test("returns without calling the service when conversationId is empty string", async () => {
-    await conversationAnalyzeJob(
-      makeJob({ conversationId: "" }),
-      TEST_CONFIG,
-    );
+    await conversationAnalyzeJob(makeJob({ conversationId: "" }), TEST_CONFIG);
     expect(analyzeCalls).toHaveLength(0);
     expect(mockGetAnalysisDeps).not.toHaveBeenCalled();
   });

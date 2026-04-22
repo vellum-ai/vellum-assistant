@@ -189,7 +189,7 @@ describe("Shell Parser", () => {
 
       test("pipe to node -e is not flagged (inline code)", async () => {
         const result = await parse(
-          "cat data.json | node -e \"process.stdin.resume()\"",
+          'cat data.json | node -e "process.stdin.resume()"',
         );
         expect(
           result.dangerousPatterns.some((p) => p.type === "pipe_to_shell"),

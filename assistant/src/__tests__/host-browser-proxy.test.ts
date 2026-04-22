@@ -334,17 +334,11 @@ describe("HostBrowserProxy", () => {
       const s = source as any;
       const origAdd = source.addEventListener.bind(source);
       const origRemove = source.removeEventListener.bind(source);
-      s.addEventListener = (
-        type: string,
-        ...rest: any[]
-      ) => {
+      s.addEventListener = (type: string, ...rest: any[]) => {
         addCalls.push(type);
         return (origAdd as any)(type, ...rest);
       };
-      s.removeEventListener = (
-        type: string,
-        ...rest: any[]
-      ) => {
+      s.removeEventListener = (type: string, ...rest: any[]) => {
         removeCalls.push(type);
         return (origRemove as any)(type, ...rest);
       };

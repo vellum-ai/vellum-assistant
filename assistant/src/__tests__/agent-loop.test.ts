@@ -470,7 +470,6 @@ describe("AgentLoop", () => {
     ).toBe(false);
   });
 
-
   // 9. Tool executor error results are forwarded correctly
   test("forwards tool error results to provider", async () => {
     const { provider, calls } = createMockProvider([
@@ -1767,7 +1766,9 @@ describe("AgentLoop", () => {
     ]);
 
     // message_complete emitted for tool_use response + retry text response (not the empty one)
-    const messageCompletes = events.filter((e) => e.type === "message_complete");
+    const messageCompletes = events.filter(
+      (e) => e.type === "message_complete",
+    );
     expect(messageCompletes).toHaveLength(2);
   });
 
@@ -1883,7 +1884,9 @@ describe("AgentLoop", () => {
     expect(calls).toHaveLength(3);
 
     // message_complete: tool_use response + final empty response (retry exhausted)
-    const messageCompletes = events.filter((e) => e.type === "message_complete");
+    const messageCompletes = events.filter(
+      (e) => e.type === "message_complete",
+    );
     expect(messageCompletes).toHaveLength(2);
 
     // The last assistant message in history is the empty one

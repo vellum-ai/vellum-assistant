@@ -24,10 +24,7 @@ import { copyFile, mkdir, rename, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { BackupDestination } from "../config/schema.js";
-import {
-  pruneDir,
-  type SnapshotEntry,
-} from "./list-snapshots.js";
+import { pruneDir, type SnapshotEntry } from "./list-snapshots.js";
 import { deriveSafeAncestor, formatBackupFilename } from "./paths.js";
 import { encryptFile } from "./stream-crypt.js";
 

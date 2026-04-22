@@ -157,9 +157,9 @@ describe("stream-crypt", () => {
     // The first 12 bytes are the IV — they must differ with overwhelming
     // probability (collision chance is 1/2^96 for random 12-byte IVs).
     expect(
-      a.subarray(0, ENCRYPTED_HEADER_SIZE).equals(
-        b.subarray(0, ENCRYPTED_HEADER_SIZE),
-      ),
+      a
+        .subarray(0, ENCRYPTED_HEADER_SIZE)
+        .equals(b.subarray(0, ENCRYPTED_HEADER_SIZE)),
     ).toBe(false);
   });
 

@@ -101,11 +101,7 @@ export async function reconcilePkbIndex(
   // per-chunk hashes in the index (partial/interrupted prior indexing).
   for (const [relPath, disk] of diskByPath) {
     const indexed = indexedByPath.get(relPath);
-    if (
-      !indexed ||
-      indexed.mixed ||
-      indexed.contentHash !== disk.contentHash
-    ) {
+    if (!indexed || indexed.mixed || indexed.contentHash !== disk.contentHash) {
       enqueuePkbIndexJob({
         pkbRoot,
         absPath: join(pkbRoot, relPath),

@@ -69,12 +69,7 @@ function safeUserInfoHomedir(): string {
  */
 export function getICloudDriveRoot(): string {
   const home = process.env.HOME || safeUserInfoHomedir() || homedir();
-  const root = join(
-    home,
-    "Library",
-    "Mobile Documents",
-    "com~apple~CloudDocs",
-  );
+  const root = join(home, "Library", "Mobile Documents", "com~apple~CloudDocs");
   if (!isAbsolute(root)) {
     throw new Error(
       `getICloudDriveRoot resolved to a relative path: ${root}. ` +

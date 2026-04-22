@@ -12,10 +12,7 @@ export function sanitizeForTts(text: string): string {
   //    Fish Audio S2 annotations ([laughter], [breath]) pass through.
   //    Handles multiple balanced parentheses groups in URLs (e.g. Wikipedia
   //    links, URL-encoded paths with multiple `(...)` segments).
-  result = result.replace(
-    /\[([^\]]+)\]\((?:[^()]*\([^()]*\))*[^()]*\)/g,
-    "$1",
-  );
+  result = result.replace(/\[([^\]]+)\]\((?:[^()]*\([^()]*\))*[^()]*\)/g, "$1");
 
   // 2. Bold+italic: ***text*** or ___text___ → text
   result = result.replace(/\*{3}(.+?)\*{3}/g, "$1");
@@ -38,10 +35,7 @@ export function sanitizeForTts(text: string): string {
         parts[i] = parts[i].replace(/^#{1,6}\s+/gm, "");
       } else {
         // Fence segment: strip the ``` markers but keep content untouched.
-        parts[i] = parts[i].replace(
-          /```[^\n]*\n([\s\S]*?)```\n?/,
-          "$1",
-        );
+        parts[i] = parts[i].replace(/```[^\n]*\n([\s\S]*?)```\n?/, "$1");
       }
     }
     result = parts.join("");

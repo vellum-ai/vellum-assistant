@@ -51,8 +51,7 @@ mock.module("@anthropic-ai/sdk", () => ({
           _options?: Record<string, unknown>,
         ) => {
           lastStreamParams = JSON.parse(JSON.stringify(params));
-          const handlers: Record<string, ((...args: unknown[]) => void)[]> =
-            {};
+          const handlers: Record<string, ((...args: unknown[]) => void)[]> = {};
           return {
             on(event: string, cb: (...args: unknown[]) => void) {
               (handlers[event] ??= []).push(cb);

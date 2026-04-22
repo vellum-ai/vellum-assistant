@@ -15,6 +15,7 @@ import { answerCall } from "../calls/call-domain.js";
 import { getGatewayInternalBaseUrl } from "../config/env.js";
 import { findContactChannel } from "../contacts/contact-store.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
+import { emitFeedEvent } from "../home/emit-feed-event.js";
 import {
   type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,
@@ -265,6 +266,20 @@ const pendingInteractionResolver: GuardianRequestResolver = {
       undefined,
       ctx.emissionContext,
     );
+
+    const approved = decision.action !== "reject";
+    void emitFeedEvent({
+      source: "assistant",
+      title: approved ? "Tool Request Approved" : "Tool Request Denied",
+      summary: `${approved ? "Approved" : "Denied"} access to ${request.toolName ?? "unknown tool"}.`,
+      dedupKey: `guardian-approval:${request.id}`,
+      urgency: approved ? undefined : "medium",
+    }).catch((err) => {
+      log.warn(
+        { err, requestId: request.id },
+        "Failed to emit guardian approval feed event",
+      );
+    });
 
     log.info(
       {
@@ -518,6 +533,19 @@ const accessRequestResolver: GuardianRequestResolver = {
         }
       }
 
+      void emitFeedEvent({
+        source: "assistant",
+        title: "Access Request Denied",
+        summary: `Denied access request.`,
+        dedupKey: `guardian-access:${request.id}`,
+        urgency: "medium",
+      }).catch((err) => {
+        log.warn(
+          { err, requestId: request.id },
+          "Failed to emit access request feed event",
+        );
+      });
+
       return {
         ok: true,
         applied: true,
@@ -557,6 +585,19 @@ const accessRequestResolver: GuardianRequestResolver = {
         },
         "Access request resolver: voice approval — direct trusted-contact activation (no verification session)",
       );
+
+      void emitFeedEvent({
+        source: "assistant",
+        title: "Access Request Approved",
+        summary: `Granted access request.`,
+        dedupKey: `guardian-access:${request.id}`,
+        urgency: undefined,
+      }).catch((err) => {
+        log.warn(
+          { err, requestId: request.id },
+          "Failed to emit access request feed event",
+        );
+      });
 
       return { ok: true, applied: true };
     }
@@ -792,6 +833,19 @@ const accessRequestResolver: GuardianRequestResolver = {
     const verificationReplyText = requesterNotified
       ? `Access approved for ${requesterLabel}. Give them this verification code: \`${session.secret}\`. The code expires in 10 minutes.`
       : `Access approved for ${requesterLabel}. Give them this verification code: \`${session.secret}\`. The code expires in 10 minutes. I could not notify them automatically, so please tell them to send the code manually.`;
+
+    void emitFeedEvent({
+      source: "assistant",
+      title: "Access Request Approved",
+      summary: `Granted access request.`,
+      dedupKey: `guardian-access:${request.id}`,
+      urgency: undefined,
+    }).catch((err) => {
+      log.warn(
+        { err, requestId: request.id },
+        "Failed to emit access request feed event",
+      );
+    });
 
     return {
       ok: true,

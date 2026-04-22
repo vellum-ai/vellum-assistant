@@ -41,4 +41,3 @@ export function fromCatalogSkill(entry: CatalogSkill): SkillCapabilityInput {
     avoidWhen: entry.metadata?.vellum?.["avoid-when"],
   };
 }
-

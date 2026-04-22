@@ -23,10 +23,12 @@ const mockGetConversation = mock(
       conversationType: "normal",
     }) as Record<string, unknown> | null,
 );
-const mockGetMessages = mock(() => [{ id: "m-source" }] as Array<{ id: string }>);
-const mockCreateConversation = mock(
-  (_opts?: Record<string, unknown>) => ({ id: "analysis-new" }),
+const mockGetMessages = mock(
+  () => [{ id: "m-source" }] as Array<{ id: string }>,
 );
+const mockCreateConversation = mock((_opts?: Record<string, unknown>) => ({
+  id: "analysis-new",
+}));
 const mockAddMessage = mock(async () => ({ id: "msg-1" }));
 const mockFindAnalysisConversationFor = mock(
   (_parent: string) => null as { id: string } | null,
@@ -414,8 +416,9 @@ describe("analyzeConversation", () => {
 
     await analyzeConversation("conv-1", deps, { trigger: "auto" });
 
-    const calls = deps.getOrCreateConversation.mock
-      .calls as unknown as Array<[string, Record<string, unknown> | undefined]>;
+    const calls = deps.getOrCreateConversation.mock.calls as unknown as Array<
+      [string, Record<string, unknown> | undefined]
+    >;
     expect(calls.length).toBe(1);
     const passedOpts = calls[0]?.[1];
     if (passedOpts !== undefined) {

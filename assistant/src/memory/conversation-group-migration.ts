@@ -235,7 +235,10 @@ export function ensureGroupMigration(): void {
       rawExec("COMMIT");
     } catch (err) {
       rawExec("ROLLBACK");
-      log.error({ err }, "reflections-to-background migration failed, rolled back");
+      log.error(
+        { err },
+        "reflections-to-background migration failed, rolled back",
+      );
       throw err;
     }
   }
@@ -262,7 +265,9 @@ export function ensureGroupMigration(): void {
         WHERE group_id = 'system:reflections'
       `);
 
-      rawExec(`DELETE FROM conversation_groups WHERE id = 'system:reflections'`);
+      rawExec(
+        `DELETE FROM conversation_groups WHERE id = 'system:reflections'`,
+      );
 
       rawExec(`
         INSERT OR IGNORE INTO conversation_groups (id, name, sort_position, is_system_group)
