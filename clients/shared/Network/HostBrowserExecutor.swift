@@ -155,6 +155,18 @@ public final class HostBrowserExecutor {
             )
         }
 
+        // Validate that the WebSocket URL also points to a loopback address.
+        // A process on localhost:9222 could return a non-loopback wsURL to
+        // redirect the client to an arbitrary remote host.
+        guard let wsHost = wsEndpoint.host, Self.allowedLoopbackHosts.contains(wsHost.lowercased()) else {
+            let wsHostDisplay = wsEndpoint.host ?? "<none>"
+            return Self.transportError(
+                requestId: request.requestId,
+                code: "non_loopback",
+                message: "WebSocket URL host '\(wsHostDisplay)' is not a loopback address. Only localhost, 127.0.0.1, and ::1 are permitted."
+            )
+        }
+
         do {
             let result = try await sendCDPCommand(
                 endpoint: wsEndpoint,
