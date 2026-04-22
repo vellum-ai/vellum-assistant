@@ -13,6 +13,8 @@ import { describe, expect, test } from "bun:test";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import {
   type Injector,
+  type LLMCallArgs,
+  type LLMCallResult,
   type Middleware,
   type Plugin,
   PluginExecutionError,
@@ -54,9 +56,14 @@ describe("plugin core types", () => {
       { output: unknown }
     > = async (args, next, _ctx) => next(args);
 
-    // `toolExecute` has concrete arg/result types (refined in PR 16) that
-    // diverge from the generic `{ input }/{ output }` placeholder — provide
-    // a dedicated passthrough so the `satisfies` check is accurate.
+    // `llmCall` has concrete arg/result types (upgraded in PR 15).
+    const llmCallPassthrough: Middleware<LLMCallArgs, LLMCallResult> = async (
+      args,
+      next,
+      _ctx,
+    ) => next(args);
+
+    // `toolExecute` has concrete arg/result types (refined in PR 16).
     const toolExecutePassthrough: Middleware<
       ToolExecuteArgs,
       ToolExecuteResult
@@ -86,11 +93,18 @@ describe("plugin core types", () => {
       },
       tools: [{ name: "sample-tool" }],
       routes: [{ path: "/sample" }],
-      skills: [{ name: "sample-skill" }],
+      skills: [
+        {
+          id: "sample-skill",
+          name: "Sample Skill",
+          description: "Demo plugin-contributed skill",
+          body: "## Sample\n\nPlugin-provided skill body.",
+        },
+      ],
       injectors: [injector],
       middleware: {
         turn: passthrough,
-        llmCall: passthrough,
+        llmCall: llmCallPassthrough,
         toolExecute: toolExecutePassthrough,
         memoryRetrieval: passthrough,
         historyRepair: passthrough,
