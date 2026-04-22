@@ -13,6 +13,7 @@ Tools for managing conversation threads via the `assistant conversations` CLI.
 ## Renaming
 
 Rename the current conversation thread when:
+
 - The topic has shifted significantly from the original title
 - The auto-generated title is generic or unhelpful
 - The user explicitly asks to rename the thread
