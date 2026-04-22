@@ -1380,8 +1380,12 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
     start: ReturnType<typeof mock>;
     dispose: ReturnType<typeof mock>;
     getStats: ReturnType<typeof mock>;
-    /** Test helper — simulates a Tier 2 positive verdict firing the callback. */
-    fireOpportunity: (hint: string) => void;
+    /**
+     * Test helper — simulates a Tier 2 positive verdict or a 1:1 voice
+     * EOU firing the callback. Defaults to `kind: "chat"` for
+     * backwards compatibility with tests that predate voice mode.
+     */
+    fireOpportunity: (reason: string, kind?: "chat" | "voice") => void;
   }
 
   function makeFakeDetectorFactory(
@@ -1391,6 +1395,7 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
       tier2PositiveCount: 1,
       escalationsFired: 1,
       escalationsSuppressed: 0,
+      voiceWakesFired: 0,
     },
   ): {
     factory: (args: MeetChatOpportunityDetectorFactoryArgs) => FakeDetector;
@@ -1407,7 +1412,8 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
           start: mock(() => {}),
           dispose: mock(() => {}),
           getStats: mock(() => ({ ...stats })),
-          fireOpportunity: (hint: string) => capturedOnOpportunity(hint),
+          fireOpportunity: (reason: string, kind: "chat" | "voice" = "chat") =>
+            capturedOnOpportunity({ reason, kind }),
         };
         detector = fake;
         return fake;
@@ -1521,6 +1527,55 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
     await manager.leave("m-proactive-on", "cleanup");
     // Detector disposed on leave.
     expect(detector.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  test("voice-kind opportunity routes wakeAgent to source=meet-voice-turn", async () => {
+    overrideProactiveChatConfig(preloadWorkspace, true);
+
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+    const detectorFactory = makeFakeDetectorFactory();
+    const wakeAgent = mock(async () => {});
+
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => runner,
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: audioIngestFactory.factory,
+      chatOpportunityDetectorFactory: detectorFactory.factory,
+      wakeAgent,
+      resolveAssistantDisplayName: () => "Atlas",
+    });
+
+    await manager.join({
+      url: "u",
+      meetingId: "m-voice-kind",
+      conversationId: "conv-voice-1",
+    });
+
+    // voiceConfig is constructed from schema defaults — detector should
+    // receive it alongside the proactive-chat config.
+    const args = detectorFactory.lastArgs();
+    expect(args).not.toBeNull();
+    expect(args!.voiceConfig.enabled).toBe(true);
+    expect(args!.voiceConfig.eouDebounceMs).toBeGreaterThan(0);
+
+    const detector = detectorFactory.lastDetector()!;
+    detector.fireOpportunity("voice-turn: hello there", "voice");
+    await Promise.resolve();
+
+    expect(wakeAgent).toHaveBeenCalledTimes(1);
+    const calls = wakeAgent.mock.calls as unknown as Array<
+      [{ conversationId: string; hint: string; source: string }]
+    >;
+    expect(calls[0]![0]).toEqual({
+      conversationId: "conv-voice-1",
+      hint: "voice-turn: hello there",
+      source: "meet-voice-turn",
+    });
+
+    await manager.leave("m-voice-kind", "cleanup");
   });
 
   test("proactiveChat.enabled=false skips detector construction entirely", async () => {
@@ -1647,6 +1702,7 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
       tier2PositiveCount: 2,
       escalationsFired: 1,
       escalationsSuppressed: 1,
+      voiceWakesFired: 0,
     });
 
     const manager = _createMeetSessionManagerForTests({

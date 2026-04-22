@@ -88,11 +88,13 @@ import {
   MeetBargeInWatcher,
 } from "./barge-in-watcher.js";
 import {
+  type ChatOpportunityCallback,
   type ChatOpportunityDecision,
   type ChatOpportunityDetectorStats,
   type ChatOpportunityLLMAsk,
   MeetChatOpportunityDetector,
   type ProactiveChatConfig,
+  type VoiceModeConfig,
 } from "./chat-opportunity-detector.js";
 import {
   MeetConsentMonitor,
@@ -554,8 +556,9 @@ export interface MeetChatOpportunityDetectorFactoryArgs {
   conversationId: string;
   assistantDisplayName: string;
   config: ProactiveChatConfig;
+  voiceConfig: VoiceModeConfig;
   callDetectorLLM: ChatOpportunityLLMAsk;
-  onOpportunity: (hint: string) => void;
+  onOpportunity: ChatOpportunityCallback;
 }
 
 export interface MeetSessionManagerDeps {
@@ -1296,6 +1299,7 @@ class MeetSessionManagerImpl {
     // the detector null when disabled means zero lifecycle overhead and
     // no event-handler cost on the dispatcher path.
     const proactiveChatConfig = meet.proactiveChat;
+    const voiceModeConfig = meet.voiceMode;
     const chatOpportunityDetector: MeetChatOpportunityDetectorLike | null =
       proactiveChatConfig.enabled
         ? this.deps.chatOpportunityDetectorFactory({
@@ -1309,17 +1313,27 @@ class MeetSessionManagerImpl {
               escalationCooldownSec: proactiveChatConfig.escalationCooldownSec,
               tier2MaxTranscriptSec: proactiveChatConfig.tier2MaxTranscriptSec,
             },
+            voiceConfig: {
+              enabled: voiceModeConfig.enabled,
+              eouDebounceMs: voiceModeConfig.eouDebounceMs,
+            },
             callDetectorLLM: defaultCallDetectorLLM,
-            onOpportunity: (hint: string) => {
+            onOpportunity: ({ reason, kind }) => {
+              // `kind` distinguishes chat-opportunity wakes (Tier 2
+              // positive verdict) from 1:1 voice-turn wakes. Thread it
+              // through as a distinct `source` so downstream telemetry
+              // and any future agent-side routing can branch on it.
+              const source =
+                kind === "voice" ? "meet-voice-turn" : "meet-chat-opportunity";
               void this.deps
                 .wakeAgent({
                   conversationId,
-                  hint,
-                  source: "meet-chat-opportunity",
+                  hint: reason,
+                  source,
                 })
                 .catch((err) => {
                   log.warn(
-                    { err, meetingId, conversationId },
+                    { err, meetingId, conversationId, kind },
                     "MeetChatOpportunityDetector: wakeAgent rejected — dropping opportunity",
                   );
                 });
@@ -2181,6 +2195,7 @@ function defaultChatOpportunityDetectorFactory(
     meetingId: args.meetingId,
     assistantDisplayName: args.assistantDisplayName,
     config: args.config,
+    voiceConfig: args.voiceConfig,
     callDetectorLLM: args.callDetectorLLM,
     onOpportunity: args.onOpportunity,
   });

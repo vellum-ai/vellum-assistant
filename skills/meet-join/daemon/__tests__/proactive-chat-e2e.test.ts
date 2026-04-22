@@ -75,8 +75,10 @@ import {
 } from "../../../../assistant/src/runtime/agent-wake.js";
 import {
   type ChatOpportunityDecision,
+  type ChatOpportunityEvent,
   MeetChatOpportunityDetector,
   type ProactiveChatConfig,
+  type VoiceModeConfig,
 } from "../chat-opportunity-detector.js";
 import type {
   MeetEventSubscriber,
@@ -260,6 +262,20 @@ function defaultProactiveChatConfig(
   };
 }
 
+function defaultVoiceModeConfig(
+  overrides: Partial<VoiceModeConfig> = {},
+): VoiceModeConfig {
+  // Disable voice mode by default in the proactive-chat e2e suite: these
+  // scenarios exercise the Tier 1 + Tier 2 path explicitly and treat
+  // "Hey AI, …?" as a Tier 1 trigger. Voice mode's 1:1 branch would
+  // otherwise capture the same events before Tier 1 ever ran.
+  return {
+    enabled: false,
+    eouDebounceMs: 800,
+    ...overrides,
+  };
+}
+
 /**
  * Wait a handful of microtasks so async chains (detector → Tier 2 LLM →
  * wake → tool → HTTP fetch) can settle before assertions. Each scenario
@@ -400,6 +416,7 @@ async function standUpSessionManagerPointedAt(
         tier2PositiveCount: 0,
         escalationsFired: 0,
         escalationsSuppressed: 0,
+        voiceWakesFired: 0,
       }),
     }),
     wakeAgent: async () => {},
@@ -481,13 +498,14 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
         meetingId,
         assistantDisplayName: "AI",
         config: defaultProactiveChatConfig(),
+        voiceConfig: defaultVoiceModeConfig(),
         callDetectorLLM: tier2Llm,
-        onOpportunity: (hint: string) => {
+        onOpportunity: ({ reason }: ChatOpportunityEvent) => {
           wakePromises.push(
             wakeAgentForOpportunity(
               {
                 conversationId,
-                hint,
+                hint: reason,
                 source: "meet-chat-opportunity",
               },
               { resolveTarget: async () => target },
@@ -604,6 +622,7 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
         meetingId,
         assistantDisplayName: "AI",
         config: defaultProactiveChatConfig(),
+        voiceConfig: defaultVoiceModeConfig(),
         callDetectorLLM: tier2Llm,
         onOpportunity: () => {
           void wakeSpy();
@@ -678,11 +697,12 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
         meetingId,
         assistantDisplayName: "AI",
         config: defaultProactiveChatConfig(),
+        voiceConfig: defaultVoiceModeConfig(),
         callDetectorLLM: tier2Llm,
-        onOpportunity: (hint: string) => {
+        onOpportunity: ({ reason }: ChatOpportunityEvent) => {
           wakePromises.push(
             wakeAgentForOpportunity(
-              { conversationId, hint, source: "meet-chat-opportunity" },
+              { conversationId, hint: reason, source: "meet-chat-opportunity" },
               { resolveTarget: async () => target },
             ),
           );
@@ -776,11 +796,12 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
           tier2DebounceMs: 0,
           escalationCooldownSec: 30,
         }),
+        voiceConfig: defaultVoiceModeConfig(),
         callDetectorLLM: tier2Llm,
-        onOpportunity: (hint: string) => {
+        onOpportunity: ({ reason }: ChatOpportunityEvent) => {
           wakePromises.push(
             wakeAgentForOpportunity(
-              { conversationId, hint, source: "meet-chat-opportunity" },
+              { conversationId, hint: reason, source: "meet-chat-opportunity" },
               { resolveTarget: async () => target },
             ).then(() => {}),
           );
@@ -848,12 +869,13 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
           reason: "should never be consulted",
         }),
       );
-      const onOpportunity = mock((_reason: string) => {});
+      const onOpportunity = mock((_event: ChatOpportunityEvent) => {});
 
       const detector = new MeetChatOpportunityDetector({
         meetingId,
         assistantDisplayName: "AI",
         config: defaultProactiveChatConfig({ enabled: false }),
+        voiceConfig: defaultVoiceModeConfig(),
         callDetectorLLM: tier2Llm,
         onOpportunity,
         subscribe: dispatcher.subscribe,
