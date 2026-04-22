@@ -151,9 +151,7 @@ async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
 export function registerDoordashCommand(program: Command): void {
   const dd = program
     .command("doordash")
-    .description(
-      "Order food from DoorDash. Requires an active session.",
-    )
+    .description("Order food from DoorDash. Requires an active session.")
     .option("--json", "Machine-readable JSON output");
 
   // =========================================================================
