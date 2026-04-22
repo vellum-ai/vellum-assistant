@@ -155,6 +155,6 @@ describe("heartbeat feed events", () => {
     expect(heartbeatItems).toHaveLength(1);
 
     const today = new Date().toISOString().split("T")[0];
-    expect(heartbeatItems[0]!.id).toBe(`emit:assistant:heartbeat:${today}`);
+    expect(heartbeatItems[0]!.id).toBe(`emit:assistant:heartbeat:ok:${today}`);
   });
 });

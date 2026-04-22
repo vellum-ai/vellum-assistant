@@ -402,7 +402,7 @@ export class HeartbeatService {
         source: "assistant",
         title: "Heartbeat",
         summary: "Heartbeat check completed.",
-        dedupKey: `heartbeat:${new Date().toISOString().split("T")[0]}`,
+        dedupKey: `heartbeat:ok:${new Date().toISOString().split("T")[0]}`,
         priority: 30,
       }).catch((err) => {
         log.warn(
@@ -426,7 +426,7 @@ export class HeartbeatService {
         source: "assistant",
         title: "Heartbeat",
         summary: "Heartbeat check failed. Check logs for details.",
-        dedupKey: `heartbeat:${new Date().toISOString().split("T")[0]}`,
+        dedupKey: `heartbeat:fail:${new Date().toISOString().split("T")[0]}`,
         priority: 55,
         urgency: "medium",
       }).catch(() => {});
