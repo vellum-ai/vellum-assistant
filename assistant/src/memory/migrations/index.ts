@@ -169,6 +169,7 @@ export {
 export { migrateConversationsArchivedAt } from "./221-conversations-archived-at.js";
 export { migrateStripPlaceholderSentinelsFromMessages } from "./222-strip-placeholder-sentinels-from-messages.js";
 export { migrateScheduleScriptColumn } from "./223-schedule-script-column.js";
+export { migrateOAuthProvidersManagedServiceIsPaid } from "./224-oauth-providers-managed-service-is-paid.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
