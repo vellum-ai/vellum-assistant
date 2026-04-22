@@ -1,9 +1,27 @@
 import type { HostBrowserProxy } from "../../../daemon/host-browser-proxy.js";
 import { getLogger } from "../../../util/logger.js";
+import type { CdpErrorCode } from "./errors.js";
 import { CdpError } from "./errors.js";
 import type { CdpClientKind, ScopedCdpClient } from "./types.js";
 
 const log = getLogger("extension-cdp-client");
+
+/**
+ * Transport-level error codes that the host_browser dispatcher may
+ * embed in a structured `{ code, message }` error envelope. When the
+ * `code` field of a parsed error object matches one of these values,
+ * the error is classified as `transport_error` so the factory's
+ * failover logic can try the next backend candidate.
+ *
+ * Codes that are NOT in this set are treated as CDP command-level
+ * failures (`cdp_error`) and propagate without failover.
+ */
+const TRANSPORT_ERROR_CODES = new Set([
+  "transport_error",
+  "unreachable",
+  "timeout",
+  "non_loopback",
+]);
 
 /**
  * CdpClient backed by HostBrowserProxy. Each `send` becomes a
@@ -102,11 +120,21 @@ export class ExtensionCdpClient implements ScopedCdpClient {
           typeof (parsedError as { message: unknown }).message === "string" &&
           (parsedError as { message: string }).message) ||
         `CDP error for ${method}`;
+
+      // Detect structured transport error envelopes from the
+      // host_browser dispatcher. When the parsed error object
+      // carries a `code` field that matches a known transport-level
+      // code, classify the error as `transport_error` so the
+      // factory can trigger failover to the next backend candidate.
+      // All other structured errors remain `cdp_error` since they
+      // represent command-level CDP failures that would not benefit
+      // from switching transports.
+      const errorCode = classifyHostBrowserError(parsedError);
       log.debug(
-        { method, params, parsedError },
-        "ExtensionCdpClient: CDP error",
+        { method, params, parsedError, classifiedAs: errorCode },
+        "ExtensionCdpClient: host_browser_result error",
       );
-      throw new CdpError("cdp_error", msg, {
+      throw new CdpError(errorCode, msg, {
         cdpMethod: method,
         cdpParams: params,
         underlying: parsedError,
@@ -137,6 +165,26 @@ export class ExtensionCdpClient implements ScopedCdpClient {
     // it here. In-flight requests will be cancelled by the AbortSignal
     // the tool passes in, or by conversation teardown.
   }
+}
+
+/**
+ * Classify a parsed host_browser_result error envelope as either a
+ * transport-level error (`transport_error`) or a command-level CDP
+ * failure (`cdp_error`).
+ *
+ * Structured envelopes from the host_browser dispatcher carry a
+ * `code` string field (e.g. `"transport_error"`, `"unreachable"`,
+ * `"timeout"`, `"non_loopback"`). When the code matches a known
+ * transport-level value, the error is eligible for factory failover.
+ * All other codes (or missing codes) are treated as CDP command
+ * errors that should propagate without failover.
+ */
+function classifyHostBrowserError(parsed: unknown): CdpErrorCode {
+  if (typeof parsed !== "object" || parsed === null) return "cdp_error";
+  if (!("code" in parsed)) return "cdp_error";
+  const code = (parsed as { code: unknown }).code;
+  if (typeof code !== "string") return "cdp_error";
+  return TRANSPORT_ERROR_CODES.has(code) ? "transport_error" : "cdp_error";
 }
 
 export function createExtensionCdpClient(
