@@ -35,9 +35,11 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AssistantConfig } from "../config/schema.js";
+import { defaultMemoryRetrievalPlugin } from "../plugins/defaults/memory-retrieval.js";
 import {
   ASSISTANT_API_VERSIONS,
   getRegisteredPlugins,
+  registerPlugin,
 } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -135,6 +137,29 @@ function ensurePluginStorageDir(pluginName: string): string {
 }
 
 /**
+ * Register first-party default plugins that live under
+ * `plugins/defaults/`. Called at the top of {@link bootstrapPlugins} so
+ * defaults always land ahead of external/third-party plugins in
+ * registration order — that ordering is what the pipeline runner uses to
+ * compose middleware (outermost-first), so external plugins naturally wrap
+ * the defaults rather than the reverse.
+ *
+ * Idempotent against re-bootstraps: the registry throws on duplicate names
+ * already, so this helper silently tolerates plugins the caller registered
+ * via some other path (e.g. test setup) by probing the registered set first.
+ */
+function registerDefaultPlugins(): void {
+  const alreadyRegistered = new Set(
+    getRegisteredPlugins().map((p) => p.manifest.name),
+  );
+  const defaults: Plugin[] = [defaultMemoryRetrievalPlugin];
+  for (const plugin of defaults) {
+    if (alreadyRegistered.has(plugin.manifest.name)) continue;
+    registerPlugin(plugin);
+  }
+}
+
+/**
  * Run every registered plugin's `init()` hook sequentially and install a
  * reverse-order shutdown hook. See the module docstring for full semantics.
  *
@@ -147,6 +172,8 @@ function ensurePluginStorageDir(pluginName: string): string {
  * run) and before the first conversation is served.
  */
 export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
+  registerDefaultPlugins();
+
   const plugins = getRegisteredPlugins();
   if (plugins.length === 0) {
     // No-op fast path — the registry is empty (no first-party plugins have

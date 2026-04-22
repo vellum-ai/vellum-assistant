@@ -13,6 +13,8 @@ import { describe, expect, test } from "bun:test";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import {
   type Injector,
+  type MemoryArgs,
+  type MemoryResult,
   type Middleware,
   type Plugin,
   PluginExecutionError,
@@ -52,6 +54,15 @@ describe("plugin core types", () => {
       { output: unknown }
     > = async (args, next, _ctx) => next(args);
 
+    // `memoryRetrieval` has a concrete typed signature (MemoryArgs →
+    // MemoryResult) introduced in PR 20, so it can't use the generic
+    // `{ input }` passthrough above.
+    const memoryPassthrough: Middleware<MemoryArgs, MemoryResult> = async (
+      args,
+      next,
+      _ctx,
+    ) => next(args);
+
     const injector: Injector = {
       name: "sample-injector",
       order: 10,
@@ -82,7 +93,7 @@ describe("plugin core types", () => {
         turn: passthrough,
         llmCall: passthrough,
         toolExecute: passthrough,
-        memoryRetrieval: passthrough,
+        memoryRetrieval: memoryPassthrough,
         historyRepair: passthrough,
         tokenEstimate: passthrough,
         compaction: passthrough,
