@@ -400,6 +400,61 @@ struct HomeGallerySection: View {
                 }
             }
 
+            // MARK: - HomeRecapGroupRow
+
+            if filter == nil || filter == "homeRecapGroupRow" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "HomeRecapGroupRow",
+                    description: "Grouped Home feed row: parent summary header with a nested list of child rows underneath. Used when HomeFeedGrouping collapses a run of 3+ low-priority digests into a single card. Production wiring uses isExpanded: .constant(true); children are individually tappable."
+                )
+
+                VCard(background: VColor.surfaceBase) {
+                    HomeRecapGroupRow(
+                        parentIcon: .bell,
+                        parentIconForeground: VColor.feedDigestStrong,
+                        parentIconBackground: VColor.feedDigestWeak,
+                        parentTitle: "There's also 4 low priority updates if you want to have a look.",
+                        children: [
+                            HomeRecapGroupRow.Child(
+                                id: "gallery-child-1",
+                                icon: .bell,
+                                iconForeground: VColor.feedDigestStrong,
+                                iconBackground: VColor.feedDigestWeak,
+                                title: "This is the First notification in the group"
+                            ),
+                            HomeRecapGroupRow.Child(
+                                id: "gallery-child-2",
+                                icon: .bell,
+                                iconForeground: VColor.feedDigestStrong,
+                                iconBackground: VColor.feedDigestWeak,
+                                title: "This is the Second notification in the group"
+                            ),
+                            HomeRecapGroupRow.Child(
+                                id: "gallery-child-3",
+                                icon: .bell,
+                                iconForeground: VColor.feedDigestStrong,
+                                iconBackground: VColor.feedDigestWeak,
+                                title: "This is the Third notification in the group"
+                            ),
+                            HomeRecapGroupRow.Child(
+                                id: "gallery-child-4",
+                                icon: .bell,
+                                iconForeground: VColor.feedDigestStrong,
+                                iconBackground: VColor.feedDigestWeak,
+                                title: "This is the Fourth notification in the group"
+                            ),
+                        ],
+                        isExpanded: .constant(true),
+                        onParentTap: {},
+                        onChildTap: { _ in }
+                    )
+                }
+            }
+
             // MARK: - HomeDetailPanel
 
             if filter == nil || filter == "homeDetailPanel" {
@@ -505,6 +560,33 @@ struct HomeGallerySection: View {
                         onAlwaysAllow: { _, _, _, _ in }
                     )
                 }
+                .frame(height: 520)
+            }
+
+            // MARK: - HomeScheduledDetailPanel
+
+            if filter == nil || filter == "homeScheduledDetailPanel" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "HomeScheduledDetailPanel",
+                    description: "Right-hand detail panel surfaced when a scheduled (.thread) feed item is tapped on Home. Shows schedule metadata (Name, Syntax, Mode, Schedule, Enabled, Next Run) plus outlined secondary + filled primary actions. Rendered here with HomeScheduledDetails.placeholder."
+                )
+
+                HomeScheduledDetailPanel(
+                    title: "Scheduled Thing",
+                    description: HomeScheduledDetails.placeholder.description,
+                    rows: HomeScheduledDetails.placeholder.displayRows().map { row in
+                        HomeScheduledDetailPanel.DetailRow(key: row.key, value: row.value)
+                    },
+                    primaryActionLabel: "Action",
+                    secondaryActionLabel: "Action",
+                    onClose: {},
+                    onPrimaryAction: {},
+                    onSecondaryAction: {}
+                )
                 .frame(height: 520)
             }
 
@@ -843,7 +925,9 @@ extension HomeGallerySection {
         case "homeUpdatesListCard": HomeGallerySection(filter: "homeUpdatesListCard")
         case "homeFeedGroupHeader": HomeGallerySection(filter: "homeFeedGroupHeader")
         case "homeRecapRow": HomeGallerySection(filter: "homeRecapRow")
+        case "homeRecapGroupRow": HomeGallerySection(filter: "homeRecapGroupRow")
         case "homeDetailPanel": HomeGallerySection(filter: "homeDetailPanel")
+        case "homeScheduledDetailPanel": HomeGallerySection(filter: "homeScheduledDetailPanel")
         case "homeEmailEditor": HomeGallerySection(filter: "homeEmailEditor")
         case "homeDocumentPreview": HomeGallerySection(filter: "homeDocumentPreview")
         case "homePermissionChatPreview": HomeGallerySection(filter: "homePermissionChatPreview")
