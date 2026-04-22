@@ -55,6 +55,7 @@ public struct VNotification: View {
             Spacer()
 
             if hasTrailingCluster {
+                let actionRendered = actionLabel != nil && onAction != nil
                 HStack(spacing: VSpacing.sm) {
                     if let actionLabel, let onAction {
                         divider
@@ -67,7 +68,9 @@ public struct VNotification: View {
                         .accessibilityLabel(actionLabel)
                     }
                     if let onDismiss {
-                        divider
+                        if actionRendered {
+                            divider
+                        }
                         Button(action: onDismiss) {
                             VIconView(.x, size: 10)
                                 .foregroundStyle(foregroundColor)
