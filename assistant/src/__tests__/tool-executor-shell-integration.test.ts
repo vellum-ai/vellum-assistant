@@ -193,7 +193,7 @@ beforeAll(async () => {
 });
 
 describe("ToolExecutor → real shell allowlist integration", () => {
-  test("simple command produces parser-derived action keys", async () => {
+  test("simple command produces classifier-derived scope ladder", async () => {
     const { prompter, getAllowlist, getScopes } = makeCapturingPrompter();
     const executor = new ToolExecutor(prompter);
 
@@ -207,14 +207,16 @@ describe("ToolExecutor → real shell allowlist integration", () => {
     expect(allowlist).toBeDefined();
     expect(allowlist!.length).toBeGreaterThan(1);
 
+    // Labels are human-readable command patterns
+    const labels = allowlist!.map((o: AllowlistOption) => o.label);
+    expect(labels).toContain("npm install express");
+    expect(labels).toContain("npm install *");
+    expect(labels).toContain("npm *");
+
+    // Patterns are regex anchors produced by the classifier
     const patterns = allowlist!.map((o: AllowlistOption) => o.pattern);
-
-    // Should contain the exact command
-    expect(patterns).toContain("npm install express");
-
-    // Should contain action keys derived by the parser
-    expect(patterns).toContain("action:npm install");
-    expect(patterns).toContain("action:npm");
+    expect(patterns[0]).toMatch(/^\^.*\$$/); // Exact match is anchored
+    expect(patterns[patterns.length - 1]).toMatch(/^\^npm\\b$/); // Command-level wildcard
 
     // Every option should have label, description, and pattern
     for (const opt of allowlist!) {
@@ -235,7 +237,7 @@ describe("ToolExecutor → real shell allowlist integration", () => {
     );
   });
 
-  test("compound command produces only exact compound option (no action keys)", async () => {
+  test("compound command produces exact match and command-level wildcards", async () => {
     const { prompter, getAllowlist } = makeCapturingPrompter();
     const executor = new ToolExecutor(prompter);
 
@@ -248,13 +250,19 @@ describe("ToolExecutor → real shell allowlist integration", () => {
     const allowlist = getAllowlist();
     expect(allowlist).toBeDefined();
 
-    // Compound commands with two non-setup actions get only the exact compound option
-    expect(allowlist!.length).toBe(1);
-    expect(allowlist![0].pattern).toBe('git add . && git commit -m "fix"');
-    expect(allowlist![0].description).toContain("compound");
+    // Compound commands produce exact match + command-level wildcards for each
+    // unique program (git appears in both segments, so only one wildcard)
+    expect(allowlist!.length).toBe(2);
+
+    // First option is the exact compound command
+    expect(allowlist![0].description).toBe("This exact command");
+
+    // Second option is the command-level wildcard
+    expect(allowlist![1].label).toBe("git *");
+    expect(allowlist![1].description).toBe("Any git command");
   });
 
-  test("setup prefix + action produces canonical primary command and action keys", async () => {
+  test("setup prefix + action produces exact match and per-program wildcards", async () => {
     const { prompter, getAllowlist } = makeCapturingPrompter();
     const executor = new ToolExecutor(prompter);
 
@@ -266,20 +274,17 @@ describe("ToolExecutor → real shell allowlist integration", () => {
 
     const allowlist = getAllowlist();
     expect(allowlist).toBeDefined();
-    expect(allowlist!.length).toBeGreaterThan(1);
 
-    const patterns = allowlist!.map((o: AllowlistOption) => o.pattern);
+    // Exact match + command-level wildcards for each unique program (cd, gh)
+    expect(allowlist!.length).toBe(3);
 
-    // Should contain the full original command as the exact option
-    expect(patterns).toContain("cd /repo && gh pr view 123");
+    // First option is the exact compound command
+    expect(allowlist![0].description).toBe("This exact command");
 
-    // Should contain action keys: cd is a setup prefix, so gh is the primary action
-    expect(patterns).toContain("action:gh pr view");
-    expect(patterns).toContain("action:gh pr");
-    expect(patterns).toContain("action:gh");
-
-    // Should NOT contain action keys for the setup prefix (cd)
-    expect(patterns).not.toContain("action:cd");
+    // Command-level wildcards for each unique program
+    const labels = allowlist!.map((o: AllowlistOption) => o.label);
+    expect(labels).toContain("cd *");
+    expect(labels).toContain("gh *");
   });
 
   test("scope options include project directory and everywhere", async () => {
@@ -312,7 +317,7 @@ describe("ToolExecutor → real shell allowlist integration", () => {
     }
   });
 
-  test("host_bash command also produces real parser-derived options", async () => {
+  test("host_bash command also produces classifier-derived scope ladder", async () => {
     const { prompter, getAllowlist } = makeCapturingPrompter();
     const executor = new ToolExecutor(prompter);
 
@@ -326,15 +331,18 @@ describe("ToolExecutor → real shell allowlist integration", () => {
     expect(allowlist).toBeDefined();
     expect(allowlist!.length).toBeGreaterThan(1);
 
-    const patterns = allowlist!.map((o: AllowlistOption) => o.pattern);
+    // Labels are human-readable
+    const labels = allowlist!.map((o: AllowlistOption) => o.label);
+    expect(labels).toContain("git status");
+    expect(labels).toContain("git *");
 
-    // Should contain exact command and action keys
-    expect(patterns).toContain("git status");
-    expect(patterns).toContain("action:git status");
-    expect(patterns).toContain("action:git");
+    // Patterns are regex
+    const patterns = allowlist!.map((o: AllowlistOption) => o.pattern);
+    expect(patterns[0]).toMatch(/^\^git status\$$/);
+    expect(patterns[patterns.length - 1]).toMatch(/^\^git\\b$/);
   });
 
-  test("pipeline command produces exact + action-key options", async () => {
+  test("pipeline command produces exact match and per-program wildcards", async () => {
     const { prompter, getAllowlist } = makeCapturingPrompter();
     const executor = new ToolExecutor(prompter);
 
@@ -347,11 +355,15 @@ describe("ToolExecutor → real shell allowlist integration", () => {
     const allowlist = getAllowlist();
     expect(allowlist).toBeDefined();
 
-    // Pipelines now produce exact option + action key options
+    // Pipelines produce exact match + command-level wildcards for each program
     expect(allowlist!.length).toBeGreaterThanOrEqual(2);
-    expect(allowlist![0].pattern).toBe("cat file.txt | grep error");
-    expect(allowlist![0].description).toContain("compound");
-    // Action keys from the first segment before the pipe
-    expect(allowlist!.some((o) => o.pattern.startsWith("action:"))).toBe(true);
+
+    // First option is the exact pipeline command
+    expect(allowlist![0].description).toBe("This exact command");
+
+    // Command-level wildcards for each unique program in the pipeline
+    const labels = allowlist!.map((o: AllowlistOption) => o.label);
+    expect(labels).toContain("cat *");
+    expect(labels).toContain("grep *");
   });
 });
