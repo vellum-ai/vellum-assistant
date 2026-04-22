@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Compact status indicator: count, dot, or text label with semantic tone.
 /// For categorization with colored backgrounds and icons, use `VTag` instead.
+/// Use `init(label:tone:)` for tone-aware label badges and `init(count:tone:)` for tone-aware count badges.
 /// Accent tone pairs adaptive `primaryBase` backgrounds with adaptive `contentInset` foregrounds so text stays legible in both light and dark mode.
 public struct VBadge: View {
     public enum Style {
@@ -48,15 +49,28 @@ public struct VBadge: View {
         self.shape = shape
     }
 
+    public init(
+        count: Int,
+        tone: Tone = .accent,
+        emphasis: Emphasis = .solid,
+        shape: Shape = .pill
+    ) {
+        self.style = .count(count)
+        self.color = VColor.primaryBase  // overridden by tone resolution below; kept for API stability
+        self.tone = tone
+        self.emphasis = emphasis
+        self.shape = shape
+    }
+
     public var body: some View {
         switch style {
         case .count(let count):
             Text("\(count)")
                 .font(VFont.labelDefault)
-                .foregroundStyle(VColor.auxWhite)
+                .foregroundStyle(countForegroundColor)
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.vertical, VSpacing.xxs)
-                .background(color)
+                .background(countBackgroundColor)
                 .clipShape(Capsule())
                 .accessibilityLabel("\(count) \(count == 1 ? "item" : "items")")
 
@@ -68,13 +82,23 @@ public struct VBadge: View {
         case .label(let text):
             Text(text)
                 .font(VFont.labelDefault)
-                .foregroundStyle(labelForegroundColor)
+                .foregroundStyle(toneForegroundColor)
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.vertical, labelVerticalPadding)
-                .background(labelBackgroundColor)
+                .background(toneBackgroundColor)
                 .modifier(LabelShapeModifier(shape: shape, borderColor: labelBorderColor, borderWidth: labelBorderWidth))
                 .accessibilityLabel(text)
         }
+    }
+
+    // MARK: - Count Color Resolution
+
+    private var countForegroundColor: Color {
+        tone != nil ? toneForegroundColor : VColor.auxWhite
+    }
+
+    private var countBackgroundColor: Color {
+        tone != nil ? toneBackgroundColor : color
     }
 
     // MARK: - Shape Helpers
@@ -85,7 +109,7 @@ public struct VBadge: View {
 
     // MARK: - Color Resolution
 
-    private var labelForegroundColor: Color {
+    private var toneForegroundColor: Color {
         guard let tone else {
             return emphasis == .subtle ? VColor.contentEmphasized : VColor.auxWhite
         }
@@ -112,7 +136,7 @@ public struct VBadge: View {
         }
     }
 
-    private var labelBackgroundColor: Color {
+    private var toneBackgroundColor: Color {
         guard let tone else {
             return emphasis == .subtle ? color.opacity(0.2) : color
         }
