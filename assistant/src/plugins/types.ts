@@ -279,8 +279,32 @@ export type TokenEstimateArgs = EstimateArgs;
 /** Alias retained for symmetry with the rest of the pipeline-name family. */
 export type TokenEstimateResult = EstimateResult;
 
-export type CompactionArgs = { readonly input: unknown };
-export type CompactionResult = { readonly output: unknown };
+/**
+ * Pipeline inputs for the `compaction` slot — the arguments the assistant
+ * would otherwise have passed to {@link ContextWindowManager.maybeCompact}.
+ *
+ * Typed via `unknown`-forwarded aliases to keep this module free of runtime
+ * imports from `context/window-manager.ts` (which would pull the full
+ * compaction machinery into anything that merely imports plugin types).
+ * The default compaction plugin re-casts back to the concrete types before
+ * delegating to the manager.
+ */
+export type CompactionArgs = {
+  /** The message history to consider for compaction. */
+  readonly messages: unknown;
+  /** Abort signal forwarded to the compaction summary call. */
+  readonly signal?: AbortSignal;
+  /** `ContextWindowCompactOptions` — options block forwarded verbatim. */
+  readonly options?: unknown;
+};
+/**
+ * Pipeline result for the `compaction` slot — the full
+ * {@link import("../context/window-manager.js").ContextWindowResult}
+ * object returned by `maybeCompact()`. Kept as `unknown` here for the
+ * same decoupling reason as {@link CompactionArgs}; consumers in
+ * `daemon/conversation-agent-loop.ts` cast back to the concrete shape.
+ */
+export type CompactionResult = unknown;
 
 /**
  * Input to the `overflowReduce` pipeline. Captures everything the reducer

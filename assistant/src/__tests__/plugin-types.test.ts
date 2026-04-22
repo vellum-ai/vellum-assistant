@@ -12,6 +12,8 @@ import { describe, expect, test } from "bun:test";
 
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import {
+  type CompactionArgs,
+  type CompactionResult,
   type EmptyResponseArgs,
   type EmptyResponseResult,
   type EstimateArgs,
@@ -154,6 +156,16 @@ describe("plugin core types", () => {
       attempts: 0,
     });
 
+    // Slot-specific passthrough for the `compaction` pipeline — PR 25
+    // narrowed its args/result away from the generic `{ input: unknown }`
+    // placeholder, so the generic `passthrough` no longer satisfies its
+    // middleware signature. This dedicated middleware keeps the shape-only
+    // assertion for the slot without forcing every other slot to narrow.
+    const compactionPassthrough: Middleware<
+      CompactionArgs,
+      CompactionResult
+    > = async (args, next, _ctx) => next(args);
+
     const injector: Injector = {
       name: "sample-injector",
       order: 10,
@@ -194,7 +206,7 @@ describe("plugin core types", () => {
         memoryRetrieval: memoryPassthrough,
         historyRepair: passthroughHistoryRepair,
         tokenEstimate: tokenEstimatePassthrough,
-        compaction: passthrough,
+        compaction: compactionPassthrough,
         overflowReduce: overflowReducePassthrough,
         persistence: passthrough,
         titleGenerate: passthrough,

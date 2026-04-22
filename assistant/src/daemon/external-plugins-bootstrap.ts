@@ -39,6 +39,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AssistantConfig } from "../config/schema.js";
+import { defaultCompactionPlugin } from "../plugins/defaults/compaction.js";
 import { defaultEmptyResponsePlugin } from "../plugins/defaults/empty-response.js";
 import { defaultHistoryRepairPlugin } from "../plugins/defaults/history-repair.js";
 import { defaultInjectorsPlugin } from "../plugins/defaults/injectors.js";
@@ -186,6 +187,7 @@ function registerDefaultPlugins(): void {
     defaultTokenEstimatePlugin,
     defaultOverflowReducePlugin,
     defaultHistoryRepairPlugin,
+    defaultCompactionPlugin,
   ];
   for (const plugin of defaults) {
     try {
