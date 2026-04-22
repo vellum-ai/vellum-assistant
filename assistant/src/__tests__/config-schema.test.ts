@@ -170,7 +170,7 @@ describe("AssistantConfigSchema", () => {
     expect(result.llm).toBeDefined();
     expect(result.llm.default).toEqual({
       provider: "anthropic",
-      model: "claude-opus-4-7",
+      model: "claude-sonnet-4-6",
       maxTokens: 64000,
       effort: "max",
       speed: "standard",
