@@ -111,7 +111,8 @@ export const DEFAULT_COMMAND_REGISTRY = {
     argSchema: { positionals: "none" },
   },
   sed: {
-    baseRisk: "low",
+    baseRisk: "medium",
+    reason: "Can write files or execute commands via sed scripts",
     sandboxAutoApprove: true,
     argSchema: {
       positionals: [{ role: "script" }, { role: "path", rest: true }],

@@ -279,12 +279,12 @@ describe("arg rule classification", () => {
     expect(result.riskLevel).toBe("medium");
   });
 
-  test("sed without -i → low", async () => {
+  test("sed without -i → medium", async () => {
     const result = await classifier.classify({
       command: "sed 's/foo/bar/g' file.txt",
       toolName: "bash",
     });
-    expect(result.riskLevel).toBe("low");
+    expect(result.riskLevel).toBe("medium");
   });
 });
 
