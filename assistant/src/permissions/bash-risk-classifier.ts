@@ -427,10 +427,12 @@ export function classifySegment(
         }
 
         // Fallback: scan raw args for combined short flags (e.g. `-rf`)
-        // that parseArgs doesn't split but the rule lists as a literal.
+        // and --flag=value forms (e.g. `--set=managed`) that parseArgs
+        // doesn't split when the flag isn't in argSchema.valueFlags.
+        // matchesArgRule handles both cases via its flag splitting logic.
         if (!flagMatched) {
           for (const arg of allArgs) {
-            if (rule.flags.includes(arg)) {
+            if (matchesArgRule(rule, arg)) {
               flagMatched = true;
               break;
             }
