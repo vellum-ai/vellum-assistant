@@ -32,6 +32,7 @@ import {
   type RiskAssessment,
   riskToRiskLevel,
 } from "./risk-types.js";
+import { scheduleRiskClassifier } from "./schedule-risk-classifier.js";
 import {
   analyzeShellCommand,
   buildShellAllowlistOptions,
@@ -497,6 +498,19 @@ export async function classifyRisk(
         | "scaffold_managed_skill"
         | "delete_managed_skill",
       skillSelector: getStringField(input, "skill", "skill_id").trim(),
+    });
+    classifierAssessment = assessment;
+    result = {
+      level: riskToRiskLevel(assessment.riskLevel),
+      reason: assessment.reason,
+    };
+  }
+  // ── Schedule tools: delegate to ScheduleRiskClassifier ──────────────────
+  else if (toolName === "schedule_create" || toolName === "schedule_update") {
+    const assessment = await scheduleRiskClassifier.classify({
+      toolName,
+      mode: getStringField(input, "mode") || undefined,
+      script: getStringField(input, "script") || undefined,
     });
     classifierAssessment = assessment;
     result = {
