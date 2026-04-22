@@ -630,11 +630,9 @@ function escapeRegex(s: string): string {
  */
 export function scopeOptionsToAllowlistOptions(
   scopeOptions: ScopeOption[],
-  parsed: ParsedCommand,
+  _parsed: ParsedCommand,
 ): AllowlistOption[] {
   if (scopeOptions.length === 0) return [];
-
-  const programName = parsed.segments[0]?.program ?? "command";
 
   return scopeOptions.map((opt, i): AllowlistOption => {
     let description: string;
