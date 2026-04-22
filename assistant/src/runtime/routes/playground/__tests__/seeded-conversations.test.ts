@@ -14,7 +14,7 @@ interface StubOpts {
     messageCount: number;
     createdAt: number;
   }>;
-  getConversationById?: (id: string) => Conversation | undefined;
+  getConversationById?: (id: string) => Promise<Conversation | undefined>;
   deleteReturn?: boolean | ((id: string) => boolean);
 }
 
@@ -30,7 +30,7 @@ function makeStub(opts: StubOpts = {}): Stub {
   const deleteReturn = opts.deleteReturn ?? true;
   const deps: PlaygroundRouteDeps = {
     isPlaygroundEnabled: () => opts.enabled ?? true,
-    getConversationById: opts.getConversationById ?? (() => undefined),
+    getConversationById: opts.getConversationById ?? (async () => undefined),
     listConversationsByTitlePrefix: (prefix) => {
       listCalls.push(prefix);
       return opts.listRows ?? [];

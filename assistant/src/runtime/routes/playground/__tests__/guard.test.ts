@@ -7,7 +7,9 @@ import { playgroundRouteDefinitions } from "../index.js";
 
 function makeDeps(enabled: boolean): PlaygroundRouteDeps {
   return {
-    getConversationById: (_id: string): Conversation | undefined => undefined,
+    getConversationById: async (
+      _id: string,
+    ): Promise<Conversation | undefined> => undefined,
     isPlaygroundEnabled: () => enabled,
     listConversationsByTitlePrefix: () => [],
     deleteConversationById: () => false,

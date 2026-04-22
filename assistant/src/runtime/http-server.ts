@@ -2003,10 +2003,25 @@ export class RuntimeHttpServer {
         getHeartbeatService: this.getHeartbeatService,
       }),
       ...playgroundRouteDefinitions({
-        getConversationById: (id) => {
-          const s = this.findConversation?.(id);
-          if (!s || !("abort" in s)) return undefined;
-          return s as import("../daemon/conversation.js").Conversation;
+        getConversationById: async (id) => {
+          // Gate on DB existence first so genuinely-missing IDs return
+          // `undefined` (preserving the route handlers' 404 path) rather
+          // than triggering `getOrCreateConversation`'s create branch and
+          // masking the not-found case. For existing-but-not-loaded rows
+          // (e.g. freshly seeded by `POST /playground/seed-conversation`),
+          // hydrate the in-memory `Conversation` on demand so conv-scoped
+          // playground routes work without first opening the conversation
+          // in the main window.
+          if (!getConversation(id)) return undefined;
+          const sendDeps = this.sendMessageDeps;
+          if (!sendDeps) {
+            // Fall back to the in-memory active map when the daemon hasn't
+            // wired the hydration-capable accessor (e.g. unit tests).
+            const s = this.findConversation?.(id);
+            if (!s || !("abort" in s)) return undefined;
+            return s as import("../daemon/conversation.js").Conversation;
+          }
+          return sendDeps.getOrCreateConversation(id);
         },
         isPlaygroundEnabled: () =>
           isAssistantFeatureFlagEnabled("compaction-playground", getConfig()),

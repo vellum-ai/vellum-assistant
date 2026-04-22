@@ -51,7 +51,7 @@ function makeDeps(
   const conversation = opts.conversation;
   return {
     isPlaygroundEnabled: () => enabled,
-    getConversationById: (id) => {
+    getConversationById: async (id) => {
       if (!conversation) return undefined;
       if (conversation.conversationId !== id) return undefined;
       return conversation as unknown as Conversation;

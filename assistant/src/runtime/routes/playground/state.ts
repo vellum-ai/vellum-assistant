@@ -62,11 +62,11 @@ export function stateRouteDefinitions(
       policyKey: "conversations/playground/state",
       summary: "Read current compaction state for a conversation",
       tags: ["playground"],
-      handler: ({ params }) => {
+      handler: async ({ params }) => {
         const gate = assertPlaygroundEnabled(deps);
         if (gate) return gate;
 
-        const conversation = deps.getConversationById(params.id);
+        const conversation = await deps.getConversationById(params.id);
         if (!conversation) {
           return conversationNotFoundResponse(params.id);
         }

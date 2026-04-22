@@ -74,7 +74,7 @@ function makeDeps(
   overrides: Partial<PlaygroundRouteDeps> = {},
 ): PlaygroundRouteDeps {
   return {
-    getConversationById: () => undefined,
+    getConversationById: async () => undefined,
     isPlaygroundEnabled: () => true,
     listConversationsByTitlePrefix: () => [],
     deleteConversationById: () => false,
@@ -135,7 +135,7 @@ describe("forceCompactRouteDefinitions", () => {
   test("returns 404 with conversation_not_found code when the conversation is missing", async () => {
     const deps = makeDeps({
       isPlaygroundEnabled: () => true,
-      getConversationById: () => undefined,
+      getConversationById: async () => undefined,
     });
     const [route] = forceCompactRouteDefinitions(deps);
 
@@ -177,7 +177,7 @@ describe("forceCompactRouteDefinitions", () => {
 
     const deps = makeDeps({
       isPlaygroundEnabled: () => true,
-      getConversationById: () => fake.conversation,
+      getConversationById: async () => fake.conversation,
     });
     const [route] = forceCompactRouteDefinitions(deps);
 
@@ -222,7 +222,7 @@ describe("forceCompactRouteDefinitions", () => {
 
     const deps = makeDeps({
       isPlaygroundEnabled: () => true,
-      getConversationById: () => fake.conversation,
+      getConversationById: async () => fake.conversation,
     });
     const [route] = forceCompactRouteDefinitions(deps);
 
@@ -260,7 +260,7 @@ describe("forceCompactRouteDefinitions", () => {
 
     const deps = makeDeps({
       isPlaygroundEnabled: () => true,
-      getConversationById: () => fake.conversation,
+      getConversationById: async () => fake.conversation,
     });
     const [route] = forceCompactRouteDefinitions(deps);
 
