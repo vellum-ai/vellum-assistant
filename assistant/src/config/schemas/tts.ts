@@ -182,6 +182,7 @@ export const TtsXaiProviderConfigSchema = z
       .string({
         error: "services.tts.providers.xai.language must be a string",
       })
+      .transform((v) => v || "auto")
       .default("auto")
       .describe(
         "BCP-47 language code (e.g. 'en-US') or 'auto' for auto-detection",
@@ -247,6 +248,16 @@ for (const id of VALID_TTS_PROVIDERS) {
     throw new Error(
       `TTS provider "${id}" exists in the catalog but has no schema entry ` +
         `in TtsProvidersSchema. Add a "services.tts.providers.${id}" schema.`,
+    );
+  }
+}
+const catalogKeys = new Set<string>(VALID_TTS_PROVIDERS);
+for (const id of schemaKeys) {
+  if (!catalogKeys.has(id)) {
+    throw new Error(
+      `TTS provider "${id}" has a schema entry in TtsProvidersSchema but ` +
+        `is not registered in the provider catalog. Add it to ` +
+        `provider-catalog.ts or remove it from TtsProvidersSchema.`,
     );
   }
 }
