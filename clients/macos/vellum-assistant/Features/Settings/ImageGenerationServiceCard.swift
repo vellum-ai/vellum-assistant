@@ -94,7 +94,19 @@ struct ImageGenerationServiceCard: View {
         .task {
             imageGenHasKey = await APIKeyManager.hasKey(for: currentProvider)
         }
-        .onChange(of: draftModel) { _, _ in
+        .onChange(of: draftModel) { oldValue, newValue in
+            // When the user picks a model whose provider differs from the previous
+            // selection (e.g. a Gemini model → an OpenAI model), clear any typed
+            // API-key text. Without this, a partially-typed Gemini key could be
+            // submitted under the openai credential slot (or vice versa) if the
+            // user switches models before hitting Save. Clearing only on actual
+            // provider change avoids disrupting in-flight typing when the user
+            // just switches between two models of the same provider.
+            let oldProvider = SettingsStore.imageGenProvider(forModel: oldValue)
+            let newProvider = SettingsStore.imageGenProvider(forModel: newValue)
+            if oldProvider != newProvider {
+                apiKeyText = ""
+            }
             // Re-fetch the "key configured" indicator when the user switches between
             // Gemini and OpenAI models in the picker so the UI reflects the right provider.
             Task {

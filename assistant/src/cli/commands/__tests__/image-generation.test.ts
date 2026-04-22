@@ -344,7 +344,39 @@ describe("credential errors", () => {
     expect(exitCode).toBe(1);
     const parsed = JSON.parse(stdout.trim());
     expect(parsed.ok).toBe(false);
+    // Base hint from image-credentials.ts is preserved.
     expect(parsed.error).toContain("Managed proxy");
+    // CLI augments the hint with CLI-specific recovery guidance so users
+    // know how to resolve the problem from the CLI (the shared hint is
+    // tool-flavored and only mentions the Vellum app).
+    expect(parsed.error).toContain("assistant auth login");
+    expect(parsed.error).toContain(
+      "services.image-generation.mode to 'your-own'",
+    );
+  });
+
+  test("your-own mode hint is NOT augmented with CLI auth guidance", async () => {
+    // The CLI-specific `assistant auth login` guidance only makes sense when
+    // the user is trying to use managed mode. In your-own mode, the shared
+    // hint (pointing at Settings > Models & Services for the API key) is
+    // already actionable from the CLI perspective (the key is in secure
+    // storage, the user just hasn't set it). Augmenting here would confuse
+    // the user into thinking they need to authenticate to Vellum.
+    mockConfig.services["image-generation"].mode = "your-own";
+    mockConfig.services["image-generation"].provider = "gemini";
+    mockProviderKeys.gemini = undefined;
+
+    const { exitCode, stdout } = await runCommand([
+      "image-generation",
+      "generate",
+      "--prompt",
+      "A sunset",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).not.toContain("assistant auth login");
   });
 });
 
