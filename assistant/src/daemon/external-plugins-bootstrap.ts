@@ -41,6 +41,7 @@ import { join } from "node:path";
 import type { AssistantConfig } from "../config/schema.js";
 import { defaultEmptyResponsePlugin } from "../plugins/defaults/empty-response.js";
 import { defaultLlmCallPlugin } from "../plugins/defaults/llm-call.js";
+import { defaultToolErrorPlugin } from "../plugins/defaults/tool-error.js";
 import { defaultToolExecutePlugin } from "../plugins/defaults/tool-execute.js";
 import { defaultToolResultTruncatePlugin } from "../plugins/defaults/tool-result-truncate.js";
 import {
@@ -174,6 +175,7 @@ function registerDefaultPlugins(): void {
     defaultToolExecutePlugin,
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
+    defaultToolErrorPlugin,
   ];
   for (const plugin of defaults) {
     try {

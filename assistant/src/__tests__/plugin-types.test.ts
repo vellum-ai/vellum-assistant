@@ -23,6 +23,8 @@ import {
   type PluginInitContext,
   type PluginManifest,
   PluginTimeoutError,
+  type ToolErrorArgs,
+  type ToolErrorDecision,
   type ToolExecuteArgs,
   type ToolExecuteResult,
   type ToolResultTruncateArgs,
@@ -90,6 +92,14 @@ describe("plugin core types", () => {
       EmptyResponseResult
     > = async (args, next, _ctx) => next(args);
 
+    // The `toolError` slot has concrete args/result types (PR 19); use a
+    // dedicated passthrough so the shape-only test keeps compiling as types
+    // get tightened.
+    const toolErrorPassthrough: Middleware<
+      ToolErrorArgs,
+      ToolErrorDecision
+    > = async (args, next, _ctx) => next(args);
+
     const injector: Injector = {
       name: "sample-injector",
       order: 10,
@@ -136,7 +146,7 @@ describe("plugin core types", () => {
         titleGenerate: passthrough,
         toolResultTruncate: truncatePassthrough,
         emptyResponse: emptyResponsePassthrough,
-        toolError: passthrough,
+        toolError: toolErrorPassthrough,
         circuitBreaker: passthrough,
       },
     } satisfies Plugin;
