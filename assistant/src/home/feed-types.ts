@@ -34,7 +34,12 @@ export type FeedItemStatus = "new" | "seen" | "acted_on" | "dismissed";
  * stays exhaustive. Future sources will be added explicitly rather
  * than letting arbitrary strings slip through.
  */
-export type FeedItemSource = "gmail" | "slack" | "calendar" | "assistant";
+export type FeedItemSource =
+  | "gmail"
+  | "slack"
+  | "calendar"
+  | "assistant"
+  | "telegram";
 
 /**
  * Internal field used by the hybrid authoring resolver (PR 5 writer).
@@ -81,7 +86,7 @@ export interface FeedItem {
   priority: number;
   title: string;
   summary: string;
-  /** Optional; when present must be one of the four v1 sources. */
+  /** Optional; when present must be one of the v1 sources. */
   source?: FeedItemSource;
   /** Event time (ISO-8601). */
   timestamp: string;
@@ -157,6 +162,7 @@ const feedItemSourceSchema = z.enum([
   "slack",
   "calendar",
   "assistant",
+  "telegram",
 ]);
 
 const feedItemAuthorSchema = z.enum(["assistant", "platform"]);

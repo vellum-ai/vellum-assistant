@@ -43,6 +43,7 @@ public enum FeedItemSource: String, Codable, Sendable, Hashable {
     case slack
     case calendar
     case assistant
+    case telegram
 }
 
 /// Visual urgency treatment — controls badge color independently of sort priority.

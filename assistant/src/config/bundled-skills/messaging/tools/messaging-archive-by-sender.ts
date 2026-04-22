@@ -1,8 +1,12 @@
+import { emitFeedEvent } from "../../../../home/emit-feed-event.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
+import { getLogger } from "../../../../util/logger.js";
 import { err, getProviderConnection, ok, resolveProvider } from "./shared.js";
+
+const log = getLogger("messaging-archive-by-sender");
 
 export async function run(
   input: Record<string, unknown>,
@@ -46,6 +50,14 @@ export async function run(
     }
 
     const summary = `Archived ${result.archived} message(s) matching query: ${query}`;
+    void emitFeedEvent({
+      source: "gmail",
+      title: "Messages Archived",
+      summary,
+      dedupKey: `email-archive:${Date.now()}`,
+    }).catch((err) => {
+      log.warn({ err }, "Failed to emit email archive feed event");
+    });
     if (result.truncated) {
       return ok(
         `${summary}\n\nNote: this operation was capped at 5000 messages. Additional messages matching the query may remain in the inbox. Run the command again to archive more.`,
