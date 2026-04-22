@@ -17,6 +17,15 @@
  */
 
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import type {
+  ContentBlock,
+  Message,
+  Provider,
+  ProviderResponse,
+  SendMessageOptions,
+  ToolDefinition,
+} from "../providers/types.js";
+import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
@@ -121,11 +130,47 @@ export type PipelineName =
 export type TurnArgs = { readonly input: unknown };
 export type TurnResult = { readonly output: unknown };
 
-export type LLMCallArgs = { readonly input: unknown };
-export type LLMCallResult = { readonly output: unknown };
+/**
+ * Pipeline arguments for `llmCall` — mirrors the inputs to
+ * {@link Provider.sendMessage}. The terminal handler (the default plugin)
+ * delegates straight to `args.provider.sendMessage(args.messages, args.tools,
+ * args.systemPrompt, args.options)`; middleware may observe or rewrite any
+ * field before that call, short-circuit with a synthetic {@link LLMCallResult},
+ * or post-process the response on the way out.
+ *
+ * `provider` is passed in `args` (rather than resolved from the runtime) so
+ * middleware can swap it deterministically per-call. `options` carries the
+ * full `SendMessageOptions` bag — `config`, `onEvent`, and `signal` — so
+ * middleware can substitute streaming handlers or cancellation signals
+ * without reconstructing them.
+ */
+export type LLMCallArgs = {
+  readonly provider: Provider;
+  readonly messages: Message[];
+  readonly tools?: ToolDefinition[];
+  readonly systemPrompt?: string;
+  readonly options?: SendMessageOptions;
+};
+export type LLMCallResult = ProviderResponse;
 
-export type ToolExecuteArgs = { readonly input: unknown };
-export type ToolExecuteResult = { readonly output: unknown };
+/**
+ * Arguments passed to the `toolExecute` pipeline — mirrors the public
+ * {@link ToolExecutor.execute} signature so middleware can observe (and
+ * mutate) the tool name, input payload, and the full {@link ToolContext}
+ * before the terminal runs the actual execution.
+ */
+export interface ToolExecuteArgs {
+  readonly name: string;
+  readonly input: Record<string, unknown>;
+  readonly context: ToolContext;
+}
+
+/**
+ * Result returned from the `toolExecute` pipeline — identical to
+ * {@link ToolExecutionResult} so short-circuit middleware can supply a
+ * synthetic result without invoking the terminal.
+ */
+export type ToolExecuteResult = ToolExecutionResult;
 
 /**
  * A single retrieved memory artifact.
@@ -187,14 +232,112 @@ export type PersistenceResult = { readonly output: unknown };
 export type TitleGenerateArgs = { readonly input: unknown };
 export type TitleGenerateResult = { readonly output: unknown };
 
-export type ToolResultTruncateArgs = { readonly input: unknown };
-export type ToolResultTruncateResult = { readonly output: unknown };
+/**
+ * Input to the `toolResultTruncate` pipeline: the raw tool-result text and
+ * the character budget the caller computed from the context-window share
+ * (see `calculateMaxToolResultChars` in `context/tool-result-truncation.ts`).
+ */
+export type ToolResultTruncateArgs = {
+  readonly content: string;
+  readonly maxChars: number;
+};
 
-export type EmptyResponseArgs = { readonly input: unknown };
-export type EmptyResponseResult = { readonly output: unknown };
+/**
+ * Output of the `toolResultTruncate` pipeline: the (possibly truncated)
+ * content and a boolean flag indicating whether the pipeline actually
+ * shortened the input. Callers use `truncated` for telemetry / warnings.
+ */
+export type ToolResultTruncateResult = {
+  readonly content: string;
+  readonly truncated: boolean;
+};
 
-export type ToolErrorArgs = { readonly input: unknown };
-export type ToolErrorResult = { readonly output: unknown };
+/**
+ * Snapshot of the just-completed assistant turn plus retry/context counters
+ * the `emptyResponse` pipeline needs to decide whether to nudge, accept, or
+ * surface an error.
+ *
+ * `emptyResponseRetries` is the *current* retry counter — the pipeline may
+ * compare it to `maxEmptyResponseRetries` to implement a retry cap. The loop
+ * increments the counter only after a `"nudge"` decision; the pipeline is
+ * stateless across turns.
+ *
+ * `priorAssistantHadVisibleText` signals that an earlier turn in the current
+ * `run()` invocation already delivered user-visible text. When true, an
+ * empty follow-up is the model correctly ending its turn and nudging would
+ * mislead it into resending text the user already saw.
+ */
+export interface EmptyResponseArgs {
+  /** Content blocks produced by the assistant on this turn. */
+  readonly responseContent: ReadonlyArray<ContentBlock>;
+  /**
+   * Number of `tool_use` blocks in `responseContent`. Mirrors the loop's own
+   * count so middleware doesn't have to recompute it. When > 0 the turn is
+   * not empty — the model issued tool calls.
+   */
+  readonly toolUseBlocksLength: number;
+  /** 0-based index of the tool-use turn being evaluated. */
+  readonly toolUseTurns: number;
+  /** How many empty-response nudges the loop has already issued this run. */
+  readonly emptyResponseRetries: number;
+  /** Upper bound for `emptyResponseRetries`. The default is 1. */
+  readonly maxEmptyResponseRetries: number;
+  /**
+   * Whether ANY prior assistant turn in the current `run()` call carried
+   * visible text. See `agent/loop.ts` for why the whole-run scan matters.
+   */
+  readonly priorAssistantHadVisibleText: boolean;
+}
+
+/**
+ * Decision produced by the `emptyResponse` pipeline.
+ *
+ * - `"nudge"`  — loop appends `nudgeText` as a `user` message and retries.
+ *                `nudgeText` MUST be present; it is what the model will see.
+ * - `"accept"` — loop treats the turn as complete (pushes the assistant
+ *                message to history and exits the tool-use chain normally).
+ * - `"error"`  — loop surfaces a clear error. Reserved for middleware that
+ *                wants to escalate an empty response rather than absorb it.
+ */
+export interface EmptyResponseDecision {
+  readonly action: "nudge" | "accept" | "error";
+  /** Nudge text the loop will push to history. Required when `action === "nudge"`. */
+  readonly nudgeText?: string;
+}
+
+/** Alias so the {@link PipelineMiddlewareMap} entry names its own result shape. */
+export type EmptyResponseResult = EmptyResponseDecision;
+
+/**
+ * Arguments to the `toolError` pipeline — invoked by the agent loop once per
+ * turn that produced tool results, BEFORE the turn's tool-result user message
+ * is pushed into history.
+ *
+ * `hasToolError` is true when at least one tool in the current turn returned
+ * `isError: true`. `consecutiveErrorTurns` is the running count of
+ * back-to-back error turns (reset to 0 on a clean turn, incremented on each
+ * error turn). `maxConsecutiveErrorNudges` is the default cap the agent loop
+ * currently applies; plugins receive it so they can match the default
+ * threshold exactly or compute a relative offset.
+ */
+export type ToolErrorArgs = {
+  readonly hasToolError: boolean;
+  readonly consecutiveErrorTurns: number;
+  readonly maxConsecutiveErrorNudges: number;
+};
+
+/**
+ * Decision returned by the `toolError` pipeline. When `action` is `"nudge"`,
+ * the agent loop appends a text block with `nudgeText` to the turn's tool
+ * results so the next LLM turn sees the nudge. When `action` is `"skip"`, no
+ * nudge is injected and the tool results pass through unchanged.
+ */
+export type ToolErrorDecision =
+  | { readonly action: "nudge"; readonly nudgeText: string }
+  | { readonly action: "skip" };
+
+/** Alias kept so `PipelineMiddlewareMap.toolError` reads result-shaped. */
+export type ToolErrorResult = ToolErrorDecision;
 
 export type CircuitBreakerArgs = { readonly input: unknown };
 export type CircuitBreakerResult = { readonly output: unknown };
@@ -287,16 +430,57 @@ export interface Injector {
 }
 
 // ─── Model-visible capability slots (placeholder shapes) ─────────────────────
-// Concrete shapes are defined by the tool/route/skill registries. Typing
-// them as `unknown`-tagged aliases here keeps the Plugin interface decoupled
-// until later PRs wire real registrations.
+// Tool and route shapes stay `unknown` until their respective contribution PRs
+// (31 and 32) land. Skill contributions (PR 33) ship with a concrete shape
+// below so plugins can declare catalog-discoverable skills today.
 
 /** Tool registration contributed by a plugin. Concrete shape TBD. */
 export type PluginToolRegistration = unknown;
 /** HTTP route registration contributed by a plugin. Concrete shape TBD. */
 export type PluginRouteRegistration = unknown;
-/** Skill registration contributed by a plugin. Concrete shape TBD. */
-export type PluginSkillRegistration = unknown;
+
+/**
+ * A skill contributed by a plugin.
+ *
+ * When a plugin declares {@link Plugin.skills}, the bootstrap registers each
+ * entry into an in-memory side catalog that {@link loadSkillCatalog} merges
+ * into its output. The entry is then discoverable by the model's `skill_load`
+ * / `skill_execute` flow under `source: "plugin"` — the same code paths used
+ * for filesystem-backed skills.
+ *
+ * The fields mirror the subset of `SkillSummary` / `SkillDefinition` that
+ * makes sense for an in-memory contribution. Inline commands and reference
+ * files are out of scope for plugin skills in this PR — add them later if a
+ * real plugin needs them.
+ */
+export interface PluginSkillRegistration {
+  /** Stable skill id (kebab-case). Must be unique across the catalog. */
+  id: string;
+  /**
+   * Skill "name" as surfaced to the model. Matches the SKILL.md frontmatter
+   * `name` field for filesystem skills.
+   */
+  name: string;
+  /**
+   * Human-readable display name shown in UI lists. Defaults to `name` when
+   * omitted — matches the filesystem-skill default.
+   */
+  displayName?: string;
+  /** One-line description shown by `skill_load` / UI. */
+  description: string;
+  /** Full skill body returned when `skill_load` fires for this skill. */
+  body: string;
+  /** Optional emoji shown beside the skill in UI surfaces. */
+  emoji?: string;
+  /** Optional assistant feature-flag key — when set and the flag is OFF, the skill is filtered out. */
+  featureFlag?: string;
+  /** Compact routing cues injected into `<available_skills>` to guide selection. */
+  activationHints?: string[];
+  /** Conditions under which this skill should NOT be loaded. */
+  avoidWhen?: string[];
+  /** IDs of child skills that this skill includes (metadata-only, not auto-activated). */
+  includes?: string[];
+}
 
 // ─── Plugin ──────────────────────────────────────────────────────────────────
 

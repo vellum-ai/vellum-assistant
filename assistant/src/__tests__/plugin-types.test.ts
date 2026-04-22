@@ -12,7 +12,11 @@ import { describe, expect, test } from "bun:test";
 
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import {
+  type EmptyResponseArgs,
+  type EmptyResponseResult,
   type Injector,
+  type LLMCallArgs,
+  type LLMCallResult,
   type MemoryArgs,
   type MemoryResult,
   type Middleware,
@@ -21,6 +25,12 @@ import {
   type PluginInitContext,
   type PluginManifest,
   PluginTimeoutError,
+  type ToolErrorArgs,
+  type ToolErrorDecision,
+  type ToolExecuteArgs,
+  type ToolExecuteResult,
+  type ToolResultTruncateArgs,
+  type ToolResultTruncateResult,
   type TurnContext,
 } from "../plugins/types.js";
 
@@ -52,6 +62,44 @@ describe("plugin core types", () => {
     const passthrough: Middleware<
       { input: unknown },
       { output: unknown }
+    > = async (args, next, _ctx) => next(args);
+
+    // `llmCall` has concrete arg/result types (upgraded in PR 15).
+    const llmCallPassthrough: Middleware<LLMCallArgs, LLMCallResult> = async (
+      args,
+      next,
+      _ctx,
+    ) => next(args);
+
+    // `toolExecute` has concrete arg/result types (refined in PR 16).
+    const toolExecutePassthrough: Middleware<
+      ToolExecuteArgs,
+      ToolExecuteResult
+    > = async (args, next, _ctx) => next(args);
+
+    // `toolResultTruncate` has a concrete args/result shape (PR 17) so we
+    // need a dedicated passthrough for that slot.
+    const truncatePassthrough: Middleware<
+      ToolResultTruncateArgs,
+      ToolResultTruncateResult
+    > = async (args, _next, _ctx) => ({
+      content: args.content,
+      truncated: false,
+    });
+
+    // The `emptyResponse` slot has concrete args/result types; use a
+    // dedicated passthrough so the `satisfies Plugin` check stays honest.
+    const emptyResponsePassthrough: Middleware<
+      EmptyResponseArgs,
+      EmptyResponseResult
+    > = async (args, next, _ctx) => next(args);
+
+    // The `toolError` slot has concrete args/result types (PR 19); use a
+    // dedicated passthrough so the shape-only test keeps compiling as types
+    // get tightened.
+    const toolErrorPassthrough: Middleware<
+      ToolErrorArgs,
+      ToolErrorDecision
     > = async (args, next, _ctx) => next(args);
 
     // `memoryRetrieval` has a concrete typed signature (MemoryArgs →
@@ -87,12 +135,19 @@ describe("plugin core types", () => {
       },
       tools: [{ name: "sample-tool" }],
       routes: [{ path: "/sample" }],
-      skills: [{ name: "sample-skill" }],
+      skills: [
+        {
+          id: "sample-skill",
+          name: "Sample Skill",
+          description: "Demo plugin-contributed skill",
+          body: "## Sample\n\nPlugin-provided skill body.",
+        },
+      ],
       injectors: [injector],
       middleware: {
         turn: passthrough,
-        llmCall: passthrough,
-        toolExecute: passthrough,
+        llmCall: llmCallPassthrough,
+        toolExecute: toolExecutePassthrough,
         memoryRetrieval: memoryPassthrough,
         historyRepair: passthrough,
         tokenEstimate: passthrough,
@@ -100,9 +155,9 @@ describe("plugin core types", () => {
         overflowReduce: passthrough,
         persistence: passthrough,
         titleGenerate: passthrough,
-        toolResultTruncate: passthrough,
-        emptyResponse: passthrough,
-        toolError: passthrough,
+        toolResultTruncate: truncatePassthrough,
+        emptyResponse: emptyResponsePassthrough,
+        toolError: toolErrorPassthrough,
         circuitBreaker: passthrough,
       },
     } satisfies Plugin;
