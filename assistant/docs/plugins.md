@@ -95,23 +95,23 @@ time. Its shape (see
 export interface PluginManifest {
   name: string; // kebab-case, unique
   version: string; // semver, informational
-  provides?: Record<string, string>; // capability → version exposed to other plugins
+  provides?: Record<string, string>; // reserved; not consumed at runtime today
   requires: Record<string, string>; // capability → version required from the assistant
   requiresCredential?: string[]; // credential keys resolved before init()
-  requiresFlag?: string[]; // feature flag keys that must be enabled
+  requiresFlag?: string[]; // feature flag keys that must all be enabled
   config?: unknown; // Zod-like parser for plugins.<name>
 }
 ```
 
-| Field                | Required | Purpose                                                                                                                                                                                                                     |
-| -------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`               | yes      | Unique plugin identifier. Duplicate names fail registration. Used as the directory under `~/.vellum/plugins-data/<name>/` and the attribution tag in logs.                                                                  |
-| `version`            | yes      | Plugin's own semver. Informational — the registry does not compare it.                                                                                                                                                      |
-| `provides`           | no       | Capabilities this plugin exposes to other plugins. Reserved for future composition; currently advisory.                                                                                                                     |
-| `requires`           | yes      | Must include `pluginRuntime: "v1"` at minimum. The registry checks every entry against `ASSISTANT_API_VERSIONS` and refuses to register plugins that ask for a capability or version the assistant does not expose.         |
-| `requiresCredential` | no       | Credential keys the plugin needs. The bootstrap resolves them via the credential store before `init()` runs and hands the values to the plugin in `ctx.credentials`. A missing credential fails startup with a clear error. |
-| `requiresFlag`       | no       | Assistant feature-flag keys that must be ON for the plugin to activate. If any flag is OFF, the plugin is skipped at bootstrap.                                                                                             |
-| `config`             | no       | A parser-like validator (Zod schema, or any object with a `.parse(input)` method). If supplied, the bootstrap validates `config.plugins.<name>` through it before passing the result into `init()`.                         |
+| Field                | Required | Purpose                                                                                                                                                                                                                                                                                                        |
+| -------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`               | yes      | Unique plugin identifier. Duplicate names fail registration. Used as the directory under `~/.vellum/plugins-data/<name>/` and the attribution tag in logs.                                                                                                                                                     |
+| `version`            | yes      | Plugin's own semver. Informational — the registry does not compare it.                                                                                                                                                                                                                                         |
+| `provides`           | no       | Reserved for future cross-plugin composition and not currently consumed by the assistant. Plugin authors may set this field, but no runtime code reads it yet — it is declared here so future cross-plugin work can land without a manifest version bump. Do not rely on it for any runtime behavior today.    |
+| `requires`           | yes      | Must include `pluginRuntime: "v1"` at minimum. The registry checks every entry against `ASSISTANT_API_VERSIONS` and refuses to register plugins that ask for a capability or version the assistant does not expose.                                                                                            |
+| `requiresCredential` | no       | Credential keys the plugin needs. The bootstrap resolves them via the credential store before `init()` runs and hands the values to the plugin in `ctx.credentials`. A missing credential fails startup with a clear error.                                                                                    |
+| `requiresFlag`       | no       | Assistant feature-flag keys that must all be ON for the plugin to activate. If any listed flag is disabled at bootstrap, the plugin is skipped entirely: `init()` is not invoked and no tools, routes, skills, or shutdown hooks are registered for it. See [Feature-flag gating](#feature-flag-gating) below. |
+| `config`             | no       | A parser-like validator (Zod schema, or any object with a `.parse(input)` method). If supplied, the bootstrap validates `config.plugins.<name>` through it before passing the result into `init()`.                                                                                                            |
 
 The exposed capability table (`ASSISTANT_API_VERSIONS`) lives in
 [`registry.ts`](../src/plugins/registry.ts). It lists:
@@ -144,6 +144,39 @@ const manifest: PluginManifest = {
   }),
 };
 ```
+
+### Feature-flag gating
+
+`manifest.requiresFlag` lists one or more **assistant-scope** feature-flag
+keys (the same keys declared in
+`meta/feature-flags/feature-flag-registry.json`). The bootstrap checks each
+key against `isAssistantFeatureFlagEnabled` before touching the plugin. If
+**any** listed flag is disabled, the plugin is skipped entirely for the
+duration of this daemon boot:
+
+- `init()` is **not** invoked.
+- `tools`, `routes`, and `skills` are **not** registered.
+- No shutdown hook entry is installed, so a plugin skipped at boot has
+  nothing to tear down on shutdown.
+
+Flag state is resolved once at bootstrap time. Flipping a `requiresFlag`
+key at runtime does not hot-reload the plugin — restart the daemon after
+changing the flag to pick up the new state. An empty `requiresFlag` (or
+the field being absent) means the plugin activates unconditionally.
+
+The skip path emits a single `info`-level log line naming both the plugin
+and the disabled flag, so operators can diagnose "why isn't my plugin
+loading?" at a glance:
+
+```
+plugins-bootstrap skipping plugin my-logger: feature flag my-logger-enabled is disabled
+```
+
+**Cross-repo note:** new flag keys used here must be declared in the
+assistant-scope section of
+`meta/feature-flags/feature-flag-registry.json` (and provisioned in the
+platform's Terraform configuration). See the root `CLAUDE.md`'s "Assistant
+Feature Flags" section for the full procedure.
 
 ## Registration
 
@@ -596,6 +629,14 @@ module graph.
 
 Do not add new HTTP endpoints to implement plugin-to-plugin messaging
 inside a single daemon process.
+
+`manifest.provides` is reserved as the hook for a future cross-plugin
+capability-negotiation protocol but is **not currently consumed by any
+runtime code**. Declaring `provides` today has no behavioral effect —
+plugins must not depend on it for capability discovery or any other
+runtime purpose. The field is intentionally retained on the manifest so
+that adding real consumers later does not require bumping
+`pluginRuntime` or any other capability version.
 
 ## Hot reload
 
