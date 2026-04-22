@@ -183,6 +183,12 @@ extension MainWindowView {
                     windowState.showToast(message: "Couldn't open the conversation.", style: .error)
                     return
                 }
+                // Codex P2 feedback (#27467): clear scheduled-detail selection
+                // before navigating away so re-entering Home doesn't show a
+                // stale split layout. Belt-and-suspenders with .onDisappear
+                // below in case the Home view stays mounted across this
+                // navigation path.
+                selectedScheduledItemId = nil
                 onDismiss()
                 windowState.selection = .conversation(uuid)
             },
@@ -246,6 +252,11 @@ extension MainWindowView {
         }
         .onDisappear {
             homeStore.isHomeTabVisible = false
+            // Codex P2 feedback (#27467): clear scheduled-detail selection so
+            // re-entering Home doesn't show a stale split layout when the
+            // user leaves Home through routes other than the detail panel's
+            // own close/action buttons (sidebar switch, conversation open, etc.).
+            selectedScheduledItemId = nil
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
