@@ -3,10 +3,8 @@ import { describe, expect, test } from "bun:test";
 import type { Conversation } from "../../../../daemon/conversation.js";
 import type { RouteDefinition } from "../../../http-router.js";
 import type { PlaygroundRouteDeps } from "../deps.js";
-import {
-  PLAYGROUND_TITLE_PREFIX,
-  seededConversationsRouteDefinitions,
-} from "../seeded-conversations.js";
+import { PLAYGROUND_TITLE_PREFIX } from "../seed-conversation.js";
+import { seededConversationsRouteDefinitions } from "../seeded-conversations.js";
 
 interface StubOpts {
   enabled?: boolean;
