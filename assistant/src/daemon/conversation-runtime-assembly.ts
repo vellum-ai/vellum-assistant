@@ -27,6 +27,8 @@ import {
   renderSlackTranscript,
 } from "../messaging/providers/slack/render-transcript.js";
 import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
+import { getInjectors } from "../plugins/registry.js";
+import type { TurnContext } from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import {
   type ActorTrustContext,
@@ -1728,11 +1730,52 @@ export interface RuntimeInjectionBlocks {
   workspaceBlock?: string;
   nowScratchpadBlock?: string;
   pkbContextBlock?: string;
+  /**
+   * Composed output of every plugin-registered {@link Injector}, concatenated
+   * in ascending `order`. Empty string when every injector opted out (returned
+   * `null`). Today the default injectors (`default-injectors` plugin)
+   * placeholder-return `null`, so this is only non-empty when a third-party
+   * plugin registers an injector that emits content.
+   *
+   * Populated by {@link composeInjectorChain} during
+   * {@link applyRuntimeInjections}. Distinct from the other `blocks` fields
+   * because those track specific hardcoded injections today; this field is
+   * the extensibility seam for {@link Injector} plugins.
+   */
+  injectorChainBlock?: string;
 }
 
 export interface RuntimeInjectionResult {
   messages: Message[];
   blocks: RuntimeInjectionBlocks;
+}
+
+/**
+ * Run every registered {@link Injector}'s `produce()` in ascending
+ * `order`, concatenate the non-null results into a single block of text,
+ * and return it.
+ *
+ * Separator: blank line between blocks. Injectors returning `null` are
+ * skipped entirely (no leading/trailing blank lines). When no injector
+ * contributes, the function returns an empty string.
+ *
+ * Used by {@link applyRuntimeInjections} to expose a deterministic
+ * composition point that plugin-registered injectors can slot into. The
+ * default injectors registered by `defaultInjectorsPlugin` placeholder-return
+ * `null` in this PR; later PRs in the `agent-plugin-system` plan lift their
+ * real bodies from the hardcoded `applyRuntimeInjections` branches.
+ */
+export async function composeInjectorChain(ctx: TurnContext): Promise<string> {
+  const injectors = getInjectors();
+  if (injectors.length === 0) return "";
+  const pieces: string[] = [];
+  for (const injector of injectors) {
+    const block = await injector.produce(ctx);
+    if (block && block.text.length > 0) {
+      pieces.push(block.text);
+    }
+  }
+  return pieces.join("\n\n");
 }
 
 /**
@@ -1821,6 +1864,15 @@ export async function applyRuntimeInjections(
      */
     slackActiveThreadFocusBlock?: string | null;
     mode?: InjectionMode;
+    /**
+     * Per-turn {@link TurnContext} forwarded to plugin-registered
+     * {@link Injector}s via {@link composeInjectorChain}. When omitted, the
+     * injector chain is skipped entirely (its output stays `undefined` on
+     * the returned `blocks`). The hardcoded injection branches above still
+     * run — the injector chain is additive in this PR and will take over
+     * individual injections in later PRs.
+     */
+    turnContext?: TurnContext;
   },
 ): Promise<RuntimeInjectionResult> {
   const mode = options.mode ?? "full";
@@ -2145,6 +2197,21 @@ export async function applyRuntimeInjections(
     }
   }
 
+  // Plugin-registered injector chain: runs after all hardcoded branches so
+  // third-party injectors observe the same view of the turn. In this PR the
+  // default injectors placeholder-return `null`, so the composed output is
+  // an empty string unless a third-party plugin registered an injector that
+  // emits content. Skip entirely when the caller doesn't pass a
+  // `turnContext` — the composition is informational today and the absence
+  // of a context is treated as "no chain output".
+  let injectorChainBlock: string | undefined;
+  if (options.turnContext) {
+    const composed = await composeInjectorChain(options.turnContext);
+    if (composed.length > 0) {
+      injectorChainBlock = composed;
+    }
+  }
+
   return {
     messages: result,
     blocks: {
@@ -2153,6 +2220,7 @@ export async function applyRuntimeInjections(
       workspaceBlock: workspaceCaptured,
       nowScratchpadBlock: nowScratchpadCaptured,
       pkbContextBlock: pkbContextCaptured,
+      injectorChainBlock,
     },
   };
 }

@@ -40,6 +40,7 @@ import { join } from "node:path";
 
 import type { AssistantConfig } from "../config/schema.js";
 import { defaultEmptyResponsePlugin } from "../plugins/defaults/empty-response.js";
+import { defaultInjectorsPlugin } from "../plugins/defaults/injectors.js";
 import { defaultLlmCallPlugin } from "../plugins/defaults/llm-call.js";
 import { defaultMemoryRetrievalPlugin } from "../plugins/defaults/memory-retrieval.js";
 import { defaultToolErrorPlugin } from "../plugins/defaults/tool-error.js";
@@ -178,6 +179,7 @@ function registerDefaultPlugins(): void {
     defaultEmptyResponsePlugin,
     defaultToolErrorPlugin,
     defaultMemoryRetrievalPlugin,
+    defaultInjectorsPlugin,
   ];
   for (const plugin of defaults) {
     try {
@@ -220,9 +222,10 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
 
   const plugins = getRegisteredPlugins();
   if (plugins.length === 0) {
-    // No-op fast path — the registry is empty (no first-party plugins have
-    // been wired yet in this PR). Emit a debug log so the call site is
-    // observable in startup traces and return.
+    // No-op fast path — the registry is empty. After this PR the default
+    // injectors are always present, but this branch stays defensive for
+    // tests that call `resetPluginRegistryForTests()` and stub the
+    // default registration.
     log.debug("bootstrapPlugins: registry empty — skipping");
     return;
   }
