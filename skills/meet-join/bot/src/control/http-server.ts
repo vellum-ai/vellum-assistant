@@ -462,6 +462,11 @@ export function createHttpServer(
       // stream gets a fresh 0-based clock matching the daemon's
       // per-utterance timestamp coordinate system. Reset the viseme-
       // driven renderer's mirror clock in lockstep for the same reason.
+      //
+      // Pass `streamId` through to the renderer reset so visemes from
+      // THIS utterance that raced ahead of the POST (the daemon fires
+      // provider synthesis concurrently with `/play_audio`) survive the
+      // buffer pruning — only prior-utterance events are dropped.
       handle.resetPlaybackClock();
       const rendererAtStreamStart = avatarRenderer;
       if (
@@ -469,7 +474,7 @@ export function createHttpServer(
         rendererAtStreamStart.capabilities.needsVisemes &&
         typeof rendererAtStreamStart.resetPlaybackTimestamp === "function"
       ) {
-        rendererAtStreamStart.resetPlaybackTimestamp();
+        rendererAtStreamStart.resetPlaybackTimestamp(streamId);
       }
 
       const controller = new AbortController();
@@ -1003,9 +1008,16 @@ function parseVisemeEvent(body: unknown): VisemeEvent | null {
   if (typeof raw.timestamp !== "number" || !Number.isFinite(raw.timestamp)) {
     return null;
   }
+  // `streamId` is optional — older daemons don't tag visemes, and we'd
+  // rather degrade to the pre-tagging behavior than reject the event.
+  const streamId =
+    typeof raw.streamId === "string" && raw.streamId.length > 0
+      ? raw.streamId
+      : undefined;
   return {
     phoneme: raw.phoneme,
     weight: raw.weight,
     timestamp: raw.timestamp,
+    ...(streamId !== undefined ? { streamId } : {}),
   };
 }

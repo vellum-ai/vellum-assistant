@@ -414,18 +414,46 @@ export class TalkingHeadRenderer implements AvatarRenderer {
 
   /**
    * Reset the internal playback clock back to the "no audio queued yet"
-   * state and drop any visemes still buffered from the prior utterance.
-   * The HTTP server calls this at the start of every new `/play_audio`
-   * stream, in lockstep with `AudioPlaybackHandle.resetPlaybackClock()`.
-   * Without this reset the clock would sit at the end-of-prior-utterance
-   * timestamp and subsequent visemes (daemon-stamped as ms-from-THAT-
-   * utterance-start, restarting at 0) would all satisfy the `timestamp
-   * <= currentPlaybackTimestamp` check and flush immediately on arrival.
+   * state and drop any buffered visemes that do NOT belong to the
+   * incoming utterance. The HTTP server calls this at the start of
+   * every new `/play_audio` stream, in lockstep with
+   * `AudioPlaybackHandle.resetPlaybackClock()`. Without this reset the
+   * clock would sit at the end-of-prior-utterance timestamp and
+   * subsequent visemes (daemon-stamped as ms-from-THAT-utterance-start,
+   * restarting at 0) would all satisfy the `timestamp <=
+   * currentPlaybackTimestamp` check and flush immediately on arrival.
+   *
+   * The daemon fires provider synthesis concurrently with the
+   * `/play_audio` POST, so some visemes for the incoming utterance can
+   * land on `/avatar/viseme` BEFORE the POST that triggers this reset.
+   * Those events are already tagged with the POST's `stream_id`, so we
+   * preserve any buffered viseme whose `streamId === incomingStreamId`
+   * and drop everything else — the original "clear the entire buffer"
+   * behavior threw those early-arriving events away and defeated the
+   * very buffering this method exists to protect.
    */
-  resetPlaybackTimestamp(): void {
+  resetPlaybackTimestamp(incomingStreamId?: string): void {
     if (this.stopped) return;
     this.currentPlaybackTimestamp = Number.NEGATIVE_INFINITY;
-    this.visemeBuffer.length = 0;
+    if (incomingStreamId === undefined) {
+      // Legacy / untagged path (older daemon or test callers): the
+      // original semantics were "clear everything". Preserve them so
+      // non-race-aware call sites keep working identically.
+      this.visemeBuffer.length = 0;
+      return;
+    }
+    // Filter in place so we don't reallocate; visemes already in
+    // arrival order stay that way. Same-streamId visemes belong to the
+    // incoming utterance (synthesis raced ahead of the POST) and must
+    // survive the reset; every other viseme is prior-utterance debris.
+    let writeIdx = 0;
+    for (let readIdx = 0; readIdx < this.visemeBuffer.length; readIdx++) {
+      const v = this.visemeBuffer[readIdx]!;
+      if (v.streamId === incomingStreamId) {
+        this.visemeBuffer[writeIdx++] = v;
+      }
+    }
+    this.visemeBuffer.length = writeIdx;
   }
 
   /**

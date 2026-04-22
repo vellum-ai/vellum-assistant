@@ -44,6 +44,20 @@ export type VisemeEvent = {
   weight: number;
   /** Monotonic timestamp (ms) used to align the viseme with the audio. */
   timestamp: number;
+  /**
+   * Optional — the `stream_id` of the `/play_audio` POST this viseme
+   * belongs to. The daemon stamps every viseme it emits with the same
+   * id it uses for the paired `/play_audio?stream_id=` call so the bot
+   * can distinguish prior-utterance leftovers from new-utterance events
+   * that raced ahead of their POST.
+   *
+   * Only consumed by `resetPlaybackTimestamp` — a new POST preserves
+   * same-streamId buffered visemes and drops everything else. A viseme
+   * with `streamId === undefined` predates this tagging (an older
+   * daemon) and is treated as "belongs to no current stream" — i.e.
+   * dropped on reset, matching the original clear-all behavior.
+   */
+  streamId?: string;
 };
 
 /**
@@ -139,11 +153,18 @@ export interface AvatarRenderer {
    * immediately on arrival — the exact bug `notifyPlaybackTimestamp`
    * exists to prevent.
    *
-   * Implementations should also drop any buffered viseme state that
-   * belonged to the prior utterance so it cannot leak into the fresh
-   * stream.
+   * Implementations should drop buffered visemes that belonged to the
+   * prior utterance so they cannot leak into the fresh stream, but
+   * must preserve visemes tagged with `incomingStreamId` — the daemon
+   * fires synthesis concurrently with the `/play_audio` POST, so some
+   * events from the incoming utterance can land BEFORE the POST that
+   * triggers this reset. `incomingStreamId` is the `stream_id` of the
+   * new POST; visemes whose `streamId` matches it belong to the
+   * incoming utterance and must be kept. Visemes with any other
+   * `streamId` (or no `streamId` at all — the pre-tagging case) are
+   * dropped.
    */
-  resetPlaybackTimestamp?(): void;
+  resetPlaybackTimestamp?(incomingStreamId?: string): void;
 }
 
 /**

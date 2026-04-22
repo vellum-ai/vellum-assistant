@@ -330,20 +330,37 @@ describe("TalkingHead renderer lip-sync alignment", () => {
     // Leave one viseme from utterance 1 still buffered in the future
     // (e.g. a late-declared viseme whose audio had not yet played).
     // It belongs to utterance 1 and must NOT leak into utterance 2.
-    renderer.pushViseme({ phoneme: "stale", weight: 0.1, timestamp: 900 });
+    renderer.pushViseme({
+      phoneme: "stale",
+      weight: 0.1,
+      timestamp: 900,
+      streamId: "u1",
+    });
     expect(nativeMessaging.pushVisemes()).toHaveLength(0);
 
-    // Simulate the HTTP server starting a fresh /play_audio POST: it
-    // rewinds the renderer's clock in lockstep with the handle's
-    // `resetPlaybackClock()`.
+    // Simulate the HTTP server starting a fresh /play_audio POST for
+    // utterance 2: it rewinds the renderer's clock in lockstep with
+    // the handle's `resetPlaybackClock()` and names the incoming
+    // stream so only prior-utterance events (streamId "u1") get
+    // dropped.
     expect(typeof renderer.resetPlaybackTimestamp).toBe("function");
-    renderer.resetPlaybackTimestamp!();
+    renderer.resetPlaybackTimestamp!("u2");
 
     // Utterance 2's visemes arrive with ts values restarting at 0.
     // They must be buffered — the clock was rewound past them — not
     // flushed immediately.
-    renderer.pushViseme({ phoneme: "a", weight: 0.2, timestamp: 100 });
-    renderer.pushViseme({ phoneme: "b", weight: 0.3, timestamp: 200 });
+    renderer.pushViseme({
+      phoneme: "a",
+      weight: 0.2,
+      timestamp: 100,
+      streamId: "u2",
+    });
+    renderer.pushViseme({
+      phoneme: "b",
+      weight: 0.3,
+      timestamp: 200,
+      streamId: "u2",
+    });
     expect(nativeMessaging.pushVisemes()).toHaveLength(0);
 
     // Advance the clock into utterance 2's range. `a` (t=100) should
@@ -362,6 +379,66 @@ describe("TalkingHead renderer lip-sync alignment", () => {
     renderer.notifyPlaybackTimestamp(10_000);
     pushed = nativeMessaging.pushVisemes();
     expect(pushed.map((v) => v.phoneme)).toEqual(["a", "b"]);
+  });
+
+  test("resetPlaybackTimestamp preserves same-streamId visemes that raced ahead of the /play_audio POST", async () => {
+    // The daemon fires provider synthesis concurrently with the
+    // `/play_audio` POST, so `/avatar/viseme` events for the incoming
+    // utterance can land BEFORE the POST that triggers the reset. An
+    // unconditional buffer clear would drop those events — defeating
+    // the buffering this reset exists to protect. The reset must only
+    // evict visemes whose `streamId` differs from the incoming POST's.
+    const nativeMessaging = new FakeNativeMessaging();
+    const renderer = await startRenderer(nativeMessaging);
+
+    // Utterance 1 had a late-arriving viseme still buffered (its audio
+    // hadn't played yet when the utterance ended).
+    renderer.pushViseme({
+      phoneme: "stale",
+      weight: 0.1,
+      timestamp: 900,
+      streamId: "u1",
+    });
+
+    // Synthesis for utterance 2 races ahead of its `/play_audio` POST
+    // and two of its visemes land first. They're tagged with "u2"
+    // because the daemon already knows the streamId it will use.
+    renderer.pushViseme({
+      phoneme: "early_a",
+      weight: 0.4,
+      timestamp: 40,
+      streamId: "u2",
+    });
+    renderer.pushViseme({
+      phoneme: "early_b",
+      weight: 0.5,
+      timestamp: 120,
+      streamId: "u2",
+    });
+    expect(nativeMessaging.pushVisemes()).toHaveLength(0);
+
+    // Now the POST for utterance 2 arrives and the HTTP server calls
+    // resetPlaybackTimestamp("u2"). The two "u2" visemes must SURVIVE
+    // the reset; the "u1" stale viseme must be dropped.
+    renderer.resetPlaybackTimestamp!("u2");
+
+    // Advance the clock — both preserved "u2" visemes should flush,
+    // and the "u1" stale viseme (t=900) must NEVER appear, even after
+    // the clock runs far past its timestamp.
+    renderer.notifyPlaybackTimestamp(40);
+    expect(nativeMessaging.pushVisemes().map((v) => v.phoneme)).toEqual([
+      "early_a",
+    ]);
+    renderer.notifyPlaybackTimestamp(120);
+    expect(nativeMessaging.pushVisemes().map((v) => v.phoneme)).toEqual([
+      "early_a",
+      "early_b",
+    ]);
+    renderer.notifyPlaybackTimestamp(10_000);
+    expect(nativeMessaging.pushVisemes().map((v) => v.phoneme)).toEqual([
+      "early_a",
+      "early_b",
+    ]);
   });
 
   test("visemes with identical timestamps are forwarded in arrival order", async () => {

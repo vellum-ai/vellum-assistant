@@ -117,6 +117,19 @@ export interface VisemeEvent {
   weight: number;
   /** Milliseconds from the start of the synthesized utterance. */
   timestamp: number;
+  /**
+   * Optional — `stream_id` of the paired `/play_audio` POST. The bot
+   * uses this to preserve visemes belonging to the incoming utterance
+   * when it resets its viseme buffer on a new POST: synthesis runs
+   * concurrently with the POST, so same-utterance visemes can arrive
+   * at `/avatar/viseme` BEFORE the POST that they belong to lands.
+   * Without this tag the bot would drop them as "prior utterance"
+   * debris. Always populated by {@link MeetTtsBridge} in production;
+   * kept optional so fakes / historical test fixtures that construct
+   * events directly aren't forced to synthesize a stream id they don't
+   * care about.
+   */
+  streamId?: string;
 }
 
 /**
@@ -476,6 +489,7 @@ export class MeetTtsBridge {
               phoneme: event.phoneme,
               weight: clamp01(event.weight),
               timestamp: event.timestamp,
+              streamId,
             });
           }
         : undefined;
@@ -526,7 +540,7 @@ export class MeetTtsBridge {
     // fetch body reader, truncating the audio that reaches the bot.
     let httpBodySource: NodeJS.ReadableStream = ffmpeg.stdout;
     if (useAmplitudeFallback) {
-      const tap = this.createAmplitudeTap(abort.signal);
+      const tap = this.createAmplitudeTap(abort.signal, streamId);
       ffmpeg.stdout.pipe(tap);
       httpBodySource = tap;
     }
@@ -685,7 +699,7 @@ export class MeetTtsBridge {
    * which keeps the calculation self-consistent and spares consumers a
    * ragged-edge weight.
    */
-  private createAmplitudeTap(signal: AbortSignal): Transform {
+  private createAmplitudeTap(signal: AbortSignal, streamId: string): Transform {
     let totalBytesConsumed = 0;
     let windowBuffer = Buffer.alloc(0);
 
@@ -714,7 +728,7 @@ export class MeetTtsBridge {
         const rms = Math.sqrt(sumOfSquares / AMPLITUDE_SAMPLES_PER_WINDOW);
         const weight = clamp01(rms / AMPLITUDE_MAX_SAMPLE);
 
-        this.emitVisemeEvent({ phoneme: "amp", weight, timestamp });
+        this.emitVisemeEvent({ phoneme: "amp", weight, timestamp, streamId });
       }
     };
 
