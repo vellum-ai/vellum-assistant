@@ -100,7 +100,7 @@ function makeDeps(
   overrides: Partial<PlaygroundRouteDeps> = {},
 ): PlaygroundRouteDeps {
   return {
-    getConversationById: () => undefined,
+    getConversationById: async () => undefined,
     isPlaygroundEnabled: () => true,
     listConversationsByTitlePrefix: () => [],
     deleteConversationById: () => false,
@@ -168,7 +168,7 @@ describe("reset-circuit route — gating", () => {
   test("returns 404 with playground_disabled code when the playground flag is disabled", async () => {
     const deps = makeDeps({
       isPlaygroundEnabled: () => false,
-      getConversationById: () => fake.conversation,
+      getConversationById: async () => fake.conversation,
     });
     const handler = getHandler(deps);
 
@@ -189,7 +189,7 @@ describe("reset-circuit route — gating", () => {
 
   test("returns 404 with conversation_not_found code when the conversation is missing", async () => {
     const deps = makeDeps({
-      getConversationById: () => undefined,
+      getConversationById: async () => undefined,
     });
     const handler = getHandler(deps);
 
@@ -214,7 +214,7 @@ describe("reset-circuit route — behavior", () => {
       compactionCircuitOpenUntil: future,
     });
     const deps = makeDeps({
-      getConversationById: () => fake.conversation,
+      getConversationById: async () => fake.conversation,
     });
     const handler = getHandler(deps);
 
@@ -249,7 +249,7 @@ describe("reset-circuit route — behavior", () => {
       compactionCircuitOpenUntil: null,
     });
     const deps = makeDeps({
-      getConversationById: () => fake.conversation,
+      getConversationById: async () => fake.conversation,
     });
     const handler = getHandler(deps);
 

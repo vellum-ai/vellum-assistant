@@ -52,7 +52,7 @@ export function injectFailuresRouteDefinitions(
         const gate = assertPlaygroundEnabled(deps);
         if (gate) return gate;
 
-        const conversation = deps.getConversationById(params.id);
+        const conversation = await deps.getConversationById(params.id);
         if (!conversation) {
           return conversationNotFoundResponse(params.id);
         }

@@ -28,7 +28,9 @@ function makeDeps(overrides?: { enabled?: boolean }): Spy {
   let nextMessageId = 0;
 
   const deps: PlaygroundRouteDeps = {
-    getConversationById: (_id: string): Conversation | undefined => undefined,
+    getConversationById: async (
+      _id: string,
+    ): Promise<Conversation | undefined> => undefined,
     isPlaygroundEnabled: () => overrides?.enabled ?? true,
     listConversationsByTitlePrefix: () => [],
     deleteConversationById: () => false,

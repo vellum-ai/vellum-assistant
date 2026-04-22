@@ -30,7 +30,7 @@ function makeDeps(
   overrides: Partial<PlaygroundRouteDeps> = {},
 ): PlaygroundRouteDeps {
   return {
-    getConversationById: () => undefined,
+    getConversationById: async () => undefined,
     isPlaygroundEnabled: () => true,
     listConversationsByTitlePrefix: () => [],
     deleteConversationById: () => false,
@@ -110,7 +110,7 @@ describe("GET conversations/:id/playground/compaction-state", () => {
 
   test("returns 404 with conversation_not_found code when the conversation does not exist", async () => {
     const deps = makeDeps({
-      getConversationById: () => undefined,
+      getConversationById: async () => undefined,
     });
     const res = await invokeRoute(deps, "missing-id");
     expect(res.status).toBe(404);
@@ -124,7 +124,7 @@ describe("GET conversations/:id/playground/compaction-state", () => {
   test("fresh conversation with no messages returns a baseline payload", async () => {
     const conversation = makeFakeConversation();
     const deps = makeDeps({
-      getConversationById: () => conversation,
+      getConversationById: async () => conversation,
     });
     const res = await invokeRoute(deps);
     expect(res.status).toBe(200);
@@ -151,7 +151,7 @@ describe("GET conversations/:id/playground/compaction-state", () => {
       consecutiveCompactionFailures: 3,
     });
     const deps = makeDeps({
-      getConversationById: () => conversation,
+      getConversationById: async () => conversation,
     });
     const res = await invokeRoute(deps);
     expect(res.status).toBe(200);
@@ -169,7 +169,7 @@ describe("GET conversations/:id/playground/compaction-state", () => {
       compactionCircuitOpenUntil: past,
     });
     const deps = makeDeps({
-      getConversationById: () => conversation,
+      getConversationById: async () => conversation,
     });
     const res = await invokeRoute(deps);
     const body = (await res.json()) as ReturnType<
@@ -188,7 +188,7 @@ describe("GET conversations/:id/playground/compaction-state", () => {
       compactionCircuitOpenUntil: null,
     });
     const deps = makeDeps({
-      getConversationById: () => conversation,
+      getConversationById: async () => conversation,
     });
     const res = await invokeRoute(deps);
     const body = (await res.json()) as Record<string, unknown>;
