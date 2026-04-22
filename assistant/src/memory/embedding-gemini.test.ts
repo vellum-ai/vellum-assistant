@@ -35,7 +35,7 @@ describe("GeminiEmbeddingBackend", () => {
       expect(url).toContain("key=test-key");
 
       const body = JSON.parse(init.body as string);
-      expect(body.model).toBe("models/test-model");
+      expect(body.model).toBeUndefined();
       expect(body.content).toEqual({ parts: [{ text: "hello world" }] });
     });
 
@@ -276,6 +276,9 @@ describe("GeminiEmbeddingBackend", () => {
       // Should have Bearer auth header
       const headers = init.headers as Record<string, string>;
       expect(headers["Authorization"]).toBe("Bearer ast-managed-key");
+      // Managed path includes model in body for platform billing validation
+      const body = JSON.parse(init.body as string);
+      expect(body.model).toBe("models/gemini-embedding-2-preview");
     });
 
     test("uses direct Google API URL when managedBaseUrl is not set", async () => {
