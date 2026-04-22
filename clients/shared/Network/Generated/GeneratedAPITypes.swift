@@ -4825,8 +4825,14 @@ public struct ToolResult: Codable, Sendable {
     public let imageDataList: [String]?
     /// The tool_use block ID for client-side correlation.
     public let toolUseId: String?
+    /// Risk level from the classifier ("low", "medium", "high", "unknown").
+    public let riskLevel: String?
+    /// Human-readable reason for the risk classification.
+    public let riskReason: String?
+    /// Scope options ladder for the rule editor modal (narrowest to broadest).
+    public let riskScopeOptions: [ToolResultRiskScopeOption]?
 
-    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, conversationId: String? = nil, imageDataList: [String]? = nil, toolUseId: String? = nil) {
+    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, conversationId: String? = nil, imageDataList: [String]? = nil, toolUseId: String? = nil, riskLevel: String? = nil, riskReason: String? = nil, riskScopeOptions: [ToolResultRiskScopeOption]? = nil) {
         self.type = type
         self.toolName = toolName
         self.result = result
@@ -4836,6 +4842,9 @@ public struct ToolResult: Codable, Sendable {
         self.conversationId = conversationId
         self.imageDataList = imageDataList
         self.toolUseId = toolUseId
+        self.riskLevel = riskLevel
+        self.riskReason = riskReason
+        self.riskScopeOptions = riskScopeOptions
     }
 }
 
@@ -4850,6 +4859,15 @@ public struct ToolResultDiff: Codable, Sendable {
         self.oldContent = oldContent
         self.newContent = newContent
         self.isNewFile = isNewFile
+    }
+}
+
+public struct ToolResultRiskScopeOption: Codable, Sendable, Equatable {
+    public let pattern: String
+    public let label: String
+    public init(pattern: String, label: String) {
+        self.pattern = pattern
+        self.label = label
     }
 }
 

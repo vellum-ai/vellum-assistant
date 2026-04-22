@@ -834,6 +834,12 @@ public struct ToolCallData: Identifiable, Equatable {
     public var buildingStatus: String?
     /// Non-technical reason for the tool call, extracted from the `reason` field of tool input.
     public var reasonDescription: String?
+    /// Risk level classification from the permission checker ("low", "medium", "high", "unknown").
+    public var riskLevel: String?
+    /// Human-readable reason for the risk classification.
+    public var riskReason: String?
+    /// Scope options ladder for the rule editor (pattern + label pairs, narrowest to broadest).
+    public var riskScopeOptions: [ToolResultRiskScopeOption]?
     /// Accumulated streaming output from tool_output_chunk events (plain text only).
     /// Capped at 5000 characters (keeps the tail when exceeded).
     public var partialOutput: String = ""
@@ -876,6 +882,7 @@ public struct ToolCallData: Identifiable, Equatable {
             && lhs.confirmationDecision == rhs.confirmationDecision
             && lhs.confirmationLabel == rhs.confirmationLabel
             && lhs.pendingConfirmation == rhs.pendingConfirmation
+            && lhs.riskLevel == rhs.riskLevel
     }
 
     public init(id: UUID = UUID(), toolName: String, inputSummary: String, inputFull: String? = nil, inputRawValue: String? = nil, result: String? = nil, isError: Bool = false, isComplete: Bool = false, arrivedBeforeText: Bool = true, imageDataList: [String]? = nil, startedAt: Date? = nil, completedAt: Date? = nil) {
