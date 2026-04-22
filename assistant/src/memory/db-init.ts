@@ -116,6 +116,7 @@ import {
   migrateOAuthProvidersFeatureFlag,
   migrateOAuthProvidersLogoUrl,
   migrateOAuthProvidersManagedServiceConfigKey,
+  migrateOAuthProvidersManagedServiceIsPaid,
   migrateOAuthProvidersPingConfig,
   migrateOAuthProvidersPingUrl,
   migrateOAuthProvidersRefreshUrl,
@@ -376,6 +377,7 @@ export function initializeDb(): void {
     migrateNormalizeUserFileByPrincipal,
     migrateConversationsArchivedAt,
     migrateStripPlaceholderSentinelsFromMessages,
+    migrateOAuthProvidersManagedServiceIsPaid,
   ];
 
   // Run each migration step, catching and logging individual failures so one
