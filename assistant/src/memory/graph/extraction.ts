@@ -1066,10 +1066,18 @@ export async function runGraphExtraction(
   );
 
   // 7. Handle supersession (inherit durability before applying diff)
+  // TODO: full supersession is not yet implemented. When it lands, iterate
+  // BOTH `diff.createEdges` (existing → existing) AND `deferredEdges`
+  // (new → existing, the typical supersession case).
+  // Tracked by https://github.com/vellum-ai/vellum-assistant/pull/27057 (Devin).
   for (const edge of diff.createEdges) {
     if (edge.relationship === "supersedes") {
-      // Supersession is handled differently — see supersedeNode in store
-      // For now, just mark it; full supersession is applied after node creation
+      // Placeholder — see TODO above.
+    }
+  }
+  for (const de of deferredEdges) {
+    if (de.relationship === "supersedes") {
+      // Placeholder — see TODO above.
     }
   }
 
