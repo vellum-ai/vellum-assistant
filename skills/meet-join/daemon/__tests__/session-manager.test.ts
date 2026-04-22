@@ -55,6 +55,16 @@ interface MockRunner {
   remove: ReturnType<typeof mock>;
   inspect: ReturnType<typeof mock>;
   logs: ReturnType<typeof mock>;
+  wait: ReturnType<typeof mock>;
+  /**
+   * Test helper: synchronously resolve the pending `wait(containerId)`
+   * promise with the given exit code. Used to simulate an unexpected bot
+   * container exit (e.g. external `docker kill`) so the session-manager's
+   * container-exit watcher fires. No-op when `containerId` has no
+   * pending-exit hook (wait either was never called or was already
+   * resolved for this containerId).
+   */
+  fireContainerExit(containerId: string, exitCode: number): void;
 }
 
 function makeMockRunner(
@@ -83,16 +93,49 @@ function makeMockRunner(
     ],
   };
 
-  return {
+  // Pending `wait()` resolvers keyed by containerId. `fireContainerExit`
+  // looks up the matching resolver so tests can drive the watcher
+  // deterministically. The default `remove()` mock also resolves any
+  // outstanding wait with StatusCode 0 so tests that exercise the
+  // graceful `leave()` path don't leave a dangling pending promise across
+  // test boundaries. That parallels the real `DockerRunner.wait`'s 404
+  // branch — when the engine reports "container gone" the resolver
+  // returns `{ StatusCode: 0 }`.
+  const pendingWaits = new Map<
+    string,
+    (result: { StatusCode: number }) => void
+  >();
+
+  const runner: MockRunner = {
     run: mock(async () => {
       if (overrides.runError) throw overrides.runError;
       return runResult;
     }),
     stop: mock(async () => {}),
-    remove: mock(async () => {}),
+    remove: mock(async (containerId: string) => {
+      const resolver = pendingWaits.get(containerId);
+      if (resolver) {
+        pendingWaits.delete(containerId);
+        resolver({ StatusCode: 0 });
+      }
+    }),
     inspect: mock(async () => ({ Id: runResult.containerId })),
     logs: mock(async () => ""),
+    wait: mock(
+      (containerId: string) =>
+        new Promise<{ StatusCode: number }>((resolve) => {
+          pendingWaits.set(containerId, resolve);
+        }),
+    ),
+    fireContainerExit: (containerId: string, exitCode: number) => {
+      const resolver = pendingWaits.get(containerId);
+      if (!resolver) return;
+      pendingWaits.delete(containerId);
+      resolver({ StatusCode: exitCode });
+    },
   };
+
+  return runner;
 }
 
 /**
@@ -641,6 +684,151 @@ describe("MeetSessionManager max-minutes timeout", () => {
     } finally {
       globalThis.setTimeout = realSetTimeout;
       globalThis.clearTimeout = realClearTimeout;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Container-exit watcher
+// ---------------------------------------------------------------------------
+
+describe("MeetSessionManager container-exit watcher", () => {
+  function captureHub() {
+    const received: AssistantEvent[] = [];
+    const sub = assistantEventHub.subscribe(
+      { assistantId: DAEMON_INTERNAL_ASSISTANT_ID },
+      (event) => {
+        received.push(event);
+      },
+    );
+    return { received, dispose: () => sub.dispose() };
+  }
+
+  test("synthesizes meet.error and tears the session down when the bot container exits unexpectedly", async () => {
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+    const botLeaveFetch = mock(async () => {});
+    const { received, dispose } = captureHub();
+
+    try {
+      const manager = _createMeetSessionManagerForTests({
+        dockerRunnerFactory: () => runner,
+        getProviderKey: async () => "k",
+        getWorkspaceDir: () => workspaceDir,
+        botLeaveFetch,
+        audioIngestFactory: audioIngestFactory.factory,
+      });
+
+      await manager.join({
+        url: "u",
+        meetingId: "m-exit",
+        conversationId: "c",
+      });
+
+      // Sanity: watcher installed exactly one `wait(containerId)` call for
+      // this meeting's container.
+      expect(runner.wait).toHaveBeenCalledTimes(1);
+      expect(runner.wait.mock.calls[0][0]).toBe("container-123");
+
+      // Pretend some external process (stray daemon reaper, user
+      // `docker kill`, OOM reaper, etc.) terminated the bot container
+      // with exit code 137 (SIGKILL). The `leaveInitiatedByDaemon` flag
+      // is still false because `leave()` was never called, so the watcher
+      // must fire the full unexpected-exit teardown.
+      runner.fireContainerExit("container-123", 137);
+
+      // Let the async teardown settle — the watcher's `.then` handler is
+      // scheduled on the microtask queue, and `handleContainerExit`
+      // itself performs several awaits (cancelAll, storageWriter.stop,
+      // audioIngest.stop, runner.remove).
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
+
+      // Session is gone from the authoritative map and from the router.
+      expect(manager.activeSessions()).toHaveLength(0);
+      expect(manager.getSession("m-exit")).toBeNull();
+      expect(getMeetSessionEventRouter().registeredCount()).toBe(0);
+
+      // meet.error published with an exitCode-bearing detail so the
+      // client can render a useful error state.
+      const errors = received.filter((e) => e.message.type === "meet.error");
+      expect(errors.length).toBeGreaterThanOrEqual(1);
+      const detail = (errors[errors.length - 1]!.message as { detail: string })
+        .detail;
+      expect(detail).toContain("bot container exited unexpectedly");
+      expect(detail).toContain("137");
+
+      // The container is already dead — we skip `runner.stop` (would just
+      // 304 or error against a terminated container) but still call
+      // `runner.remove` best-effort so the exited container doesn't
+      // linger in `docker ps -a`.
+      expect(runner.stop).toHaveBeenCalledTimes(0);
+      expect(runner.remove).toHaveBeenCalledTimes(1);
+      // The bot is already dead — skipping the bot HTTP `/leave` avoids
+      // burning 10s on an `ECONNREFUSED` timeout before teardown can
+      // start.
+      expect(botLeaveFetch).toHaveBeenCalledTimes(0);
+
+      // Audio ingest was stopped symmetrically with `leave()` so the
+      // loopback TCP port and streaming STT session don't leak.
+      const ingest = audioIngestFactory.getLastIngest();
+      expect(ingest).not.toBeNull();
+      expect(ingest!.stop).toHaveBeenCalledTimes(1);
+    } finally {
+      dispose();
+    }
+  });
+
+  test("daemon-initiated leave() suppresses the watcher (no duplicate meet.error)", async () => {
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+    const { received, dispose } = captureHub();
+
+    try {
+      const manager = _createMeetSessionManagerForTests({
+        dockerRunnerFactory: () => runner,
+        getProviderKey: async () => "k",
+        getWorkspaceDir: () => workspaceDir,
+        botLeaveFetch: async () => {},
+        audioIngestFactory: audioIngestFactory.factory,
+      });
+
+      await manager.join({
+        url: "u",
+        meetingId: "m-leave-guard",
+        conversationId: "c",
+      });
+
+      // Baseline: no meet.error events yet from join().
+      expect(
+        received.filter((e) => e.message.type === "meet.error"),
+      ).toHaveLength(0);
+
+      // Graceful leave — this path calls `runner.remove` on the
+      // container, which in the mock runner resolves any pending
+      // `wait()` promise with StatusCode 0 (mirroring the real
+      // `DockerRunner.wait`'s 404 branch when the container is gone).
+      // The watcher's `.then` handler then fires, but it must take the
+      // no-op branch because `leave()` set `leaveInitiatedByDaemon`
+      // at the top before any awaits.
+      await manager.leave("m-leave-guard", "user-requested");
+
+      // Give the watcher's microtask chain a chance to run.
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
+
+      // The guard worked: no `meet.error` was published. Only `meet.left`
+      // (from the leave path) should have fired.
+      const errors = received.filter((e) => e.message.type === "meet.error");
+      expect(errors).toHaveLength(0);
+      const leftEvents = received.filter(
+        (e) => e.message.type === "meet.left",
+      );
+      expect(leftEvents).toHaveLength(1);
+    } finally {
+      dispose();
     }
   });
 });
