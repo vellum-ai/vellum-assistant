@@ -45,10 +45,6 @@ export class SecretDetectionHandler {
       context: ToolContext,
       event: ToolLifecycleEvent,
     ) => void,
-    sanitizeToolInput: (
-      toolName: string,
-      input: Record<string, unknown>,
-    ) => Record<string, unknown>,
   ): Promise<{ result: ToolExecutionResult; earlyReturn: boolean }> {
     const sdConfig = getConfig().secretDetection;
     if (!sdConfig.enabled || execResult.isError) {
@@ -107,7 +103,6 @@ export class SecretDetectionHandler {
         decision,
         startTime,
         emitLifecycleEvent,
-        sanitizeToolInput,
       );
     }
 
@@ -123,7 +118,6 @@ export class SecretDetectionHandler {
         decision,
         startTime,
         emitLifecycleEvent,
-        sanitizeToolInput,
       );
     }
 
@@ -209,10 +203,6 @@ export class SecretDetectionHandler {
       context: ToolContext,
       event: ToolLifecycleEvent,
     ) => void,
-    _sanitizeToolInput: (
-      toolName: string,
-      input: Record<string, unknown>,
-    ) => Record<string, unknown>,
   ): { result: ToolExecutionResult; earlyReturn: boolean } {
     const types = [...new Set(allMatches.map((m) => m.type))].join(", ");
     const blockedContent = `Tool output blocked: detected ${allMatches.length} potential secret(s) (${types}). Configure secretDetection.action to "redact" or "prompt" to allow output.`;
@@ -253,10 +243,6 @@ export class SecretDetectionHandler {
       context: ToolContext,
       event: ToolLifecycleEvent,
     ) => void,
-    _sanitizeToolInput: (
-      toolName: string,
-      input: Record<string, unknown>,
-    ) => Record<string, unknown>,
   ): Promise<{ result: ToolExecutionResult; earlyReturn: boolean }> {
     const types = [...new Set(allMatches.map((m) => m.type))].join(", ");
 

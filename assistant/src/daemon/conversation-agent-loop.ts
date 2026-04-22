@@ -596,7 +596,6 @@ export async function runAgentLoopImpl(
   userMessageId: string,
   onEvent: (msg: ServerMessage) => void,
   options?: {
-    skipPreMessageRollback?: boolean;
     isInteractive?: boolean;
     isUserMessage?: boolean;
     titleText?: string;

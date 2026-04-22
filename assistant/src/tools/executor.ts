@@ -168,7 +168,6 @@ export class ToolExecutor {
           context,
           executionTarget,
           (event) => emitLifecycleEvent(context, event),
-          sanitizeToolInput,
           startTime,
           computePreviewDiff,
         );
@@ -363,7 +362,6 @@ export class ToolExecutor {
         decision,
         startTime,
         emitLifecycleEvent,
-        sanitizeToolInput,
       );
       if (secretResult.earlyReturn) {
         return secretResult.result;
