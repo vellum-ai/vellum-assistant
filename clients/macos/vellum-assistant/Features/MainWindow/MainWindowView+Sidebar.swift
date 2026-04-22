@@ -20,13 +20,23 @@ extension MainWindowView {
         } else {
             windowState.selection = .conversation(conversation.id)
         }
-        conversationManager.selectConversation(id: conversation.id)
 
         // Auto-expand the section containing the selected conversation
         // so it's always visible in the sidebar.
         if let groupId = conversation.groupId,
            !sidebar.expandedSections.contains(groupId) {
             sidebar.expandedSections.insert(groupId)
+        }
+
+        // Yield to the run loop before the heavy VM work so SwiftUI commits
+        // the sidebar highlight change above on the current frame. A
+        // cache-miss path through `ConversationManager.selectConversation`
+        // synchronously builds a new `ChatViewModel` and wires three
+        // Combine observers — without the yield, the main thread is busy
+        // for that entire window and the click appears to do nothing until
+        // the conversation has fully loaded.
+        Task { @MainActor in
+            conversationManager.selectConversation(id: conversation.id)
         }
     }
 
