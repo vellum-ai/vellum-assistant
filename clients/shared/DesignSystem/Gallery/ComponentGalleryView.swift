@@ -67,6 +67,10 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("progressIndicators", "TypingIndicatorView", keywords: ["progress indicators", "typing", "running"], description: "Animated dots indicating the assistant is typing or processing."),
                 GalleryComponent("toolConfirmations", "ToolConfirmationBubble", keywords: ["tool confirmations", "permission", "approval"], description: "Approval bubble for tool calls that require user permission before execution."),
                 GalleryComponent("surfaceActions", "Surface Action Buttons", keywords: ["surface actions", "action pills", "inline buttons", "pick something"], description: "Inline action pills in assistant bubbles letting users pick from options. Supports secondary, primary, and destructive styles."),
+                GalleryComponent("chatConversationErrorToast", "ChatConversationErrorToast", keywords: ["error toast", "above composer", "conversation error", "retry"], description: "Unified error toast rendered above the chat composer. Solid-accent background with white text; category-driven icon, color, and retry label for typed ConversationError, plus an unstructured init for custom icon/color/action."),
+                GalleryComponent("creditsExhaustedBanner", "CreditsExhaustedBanner", keywords: ["credits exhausted", "balance", "add funds", "above composer"], description: "Surface-colored above-composer panel shown when the user's balance runs out. Title + subtitle + primary \"Add Funds\" CTA."),
+                GalleryComponent("compactionCircuitOpenBanner", "CompactionCircuitOpenBanner", keywords: ["compaction", "circuit open", "auto-compaction paused", "cooldown"], description: "Solid-accent warning banner shown when auto-compaction is paused after repeated summary failures. No buttons — auto-dismisses on a 1-minute ticker once openUntil elapses."),
+                GalleryComponent("missingApiKeyBanner", "MissingApiKeyBanner", keywords: ["missing api key", "api key", "open settings", "above composer"], description: "Surface-colored above-composer panel with a top-right dismiss, title, subtitle, and a full-width \"Open Settings\" CTA."),
             ]
         case .display:
             return [
@@ -424,7 +428,16 @@ struct ComponentGalleryView: View {
 
         switch category {
         case .buttons: ButtonsGallerySection()
-        case .chat: ChatGallerySection()
+        case .chat:
+            // Render the shared chat sections first, then append any
+            // platform-specific sections registered for the "chat" category
+            // (mirrors the .home extensibility pattern). Platform-local
+            // sections filter themselves so they no-op for filters the
+            // shared section handles.
+            ChatGallerySection()
+            if let factory = ComponentGalleryView.externalOverviewFactories["chat"] {
+                factory()
+            }
         case .display: DisplayGallerySection()
         case .feedback: FeedbackGallerySection()
         case .home:
@@ -444,7 +457,14 @@ struct ComponentGalleryView: View {
     private func componentContent(for category: ComponentGalleryCategory, componentID: String) -> some View {
         switch category {
         case .buttons: ButtonsGallerySection.componentPage(componentID)
-        case .chat: ChatGallerySection.componentPage(componentID)
+        case .chat:
+            // Render both the shared and external component pages — each
+            // emits EmptyView for IDs it doesn't own, so at most one
+            // produces visible content. See `.chat` overview case above.
+            ChatGallerySection.componentPage(componentID)
+            if let factory = ComponentGalleryView.externalComponentPageFactories["chat"] {
+                factory(componentID)
+            }
         case .display: DisplayGallerySection.componentPage(componentID)
         case .feedback: FeedbackGallerySection.componentPage(componentID)
         case .home:

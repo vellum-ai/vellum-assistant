@@ -1082,6 +1082,7 @@ extension AppDelegate {
     @objc func showComponentGallery() {
         AvatarGallerySection.registerInGallery()
         HomeGallerySection.registerInGallery()
+        ChatErrorSurfacesGallerySection.registerInGallery()
         if galleryWindow == nil { galleryWindow = ComponentGalleryWindow() }
         galleryWindow?.show()
     }
