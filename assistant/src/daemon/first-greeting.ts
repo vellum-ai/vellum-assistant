@@ -175,13 +175,13 @@ function buildSpecificGuess(tasks: string[], tools: string[]): string {
   const relevant = pickRelevantTools(guess.preferredTools, tools);
 
   if (relevant.length === 2) {
-    return `Your ${relevant[0]} and ${relevant[1]} say you're probably ${guess.text} — am I on the right track, or something else on your mind?`;
+    return `You mentioned using ${relevant[0]} and ${relevant[1]} — probably ${guess.text}? Am I on the right track, or something else on your mind?`;
   }
   if (relevant.length === 1) {
-    return `Your ${relevant[0]} says you're probably ${guess.text} — am I on the right track, or something else on your mind?`;
+    return `You mentioned using ${relevant[0]} — probably ${guess.text}? Am I on the right track, or something else on your mind?`;
   }
 
-  return `Probably ${guess.text} — am I on the right track, or something else on your mind?`;
+  return `Probably ${guess.text}? Am I on the right track, or something else on your mind?`;
 }
 
 function buildPersonalizedGreeting(ctx: OnboardingGreetingContext): string {
