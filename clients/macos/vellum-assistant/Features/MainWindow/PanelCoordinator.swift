@@ -161,11 +161,11 @@ extension MainWindowView {
         // first scroll viewport. ``HomePageView`` paints its own full
         // background internally, so no outer chrome is needed here.
         //
-        // Split layout: when a scheduled (`.thread`) feed item is tapped
-        // we stash its id in ``selectedScheduledItemId`` and flip the
-        // two-pane layout on. The trailing pane renders
-        // ``HomeScheduledDetailPanel`` with placeholder metadata — real
-        // schedule fields are a daemon follow-up.
+        // Split layout: when a feed item resolves to a detail panel via
+        // ``HomeDetailPanelKind.resolve(for:)``, we stash the resolved
+        // kind in ``activeHomeDetailPanel`` and flip the two-pane layout
+        // on. The trailing pane renders the appropriate detail panel —
+        // real schedule/nudge fields are a daemon follow-up.
         HomePageView(
             store: homeStore,
             feedStore: feedStore,
@@ -183,15 +183,12 @@ extension MainWindowView {
                     windowState.showToast(message: "Couldn't open the conversation.", style: .error)
                     return
                 }
-                // Codex P2 (#27467) + Devin (#27475): clear BOTH detail-
-                // panel selections before navigating away so re-entering
-                // Home doesn't show a stale split layout. Belt-and-
-                // suspenders with .onDisappear below in case the Home
-                // view stays mounted across this navigation path. Both
-                // ids are cleared (not just scheduled) for consistency
-                // with the other navigation exit paths.
-                selectedScheduledItemId = nil
-                selectedNudgeItemId = nil
+                // Codex P2 (#27467) + Devin (#27475): clear the detail
+                // panel before navigating away so re-entering Home
+                // doesn't show a stale split layout. Belt-and-suspenders
+                // with .onDisappear below in case the Home view stays
+                // mounted across this navigation path.
+                activeHomeDetailPanel = nil
                 onDismiss()
                 windowState.selection = .conversation(uuid)
             },
@@ -203,11 +200,9 @@ extension MainWindowView {
                 // ``windowState.selection`` internally, and ``onDismiss``
                 // clears it, so running them in this order keeps the
                 // freshly-created conversation as the final selection.
-                // Clear detail-panel selections inline for consistency
-                // with the other Home exit paths (Devin feedback on
-                // PR #27475).
-                selectedScheduledItemId = nil
-                selectedNudgeItemId = nil
+                // Clear detail panel inline for consistency with the
+                // other Home exit paths (Devin feedback on PR #27475).
+                activeHomeDetailPanel = nil
                 onDismiss()
                 startNewConversation()
             },
@@ -221,30 +216,23 @@ extension MainWindowView {
                 // the short pill label — the label is ~3 words, the
                 // prompt is the actual seed message the daemon authored).
                 // `forceNew: true` is critical — we always want the Home
-                // suggestion bar to create a fresh thread. Clear detail-
-                // panel selections inline for consistency with the other
-                // Home exit paths (Devin feedback on PR #27475).
-                selectedScheduledItemId = nil
-                selectedNudgeItemId = nil
+                // suggestion bar to create a fresh thread. Clear detail
+                // panel inline for consistency with the other Home exit
+                // paths (Devin feedback on PR #27475).
+                activeHomeDetailPanel = nil
                 conversationManager.openConversation(message: suggestion.prompt, forceNew: true)
                 onDismiss()
                 if let id = conversationManager.activeConversationId {
                     windowState.selection = .conversation(id)
                 }
             },
-            onScheduledItemSelected: { item in
-                // Opening one detail panel closes the other — at most
-                // one panel at a time.
-                selectedNudgeItemId = nil
-                selectedScheduledItemId = item.id
+            onDetailPanelSelected: { item in
+                activeHomeDetailPanel = HomeDetailPanelKind.resolve(for: item)
             },
-            onNudgeSelected: { item in
-                selectedScheduledItemId = nil
-                selectedNudgeItemId = item.id
-            },
-            isDetailPanelVisible: selectedScheduledItemId != nil || selectedNudgeItemId != nil,
+            isDetailPanelVisible: activeHomeDetailPanel != nil,
             detailPanel: {
-                if let selectedId = selectedScheduledItemId {
+                switch activeHomeDetailPanel {
+                case .scheduled(let item):
                     let details = HomeScheduledDetails.placeholder
                     // Surface the tapped item's title so distinct scheduled
                     // rows render distinct panel headers while the rest of
@@ -254,23 +242,21 @@ extension MainWindowView {
                     // metadata when the daemon surfaces scheduled-item
                     // fields on FeedItem (see .private/plans/home-feed-groups.md
                     // follow-up).
-                    let selectedItem = feedStore.items.first(where: { $0.id == selectedId })
                     HomeScheduledDetailPanel(
-                        title: selectedItem?.title ?? "Scheduled Thing",
+                        title: item.title,
                         description: details.description,
                         rows: details.displayRows().map { row in
                             HomeScheduledDetailPanel.DetailRow(key: row.key, value: row.value)
                         },
                         primaryActionLabel: "Action",
                         secondaryActionLabel: "Action",
-                        onClose: { selectedScheduledItemId = nil },
-                        onPrimaryAction: { selectedScheduledItemId = nil },
-                        onSecondaryAction: { selectedScheduledItemId = nil }
+                        onClose: { activeHomeDetailPanel = nil },
+                        onPrimaryAction: { activeHomeDetailPanel = nil },
+                        onSecondaryAction: { activeHomeDetailPanel = nil }
                     )
-                } else if let selectedId = selectedNudgeItemId {
-                    let selectedItem = feedStore.items.first(where: { $0.id == selectedId })
+                case .nudge(let item):
                     HomeNudgeDetailPanel(
-                        title: selectedItem?.title ?? "Heartbeat",
+                        title: item.title,
                         icon: .heart,
                         iconForeground: VColor.feedNudgeStrong,
                         iconBackground: VColor.feedNudgeWeak,
@@ -278,11 +264,13 @@ extension MainWindowView {
                         cards: HomeNudgeDetailPanelPlaceholders.sampleCards,
                         primaryActionLabel: "Resolve All",
                         secondaryActionLabel: "Clear All",
-                        onClose: { selectedNudgeItemId = nil },
-                        onPrimaryAction: { selectedNudgeItemId = nil },
-                        onSecondaryAction: { selectedNudgeItemId = nil },
+                        onClose: { activeHomeDetailPanel = nil },
+                        onPrimaryAction: { activeHomeDetailPanel = nil },
+                        onSecondaryAction: { activeHomeDetailPanel = nil },
                         onCardAction: { _, _ in }
                     )
+                case nil:
+                    EmptyView()
                 }
             }
         )
@@ -292,12 +280,11 @@ extension MainWindowView {
         }
         .onDisappear {
             homeStore.isHomeTabVisible = false
-            // Codex P2 feedback (#27467): clear detail-panel selections so
+            // Codex P2 feedback (#27467): clear the detail panel so
             // re-entering Home doesn't show a stale split layout when the
             // user leaves Home through routes other than the detail panel's
             // own close/action buttons (sidebar switch, conversation open, etc.).
-            selectedScheduledItemId = nil
-            selectedNudgeItemId = nil
+            activeHomeDetailPanel = nil
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
