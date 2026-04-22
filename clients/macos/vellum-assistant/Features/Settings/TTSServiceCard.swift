@@ -106,7 +106,7 @@ struct TTSServiceCard: View {
                     VButton(
                         label: testPlayer.isLoading ? "Testing\u{2026}" : "Test",
                         style: .outlined,
-                        isDisabled: false
+                        isDisabled: testPlayer.isLoading
                     ) {
                         Task { await testPlayer.playTest(text: ttsTestPhrase) }
                     }
