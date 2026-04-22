@@ -349,15 +349,26 @@ export function buildCandidateList(context: ToolContext): BackendCandidate[] {
     cdpInspectConfig.desktopAuto.enabled
   ) {
     // macOS desktop-auto: include cdp-inspect as a candidate unless:
-    // (a) the hostBrowserProxy exists but is temporarily unavailable
-    //     (extension transport expected but transiently disconnected --
-    //     inserting cdp-inspect here would cause a silent takeover), or
+    // (a) the hostBrowserProxy is registry-routed (extension-backed) and
+    //     temporarily unavailable — the extension transport was explicitly
+    //     expected and the disconnection is transient, so inserting
+    //     cdp-inspect would cause a silent takeover. Only applies when
+    //     `hostBrowserRegistryRouted` is true (set when
+    //     `hostBrowserSenderOverride` was wired at turn-start).
+    //     SSE-backed proxies (macOS without an extension connection) that
+    //     report unavailable (e.g. non-interactive turns where
+    //     clientConnected=false) should NOT suppress cdp-inspect — the
+    //     SSE proxy was never expected to service browser requests.
     // (b) the cooldown from a recent failure is still active.
     //
     // When no hostBrowserProxy is present at all (extension not
     // provisioned for this conversation), cdp-inspect remains available
     // as a fallback per the desktop-auto contract.
-    if (hostBrowserProxy && !hostBrowserProxy.isAvailable()) {
+    if (
+      hostBrowserProxy &&
+      !hostBrowserProxy.isAvailable() &&
+      context.hostBrowserRegistryRouted
+    ) {
       log.debug(
         { conversationId },
         "CDP factory: desktop-auto cdp-inspect skipped (extension transport expected but temporarily unavailable)",
