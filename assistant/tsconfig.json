@@ -15,6 +15,6 @@
     "jsx": "react-jsx",
     "types": ["bun-types"]
   },
-  "include": ["src/**/*", "src/**/*.tsx"],
+  "include": ["src/**/*", "src/**/*.tsx", "examples/**/*.ts"],
   "exclude": ["node_modules", "dist", "drizzle"]
 }

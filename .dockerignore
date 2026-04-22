@@ -33,6 +33,8 @@ assistant/out/
 assistant/build/
 assistant/.env
 assistant/.env.*
+# Authoring-reference example plugins are not shipped with the production image.
+assistant/examples/
 credential-executor/node_modules/
 credential-executor/.env
 credential-executor/.env.*
