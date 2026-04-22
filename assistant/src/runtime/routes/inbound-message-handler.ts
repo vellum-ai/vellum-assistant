@@ -1265,47 +1265,69 @@ function isSlackTs(value: string | null | undefined): value is string {
 }
 
 /**
- * Over-fetch multiplier applied to the warm threshold when pulling candidate
- * rows from SQL. A bare `LIKE '%"slackMeta"%'` match can include rows whose
- * metadata JSON is malformed or carries the literal under an unrelated key,
- * so we fetch a few extra and re-validate each candidate with Zod. The
- * threshold is tiny (see `SLACK_DM_BACKFILL_WARM_THRESHOLD`), so 10× is still
- * a trivial scan while letting a handful of bad rows not starve the count.
+ * Batch size used when pulling candidate rows from SQL. A bare
+ * `LIKE '%"slackMeta"%'` match can include rows whose metadata JSON is
+ * malformed or carries the literal under an unrelated key, so we fetch in
+ * batches and re-validate each candidate with Zod. The threshold is tiny
+ * (see `SLACK_DM_BACKFILL_WARM_THRESHOLD`), so a 10× batch is a trivial
+ * scan while letting a handful of bad rows not starve the count.
  */
-const SLACK_DM_CANDIDATE_OVERFETCH = 10;
+const SLACK_DM_CANDIDATE_BATCH_SIZE = SLACK_DM_BACKFILL_WARM_THRESHOLD * 10;
+
+/**
+ * Absolute cap on candidate rows inspected per webhook to classify a DM as
+ * warm. If this many substring matches have been examined without reaching
+ * the valid-row threshold, treat the conversation as cold — a scan this
+ * deep already dominates the critical-path budget and the cold-start
+ * backfill path is itself idempotent against re-runs.
+ */
+const SLACK_DM_CANDIDATE_MAX_SCAN = SLACK_DM_BACKFILL_WARM_THRESHOLD * 20;
 
 /**
  * Count messages in a conversation whose `metadata` carries a well-formed
  * `slackMeta` envelope, capped at the warm threshold. SQL prefilters with
- * `LIKE` + `LIMIT` so warm DM conversations never scan the full table on the
- * webhook critical path, and each candidate is then re-validated through
- * `readSlackMetadata` — a bare substring match would otherwise wrongly count
- * rows whose metadata is truncated, parses but fails schema validation, or
- * happens to contain the literal `"slackMeta"` under an unrelated key.
+ * `LIKE` + `LIMIT`/`OFFSET` so warm DM conversations never scan the full
+ * table on the webhook critical path, and each candidate is re-validated
+ * through `readSlackMetadata` — a bare substring match would otherwise
+ * wrongly count rows whose metadata is truncated, parses but fails schema
+ * validation, or happens to contain the literal `"slackMeta"` under an
+ * unrelated key. Pulls candidates in batches, continuing until either the
+ * threshold of *valid* rows is reached or the per-call scan cap is hit, so
+ * a cluster of malformed rows at the head of the scan cannot starve the
+ * count and misclassify a warm conversation as cold.
  */
 function countSlackMetaMessages(conversationId: string): number {
-  const candidates = selectSlackMetaCandidateMetadata(
-    conversationId,
-    SLACK_DM_BACKFILL_WARM_THRESHOLD * SLACK_DM_CANDIDATE_OVERFETCH,
-  );
   let count = 0;
-  for (const raw of candidates) {
-    let parent: Record<string, unknown> | null = null;
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        parent = parsed as Record<string, unknown>;
+  let offset = 0;
+  while (offset < SLACK_DM_CANDIDATE_MAX_SCAN) {
+    const remaining = SLACK_DM_CANDIDATE_MAX_SCAN - offset;
+    const batchLimit = Math.min(SLACK_DM_CANDIDATE_BATCH_SIZE, remaining);
+    const candidates = selectSlackMetaCandidateMetadata(
+      conversationId,
+      batchLimit,
+      offset,
+    );
+    if (candidates.length === 0) return count;
+    for (const raw of candidates) {
+      let parent: Record<string, unknown> | null = null;
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          parent = parsed as Record<string, unknown>;
+        }
+      } catch {
+        continue;
       }
-    } catch {
-      continue;
+      if (!parent) continue;
+      const inner = parent.slackMeta;
+      if (typeof inner !== "string") continue;
+      if (readSlackMetadata(inner)) {
+        count++;
+        if (count >= SLACK_DM_BACKFILL_WARM_THRESHOLD) return count;
+      }
     }
-    if (!parent) continue;
-    const inner = parent.slackMeta;
-    if (typeof inner !== "string") continue;
-    if (readSlackMetadata(inner)) {
-      count++;
-      if (count >= SLACK_DM_BACKFILL_WARM_THRESHOLD) return count;
-    }
+    if (candidates.length < batchLimit) return count;
+    offset += candidates.length;
   }
   return count;
 }

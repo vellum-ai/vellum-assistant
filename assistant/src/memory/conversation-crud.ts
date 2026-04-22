@@ -1052,17 +1052,21 @@ export function getMessages(conversationId: string): MessageRow[] {
 
 /**
  * Return raw `metadata` strings for messages whose metadata contains the
- * literal substring `"slackMeta"`, capped at `limit`. Pushes `LIKE` + `LIMIT`
- * into SQL so warm Slack DM conversations don't require a full-table scan on
- * the webhook critical path. The substring match is an indexable prefilter
- * only — callers must parse and validate each returned string against the
- * Slack metadata schema, because a malformed row (partial write, legacy
- * format, unrelated key accidentally containing the literal) can still slip
- * through the substring match.
+ * literal substring `"slackMeta"`, capped at `limit` and skipping the first
+ * `offset` matches. Pushes `LIKE` + `LIMIT`/`OFFSET` into SQL so warm Slack
+ * DM conversations don't require a full-table scan on the webhook critical
+ * path. The substring match is an indexable prefilter only — callers must
+ * parse and validate each returned string against the Slack metadata schema,
+ * because a malformed row (partial write, legacy format, unrelated key
+ * accidentally containing the literal) can still slip through the substring
+ * match. Callers that need a fixed number of *valid* rows should iterate
+ * with increasing offsets until the target is reached (capped at a
+ * reasonable maximum to bound scan cost).
  */
 export function selectSlackMetaCandidateMetadata(
   conversationId: string,
   limit: number,
+  offset = 0,
 ): string[] {
   const db = getDb();
   const rows = db
@@ -1075,6 +1079,7 @@ export function selectSlackMetaCandidateMetadata(
       ),
     )
     .limit(limit)
+    .offset(offset)
     .all();
   const out: string[] = [];
   for (const r of rows) {
