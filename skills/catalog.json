@@ -698,6 +698,29 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "vellum-skills-catalog",
+      "name": "vellum-skills-catalog",
+      "description": "Discover bundled skills and search/install community skills from the skills.sh registry",
+      "metadata": {
+        "emoji": "\\U0001F9E9",
+        "vellum": {
+          "display-name": "Skills Catalog",
+          "activation-hints": [
+            "what can you do",
+            "find a skill",
+            "install a skill",
+            "community skills",
+            "skills.sh",
+            "search for skills"
+          ],
+          "avoid-when": [
+            "User is asking about a specific bundled skill already visible in the catalog"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "vellum-sounds",
       "name": "vellum-sounds",
       "description": "Customize the macOS app's sound effects — add sound files to the workspace, enable sounds globally, set volume, and assign sounds to 9 app events (message sent, task complete, notifications, etc.)",
