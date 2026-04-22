@@ -66,6 +66,38 @@ export const BOT_AUDIO_ENCODING = "pcm_s16le";
  */
 export const CANCEL_DELETE_TIMEOUT_MS = 5_000;
 
+/**
+ * Grace window (ms) {@link MeetTtsBridge.speak} waits before returning the
+ * streamId, so a POST that fast-fails on connect surfaces as a thrown error
+ * instead of a silent fake-success.
+ *
+ * Why this exists: `/play_audio` is a long-lived chunked upload, and Bun's
+ * fetch doesn't resolve the outer `Response` until the server consumes the
+ * full body. That means awaiting the fetch itself blocks for the entire
+ * utterance duration — untenable for the tool call. The historical
+ * fire-and-forget pattern had the opposite failure mode: if the bot
+ * container died between join and speak (e.g. Docker Desktop killing the
+ * container, an orphan-reaper sweep, the user stopping it manually), the
+ * POST rejected with `MEET_TTS_BOT_UNREACHABLE` ~1s later — but `speak()`
+ * had already returned a valid-looking `streamId` so the agent recorded the
+ * tool call as successful and moved on. The user heard silence and had no
+ * signal that the tool had failed.
+ *
+ * Racing the POST's completion against this short window lets us catch the
+ * common connect-level failures without paying their cost on the happy
+ * path: a successful POST either resolves within the window (short
+ * utterances) or is still in-flight when the window expires (long
+ * utterances), and in both cases we return cleanly. Only a rejection
+ * within the window triggers the throw.
+ *
+ * 1500ms is chosen to cover the observed 1.0–1.3s ECONNREFUSED path while
+ * leaving room for DNS/TLS variance. Streaming upload errors that surface
+ * later (body mid-stream crash, 5xx after partial upload) are not caught
+ * here — those continue to flow through `completion` and publish
+ * `meet.speaking_ended` events as before.
+ */
+export const SPEAK_FAST_FAIL_WINDOW_MS = 1_500;
+
 // ---------------------------------------------------------------------------
 // Lip-sync tap — viseme channel and amplitude fallback
 // ---------------------------------------------------------------------------
@@ -265,6 +297,16 @@ export interface MeetTtsBridgeDeps {
    * `randomUUID()`.
    */
   newUtteranceId?: () => string;
+  /**
+   * Override the {@link SPEAK_FAST_FAIL_WINDOW_MS} grace window. Tests
+   * that cover mid-stream cancel / body-error semantics pin this to `0`
+   * so `speak()` returns before the POST settles, preserving the
+   * pre-fast-fail contract where `completion` is the sole path for
+   * post-return errors. Production callers should leave this at the
+   * default so connect-level failures (bot container gone) surface
+   * synchronously instead of as silent fake-success.
+   */
+  speakFastFailWindowMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -382,6 +424,8 @@ export class MeetTtsBridge {
       spawn: deps.spawn ?? nodeSpawn,
       newStreamId: deps.newStreamId ?? (() => randomUUID()),
       newUtteranceId: deps.newUtteranceId ?? (() => randomUUID()),
+      speakFastFailWindowMs:
+        deps.speakFastFailWindowMs ?? SPEAK_FAST_FAIL_WINDOW_MS,
     };
   }
 
@@ -389,8 +433,11 @@ export class MeetTtsBridge {
    * Start streaming a synthesized utterance to the bot. Allocates (or uses
    * the caller-supplied) `streamId`, opens the provider's streaming
    * synthesis call, transcodes on the fly via ffmpeg, and POSTs the result
-   * to the bot. Returns the streamId immediately; the POST runs in the
-   * background and its completion can be awaited via `result.completion`.
+   * to the bot. Returns the streamId after a short fast-fail window (see
+   * {@link SPEAK_FAST_FAIL_WINDOW_MS}) — a POST that fails to connect in
+   * that window is thrown back to the caller as a {@link MeetTtsError};
+   * a POST that's still streaming at window-expiry is handed off via
+   * `result.completion` and continues in the background.
    */
   async speak(input: SpeakInput): Promise<SpeakResult> {
     const streamId = input.streamId ?? this.deps.newStreamId();
@@ -607,6 +654,50 @@ export class MeetTtsBridge {
     });
 
     this.streams.set(streamId, { abort, settled });
+
+    // Fast-fail window — block briefly so POSTs that reject on connect
+    // (bot container dead, port closed, DNS miss) surface as a thrown
+    // error from `speak()` instead of the historical silent fake-success.
+    // See {@link SPEAK_FAST_FAIL_WINDOW_MS} for the full rationale; the
+    // short version is that Bun's fetch can't be awaited for connection-
+    // only (the `Response` only resolves when the bot has consumed the
+    // full body) so we race the whole settle against a short deadline.
+    //
+    // Three outcomes:
+    //   - "rejected": settled already rejected — rethrow so the caller's
+    //     `try/catch` sees the same error the fire-and-forget `.catch`
+    //     in `session-manager.speak` would have otherwise published only
+    //     via `meet.speaking_ended`.
+    //   - "resolved": settled completed successfully inside the window
+    //     (short utterance, fast local bot, test harness) — fall through
+    //     to the normal return.
+    //   - "timeout": settled is still in-flight — fall through to the
+    //     normal return; the body is streaming and any later failure is
+    //     still reported via `completion`.
+    if (this.deps.speakFastFailWindowMs > 0) {
+      const fastFailOutcome = await Promise.race([
+        settled.then<"resolved", { kind: "rejected"; err: unknown }>(
+          () => "resolved",
+          (err) => ({ kind: "rejected", err }),
+        ),
+        new Promise<"timeout">((resolve) => {
+          const t = setTimeout(
+            () => resolve("timeout"),
+            this.deps.speakFastFailWindowMs,
+          );
+          t.unref?.();
+        }),
+      ]);
+
+      if (typeof fastFailOutcome === "object") {
+        // Silence the unhandled-rejection warning on `settled` — the
+        // caller never receives `completion` on this path (we're
+        // throwing) so there'd otherwise be nothing attached to consume
+        // the reject.
+        settled.catch(() => {});
+        throw fastFailOutcome.err;
+      }
+    }
 
     return { streamId, completion: settled };
   }

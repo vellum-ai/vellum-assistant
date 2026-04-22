@@ -373,6 +373,12 @@ describe("MeetTtsBridge.speak", () => {
         providerFactory: () => provider,
         spawn,
         newStreamId: () => "stream-cancel",
+        // Disable the fast-fail window: this test cancels mid-stream
+        // and then awaits `completion` to observe the typed cancel
+        // sentinel. With a non-zero window `speak()` would block until
+        // the stream settles (or the window expires) and the test's
+        // cancel would race against a stream that's already completed.
+        speakFastFailWindowMs: 0,
       },
     );
 
@@ -410,6 +416,66 @@ describe("MeetTtsBridge.speak", () => {
     expect(del.authorization).toBe(`Bearer ${TOKEN}`);
 
     // Active stream map is empty after cancel settles.
+    expect(bridge.activeStreamCount()).toBe(0);
+  });
+
+  test("speak() throws MEET_TTS_BOT_UNREACHABLE when the POST connect-fails inside the fast-fail window", async () => {
+    // Regression: before the fast-fail window was added, `speak()` returned
+    // a valid-looking `streamId` as soon as the POST was scheduled — even
+    // if the bot container had died between join and speak. The agent
+    // saw `{streamId}` come back, recorded the tool call as successful,
+    // and moved on; the actual `ECONNREFUSED` surfaced ~1s later as a
+    // fire-and-forget `.catch` that only published a `meet.speaking_ended`
+    // event. The user heard silence and had no tool-side signal that
+    // anything failed.
+    //
+    // We pin the new contract here: if the POST rejects on connect
+    // within {@link SPEAK_FAST_FAIL_WINDOW_MS}, `speak()` rethrows the
+    // {@link MeetTtsError} instead of returning a streamId. Callers
+    // (meet_speak tool) then surface `isError: true` to the model,
+    // which can replan.
+    const provider = makeCannedProvider({
+      chunks: [new Uint8Array([0xaa, 0xbb])],
+    });
+    const { spawn } = makeSpawnMock();
+
+    // Point at a loopback port that nothing is listening on. Docker
+    // Desktop allocates ephemerals in the 40000–65000 range for
+    // published meet-bot ports, so picking a very low non-privileged
+    // port guarantees `ECONNREFUSED` without colliding with a real
+    // listener. The OS returns the refusal synchronously enough that
+    // it easily lands within the default 1500ms fast-fail window.
+    const bridge = new MeetTtsBridge(
+      {
+        meetingId: MEETING_ID,
+        botBaseUrl: "http://127.0.0.1:1",
+        botApiToken: TOKEN,
+      },
+      {
+        providerFactory: () => provider,
+        spawn,
+        newStreamId: () => "stream-unreachable",
+        // Short window keeps the test fast while still exercising the
+        // race (0 would skip the fast-fail path entirely and regress
+        // to the pre-fix silent-success behavior).
+        speakFastFailWindowMs: 500,
+      },
+    );
+
+    const caught = await bridge
+      .speak({ text: "will refuse" })
+      .then(() => null)
+      .catch((e: unknown) => e);
+    expect(caught).toBeInstanceOf(MeetTtsError);
+    expect((caught as MeetTtsError).code).toBe("MEET_TTS_BOT_UNREACHABLE");
+
+    // Stream map is empty after the failed speak — the `.finally`
+    // hanging off `settled` deletes the record even though the caller
+    // never received `completion`.
+    //
+    // The post-throw cleanup is async (ffmpeg exit → synthesis settle
+    // → delete) so give it a beat to drain before asserting.
+    await new Promise((r) => setTimeout(r, 50));
     expect(bridge.activeStreamCount()).toBe(0);
   });
 
@@ -564,6 +630,10 @@ describe("MeetTtsBridge abort reason classification", () => {
         providerFactory: () => provider,
         spawn,
         newStreamId: () => "stream-ffmpeg-crash",
+        // Disable fast-fail: this test triggers a mid-stream ffmpeg
+        // error via `transcodeChild.emit("error", ...)` AFTER speak()
+        // returns, and asserts the rejection flows through `completion`.
+        speakFastFailWindowMs: 0,
       },
     );
 
@@ -632,6 +702,9 @@ describe("MeetTtsBridge abort reason classification", () => {
         providerFactory: () => rejectingProvider,
         spawn,
         newStreamId: () => "stream-provider-reject",
+        // Disable fast-fail: this test relies on `completion` being
+        // the sole path for the provider's mid-stream rejection.
+        speakFastFailWindowMs: 0,
       },
     );
 
@@ -676,6 +749,9 @@ describe("MeetTtsBridge abort reason classification", () => {
         providerFactory: () => provider,
         spawn,
         newStreamId: () => "stream-cancel-ok",
+        // Disable fast-fail: this test cancels mid-stream and checks
+        // that `completion` rejects with the typed cancel sentinel.
+        speakFastFailWindowMs: 0,
       },
     );
 
