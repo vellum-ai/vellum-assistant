@@ -43,6 +43,7 @@ describe("schedule_syntax column migration", () => {
         status TEXT NOT NULL DEFAULT 'active',
         quiet INTEGER NOT NULL DEFAULT 0,
         reuse_conversation INTEGER NOT NULL DEFAULT 0,
+        script TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )

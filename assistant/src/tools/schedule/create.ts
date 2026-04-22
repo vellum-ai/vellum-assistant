@@ -33,7 +33,8 @@ export async function executeScheduleCreate(
   }
   const name = input.name as string;
   const timezone = (input.timezone as string) ?? null;
-  const message = input.message as string;
+  const message = (input.message as string) ?? "";
+  const script = (input.script as string) ?? null;
   const enabled = (input.enabled as boolean) ?? true;
   const fireAt = input.fire_at as string | undefined;
   const mode = (input.mode as ScheduleMode | undefined) ?? "execute";
@@ -50,12 +51,6 @@ export async function executeScheduleCreate(
       isError: true,
     };
   }
-  if (!message || typeof message !== "string") {
-    return {
-      content: "Error: message is required and must be a string",
-      isError: true,
-    };
-  }
 
   // Validate mode
   if (!VALID_MODES.includes(mode)) {
@@ -63,6 +58,24 @@ export async function executeScheduleCreate(
       content: `Error: mode must be one of: ${VALID_MODES.join(", ")}`,
       isError: true,
     };
+  }
+
+  // Mode-specific field validation
+  if (mode === "script") {
+    if (!script || typeof script !== "string") {
+      return {
+        content:
+          "Error: script is required for script mode and must be a non-empty string",
+        isError: true,
+      };
+    }
+  } else {
+    if (!message || typeof message !== "string") {
+      return {
+        content: "Error: message is required and must be a string",
+        isError: true,
+      };
+    }
   }
 
   // Validate routing_intent
@@ -107,6 +120,7 @@ export async function executeScheduleCreate(
         cronExpression: null,
         timezone,
         message,
+        script,
         enabled,
         syntax: "cron",
         expression: null,
@@ -185,6 +199,7 @@ export async function executeScheduleCreate(
       cronExpression: resolved.expression,
       timezone,
       message,
+      script,
       enabled,
       syntax: resolved.syntax,
       expression: resolved.expression,

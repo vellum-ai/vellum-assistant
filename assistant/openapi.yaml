@@ -6672,6 +6672,11 @@ paths:
                   type: string
                 message:
                   type: string
+                script:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                  description: Shell command for script mode
                 mode:
                   type: string
                   description: notify, execute, or script
@@ -6687,6 +6692,7 @@ paths:
                 - expression
                 - timezone
                 - message
+                - script
                 - mode
                 - routingIntent
                 - quiet

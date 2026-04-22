@@ -182,13 +182,21 @@ async function runScheduleOnce(
 
     // ── Script mode (shell command, no LLM) ────────────────────────
     if (job.mode === "script") {
+      if (!job.script) {
+        log.warn(
+          { jobId: job.id, name: job.name },
+          "Script schedule has no script command — skipping",
+        );
+        processed += 1;
+        continue;
+      }
       const runId = createScheduleRun(job.id, `script:${job.id}`);
       try {
         log.info(
           { jobId: job.id, name: job.name, isOneShot },
           "Executing script schedule",
         );
-        const result: ScriptResult = await runScript(job.message);
+        const result: ScriptResult = await runScript(job.script);
         completeScheduleRun(runId, {
           status: result.exitCode === 0 ? "ok" : "error",
           output: result.stdout || undefined,

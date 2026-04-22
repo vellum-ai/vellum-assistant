@@ -32,7 +32,11 @@
           },
           "message": {
             "type": "string",
-            "description": "The message to send to the assistant when the schedule triggers"
+            "description": "The message to send to the assistant when the schedule triggers. Required for execute and notify modes."
+          },
+          "script": {
+            "type": "string",
+            "description": "The shell command to run when the schedule triggers. Required for script mode. Runs in the workspace directory with a sanitized environment."
           },
           "enabled": {
             "type": "boolean",
@@ -65,7 +69,7 @@
             "description": "Brief non-technical explanation of why this tool is being called"
           }
         },
-        "required": ["name", "message"]
+        "required": ["name"]
       },
       "executor": "tools/schedule-create.ts",
       "execution_target": "host"
@@ -127,7 +131,11 @@
           },
           "message": {
             "type": "string",
-            "description": "New message to send when triggered"
+            "description": "New message to send when triggered (for execute/notify modes)"
+          },
+          "script": {
+            "type": "string",
+            "description": "New shell command to run when triggered (for script mode)"
           },
           "enabled": {
             "type": "boolean",
