@@ -17,6 +17,7 @@
  */
 
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
@@ -124,8 +125,24 @@ export type TurnResult = { readonly output: unknown };
 export type LLMCallArgs = { readonly input: unknown };
 export type LLMCallResult = { readonly output: unknown };
 
-export type ToolExecuteArgs = { readonly input: unknown };
-export type ToolExecuteResult = { readonly output: unknown };
+/**
+ * Arguments passed to the `toolExecute` pipeline — mirrors the public
+ * {@link ToolExecutor.execute} signature so middleware can observe (and
+ * mutate) the tool name, input payload, and the full {@link ToolContext}
+ * before the terminal runs the actual execution.
+ */
+export interface ToolExecuteArgs {
+  readonly name: string;
+  readonly input: Record<string, unknown>;
+  readonly context: ToolContext;
+}
+
+/**
+ * Result returned from the `toolExecute` pipeline — identical to
+ * {@link ToolExecutionResult} so short-circuit middleware can supply a
+ * synthetic result without invoking the terminal.
+ */
+export type ToolExecuteResult = ToolExecutionResult;
 
 export type MemoryRetrievalArgs = { readonly input: unknown };
 export type MemoryRetrievalResult = { readonly output: unknown };

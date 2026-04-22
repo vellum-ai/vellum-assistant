@@ -19,6 +19,8 @@ import {
   type PluginInitContext,
   type PluginManifest,
   PluginTimeoutError,
+  type ToolExecuteArgs,
+  type ToolExecuteResult,
   type TurnContext,
 } from "../plugins/types.js";
 
@@ -52,6 +54,14 @@ describe("plugin core types", () => {
       { output: unknown }
     > = async (args, next, _ctx) => next(args);
 
+    // `toolExecute` has concrete arg/result types (refined in PR 16) that
+    // diverge from the generic `{ input }/{ output }` placeholder — provide
+    // a dedicated passthrough so the `satisfies` check is accurate.
+    const toolExecutePassthrough: Middleware<
+      ToolExecuteArgs,
+      ToolExecuteResult
+    > = async (args, next, _ctx) => next(args);
+
     const injector: Injector = {
       name: "sample-injector",
       order: 10,
@@ -81,7 +91,7 @@ describe("plugin core types", () => {
       middleware: {
         turn: passthrough,
         llmCall: passthrough,
-        toolExecute: passthrough,
+        toolExecute: toolExecutePassthrough,
         memoryRetrieval: passthrough,
         historyRepair: passthrough,
         tokenEstimate: passthrough,

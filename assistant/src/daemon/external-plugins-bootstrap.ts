@@ -7,18 +7,22 @@
  * {@link bootstrapPlugins} runs, the registry has been fully populated for
  * this boot cycle. This function:
  *
- * 1. Walks {@link getRegisteredPlugins} in registration order.
- * 2. For each plugin, resolves its `manifest.requiresCredential` entries via
+ * 1. Registers the canonical first-party default plugins (one per pipeline
+ *    that has been wrapped so far — currently only `toolExecute` via
+ *    {@link defaultToolExecutePlugin}). Registration is idempotent so
+ *    repeat calls (e.g. during integration tests) do not throw.
+ * 2. Walks {@link getRegisteredPlugins} in registration order.
+ * 3. For each plugin, resolves its `manifest.requiresCredential` entries via
  *    the credential store helper ({@link getSecureKeyAsync}). In Docker mode
  *    that helper goes through the CES HTTP API transparently; in local mode
  *    it hits the encrypted file store / CES RPC backend.
- * 3. Validates the config block under `plugins.<name>` against
+ * 4. Validates the config block under `plugins.<name>` against
  *    `manifest.config` if the manifest supplies a parser-like validator
  *    (Zod schemas with `.parse()` are supported; anything else is passed
  *    through untouched).
- * 4. Creates `~/.vellum/plugins-data/<plugin>/` on demand for per-plugin
+ * 5. Creates `~/.vellum/plugins-data/<plugin>/` on demand for per-plugin
  *    writable state and exposes it via {@link PluginInitContext.pluginStorageDir}.
- * 5. Awaits `plugin.init(ctx)` sequentially. One init failure surfaces as a
+ * 6. Awaits `plugin.init(ctx)` sequentially. One init failure surfaces as a
  *    {@link PluginExecutionError} naming the offending plugin and aborts
  *    bootstrap — later plugins' `init()` never runs and the daemon fails
  *    startup cleanly rather than coming up in a half-wired state.
@@ -35,9 +39,11 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AssistantConfig } from "../config/schema.js";
+import { defaultToolExecutePlugin } from "../plugins/defaults/tool-execute.js";
 import {
   ASSISTANT_API_VERSIONS,
   getRegisteredPlugins,
+  registerPlugin,
 } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -135,6 +141,35 @@ function ensurePluginStorageDir(pluginName: string): string {
 }
 
 /**
+ * Register every first-party default plugin. Called from `bootstrapPlugins`
+ * before enumerating the registry so the defaults are always present when
+ * the daemon serves traffic. Each registration is guarded by a
+ * `registeredPlugins` lookup via try/catch — the registry throws
+ * `PluginExecutionError` on duplicate names, which we treat as "already
+ * registered" so repeated bootstrap calls (notably in integration tests
+ * that reuse a warmed-up registry) do not fail.
+ */
+function registerDefaultPlugins(): void {
+  const defaults = [defaultToolExecutePlugin];
+  for (const plugin of defaults) {
+    try {
+      registerPlugin(plugin);
+    } catch (err) {
+      // Duplicate-name registrations surface as PluginExecutionError with a
+      // specific "already registered" substring. Swallow that one case —
+      // every other error (shape failure, version mismatch) re-throws.
+      if (
+        err instanceof PluginExecutionError &&
+        err.message.includes("already registered")
+      ) {
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+/**
  * Run every registered plugin's `init()` hook sequentially and install a
  * reverse-order shutdown hook. See the module docstring for full semantics.
  *
@@ -147,6 +182,14 @@ function ensurePluginStorageDir(pluginName: string): string {
  * run) and before the first conversation is served.
  */
 export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
+  // Register first-party default plugins. Each default wraps one of the
+  // assistant's canonical pipelines (`toolExecute`, `llmCall`, ...) with a
+  // passthrough so the pipeline shape is explicit at boot even when no
+  // third-party plugins are loaded. Registration is idempotent via the
+  // already-registered guard so repeated calls (e.g. during integration
+  // tests) do not throw.
+  registerDefaultPlugins();
+
   const plugins = getRegisteredPlugins();
   if (plugins.length === 0) {
     // No-op fast path — the registry is empty (no first-party plugins have
