@@ -103,20 +103,6 @@ mock.module("../daemon/context-overflow-policy.js", () => ({
   resolveOverflowAction: () => mockOverflowAction,
 }));
 
-let hookBlocked = false;
-let hookBlockedBy = "";
-
-mock.module("../hooks/manager.js", () => ({
-  getHookManager: () => ({
-    trigger: async (hookName: string) => {
-      if (hookName === "pre-message" && hookBlocked) {
-        return { blocked: true, blockedBy: hookBlockedBy };
-      }
-      return { blocked: false };
-    },
-  }),
-}));
-
 const updateMessageMetadataMock = mock(
   (_id: string, _updates: Record<string, unknown>) => {},
 );
@@ -502,8 +488,6 @@ function makeCtx(
 // ── Tests ────────────────────────────────────────────────────────────
 
 beforeEach(() => {
-  hookBlocked = false;
-  hookBlockedBy = "";
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
@@ -529,47 +513,6 @@ describe("session-agent-loop", () => {
       await expect(
         runAgentLoopImpl(ctx, "hello", "msg-1", () => {}),
       ).rejects.toThrow("runAgentLoop called without prior persistUserMessage");
-    });
-  });
-
-  describe("pre-message hook blocking", () => {
-    test("emits error and returns early when pre-message hook blocks", async () => {
-      hookBlocked = true;
-      hookBlockedBy = "test-hook";
-      const events: ServerMessage[] = [];
-      const ctx = makeCtx();
-
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
-
-      const errorEvent = events.find((e) => e.type === "error");
-      expect(errorEvent).toBeDefined();
-      expect((errorEvent as { message: string }).message).toContain(
-        "test-hook",
-      );
-    });
-
-    test("removes user message when hook blocks without skipPreMessageRollback", async () => {
-      hookBlocked = true;
-      hookBlockedBy = "guard";
-      const ctx = makeCtx();
-      const originalLength = ctx.messages.length;
-
-      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
-
-      expect(ctx.messages.length).toBe(originalLength - 1);
-    });
-
-    test("keeps user message when hook blocks with skipPreMessageRollback", async () => {
-      hookBlocked = true;
-      hookBlockedBy = "guard";
-      const ctx = makeCtx();
-      const originalLength = ctx.messages.length;
-
-      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {}, {
-        skipPreMessageRollback: true,
-      });
-
-      expect(ctx.messages.length).toBe(originalLength);
     });
   });
 

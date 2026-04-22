@@ -38,7 +38,6 @@ import {
 import type { ContextWindowManager } from "../context/window-manager.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
-import { getHookManager } from "../hooks/manager.js";
 import {
   clearSentryConversationContext,
   setSentryConversationContext,
@@ -49,7 +48,6 @@ import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue
 import {
   addMessage,
   clearStrippedInjectionMetadataForConversation,
-  deleteMessageById,
   getConversation,
   getConversationOriginChannel,
   getConversationOriginInterface,
@@ -57,7 +55,6 @@ import {
   getMessageById,
   provenanceFromTrustContext,
   updateConversationContextWindow,
-  updateConversationTitle,
   updateMessageMetadata,
 } from "../memory/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
@@ -66,7 +63,6 @@ import {
   isReplaceableTitle,
   queueGenerateConversationTitle,
   queueRegenerateConversationTitle,
-  UNTITLED_FALLBACK,
 } from "../memory/conversation-title-service.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
@@ -537,40 +533,10 @@ export async function runAgentLoopImpl(
       }
     }
 
-    const preMessageResult = await getHookManager().trigger("pre-message", {
-      conversationId: ctx.conversationId,
-      messagePreview: truncate(content, 200, ""),
-    });
-
-    if (preMessageResult.blocked) {
-      if (!options?.skipPreMessageRollback) {
-        ctx.messages.pop();
-        deleteMessageById(userMessageId);
-      }
-      // Replace loading placeholder so the conversation isn't stuck as "Generating title..."
-      const currentConv = getConversation(ctx.conversationId);
-      if (
-        isReplaceableTitle(currentConv?.title ?? null) &&
-        currentConv?.title !== UNTITLED_FALLBACK
-      ) {
-        updateConversationTitle(ctx.conversationId, UNTITLED_FALLBACK);
-        onEvent({
-          type: "conversation_title_updated",
-          conversationId: ctx.conversationId,
-          title: UNTITLED_FALLBACK,
-        });
-      }
-      onEvent({
-        type: "error",
-        message: `Message blocked by hook "${preMessageResult.blockedBy}"`,
-      });
-      return;
-    }
-
     // Generate title early — the user message alone is sufficient context.
-    // Firing after hook gating but before the main LLM call removes the
-    // delay of waiting for the full assistant response. The second-pass
-    // regeneration at turn 3 will refine the title with more context.
+    // Firing before the main LLM call removes the delay of waiting for the
+    // full assistant response. The second-pass regeneration at turn 3 will
+    // refine the title with more context.
     // No abort signal — title generation should complete even if the user
     // cancels the response, since the user message is already persisted.
     // Deferred via setTimeout so the main agent loop LLM call enqueues
@@ -1916,10 +1882,6 @@ export async function runAgentLoopImpl(
       },
     );
 
-    void getHookManager().trigger("post-message", {
-      conversationId: ctx.conversationId,
-    });
-
     const syncLastAssistantMessageToDisk = (): void => {
       if (!state.lastAssistantMessageId) return;
       const convForDisk = getConversation(ctx.conversationId);
@@ -2095,12 +2057,6 @@ export async function runAgentLoopImpl(
       });
       onEvent({ type: "error", message: classified.userMessage });
       onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
-      void getHookManager().trigger("on-error", {
-        error: err instanceof Error ? err.name : "Error",
-        message,
-        stack: err instanceof Error ? err.stack : undefined,
-        conversationId: ctx.conversationId,
-      });
     }
   } finally {
     if (turnStarted) {

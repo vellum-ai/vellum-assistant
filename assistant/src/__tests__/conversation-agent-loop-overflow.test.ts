@@ -126,20 +126,6 @@ mock.module("../daemon/context-overflow-policy.js", () => ({
   resolveOverflowAction: () => mockOverflowAction,
 }));
 
-let hookBlocked = false;
-let hookBlockedBy = "";
-
-mock.module("../hooks/manager.js", () => ({
-  getHookManager: () => ({
-    trigger: async (hookName: string) => {
-      if (hookName === "pre-message" && hookBlocked) {
-        return { blocked: true, blockedBy: hookBlockedBy };
-      }
-      return { blocked: false };
-    },
-  }),
-}));
-
 mock.module("../memory/conversation-crud.js", () => ({
   getConversationType: () => "default",
   setConversationOriginChannelIfUnset: () => {},
@@ -563,8 +549,6 @@ function buildLongConversation(messageCount: number): Message[] {
 // ── Tests ────────────────────────────────────────────────────────────
 
 beforeEach(() => {
-  hookBlocked = false;
-  hookBlockedBy = "";
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";

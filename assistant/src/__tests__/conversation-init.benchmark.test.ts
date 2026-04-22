@@ -233,13 +233,6 @@ mock.module("../memory/conversation-queries.js", () => ({
   buildExcerpt: () => "",
 }));
 
-mock.module("../hooks/manager.js", () => ({
-  getHookManager: () => ({
-    trigger: () => Promise.resolve(),
-    initialize: () => {},
-  }),
-}));
-
 mock.module("../tools/watch/watch-state.js", () => ({
   watchSessions: new Map(),
   registerWatchStartNotifier: () => {},
