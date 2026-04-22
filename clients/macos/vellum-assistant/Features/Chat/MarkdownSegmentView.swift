@@ -907,6 +907,33 @@ func clearMathImageCache() {
     mathImageCache.removeAllObjects()
 }
 
+private let mathRenderLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "MathRender")
+
+/// Probes whether SwiftMath's SPM-generated resource bundle is locatable.
+/// `Bundle.module` inside SwiftMath calls `fatalError` when it cannot find
+/// `SwiftMath_SwiftMath.bundle`, which takes the whole app down the first
+/// time a LaTeX block renders. The crash is unrecoverable because the miss
+/// is wired through a `dispatch_once` static initializer — subsequent reads
+/// re-trap on the same uninitialized property. Checking the same candidate
+/// paths SPM uses lets us route to the raw-LaTeX fallback when the bundle
+/// is missing from a broken or stale build instead of crashing.
+private let swiftMathResourceBundleAvailable: Bool = {
+    let bundleName = "SwiftMath_SwiftMath.bundle"
+    let candidates: [URL?] = [
+        Bundle.main.resourceURL,
+        Bundle.main.bundleURL,
+    ]
+    let fm = FileManager.default
+    for candidate in candidates {
+        guard let url = candidate?.appendingPathComponent(bundleName) else { continue }
+        if fm.fileExists(atPath: url.path) {
+            return true
+        }
+    }
+    mathRenderLog.error("SwiftMath resource bundle '\(bundleName, privacy: .public)' not found; falling back to raw LaTeX")
+    return false
+}()
+
 /// Converts an `NSColor` to a stable hex cache-key component. Uses the
 /// sRGB-calibrated components so color-space shifts don't cause cache misses
 /// on logically identical colors. When the color cannot be bridged into sRGB
@@ -947,6 +974,13 @@ private struct MathBlockView: View {
     }
 
     private func resolveRender() -> RenderResult {
+        // SwiftMath's `Bundle.module` fatals if the resource bundle is missing.
+        // Bail to the raw-LaTeX fallback before any SwiftMath API can trigger
+        // that one-time initializer — see `swiftMathResourceBundleAvailable`.
+        guard swiftMathResourceBundleAvailable else {
+            return .failure("math font bundle missing")
+        }
+
         // Font size matches the resolved chat markdown font so inline math
         // visually aligns with surrounding body text. `.regular.pointSize`
         // resolves against the current DM Sans font set (16pt at rest).
