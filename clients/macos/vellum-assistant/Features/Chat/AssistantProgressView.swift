@@ -106,7 +106,16 @@ struct AssistantProgressView: View {
         }
         let initialThinkingStart: Date?
         let initialThinkingEnd: Date?
-        if let duration = persistedThinkingDuration, let latestEnd = model.latestCompletedAt {
+        // Cross-wave guard: only rehydrate thinking anchors when the model is
+        // actually in the `.complete` phase. If the view is recycled mid-wave
+        // (e.g. wave 2 still running after wave 1 completed), `handlePhaseChange`
+        // never fires for the current init — so the persisted duration from
+        // wave 1 would otherwise get stitched onto wave 2's latest tool end,
+        // synthesizing a bogus thinking row and re-introducing the stale-anchor
+        // regression this PR is meant to prevent.
+        if model.phase == .complete,
+           let duration = persistedThinkingDuration,
+           let latestEnd = model.latestCompletedAt {
             // Reconstruct from persisted duration
             initialThinkingStart = latestEnd
             initialThinkingEnd = latestEnd.addingTimeInterval(duration)
@@ -138,12 +147,28 @@ struct AssistantProgressView: View {
         // is lossless across view recycling. Falling back to `latestCompletedAt`
         // (last tool end) drops any post-tool thinking/latency tail and
         // re-introduces the duration regression the anchor exists to prevent.
+        //
+        // Cross-wave guard: if the view recycles mid-wave-2, the card's
+        // `.complete` → `.toolRunning` transition happened while the view was
+        // unmounted, so `handlePhaseChange` never got a chance to clear the
+        // wave-1 anchor. Unconditionally restoring the persisted value would
+        // re-introduce the exact regression this PR fixes. Only use the
+        // persisted anchor when the current phase is still `.complete`, and
+        // additionally discard it if a tool completed AFTER the anchor (a new
+        // wave finished while the view was unmounted — the stored timestamp
+        // no longer describes the card's final state).
         let persistedCardCompletedAt = cardKeyForInit.flatMap {
             progressUIState.wrappedValue.cardCompletedAt(for: $0)
         }
         let initialCardCompletedAt: Date? = {
-            if let persisted = persistedCardCompletedAt { return persisted }
-            return model.phase == .complete ? model.latestCompletedAt : nil
+            guard model.phase == .complete else { return nil }
+            if let persisted = persistedCardCompletedAt {
+                if let latest = model.latestCompletedAt, persisted < latest {
+                    return latest
+                }
+                return persisted
+            }
+            return model.latestCompletedAt
         }()
         _cardCompletedAt = State(initialValue: initialCardCompletedAt)
     }
