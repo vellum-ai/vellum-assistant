@@ -360,9 +360,9 @@ describe("pairDeliveryWithConversation", () => {
 
   test("reuses pre-namespace binding via inbound path when namespaced binding is absent", async () => {
     // Simulate a binding created before the notification: prefix was introduced.
-    // With the inbound-continuity change, un-prefixed bindings are now resolved
-    // by step 1 (inbound path) which skips the source check and does not
-    // upsert a notification-prefixed binding — the conversation is still reused.
+    // Un-prefixed bindings are resolved by step 1 (inbound path) which skips
+    // the source check and does not upsert a notification-prefixed binding —
+    // the conversation is still reused.
     mockExistingConversations["conv-legacy"] = {
       id: "conv-legacy",
       source: "notification",
@@ -498,7 +498,7 @@ describe("pairDeliveryWithConversation", () => {
 
     const signal = makeSignal();
     const copy = makeCopy({
-      conversationSeedMessage: "New tweet from @swyx - draft reply attached",
+      conversationSeedMessage: "New tweet from @alice - draft reply attached",
     });
     const bindingContext: DestinationBindingContext = {
       sourceChannel: "slack" as NotificationChannel,

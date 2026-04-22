@@ -8,8 +8,12 @@
  *
  * Resolution order:
  * 1. Explicit `reuse_existing` conversation action — highest precedence.
- * 2. Binding-key reuse — for `continue_existing_conversation` channels,
- *    looks up a previously bound conversation by (sourceChannel, externalChatId).
+ * 2. Binding-key reuse — for `continue_existing_conversation` channels:
+ *    a. Inbound conversation lookup — checks the un-prefixed binding
+ *       (sourceChannel, externalChatId) for a conversation created by
+ *       the inbound message handler. Preferred for reply continuity.
+ *    b. Notification-scoped binding — checks the `notification:`-prefixed
+ *       binding for a prior notification conversation.
  * 3. Default — creates a fresh conversation and, when binding context is
  *    present, upserts it into the external-conversation store for future reuse.
  */
@@ -78,8 +82,11 @@ export interface PairingOptions {
  *
  * Resolution precedence:
  * 1. `options.conversationAction === "reuse_existing"` — reuse the explicit target.
- * 2. `continue_existing_conversation` strategy with binding context —
- *    look up a previously bound conversation by (sourceChannel, externalChatId).
+ * 2. `continue_existing_conversation` strategy with binding context:
+ *    a. Un-prefixed (inbound) binding — preferred for reply continuity so
+ *       the user's replies include the notification in their history.
+ *    b. `notification:`-prefixed binding — used when no inbound conversation
+ *       exists yet (e.g. first notification before the user has messaged).
  * 3. Create a new conversation (and upsert the binding when context is present).
  *
  * Invalid/stale targets at any level fall through to the next.
