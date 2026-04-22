@@ -405,8 +405,90 @@ export interface OverflowReduceResult {
   readonly attempts: number;
 }
 
-export type PersistenceArgs = { readonly input: unknown };
-export type PersistenceResult = { readonly output: unknown };
+/**
+ * Pipeline arguments for `persistence` — a discriminated union over the
+ * message-CRUD operations plugins may observe, redirect, or short-circuit:
+ *
+ * - `add`    — append a new message (`addMessage`). Mirrors
+ *              `addMessage(conversationId, role, content, metadata?, opts?)`.
+ *              When `syncToDisk` is set, the default plugin also runs
+ *              {@link syncMessageToDisk} against the just-persisted row so
+ *              the JSONL disk view stays consistent. The `createdAtMs` field
+ *              carries the conversation's creation timestamp — needed to
+ *              resolve the disk-view directory path.
+ * - `update` — shallow-merge metadata into an existing message
+ *              (`updateMessageMetadata`). Returns `void`.
+ * - `delete` — remove a single message (`deleteMessageById`). Returns the
+ *              {@link DeletedMemoryIds}-shaped segment/summary IDs the caller
+ *              must clean up out-of-band.
+ *
+ * The discriminated `op` field lets plugin middleware narrow the union and
+ * tailor behavior per-operation (e.g. "only observe deletes", "redirect
+ * adds to a mock store").
+ */
+export type PersistAddArgs = {
+  readonly op: "add";
+  readonly conversationId: string;
+  readonly role: string;
+  readonly content: string;
+  readonly metadata?: Record<string, unknown>;
+  readonly addOptions?: { readonly skipIndexing?: boolean };
+  /**
+   * When `true`, the default plugin additionally invokes
+   * {@link syncMessageToDisk} with the returned message's id. Requires
+   * {@link createdAtMs} to resolve the conversation's disk-view directory.
+   */
+  readonly syncToDisk?: boolean;
+  /** Conversation creation timestamp — only read when `syncToDisk` is true. */
+  readonly createdAtMs?: number;
+};
+
+export type PersistUpdateArgs = {
+  readonly op: "update";
+  readonly messageId: string;
+  readonly updates: Record<string, unknown>;
+};
+
+export type PersistDeleteArgs = {
+  readonly op: "delete";
+  readonly messageId: string;
+};
+
+export type PersistArgs =
+  | PersistAddArgs
+  | PersistUpdateArgs
+  | PersistDeleteArgs;
+
+/**
+ * Result row returned by an `add` op — matches the shape produced by
+ * {@link addMessage}. Kept structural (not imported from `memory/`) so the
+ * plugin types module stays decoupled from the storage layer.
+ */
+export type PersistAddResult = {
+  readonly op: "add";
+  readonly message: {
+    readonly id: string;
+    readonly conversationId: string;
+    readonly role: string;
+    readonly content: string;
+    readonly createdAt: number;
+    readonly metadata?: string;
+  };
+};
+
+export type PersistUpdateResult = { readonly op: "update" };
+
+/** IDs of segments/summaries the caller must remove from Qdrant. */
+export type PersistDeleteResult = {
+  readonly op: "delete";
+  readonly segmentIds: string[];
+  readonly deletedSummaryIds: string[];
+};
+
+export type PersistResult =
+  | PersistAddResult
+  | PersistUpdateResult
+  | PersistDeleteResult;
 
 export type TitleGenerateArgs = { readonly input: unknown };
 export type TitleGenerateResult = { readonly output: unknown };
@@ -580,7 +662,7 @@ export interface PipelineMiddlewareMap {
   tokenEstimate: Middleware<TokenEstimateArgs, TokenEstimateResult>;
   compaction: Middleware<CompactionArgs, CompactionResult>;
   overflowReduce: Middleware<OverflowReduceArgs, OverflowReduceResult>;
-  persistence: Middleware<PersistenceArgs, PersistenceResult>;
+  persistence: Middleware<PersistArgs, PersistResult>;
   titleGenerate: Middleware<TitleGenerateArgs, TitleGenerateResult>;
   toolResultTruncate: Middleware<
     ToolResultTruncateArgs,

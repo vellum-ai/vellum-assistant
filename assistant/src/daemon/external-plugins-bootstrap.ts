@@ -47,6 +47,7 @@ import { defaultInjectorsPlugin } from "../plugins/defaults/injectors.js";
 import { defaultLlmCallPlugin } from "../plugins/defaults/llm-call.js";
 import { defaultMemoryRetrievalPlugin } from "../plugins/defaults/memory-retrieval.js";
 import { defaultOverflowReducePlugin } from "../plugins/defaults/overflow-reduce.js";
+import { defaultPersistencePlugin } from "../plugins/defaults/persistence.js";
 import { defaultTokenEstimatePlugin } from "../plugins/defaults/token-estimate.js";
 import { defaultToolErrorPlugin } from "../plugins/defaults/tool-error.js";
 import { defaultToolExecutePlugin } from "../plugins/defaults/tool-execute.js";
@@ -190,6 +191,7 @@ function registerDefaultPlugins(): void {
     defaultHistoryRepairPlugin,
     defaultCompactionPlugin,
     defaultCircuitBreakerPlugin,
+    defaultPersistencePlugin,
   ];
   for (const plugin of defaults) {
     try {
