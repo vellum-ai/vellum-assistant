@@ -15,6 +15,7 @@ export function createOAuthTables(database: DrizzleDb): void {
       base_url TEXT,
       default_scopes TEXT NOT NULL DEFAULT '[]',
       scope_policy TEXT NOT NULL DEFAULT '{}',
+      available_scopes TEXT,
       extra_params TEXT,
       callback_transport TEXT,
       loopback_port INTEGER,

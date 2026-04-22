@@ -18,7 +18,7 @@ const mockListProviders = mock(() => [
     userinfoUrl: null,
     baseUrl: null,
     defaultScopes: "[]",
-    scopePolicy: "[]",
+    availableScopes: null,
     scopeSeparator: null,
     authorizeParams: null,
 
@@ -60,7 +60,7 @@ const mockListProviders = mock(() => [
     userinfoUrl: null,
     baseUrl: null,
     defaultScopes: "[]",
-    scopePolicy: "[]",
+    availableScopes: null,
     scopeSeparator: null,
     authorizeParams: null,
 

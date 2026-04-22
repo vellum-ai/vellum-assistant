@@ -6,7 +6,7 @@ When introducing a new built-in OAuth integration (one that appears in `seed-pro
 
 ### 1. Seed the provider — `seed-providers.ts`
 
-Add an entry to `PROVIDER_SEED_DATA`. Required fields: `provider`, `authorizeUrl`, `tokenExchangeUrl`, `defaultScopes`, `scopePolicy`, `displayLabel`, `description`, `dashboardUrl`, `clientIdPlaceholder`, `logoUrl`, and `injectionTemplates`. See existing entries for the full shape. The `provider` key must be snake_case and is used as the canonical identifier everywhere else.
+Add an entry to `PROVIDER_SEED_DATA`. Required fields: `provider`, `authorizeUrl`, `tokenExchangeUrl`, `defaultScopes`, `displayLabel`, `description`, `dashboardUrl`, `clientIdPlaceholder`, `logoUrl`, and `injectionTemplates`. Optional: `availableScopes` — either a structured array of `{scope, description?}` objects or a URL string pointing to the provider's scope documentation. See existing entries for the full shape. The `provider` key must be snake_case and is used as the canonical identifier everywhere else.
 
 If the provider will support managed mode, set `managedServiceConfigKey` to a slug matching the key you will add to `ServicesSchema` (e.g. `"acme-oauth"`).
 

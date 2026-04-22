@@ -199,7 +199,7 @@ Arguments:
                  Must match the key used during registration or seeding.
 
 Returns the full provider configuration including auth URL, token URL,
-default scopes, scope policy, and extra parameters. Exits with code 1
+default scopes, available scopes, and extra parameters. Exits with code 1
 if the provider key is not found.
 
 Examples:
@@ -371,6 +371,10 @@ Examples:
       "--setup-notes <json>",
       'JSON array of setup instruction notes shown during guided setup (e.g. \'["Enable the Gmail API","Add test users"]\')',
     )
+    .option(
+      "--available-scopes <value>",
+      "Available scopes: either a JSON array of {scope, description?} objects or a URL to the provider scope docs",
+    )
     .addHelpText(
       "after",
       `
@@ -473,6 +477,7 @@ Examples:
           identityFormat?: string;
           identityOkField?: string;
           setupNotes?: string;
+          availableScopes?: string;
         },
         cmd: Command,
       ) => {
@@ -492,7 +497,11 @@ Examples:
             baseUrl: opts.baseUrl,
             userinfoUrl: opts.userinfoUrl,
             defaultScopes: opts.scopes ? opts.scopes.split(",") : [],
-            scopePolicy: {},
+            availableScopes: opts.availableScopes
+              ? opts.availableScopes.startsWith("http")
+                ? opts.availableScopes
+                : JSON.parse(opts.availableScopes)
+              : undefined,
             scopeSeparator: opts.scopeSeparator,
             tokenEndpointAuthMethod: opts.tokenAuthMethod,
             tokenExchangeBodyFormat: opts.tokenExchangeBodyFormat,
@@ -679,6 +688,10 @@ Examples:
       "--setup-notes <json>",
       'JSON array of setup instruction notes shown during guided setup (e.g. \'["Enable the Gmail API","Add test users"]\')',
     )
+    .option(
+      "--available-scopes <value>",
+      "Available scopes: either a JSON array of {scope, description?} objects or a URL to the provider scope docs",
+    )
     .addHelpText(
       "after",
       `
@@ -749,6 +762,7 @@ Examples:
           identityFormat?: string;
           identityOkField?: string;
           setupNotes?: string;
+          availableScopes?: string;
         },
         cmd: Command,
       ) => {
@@ -868,6 +882,11 @@ Examples:
             params.identityOkField = opts.identityOkField;
           if (opts.setupNotes !== undefined)
             params.setupNotes = JSON.parse(opts.setupNotes);
+          if (opts.availableScopes !== undefined) {
+            params.availableScopes = opts.availableScopes.startsWith("http")
+              ? opts.availableScopes
+              : JSON.parse(opts.availableScopes);
+          }
 
           // Check if any fields were actually provided
           if (Object.keys(params).length === 0) {

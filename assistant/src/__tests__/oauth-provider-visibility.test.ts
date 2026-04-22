@@ -55,7 +55,6 @@ describe("isProviderVisible", () => {
         authorizeUrl: "https://example.com/auth",
         tokenExchangeUrl: "https://example.com/token",
         defaultScopes: ["read"],
-        scopePolicy: {},
       },
     ]);
 
@@ -77,7 +76,7 @@ describe("isProviderVisible", () => {
         authorizeUrl: "https://example.com/auth",
         tokenExchangeUrl: "https://example.com/token",
         defaultScopes: ["read"],
-        scopePolicy: {},
+
         featureFlag: "test-gate",
       },
     ]);
@@ -100,7 +99,7 @@ describe("isProviderVisible", () => {
         authorizeUrl: "https://example.com/auth",
         tokenExchangeUrl: "https://example.com/token",
         defaultScopes: ["read"],
-        scopePolicy: {},
+
         featureFlag: "test-gate",
       },
     ]);
@@ -122,14 +121,13 @@ describe("isProviderVisible", () => {
         authorizeUrl: "https://example.com/auth",
         tokenExchangeUrl: "https://example.com/token",
         defaultScopes: ["read"],
-        scopePolicy: {},
       },
       {
         provider: "gated-provider",
         authorizeUrl: "https://gated.example.com/auth",
         tokenExchangeUrl: "https://gated.example.com/token",
         defaultScopes: ["read"],
-        scopePolicy: {},
+
         featureFlag: "test-gate",
       },
     ]);
