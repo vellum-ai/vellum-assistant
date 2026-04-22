@@ -49,24 +49,25 @@ const SUMMARY_COMPRESSION_PRESSURE_RATIO = 0.6;
  * `conversation-runtime-assembly.ts`. That list governs in-flight turn
  * assembly; this one governs compaction input only. Keep them in sync
  * when new injection types are added.
+ *
+ * Only internal-vocabulary tags are listed here. Tags whose bare form
+ * collides with ordinary English words a user might actually type
+ * (`<memory>`, `<workspace>`, `<knowledge_base>`, `<pkb>`,
+ * `<system_reminder>`) are handled by `COMPACTION_ONLY_WRAPPED_STRIP_TAGS`
+ * below with a tighter match that requires the whole text block to be a
+ * runtime-shaped open/close wrap.
  */
 const COMPACTION_ONLY_STRIP_PREFIXES = [
   "<memory __injected>",
-  "<memory>",
   "<memory_image __injected>",
   "</memory_image>",
   "<memory_context __injected>",
-  "<memory_context>",
   "<turn_context>",
   "<channel_turn_context>",
   "<guardian_context>",
   "<inbound_actor_context>",
   "<interface_turn_context>",
-  "<workspace>",
   "<workspace_top_level>",
-  "<knowledge_base>",
-  "<pkb>",
-  "<system_reminder>",
   "<now_scratchpad>",
   "<NOW.md Always keep this up to date",
   "<active_thread>",
@@ -83,10 +84,40 @@ const COMPACTION_ONLY_STRIP_PREFIXES = [
 ];
 
 /**
- * Remove text blocks whose prefix matches any entry in
- * `COMPACTION_ONLY_STRIP_PREFIXES`. Non-text blocks (images, tool_use,
- * tool_result, etc.) are untouched. Empty messages (every block filtered
- * out) are dropped from the output.
+ * Tags whose bare form (`<tag>`) is common English vocabulary or markup a
+ * user might legitimately type in prose. For these we only strip a text
+ * block if it is shaped exactly like a runtime injection: starts with
+ * `<tag>\n` and ends with `</tag>`. Runtime always emits these blocks with
+ * a newline after the opening tag and a matching closing tag; a user who
+ * mentions `<memory>` in a sentence or inlines `<workspace>...</workspace>`
+ * within other prose will not match this shape.
+ *
+ * Covers both current-format bare emissions and legacy pre-`__injected`
+ * history (e.g. `<memory>...</memory>` from before `<memory __injected>`
+ * was introduced).
+ */
+const COMPACTION_ONLY_WRAPPED_STRIP_TAGS = [
+  "memory",
+  "memory_context",
+  "workspace",
+  "knowledge_base",
+  "pkb",
+  "system_reminder",
+];
+
+function isCompactionInjectedBlock(text: string): boolean {
+  if (COMPACTION_ONLY_STRIP_PREFIXES.some((p) => text.startsWith(p))) {
+    return true;
+  }
+  return COMPACTION_ONLY_WRAPPED_STRIP_TAGS.some(
+    (tag) => text.startsWith(`<${tag}>\n`) && text.endsWith(`</${tag}>`),
+  );
+}
+
+/**
+ * Remove text blocks that look like runtime injections from user messages.
+ * Non-text blocks (images, tool_use, tool_result, etc.) are untouched.
+ * Empty messages (every block filtered out) are dropped from the output.
  *
  * Used only on the `compactableMessages` slice right before it is
  * serialized for the summarization LLM — the caller's original message
@@ -98,9 +129,7 @@ export function stripCompactionOnlyInjections(messages: Message[]): Message[] {
       if (message.role !== "user") return message;
       const nextContent = message.content.filter((block) => {
         if (block.type !== "text") return true;
-        return !COMPACTION_ONLY_STRIP_PREFIXES.some((p) =>
-          block.text.startsWith(p),
-        );
+        return !isCompactionInjectedBlock(block.text);
       });
       if (nextContent.length === message.content.length) return message;
       if (nextContent.length === 0) return null;

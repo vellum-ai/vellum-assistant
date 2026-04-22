@@ -1748,6 +1748,137 @@ describe("stripCompactionOnlyInjections", () => {
     );
     expect(stripped[1].content).toHaveLength(2);
   });
+
+  test("preserves user prose that merely mentions ambiguous tag names", () => {
+    // These are the common-word bare tags whose previous prefix-only match
+    // would false-positive on legitimate user messages discussing XML or
+    // referring to system terminology. Each case should survive stripping
+    // because it is not shaped like a runtime injection (no leading newline
+    // after the tag, or other prose surrounds the tag).
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<memory> is a tag I'd like to add to my parser",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "checking <workspace> usage across the repo, any thoughts?",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "what is <knowledge_base> in this context?",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "<pkb> sounds like a short name — wrong?" },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "when the model hits a <system_reminder>, what happens next?",
+          },
+        ],
+      },
+    ];
+    const stripped = stripCompactionOnlyInjections(messages);
+    expect(stripped).toHaveLength(messages.length);
+    for (let i = 0; i < messages.length; i++) {
+      expect(stripped[i].content).toHaveLength(1);
+      expect((stripped[i].content[0] as { text: string }).text).toBe(
+        (messages[i].content[0] as { text: string }).text,
+      );
+    }
+  });
+
+  test("still strips runtime-shaped wrapped blocks for ambiguous tag names", () => {
+    // Legacy pre-`__injected` history still emits bare-tag blocks with a
+    // newline after the open tag and a matching close tag. Those must
+    // continue to be stripped even though the prefix list no longer names
+    // them — the wrapped-match path covers the legacy shape.
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "<memory>\nlegacy recall blob\n</memory>" },
+          { type: "text", text: "actual user content" },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<workspace>\nRoot: /home\nFiles: a, b\n</workspace>",
+          },
+          { type: "text", text: "more prose" },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<system_reminder>\nread your PKB\n</system_reminder>",
+          },
+          { type: "text", text: "ok" },
+        ],
+      },
+    ];
+    const stripped = stripCompactionOnlyInjections(messages);
+    expect(stripped).toHaveLength(3);
+    for (const msg of stripped) {
+      expect(msg.content).toHaveLength(1);
+    }
+    expect((stripped[0].content[0] as { text: string }).text).toBe(
+      "actual user content",
+    );
+    expect((stripped[1].content[0] as { text: string }).text).toBe(
+      "more prose",
+    );
+    expect((stripped[2].content[0] as { text: string }).text).toBe("ok");
+  });
+
+  test("does not strip a user's inline snippet that is not shaped like an injection", () => {
+    // A user quoting a `<memory>...</memory>` snippet alongside prose in the
+    // SAME text block should survive — the block does not start with
+    // `<memory>\n` (there's surrounding prose) so the wrapped-tag match
+    // does not trigger.
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Here's the XML I'm working with: <memory>x</memory> — what do you think?",
+          },
+        ],
+      },
+    ];
+    const stripped = stripCompactionOnlyInjections(messages);
+    expect(stripped).toHaveLength(1);
+    expect((stripped[0].content[0] as { text: string }).text).toContain(
+      "<memory>x</memory>",
+    );
+  });
 });
 
 describe("summarizer input excludes runtime injections", () => {
