@@ -16,12 +16,13 @@ import UIKit
 ///
 /// The modal caps its height at a percentage of the screen height (default
 /// 80%) so content scrolls rather than pushing the modal off-screen.
-public struct VModal<Content: View, Footer: View>: View {
+public struct VModal<Content: View, Footer: View, TitleAccessory: View>: View {
     public let title: String
     public let subtitle: String?
     public let maxHeightRatio: CGFloat
     public let closeAction: (() -> Void)?
     public let backAction: (() -> Void)?
+    @ViewBuilder public let titleAccessory: () -> TitleAccessory
     @ViewBuilder public let content: () -> Content
     @ViewBuilder public let footer: () -> Footer
 
@@ -31,6 +32,7 @@ public struct VModal<Content: View, Footer: View>: View {
         maxHeightRatio: CGFloat = 0.8,
         closeAction: (() -> Void)? = nil,
         backAction: (() -> Void)? = nil,
+        @ViewBuilder titleAccessory: @escaping () -> TitleAccessory,
         @ViewBuilder content: @escaping () -> Content,
         @ViewBuilder footer: @escaping () -> Footer
     ) {
@@ -39,6 +41,7 @@ public struct VModal<Content: View, Footer: View>: View {
         self.maxHeightRatio = maxHeightRatio
         self.closeAction = closeAction
         self.backAction = backAction
+        self.titleAccessory = titleAccessory
         self.content = content
         self.footer = footer
     }
@@ -97,9 +100,12 @@ public struct VModal<Content: View, Footer: View>: View {
     private var titleArea: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             if !title.isEmpty {
-                Text(title)
-                    .font(VFont.titleSmall)
-                    .foregroundStyle(VColor.contentDefault)
+                HStack(spacing: VSpacing.sm) {
+                    Text(title)
+                        .font(VFont.titleSmall)
+                        .foregroundStyle(VColor.contentDefault)
+                    titleAccessory()
+                }
             }
             if let subtitle {
                 Text(subtitle)
@@ -110,8 +116,32 @@ public struct VModal<Content: View, Footer: View>: View {
     }
 }
 
-// Convenience: no footer.
-public extension VModal where Footer == EmptyView {
+// Convenience: no title accessory. Keeps existing call sites compiling.
+public extension VModal where TitleAccessory == EmptyView {
+    init(
+        title: String,
+        subtitle: String? = nil,
+        maxHeightRatio: CGFloat = 0.8,
+        closeAction: (() -> Void)? = nil,
+        backAction: (() -> Void)? = nil,
+        @ViewBuilder content: @escaping () -> Content,
+        @ViewBuilder footer: @escaping () -> Footer
+    ) {
+        self.init(
+            title: title,
+            subtitle: subtitle,
+            maxHeightRatio: maxHeightRatio,
+            closeAction: closeAction,
+            backAction: backAction,
+            titleAccessory: { EmptyView() },
+            content: content,
+            footer: footer
+        )
+    }
+}
+
+// Convenience: no footer, no title accessory.
+public extension VModal where Footer == EmptyView, TitleAccessory == EmptyView {
     init(
         title: String,
         subtitle: String? = nil,
@@ -120,6 +150,39 @@ public extension VModal where Footer == EmptyView {
         backAction: (() -> Void)? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) {
-        self.init(title: title, subtitle: subtitle, maxHeightRatio: maxHeightRatio, closeAction: closeAction, backAction: backAction, content: content, footer: { EmptyView() })
+        self.init(
+            title: title,
+            subtitle: subtitle,
+            maxHeightRatio: maxHeightRatio,
+            closeAction: closeAction,
+            backAction: backAction,
+            titleAccessory: { EmptyView() },
+            content: content,
+            footer: { EmptyView() }
+        )
+    }
+}
+
+// Convenience: title accessory but no footer.
+public extension VModal where Footer == EmptyView {
+    init(
+        title: String,
+        subtitle: String? = nil,
+        maxHeightRatio: CGFloat = 0.8,
+        closeAction: (() -> Void)? = nil,
+        backAction: (() -> Void)? = nil,
+        @ViewBuilder titleAccessory: @escaping () -> TitleAccessory,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.init(
+            title: title,
+            subtitle: subtitle,
+            maxHeightRatio: maxHeightRatio,
+            closeAction: closeAction,
+            backAction: backAction,
+            titleAccessory: titleAccessory,
+            content: content,
+            footer: { EmptyView() }
+        )
     }
 }
