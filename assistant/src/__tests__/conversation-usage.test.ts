@@ -105,8 +105,8 @@ describe("recordUsage", () => {
     expect(events[0].estimatedCostUsd).toBe(
       expectedPricing.estimatedCostUsd ?? null,
     );
-    // Sanity: fast should be 6x standard ($30 * 6 = $180)
-    expect(expectedPricing.estimatedCostUsd).toBe(180);
+    // Sanity: fast should be 6x standard (claude-opus-4-6 at $15/$75 → $90 * 6 = $540)
+    expect(expectedPricing.estimatedCostUsd).toBe(540);
   });
 
   test("stores direct input separately from Anthropic cache usage while keeping live totals combined", () => {
