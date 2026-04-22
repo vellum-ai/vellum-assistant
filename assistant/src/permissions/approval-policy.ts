@@ -133,7 +133,8 @@ export interface ApprovalPolicy {
  *
  * 1. Deny rule → deny
  * 2. Ask rule + risk > autoApproveUpTo → prompt
- *    Ask rule + risk ≤ autoApproveUpTo → allow (threshold overrides ask)
+ *    Ask rule + risk ≤ autoApproveUpTo → allow (v3 only: threshold overrides ask)
+ *    Exception: skill_load_dynamic ask rules always prompt (inline-command safety gate)
  * 3. Sandbox auto-approve: workspace mode + bash + sandboxAutoApprove → allow
  *    (Path resolution is baked into `hasSandboxAutoApprove` upstream: containerized
  *    environments skip path checks; non-containerized environments validate all
@@ -178,8 +179,15 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
     // within autoApproveUpTo, the ask rule is overridden and the tool
     // auto-approves. Without v3, ask rules always prompt (preserving
     // backward-compatible behavior for default ask rules on host tools, etc.).
+    // Exception: skill_load_dynamic ask rules always prompt — they gate
+    // inline-command skill loads that execute embedded commands and must
+    // never be silently auto-approved.
     if (matchedRule && matchedRule.decision === "ask") {
+      const isDynamicSkillAsk = matchedRule.pattern.startsWith(
+        "skill_load_dynamic:",
+      );
       if (
+        !isDynamicSkillAsk &&
         context.isGatewayThreshold &&
         isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)
       ) {

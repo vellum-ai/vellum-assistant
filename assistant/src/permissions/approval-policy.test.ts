@@ -864,6 +864,22 @@ describe("autoApproveUpTo threshold", () => {
       expect(result.matchedRule).toBe(askRule);
     });
 
+    test("skill_load_dynamic ask rule always prompts even with gateway threshold", () => {
+      const dynamicSkillAskRule = makeRule({
+        decision: "ask",
+        pattern: "skill_load_dynamic:my-skill",
+      });
+      const result = evaluate({
+        riskLevel: RiskLevel.Low,
+        toolName: "skill_load",
+        matchedRule: dynamicSkillAskRule,
+        autoApproveUpTo: "high",
+        isGatewayThreshold: true,
+      });
+      expect(result.decision).toBe("prompt");
+      expect(result.matchedRule).toBe(dynamicSkillAskRule);
+    });
+
     test("allow rule still allows non-High regardless of threshold", () => {
       const allowRule = makeRule({ decision: "allow" });
       const result = evaluate({

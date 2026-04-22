@@ -255,46 +255,50 @@ export class PermissionChecker {
         const isDynamicSkillLoad =
           result.matchedRule?.pattern.startsWith("skill_load_dynamic:") ===
           true;
-        // Use gateway threshold when v3 is enabled, falling back to config.
-        // getAutoApproveThreshold returns from cache (populated by check() above).
-        const gatewayBgThreshold = await getAutoApproveThreshold(
-          context.conversationId,
-          "background",
-        );
-        const bgThreshold =
-          gatewayBgThreshold ??
-          resolveThreshold(cfg.permissions.autoApproveUpTo, "background");
-        const thresholdOrdinal: Record<string, number> = {
-          none: -1,
-          low: 0,
-          medium: 1,
-          high: 2,
-        };
-        const riskOrdinal: Record<string, number> = {
-          [RiskLevel.Low]: 0,
-          [RiskLevel.Medium]: 1,
-          [RiskLevel.High]: 2,
-        };
-        const withinThreshold =
-          (riskOrdinal[riskLevel] ?? 2) <= (thresholdOrdinal[bgThreshold] ?? 0);
         if (
           context.isInteractive === false &&
           context.trustClass === "guardian" &&
           !context.requireFreshApproval &&
           !isDynamicSkillLoad &&
-          !v2ForcePrompt &&
-          withinThreshold
+          !v2ForcePrompt
         ) {
-          log.info(
-            { toolName: name, riskLevel },
-            "Auto-approving for non-interactive guardian session",
+          // Use gateway threshold when v3 is enabled, falling back to config.
+          // getAutoApproveThreshold returns from cache (populated by check() above).
+          // Deferred inside the non-interactive branch so interactive prompts
+          // don't pay the gateway I/O cost.
+          const gatewayBgThreshold = await getAutoApproveThreshold(
+            context.conversationId,
+            "background",
           );
-          return {
-            allowed: true,
-            decision: "guardian_auto_approve",
-            riskLevel,
-            riskMeta,
+          const bgThreshold =
+            gatewayBgThreshold ??
+            resolveThreshold(cfg.permissions.autoApproveUpTo, "background");
+          const thresholdOrdinal: Record<string, number> = {
+            none: -1,
+            low: 0,
+            medium: 1,
+            high: 2,
           };
+          const riskOrdinal: Record<string, number> = {
+            [RiskLevel.Low]: 0,
+            [RiskLevel.Medium]: 1,
+            [RiskLevel.High]: 2,
+          };
+          const withinThreshold =
+            (riskOrdinal[riskLevel] ?? 2) <=
+            (thresholdOrdinal[bgThreshold] ?? 0);
+          if (withinThreshold) {
+            log.info(
+              { toolName: name, riskLevel },
+              "Auto-approving for non-interactive guardian session",
+            );
+            return {
+              allowed: true,
+              decision: "guardian_auto_approve",
+              riskLevel,
+              riskMeta,
+            };
+          }
         }
 
         // Non-interactive sessions have no client to respond to prompts -
