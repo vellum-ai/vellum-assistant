@@ -737,7 +737,9 @@ private struct StepDetailRow: View {
     /// when the user taps a risk badge in the expanded view.
     @State private var ruleEditorToolCall: ToolCallData?
 
-    private let trustRuleClient: TrustRuleClientProtocol = TrustRuleClient()
+    /// Shared across all StepDetailRow instances — TrustRuleClient is a stateless
+    /// HTTP client, so a single static instance avoids re-creation on every view rebuild.
+    private static let trustRuleClient: TrustRuleClientProtocol = TrustRuleClient()
 
     private static let coloredOutputCache: NSCache<NSString, StepDetailAttributedStringCacheEntry> = {
         let cache = NSCache<NSString, StepDetailAttributedStringCacheEntry>()
@@ -896,10 +898,10 @@ private struct StepDetailRow: View {
                 currentRiskLevel: tc.riskLevel ?? "medium",
                 riskReason: tc.riskReason ?? "",
                 scopeOptions: Self.scopeOptions(from: tc),
-                workingDir: NSHomeDirectory(),
+                workingDir: Self.workingDir(from: tc),
                 onSave: { rule in
                     Task {
-                        try? await trustRuleClient.addTrustRule(
+                        try? await Self.trustRuleClient.addTrustRule(
                             toolName: rule.toolName,
                             pattern: rule.pattern,
                             scope: rule.scope,
@@ -929,11 +931,20 @@ private struct StepDetailRow: View {
         }
         return options.map { option in
             ScopeOptionItem(
-                label: option.pattern,
-                description: option.label,
+                label: option.label,
+                description: option.pattern,
                 pattern: option.pattern
             )
         }
+    }
+
+    /// Extracts the working directory from the tool call's pending confirmation
+    /// scope options (the first non-"everywhere" scope). Falls back to home directory.
+    private static func workingDir(from toolCall: ToolCallData) -> String {
+        if let scope = toolCall.pendingConfirmation?.scopeOptions.first(where: { $0.scope != "everywhere" })?.scope {
+            return scope
+        }
+        return NSHomeDirectory()
     }
 
     // MARK: - Detail Content
