@@ -118,6 +118,12 @@ struct MainWindowView: View {
     /// inside ``HomePageView``) so the selection survives any @ViewBuilder
     /// rebuild of the Home panel wrapper.
     @State var selectedScheduledItemId: String? = nil
+    /// Parallel to ``selectedScheduledItemId``: when non-nil, the Home
+    /// panel renders ``HomeNudgeDetailPanel`` for the tapped `.nudge`
+    /// feed item, surfacing the nudge's associated action cards.
+    /// At most one of `selectedScheduledItemId` / `selectedNudgeItemId`
+    /// is non-nil at a time — opening one clears the other.
+    @State var selectedNudgeItemId: String? = nil
     init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
         self.conversationManager = conversationManager
         self.listStore = conversationManager.listStore

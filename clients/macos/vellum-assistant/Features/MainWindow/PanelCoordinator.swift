@@ -221,9 +221,16 @@ extension MainWindowView {
                 }
             },
             onScheduledItemSelected: { item in
+                // Opening one detail panel closes the other — at most
+                // one panel at a time.
+                selectedNudgeItemId = nil
                 selectedScheduledItemId = item.id
             },
-            isDetailPanelVisible: selectedScheduledItemId != nil,
+            onNudgeSelected: { item in
+                selectedScheduledItemId = nil
+                selectedNudgeItemId = item.id
+            },
+            isDetailPanelVisible: selectedScheduledItemId != nil || selectedNudgeItemId != nil,
             detailPanel: {
                 if let selectedId = selectedScheduledItemId {
                     let details = HomeScheduledDetails.placeholder
@@ -248,6 +255,28 @@ extension MainWindowView {
                         onPrimaryAction: { selectedScheduledItemId = nil },
                         onSecondaryAction: { selectedScheduledItemId = nil }
                     )
+                } else if let selectedId = selectedNudgeItemId {
+                    let selectedItem = feedStore.items.first(where: { $0.id == selectedId })
+                    // TODO: replace placeholder cards with real nudge-card
+                    // metadata when the assistant surfaces them on FeedItem
+                    // (see .private/plans/home-feed-groups.md follow-up).
+                    // Until then we render the Figma fixture (4 "Issue Name"
+                    // cards with two actions each) so the UI has a visible
+                    // surface to validate against.
+                    HomeNudgeDetailPanel(
+                        title: selectedItem?.title ?? "Heartbeat",
+                        icon: .heart,
+                        iconForeground: VColor.feedNudgeStrong,
+                        iconBackground: VColor.feedNudgeWeak,
+                        description: "Found some issues.",
+                        cards: HomeNudgeDetailPanelPlaceholders.sampleCards,
+                        primaryActionLabel: "Resolve All",
+                        secondaryActionLabel: "Clear All",
+                        onClose: { selectedNudgeItemId = nil },
+                        onPrimaryAction: { selectedNudgeItemId = nil },
+                        onSecondaryAction: { selectedNudgeItemId = nil },
+                        onCardAction: { _, _ in }
+                    )
                 }
             }
         )
@@ -257,11 +286,12 @@ extension MainWindowView {
         }
         .onDisappear {
             homeStore.isHomeTabVisible = false
-            // Codex P2 feedback (#27467): clear scheduled-detail selection so
+            // Codex P2 feedback (#27467): clear detail-panel selections so
             // re-entering Home doesn't show a stale split layout when the
             // user leaves Home through routes other than the detail panel's
             // own close/action buttons (sidebar switch, conversation open, etc.).
             selectedScheduledItemId = nil
+            selectedNudgeItemId = nil
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))

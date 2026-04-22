@@ -50,6 +50,12 @@ struct HomePageView<DetailPanel: View>: View {
     /// in and omits them from the memberwise init, which breaks the
     /// convenience-init forwarding path and any direct memberwise callers).
     var onScheduledItemSelected: (FeedItem) -> Void = { _ in }
+    /// Fired when the user taps a `.nudge` feed item — the parent
+    /// presents the nudge detail panel (N cards with optional actions)
+    /// instead of opening a conversation via triggerAction. Same var-
+    /// with-default pattern as `onScheduledItemSelected` so the
+    /// memberwise init stays usable from tests and non-nudge callers.
+    var onNudgeSelected: (FeedItem) -> Void = { _ in }
     /// Drives the two-pane split. When false, the home content renders in
     /// its original single-column layout and the `detailPanel` slot is
     /// ignored.
@@ -363,6 +369,10 @@ struct HomePageView<DetailPanel: View>: View {
             onScheduledItemSelected(item)
             return
         }
+        if item.type == .nudge {
+            onNudgeSelected(item)
+            return
+        }
         Task {
             if let conversationId = await feedStore.triggerAction(
                 itemId: item.id,
@@ -438,7 +448,8 @@ extension HomePageView where DetailPanel == EmptyView {
         onStartNewChat: @escaping () -> Void,
         onDismissSuggestions: @escaping () -> Void,
         onSuggestionSelected: @escaping (HomeSuggestion) -> Void,
-        onScheduledItemSelected: @escaping (FeedItem) -> Void = { _ in }
+        onScheduledItemSelected: @escaping (FeedItem) -> Void = { _ in },
+        onNudgeSelected: @escaping (FeedItem) -> Void = { _ in }
     ) {
         self.init(
             store: store,
@@ -449,6 +460,7 @@ extension HomePageView where DetailPanel == EmptyView {
             onDismissSuggestions: onDismissSuggestions,
             onSuggestionSelected: onSuggestionSelected,
             onScheduledItemSelected: onScheduledItemSelected,
+            onNudgeSelected: onNudgeSelected,
             isDetailPanelVisible: false,
             detailPanel: { EmptyView() }
         )

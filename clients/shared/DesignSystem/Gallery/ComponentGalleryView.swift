@@ -136,6 +136,12 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                     description: "Right-hand detail panel surfaced when a scheduled (.thread, source: .calendar) feed item is tapped. Shows schedule metadata (Name, Syntax, Mode, Schedule, Enabled, Next Run) plus outlined secondary + filled primary actions."
                 ),
                 GalleryComponent(
+                    "homeNudgeDetailPanel",
+                    "HomeNudgeDetailPanel",
+                    keywords: ["nudge", "detail panel", "cards", "issues", "heartbeat", "home"],
+                    description: "Right-hand detail panel surfaced when a .nudge feed item is tapped. Description + stack of N cards with optional action buttons, plus a right-aligned footer with secondary + primary actions (e.g. Clear All / Resolve All)."
+                ),
+                GalleryComponent(
                     "homeEmailEditor",
                     "HomeEmailEditor",
                     keywords: ["email editor", "compose", "side panel", "detail"],

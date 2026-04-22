@@ -54,7 +54,8 @@ final class HomeScheduledRoutingTests: XCTestCase {
     private func makeView(
         homeStore: HomeStore,
         feedStore: HomeFeedStore,
-        onScheduledItemSelected: @escaping (FeedItem) -> Void,
+        onScheduledItemSelected: @escaping (FeedItem) -> Void = { _ in },
+        onNudgeSelected: @escaping (FeedItem) -> Void = { _ in },
         onFeedConversationOpened: @escaping (String) -> Void = { _ in }
     ) -> HomePageView<EmptyView> {
         let (meetStream, _) = AsyncStream<ServerMessage>.makeStream()
@@ -70,7 +71,8 @@ final class HomeScheduledRoutingTests: XCTestCase {
             onStartNewChat: {},
             onDismissSuggestions: {},
             onSuggestionSelected: { _ in },
-            onScheduledItemSelected: onScheduledItemSelected
+            onScheduledItemSelected: onScheduledItemSelected,
+            onNudgeSelected: onNudgeSelected
         )
     }
 
@@ -145,6 +147,51 @@ final class HomeScheduledRoutingTests: XCTestCase {
 
             XCTAssertTrue(captured.isEmpty,
                           "\(nonThreadType) taps must not fire the scheduled callback")
+        }
+    }
+
+    // MARK: - Nudge routing
+
+    func test_openItem_nudgeType_firesNudgeCallback() async {
+        let (homeStore, feedStore, feedClient) = makeStores()
+        var capturedNudges: [FeedItem] = []
+        var capturedScheduled: [FeedItem] = []
+        var conversationOpens = 0
+        let view = makeView(
+            homeStore: homeStore,
+            feedStore: feedStore,
+            onScheduledItemSelected: { capturedScheduled.append($0) },
+            onNudgeSelected: { capturedNudges.append($0) },
+            onFeedConversationOpened: { _ in conversationOpens += 1 }
+        )
+
+        let item = makeItem(id: "nudge-1", type: .nudge)
+        view.openItem(item)
+
+        XCTAssertEqual(capturedNudges.map { $0.id }, ["nudge-1"],
+                       "nudge callback should fire exactly once with the tapped item")
+        XCTAssertTrue(capturedScheduled.isEmpty,
+                      "nudge taps must not fire the scheduled callback")
+        XCTAssertEqual(feedClient.triggerCallCount, 0,
+                       "nudge taps must not round-trip through triggerAction")
+        XCTAssertEqual(conversationOpens, 0,
+                       "nudge taps must not attempt to open a conversation")
+    }
+
+    func test_openItem_nonNudgeType_skipsNudgeCallback() async {
+        let (homeStore, feedStore, _) = makeStores()
+        for nonNudgeType in [FeedItemType.digest, .action, .thread] {
+            var captured: [FeedItem] = []
+            let view = makeView(
+                homeStore: homeStore,
+                feedStore: feedStore,
+                onNudgeSelected: { captured.append($0) }
+            )
+
+            view.openItem(makeItem(id: "x-\(nonNudgeType)", type: nonNudgeType))
+
+            XCTAssertTrue(captured.isEmpty,
+                          "\(nonNudgeType) taps must not fire the nudge callback")
         }
     }
 }

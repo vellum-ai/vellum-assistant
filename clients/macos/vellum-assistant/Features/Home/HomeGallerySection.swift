@@ -608,6 +608,76 @@ struct HomeGallerySection: View {
                 .frame(height: 520)
             }
 
+            // MARK: - HomeNudgeDetailPanel
+
+            if filter == nil || filter == "homeNudgeDetailPanel" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "HomeNudgeDetailPanel",
+                    description: "Right-hand detail panel surfaced when a .nudge feed item is tapped on Home. Optional description at top, scrollable stack of N cards (title + description + optional action row), and a right-aligned footer with secondary + primary actions (Clear All / Resolve All). Rendered here with HomeNudgeDetailPanelPlaceholders.sampleCards."
+                )
+
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    Text("Placeholder content — 4 cards, each with 2 actions")
+                        .font(VFont.bodySmallEmphasised)
+                        .foregroundStyle(VColor.contentSecondary)
+
+                    HomeNudgeDetailPanel(
+                        title: "Heartbeat",
+                        icon: .heart,
+                        iconForeground: VColor.feedNudgeStrong,
+                        iconBackground: VColor.feedNudgeWeak,
+                        description: "Found some issues.",
+                        cards: HomeNudgeDetailPanelPlaceholders.sampleCards,
+                        primaryActionLabel: "Resolve All",
+                        secondaryActionLabel: "Clear All",
+                        onClose: {},
+                        onPrimaryAction: {},
+                        onSecondaryAction: {},
+                        onCardAction: { _, _ in }
+                    )
+                    .frame(height: 640)
+
+                    Divider().background(VColor.borderBase)
+
+                    Text("No description, no secondary action, cards without buttons")
+                        .font(VFont.bodySmallEmphasised)
+                        .foregroundStyle(VColor.contentSecondary)
+
+                    HomeNudgeDetailPanel(
+                        title: "Heartbeat",
+                        icon: .heart,
+                        iconForeground: VColor.feedNudgeStrong,
+                        iconBackground: VColor.feedNudgeWeak,
+                        description: nil,
+                        cards: [
+                            HomeNudgeDetailPanel.Card(
+                                id: "noact-1",
+                                title: "All clear",
+                                description: "Nothing to act on — this nudge is purely informational.",
+                                actions: []
+                            ),
+                            HomeNudgeDetailPanel.Card(
+                                id: "noact-2",
+                                title: "Still monitoring",
+                                description: "We'll follow up if anything changes.",
+                                actions: []
+                            ),
+                        ],
+                        primaryActionLabel: "Acknowledge",
+                        secondaryActionLabel: nil,
+                        onClose: {},
+                        onPrimaryAction: {},
+                        onSecondaryAction: nil,
+                        onCardAction: { _, _ in }
+                    )
+                    .frame(height: 420)
+                }
+            }
+
             // MARK: - HomeSplitLayout
 
             if filter == nil || filter == "homeSplitLayout" {
@@ -962,6 +1032,7 @@ extension HomeGallerySection {
         case "homeRecapGroupRow": HomeGallerySection(filter: "homeRecapGroupRow")
         case "homeDetailPanel": HomeGallerySection(filter: "homeDetailPanel")
         case "homeScheduledDetailPanel": HomeGallerySection(filter: "homeScheduledDetailPanel")
+        case "homeNudgeDetailPanel": HomeGallerySection(filter: "homeNudgeDetailPanel")
         case "homeEmailEditor": HomeGallerySection(filter: "homeEmailEditor")
         case "homeDocumentPreview": HomeGallerySection(filter: "homeDocumentPreview")
         case "homePermissionChatPreview": HomeGallerySection(filter: "homePermissionChatPreview")
