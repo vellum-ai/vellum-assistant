@@ -45,7 +45,7 @@ struct HomeEmailEditor: View {
         VStack(alignment: .leading, spacing: 0) {
             // Full-bleed divider flush to the panel edges separates the
             // enclosing HomeDetailPanel header from the editor fields.
-            VColor.borderBase
+            VColor.borderHover
                 .frame(height: 1)
                 .accessibilityHidden(true)
 
@@ -90,7 +90,7 @@ struct HomeEmailEditor: View {
     /// divider except the one directly under the header is held in from
     /// the panel edges.
     private var insetHairline: some View {
-        VColor.borderBase
+        VColor.borderHover
             .frame(height: 1)
             .padding(.horizontal, VSpacing.lg)
             .accessibilityHidden(true)
