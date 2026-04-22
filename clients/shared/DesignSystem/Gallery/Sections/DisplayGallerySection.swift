@@ -275,7 +275,7 @@ struct DisplayGallerySection: View {
                                     .font(VFont.bodyMediumLighter)
                                     .foregroundStyle(VColor.contentDefault)
                                 Spacer()
-                                VBadge(style: .count(3))
+                                VBadge(count: 3, tone: .accent)
                             }
                         }
 
