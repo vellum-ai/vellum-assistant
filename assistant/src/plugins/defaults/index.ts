@@ -138,3 +138,4 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
 // {@link registerDefaultPlugins} and
 // {@link resetPluginRegistryAndRegisterDefaults} remain exported as
 // belt-and-braces helpers for tests that clear the registry mid-run.
+// ci-kick: re-trigger pr-assistant workflow after feature branch advanced past initial run
