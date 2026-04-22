@@ -88,9 +88,9 @@ type StatusCheckMode = BrowserStatusMode;
 const MODE_TRADEOFFS: Record<StatusCheckMode, string[]> = {
   [BROWSER_STATUS_MODE.EXTENSION]: [
     "This is the preferred approach for all things browser-use.",
-    "It requires a one-time install of the Vellum Assistant Chrome Extension.",
+    "On macOS, the host browser proxy is provisioned automatically via the desktop client's SSE bridge — no extension install required.",
+    "When the Chrome extension is also installed, it takes priority for direct WebSocket routing to the user's Chrome session.",
     "More secure than relying on Chrome's native remote debugging functionality.",
-    "Requires the Vellum extension to be paired and actively connected.",
   ],
   [BROWSER_STATUS_MODE.CDP_INSPECT]: [
     "This is the second-best approach for all things browser-use, after the native Vellum Assistant Chrome Extension.",
@@ -190,9 +190,10 @@ export function parseBrowserMode(
 const REMEDIATION_HINTS: Record<string, string[]> = {
   // Extension backend
   "extension:transport_error": [
-    "Ensure the Vellum browser extension is installed and enabled.",
-    "Check that the extension WebSocket connection is active (extension popup → status).",
-    "Try reconnecting the extension or reloading the extension service worker.",
+    "Ensure the Vellum browser extension is installed and enabled, or that the macOS desktop client is running for host browser proxy mode.",
+    "For extension mode: check that the extension WebSocket connection is active (extension popup → status).",
+    "For macOS host browser proxy: verify the desktop client is running and has an active SSE connection to the assistant.",
+    "Try reconnecting the extension or restarting the desktop client.",
   ],
   // cdp-inspect backend — discovery-level failures
   "cdp-inspect:unreachable": [
@@ -2098,6 +2099,43 @@ function extensionSetupActions(): string[] {
   ];
 }
 
+function macOSHostBrowserSetupActions(): string[] {
+  return [
+    "Ensure the Vellum desktop app is running and connected to the assistant.",
+    "Open Google Chrome on the desktop machine so the host browser proxy can attach.",
+    "If the desktop client is not running, launch it and wait for the SSE connection to establish.",
+  ];
+}
+
+function macOSHostBrowserReconnectActions(): string[] {
+  return [
+    "Verify the Vellum desktop app is still running and has an active network connection.",
+    "If the desktop client was recently restarted, send a new message to re-establish the SSE bridge.",
+    "Ensure Chrome is open on the desktop machine for the host browser proxy to target.",
+  ];
+}
+
+function macOSHostBrowserProbeFailureActions(error: CdpError): string[] {
+  const actions: string[] = [
+    "Ensure Google Chrome is running on the desktop machine.",
+  ];
+  const message = error.message.toLowerCase();
+  if (message.includes("timeout") || message.includes("timed out")) {
+    actions.push(
+      "The desktop client may be unresponsive — try restarting the Vellum desktop app.",
+    );
+  }
+  if (message.includes("transport") || message.includes("disconnected")) {
+    actions.push(
+      "The SSE bridge between the assistant and the desktop client appears broken. Send a new message to re-establish the connection.",
+    );
+  }
+  actions.push(
+    "Switch Chrome to a regular http(s) tab (not chrome://...) and retry.",
+  );
+  return dedupeStrings(actions);
+}
+
 function cdpInspectSetupActions(): string[] {
   return [
     "Update Chrome to the latest version by going to chrome://settings/help",
@@ -2247,6 +2285,7 @@ async function checkExtensionModeStatus(
 ): Promise<BrowserStatusModeResult> {
   const proxyBound = Boolean(context.hostBrowserProxy);
   const proxyConnected = context.hostBrowserProxy?.isAvailable() ?? false;
+  const isMacOS = context.transportInterface === "macos";
 
   if (!proxyBound) {
     return {
@@ -2254,13 +2293,17 @@ async function checkExtensionModeStatus(
       available: false,
       verified: "preflight",
       autoCandidate,
-      summary:
-        "Extension mode is unavailable: no host browser proxy is bound to this conversation.",
-      userActions: extensionSetupActions(),
+      summary: isMacOS
+        ? "Extension mode is unavailable: the macOS host browser proxy is not bound to this conversation. Ensure the desktop client is connected."
+        : "Extension mode is unavailable: no host browser proxy is bound to this conversation.",
+      userActions: isMacOS
+        ? macOSHostBrowserSetupActions()
+        : extensionSetupActions(),
       tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
       details: {
         proxyBound,
         proxyConnected,
+        transport: isMacOS ? "macos-sse" : "extension-ws",
       },
     };
   }
@@ -2271,13 +2314,17 @@ async function checkExtensionModeStatus(
       available: false,
       verified: "preflight",
       autoCandidate,
-      summary:
-        "Extension mode is unavailable: the extension transport is currently disconnected.",
-      userActions: extensionSetupActions(),
+      summary: isMacOS
+        ? "Extension mode is unavailable: the macOS host browser proxy is bound but the SSE transport is currently disconnected. Verify the desktop client is running and connected."
+        : "Extension mode is unavailable: the extension transport is currently disconnected.",
+      userActions: isMacOS
+        ? macOSHostBrowserReconnectActions()
+        : extensionSetupActions(),
       tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
       details: {
         proxyBound,
         proxyConnected,
+        transport: isMacOS ? "macos-sse" : "extension-ws",
       },
     };
   }
@@ -2292,13 +2339,16 @@ async function checkExtensionModeStatus(
       available: true,
       verified: "active_probe",
       autoCandidate,
-      summary: "Extension mode is ready and responded to an active CDP probe.",
+      summary: isMacOS
+        ? "Extension mode is ready via macOS host browser proxy and responded to an active CDP probe."
+        : "Extension mode is ready and responded to an active CDP probe.",
       userActions: [],
       tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
       details: {
         proxyBound,
         proxyConnected,
         backendKind: probe.backendKind,
+        transport: isMacOS ? "macos-sse" : "extension-ws",
       },
     };
   }
@@ -2309,8 +2359,9 @@ async function checkExtensionModeStatus(
       available: true,
       verified: "active_probe",
       autoCandidate,
-      summary:
-        "Extension mode transport is connected, but the active Chrome tab is a restricted chrome:// page. Switch to a regular website tab if browser actions fail.",
+      summary: isMacOS
+        ? "Extension mode transport is connected via macOS host browser proxy, but the active Chrome tab is a restricted chrome:// page. Switch to a regular website tab if browser actions fail."
+        : "Extension mode transport is connected, but the active Chrome tab is a restricted chrome:// page. Switch to a regular website tab if browser actions fail.",
       userActions: [
         "Switch Chrome to a regular http(s) tab (not chrome://...) and retry.",
       ],
@@ -2322,6 +2373,7 @@ async function checkExtensionModeStatus(
         errorCode: probe.error.code,
         diagnostic: probe.diagnostic,
         attemptDiagnostics: probe.error.attemptDiagnostics ?? [],
+        transport: isMacOS ? "macos-sse" : "extension-ws",
       },
     };
   }
@@ -2331,11 +2383,12 @@ async function checkExtensionModeStatus(
     available: false,
     verified: "active_probe",
     autoCandidate,
-    summary: `Extension mode probe failed: ${probe.error.message}`,
-    userActions: probeFailureActions(
-      BROWSER_STATUS_MODE.EXTENSION,
-      probe.error,
-    ),
+    summary: isMacOS
+      ? `Extension mode probe failed via macOS host browser proxy: ${probe.error.message}`
+      : `Extension mode probe failed: ${probe.error.message}`,
+    userActions: isMacOS
+      ? macOSHostBrowserProbeFailureActions(probe.error)
+      : probeFailureActions(BROWSER_STATUS_MODE.EXTENSION, probe.error),
     tradeoffs: modeTradeoffs(BROWSER_STATUS_MODE.EXTENSION),
     details: {
       proxyBound,
@@ -2343,6 +2396,7 @@ async function checkExtensionModeStatus(
       errorCode: probe.error.code,
       diagnostic: probe.diagnostic,
       attemptDiagnostics: probe.error.attemptDiagnostics ?? [],
+      transport: isMacOS ? "macos-sse" : "extension-ws",
     },
   };
 }
