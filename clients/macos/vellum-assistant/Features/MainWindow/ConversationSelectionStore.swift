@@ -402,16 +402,6 @@ final class ConversationSelectionStore {
         log.info("Removed abandoned empty conversation \(previousId)")
     }
 
-    /// Trim the previously active conversation's view model to shed memory before
-    /// switching to a different conversation.
-    func trimPreviousConversationIfNeeded(nextConversationId: UUID) {
-        guard let previousId = activeConversationId, previousId != nextConversationId,
-              let vm = chatViewModels[previousId],
-              vm.isHistoryLoaded,
-              !vm.isSending, !vm.isThinking, !vm.isLoadingMoreMessages else { return }
-        vm.trimForBackground()
-    }
-
     // MARK: - Channel Refresh
 
     /// Start a periodic refresh loop for the active conversation if it is a

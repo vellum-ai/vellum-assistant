@@ -1128,30 +1128,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         displayedMessageCount = Self.messagePageSize
     }
 
-    /// Aggressively trim this view model for background retention. Keeps only
-    /// the latest page of messages with heavy content stripped, and resets
-    /// pagination so re-activation fetches fresh history from the daemon.
-    public func trimForBackground() {
-        let pageSize = Self.messagePageSize
-        // Batch the suffix + strip into a single Combine publish.
-        messageManager.batchUpdateMessages { msgs in
-            if msgs.count > pageSize {
-                msgs = Array(msgs.suffix(pageSize))
-            }
-            for i in msgs.indices {
-                msgs[i].stripHeavyContent()
-            }
-        }
-        isShowAllMode = false
-        displayedMessageCount = Self.messagePageSize
-        // Only mark history as unloaded if there's a conversation to reload from.
-        // Conversations without a conversation ID (new, empty) have nothing to fetch —
-        // resetting the flag would leave the UI stuck on a loading spinner.
-        if conversationId != nil {
-            isHistoryLoaded = false
-        }
-    }
-
     /// Surface the user is currently viewing in workspace mode.
     /// Set by MainWindowView when the dynamic workspace is expanded.
     public var activeSurfaceId: String? {
@@ -2331,12 +2307,11 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             // history_response arrived. Deduplicate by only prepending
             // history messages whose timestamps precede the earliest
             // existing message.
-            // Content-stripped messages (from trimForBackground) are excluded
-            // from this check — they should be fully replaced by fresh server
-            // data, not preserved with their heavy content cleared. However,
-            // pending/unsent local messages must be preserved even if stripped,
-            // since the server doesn't have them yet and a full replace would
-            // drop them.
+            // Content-stripped messages are excluded from this check — they
+            // should be fully replaced by fresh server data, not preserved
+            // with their heavy content cleared. However, pending/unsent
+            // local messages must be preserved even if stripped, since the
+            // server doesn't have them yet and a full replace would drop them.
             let earliestExisting = self.messages.map(\.timestamp).min()
             let uniqueHistory: [ChatMessage]
             if let earliest = earliestExisting {
