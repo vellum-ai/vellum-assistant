@@ -541,6 +541,13 @@ export class MeetAudioIngest {
 // Defaults — resolve the configured STT provider + real node:net socket
 // ---------------------------------------------------------------------------
 
+function formatDisjunction(items: readonly string[]): string {
+  if (items.length === 0) return "a supported provider";
+  if (items.length === 1) return items[0]!;
+  if (items.length === 2) return `${items[0]} or ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, or ${items[items.length - 1]}`;
+}
+
 /**
  * Default streaming-transcriber factory — resolves the provider via the
  * assistant's STT catalog (reads `services.stt.provider` and looks up
@@ -578,12 +585,13 @@ async function defaultCreateTranscriber(): Promise<StreamingTranscriber> {
     diarize: "preferred",
   });
   if (!transcriber) {
-    const streamingProviders = listProviderIds()
-      .filter((id) => supportsBoundary(id, "daemon-streaming"))
-      .join(", ");
+    const streamingProviders = listProviderIds().filter((id) =>
+      supportsBoundary(id, "daemon-streaming"),
+    );
+    const providerList = formatDisjunction(streamingProviders);
     throw new MeetAudioIngestError(
       "The configured STT provider is unusable for Meet transcription. " +
-        `Set services.stt.provider to ${streamingProviders} ` +
+        `Set services.stt.provider to ${providerList} ` +
         "and ensure credentials are present.",
     );
   }
