@@ -184,4 +184,34 @@ describe("getCatalog", () => {
     expect(readLocalCatalogCallCount).toBe(1);
     expect(fetchCatalogCallCount).toBe(1); // attempted remote fetch
   });
+
+  test("preserves merged cache when later remote fetch fails", async () => {
+    mockRepoSkillsDir = "/mock/repo/skills";
+    mockLocalCatalog = [
+      { id: "web-search", name: "Local Web Search", description: "Local" },
+    ];
+    mockFetchCatalogResult = [
+      { id: "web-search", name: "Remote Web Search", description: "Remote" },
+      { id: "remote-only", name: "Remote Only", description: "Remote only" },
+    ];
+
+    // Prime the cache with a successful merged fetch.
+    const merged = await getCatalog();
+    expect(merged).toEqual([
+      { id: "web-search", name: "Local Web Search", description: "Local" },
+      { id: "remote-only", name: "Remote Only", description: "Remote only" },
+    ]);
+
+    // Expire TTL and make remote fetch fail.
+    const originalNow = Date.now;
+    Date.now = () => originalNow() + 5 * 60 * 1000 + 1;
+    try {
+      mockFetchCatalogError = new Error("Network timeout");
+      const fallback = await getCatalog();
+      // Must retain remote-only skills rather than regressing to bare local.
+      expect(fallback).toEqual(merged);
+    } finally {
+      Date.now = originalNow;
+    }
+  });
 });

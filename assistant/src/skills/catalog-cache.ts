@@ -37,6 +37,13 @@ export async function getCatalog(): Promise<CatalogSkill[]> {
       catalog = remote;
     }
   } catch (err) {
+    if (cachedCatalog) {
+      log.warn(
+        { err },
+        "Failed to fetch Vellum catalog, keeping stale merged cache",
+      );
+      return cachedCatalog;
+    }
     if (local.length > 0) {
       log.warn(
         { err },
@@ -44,11 +51,8 @@ export async function getCatalog(): Promise<CatalogSkill[]> {
       );
       catalog = local;
     } else {
-      log.warn(
-        { err },
-        "Failed to fetch Vellum catalog, using stale cache or empty",
-      );
-      return cachedCatalog ?? [];
+      log.warn({ err }, "Failed to fetch Vellum catalog, returning empty");
+      return [];
     }
   }
   cachedCatalog = catalog;
