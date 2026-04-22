@@ -43,8 +43,12 @@
  * explicit attributes, inline styles, or the native visibility check. Elements
  * that merely lack positive evidence of being interactable (common in jsdom,
  * where there is no layout) pass through.
+ *
+ * Exported for reuse by callers that need to apply the same filter to their
+ * own imperative `querySelectorAll` loops (e.g. `features/join.ts` step 4
+ * admission polling).
  */
-function isInteractable(el: Element): boolean {
+export function isInteractable(el: Element): boolean {
   const html = el as HTMLElement;
 
   // Ancestor-or-self check: `hidden` / `aria-hidden="true"` on any enclosing
@@ -118,15 +122,26 @@ export function waitForSelector(
   opts: WaitOptions = {},
 ): Promise<Element> {
   const wantInteractable = opts.interactable === true;
-  const accept = (el: Element | null): el is Element =>
-    el !== null && (!wantInteractable || isInteractable(el));
+  // When filtering, scan every match — not just the first — so a hidden
+  // template node earlier in the tree does not mask a later interactable
+  // sibling. `querySelector` only ever returns the first hit, which makes
+  // the filter falsely bail in that case.
+  const findMatch = (): Element | null => {
+    if (!wantInteractable) return doc.querySelector(sel);
+    const all = doc.querySelectorAll(sel);
+    for (let i = 0; i < all.length; i++) {
+      const el = all[i]!;
+      if (isInteractable(el)) return el;
+    }
+    return null;
+  };
 
   return new Promise<Element>((resolve, reject) => {
     // Synchronous check — if it's already there (and interactable, when
     // requested), return immediately. This short-circuits the happy path
     // without touching MutationObserver.
-    const existing = doc.querySelector(sel);
-    if (accept(existing)) {
+    const existing = findMatch();
+    if (existing) {
       resolve(existing);
       return;
     }
@@ -134,8 +149,8 @@ export function waitForSelector(
     let settled = false;
     const observer = new MutationObserver(() => {
       if (settled) return;
-      const match = doc.querySelector(sel);
-      if (accept(match)) {
+      const match = findMatch();
+      if (match) {
         settled = true;
         observer.disconnect();
         clearTimeout(timer);
@@ -175,11 +190,21 @@ export function waitForAny(
   opts: WaitOptions = {},
 ): Promise<{ selector: string; element: Element }> {
   const wantInteractable = opts.interactable === true;
+  // When filtering, iterate every candidate per selector rather than just
+  // the first `querySelector` hit. A hidden template node at the front of
+  // the list would otherwise short-circuit the selector's match check and
+  // mask a later interactable sibling that would have satisfied it.
   const firstMatch = (): { selector: string; element: Element } | null => {
     for (const selector of selectors) {
-      const el = doc.querySelector(selector);
-      if (el && (!wantInteractable || isInteractable(el))) {
-        return { selector, element: el };
+      if (!wantInteractable) {
+        const el = doc.querySelector(selector);
+        if (el) return { selector, element: el };
+        continue;
+      }
+      const all = doc.querySelectorAll(selector);
+      for (let i = 0; i < all.length; i++) {
+        const el = all[i]!;
+        if (isInteractable(el)) return { selector, element: el };
       }
     }
     return null;

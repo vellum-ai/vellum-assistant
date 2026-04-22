@@ -37,7 +37,7 @@
  */
 import type { ExtensionToBotMessage } from "../../../contracts/native-messaging.js";
 import { selectors } from "../dom/selectors.js";
-import { waitForAny, waitForSelector } from "../dom/wait.js";
+import { isInteractable, waitForAny, waitForSelector } from "../dom/wait.js";
 import { postConsentMessage } from "./chat.js";
 
 /** How long to wait for the prejoin surface to mount. */
@@ -215,12 +215,26 @@ export async function runJoinFlow(opts: RunJoinFlowOptions): Promise<void> {
   // join button after we populate the name input, so a synchronous query
   // here races against that render. Poll with a short budget — the button
   // is visible in the DOM within a few hundred ms of the input event.
+  //
+  // Apply the same interactable filter the Step 1/2 waits use: Meet leaves
+  // hidden template copies of the join buttons in the tree during prejoin,
+  // so the first `querySelector` hit can be a ghost node. Iterate every
+  // match and take the first interactable one so this poll stays consistent
+  // with the rest of the join flow.
+  const findInteractable = (sel: string): Element | null => {
+    const nodes = doc.querySelectorAll(sel);
+    for (let i = 0; i < nodes.length; i++) {
+      const el = nodes[i]!;
+      if (isInteractable(el)) return el;
+    }
+    return null;
+  };
   let admissionBtn: Element | null = null;
   const joinDeadline = Date.now() + 10_000;
   while (Date.now() < joinDeadline) {
     admissionBtn =
-      doc.querySelector(selectors.PREJOIN_JOIN_NOW_BUTTON) ??
-      doc.querySelector(selectors.PREJOIN_ASK_TO_JOIN_BUTTON);
+      findInteractable(selectors.PREJOIN_JOIN_NOW_BUTTON) ??
+      findInteractable(selectors.PREJOIN_ASK_TO_JOIN_BUTTON);
     if (admissionBtn) break;
     await new Promise((r) => setTimeout(r, 200));
   }
