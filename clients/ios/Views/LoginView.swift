@@ -101,9 +101,6 @@ struct LoginView: View {
                     .padding(.bottom, VSpacing.md)
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            OnboardingBottomStrip()
-        }
     }
 }
 

@@ -64,6 +64,9 @@ struct OnboardingView: View {
                 .padding(.top, VSpacing.sm)
             }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            OnboardingBottomStrip()
+        }
         .animation(.easeInOut, value: currentStep)
         .animation(.easeInOut, value: isBootstrappingManaged)
     }

@@ -7,8 +7,8 @@ import UIKit
 /// two platforms read as the same onboarding experience.
 ///
 /// Attach with `.safeAreaInset(edge: .bottom, spacing: 0) { ... }` on the
-/// screen's root view so the strip bleeds past the home indicator and
-/// pushes surrounding content up to avoid overlap.
+/// screen's root view. The image itself ignores the bottom safe area so
+/// the characters bleed under the home indicator, matching the Figma design.
 struct OnboardingBottomStrip: View {
     var body: some View {
         Image(uiImage: Self.characters ?? UIImage())
@@ -16,6 +16,7 @@ struct OnboardingBottomStrip: View {
             .aspectRatio(contentMode: .fit)
             .frame(maxWidth: .infinity)
             .accessibilityHidden(true)
+            .ignoresSafeArea(.container, edges: .bottom)
     }
 
     private static let characters: UIImage? = {
