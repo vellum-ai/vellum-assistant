@@ -36,15 +36,15 @@ struct FeedbackGallerySection: View {
                             }
                             VStack(spacing: VSpacing.xs) {
                                 Text("Success").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
-                                VBadge(style: .count(Int(badgeCount)), color: VColor.systemPositiveStrong)
+                                VBadge(count: Int(badgeCount), tone: .positive)
                             }
                             VStack(spacing: VSpacing.xs) {
                                 Text("Error").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
-                                VBadge(style: .count(Int(badgeCount)), color: VColor.systemNegativeStrong)
+                                VBadge(count: Int(badgeCount), tone: .danger)
                             }
                             VStack(spacing: VSpacing.xs) {
                                 Text("Warning").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
-                                VBadge(style: .count(Int(badgeCount)), color: VColor.systemMidStrong)
+                                VBadge(count: Int(badgeCount), tone: .warning)
                             }
                         }
 
