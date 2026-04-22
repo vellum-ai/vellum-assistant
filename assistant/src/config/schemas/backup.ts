@@ -54,12 +54,6 @@ export const BackupConfigSchema = z
       .int("backup.retention must be an integer")
       .min(1, "backup.retention must be >= 1")
       .max(100, "backup.retention must be <= 100")
-      // Default retention is intentionally low (3) because each .vbundle
-      // snapshot is a full copy — not incremental or deduplicated — so a
-      // single snapshot can be several GB on a moderate workspace. With a 6h
-      // interval, 3 snapshots covers ~18 hours of rollback, and that pool
-      // doubles for each offsite destination. Users with plenty of disk can
-      // raise this via `vellum backup enable --retention <n>`. See ATL-193.
       .default(3)
       .describe("Number of recent backups to retain"),
     offsite: BackupOffsiteConfigSchema.default(
