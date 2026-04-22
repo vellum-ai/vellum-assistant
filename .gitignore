@@ -27,6 +27,7 @@ gateway/src/feature-flag-registry.json
 
 # Copied from meta/ into iOS Resources/ at build time by clients/ios/build.sh
 clients/ios/Resources/tts-provider-catalog.json
+clients/ios/Resources/llm-provider-catalog.json
 
 # misc
 worktrees/

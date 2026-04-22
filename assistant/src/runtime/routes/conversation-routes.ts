@@ -1703,93 +1703,89 @@ export async function handleSendMessage(
 
   // ── Canned first-greeting fast path ──
   // On a completely fresh workspace, skip LLM inference for the macOS
-  // wake-up greeting and return a pre-written response. This eliminates
-  // 10-30s of inference latency on first boot.
+  // wake-up greeting and return a pre-written response. When onboarding
+  // context is present the greeting is personalized using the selections;
+  // otherwise a generic greeting is served. Both paths are instant.
   if (isWakeUpGreeting(trimmedContent, conversation.getMessages().length)) {
-    const cannedGreeting = getCannedFirstGreeting();
-    if (cannedGreeting) {
-      conversation.processing = true;
-      let cleanupDeferred = false;
-      try {
-        const provenance = provenanceFromTrustContext(
-          conversation.trustContext,
-        );
-        const channelMeta = {
-          ...provenance,
-          userMessageChannel: sourceChannel,
-          assistantMessageChannel: sourceChannel,
-          userMessageInterface: sourceInterface,
-          assistantMessageInterface: sourceInterface,
-        };
+    const cannedGreeting = getCannedFirstGreeting(body.onboarding ?? undefined);
 
-        const rawContent = content ?? "";
-        const attachments = hasAttachments
-          ? smDeps.resolveAttachments(attachmentIds)
-          : [];
-        const userMsg = createUserMessage(rawContent, attachments);
-        const persisted = await addMessage(
-          mapping.conversationId,
-          "user",
-          JSON.stringify(userMsg.content),
-          channelMeta,
-        );
-        conversation.getMessages().push(userMsg);
+    conversation.processing = true;
+    let cleanupDeferred = false;
+    try {
+      const provenance = provenanceFromTrustContext(conversation.trustContext);
+      const channelMeta = {
+        ...provenance,
+        userMessageChannel: sourceChannel,
+        assistantMessageChannel: sourceChannel,
+        userMessageInterface: sourceInterface,
+        assistantMessageInterface: sourceInterface,
+      };
 
-        setConversationOriginChannelIfUnset(
-          mapping.conversationId,
-          sourceChannel,
-        );
-        setConversationOriginInterfaceIfUnset(
-          mapping.conversationId,
-          sourceInterface,
-        );
+      const rawContent = content ?? "";
+      const attachments = hasAttachments
+        ? smDeps.resolveAttachments(attachmentIds)
+        : [];
+      const userMsg = createUserMessage(rawContent, attachments);
+      const persisted = await addMessage(
+        mapping.conversationId,
+        "user",
+        JSON.stringify(userMsg.content),
+        channelMeta,
+      );
+      conversation.getMessages().push(userMsg);
 
-        const assistantMsg = createAssistantMessage(cannedGreeting);
-        await addMessage(
-          mapping.conversationId,
-          "assistant",
-          JSON.stringify(assistantMsg.content),
-          channelMeta,
-        );
-        conversation.getMessages().push(assistantMsg);
+      setConversationOriginChannelIfUnset(
+        mapping.conversationId,
+        sourceChannel,
+      );
+      setConversationOriginInterfaceIfUnset(
+        mapping.conversationId,
+        sourceInterface,
+      );
 
-        const conversationId = mapping.conversationId;
-        const response = Response.json(
-          { accepted: true, messageId: persisted.id, conversationId },
-          { status: 202 },
-        );
+      const conversationId = mapping.conversationId;
 
-        // Defer event publishing to next tick (same pattern as unknown-slash
-        // fast path) so the HTTP response reaches the client before SSE
-        // events arrive.
-        setTimeout(() => {
-          onEvent({
-            type: "user_message_echo",
-            text: rawContent,
-            conversationId,
-            messageId: persisted.id,
-            clientMessageId,
-          });
-          onEvent({ type: "assistant_text_delta", text: cannedGreeting });
-          onEvent({ type: "message_complete", conversationId });
-          conversation.processing = false;
-          silentlyWithLog(
-            conversation.drainQueue(),
-            "canned-greeting queue drain",
-          );
-        }, 0);
+      const assistantMsg = createAssistantMessage(cannedGreeting);
+      await addMessage(
+        mapping.conversationId,
+        "assistant",
+        JSON.stringify(assistantMsg.content),
+        channelMeta,
+      );
+      conversation.getMessages().push(assistantMsg);
 
-        log.info(
-          { conversationId },
-          "Served canned first greeting — skipped LLM inference",
+      const response = Response.json(
+        { accepted: true, messageId: persisted.id, conversationId },
+        { status: 202 },
+      );
+
+      setTimeout(() => {
+        onEvent({
+          type: "user_message_echo",
+          text: rawContent,
+          conversationId,
+          messageId: persisted.id,
+          clientMessageId,
+        });
+        onEvent({ type: "assistant_text_delta", text: cannedGreeting });
+        onEvent({ type: "message_complete", conversationId });
+        conversation.processing = false;
+        silentlyWithLog(
+          conversation.drainQueue(),
+          "canned-greeting queue drain",
         );
-        cleanupDeferred = true;
-        return response;
-      } finally {
-        if (!cleanupDeferred && conversation.processing) {
-          conversation.processing = false;
-          silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
-        }
+      }, 0);
+
+      log.info(
+        { conversationId, personalized: !!body.onboarding },
+        "Served canned first greeting — skipped LLM inference",
+      );
+      cleanupDeferred = true;
+      return response;
+    } finally {
+      if (!cleanupDeferred && conversation.processing) {
+        conversation.processing = false;
+        silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
       }
     }
   }

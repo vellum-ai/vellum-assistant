@@ -298,16 +298,7 @@ jobs:
     timeout-minutes: 10
     continue-on-error: true
     steps:
-      - name: Download extension CRX
-        id: download-crx
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        continue-on-error: true
-        with:
-          name: chrome-extension-crx
-          path: /tmp/chrome-extension
-
-      - name: Download extension zip (fallback)
-        if: steps.download-crx.outcome != 'success'
+      - name: Download extension zip
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: chrome-extension-zip
@@ -323,8 +314,8 @@ jobs:
           CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
         run: |
-          # Prefer signed CRX if available, fall back to zip
-          UPLOAD_FILE=$(ls /tmp/chrome-extension/*.crx 2>/dev/null || ls /tmp/chrome-extension/*.zip)
+          # CWS Items API only accepts zip files, not signed CRX packages
+          UPLOAD_FILE=$(ls /tmp/chrome-extension/*.zip)
           echo "Uploading: $UPLOAD_FILE"
           chrome-webstore-upload upload \
             --source "$UPLOAD_FILE" \
