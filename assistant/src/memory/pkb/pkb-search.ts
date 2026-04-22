@@ -78,29 +78,32 @@ export async function searchPkbFiles(
       )
     : Promise.resolve([]);
 
-  // Use `allSettled` so a transient hybrid failure does not drop the dense
-  // results (and vice versa). Hybrid is the optional signal — losing it should
-  // degrade to dense-only, not wipe out the whole search.
-  const [denseSettled, hybridSettled] = await Promise.allSettled([
-    densePromise,
-    hybridPromise,
-  ]);
+  // Silence any hybrid rejection so a short-circuit on dense failure below
+  // does not surface it as an unhandledRejection. We still `await` the
+  // original promise in the non-short-circuit path to observe its outcome.
+  hybridPromise.catch(() => {});
 
-  const denseResults =
-    denseSettled.status === "fulfilled" ? denseSettled.value : [];
-  if (denseSettled.status === "rejected") {
-    log.warn(
-      { err: denseSettled.reason },
-      "Dense PKB search failed; falling back to hybrid-only results",
-    );
+  // Dense is the required signal — only paths with a dense cosine score are
+  // merged, so a dense rejection guarantees `[]` regardless of hybrid. Return
+  // immediately rather than blocking on hybrid latency.
+  let denseResults: QdrantSearchResult[];
+  try {
+    denseResults = await densePromise;
+  } catch (err) {
+    log.warn({ err }, "Dense PKB search failed; returning empty results");
+    return [];
   }
-  const hybridResults =
-    hybridSettled.status === "fulfilled" ? hybridSettled.value : [];
-  if (useHybrid && hybridSettled.status === "rejected") {
-    log.warn(
-      { err: hybridSettled.reason },
-      "Hybrid PKB search failed; falling back to dense-only results",
-    );
+
+  let hybridResults: QdrantSearchResult[] = [];
+  if (useHybrid) {
+    try {
+      hybridResults = await hybridPromise;
+    } catch (err) {
+      log.warn(
+        { err },
+        "Hybrid PKB search failed; falling back to dense-only results",
+      );
+    }
   }
 
   const denseByPath = collapseByPath(denseResults);
