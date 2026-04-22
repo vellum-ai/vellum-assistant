@@ -174,7 +174,7 @@ Examples:
       const hint =
         imageGenMode === "managed"
           ? "Managed proxy is not available. Please log in to Vellum or switch to your-own mode:\n  Run 'assistant auth login' to authenticate, or set services.image-generation.mode to 'your-own' in config."
-          : "No Gemini API key configured. Add your Gemini API key:\n  Run 'assistant keys set gemini' or configure it in Settings > Models & Services.";
+          : "No Gemini API key configured. Add your Gemini API key:\n  Run 'assistant keys set gemini <key>' or configure it in Settings > Models & Services.";
 
       if (jsonOutput) {
         process.stdout.write(JSON.stringify({ ok: false, error: hint }) + "\n");
