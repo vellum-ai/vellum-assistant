@@ -17,6 +17,7 @@ import {
   describeCronExpression,
   getLastScheduleConversationId,
   getSchedule,
+  getScheduleRuns,
   listSchedules,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
@@ -47,6 +48,7 @@ function handleListSchedules(): Response {
       cronExpression: j.cronExpression,
       timezone: j.timezone,
       message: j.message,
+      script: j.script,
       nextRunAt: j.nextRunAt,
       lastRunAt: j.lastRunAt,
       lastStatus: j.lastStatus,
@@ -178,6 +180,28 @@ function handleUpdateSchedule(
     return httpError("INTERNAL_ERROR", "Failed to update schedule", 500);
   }
   return handleListSchedules();
+}
+
+function handleListScheduleRuns(id: string, limit: number): Response {
+  const schedule = getSchedule(id);
+  if (!schedule) {
+    return httpError("NOT_FOUND", "Schedule not found", 404);
+  }
+  const runs = getScheduleRuns(id, limit);
+  return Response.json({
+    runs: runs.map((r) => ({
+      id: r.id,
+      jobId: r.jobId,
+      status: r.status,
+      startedAt: r.startedAt,
+      finishedAt: r.finishedAt,
+      durationMs: r.durationMs,
+      output: r.output,
+      error: r.error,
+      conversationId: r.conversationId,
+      createdAt: r.createdAt,
+    })),
+  });
 }
 
 async function handleRunScheduleNow(
@@ -368,6 +392,22 @@ export function scheduleRouteDefinitions(deps: {
         schedules: z.array(z.unknown()).describe("Schedule objects"),
       }),
       handler: () => handleListSchedules(),
+    },
+    {
+      endpoint: "schedules/:id/runs",
+      method: "GET",
+      policyKey: "schedules",
+      summary: "List schedule runs",
+      description: "Return recent invocation history for a schedule.",
+      tags: ["schedules"],
+      responseBody: z.object({
+        runs: z.array(z.unknown()).describe("Schedule run objects"),
+      }),
+      handler: ({ params, url }) => {
+        const limitParam = url.searchParams.get("limit");
+        const limit = limitParam ? Math.min(Number(limitParam), 100) : 10;
+        return handleListScheduleRuns(params.id, limit);
+      },
     },
     {
       endpoint: "schedules/:id/toggle",
