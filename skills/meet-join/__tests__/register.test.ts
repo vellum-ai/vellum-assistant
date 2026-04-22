@@ -200,4 +200,19 @@ describe("meet-join register", () => {
     await route!.handler(req, match);
     expect(lastHandlerMeetingId).toBe("abc 123");
   });
+
+  test("meet-internal route handler returns 400 on malformed percent-encoding", async () => {
+    // `%` without two trailing hex digits makes decodeURIComponent throw
+    // URIError. Without the try/catch this surfaces pre-auth and the
+    // daemon returns a 500; the handler must intercept and return 400.
+    const path = "/v1/internal/meet/abc%ZZ/events";
+    const route = capturedRoutes.find((r) => r.pattern.test(path));
+    expect(route).toBeDefined();
+    const match = path.match(route!.pattern)!;
+    lastHandlerMeetingId = null;
+    const req = new Request(`http://host${path}`, { method: "POST" });
+    const res = await route!.handler(req, match);
+    expect(res.status).toBe(400);
+    expect(lastHandlerMeetingId).toBeNull();
+  });
 });

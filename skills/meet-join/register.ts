@@ -58,8 +58,24 @@ import { meetCancelSpeakTool, meetSpeakTool } from "./tools/meet-speak-tool.js";
 registerSkillRoute({
   pattern: MEET_INTERNAL_EVENTS_PATH_RE,
   methods: ["POST"],
-  handler: (req, match) =>
-    handleMeetInternalEvents(req, decodeURIComponent(match[1]!)),
+  handler: (req, match) => {
+    // decodeURIComponent throws URIError on malformed percent-encoding
+    // (e.g. a stray `%` without two hex digits). Without this guard the
+    // error surfaces pre-auth and the daemon returns a 500 — reject with
+    // a 400 instead so malformed bot URLs are observable as client errors.
+    let meetingId: string;
+    try {
+      meetingId = decodeURIComponent(match[1]!);
+    } catch {
+      return Promise.resolve(
+        Response.json(
+          { error: "Invalid meeting id encoding" },
+          { status: 400 },
+        ),
+      );
+    }
+    return handleMeetInternalEvents(req, meetingId);
+  },
 });
 
 registerExternalTools(() => {
