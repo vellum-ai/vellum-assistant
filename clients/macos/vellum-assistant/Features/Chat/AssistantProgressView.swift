@@ -639,8 +639,8 @@ struct AssistantProgressView: View {
                 if let confirmation = toolCall.pendingConfirmation {
                     ToolConfirmationBubble(
                         confirmation: confirmation,
-                        isV3: MacOSClientFeatureFlagManager.shared.isEnabled("permission-controls-v3"),
                         isKeyboardActive: confirmation.requestId == activeConfirmationRequestId,
+                        isV3: MacOSClientFeatureFlagManager.shared.isEnabled("permission-controls-v3"),
                         onAllow: { onConfirmationAllow?(confirmation.requestId) },
                         onDeny: { onConfirmationDeny?(confirmation.requestId) },
                         onAlwaysAllow: onAlwaysAllow ?? { _, _, _, _ in },
