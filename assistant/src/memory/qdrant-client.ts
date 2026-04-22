@@ -1,9 +1,34 @@
 import { QdrantClient as QdrantRestClient } from "@qdrant/js-client-rest";
 import { v4 as uuid } from "uuid";
 
+import { getQdrantHttpPortEnv, getQdrantUrlEnv } from "../config/env.js";
+import type { AssistantConfig } from "../config/types.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("qdrant-client");
+
+/**
+ * Resolve the Qdrant base URL for this process.
+ *
+ * Precedence (highest first):
+ *   1. `QDRANT_HTTP_PORT` — a locally-spawned Qdrant sidecar on 127.0.0.1:<port>.
+ *      Set by the CLI when spawning the daemon with a non-default port
+ *      (multi-local instances).
+ *   2. `QDRANT_URL` — an external Qdrant instance (K8s sidecar, remote URL).
+ *   3. `config.memory.qdrant.url` — static config (defaults to
+ *      `http://127.0.0.1:6333`).
+ *
+ * Every caller that constructs a Qdrant URL should route through this helper
+ * so the precedence stays consistent across the daemon, CLI, and any
+ * background jobs that re-read the config.
+ */
+export function resolveQdrantUrl(config: AssistantConfig): string {
+  const port = getQdrantHttpPortEnv();
+  if (port) return `http://127.0.0.1:${port}`;
+  const url = getQdrantUrlEnv();
+  if (url) return url;
+  return config.memory.qdrant.url;
+}
 
 export interface QdrantSparseVector {
   indices: number[];

@@ -1,7 +1,6 @@
 import type { Command } from "commander";
 
 import {
-  getQdrantUrlEnv,
   getRuntimeHttpHost,
   getRuntimeHttpPort,
 } from "../../config/env.js";
@@ -25,7 +24,7 @@ import {
   SPARSE_EMBEDDING_VERSION,
 } from "../../memory/embedding-backend.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
-import { initQdrantClient } from "../../memory/qdrant-client.js";
+import { initQdrantClient, resolveQdrantUrl } from "../../memory/qdrant-client.js";
 import {
   initAuthSigningKey,
   loadOrCreateSigningKey,
@@ -247,7 +246,7 @@ Examples:
       );
 
       const config = getConfig();
-      const qdrantUrl = getQdrantUrlEnv() || config.memory.qdrant.url;
+      const qdrantUrl = resolveQdrantUrl(config);
       const embeddingSelection = await selectEmbeddingBackend(config);
       const embeddingModel = embeddingSelection.backend
         ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}:sparse-v${SPARSE_EMBEDDING_VERSION}`

@@ -14,7 +14,7 @@
 
 import { getConfig } from "../../config/loader.js";
 import { initializeDb } from "../db-init.js";
-import { initQdrantClient } from "../qdrant-client.js";
+import { initQdrantClient, resolveQdrantUrl } from "../qdrant-client.js";
 import {
   countNodes,
   getEdgesForNode,
@@ -29,7 +29,7 @@ initializeDb();
 const config = getConfig();
 try {
   initQdrantClient({
-    url: config.memory.qdrant.url ?? "http://127.0.0.1:6333",
+    url: resolveQdrantUrl(config),
     collection: config.memory.qdrant.collection,
     vectorSize: config.memory.qdrant.vectorSize,
     onDisk: config.memory.qdrant.onDisk ?? true,
