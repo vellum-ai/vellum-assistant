@@ -158,27 +158,17 @@ Examples:
         }
       }
 
-      // When the daemon is running, delegate to the HTTP rename endpoint
-      // so connected clients see the update in real time.
-      if (await isHttpHealthy()) {
-        const port = getRuntimeHttpPort();
-        const host = healthCheckHost(getRuntimeHttpHost());
-        initAuthSigningKey(loadOrCreateSigningKey());
-        const token = mintDaemonDeliveryToken();
-        const res = await fetch(
-          `http://${host}:${port}/v1/conversations/${conversation.id}/name`,
-          {
-            method: "PATCH",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ name: trimmedTitle }),
-          },
-        );
-        if (!res.ok) {
-          const body = await res.text();
-          log.error(`Rename failed (${res.status}): ${body}`);
+      // Prefer IPC when the daemon is running so connected clients
+      // see real-time title updates and event broadcasts.
+      const ipcResult = await cliIpcCall<{ ok: boolean; error?: string }>(
+        "rename_conversation",
+        { conversationId: conversation.id, title: trimmedTitle },
+      );
+
+      if (ipcResult.ok) {
+        const result = ipcResult.result!;
+        if (!result.ok) {
+          log.error(`Rename failed: ${result.error}`);
           process.exit(1);
         }
         log.info(
@@ -187,7 +177,7 @@ Examples:
         return;
       }
 
-      // Daemon not running — update the database directly.
+      // Daemon not reachable — update the database directly.
       // isAutoTitle = 0 prevents auto-generation from overwriting it.
       updateConversationTitle(conversation.id, trimmedTitle, 0);
       log.info(
