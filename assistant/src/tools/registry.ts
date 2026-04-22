@@ -137,6 +137,41 @@ export function registerSkillTools(newTools: Tool[]): Tool[] {
 }
 
 /**
+ * Register tools contributed by a plugin. Thin wrapper around
+ * {@link registerSkillTools} that stamps `origin: "skill"` and
+ * `ownerSkillId: pluginName` on every incoming tool so plugin-scoped
+ * ref-counting, conflict detection, and hot-reload replacement reuse the
+ * skill-tool machinery without plugin authors having to fill in ownership
+ * metadata manually. Plugins and skills share the same tool-origin slot
+ * because they play the same role in the registry — a batch of model-visible
+ * tools owned by a named, dynamically-registered extension.
+ *
+ * The stamp is authoritative: any pre-existing `origin` or `ownerSkillId`
+ * fields on the incoming tools are overwritten so the bootstrap cannot be
+ * spoofed into claiming tools on behalf of an unrelated skill.
+ */
+export function registerPluginTools(
+  pluginName: string,
+  newTools: Tool[],
+): Tool[] {
+  const stamped = newTools.map((tool) => ({
+    ...tool,
+    origin: "skill" as const,
+    ownerSkillId: pluginName,
+  }));
+  return registerSkillTools(stamped);
+}
+
+/**
+ * Unregister tools contributed by a plugin. Thin wrapper around
+ * {@link unregisterSkillTools} — see that function for ref-counting
+ * semantics. Safe to call when the plugin never contributed tools (no-op).
+ */
+export function unregisterPluginTools(pluginName: string): void {
+  unregisterSkillTools(pluginName);
+}
+
+/**
  * Decrement the reference count for a skill and remove its tools only when
  * no more sessions reference them.
  */
