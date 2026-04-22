@@ -6,13 +6,10 @@ import UIKit
 /// screens. Displays the same `welcome-characters.png` asset as macOS so the
 /// two platforms read as the same onboarding experience.
 ///
-/// Pair with `.ignoresSafeArea(.container, edges: .bottom)` at the call
-/// site so the strip bleeds past the home indicator.
+/// Attach with `.safeAreaInset(edge: .bottom, spacing: 0) { ... }` on the
+/// screen's root view so the strip bleeds past the home indicator and
+/// pushes surrounding content up to avoid overlap.
 struct OnboardingBottomStrip: View {
-    /// Intrinsic height. Exposed so callers can reserve matching space
-    /// above the strip without duplicating the literal.
-    static let height: CGFloat = 88
-
     var body: some View {
         Image(uiImage: Self.characters ?? UIImage())
             .resizable()

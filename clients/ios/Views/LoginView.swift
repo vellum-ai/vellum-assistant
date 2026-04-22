@@ -12,7 +12,7 @@ struct LoginView: View {
     var onContinue: (() -> Void)?
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        ZStack {
             VColor.surfaceOverlay.ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -100,10 +100,9 @@ struct LoginView: View {
                     .padding(.top, VSpacing.xl)
                     .padding(.bottom, VSpacing.md)
             }
-            .padding(.bottom, OnboardingBottomStrip.height)
-
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             OnboardingBottomStrip()
-                .ignoresSafeArea(.container, edges: .bottom)
         }
     }
 }
