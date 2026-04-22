@@ -125,8 +125,7 @@ Arguments:
                    60 characters) and descriptive of the current topic.
 
 Renames the conversation to the given title and marks it as a manual rename
-(auto-generated titles will not overwrite it). Requires the assistant to be
-running — communicates via IPC so connected clients update in real time.
+(auto-generated titles will not overwrite it).
 
 Examples:
   $ assistant conversations rename abc123 "Project planning"
