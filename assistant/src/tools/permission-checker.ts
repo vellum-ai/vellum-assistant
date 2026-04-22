@@ -9,6 +9,7 @@ import {
   generateScopeOptions,
   getCachedAssessment,
 } from "../permissions/checker.js";
+import { getAutoApproveThreshold } from "../permissions/gateway-threshold-reader.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { addRule } from "../permissions/trust-store.js";
 import { RiskLevel } from "../permissions/types.js";
@@ -254,10 +255,15 @@ export class PermissionChecker {
         const isDynamicSkillLoad =
           result.matchedRule?.pattern.startsWith("skill_load_dynamic:") ===
           true;
-        const bgThreshold = resolveThreshold(
-          cfg.permissions.autoApproveUpTo,
+        // Use gateway threshold when v3 is enabled, falling back to config.
+        // getAutoApproveThreshold returns from cache (populated by check() above).
+        const gatewayBgThreshold = await getAutoApproveThreshold(
+          context.conversationId,
           "background",
         );
+        const bgThreshold =
+          gatewayBgThreshold ??
+          resolveThreshold(cfg.permissions.autoApproveUpTo, "background");
         const thresholdOrdinal: Record<string, number> = {
           none: -1,
           low: 0,

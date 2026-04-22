@@ -31,6 +31,13 @@ export interface ApprovalContext {
    * - "high": auto-approve everything unconditionally
    */
   autoApproveUpTo?: "none" | "low" | "medium" | "high";
+  /**
+   * When true, the auto-approve threshold was resolved from the gateway
+   * (permission-controls-v3). This enables threshold-based override of
+   * ask rules — the user's threshold setting takes precedence over
+   * default ask rules when the risk falls within the threshold.
+   */
+  isGatewayThreshold?: boolean;
 }
 
 // ── Threshold resolution ─────────────────────────────────────────────────────
@@ -91,6 +98,19 @@ const THRESHOLD_ORDINAL: Record<string, number> = {
   high: 2,
 };
 
+/**
+ * Check whether a risk level falls within the configured auto-approve threshold.
+ * Returns `true` when the risk is at or below the threshold (i.e. auto-approve).
+ */
+function isRiskWithinThreshold(
+  riskLevel: string,
+  autoApproveUpTo: string | undefined,
+): boolean {
+  const risk = RISK_ORDINAL[riskLevel] ?? 2;
+  const threshold = THRESHOLD_ORDINAL[autoApproveUpTo ?? "low"] ?? 0;
+  return risk <= threshold;
+}
+
 /** The outcome of an approval policy evaluation. */
 export interface ApprovalDecision {
   decision: "allow" | "prompt" | "deny";
@@ -112,15 +132,18 @@ export interface ApprovalPolicy {
  * The decision flow:
  *
  * 1. Deny rule → deny
- * 2. Ask rule → prompt
+ * 2. Ask rule + risk > autoApproveUpTo → prompt
+ *    Ask rule + risk ≤ autoApproveUpTo → allow (threshold overrides ask)
  * 3. Sandbox auto-approve: workspace mode + bash + sandboxAutoApprove → allow
  *    (Path resolution is baked into `hasSandboxAutoApprove` upstream: containerized
  *    environments skip path checks; non-containerized environments validate all
  *    path arguments against the workspace root.)
  * 4. Allow rule + non-High → allow
  * 5. Allow rule + High → fall through to risk-based
- * 6. No rule + third-party skill tool → prompt
- * 7. No rule + strict mode → prompt
+ * 6. No rule + third-party skill tool + risk > autoApproveUpTo → prompt
+ *    No rule + third-party skill tool + risk ≤ autoApproveUpTo → allow (v3 only)
+ * 7. No rule + strict mode + risk > autoApproveUpTo → prompt
+ *    No rule + strict mode + risk ≤ autoApproveUpTo → allow (v3 only)
  * 8. No rule + workspace mode + Low + workspace-scoped → allow
  * 9. No rule + Low + bundled skill → allow
  * 10. Risk ≤ autoApproveUpTo threshold → allow
@@ -149,8 +172,22 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       };
     }
 
-    // ── 2. Ask rules always prompt ────────────────────────────────────
+    // ── 2. Ask rules prompt — unless the gateway threshold covers the risk.
+    // When permission-controls-v3 is active (isGatewayThreshold), the user's
+    // threshold setting takes precedence over ask rules: if the risk falls
+    // within autoApproveUpTo, the ask rule is overridden and the tool
+    // auto-approves. Without v3, ask rules always prompt (preserving
+    // backward-compatible behavior for default ask rules on host tools, etc.).
     if (matchedRule && matchedRule.decision === "ask") {
+      if (
+        context.isGatewayThreshold &&
+        isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)
+      ) {
+        return {
+          decision: "allow",
+          reason: `${riskLevel} risk: within auto-approve threshold (ask rule overridden)`,
+        };
+      }
       return {
         decision: "prompt",
         reason: `Matched ask rule: ${matchedRule.pattern}`,
@@ -186,15 +223,21 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       // High risk: fall through to risk-based regardless of rule
     }
 
-    // ── 6. No rule + third-party skill tool → prompt ──────────────────
+    // ── 6. No rule + third-party skill tool → prompt (unless v3 threshold covers it)
     if (!matchedRule) {
-      if (toolOrigin === "skill" && !isSkillBundled) {
-        return {
-          decision: "prompt",
-          reason: "Skill tool: requires approval by default",
-        };
-      }
-      if (hasManifestOverride && !toolOrigin) {
+      const isThirdPartySkill =
+        (toolOrigin === "skill" && !isSkillBundled) ||
+        (hasManifestOverride && !toolOrigin);
+      if (isThirdPartySkill) {
+        if (
+          context.isGatewayThreshold &&
+          isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)
+        ) {
+          return {
+            decision: "allow",
+            reason: `${riskLevel} risk: within auto-approve threshold (skill tool)`,
+          };
+        }
         return {
           decision: "prompt",
           reason: "Skill tool: requires approval by default",
@@ -202,8 +245,17 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
       }
     }
 
-    // ── 7. No rule + strict mode → prompt ─────────────────────────────
+    // ── 7. No rule + strict mode → prompt (unless v3 threshold covers it)
     if (permissionsMode === "strict" && !matchedRule) {
+      if (
+        context.isGatewayThreshold &&
+        isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)
+      ) {
+        return {
+          decision: "allow",
+          reason: `${riskLevel} risk: within auto-approve threshold (strict mode overridden)`,
+        };
+      }
       return {
         decision: "prompt",
         reason: "Strict mode: no matching rule, requires approval",
@@ -235,10 +287,7 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
     }
 
     // ── 10–11. Risk-based fallback: compare risk against configured threshold ─
-    const autoApproveUpTo = context.autoApproveUpTo ?? "low";
-    const risk = RISK_ORDINAL[riskLevel] ?? 2;
-    const threshold = THRESHOLD_ORDINAL[autoApproveUpTo] ?? 0;
-    if (risk <= threshold) {
+    if (isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)) {
       return {
         decision: "allow",
         reason: `${riskLevel} risk: within auto-approve threshold`,

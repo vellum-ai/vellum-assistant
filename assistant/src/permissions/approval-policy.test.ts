@@ -327,6 +327,44 @@ describe("no rule — third-party skill tool", () => {
     // Bundled skill + Low risk + no rule → handled by step 9 or 11
     expect(result.decision).toBe("allow");
   });
+
+  test("skill origin, not bundled, gateway threshold covers risk → allow", () => {
+    const result = evaluate({
+      riskLevel: RiskLevel.Low,
+      toolName: "custom_tool",
+      toolOrigin: "skill",
+      isSkillBundled: false,
+      autoApproveUpTo: "medium",
+      isGatewayThreshold: true,
+    });
+    expect(result.decision).toBe("allow");
+    expect(result.reason).toContain("within auto-approve threshold");
+  });
+
+  test("skill origin, not bundled, gateway threshold does not cover risk → prompt", () => {
+    const result = evaluate({
+      riskLevel: RiskLevel.High,
+      toolName: "custom_tool",
+      toolOrigin: "skill",
+      isSkillBundled: false,
+      autoApproveUpTo: "medium",
+      isGatewayThreshold: true,
+    });
+    expect(result.decision).toBe("prompt");
+    expect(result.reason).toContain("Skill tool");
+  });
+
+  test("hasManifestOverride, gateway threshold covers risk → allow", () => {
+    const result = evaluate({
+      riskLevel: RiskLevel.Low,
+      toolName: "unknown_tool",
+      hasManifestOverride: true,
+      autoApproveUpTo: "low",
+      isGatewayThreshold: true,
+    });
+    expect(result.decision).toBe("allow");
+    expect(result.reason).toContain("within auto-approve threshold");
+  });
 });
 
 // ── No rule: strict mode ─────────────────────────────────────────────────────
@@ -369,6 +407,30 @@ describe("no rule — strict mode", () => {
       permissionsMode: "strict",
       toolOrigin: "skill",
       isSkillBundled: true,
+    });
+    expect(result.decision).toBe("prompt");
+    expect(result.reason).toContain("Strict mode");
+  });
+
+  test("strict mode, gateway threshold covers risk → allow", () => {
+    const result = evaluate({
+      riskLevel: RiskLevel.Low,
+      toolName: "file_read",
+      permissionsMode: "strict",
+      autoApproveUpTo: "low",
+      isGatewayThreshold: true,
+    });
+    expect(result.decision).toBe("allow");
+    expect(result.reason).toContain("within auto-approve threshold");
+  });
+
+  test("strict mode, gateway threshold does not cover risk → prompt", () => {
+    const result = evaluate({
+      riskLevel: RiskLevel.Medium,
+      toolName: "file_read",
+      permissionsMode: "strict",
+      autoApproveUpTo: "low",
+      isGatewayThreshold: true,
     });
     expect(result.decision).toBe("prompt");
     expect(result.reason).toContain("Strict mode");
@@ -764,13 +826,39 @@ describe("autoApproveUpTo threshold", () => {
       expect(result.matchedRule).toBe(denyRule);
     });
 
-    test("ask rule still prompts regardless of threshold", () => {
+    test("ask rule still prompts without gateway threshold flag", () => {
       const askRule = makeRule({ decision: "ask" });
       const result = evaluate({
         riskLevel: RiskLevel.Low,
         toolName: "bash",
         matchedRule: askRule,
         autoApproveUpTo: "medium",
+      });
+      expect(result.decision).toBe("prompt");
+      expect(result.matchedRule).toBe(askRule);
+    });
+
+    test("ask rule auto-approves when gateway threshold covers the risk", () => {
+      const askRule = makeRule({ decision: "ask" });
+      const result = evaluate({
+        riskLevel: RiskLevel.Low,
+        toolName: "bash",
+        matchedRule: askRule,
+        autoApproveUpTo: "medium",
+        isGatewayThreshold: true,
+      });
+      expect(result.decision).toBe("allow");
+      expect(result.reason).toContain("within auto-approve threshold");
+    });
+
+    test("ask rule still prompts when gateway threshold does not cover the risk", () => {
+      const askRule = makeRule({ decision: "ask" });
+      const result = evaluate({
+        riskLevel: RiskLevel.High,
+        toolName: "bash",
+        matchedRule: askRule,
+        autoApproveUpTo: "medium",
+        isGatewayThreshold: true,
       });
       expect(result.decision).toBe("prompt");
       expect(result.matchedRule).toBe(askRule);

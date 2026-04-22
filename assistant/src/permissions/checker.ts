@@ -721,6 +721,7 @@ export async function check(
     isSkillBundled: tool?.ownerSkillBundled ?? false,
     hasManifestOverride: !!manifestOverride,
     autoApproveUpTo: resolvedThreshold,
+    isGatewayThreshold: gatewayThreshold != null,
     hasSandboxAutoApprove,
   };
 
