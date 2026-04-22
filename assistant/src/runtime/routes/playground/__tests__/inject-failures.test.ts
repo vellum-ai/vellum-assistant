@@ -179,6 +179,32 @@ describe("POST /v1/conversations/:id/playground/inject-compaction-failures", () 
     });
   });
 
+  test("is a no-op on the event channel when circuitOpenForMs: 0 but the breaker is already closed", async () => {
+    const conversation = makeConversation("conv-already-closed");
+    // Breaker is already closed before the request.
+    expect(conversation.compactionCircuitOpenUntil).toBeNull();
+
+    const deps = makeDeps({ enabled: true, conversation });
+    const route = getInjectRoute(deps);
+
+    const res = await invoke(route, conversation.conversationId, {
+      circuitOpenForMs: 0,
+    });
+    expect(res.status).toBe(200);
+
+    // Still null after the request.
+    expect(conversation.compactionCircuitOpenUntil).toBeNull();
+    // Critically: no `compaction_circuit_closed` event is emitted, since
+    // there was no open→closed transition. Clients must not see a spurious
+    // close event.
+    expect(conversation.sentMessages).toHaveLength(0);
+
+    // Response body still reflects the expected shape.
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.compactionCircuitOpenUntil).toBeNull();
+    expect(body.isCircuitOpen).toBe(false);
+  });
+
   test("rejects out-of-range consecutiveFailures with 400", async () => {
     const conversation = makeConversation();
     const deps = makeDeps({ enabled: true, conversation });

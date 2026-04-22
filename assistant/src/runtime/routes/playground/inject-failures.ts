@@ -22,8 +22,8 @@ import { estimatePromptTokens } from "../../../context/token-estimator.js";
 import type { Conversation } from "../../../daemon/conversation.js";
 import { httpError } from "../../http-errors.js";
 import type { RouteDefinition } from "../../http-router.js";
+import type { PlaygroundRouteDeps } from "./deps.js";
 import { assertPlaygroundEnabled } from "./guard.js";
-import type { PlaygroundRouteDeps } from "./index.js";
 
 const InjectBodySchema = z.object({
   consecutiveFailures: z.number().int().min(0).max(10).optional(),
@@ -82,14 +82,17 @@ export function injectFailuresRouteDefinitions(
 
         if (circuitOpenForMs !== undefined) {
           if (circuitOpenForMs === 0) {
-            conversation.compactionCircuitOpenUntil = null;
-            // Mirror the `compaction_circuit_closed` transition event the
-            // daemon emits when the breaker auto-closes after a successful
-            // compaction, so the Swift banner dismisses immediately.
-            conversation.sendToClient({
-              type: "compaction_circuit_closed",
-              conversationId: conversation.conversationId,
-            });
+            // Mirror `trackCompactionOutcome()` (and `reset-circuit.ts`) —
+            // emit `compaction_circuit_closed` only on the open→closed
+            // transition so clients don't receive a redundant close event
+            // when the breaker was already closed.
+            if (conversation.compactionCircuitOpenUntil !== null) {
+              conversation.compactionCircuitOpenUntil = null;
+              conversation.sendToClient({
+                type: "compaction_circuit_closed",
+                conversationId: conversation.conversationId,
+              });
+            }
           } else {
             const openUntil = Date.now() + circuitOpenForMs;
             conversation.compactionCircuitOpenUntil = openUntil;
@@ -109,11 +112,9 @@ export function injectFailuresRouteDefinitions(
 }
 
 // ---------------------------------------------------------------------------
-// Local state-builder — shared shape across PR 7/8/9.
-//
-// PR 9 (the state endpoint) will extract a canonical shared implementation of
-// this helper. For now each parallel PR maintains an identical copy so the
-// three file-level diffs stay independent.
+// Local state-builder — identical in shape to `buildCompactionStateResponse`
+// in `state.ts` and the local copy in `reset-circuit.ts`. A follow-up cleanup
+// can consolidate these onto `state.ts`'s exported helper.
 // ---------------------------------------------------------------------------
 
 export interface CompactionStateResponse {
