@@ -18,10 +18,10 @@ describe("BackupConfigSchema", () => {
     });
   });
 
-  // ATL-193: retention default was lowered from 7 → 3 because each .vbundle
-  // snapshot is a full copy (no dedup/incremental) and 7 × ~6.5 GB × 2
-  // destinations was silently filling user disks. This focused test guards
-  // against an accidental revert.
+  // ATL-193: each .vbundle snapshot is a full copy (no dedup/incremental),
+  // so on-disk cost scales as retention × snapshot size × destinations.
+  // The default retention is deliberately low to bound that cost; this
+  // focused test guards against accidental drift upward.
   test("default retention is 3 (ATL-193 — snapshots are full copies, not incremental)", () => {
     const parsed = BackupConfigSchema.parse({});
     expect(parsed.retention).toBe(3);
