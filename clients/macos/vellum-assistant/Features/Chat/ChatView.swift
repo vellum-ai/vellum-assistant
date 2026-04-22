@@ -293,7 +293,8 @@ struct ChatView: View {
                         onDictateToggle: onDictateToggle,
                         onVoiceModeToggle: onVoiceModeToggle,
                         conversationId: conversationId,
-                        conversationHostAccessControl: conversationHostAccessControl
+                        conversationHostAccessControl: conversationHostAccessControl,
+                        showThresholdPicker: showThresholdPicker
                     )
                 } else {
                     ChatEmptyStateView(
@@ -321,7 +322,8 @@ struct ChatView: View {
                         conversationStartersLoading: conversationStartersEnabled && viewModel.conversationStartersLoading,
                         onSelectStarter: { starter in viewModel.inputText = starter.prompt },
                         onFetchConversationStarters: { viewModel.fetchConversationStarters() },
-                        conversationHostAccessControl: conversationHostAccessControl
+                        conversationHostAccessControl: conversationHostAccessControl,
+                        showThresholdPicker: showThresholdPicker
                     )
                     .id(conversationId)
                 }

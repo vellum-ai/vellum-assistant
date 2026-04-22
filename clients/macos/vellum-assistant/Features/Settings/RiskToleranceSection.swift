@@ -59,7 +59,7 @@ struct RiskToleranceSection: View {
                     .foregroundStyle(VColor.contentDefault)
                 VDropdown(
                     options: RiskThreshold.allCases.map {
-                        VDropdownOption(label: $0.label, value: $0)
+                        VDropdownOption(label: $0.label, value: $0, icon: $0.icon)
                     },
                     selection: Binding(
                         get: { interactiveSelection },
@@ -88,7 +88,7 @@ struct RiskToleranceSection: View {
                             .foregroundStyle(VColor.contentDefault)
                         VDropdown(
                             options: RiskThreshold.allCases.map {
-                                VDropdownOption(label: $0.label, value: $0)
+                                VDropdownOption(label: $0.label, value: $0, icon: $0.icon)
                             },
                             selection: Binding(
                                 get: { backgroundSelection },
@@ -118,7 +118,7 @@ struct RiskToleranceSection: View {
                             .foregroundStyle(VColor.contentDefault)
                         VDropdown(
                             options: RiskThreshold.allCases.map {
-                                VDropdownOption(label: $0.label, value: $0)
+                                VDropdownOption(label: $0.label, value: $0, icon: $0.icon)
                             },
                             selection: Binding(
                                 get: { headlessSelection },

@@ -23,6 +23,15 @@ public enum RiskThreshold: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    public var icon: VIcon {
+        switch self {
+        case .none: return .lock
+        case .low: return .shieldCheck
+        case .medium: return .triangleAlert
+        case .high: return .shieldOff
+        }
+    }
+
     public var settingsDescription: String {
         switch self {
         case .none: return "Always ask before acting. No actions are auto-approved."
