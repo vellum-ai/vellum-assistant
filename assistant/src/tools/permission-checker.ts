@@ -418,6 +418,7 @@ export class PermissionChecker {
           promptOptions.temporaryOptionsAvailable,
           context.toolUseId,
           v2ForcePrompt,
+          riskReason,
         );
 
         const decision =

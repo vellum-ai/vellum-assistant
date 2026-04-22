@@ -770,6 +770,8 @@ public struct ConfirmationRequest: Codable, Sendable {
     public let toolName: String
     public let input: [String: AnyCodable]
     public let riskLevel: String
+    /// Human-readable reason for the risk classification (e.g. "Modifies remote repository state").
+    public let riskReason: String?
     public let executionTarget: String?
     public let allowlistOptions: [ConfirmationRequestAllowlistOption]
     public let scopeOptions: [ConfirmationRequestScopeOption]
@@ -783,12 +785,13 @@ public struct ConfirmationRequest: Codable, Sendable {
     /// The tool_use block ID for client-side correlation with specific tool calls.
     public let toolUseId: String?
 
-    public init(type: String, requestId: String, toolName: String, input: [String: AnyCodable], riskLevel: String, executionTarget: String? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption], scopeOptions: [ConfirmationRequestScopeOption], diff: ConfirmationRequestDiff? = nil, sandboxed: Bool? = nil, conversationId: String? = nil, persistentDecisionsAllowed: Bool? = nil, temporaryOptionsAvailable: [String]? = nil, toolUseId: String? = nil) {
+    public init(type: String, requestId: String, toolName: String, input: [String: AnyCodable], riskLevel: String, riskReason: String? = nil, executionTarget: String? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption], scopeOptions: [ConfirmationRequestScopeOption], diff: ConfirmationRequestDiff? = nil, sandboxed: Bool? = nil, conversationId: String? = nil, persistentDecisionsAllowed: Bool? = nil, temporaryOptionsAvailable: [String]? = nil, toolUseId: String? = nil) {
         self.type = type
         self.requestId = requestId
         self.toolName = toolName
         self.input = input
         self.riskLevel = riskLevel
+        self.riskReason = riskReason
         self.executionTarget = executionTarget
         self.allowlistOptions = allowlistOptions
         self.scopeOptions = scopeOptions

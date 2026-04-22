@@ -159,6 +159,8 @@ export interface ConfirmationRequest {
   toolName: string;
   input: Record<string, unknown>;
   riskLevel: string;
+  /** Human-readable reason for the risk classification (e.g. "Modifies remote repository state"). */
+  riskReason?: string;
   executionTarget?: "sandbox" | "host";
   allowlistOptions: Array<{
     label: string;

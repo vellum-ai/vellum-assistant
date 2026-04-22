@@ -1176,6 +1176,7 @@ final class ChatActionHandler {
             toolName: msg.toolName,
             input: msg.input,
             riskLevel: msg.riskLevel,
+            riskReason: msg.riskReason,
             diff: msg.diff,
             allowlistOptions: msg.allowlistOptions,
             scopeOptions: msg.scopeOptions,
