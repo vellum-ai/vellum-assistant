@@ -133,6 +133,78 @@ final class MessageTypesTests: XCTestCase {
         XCTAssertEqual(cancel.requestId, "req-abc-123")
     }
 
+    // MARK: - HostBrowserResultPayload
+
+    func testDecodes_hostBrowserResultPayload_withAllFields() throws {
+        let json = Data(
+            """
+            {
+              "requestId": "req-browser-001",
+              "content": "CDP command executed successfully",
+              "isError": false
+            }
+            """.utf8
+        )
+
+        let payload = try decoder.decode(HostBrowserResultPayload.self, from: json)
+
+        XCTAssertEqual(payload.requestId, "req-browser-001")
+        XCTAssertEqual(payload.content, "CDP command executed successfully")
+        XCTAssertFalse(payload.isError)
+    }
+
+    func testDecodes_hostBrowserResultPayload_withError() throws {
+        let json = Data(
+            """
+            {
+              "requestId": "req-browser-err",
+              "content": "Target closed unexpectedly",
+              "isError": true
+            }
+            """.utf8
+        )
+
+        let payload = try decoder.decode(HostBrowserResultPayload.self, from: json)
+
+        XCTAssertEqual(payload.requestId, "req-browser-err")
+        XCTAssertEqual(payload.content, "Target closed unexpectedly")
+        XCTAssertTrue(payload.isError)
+    }
+
+    func testRoundTrips_hostBrowserResultPayload() throws {
+        let original = HostBrowserResultPayload(
+            requestId: "req-round-trip",
+            content: "Page.navigate result",
+            isError: false
+        )
+
+        let encoded = try JSONEncoder().encode(original)
+        let decoded = try decoder.decode(HostBrowserResultPayload.self, from: encoded)
+
+        XCTAssertEqual(decoded.requestId, original.requestId)
+        XCTAssertEqual(decoded.content, original.content)
+        XCTAssertEqual(decoded.isError, original.isError)
+    }
+
+    func testEncodes_hostBrowserResultPayload_withExpectedKeys() throws {
+        let payload = HostBrowserResultPayload(
+            requestId: "req-keys",
+            content: "ok",
+            isError: false
+        )
+
+        let encoded = try JSONEncoder().encode(payload)
+        let dict = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+
+        // Verify expected JSON keys match the wire shape
+        XCTAssertEqual(Set(dict.keys), Set(["requestId", "content", "isError"]))
+        XCTAssertEqual(dict["requestId"] as? String, "req-keys")
+        XCTAssertEqual(dict["content"] as? String, "ok")
+        XCTAssertEqual(dict["isError"] as? Bool, false)
+    }
+
     // MARK: - open_conversation
 
     func testDecodes_openConversation_withAllFields() throws {
