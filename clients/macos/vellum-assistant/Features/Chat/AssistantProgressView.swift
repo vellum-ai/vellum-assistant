@@ -7,6 +7,8 @@ import Dispatch
 /// Unified container that handles all tool progress states through a single component
 /// that smoothly morphs between phases.
 struct AssistantProgressView: View {
+    @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore
+
     let toolCalls: [ToolCallData]
     let isStreaming: Bool
     let hasText: Bool
@@ -640,7 +642,7 @@ struct AssistantProgressView: View {
                     ToolConfirmationBubble(
                         confirmation: confirmation,
                         isKeyboardActive: confirmation.requestId == activeConfirmationRequestId,
-                        isV3: MacOSClientFeatureFlagManager.shared.isEnabled("permission-controls-v3"),
+                        isV3: assistantFeatureFlagStore.isEnabled("permission-controls-v3"),
                         onAllow: { onConfirmationAllow?(confirmation.requestId) },
                         onDeny: { onConfirmationDeny?(confirmation.requestId) },
                         onAlwaysAllow: onAlwaysAllow ?? { _, _, _, _ in },
@@ -725,6 +727,8 @@ private final class StepDetailAttributedStringCacheEntry: NSObject {
 /// Unified row for tool call steps — handles completed, running, and blocked states.
 /// Completed rows are expandable to show technical details, screenshots, and output.
 private struct StepDetailRow: View {
+    @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore
+
     let toolCall: ToolCallData
     let phase: ProgressCardPhase
     /// Expansion state lifted to ChatBubble so it survives the
@@ -841,7 +845,7 @@ private struct StepDetailRow: View {
 
                     // Risk badge (expanded view only, gated on permission-controls-v3)
                     if let risk = toolCall.riskLevel,
-                       MacOSClientFeatureFlagManager.shared.isEnabled("permission-controls-v3") {
+                       assistantFeatureFlagStore.isEnabled("permission-controls-v3") {
                         RiskBadgeView(riskLevel: risk) {
                             ruleEditorToolCall = toolCall
                         }

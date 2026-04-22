@@ -322,6 +322,7 @@ struct MainWindowView: View {
 
     var body: some View {
         coreLayoutView
+            .environment(assistantFeatureFlagStore)
             .opacity(showComingAlive ? 0 : 1)
             .overlay {
                 if showComingAlive {
