@@ -60,7 +60,7 @@ export function normalizeAssistantId(assistantId: string): string {
  * than `BASE_DATA_DIR`, so honoring `BASE_DATA_DIR` here does not affect
  * containerized deployments.
  */
-function vellumRoot(): string {
+export function vellumRoot(): string {
   const baseDataDir = process.env.BASE_DATA_DIR?.trim();
   if (baseDataDir) return join(baseDataDir, ".vellum");
   return join(homedir(), ".vellum");
