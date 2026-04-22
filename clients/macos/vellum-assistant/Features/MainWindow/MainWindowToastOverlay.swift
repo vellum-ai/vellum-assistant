@@ -19,6 +19,7 @@ struct MainWindowToastOverlay: View {
             .padding(.horizontal, VSpacing.xl)
             .padding(.bottom, VSpacing.xl)
             .transition(.move(edge: .bottom).combined(with: .opacity))
+            .layoutHangSignpost("mainWindow.toastOverlay")
         }
     }
 }
