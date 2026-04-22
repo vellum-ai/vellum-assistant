@@ -86,6 +86,7 @@ export function seedProviders(
     scopeSeparator?: string;
     authorizeParams?: Record<string, string>;
     managedServiceConfigKey?: string;
+    managedServiceIsPaid?: boolean;
     displayLabel?: string;
     description?: string;
     dashboardUrl?: string | null;
@@ -145,6 +146,7 @@ export function seedProviders(
       ? JSON.stringify(p.authorizeParams)
       : null;
     const managedServiceConfigKey = p.managedServiceConfigKey ?? null;
+    const managedServiceIsPaid = p.managedServiceIsPaid === true;
     const displayLabel = p.displayLabel ?? null;
     const description = p.description ?? null;
     const dashboardUrl = p.dashboardUrl ?? null;
@@ -192,6 +194,7 @@ export function seedProviders(
         revokeUrl,
         revokeBodyTemplate,
         managedServiceConfigKey,
+        managedServiceIsPaid,
         displayLabel,
         description,
         dashboardUrl,
@@ -233,6 +236,7 @@ export function seedProviders(
           revokeUrl,
           revokeBodyTemplate,
           managedServiceConfigKey,
+          managedServiceIsPaid,
           displayLabel,
           description,
           dashboardUrl,

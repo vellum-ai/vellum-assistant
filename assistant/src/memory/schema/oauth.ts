@@ -30,6 +30,9 @@ export const oauthProviders = sqliteTable("oauth_providers", {
   revokeUrl: text("revoke_url"),
   revokeBodyTemplate: text("revoke_body_template"),
   managedServiceConfigKey: text("managed_service_config_key"),
+  managedServiceIsPaid: integer("managed_service_is_paid", { mode: "boolean" })
+    .notNull()
+    .default(false),
   displayLabel: text("display_name"),
   description: text("description"),
   dashboardUrl: text("dashboard_url"),
