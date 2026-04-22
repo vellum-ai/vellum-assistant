@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "LLMProviderRegistry")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "LLMProviderRegistry")
 
 // MARK: - Types
 
