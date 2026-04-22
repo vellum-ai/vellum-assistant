@@ -4,7 +4,7 @@
  * A .vbundle is a gzip-compressed tar archive containing:
  * - manifest.json: metadata with schema_version, checksums, and bundle info
  * - workspace/: the entire ~/.vellum/workspace/ directory tree (DB, config,
- *   skills, hooks, prompts, attachments, etc.) — excluding large/regenerable
+ *   skills, prompts, attachments, etc.) — excluding large/regenerable
  *   dirs (embedding-models/, data/qdrant/)
  * - trust/trust.json: trust rules (optional, lives in protected/ outside workspace)
  */
@@ -430,15 +430,6 @@ export interface BuildExportVBundleOptions {
   /** Absolute path to trust.json. If provided and the file exists, it is included in the archive. */
   trustPath?: string;
   /**
-   * Absolute path to the hooks directory. Previously hooks lived outside the
-   * workspace at ~/.vellum/hooks/ and needed explicit inclusion. Now hooks
-   * live under workspace (~/.vellum/workspace/hooks/) and are included in
-   * the workspace walk. Only pass this for backward-compat scenarios where
-   * hooks are still outside the workspace; otherwise omit to avoid double
-   * export. Included in the archive under the "hooks/" prefix.
-   */
-  hooksDir?: string;
-  /**
    * Absolute path to the workspace directory (~/.vellum/workspace/).
    * When provided and exists, the entire directory tree is walked and
    * included in the archive under the "workspace/" prefix, skipping
@@ -479,7 +470,6 @@ export function buildExportVBundle(
     checkpoint,
     trustPath,
     workspaceDir,
-    hooksDir,
     credentials,
   } = options;
 
@@ -513,11 +503,6 @@ export function buildExportVBundle(
     const configJson = new TextDecoder().decode(configEntry.data);
     const sanitized = sanitizeConfigForTransfer(configJson);
     configEntry.data = new TextEncoder().encode(sanitized);
-  }
-
-  // Include hooks directory if it exists (lives at ~/.vellum/hooks/, outside workspace).
-  if (hooksDir && existsSync(hooksDir) && lstatSync(hooksDir).isDirectory()) {
-    files.push(...walkDirectory(hooksDir, "hooks"));
   }
 
   // Include trust rules if the file exists (lives in protected/, outside workspace).
@@ -820,7 +805,6 @@ export async function streamExportVBundle(
     checkpoint,
     trustPath,
     workspaceDir,
-    hooksDir,
     credentials,
   } = options;
 
@@ -843,11 +827,6 @@ export async function streamExportVBundle(
         skipDirs: ["embedding-models", "data/qdrant", "signals", "deprecated"],
       }),
     );
-  }
-
-  // Include hooks directory if it exists
-  if (hooksDir && existsSync(hooksDir) && lstatSync(hooksDir).isDirectory()) {
-    allFileMetadata.push(...walkDirectoryForMetadata(hooksDir, "hooks"));
   }
 
   // Include trust rules if the file exists
