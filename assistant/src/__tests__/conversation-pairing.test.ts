@@ -358,8 +358,11 @@ describe("pairDeliveryWithConversation", () => {
     expect(upsertOutboundBindingMock).toHaveBeenCalledTimes(1);
   });
 
-  test("reuses pre-namespace binding when namespaced binding is absent", async () => {
-    // Simulate a binding created before the notification: prefix was introduced
+  test("reuses pre-namespace binding via inbound path when namespaced binding is absent", async () => {
+    // Simulate a binding created before the notification: prefix was introduced.
+    // With the inbound-continuity change, un-prefixed bindings are now resolved
+    // by step 1 (inbound path) which skips the source check and does not
+    // upsert a notification-prefixed binding — the conversation is still reused.
     mockExistingConversations["conv-legacy"] = {
       id: "conv-legacy",
       source: "notification",
@@ -390,16 +393,11 @@ describe("pairDeliveryWithConversation", () => {
     expect(result.conversationId).toBe("conv-legacy");
     expect(result.createdNewConversation).toBe(false);
     expect(createConversationMock).not.toHaveBeenCalled();
-    // The upsert should write with the new namespaced sourceChannel
-    expect(upsertOutboundBindingMock).toHaveBeenCalledTimes(1);
-    const upsertArgs = upsertOutboundBindingMock.mock.calls[0]![0] as Record<
-      string,
-      unknown
-    >;
-    expect(upsertArgs.sourceChannel).toBe("notification:telegram");
+    // Inbound path does not touch outbound bindings — it only reads.
+    expect(upsertOutboundBindingMock).not.toHaveBeenCalled();
   });
 
-  test("falls back to new conversation when bound conversation is stale (wrong source)", async () => {
+  test("falls back to new conversation when notification-bound conversation is stale (wrong source) and no inbound binding exists", async () => {
     mockExistingConversations["conv-user-owned"] = {
       id: "conv-user-owned",
       source: "user",
@@ -410,6 +408,8 @@ describe("pairDeliveryWithConversation", () => {
       sourceChannel: "notification:slack",
       externalChatId: "C0123ABCDEF",
     };
+    // No inbound (un-prefixed) binding — step 1 finds nothing, step 2
+    // finds the notification binding but the source check rejects it.
 
     const signal = makeSignal();
     const copy = makeCopy();
@@ -466,6 +466,170 @@ describe("pairDeliveryWithConversation", () => {
     expect(createConversationMock).toHaveBeenCalledTimes(1);
     // Should upsert the new conversation binding
     expect(upsertOutboundBindingMock).toHaveBeenCalledTimes(1);
+  });
+
+  // ── Inbound conversation continuity ──────────────────────────────
+
+  test("prefers inbound conversation over notification-scoped conversation for reply continuity", async () => {
+    // An inbound conversation exists (un-prefixed binding, source: null)
+    // AND a notification conversation exists (prefixed binding, source: "notification").
+    // The inbound conversation should win so that the user's replies
+    // include the notification in their conversation history.
+    mockExistingConversations["conv-inbound"] = {
+      id: "conv-inbound",
+      source: null as unknown as string,
+      title: "Slack DM",
+    };
+    mockBindings["slack:D0ASABGUTQR"] = {
+      conversationId: "conv-inbound",
+      sourceChannel: "slack",
+      externalChatId: "D0ASABGUTQR",
+    };
+    mockExistingConversations["conv-notification"] = {
+      id: "conv-notification",
+      source: "notification",
+      title: "Notification Thread",
+    };
+    mockBindings["notification:slack:D0ASABGUTQR"] = {
+      conversationId: "conv-notification",
+      sourceChannel: "notification:slack",
+      externalChatId: "D0ASABGUTQR",
+    };
+
+    const signal = makeSignal();
+    const copy = makeCopy({
+      conversationSeedMessage: "New tweet from @swyx - draft reply attached",
+    });
+    const bindingContext: DestinationBindingContext = {
+      sourceChannel: "slack" as NotificationChannel,
+      externalChatId: "D0ASABGUTQR",
+    };
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "slack" as NotificationChannel,
+      copy,
+      { bindingContext },
+    );
+
+    // Should use the inbound conversation, not the notification one
+    expect(result.conversationId).toBe("conv-inbound");
+    expect(result.messageId).toBe("msg-001");
+    expect(result.createdNewConversation).toBe(false);
+    expect(result.conversationFallbackUsed).toBe(false);
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(addMessageMock).toHaveBeenCalledTimes(1);
+    expect(addMessageMock.mock.calls[0]![0]).toBe("conv-inbound");
+    // Should NOT touch the notification binding — we only read the inbound one
+    expect(upsertOutboundBindingMock).not.toHaveBeenCalled();
+  });
+
+  test("uses inbound conversation regardless of source field for reply continuity", async () => {
+    // The inbound conversation has source: null (typical for conversations
+    // created by the inbound handler). The notification would normally
+    // skip this because effectiveSource is "notification". But the inbound
+    // path intentionally skips the source check.
+    mockExistingConversations["conv-inbound-null-source"] = {
+      id: "conv-inbound-null-source",
+      source: null as unknown as string,
+      title: "Slack DM",
+    };
+    mockBindings["slack:D0CHATID123"] = {
+      conversationId: "conv-inbound-null-source",
+      sourceChannel: "slack",
+      externalChatId: "D0CHATID123",
+    };
+
+    const signal = makeSignal();
+    const copy = makeCopy({
+      conversationSeedMessage: "Your daily briefing is ready",
+    });
+    const bindingContext: DestinationBindingContext = {
+      sourceChannel: "slack" as NotificationChannel,
+      externalChatId: "D0CHATID123",
+    };
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "slack" as NotificationChannel,
+      copy,
+      { bindingContext },
+    );
+
+    expect(result.conversationId).toBe("conv-inbound-null-source");
+    expect(result.createdNewConversation).toBe(false);
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(addMessageMock.mock.calls[0]![0]).toBe("conv-inbound-null-source");
+  });
+
+  test("falls back to notification binding when inbound binding points to deleted conversation", async () => {
+    // Inbound binding exists but conversation was deleted.
+    // Should fall through to notification binding.
+    mockBindings["slack:D0STALE"] = {
+      conversationId: "conv-deleted-inbound",
+      sourceChannel: "slack",
+      externalChatId: "D0STALE",
+    };
+    // conv-deleted-inbound is NOT in mockExistingConversations — getConversation returns null
+
+    mockExistingConversations["conv-notification-fallback"] = {
+      id: "conv-notification-fallback",
+      source: "notification",
+      title: "Notification Thread",
+    };
+    mockBindings["notification:slack:D0STALE"] = {
+      conversationId: "conv-notification-fallback",
+      sourceChannel: "notification:slack",
+      externalChatId: "D0STALE",
+    };
+
+    const signal = makeSignal();
+    const copy = makeCopy();
+    const bindingContext: DestinationBindingContext = {
+      sourceChannel: "slack" as NotificationChannel,
+      externalChatId: "D0STALE",
+    };
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "slack" as NotificationChannel,
+      copy,
+      { bindingContext },
+    );
+
+    // Inbound conversation is gone — should fall back to notification conversation
+    expect(result.conversationId).toBe("conv-notification-fallback");
+    expect(result.createdNewConversation).toBe(false);
+    expect(createConversationMock).not.toHaveBeenCalled();
+  });
+
+  test("falls through to create new conversation when no inbound and no notification binding exists", async () => {
+    // First notification to a channel where user has never messaged.
+    // No bindings at all — should create a new conversation.
+    const signal = makeSignal();
+    const copy = makeCopy();
+    const bindingContext: DestinationBindingContext = {
+      sourceChannel: "slack" as NotificationChannel,
+      externalChatId: "D0BRANDNEW",
+    };
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "slack" as NotificationChannel,
+      copy,
+      { bindingContext },
+    );
+
+    expect(result.conversationId).toBe("conv-001");
+    expect(result.createdNewConversation).toBe(true);
+    expect(createConversationMock).toHaveBeenCalledTimes(1);
+    expect(upsertOutboundBindingMock).toHaveBeenCalledTimes(1);
+    const upsertArgs = upsertOutboundBindingMock.mock.calls[0]![0] as Record<
+      string,
+      unknown
+    >;
+    expect(upsertArgs.sourceChannel).toBe("notification:slack");
+    expect(upsertArgs.externalChatId).toBe("D0BRANDNEW");
   });
 
   test("creates new conversation and upserts binding when no prior binding exists", async () => {

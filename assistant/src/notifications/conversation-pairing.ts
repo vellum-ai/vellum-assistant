@@ -228,21 +228,73 @@ export async function pairDeliveryWithConversation(
       bindingContext?.sourceChannel &&
       bindingContext?.externalChatId
     ) {
-      // Look up by namespaced key first; fall back to pre-namespace key for
-      // bindings created before the notification: prefix was introduced.
-      const existingBinding =
-        getBindingByChannelChat(
-          notificationChannel(bindingContext.sourceChannel),
-          bindingContext.externalChatId,
-        ) ??
-        getBindingByChannelChat(
-          bindingContext.sourceChannel,
-          bindingContext.externalChatId,
+      // ── Step 1: Prefer the inbound conversation for reply continuity ──
+      //
+      // When the user has previously messaged in this channel, the inbound
+      // pipeline created a binding at the un-prefixed (sourceChannel,
+      // externalChatId) key.  Posting to that conversation means the
+      // user's subsequent replies will include the notification in their
+      // conversation history — avoiding "split brain" where proactive
+      // messages live in one conversation and replies route to another.
+      //
+      // The source check is intentionally skipped here: the inbound
+      // conversation will have a different source (typically null) from
+      // notifications, but it is the correct target for reply continuity.
+      const inboundBinding = getBindingByChannelChat(
+        bindingContext.sourceChannel,
+        bindingContext.externalChatId,
+      );
+
+      if (inboundBinding) {
+        const inboundConversation = getConversation(
+          inboundBinding.conversationId,
         );
 
-      if (existingBinding) {
+        if (inboundConversation) {
+          const message = await addMessage(
+            inboundConversation.id,
+            "assistant",
+            messageContent,
+            undefined,
+            { skipIndexing: true },
+          );
+
+          log.info(
+            {
+              signalId: signal.signalId,
+              channel,
+              strategy,
+              conversationId: inboundConversation.id,
+              messageId: message.id,
+              bindingKey: `${bindingContext.sourceChannel}:${bindingContext.externalChatId}`,
+            },
+            "Appended notification to inbound conversation for reply continuity",
+          );
+
+          return {
+            conversationId: inboundConversation.id,
+            messageId: message.id,
+            strategy,
+            createdNewConversation: false,
+            conversationFallbackUsed: false,
+          };
+        }
+      }
+
+      // ── Step 2: Fall back to notification-scoped binding ──
+      //
+      // Before the user has ever messaged in this channel, there is no
+      // inbound binding.  Check the notification-prefixed namespace for a
+      // prior notification conversation so successive deliveries still
+      // accumulate in the same thread.
+      const notificationBinding = getBindingByChannelChat(
+        notificationChannel(bindingContext.sourceChannel),
+        bindingContext.externalChatId,
+      );
+
+      if (notificationBinding) {
         const boundConversation = getConversation(
-          existingBinding.conversationId,
+          notificationBinding.conversationId,
         );
 
         const effectiveSource =
@@ -272,7 +324,7 @@ export async function pairDeliveryWithConversation(
               messageId: message.id,
               bindingKey: `${bindingContext.sourceChannel}:${bindingContext.externalChatId}`,
             },
-            "Reused bound conversation for channel destination",
+            "Reused bound notification conversation for channel destination",
           );
 
           return {
@@ -290,11 +342,11 @@ export async function pairDeliveryWithConversation(
           {
             signalId: signal.signalId,
             channel,
-            boundConversationId: existingBinding.conversationId,
+            boundConversationId: notificationBinding.conversationId,
             boundConversationExists: !!boundConversation,
             boundConversationSource: boundConversation?.source,
           },
-          "Bound conversation stale or invalid — creating fresh conversation",
+          "Bound notification conversation stale or invalid — creating fresh conversation",
         );
       }
     }
