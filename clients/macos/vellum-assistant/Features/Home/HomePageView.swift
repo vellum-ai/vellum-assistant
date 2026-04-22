@@ -373,6 +373,10 @@ struct HomePageView<DetailPanel: View>: View {
             onNudgeSelected(item)
             return
         }
+        if let conversationId = item.conversationId {
+            onFeedConversationOpened(conversationId)
+            return
+        }
         Task {
             if let conversationId = await feedStore.triggerAction(
                 itemId: item.id,

@@ -269,12 +269,6 @@ extension MainWindowView {
                     )
                 } else if let selectedId = selectedNudgeItemId {
                     let selectedItem = feedStore.items.first(where: { $0.id == selectedId })
-                    // TODO: replace placeholder cards with real nudge-card
-                    // metadata when the assistant surfaces them on FeedItem
-                    // (see .private/plans/home-feed-groups.md follow-up).
-                    // Until then we render the Figma fixture (4 "Issue Name"
-                    // cards with two actions each) so the UI has a visible
-                    // surface to validate against.
                     HomeNudgeDetailPanel(
                         title: selectedItem?.title ?? "Heartbeat",
                         icon: .heart,

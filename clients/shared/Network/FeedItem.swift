@@ -111,6 +111,8 @@ public struct FeedItem: Codable, Sendable, Identifiable, Hashable {
     public let actions: [FeedAction]?
     /// Visual urgency treatment — controls badge color independently of sort priority.
     public let urgency: FeedItemUrgency?
+    /// Optional conversation this feed item is associated with.
+    public let conversationId: String?
     /// Internal: who authored this item.
     public let author: FeedItemAuthor
     /// Internal: writer-record time, used for ordering + TTL.
@@ -129,6 +131,7 @@ public struct FeedItem: Codable, Sendable, Identifiable, Hashable {
         minTimeAway: TimeInterval? = nil,
         actions: [FeedAction]? = nil,
         urgency: FeedItemUrgency? = nil,
+        conversationId: String? = nil,
         author: FeedItemAuthor,
         createdAt: Date
     ) {
@@ -144,6 +147,7 @@ public struct FeedItem: Codable, Sendable, Identifiable, Hashable {
         self.minTimeAway = minTimeAway
         self.actions = actions
         self.urgency = urgency
+        self.conversationId = conversationId
         self.author = author
         self.createdAt = createdAt
     }

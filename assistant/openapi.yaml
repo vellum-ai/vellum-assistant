@@ -4350,6 +4350,8 @@ paths:
                             - medium
                             - high
                             - critical
+                        conversationId:
+                          type: string
                         author:
                           type: string
                           enum:
@@ -4522,6 +4524,8 @@ paths:
                       - medium
                       - high
                       - critical
+                  conversationId:
+                    type: string
                   author:
                     type: string
                     enum:

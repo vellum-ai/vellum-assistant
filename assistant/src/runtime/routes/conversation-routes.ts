@@ -54,10 +54,12 @@ import type {
   NonHostProxyTransportMetadata,
 } from "../../daemon/message-types/conversations.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
+import { emitFeedEvent } from "../../home/emit-feed-event.js";
 import {
   writeOnboardingSidecar,
   writeRelationshipState,
 } from "../../home/relationship-state-writer.js";
+import { rewriteCommandPreview } from "../../home/rewrite-command-preview.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
@@ -1004,6 +1006,54 @@ function makeHubPublisher(
           temporaryOptionsAvailable: msg.temporaryOptionsAvailable,
         },
       });
+
+      const inputRecord = msg.input as Record<string, unknown>;
+      const commandPreview =
+        redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) ||
+        undefined;
+      const technicalTitle = commandPreview
+        ? `Requesting permission: ${commandPreview}`
+        : `Requesting approval to use ${msg.toolName}.`;
+      const dedupKey = `tool-approval:${msg.requestId}`;
+
+      // Emit immediately with the technical preview.
+      void emitFeedEvent({
+        source: "assistant",
+        title: technicalTitle,
+        summary: technicalTitle,
+        dedupKey,
+        urgency: msg.riskLevel === "high" ? "high" : "medium",
+        conversationId,
+      }).catch((err) => {
+        log.warn(
+          { err, requestId: msg.requestId },
+          "Failed to emit tool approval request feed event",
+        );
+      });
+
+      // Background: rewrite into prose and update the feed item.
+      if (commandPreview) {
+        void rewriteCommandPreview(msg.toolName, commandPreview)
+          .then((prose) => {
+            if (prose) {
+              const proseTitle = `Requesting permission: ${prose}`;
+              return emitFeedEvent({
+                source: "assistant",
+                title: proseTitle,
+                summary: proseTitle,
+                dedupKey,
+                urgency: msg.riskLevel === "high" ? "high" : "medium",
+                conversationId,
+              });
+            }
+          })
+          .catch((err) => {
+            log.warn(
+              { err, requestId: msg.requestId },
+              "Failed to update feed event with prose rewrite",
+            );
+          });
+      }
 
       // Create a canonical guardian request so HTTP handlers can find it
       // via applyCanonicalGuardianDecision.

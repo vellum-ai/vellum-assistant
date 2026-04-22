@@ -96,6 +96,8 @@ export interface EmitFeedEventParams {
   expiresAt?: string;
   /** Visual urgency treatment — controls badge color independently of sort priority. */
   urgency?: FeedItemUrgency;
+  /** Optional conversation this feed item is associated with. */
+  conversationId?: string;
 }
 
 /**
@@ -148,6 +150,7 @@ export async function emitFeedEvent(
     createdAt: now,
     actions: params.actions,
     urgency: params.urgency,
+    conversationId: params.conversationId,
     minTimeAway: params.minTimeAway,
     expiresAt: params.expiresAt,
   };
