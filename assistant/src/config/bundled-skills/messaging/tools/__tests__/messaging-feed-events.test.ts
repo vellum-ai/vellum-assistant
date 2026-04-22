@@ -104,6 +104,7 @@ const { run: runSend } = await import("../messaging-send.js");
 const { run: runArchive } = await import("../messaging-archive-by-sender.js");
 
 const baseContext = {
+  workingDir: "/tmp/test",
   conversationId: "conv-xyz",
   assistantId: "assistant-1",
   triggeredBySurfaceAction: true,
