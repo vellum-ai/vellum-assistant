@@ -65,6 +65,7 @@ public struct VNotification: View {
                                 .foregroundStyle(foregroundColor)
                         }
                         .buttonStyle(.plain)
+                        .pointerCursor()
                         .accessibilityLabel(actionLabel)
                     }
                     if let onDismiss {
@@ -76,6 +77,7 @@ public struct VNotification: View {
                                 .foregroundStyle(foregroundColor)
                         }
                         .buttonStyle(.plain)
+                        .pointerCursor()
                         .accessibilityLabel("Dismiss \(toneA11yLabel.lowercased()): \(message)")
                     }
                 }
