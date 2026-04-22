@@ -4,8 +4,8 @@ import XCTest
 @testable import VellumAssistantShared
 
 /// Routing tests for ``HomePageView.openItem(_:)`` — verify that tapping a
-/// `.thread` (scheduled) feed item fires `onScheduledItemSelected` and
-/// skips the triggerAction flow, while non-`.thread` types leave the
+/// feed item that resolves to a detail panel fires `onDetailPanelSelected`
+/// and skips the triggerAction flow, while non-panel types leave the
 /// callback silent and fall through to the existing conversation flow.
 ///
 /// ``openItem`` is exposed as `internal` (not `private`) specifically so
@@ -54,8 +54,7 @@ final class HomeScheduledRoutingTests: XCTestCase {
     private func makeView(
         homeStore: HomeStore,
         feedStore: HomeFeedStore,
-        onScheduledItemSelected: @escaping (FeedItem) -> Void = { _ in },
-        onNudgeSelected: @escaping (FeedItem) -> Void = { _ in },
+        onDetailPanelSelected: @escaping (FeedItem) -> Void = { _ in },
         onFeedConversationOpened: @escaping (String) -> Void = { _ in }
     ) -> HomePageView<EmptyView> {
         let (meetStream, _) = AsyncStream<ServerMessage>.makeStream()
@@ -71,21 +70,20 @@ final class HomeScheduledRoutingTests: XCTestCase {
             onStartNewChat: {},
             onDismissSuggestions: {},
             onSuggestionSelected: { _ in },
-            onScheduledItemSelected: onScheduledItemSelected,
-            onNudgeSelected: onNudgeSelected
+            onDetailPanelSelected: onDetailPanelSelected
         )
     }
 
     // MARK: - Tests
 
-    func test_openItem_calendarSourcedThread_firesScheduledCallback() async {
+    func test_openItem_calendarSourcedThread_firesDetailPanelCallback() async {
         let (homeStore, feedStore, feedClient) = makeStores()
         var captured: [FeedItem] = []
         var conversationOpens = 0
         let view = makeView(
             homeStore: homeStore,
             feedStore: feedStore,
-            onScheduledItemSelected: { item in captured.append(item) },
+            onDetailPanelSelected: { item in captured.append(item) },
             onFeedConversationOpened: { _ in conversationOpens += 1 }
         )
 
@@ -93,7 +91,7 @@ final class HomeScheduledRoutingTests: XCTestCase {
         view.openItem(item)
 
         XCTAssertEqual(captured.map { $0.id }, ["sched-1"],
-                       "calendar-sourced thread should fire the scheduled callback exactly once")
+                       "calendar-sourced thread should fire the detail panel callback exactly once")
         XCTAssertEqual(feedClient.triggerCallCount, 0,
                        "calendar-sourced thread must not round-trip through triggerAction")
         XCTAssertEqual(conversationOpens, 0,
@@ -103,7 +101,7 @@ final class HomeScheduledRoutingTests: XCTestCase {
     /// Gates the scheduled flow on `source == .calendar` (Codex P1 on
     /// PR #27475): `.thread` is also used by rollup-producer for general
     /// multi-action threads that must keep the conversation-open flow.
-    func test_openItem_nonCalendarThread_skipsScheduledCallback() async {
+    func test_openItem_nonCalendarThread_skipsDetailPanelCallback() async {
         // As with the non-thread test below we only assert the spy — we
         // don't wait on the detached triggerAction Task. HomeFeedStoreTests
         // covers that path.
@@ -114,84 +112,79 @@ final class HomeScheduledRoutingTests: XCTestCase {
             let view = makeView(
                 homeStore: homeStore,
                 feedStore: feedStore,
-                onScheduledItemSelected: { item in captured.append(item) }
+                onDetailPanelSelected: { item in captured.append(item) }
             )
 
             let label = source.map { "\($0)" } ?? "nil"
             view.openItem(makeItem(id: "rollup-\(label)", type: .thread, source: source))
 
             XCTAssertTrue(captured.isEmpty,
-                          "\(label)-sourced thread must not fire the scheduled callback")
+                          "\(label)-sourced thread must not fire the detail panel callback")
         }
     }
 
-    func test_openItem_nonThreadType_skipsScheduledCallback() async {
+    func test_openItem_nonPanelTypes_skipDetailPanelCallback() async {
         // We only assert the callback SPY — we deliberately avoid asserting
         // anything about the async `feedStore.triggerAction` path here:
         // wiring up deterministic waits for the detached Task would
         // duplicate HomeFeedStoreTests coverage without adding signal for
         // this routing check. See note on the test class for rationale.
         let (homeStore, feedStore, _) = makeStores()
-        for nonThreadType in [FeedItemType.nudge, .digest, .action] {
+        for nonPanelType in [FeedItemType.digest, .action] {
             var captured: [FeedItem] = []
             let view = makeView(
                 homeStore: homeStore,
                 feedStore: feedStore,
-                onScheduledItemSelected: { item in captured.append(item) }
+                onDetailPanelSelected: { item in captured.append(item) }
             )
 
-            // Use calendar source here to prove that type-gating runs
-            // independently of the source gate — even a calendar-sourced
-            // non-thread must not route through the scheduled callback.
-            view.openItem(makeItem(id: "n-\(nonThreadType)", type: nonThreadType, source: .calendar))
+            // Use nil source so HomeDetailPanelKind.resolve returns nil
+            // for these types (digest and action never resolve to a panel).
+            view.openItem(makeItem(id: "n-\(nonPanelType)", type: nonPanelType))
 
             XCTAssertTrue(captured.isEmpty,
-                          "\(nonThreadType) taps must not fire the scheduled callback")
+                          "\(nonPanelType) taps must not fire the detail panel callback")
         }
     }
 
     // MARK: - Nudge routing
 
-    func test_openItem_nudgeType_firesNudgeCallback() async {
+    func test_openItem_nudgeType_firesDetailPanelCallback() async {
         let (homeStore, feedStore, feedClient) = makeStores()
-        var capturedNudges: [FeedItem] = []
-        var capturedScheduled: [FeedItem] = []
+        var captured: [FeedItem] = []
         var conversationOpens = 0
         let view = makeView(
             homeStore: homeStore,
             feedStore: feedStore,
-            onScheduledItemSelected: { capturedScheduled.append($0) },
-            onNudgeSelected: { capturedNudges.append($0) },
+            onDetailPanelSelected: { captured.append($0) },
             onFeedConversationOpened: { _ in conversationOpens += 1 }
         )
 
         let item = makeItem(id: "nudge-1", type: .nudge)
         view.openItem(item)
 
-        XCTAssertEqual(capturedNudges.map { $0.id }, ["nudge-1"],
-                       "nudge callback should fire exactly once with the tapped item")
-        XCTAssertTrue(capturedScheduled.isEmpty,
-                      "nudge taps must not fire the scheduled callback")
+        XCTAssertEqual(captured.map { $0.id }, ["nudge-1"],
+                       "detail panel callback should fire exactly once with the tapped nudge item")
         XCTAssertEqual(feedClient.triggerCallCount, 0,
                        "nudge taps must not round-trip through triggerAction")
         XCTAssertEqual(conversationOpens, 0,
                        "nudge taps must not attempt to open a conversation")
     }
 
-    func test_openItem_nonNudgeType_skipsNudgeCallback() async {
+    func test_openItem_nonPanelThread_skipsDetailPanelCallback() async {
+        // Non-calendar threads should NOT fire the detail panel callback
+        // — they fall through to the conversation flow.
         let (homeStore, feedStore, _) = makeStores()
-        for nonNudgeType in [FeedItemType.digest, .action, .thread] {
-            var captured: [FeedItem] = []
-            let view = makeView(
-                homeStore: homeStore,
-                feedStore: feedStore,
-                onNudgeSelected: { captured.append($0) }
-            )
+        var captured: [FeedItem] = []
+        let view = makeView(
+            homeStore: homeStore,
+            feedStore: feedStore,
+            onDetailPanelSelected: { captured.append($0) }
+        )
 
-            view.openItem(makeItem(id: "x-\(nonNudgeType)", type: nonNudgeType))
+        view.openItem(makeItem(id: "x-thread", type: .thread))
 
-            XCTAssertTrue(captured.isEmpty,
-                          "\(nonNudgeType) taps must not fire the nudge callback")
-        }
+        XCTAssertTrue(captured.isEmpty,
+                      "non-calendar thread taps must not fire the detail panel callback")
     }
 }
