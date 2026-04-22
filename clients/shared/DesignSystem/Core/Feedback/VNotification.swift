@@ -86,6 +86,16 @@ public struct VNotification: View {
         .background(backgroundColor)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .accessibilityElement(children: isInteractive ? .contain : .combine)
+        .accessibilityLabel("\(toneA11yLabel). \(message)")
+    }
+
+    private var toneA11yLabel: String {
+        switch tone {
+        case .positive: return "Success"
+        case .negative: return "Error"
+        case .warning: return "Warning"
+        case .neutral: return "Notice"
+        }
     }
 
     private var hasTrailingCluster: Bool {
