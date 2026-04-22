@@ -72,6 +72,7 @@ import {
 import type { ExternalConversationBinding } from "../memory/external-conversation-store.js";
 import * as externalConversationStore from "../memory/external-conversation-store.js";
 import { listGroups } from "../memory/group-crud.js";
+import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { resolveStreamingTranscriber } from "../providers/speech-to-text/resolve.js";
 import {
   consumeCallback,
@@ -2016,7 +2017,29 @@ export class RuntimeHttpServer {
           // — `deleteConversation` always returns a result object even when
           // no row matched.
           if (!getConversation(id)) return false;
-          deleteConversation(id);
+          // Mirror the canonical DELETE /v1/conversations/:id handler in
+          // conversation-management-routes.ts: tear down the in-memory
+          // Conversation first (so a running agent loop can't write to a
+          // deleted row and trip FK constraints), then drop the DB row,
+          // then enqueue Qdrant vector cleanup for the returned segment
+          // and summary IDs. Without this, seeded-then-deleted playground
+          // conversations leak vectors and zombie Conversation objects.
+          if (this.findConversation?.(id)) {
+            this.conversationManagementDeps?.destroyConversation(id);
+          }
+          const deleted = deleteConversation(id);
+          for (const segId of deleted.segmentIds) {
+            enqueueMemoryJob("delete_qdrant_vectors", {
+              targetType: "segment",
+              targetId: segId,
+            });
+          }
+          for (const summaryId of deleted.deletedSummaryIds) {
+            enqueueMemoryJob("delete_qdrant_vectors", {
+              targetType: "summary",
+              targetId: summaryId,
+            });
+          }
           return true;
         },
         createConversation: async (title) => {
