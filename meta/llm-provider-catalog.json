@@ -108,7 +108,7 @@
           "supportsToolUse": true,
           "pricing": {
             "inputPer1mTokens": 2.5,
-            "outputPer1mTokens": 10.0,
+            "outputPer1mTokens": 15.0,
             "cacheReadPer1mTokens": 0.25
           }
         },
@@ -122,8 +122,8 @@
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 3.0,
-            "outputPer1mTokens": 12.0,
+            "inputPer1mTokens": 1.75,
+            "outputPer1mTokens": 14.0,
             "cacheReadPer1mTokens": 0.3
           }
         },
@@ -138,7 +138,7 @@
           "supportsToolUse": true,
           "pricing": {
             "inputPer1mTokens": 0.5,
-            "outputPer1mTokens": 2.0,
+            "outputPer1mTokens": 3.0,
             "cacheReadPer1mTokens": 0.05
           }
         },
@@ -152,8 +152,8 @@
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.1,
-            "outputPer1mTokens": 0.4,
+            "inputPer1mTokens": 0.2,
+            "outputPer1mTokens": 1.25,
             "cacheReadPer1mTokens": 0.01
           }
         }
@@ -184,9 +184,9 @@
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.3,
-            "outputPer1mTokens": 2.5,
-            "cacheReadPer1mTokens": 0.075
+            "inputPer1mTokens": 0.15,
+            "outputPer1mTokens": 0.6,
+            "cacheReadPer1mTokens": 0.0375
           }
         },
         {
@@ -199,9 +199,9 @@
           "supportsVision": true,
           "supportsToolUse": true,
           "pricing": {
-            "inputPer1mTokens": 0.1,
-            "outputPer1mTokens": 0.4,
-            "cacheReadPer1mTokens": 0.025
+            "inputPer1mTokens": 0.02,
+            "outputPer1mTokens": 0.1,
+            "cacheReadPer1mTokens": 0.005
           }
         },
         {
