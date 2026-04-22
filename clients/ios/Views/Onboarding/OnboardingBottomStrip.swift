@@ -7,21 +7,18 @@ import UIKit
 /// two platforms read as the same onboarding experience.
 ///
 /// Intended to be placed as the final child of a root `VStack` whose bottom
-/// safe area is ignored (see `OnboardingView`). The image then anchors to
-/// the physical screen bottom and bleeds past the home indicator, matching
-/// the Figma design.
+/// safe area is ignored (see `OnboardingView`). That parent-level
+/// `ignoresSafeArea` is what lets the image's bottom edge sit at the
+/// physical screen bottom. Do NOT also apply `ignoresSafeArea` here —
+/// doing so would extend this view's own frame by the safe-area amount,
+/// and `.aspectRatio(.fit)` would then center the characters inside that
+/// taller frame, reintroducing a gap below.
 struct OnboardingBottomStrip: View {
     var body: some View {
         Image(uiImage: Self.characters ?? UIImage())
             .resizable()
             .aspectRatio(contentMode: .fit)
             .frame(maxWidth: .infinity)
-            // DEBUG: red outline shows exactly where this view's frame sits.
-            // The image content is centered inside this frame when
-            // .aspectRatio(.fit) has more space than it needs.
-            // Remove before shipping.
-            .background(Color.red.opacity(0.35))
-            .border(Color.blue, width: 2)
             .accessibilityHidden(true)
     }
 

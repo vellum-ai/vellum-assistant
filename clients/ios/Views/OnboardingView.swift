@@ -61,7 +61,6 @@ struct OnboardingView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             OnboardingBottomStrip()
-                .ignoresSafeArea(edges: .bottom)
         }
         .ignoresSafeArea(edges: .bottom)
         .overlay(alignment: .topLeading) {
