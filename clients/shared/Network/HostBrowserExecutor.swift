@@ -9,7 +9,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "HostB
 /// Only loopback debugging endpoints are permitted (`localhost`, `127.0.0.1`,
 /// `::1`) to prevent the client from being used as an open proxy to arbitrary
 /// hosts. Non-loopback endpoints are rejected with a structured transport error
-/// so the backend error classifier (PR 1) can trigger failover.
+/// so the backend error classifier can trigger failover.
 ///
 /// Lifecycle:
 /// - `execute(_:using:)` — runs the full attach flow (endpoint discovery,
@@ -116,7 +116,7 @@ public final class HostBrowserExecutor {
         guard Self.allowedLoopbackHosts.contains(host.lowercased()) else {
             return Self.transportError(
                 requestId: request.requestId,
-                code: "LOOPBACK_VALIDATION_FAILED",
+                code: "non_loopback",
                 message: "CDP endpoint host '\(host)' is not a loopback address. Only localhost, 127.0.0.1, and ::1 are permitted."
             )
         }
@@ -131,7 +131,7 @@ public final class HostBrowserExecutor {
         } catch {
             return Self.transportError(
                 requestId: request.requestId,
-                code: "ENDPOINT_UNREACHABLE",
+                code: "unreachable",
                 message: "Failed to connect to Chrome DevTools at \(host):\(port): \(error.localizedDescription)"
             )
         }
@@ -141,7 +141,7 @@ public final class HostBrowserExecutor {
               let wsURL = target["webSocketDebuggerUrl"] as? String else {
             return Self.transportError(
                 requestId: request.requestId,
-                code: "NO_TARGET",
+                code: "unreachable",
                 message: "No debuggable page target found at \(host):\(port). Ensure Chrome is running with --remote-debugging-port=\(port)."
             )
         }
@@ -150,7 +150,7 @@ public final class HostBrowserExecutor {
         guard let wsEndpoint = URL(string: wsURL) else {
             return Self.transportError(
                 requestId: request.requestId,
-                code: "INVALID_WS_URL",
+                code: "transport_error",
                 message: "Chrome returned an invalid WebSocket URL: \(wsURL)"
             )
         }
@@ -173,13 +173,13 @@ public final class HostBrowserExecutor {
             case .timeout:
                 return Self.transportError(
                     requestId: request.requestId,
-                    code: "CDP_TIMEOUT",
+                    code: "timeout",
                     message: "CDP command '\(request.cdpMethod)' timed out after \(timeout)s"
                 )
             case .connectionFailed(let reason):
                 return Self.transportError(
                     requestId: request.requestId,
-                    code: "CDP_CONNECTION_FAILED",
+                    code: "transport_error",
                     message: "WebSocket connection to Chrome DevTools failed: \(reason)"
                 )
             case .protocolError(let code, let message):
@@ -204,7 +204,7 @@ public final class HostBrowserExecutor {
         } catch {
             return Self.transportError(
                 requestId: request.requestId,
-                code: "CDP_UNKNOWN_ERROR",
+                code: "transport_error",
                 message: "Unexpected error executing CDP command: \(error.localizedDescription)"
             )
         }
@@ -265,10 +265,18 @@ public final class HostBrowserExecutor {
             let session = URLSession(configuration: .default)
             let wsTask = session.webSocketTask(with: endpoint)
 
+            // Guard against double-resuming the continuation. The timeout
+            // fires on DispatchQueue.global() while WebSocket callbacks
+            // run on URLSession's delegate queue, so `resumed` is accessed
+            // from multiple threads and must be synchronized.
+            let lock = NSLock()
             var resumed = false
             let resumeOnce: (Result<String, Error>) -> Void = { result in
-                guard !resumed else { return }
-                resumed = true
+                lock.lock()
+                let alreadyResumed = resumed
+                if !alreadyResumed { resumed = true }
+                lock.unlock()
+                guard !alreadyResumed else { return }
                 wsTask.cancel(with: .normalClosure, reason: nil)
                 session.invalidateAndCancel()
                 continuation.resume(with: result)
@@ -347,8 +355,10 @@ public final class HostBrowserExecutor {
     // MARK: - Error Helpers
 
     /// Build a structured transport error payload with `isError: true` so
-    /// PR 1's error classifier can detect transport failures and trigger
-    /// backend failover.
+    /// the backend error classifier can detect transport failures and trigger
+    /// failover. Error codes use the lowercase set recognized by
+    /// `classifyHostBrowserError`: `transport_error`, `unreachable`,
+    /// `timeout`, `non_loopback`.
     static func transportError(
         requestId: String,
         code: String,

@@ -30,7 +30,7 @@ final class HostBrowserExecutorTests: XCTestCase {
     func testTransportErrorFormatsStructuredJSON() {
         let result = HostBrowserExecutor.transportError(
             requestId: "req-1",
-            code: "ENDPOINT_UNREACHABLE",
+            code: "unreachable",
             message: "Connection refused"
         )
 
@@ -43,14 +43,14 @@ final class HostBrowserExecutorTests: XCTestCase {
             XCTFail("Transport error content should be valid JSON")
             return
         }
-        XCTAssertEqual(json["code"] as? String, "ENDPOINT_UNREACHABLE")
+        XCTAssertEqual(json["code"] as? String, "unreachable")
         XCTAssertEqual(json["message"] as? String, "Connection refused")
     }
 
     // MARK: - Executor Run (Unit — No Real Chrome)
 
     /// When Chrome DevTools is not running, the executor should return a
-    /// structured transport error with ENDPOINT_UNREACHABLE.
+    /// structured transport error with `unreachable` code.
     func testRunReturnsEndpointUnreachableWhenChromeNotRunning() async {
         let executor = HostBrowserExecutor()
         let request = makeRequest(requestId: "req-no-chrome", cdpMethod: "Runtime.evaluate")
@@ -65,7 +65,7 @@ final class HostBrowserExecutorTests: XCTestCase {
             XCTFail("Content should be valid JSON")
             return
         }
-        XCTAssertEqual(json["code"] as? String, "ENDPOINT_UNREACHABLE")
+        XCTAssertEqual(json["code"] as? String, "unreachable")
     }
 
     // MARK: - Cancellation
