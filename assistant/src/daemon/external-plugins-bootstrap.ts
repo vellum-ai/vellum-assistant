@@ -35,9 +35,11 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AssistantConfig } from "../config/schema.js";
+import { defaultCompactionPlugin } from "../plugins/defaults/compaction.js";
 import {
   ASSISTANT_API_VERSIONS,
   getRegisteredPlugins,
+  registerPlugin,
 } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -146,7 +148,34 @@ function ensurePluginStorageDir(pluginName: string): string {
  * (i.e. after any static side-effect imports of first-party plugins have
  * run) and before the first conversation is served.
  */
+/**
+ * Register first-party default plugins. Idempotent — re-registering a plugin
+ * already in the registry is a no-op so the function is safe to call from
+ * multiple boot paths (daemon startup and the inline test harnesses that run
+ * the orchestrator without the full daemon lifecycle).
+ *
+ * The order here determines onion order for middleware composition — earlier
+ * entries wrap later entries. For defaults we keep the set minimal so custom
+ * plugins registered afterward sit *outside* the defaults (closer to the
+ * caller), which is the typical expectation for observer-style middleware.
+ */
+export function registerDefaultPlugins(): void {
+  const alreadyRegistered = new Set(
+    getRegisteredPlugins().map((p) => p.manifest.name),
+  );
+  for (const plugin of [defaultCompactionPlugin]) {
+    if (alreadyRegistered.has(plugin.manifest.name)) continue;
+    registerPlugin(plugin);
+  }
+}
+
 export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
+  // Ensure first-party defaults are registered before we walk the registry.
+  // Calling sites that bootstrap without going through a prior `registerPlugin`
+  // sweep (tests, hot-reload) would otherwise boot with an empty registry and
+  // skip defaults silently.
+  registerDefaultPlugins();
+
   const plugins = getRegisteredPlugins();
   if (plugins.length === 0) {
     // No-op fast path — the registry is empty (no first-party plugins have

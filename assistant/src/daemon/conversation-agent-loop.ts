@@ -68,6 +68,14 @@ import type { ConversationGraphMemory } from "../memory/graph/conversation-graph
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
+import { defaultCompactionTerminal } from "../plugins/defaults/compaction.js";
+import { runPipeline } from "../plugins/pipeline.js";
+import { getMiddlewaresFor } from "../plugins/registry.js";
+import type {
+  CompactionArgs,
+  CompactionResult,
+  TurnContext,
+} from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
@@ -247,6 +255,57 @@ export function trackCompactionOutcome(
       });
     }
   }
+}
+
+// ── Plugin pipeline helpers ──────────────────────────────────────────
+//
+// Turn-level {@link TurnContext} builder threaded into every `runPipeline`
+// call. `TurnContext` intentionally stays slim at the type level — we attach
+// the `contextWindowManager` handle via a lenient extension field that the
+// default-compaction plugin reads with a cast. Custom plugins don't need the
+// handle (they replace the terminal behavior) so widening `TurnContext` would
+// pay no benefit.
+
+/**
+ * Synthetic fallback trust context used when the orchestrator fires a pipeline
+ * before the per-turn trust snapshot has been captured (e.g. invocations that
+ * bypass `processMessage` / `drainQueue`). We bias to `unknown` rather than
+ * `guardian` so a missing snapshot cannot accidentally grant elevated trust
+ * to a custom plugin reading `ctx.trust`.
+ */
+const FALLBACK_TURN_TRUST: TrustContext = {
+  sourceChannel: "vellum",
+  trustClass: "unknown",
+};
+
+/**
+ * Build the {@link TurnContext} passed to {@link runPipeline}. Pulls trust
+ * context from the per-turn snapshot when present, otherwise from the
+ * conversation-level context, otherwise the synthetic fallback above. The
+ * contextWindowManager handle is attached as an extension so the default
+ * compaction plugin can read it without widening `TurnContext`.
+ */
+function buildPluginTurnContext(
+  ctx: AgentLoopConversationContext,
+  requestId: string,
+): TurnContext {
+  const trust =
+    ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
+  const base: TurnContext = {
+    requestId,
+    conversationId: ctx.conversationId,
+    turnIndex: ctx.turnCount,
+    trust,
+  };
+  return {
+    ...base,
+    // Extension fields — read via lenient casts by default plugins. Kept off
+    // the declared `TurnContext` shape so plugin-facing code isn't tempted to
+    // depend on orchestrator-internal handles.
+    ...({
+      contextWindowManager: ctx.contextWindowManager,
+    } as Partial<TurnContext>),
+  };
 }
 
 // ── Context Interface ────────────────────────────────────────────────
@@ -577,16 +636,24 @@ export async function runAgentLoopImpl(
       );
     }
     const compacted = autoCompactAllowed
-      ? await ctx.contextWindowManager.maybeCompact(
-          ctx.messages,
-          abortController.signal,
+      ? ((await runPipeline<CompactionArgs, CompactionResult>(
+          "compaction",
+          getMiddlewaresFor("compaction"),
+          (args) =>
+            defaultCompactionTerminal(args, buildPluginTurnContext(ctx, reqId)),
           {
-            lastCompactedAt: ctx.contextCompactedAt ?? undefined,
-            precomputedEstimate: compactCheck.estimatedTokens,
-            conversationOriginChannel:
-              getConversationOriginChannel(ctx.conversationId) ?? undefined,
+            messages: ctx.messages,
+            signal: abortController.signal,
+            options: {
+              lastCompactedAt: ctx.contextCompactedAt ?? undefined,
+              precomputedEstimate: compactCheck.estimatedTokens,
+              conversationOriginChannel:
+                getConversationOriginChannel(ctx.conversationId) ?? undefined,
+            },
           },
-        )
+          buildPluginTurnContext(ctx, reqId),
+          30000,
+        )) as Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>)
       : null;
     // Only track circuit-breaker state when a summary LLM call actually ran.
     // `summaryFailed` is `undefined` on early returns (compaction disabled,
@@ -1299,17 +1366,28 @@ export async function runAgentLoopImpl(
         reqId,
         "Compacting context",
       );
-      const midLoopCompact = await ctx.contextWindowManager.maybeCompact(
-        ctx.messages,
-        abortController.signal,
+      const midLoopCompact = (await runPipeline<
+        CompactionArgs,
+        CompactionResult
+      >(
+        "compaction",
+        getMiddlewaresFor("compaction"),
+        (args) =>
+          defaultCompactionTerminal(args, buildPluginTurnContext(ctx, reqId)),
         {
-          lastCompactedAt: ctx.contextCompactedAt ?? undefined,
-          force: true,
-          targetInputTokensOverride: preflightBudget,
-          conversationOriginChannel:
-            getConversationOriginChannel(ctx.conversationId) ?? undefined,
+          messages: ctx.messages,
+          signal: abortController.signal,
+          options: {
+            lastCompactedAt: ctx.contextCompactedAt ?? undefined,
+            force: true,
+            targetInputTokensOverride: preflightBudget,
+            conversationOriginChannel:
+              getConversationOriginChannel(ctx.conversationId) ?? undefined,
+          },
         },
-      );
+        buildPluginTurnContext(ctx, reqId),
+        30000,
+      )) as Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>;
       // `force: true` bypasses the cooldown/threshold gates but early returns
       // for "no eligible messages" / "insufficient messages" still leave
       // `summaryFailed` undefined. Only track when the summary LLM actually ran.
@@ -1646,16 +1724,32 @@ export async function runAgentLoopImpl(
             "assistant_turn",
             reqId,
           );
-          const emergencyCompact = await ctx.contextWindowManager.maybeCompact(
-            ctx.messages,
-            abortController.signal,
+          const emergencyCompact = (await runPipeline<
+            CompactionArgs,
+            CompactionResult
+          >(
+            "compaction",
+            getMiddlewaresFor("compaction"),
+            (args) =>
+              defaultCompactionTerminal(
+                args,
+                buildPluginTurnContext(ctx, reqId),
+              ),
             {
-              lastCompactedAt: ctx.contextCompactedAt ?? undefined,
-              force: true,
-              minKeepRecentUserTurns: 0,
-              targetInputTokensOverride: correctedTarget,
+              messages: ctx.messages,
+              signal: abortController.signal,
+              options: {
+                lastCompactedAt: ctx.contextCompactedAt ?? undefined,
+                force: true,
+                minKeepRecentUserTurns: 0,
+                targetInputTokensOverride: correctedTarget,
+              },
             },
-          );
+            buildPluginTurnContext(ctx, reqId),
+            30000,
+          )) as Awaited<
+            ReturnType<typeof ctx.contextWindowManager.maybeCompact>
+          >;
           // Only track when the summary LLM actually ran; `force: true`
           // bypasses the cooldown but not the early-return paths.
           if (emergencyCompact.summaryFailed !== undefined) {
