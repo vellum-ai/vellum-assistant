@@ -61,13 +61,16 @@ import { getResolvedConversationDirPath } from "../memory/conversation-directori
 import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import {
   isReplaceableTitle,
-  queueGenerateConversationTitle,
   queueRegenerateConversationTitle,
 } from "../memory/conversation-title-service.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
+import { defaultTitleGenerateTerminal } from "../plugins/defaults/title-generate.js";
+import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
+import { getMiddlewaresFor } from "../plugins/registry.js";
+import type { TurnContext } from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
@@ -544,18 +547,47 @@ export async function runAgentLoopImpl(
     if (
       isReplaceableTitle(getConversation(ctx.conversationId)?.title ?? null)
     ) {
+      // Build a TurnContext for the titleGenerate pipeline. The trust slot
+      // falls back to an `unknown`/`vellum` placeholder when the
+      // conversation has no resolved trust (e.g. reconstructed after
+      // daemon restart); downstream middleware treats that as a
+      // minimum-trust actor, which matches the previous behavior where
+      // no trust was propagated at all.
+      const titlePipelineCtx: TurnContext = {
+        requestId: reqId,
+        conversationId: ctx.conversationId,
+        turnIndex: ctx.messages.length - 1,
+        trust: ctx.trustContext ?? {
+          sourceChannel: "vellum",
+          trustClass: "unknown",
+        },
+      };
+      const titleArgs = {
+        conversationId: ctx.conversationId,
+        provider: ctx.provider,
+        userMessage: options?.titleText ?? content,
+        onTitleUpdated: (title: string) => {
+          onEvent({
+            type: "conversation_title_updated",
+            conversationId: ctx.conversationId,
+            title,
+          });
+        },
+      };
       setTimeout(() => {
-        queueGenerateConversationTitle({
-          conversationId: ctx.conversationId,
-          provider: ctx.provider,
-          userMessage: options?.titleText ?? content,
-          onTitleUpdated: (title) => {
-            onEvent({
-              type: "conversation_title_updated",
-              conversationId: ctx.conversationId,
-              title,
-            });
-          },
+        runPipeline(
+          "titleGenerate",
+          getMiddlewaresFor("titleGenerate"),
+          defaultTitleGenerateTerminal,
+          titleArgs,
+          titlePipelineCtx,
+          DEFAULT_TIMEOUTS.titleGenerate,
+        ).catch((err) => {
+          // Fire-and-forget — keep previous non-propagating semantics.
+          // queueGenerateConversationTitle already swallows internal
+          // errors; this catch covers pipeline-layer errors (timeouts,
+          // middleware throws) without surfacing them to the agent loop.
+          rlog.warn({ err }, "titleGenerate pipeline failed (non-fatal)");
         });
       }, 0);
     }

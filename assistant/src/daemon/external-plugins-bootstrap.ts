@@ -49,6 +49,13 @@ import { getLogger } from "../util/logger.js";
 import { vellumRoot } from "../util/platform.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
 
+// First-party default plugin registrations. Each side-effect import appends
+// the corresponding default plugin to the registry at module-load time, so
+// by the time `bootstrapPlugins` runs the registry already contains the
+// assistant-owned defaults that pipelines delegate to when no user plugin
+// is installed.
+import "../plugins/defaults/title-generate.js";
+
 const log = getLogger("plugins-bootstrap");
 
 /**

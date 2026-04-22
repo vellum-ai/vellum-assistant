@@ -17,6 +17,7 @@
  */
 
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import type { Provider } from "../providers/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
@@ -145,8 +146,43 @@ export type OverflowReduceResult = { readonly output: unknown };
 export type PersistenceArgs = { readonly input: unknown };
 export type PersistenceResult = { readonly output: unknown };
 
-export type TitleGenerateArgs = { readonly input: unknown };
-export type TitleGenerateResult = { readonly output: unknown };
+/**
+ * Arguments for the `titleGenerate` pipeline. Mirrors the parameters of
+ * `queueGenerateConversationTitle` in `memory/conversation-title-service.ts`
+ * so the default plugin can delegate verbatim.
+ *
+ * `provider` is optional because the underlying service falls back to
+ * `getConfiguredProvider("conversationTitle")` when absent. `userMessage`
+ * carries the first turn's text — the service uses it as LLM context and
+ * also to derive a deterministic fallback title if the call fails.
+ *
+ * `onTitleUpdated` is a fire-and-forget callback the pipeline invokes when
+ * the title is finally persisted. The default implementation is
+ * fire-and-forget overall, so the pipeline result (`TitleResult`) carries no
+ * payload — callers that need the title must use the callback.
+ */
+export type TitleArgs = {
+  readonly conversationId: string;
+  readonly provider?: Provider;
+  readonly userMessage: string;
+  readonly onTitleUpdated?: (title: string) => void;
+};
+/**
+ * Result of the `titleGenerate` pipeline. The default implementation is
+ * fire-and-forget (it schedules background work and returns immediately),
+ * so there is nothing meaningful to return. Defined as an empty object so
+ * custom plugins can opt into richer payloads later.
+ */
+export type TitleResult = Readonly<Record<string, never>>;
+
+/**
+ * @deprecated Alias kept for the M1 scaffolding era. Prefer {@link TitleArgs}.
+ */
+export type TitleGenerateArgs = TitleArgs;
+/**
+ * @deprecated Alias kept for the M1 scaffolding era. Prefer {@link TitleResult}.
+ */
+export type TitleGenerateResult = TitleResult;
 
 export type ToolResultTruncateArgs = { readonly input: unknown };
 export type ToolResultTruncateResult = { readonly output: unknown };
@@ -175,7 +211,7 @@ export interface PipelineMiddlewareMap {
   compaction: Middleware<CompactionArgs, CompactionResult>;
   overflowReduce: Middleware<OverflowReduceArgs, OverflowReduceResult>;
   persistence: Middleware<PersistenceArgs, PersistenceResult>;
-  titleGenerate: Middleware<TitleGenerateArgs, TitleGenerateResult>;
+  titleGenerate: Middleware<TitleArgs, TitleResult>;
   toolResultTruncate: Middleware<
     ToolResultTruncateArgs,
     ToolResultTruncateResult
