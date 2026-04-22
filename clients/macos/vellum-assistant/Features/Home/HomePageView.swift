@@ -185,6 +185,12 @@ struct HomePageView<DetailPanel: View>: View {
                                                     expandedGroupIds.insert(parent.id)
                                                 }
                                             }
+                                            // Preserve tap-to-open-conversation for the grouped parent item.
+                                            // Without this, `HomeFeedGrouping` would hide the first
+                                            // low-priority digest in each run behind an expand-only affordance,
+                                            // making it inaccessible to the conversation-open flow.
+                                            // (Codex P2 review feedback on PR #27466.)
+                                            openItem(parent)
                                         },
                                         onChildTap: { child in
                                             if let feedChild = children.first(where: { $0.id == child.id }) {
