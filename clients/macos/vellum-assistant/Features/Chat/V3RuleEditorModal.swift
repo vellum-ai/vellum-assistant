@@ -32,9 +32,16 @@ struct V3RuleEditorModal: View {
     @State private var selectedRiskLevel: String = "medium"
     @State private var isSaving: Bool = false
 
-    /// Generalized pattern options (skips the exact match at index 0)
+    /// Generalized pattern options.
+    /// If scopeOptions has multiple elements, skip the exact match at index 0.
+    /// If scopeOptions has only 1 element (single wildcard), show it directly.
     private var generalizedOptions: [V3ScopeOptionItem] {
-        Array(scopeOptions.dropFirst())
+        scopeOptions.count > 1 ? Array(scopeOptions.dropFirst()) : scopeOptions
+    }
+
+    /// Whether we're showing a single wildcard option (not skipping index 0)
+    private var isSingleOption: Bool {
+        scopeOptions.count == 1
     }
 
     /// Contextual hint for the selected risk level
@@ -81,8 +88,8 @@ struct V3RuleEditorModal: View {
         .background(VColor.surfaceLift)
         .onAppear {
             selectedRiskLevel = riskLevel.isEmpty ? "medium" : riskLevel
-            // If generalizedOptions is empty, default to index 0 (exact match)
-            if generalizedOptions.isEmpty {
+            // If single option, use index 0. Otherwise, start at index 1 (skip exact match)
+            if isSingleOption {
                 selectedPatternIndex = 0
             }
         }
@@ -122,12 +129,14 @@ struct V3RuleEditorModal: View {
 
     @ViewBuilder
     private func patternRow(option: V3ScopeOptionItem, index: Int) -> some View {
+        // If single option, map directly to index 0. Otherwise, offset by 1 since we skip index 0.
+        let targetIndex = isSingleOption ? index : index + 1
         Button {
-            selectedPatternIndex = index + 1 // Offset by 1 since we skip index 0
+            selectedPatternIndex = targetIndex
         } label: {
             HStack(spacing: VSpacing.sm) {
-                VIconView(selectedPatternIndex == index + 1 ? .circleDot : .circle, size: 14)
-                    .foregroundStyle(selectedPatternIndex == index + 1 ? VColor.primaryBase : VColor.contentTertiary)
+                VIconView(selectedPatternIndex == targetIndex ? .circleDot : .circle, size: 14)
+                    .foregroundStyle(selectedPatternIndex == targetIndex ? VColor.primaryBase : VColor.contentTertiary)
                     .accessibilityHidden(true)
 
                 Text(option.label)
@@ -141,8 +150,8 @@ struct V3RuleEditorModal: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(option.label)
-        .accessibilityAddTraits(selectedPatternIndex == index + 1 ? [.isSelected] : [])
-        .accessibilityValue(selectedPatternIndex == index + 1 ? "Selected" : "Not selected")
+        .accessibilityAddTraits(selectedPatternIndex == targetIndex ? [.isSelected] : [])
+        .accessibilityValue(selectedPatternIndex == targetIndex ? "Selected" : "Not selected")
     }
 
     // MARK: - Section 2: Treat as
