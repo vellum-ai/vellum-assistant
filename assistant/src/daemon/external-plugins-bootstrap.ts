@@ -35,9 +35,11 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AssistantConfig } from "../config/schema.js";
+import { defaultTokenEstimatePlugin } from "../plugins/defaults/token-estimate.js";
 import {
   ASSISTANT_API_VERSIONS,
   getRegisteredPlugins,
+  registerPlugin,
 } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -135,6 +137,27 @@ function ensurePluginStorageDir(pluginName: string): string {
 }
 
 /**
+ * Register first-party default plugins with the registry. Idempotent — skips
+ * any plugin whose name is already registered so repeated daemon boots
+ * (and test-suite `resetPluginRegistryForTests` cycles followed by a
+ * re-bootstrap) do not throw duplicate-name errors.
+ *
+ * Every pipeline wrapped under the agent-plugin-system plan contributes its
+ * default plugin here. The registry's insertion order determines onion order,
+ * so defaults are registered once, up-front, which keeps them at the innermost
+ * layer unless a caller explicitly reorders.
+ */
+function registerDefaultPlugins(): void {
+  const alreadyRegistered = new Set(
+    getRegisteredPlugins().map((p) => p.manifest.name),
+  );
+  for (const plugin of [defaultTokenEstimatePlugin]) {
+    if (alreadyRegistered.has(plugin.manifest.name)) continue;
+    registerPlugin(plugin);
+  }
+}
+
+/**
  * Run every registered plugin's `init()` hook sequentially and install a
  * reverse-order shutdown hook. See the module docstring for full semantics.
  *
@@ -147,6 +170,13 @@ function ensurePluginStorageDir(pluginName: string): string {
  * run) and before the first conversation is served.
  */
 export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
+  // Register first-party defaults up-front. Terminal middlewares for wrapped
+  // pipelines must be in the registry before the first conversation runs;
+  // doing it here (rather than at module-import time in the pipeline call
+  // site) keeps registration observable in the boot path and reusable by
+  // bootstrap tests.
+  registerDefaultPlugins();
+
   const plugins = getRegisteredPlugins();
   if (plugins.length === 0) {
     // No-op fast path — the registry is empty (no first-party plugins have

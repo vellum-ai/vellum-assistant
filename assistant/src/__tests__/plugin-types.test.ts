@@ -12,6 +12,8 @@ import { describe, expect, test } from "bun:test";
 
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import {
+  type EstimateArgs,
+  type EstimateResult,
   type Injector,
   type Middleware,
   type Plugin,
@@ -52,6 +54,15 @@ describe("plugin core types", () => {
       { output: unknown }
     > = async (args, next, _ctx) => next(args);
 
+    // `tokenEstimate` has a concrete arg/result shape (refined in the
+    // tokenEstimate-pipeline PR), so its middleware can't share the generic
+    // `{ input, output }` passthrough. A slot-specific passthrough keeps the
+    // shape-only assertion honest across type-refinement PRs.
+    const tokenEstimatePassthrough: Middleware<
+      EstimateArgs,
+      EstimateResult
+    > = async (args, next, _ctx) => next(args);
+
     const injector: Injector = {
       name: "sample-injector",
       order: 10,
@@ -84,7 +95,7 @@ describe("plugin core types", () => {
         toolExecute: passthrough,
         memoryRetrieval: passthrough,
         historyRepair: passthrough,
-        tokenEstimate: passthrough,
+        tokenEstimate: tokenEstimatePassthrough,
         compaction: passthrough,
         overflowReduce: passthrough,
         persistence: passthrough,

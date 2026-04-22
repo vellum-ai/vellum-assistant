@@ -17,6 +17,7 @@
  */
 
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import type { Message, ToolDefinition } from "../providers/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
@@ -133,8 +134,37 @@ export type MemoryRetrievalResult = { readonly output: unknown };
 export type HistoryRepairArgs = { readonly input: unknown };
 export type HistoryRepairResult = { readonly output: unknown };
 
-export type TokenEstimateArgs = { readonly input: unknown };
-export type TokenEstimateResult = { readonly output: unknown };
+/**
+ * Inputs to the `tokenEstimate` pipeline. The default middleware delegates
+ * these straight to {@link estimatePromptTokensRaw}; custom plugins may
+ * substitute an alternate estimator (e.g. provider-native tokenization) by
+ * short-circuiting the pipeline with their own {@link EstimateResult}.
+ *
+ * Fields:
+ * - `history` — current message list to estimate over.
+ * - `systemPrompt` — system prompt string, or `undefined` when absent.
+ * - `tools` — tool definitions visible on this turn. The default plugin
+ *   sums their token budget via `estimateToolsTokens(tools)` and hands the
+ *   result to the raw estimator via `toolTokenBudget`. Plugins that want to
+ *   ignore tool cost can skip that term.
+ * - `providerName` — canonical calibration provider key (the value returned
+ *   by `getCalibrationProviderKey(provider)`). Drives provider-specific
+ *   heuristics inside the raw estimator (e.g. Anthropic image sizing).
+ */
+export type EstimateArgs = {
+  readonly history: Message[];
+  readonly systemPrompt: string | undefined;
+  readonly tools: ToolDefinition[];
+  readonly providerName: string | undefined;
+};
+
+/** Result of the `tokenEstimate` pipeline — total estimated prompt tokens. */
+export type EstimateResult = number;
+
+/** Alias retained for symmetry with the rest of the pipeline-name family. */
+export type TokenEstimateArgs = EstimateArgs;
+/** Alias retained for symmetry with the rest of the pipeline-name family. */
+export type TokenEstimateResult = EstimateResult;
 
 export type CompactionArgs = { readonly input: unknown };
 export type CompactionResult = { readonly output: unknown };

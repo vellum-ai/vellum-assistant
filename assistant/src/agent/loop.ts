@@ -234,6 +234,21 @@ export class AgentLoop {
   }
 
   /**
+   * Resolve the tool definitions sent to the provider for the given turn.
+   *
+   * Mirrors the logic of {@link getToolTokenBudget} but returns the tool
+   * array itself — callers that need to thread the tool set into a plugin
+   * pipeline (e.g. `tokenEstimate`, where the pipeline's args include
+   * `tools`) use this rather than re-implementing the dynamic-vs-static
+   * resolver fork.
+   */
+  getResolvedTools(history?: Message[]): ToolDefinition[] {
+    return history && this.resolveTools
+      ? this.resolveTools(history)
+      : this.tools;
+  }
+
+  /**
    * Estimate token cost of the tool definitions sent to the provider.
    *
    * When `history` is provided and a dynamic `resolveTools` callback
@@ -242,9 +257,7 @@ export class AgentLoop {
    * without a resolver), falls back to the static `this.tools`.
    */
   getToolTokenBudget(history?: Message[]): number {
-    const tools =
-      history && this.resolveTools ? this.resolveTools(history) : this.tools;
-    return estimateToolsTokens(tools);
+    return estimateToolsTokens(this.getResolvedTools(history));
   }
 
   async run(
@@ -252,7 +265,9 @@ export class AgentLoop {
     onEvent: (event: AgentEvent) => void | Promise<void>,
     signal?: AbortSignal,
     requestId?: string,
-    onCheckpoint?: (checkpoint: CheckpointInfo) => CheckpointDecision,
+    onCheckpoint?: (
+      checkpoint: CheckpointInfo,
+    ) => CheckpointDecision | Promise<CheckpointDecision>,
     callSite?: LLMCallSite,
   ): Promise<Message[]> {
     const history = [...messages];
@@ -774,9 +789,11 @@ export class AgentLoop {
         // Add tool results as a user message and continue the loop
         history.push({ role: "user", content: resultBlocks });
 
-        // Invoke checkpoint callback after tool results are in history
+        // Invoke checkpoint callback after tool results are in history.
+        // The callback may be async — the mid-loop budget check delegates
+        // to the `tokenEstimate` plugin pipeline, which is asynchronous.
         if (onCheckpoint) {
-          const decision = onCheckpoint({
+          const decision = await onCheckpoint({
             turnIndex: toolUseTurns - 1, // 0-based (toolUseTurns was already incremented)
             toolCount: toolUseBlocks.length,
             hasToolUse: true,
