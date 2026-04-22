@@ -521,7 +521,7 @@ export function updateProvider(
     set.identityOkField = params.identityOkField;
   if (params.featureFlag !== undefined) set.featureFlag = params.featureFlag;
   if (params.managedServiceIsPaid !== undefined)
-    set.managedServiceIsPaid = params.managedServiceIsPaid ? 1 : 0;
+    set.managedServiceIsPaid = params.managedServiceIsPaid;
 
   db.update(oauthProviders)
     .set(set)
