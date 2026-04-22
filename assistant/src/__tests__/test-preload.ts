@@ -20,10 +20,16 @@ import { installGatewayIpcMock } from "../__tests__/mock-gateway-ipc.js";
 import { resetDb } from "../memory/db-connection.js";
 import { _setStorePath } from "../security/encrypted-store.js";
 
+const savedBaseDataDir = process.env.BASE_DATA_DIR;
+
 const testDir = realpathSync(
   mkdtempSync(join(tmpdir(), "vellum-test-workspace-")),
 );
 process.env.VELLUM_WORKSPACE_DIR = testDir;
+// Also set BASE_DATA_DIR so that vellumRoot() (and all derived paths like
+// getProtectedDir()) resolve under the temp dir. This gives each test file
+// its own IPC socket path, preventing socket races between parallel files.
+process.env.BASE_DATA_DIR = testDir;
 process.env.VELLUM_PLATFORM_URL = "https://test-platform.vellum.ai";
 process.exitCode = 0;
 
@@ -56,6 +62,11 @@ afterAll(() => {
   process.exitCode = 0;
   delete process.env.VELLUM_WORKSPACE_DIR;
   delete process.env.VELLUM_PLATFORM_URL;
+  if (savedBaseDataDir !== undefined) {
+    process.env.BASE_DATA_DIR = savedBaseDataDir;
+  } else {
+    delete process.env.BASE_DATA_DIR;
+  }
   if (savedIsContainerized !== undefined) {
     process.env.IS_CONTAINERIZED = savedIsContainerized;
   }
