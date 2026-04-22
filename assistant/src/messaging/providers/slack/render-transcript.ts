@@ -96,6 +96,31 @@ export function parentAlias(channelTs: string): string {
 }
 
 /**
+ * Trailing signature of a reaction or reaction-overflow line, both of
+ * which end with a `parentAlias` target and a closing bracket:
+ * `[... reacted 👍 to M1a2b3c]`, `[... removed 👍 from M1a2b3c]`,
+ * `[…and N more reactions to M1a2b3c]`. Regular message tag lines end
+ * with the message body, not with `]`, so they never match.
+ */
+const REACTION_TAG_LINE_SUFFIX = /M[0-9a-f]{6}\]$/;
+
+/**
+ * Whether a rendered tag-line string was produced by the reaction or
+ * reaction-overflow code paths (`renderReaction` / the overflow trailer).
+ *
+ * Reaction lines already embed the actor attribution inline
+ * (`[11/14/23 14:28 @assistant reacted 👍 to M1a2b3c]`), so consumers
+ * that flatten the rendered transcript and re-apply role labels should
+ * skip these lines to avoid double-attribution.
+ *
+ * Co-located with `renderReaction` and `parentAlias` so the format
+ * knowledge lives with the functions that own the line shape.
+ */
+export function isReactionTagLine(text: string): boolean {
+  return REACTION_TAG_LINE_SUFFIX.test(text);
+}
+
+/**
  * Format a Slack ts (`"1700000000.000100"`) as `MM/DD/YY HH:MM` (UTC).
  *
  * Slack ts is `<unix-seconds>.<microseconds>`; we treat it as a unix epoch
@@ -140,8 +165,41 @@ function sortKey(msg: RenderableSlackMessage): number {
 /**
  * Render a single non-reaction message (post-upgrade or legacy) as one
  * tagged line.
+ *
+ * Assistant rows emit their content verbatim with no bracketed wrapper.
+ * The `role` slot already conveys identity, and the assistant replies
+ * ~immediately after the triggering user message so the chronological
+ * adjacency carries the same information as a timestamp. Keeping a
+ * `[MM/DD/YY HH:MM]:` prefix on the assistant's own past turns caused
+ * the model to mimic the exact format as a literal prefix in new
+ * outbound Slack replies (`[04/22/26 21:25]: on it. ...`). Deleted
+ * assistant rows collapse to the short `[deleted]` sentinel so chronology
+ * is preserved without carrying a mimickable timestamp.
+ *
+ * Tradeoffs deliberately accepted by this simplification:
+ * - Thread arrows (`→ Mxxxxxx`) are dropped from assistant rows. In the
+ *   common single-thread-at-a-time case, role alternation + chronological
+ *   adjacency tells the model which user turn each assistant reply answers,
+ *   so no attribution is lost. The degenerate case is a channel where the
+ *   assistant is fielding two thread conversations in parallel and the
+ *   model has to disambiguate which reply lands in which thread from the
+ *   full chronological transcript — the bracketed arrow previously carried
+ *   that signal and is now absent. The `<active_thread>` focus block
+ *   (single thread by construction) is unaffected.
+ * - Edited assistant rows render only the latest content, not an edit
+ *   marker. Edits are rare for the assistant and the latest content is the
+ *   only replayable signal anyway.
+ *
+ * Any alternative "subtle" marker (e.g. an unbracketed `→ Mxxxxxx`) would
+ * reintroduce a consistent, mimickable prefix pattern — the very problem
+ * this function is designed to avoid — so we keep the content-only form.
  */
 function renderMessage(msg: RenderableSlackMessage): string {
+  if (msg.role === "assistant") {
+    if (msg.metadata?.deletedAt !== undefined) return "[deleted]";
+    return msg.content;
+  }
+
   const meta = msg.metadata;
   const senderPart = msg.senderLabel ? ` ${msg.senderLabel}` : "";
   if (!meta) {
