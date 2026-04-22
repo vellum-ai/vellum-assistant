@@ -2096,6 +2096,64 @@ describe("Permission Checker", () => {
       expect(options).toHaveLength(1);
       expect(options[0].pattern).toBe("**");
     });
+
+    // ── Round-trip: classifier-produced patterns → trust rule → check() ──
+
+    test("classifier allowlist exact pattern round-trips through trust store (flag on)", async () => {
+      // Enable permission-controls-v3 so generateAllowlistOptions uses
+      // classifier-produced options instead of the legacy shell strategy.
+      const { _setOverridesForTesting, clearFeatureFlagOverridesCache } =
+        await import("../config/assistant-feature-flags.js");
+      _setOverridesForTesting({ "permission-controls-v3": true });
+      try {
+        const input = { command: "npm install express" };
+        await classifyRisk("bash", input);
+        const options = await generateAllowlistOptions("bash", input);
+        expect(options.length).toBeGreaterThan(0);
+
+        // The exact match pattern should be the raw command string
+        const exactPattern = options[0].pattern;
+        expect(exactPattern).toBe("npm install express");
+
+        // Save the exact pattern as a trust rule and verify check() allows
+        addRule("bash", exactPattern, "/tmp");
+        const result = await check(
+          "bash",
+          { command: "npm install express" },
+          "/tmp",
+        );
+        expect(result.decision).toBe("allow");
+      } finally {
+        clearFeatureFlagOverridesCache();
+      }
+    });
+
+    test("classifier allowlist command-level pattern round-trips through trust store (flag on)", async () => {
+      const { _setOverridesForTesting, clearFeatureFlagOverridesCache } =
+        await import("../config/assistant-feature-flags.js");
+      _setOverridesForTesting({ "permission-controls-v3": true });
+      try {
+        const input = { command: "git status" };
+        await classifyRisk("bash", input);
+        const options = await generateAllowlistOptions("bash", input);
+
+        // The broadest option should use action: prefix
+        const broadest = options[options.length - 1];
+        expect(broadest.pattern).toBe("action:git");
+
+        // Save the command-level pattern as a trust rule and verify it
+        // matches a different git command (broader rule should match)
+        addRule("bash", broadest.pattern, "/tmp");
+        const result = await check(
+          "bash",
+          { command: "git log --oneline" },
+          "/tmp",
+        );
+        expect(result.decision).toBe("allow");
+      } finally {
+        clearFeatureFlagOverridesCache();
+      }
+    });
   });
 
   // ── generateScopeOptions ───────────────────────────────────────

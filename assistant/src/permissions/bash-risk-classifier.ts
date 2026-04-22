@@ -499,10 +499,19 @@ export function generateScopeOptions(
     options.push({ pattern, label });
   }
 
-  // For multi-segment commands (pipelines), use the full command as exact match
-  // and individual segment programs for broader options
+  // For multi-segment commands (pipelines, &&, etc.), use the full command as
+  // exact match and individual segment programs for broader options.
+  // Reconstruct using actual operators from the parsed segments (not hardcoded " | ").
   if (parsed.segments.length > 1) {
-    const fullCommand = parsed.segments.map((s) => s.command).join(" | ");
+    const parts: string[] = [];
+    for (let i = 0; i < parsed.segments.length; i++) {
+      const seg = parsed.segments[i];
+      if (i > 0 && seg.operator) {
+        parts.push(seg.operator);
+      }
+      parts.push(seg.command);
+    }
+    const fullCommand = parts.join(" ");
     addOption(`^${escapeRegex(fullCommand)}$`, fullCommand);
     // Add command-level wildcards for each unique program
     const programs = new Set(parsed.segments.map((s) => s.program));
@@ -619,14 +628,31 @@ function escapeRegex(s: string): string {
 // ── Scope → Allowlist conversion ─────────────────────────────────────────────
 
 /**
+ * Extract stable tokens from a scope option label: program and subcommand
+ * words, skipping flags (starting with `-`) and wildcards (`*`).
+ * Returns an `action:` prefixed pattern that matches the action key
+ * candidates produced by `buildCommandCandidates()`.
+ */
+function labelToActionPattern(label: string): string {
+  const tokens = label
+    .split(/\s+/)
+    .filter((t) => !t.startsWith("-") && t !== "*");
+  return `action:${tokens.join(" ")}`;
+}
+
+/**
  * Convert classifier-produced `ScopeOption[]` to `AllowlistOption[]` format.
  *
  * Patterns must be glob-compatible (not regex) because trust rules use
  * Minimatch for matching against command candidates produced by
  * `buildCommandCandidates()`. The format:
  * - First option (exact match): raw command string
- * - Intermediate options: label as a glob pattern (e.g. "npm install *")
- * - Command-level wildcards: "action:<program>" prefix matching action key candidates
+ * - Intermediate options: `action:<program> <subcommand>` patterns that match
+ *   action key candidates (labels reorder args so can't be used as globs directly)
+ * - Command-level wildcards: `action:<program>` matching the broadest action key
+ *
+ * Deduplicates by pattern to avoid redundant options when multiple scope levels
+ * collapse to the same action key.
  */
 export function scopeOptionsToAllowlistOptions(
   scopeOptions: ScopeOption[],
@@ -634,7 +660,11 @@ export function scopeOptionsToAllowlistOptions(
 ): AllowlistOption[] {
   if (scopeOptions.length === 0) return [];
 
-  return scopeOptions.map((opt, i): AllowlistOption => {
+  const results: AllowlistOption[] = [];
+  const seenPatterns = new Set<string>();
+
+  for (let i = 0; i < scopeOptions.length; i++) {
+    const opt = scopeOptions[i];
     let description: string;
     let pattern: string;
 
@@ -652,13 +682,23 @@ export function scopeOptionsToAllowlistOptions(
       description = `Any ${prog} command`;
       pattern = `action:${prog}`;
     } else {
-      // Intermediate wildcard: use label as a glob pattern
+      // Intermediate wildcard: use action:<tokens> pattern to match action key
+      // candidates. We can't use the label as a glob directly because the scope
+      // ladder reorders args (flags before positionals), but command candidates
+      // preserve user arg order.
+      const actionPattern = labelToActionPattern(opt.label);
       description = "Commands matching this pattern";
-      pattern = opt.label;
+      pattern = actionPattern;
     }
 
-    return { label: opt.label, description, pattern };
-  });
+    // Deduplicate: skip options that produce the same pattern as a prior one
+    if (seenPatterns.has(pattern)) continue;
+    seenPatterns.add(pattern);
+
+    results.push({ label: opt.label, description, pattern });
+  }
+
+  return results;
 }
 
 // ── Main classifier ──────────────────────────────────────────────────────────
