@@ -16,9 +16,11 @@ struct LoginView: View {
             VColor.surfaceOverlay.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Biased toward the upper third (Figma Light 169) — the top
-                // Spacer is capped so the middle Spacer absorbs more of the
-                // remaining height.
+                // Vertical rhythm matches Figma Light 169:
+                // - Capped top gap so content doesn't drift to the middle.
+                // - Flexible gap between icon and welcome text absorbs the
+                //   screen-height variance (this is the largest gap in Figma).
+                // - Compact welcome→button and button→footer gaps.
                 Spacer().frame(maxHeight: 80)
 
                 ZStack {
@@ -39,6 +41,8 @@ struct LoginView: View {
                     VellumAppIconView()
                 }
 
+                Spacer()
+
                 VStack(spacing: VSpacing.lg) {
                     Text("Welcome to Vellum")
                         .font(VFont.displayLarge)
@@ -50,10 +54,9 @@ struct LoginView: View {
                         .foregroundStyle(VColor.contentSecondary)
                         .multilineTextAlignment(.center)
                 }
-                .padding(.top, VSpacing.xxxl)
                 .padding(.horizontal, VSpacing.lg)
 
-                Spacer()
+                Spacer().frame(maxHeight: VSpacing.xxxl)
 
                 if let error = authManager.errorMessage {
                     Text(error)
