@@ -23,9 +23,7 @@ import { UserRouteDispatcher } from "../user-route-dispatcher.js";
 // ---------------------------------------------------------------------------
 
 /** Build a minimal UserRouteContext for tests. */
-function makeContext(
-  overrides?: Partial<UserRouteContext>,
-): UserRouteContext {
+function makeContext(overrides?: Partial<UserRouteContext>): UserRouteContext {
   return {
     assistantEventHub: new AssistantEventHub(),
     assistantId: "test-assistant",
@@ -446,10 +444,9 @@ describe("context injection", () => {
 
     const hub = new AssistantEventHub();
     const received: unknown[] = [];
-    hub.subscribe(
-      { assistantId: "test-assistant" },
-      (event) => { received.push(event); },
-    );
+    hub.subscribe({ assistantId: "test-assistant" }, (event) => {
+      received.push(event);
+    });
 
     const ctx = makeContext({ assistantEventHub: hub });
     const dispatcher = makeDispatcher({ context: ctx });

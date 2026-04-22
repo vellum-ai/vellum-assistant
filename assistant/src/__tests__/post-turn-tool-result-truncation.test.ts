@@ -48,8 +48,10 @@ describe("postTurnTruncateToolResults", () => {
     const shortContent = "a".repeat(THRESHOLD_CHARS);
     const messages = makeMessages([makeToolResult(shortContent)]);
 
-    const { messages: result, truncatedCount } =
-      postTurnTruncateToolResults(messages, { conversationDir: convDir });
+    const { messages: result, truncatedCount } = postTurnTruncateToolResults(
+      messages,
+      { conversationDir: convDir },
+    );
 
     expect(truncatedCount).toBe(0);
     expect(result).toBe(messages); // same reference — no copy
@@ -61,12 +63,17 @@ describe("postTurnTruncateToolResults", () => {
     const toolUseId = "tool_use_abc";
     const messages = makeMessages([makeToolResult(longContent, toolUseId)]);
 
-    const { messages: result, truncatedCount } =
-      postTurnTruncateToolResults(messages, { conversationDir: convDir });
+    const { messages: result, truncatedCount } = postTurnTruncateToolResults(
+      messages,
+      { conversationDir: convDir },
+    );
 
     expect(truncatedCount).toBe(1);
 
-    const block = result[0].content[0] as { type: "tool_result"; content: string };
+    const block = result[0].content[0] as {
+      type: "tool_result";
+      content: string;
+    };
     expect(block.content).toContain(TRUNCATION_MARKER);
     expect(block.content.length).toBeLessThan(longContent.length);
 
@@ -82,8 +89,10 @@ describe("postTurnTruncateToolResults", () => {
       makeToolResult(longContent, "tool_err", true),
     ]);
 
-    const { messages: result, truncatedCount } =
-      postTurnTruncateToolResults(messages, { conversationDir: convDir });
+    const { messages: result, truncatedCount } = postTurnTruncateToolResults(
+      messages,
+      { conversationDir: convDir },
+    );
 
     expect(truncatedCount).toBe(0);
     expect(result).toBe(messages);
@@ -99,8 +108,10 @@ describe("postTurnTruncateToolResults", () => {
       makeToolResult(alreadyTruncated, "tool_idempotent"),
     ]);
 
-    const { messages: result, truncatedCount } =
-      postTurnTruncateToolResults(messages, { conversationDir: convDir });
+    const { messages: result, truncatedCount } = postTurnTruncateToolResults(
+      messages,
+      { conversationDir: convDir },
+    );
 
     expect(truncatedCount).toBe(0);
     expect(result).toBe(messages);
@@ -116,8 +127,10 @@ describe("postTurnTruncateToolResults", () => {
       makeToolResult(long2, "tool_long2"),
     ]);
 
-    const { messages: result, truncatedCount } =
-      postTurnTruncateToolResults(messages, { conversationDir: convDir });
+    const { messages: result, truncatedCount } = postTurnTruncateToolResults(
+      messages,
+      { conversationDir: convDir },
+    );
 
     expect(truncatedCount).toBe(2);
 
@@ -193,7 +206,10 @@ describe("derefToolResultReReads", () => {
       derefToolResultReReads(messages);
 
     expect(dereferencedCount).toBe(1);
-    const block = result[1].content[0] as { type: "tool_result"; content: string };
+    const block = result[1].content[0] as {
+      type: "tool_result";
+      content: string;
+    };
     expect(block.content).toBe(REREAD_STUB);
   });
 
@@ -220,7 +236,10 @@ describe("derefToolResultReReads", () => {
 
     expect(dereferencedCount).toBe(0);
     expect(result).toBe(messages); // same reference — no copy
-    const block = result[1].content[0] as { type: "tool_result"; content: string };
+    const block = result[1].content[0] as {
+      type: "tool_result";
+      content: string;
+    };
     expect(block.content).toBe(originalContent);
   });
 
@@ -247,7 +266,10 @@ describe("derefToolResultReReads", () => {
 
     expect(dereferencedCount).toBe(0);
     expect(result).toBe(messages);
-    const block = result[1].content[0] as { type: "tool_result"; content: string };
+    const block = result[1].content[0] as {
+      type: "tool_result";
+      content: string;
+    };
     expect(block.content).toBe(outputMentioningDir);
   });
 

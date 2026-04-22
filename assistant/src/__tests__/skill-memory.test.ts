@@ -3,9 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { SkillSummary } from "../config/skills.js";
 import { fromSkillSummary } from "../skills/skill-memory.js";
 
-function makeSkillSummary(
-  overrides: Partial<SkillSummary> = {},
-): SkillSummary {
+function makeSkillSummary(overrides: Partial<SkillSummary> = {}): SkillSummary {
   return {
     id: "test-skill",
     name: "test-skill",

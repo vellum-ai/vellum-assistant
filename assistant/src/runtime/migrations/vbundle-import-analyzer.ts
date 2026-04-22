@@ -112,7 +112,9 @@ export class DefaultPathResolver implements PathResolver {
   constructor(
     private workspaceDir?: string,
     private hooksDir?: string,
-    private guardianPersonaPathResolver: () => string | null = resolveGuardianPersonaPath,
+    private guardianPersonaPathResolver: () =>
+      | string
+      | null = resolveGuardianPersonaPath,
   ) {}
 
   resolve(archivePath: string): string | null {

@@ -100,7 +100,9 @@ async function pingProvider(
 
   const body =
     method !== "GET" && pingBody
-      ? (typeof pingBody === "string" ? pingBody : JSON.stringify(pingBody))
+      ? typeof pingBody === "string"
+        ? pingBody
+        : JSON.stringify(pingBody)
       : undefined;
 
   try {
@@ -155,7 +157,12 @@ async function checkConnection(
     pingBody,
   } = opts;
 
-  const base = { connectionId, provider, accountInfo, missingScopes: [] as string[] };
+  const base = {
+    connectionId,
+    provider,
+    accountInfo,
+    missingScopes: [] as string[],
+  };
 
   // 1. Check token presence
   const token = await getSecureKeyAsync(

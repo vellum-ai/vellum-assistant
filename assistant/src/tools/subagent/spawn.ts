@@ -36,11 +36,13 @@ export async function executeSubagentSpawn(
   }
 
   // ── Fork mode: resolve parent context ────────────────────────────
-  let forkFields: {
-    fork: true;
-    parentMessages: import("../../providers/types.js").Message[];
-    parentSystemPrompt: string;
-  } | undefined;
+  let forkFields:
+    | {
+        fork: true;
+        parentMessages: import("../../providers/types.js").Message[];
+        parentSystemPrompt: string;
+      }
+    | undefined;
 
   if (fork) {
     const parentConversation = manager.resolveParentConversation?.(

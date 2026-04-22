@@ -199,7 +199,10 @@ describe("wakeAgentForOpportunity", () => {
     expect(input[2]).toEqual({
       role: "user",
       content: [
-        { type: "text", text: "[opportunity:unit-test] someone asked a question" },
+        {
+          type: "text",
+          text: "[opportunity:unit-test] someone asked a question",
+        },
       ],
     });
   });
@@ -723,9 +726,7 @@ describe("wakeAgentForOpportunity", () => {
     };
     const toolResultUserMsg: Message = {
       role: "user",
-      content: [
-        { type: "tool_result", tool_use_id: "tu-1", content: "ok" },
-      ],
+      content: [{ type: "tool_result", tool_use_id: "tu-1", content: "ok" }],
     };
     const followup: Message = {
       role: "assistant",
@@ -776,9 +777,7 @@ describe("wakeAgentForOpportunity", () => {
       };
       const toolResultUserMsg: Message = {
         role: "user",
-        content: [
-          { type: "tool_result", tool_use_id: "tu-1", content: "ok" },
-        ],
+        content: [{ type: "tool_result", tool_use_id: "tu-1", content: "ok" }],
       };
       const followup: Message = {
         role: "assistant",

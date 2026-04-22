@@ -130,7 +130,9 @@ export interface DeepSanitizeResult<T> {
  * On the happy path (no orphans found anywhere in the tree) the original
  * reference is returned verbatim — no copies are made.
  */
-export function stripOrphanedSurrogatesDeep<T>(input: T): DeepSanitizeResult<T> {
+export function stripOrphanedSurrogatesDeep<T>(
+  input: T,
+): DeepSanitizeResult<T> {
   let fixedStringCount = 0;
 
   const walk = (value: unknown): { value: unknown; changed: boolean } => {

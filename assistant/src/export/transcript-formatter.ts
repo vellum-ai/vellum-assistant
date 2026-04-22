@@ -124,11 +124,15 @@ export function buildAnalysisTranscript(conversationId: string): string {
     // Check for subagent notifications in metadata
     if (msg.metadata) {
       try {
-        const parsed = messageMetadataSchema.safeParse(JSON.parse(msg.metadata));
+        const parsed = messageMetadataSchema.safeParse(
+          JSON.parse(msg.metadata),
+        );
         if (parsed.success && parsed.data.subagentNotification) {
           const notif = parsed.data.subagentNotification;
           if (
-            (notif.status === "completed" || notif.status === "failed" || notif.status === "aborted") &&
+            (notif.status === "completed" ||
+              notif.status === "failed" ||
+              notif.status === "aborted") &&
             notif.conversationId
           ) {
             const subMessages = getMessages(notif.conversationId);

@@ -139,10 +139,8 @@ describe("DefaultPathResolver prompts/USER.md translation", () => {
   });
 
   test("still resolves other prompt files (IDENTITY.md) to workspace root", () => {
-    const resolver = new DefaultPathResolver(
-      WORKSPACE_ROOT,
-      undefined,
-      () => join(USERS_DIR, "captain.md"),
+    const resolver = new DefaultPathResolver(WORKSPACE_ROOT, undefined, () =>
+      join(USERS_DIR, "captain.md"),
     );
 
     expect(resolver.resolve("prompts/IDENTITY.md")).toBe(
@@ -157,10 +155,8 @@ describe("DefaultPathResolver prompts/USER.md translation", () => {
   });
 
   test("skips unknown prompt filenames regardless of guardian state", () => {
-    const resolver = new DefaultPathResolver(
-      WORKSPACE_ROOT,
-      undefined,
-      () => join(USERS_DIR, "captain.md"),
+    const resolver = new DefaultPathResolver(WORKSPACE_ROOT, undefined, () =>
+      join(USERS_DIR, "captain.md"),
     );
 
     expect(resolver.resolve("prompts/SECRET.md")).toBeNull();
@@ -247,7 +243,10 @@ describe("commitImport for legacy prompts/USER.md", () => {
       ],
     });
 
-    const result = commitImport({ archiveData: archive, pathResolver: resolver });
+    const result = commitImport({
+      archiveData: archive,
+      pathResolver: resolver,
+    });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -280,7 +279,10 @@ describe("commitImport for legacy prompts/USER.md", () => {
       ],
     });
 
-    const result = commitImport({ archiveData: archive, pathResolver: resolver });
+    const result = commitImport({
+      archiveData: archive,
+      pathResolver: resolver,
+    });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -306,7 +308,10 @@ describe("commitImport for legacy prompts/USER.md", () => {
       ],
     });
 
-    const result = commitImport({ archiveData: archive, pathResolver: resolver });
+    const result = commitImport({
+      archiveData: archive,
+      pathResolver: resolver,
+    });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -341,16 +346,17 @@ describe("commitImport for legacy prompts/USER.md", () => {
       ],
     });
 
-    const result = commitImport({ archiveData: archive, pathResolver: resolver });
+    const result = commitImport({
+      archiveData: archive,
+      pathResolver: resolver,
+    });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.report.summary.files_skipped).toBe(1);
       expect(result.report.summary.files_overwritten).toBe(0);
       expect(
-        result.report.warnings.some((w) =>
-          w.includes("guardian persona"),
-        ),
+        result.report.warnings.some((w) => w.includes("guardian persona")),
       ).toBe(true);
     }
 

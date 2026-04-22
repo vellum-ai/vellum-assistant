@@ -133,7 +133,9 @@ export function createGuardianFollowUpConversationGenerator(): GuardianFollowUpC
   return async (context) => {
     const baseProvider = await getConfiguredProvider("guardianQuestionCopy");
     if (!baseProvider) {
-      throw new Error("No configured provider available for follow-up conversation");
+      throw new Error(
+        "No configured provider available for follow-up conversation",
+      );
     }
     const provider = wrapWithCallSiteRouting(baseProvider);
 

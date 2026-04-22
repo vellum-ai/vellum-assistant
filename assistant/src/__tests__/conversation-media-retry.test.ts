@@ -23,7 +23,11 @@ function makeImageBlockWithSize(
 ): Extract<ContentBlock, { type: "image" }> {
   return {
     type: "image",
-    source: { type: "base64", media_type: "image/png", data: "A".repeat(dataLength) },
+    source: {
+      type: "base64",
+      media_type: "image/png",
+      data: "A".repeat(dataLength),
+    },
   };
 }
 
@@ -106,7 +110,9 @@ describe("stripMediaPayloadsForRetry", () => {
     // Non-Anthropic estimation: estimateTextTokens(base64Data) + overhead (~19 tokens).
     // Data length 4000 → 1000 data tokens + 19 overhead ≈ 1019 tokens/image.
     // Budget of 3500 allows 3 images (3 * 1019 = 3057 <= 3500) but not 4.
-    const images = Array.from({ length: 5 }, () => makeImageBlockWithSize(4000));
+    const images = Array.from({ length: 5 }, () =>
+      makeImageBlockWithSize(4000),
+    );
     const messages: Message[] = [
       makeUserMessage({ type: "text", text: "describe these" }, ...images),
     ];
@@ -120,7 +126,9 @@ describe("stripMediaPayloadsForRetry", () => {
     const content = result.messages[0].content;
     const keptImages = content.filter((b) => b.type === "image");
     const stubs = content.filter(
-      (b) => b.type === "text" && (b as { text: string }).text.includes("Image omitted"),
+      (b) =>
+        b.type === "text" &&
+        (b as { text: string }).text.includes("Image omitted"),
     );
     expect(keptImages.length).toBe(3);
     expect(stubs.length).toBe(2);
@@ -174,7 +182,9 @@ describe("stripMediaPayloadsForRetry", () => {
     const content = result.messages[0].content;
     const keptImages = content.filter((b) => b.type === "image");
     const stubs = content.filter(
-      (b) => b.type === "text" && (b as { text: string }).text.includes("Image omitted"),
+      (b) =>
+        b.type === "text" &&
+        (b as { text: string }).text.includes("Image omitted"),
     );
     expect(keptImages.length).toBe(3);
     expect(stubs.length).toBe(2);

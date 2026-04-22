@@ -435,5 +435,4 @@ describe("session-tool-setup app refresh side effects", () => {
       expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
     });
   });
-
 });

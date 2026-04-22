@@ -69,10 +69,13 @@ describe("POST /v1/integrations/slack/channel/config", () => {
   });
 
   test("forwards userToken from request body as the third argument", async () => {
-    const req = new Request("http://localhost/v1/integrations/slack/channel/config", {
-      method: "POST",
-      body: JSON.stringify({ userToken: "xoxp-test-user-token" }),
-    });
+    const req = new Request(
+      "http://localhost/v1/integrations/slack/channel/config",
+      {
+        method: "POST",
+        body: JSON.stringify({ userToken: "xoxp-test-user-token" }),
+      },
+    );
 
     const res = await handleSetSlackChannelConfig(req);
     expect(res.status).toBe(200);
@@ -84,14 +87,17 @@ describe("POST /v1/integrations/slack/channel/config", () => {
   });
 
   test("forwards all three tokens when present in body", async () => {
-    const req = new Request("http://localhost/v1/integrations/slack/channel/config", {
-      method: "POST",
-      body: JSON.stringify({
-        botToken: "xoxb-bot",
-        appToken: "xapp-app",
-        userToken: "xoxp-user",
-      }),
-    });
+    const req = new Request(
+      "http://localhost/v1/integrations/slack/channel/config",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          botToken: "xoxb-bot",
+          appToken: "xapp-app",
+          userToken: "xoxp-user",
+        }),
+      },
+    );
 
     const res = await handleSetSlackChannelConfig(req);
     expect(res.status).toBe(200);
@@ -102,10 +108,13 @@ describe("POST /v1/integrations/slack/channel/config", () => {
   });
 
   test("leaves userToken undefined when absent from body", async () => {
-    const req = new Request("http://localhost/v1/integrations/slack/channel/config", {
-      method: "POST",
-      body: JSON.stringify({ botToken: "xoxb-bot", appToken: "xapp-app" }),
-    });
+    const req = new Request(
+      "http://localhost/v1/integrations/slack/channel/config",
+      {
+        method: "POST",
+        body: JSON.stringify({ botToken: "xoxb-bot", appToken: "xapp-app" }),
+      },
+    );
 
     const res = await handleSetSlackChannelConfig(req);
     expect(res.status).toBe(200);
@@ -122,13 +131,16 @@ describe("POST /v1/integrations/slack/channel/config", () => {
       hasAppToken: false,
       hasUserToken: false,
       connected: false,
-      error: "Invalid user token: must start with \"xoxp-\"",
+      error: 'Invalid user token: must start with "xoxp-"',
     };
 
-    const req = new Request("http://localhost/v1/integrations/slack/channel/config", {
-      method: "POST",
-      body: JSON.stringify({ userToken: "abc-123" }),
-    });
+    const req = new Request(
+      "http://localhost/v1/integrations/slack/channel/config",
+      {
+        method: "POST",
+        body: JSON.stringify({ userToken: "abc-123" }),
+      },
+    );
 
     const res = await handleSetSlackChannelConfig(req);
     expect(res.status).toBe(400);

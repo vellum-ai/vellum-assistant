@@ -11,10 +11,8 @@ export async function awaitCesClientWithTimeout(
   clientPromise: Promise<CesClient | undefined>,
   options: AwaitCesClientWithTimeoutOptions = {},
 ): Promise<CesClient | undefined> {
-  const {
-    timeoutMs = DEFAULT_CES_STARTUP_TIMEOUT_MS,
-    onTimeout = () => {},
-  } = options;
+  const { timeoutMs = DEFAULT_CES_STARTUP_TIMEOUT_MS, onTimeout = () => {} } =
+    options;
 
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
 

@@ -32,9 +32,9 @@ describe("sanitizeForTts", () => {
     });
 
     test("handles URLs with multiple balanced parentheses groups", () => {
-      expect(
-        sanitizeForTts("[link](http://example.com/a_(b)_c_(d))"),
-      ).toBe("link");
+      expect(sanitizeForTts("[link](http://example.com/a_(b)_c_(d))")).toBe(
+        "link",
+      );
     });
   });
 
@@ -68,9 +68,7 @@ describe("sanitizeForTts", () => {
     });
 
     test("preserves identifiers with underscores", () => {
-      expect(sanitizeForTts("The my_var variable")).toBe(
-        "The my_var variable",
-      );
+      expect(sanitizeForTts("The my_var variable")).toBe("The my_var variable");
     });
 
     test("preserves snake_case identifiers", () => {
@@ -116,7 +114,8 @@ describe("sanitizeForTts", () => {
     });
 
     test("preserves # comments inside code fences", () => {
-      const input = "Example:\n```python\n# This is a comment\nprint('hi')\n```\nDone.";
+      const input =
+        "Example:\n```python\n# This is a comment\nprint('hi')\n```\nDone.";
       expect(sanitizeForTts(input)).toBe(
         "Example:\n# This is a comment\nprint('hi')\nDone.",
       );
@@ -195,9 +194,9 @@ describe("sanitizeForTts", () => {
     });
 
     test("acceptance: markdown link", () => {
-      expect(
-        sanitizeForTts("Check [this link](https://example.com)"),
-      ).toBe("Check this link");
+      expect(sanitizeForTts("Check [this link](https://example.com)")).toBe(
+        "Check this link",
+      );
     });
 
     test("acceptance: arithmetic preserved", () => {
@@ -238,7 +237,8 @@ describe("sanitizeForTts", () => {
     });
 
     test("idempotency: applying twice gives same result", () => {
-      const input = "# Hello **world** 👋\n\n- Item *one*\n- [link](http://x.com)";
+      const input =
+        "# Hello **world** 👋\n\n- Item *one*\n- [link](http://x.com)";
       const once = sanitizeForTts(input);
       const twice = sanitizeForTts(once);
       expect(twice).toBe(once);

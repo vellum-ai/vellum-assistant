@@ -25,11 +25,7 @@ const log = getLogger("auto-analysis-enqueue");
  *     remembering before the window narrows further. Fires immediately
  *     (`runAfter = now`) like `"batch"`.
  */
-export type AutoAnalysisTrigger =
-  | "batch"
-  | "idle"
-  | "lifecycle"
-  | "compaction";
+export type AutoAnalysisTrigger = "batch" | "idle" | "lifecycle" | "compaction";
 
 /**
  * Conditionally enqueue a `conversation_analyze` job for the given

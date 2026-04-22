@@ -745,9 +745,8 @@ describe("channel-reply-delivery", () => {
       const merged = updateMessageMetadataCalls[0].updates.slackMeta as string;
       // Imported here so the production read path (the same one the renderer
       // uses) is what actually validates the merged envelope.
-      const { readSlackMetadata } = await import(
-        "../messaging/providers/slack/message-metadata.js"
-      );
+      const { readSlackMetadata } =
+        await import("../messaging/providers/slack/message-metadata.js");
       const parsed = readSlackMetadata(merged);
       expect(parsed).not.toBeNull();
       expect(parsed?.channelTs).toBe("1700000700.000333");

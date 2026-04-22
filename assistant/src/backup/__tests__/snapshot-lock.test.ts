@@ -271,8 +271,9 @@ describe("acquireSnapshotLock — TOCTOU mutual exclusion", () => {
     expect(err.message).toMatch(/^snapshot in progress/);
 
     // The winning acquire returned a release function — make sure we clean up.
-    const release = (fulfilled[0] as PromiseFulfilledResult<() => Promise<void>>)
-      .value;
+    const release = (
+      fulfilled[0] as PromiseFulfilledResult<() => Promise<void>>
+    ).value;
     await release();
     expect(existsSync(LOCK)).toBe(false);
   });

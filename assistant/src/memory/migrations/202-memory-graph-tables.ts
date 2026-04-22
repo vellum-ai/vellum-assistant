@@ -97,9 +97,7 @@ export function migrateCreateMemoryGraphTables(database: DrizzleDb): void {
 
   // -- Add event_date column to nodes (idempotent) --
   try {
-    raw.exec(
-      `ALTER TABLE memory_graph_nodes ADD COLUMN event_date INTEGER`,
-    );
+    raw.exec(`ALTER TABLE memory_graph_nodes ADD COLUMN event_date INTEGER`);
   } catch {
     // Column already exists — safe to ignore.
   }

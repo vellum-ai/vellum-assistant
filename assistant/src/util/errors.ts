@@ -182,4 +182,3 @@ export class IntegrityError extends AssistantError {
     this.name = "IntegrityError";
   }
 }
-

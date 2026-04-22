@@ -106,8 +106,13 @@ export function tryMintToolApprovalGrant(params: {
   guardianExternalUserId: string;
   effectiveAction: ApprovalAction;
 }): void {
-  const { approvalInfo, approval, decisionChannel, guardianExternalUserId, effectiveAction } =
-    params;
+  const {
+    approvalInfo,
+    approval,
+    decisionChannel,
+    guardianExternalUserId,
+    effectiveAction,
+  } = params;
 
   if (!approvalInfo.toolName) {
     return;
@@ -297,7 +302,8 @@ export function mintCanonicalRequestGrant(params: {
   guardianExternalUserId?: string;
   effectiveAction: ApprovalAction;
 }): { minted: boolean } {
-  const { request, actorChannel, guardianExternalUserId, effectiveAction } = params;
+  const { request, actorChannel, guardianExternalUserId, effectiveAction } =
+    params;
 
   if (!request.toolName || !request.inputDigest) {
     return { minted: false };
@@ -524,9 +530,7 @@ export async function applyCanonicalGuardianDecision(
   // 3. Downgrade approve_always to approve_once for guardian-on-behalf requests.
   // Time-bounded modes (approve_10m, approve_conversation) are permitted.
   const effectiveAction: ApprovalAction =
-    action === "approve_always"
-      ? "approve_once"
-      : action;
+    action === "approve_always" ? "approve_once" : action;
 
   // 4. CAS resolve: atomically transition from 'pending' to terminal status
   const targetStatus: CanonicalRequestStatus =

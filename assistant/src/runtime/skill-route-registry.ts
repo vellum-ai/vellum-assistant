@@ -64,8 +64,6 @@ export function matchSkillRoute(
     pathMatches.push(route);
   }
   if (pathMatches.length === 0) return null;
-  const allow = Array.from(
-    new Set(pathMatches.flatMap((r) => r.methods)),
-  );
+  const allow = Array.from(new Set(pathMatches.flatMap((r) => r.methods)));
   return { kind: "methodMismatch", allow };
 }

@@ -334,7 +334,9 @@ describe("subagent_spawn fork parameter", () => {
 
       expect(result.isError).toBe(true);
       expect(result.content).toContain("Cannot fork");
-      expect(result.content).toContain("parent conversation could not be resolved");
+      expect(result.content).toContain(
+        "parent conversation could not be resolved",
+      );
     } finally {
       manager.resolveParentConversation = originalResolve;
     }
@@ -359,7 +361,9 @@ describe("subagent_spawn fork parameter", () => {
 
       expect(result.isError).toBe(true);
       expect(result.content).toContain("Cannot fork");
-      expect(result.content).toContain("parent conversation could not be resolved");
+      expect(result.content).toContain(
+        "parent conversation could not be resolved",
+      );
     } finally {
       manager.resolveParentConversation = originalResolve;
     }

@@ -46,10 +46,7 @@ import {
 } from "../util/platform.js";
 import { ensureBackupKey as realEnsureBackupKey } from "./backup-key.js";
 import type { SnapshotEntry } from "./list-snapshots.js";
-import {
-  pruneLocalSnapshots,
-  writeLocalSnapshot,
-} from "./local-writer.js";
+import { pruneLocalSnapshots, writeLocalSnapshot } from "./local-writer.js";
 import type { OffsiteWriteResult } from "./offsite-writer.js";
 import {
   pruneOffsiteSnapshotsInAll,
@@ -60,10 +57,7 @@ import {
   getLocalBackupsDir,
   resolveOffsiteDestinations,
 } from "./paths.js";
-import {
-  acquireSnapshotLock,
-  getSnapshotLockPath,
-} from "./snapshot-lock.js";
+import { acquireSnapshotLock, getSnapshotLockPath } from "./snapshot-lock.js";
 
 const log = getLogger("backup-worker");
 
@@ -187,8 +181,7 @@ async function performBackup(
   const ensureKey = deps.ensureBackupKey ?? realEnsureBackupKey;
   const workspaceDir = deps.workspaceDir ?? getWorkspaceDir();
   const localDir = deps.localDir ?? getLocalBackupsDir(config.localDirectory);
-  const trustPath =
-    deps.trustPath ?? join(getProtectedDir(), "trust.json");
+  const trustPath = deps.trustPath ?? join(getProtectedDir(), "trust.json");
   const hooksDir = deps.hooksDir ?? getWorkspaceHooksDir();
   const backupKeyPath = deps.backupKeyPath ?? getBackupKeyPath();
 

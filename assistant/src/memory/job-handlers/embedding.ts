@@ -18,7 +18,7 @@ import {
 
 export async function embedSegmentJob(
   job: MemoryJob,
-  config: AssistantConfig
+  config: AssistantConfig,
 ): Promise<void> {
   const segmentId = asString(job.payload.segmentId);
   if (!segmentId) return;
@@ -39,7 +39,7 @@ export async function embedSegmentJob(
 
 export async function embedSummaryJob(
   job: MemoryJob,
-  config: AssistantConfig
+  config: AssistantConfig,
 ): Promise<void> {
   const summaryId = asString(job.payload.summaryId);
   if (!summaryId) return;
@@ -60,13 +60,13 @@ export async function embedSummaryJob(
       created_at: summary.startAt,
       last_seen_at: summary.endAt,
       memory_scope_id: summary.scopeId,
-    }
+    },
   );
 }
 
 export async function embedMediaJob(
   job: MemoryJob,
-  config: AssistantConfig
+  config: AssistantConfig,
 ): Promise<void> {
   const assetId = asString(job.payload.assetId);
   if (!assetId) return;
@@ -99,7 +99,7 @@ export async function embedMediaJob(
 
 export async function embedAttachmentJob(
   job: MemoryJob,
-  config: AssistantConfig
+  config: AssistantConfig,
 ): Promise<void> {
   const messageId = asString(job.payload.messageId);
   const blockIndex = job.payload.blockIndex as number;

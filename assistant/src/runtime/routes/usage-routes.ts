@@ -29,11 +29,7 @@ function resolveTimezone(url: URL): string | Response {
   try {
     validateTimezone(tz);
   } catch (err) {
-    return httpError(
-      "BAD_REQUEST",
-      (err as Error).message,
-      400,
-    );
+    return httpError("BAD_REQUEST", (err as Error).message, 400);
   }
   return tz;
 }

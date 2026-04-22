@@ -1,9 +1,4 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 import {
@@ -112,7 +107,11 @@ function resolveUserFilename(
 
   // Validate basename to prevent path traversal
   if (filename) {
-    if (basename(filename) !== filename || filename === ".." || filename === ".") {
+    if (
+      basename(filename) !== filename ||
+      filename === ".." ||
+      filename === "."
+    ) {
       log.warn(
         { userFile: filename },
         "Contact userFile contains path traversal; ignoring",
@@ -270,7 +269,11 @@ export function resolveGuardianPersonaStrict(): string | null {
  * Creates the parent `users/` directory if missing.
  */
 export function ensureGuardianPersonaFile(userFile: string): void {
-  if (basename(userFile) !== userFile || userFile === ".." || userFile === ".") {
+  if (
+    basename(userFile) !== userFile ||
+    userFile === ".." ||
+    userFile === "."
+  ) {
     log.warn(
       { userFile },
       "Guardian persona userFile contains path traversal; refusing to write",

@@ -45,12 +45,18 @@ function mockDetailSuccess(msg = SAMPLE_MESSAGE, status = 200): void {
  * local gateway or counts against `getMockFetchCalls()`, skewing assertions.
  */
 function mockFeatureFlagsFetch(): void {
-  mockFetch("/v1/feature-flags", { method: "GET" }, { body: { flags: [] }, status: 200 });
+  mockFetch(
+    "/v1/feature-flags",
+    { method: "GET" },
+    { body: { flags: [] }, status: 200 },
+  );
 }
 
 /** Filter out the feature-flag pre-population fetch from captured calls. */
 function emailFetchCalls(): { path: string; init: RequestInit }[] {
-  return getMockFetchCalls().filter((c) => !c.path.includes("/v1/feature-flags"));
+  return getMockFetchCalls().filter(
+    (c) => !c.path.includes("/v1/feature-flags"),
+  );
 }
 
 let savedCesUrl: string | undefined;

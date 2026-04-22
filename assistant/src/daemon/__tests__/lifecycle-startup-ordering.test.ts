@@ -70,11 +70,7 @@ describe("daemon lifecycle startup ordering", () => {
   test("lifecycle.ts constructs RuntimeHttpServer before kicking off initializeQdrantAndMemory", () => {
     // Source-level guard: read lifecycle.ts and assert the RuntimeHttpServer
     // constructor call appears before the fire-and-forget memory init.
-    const lifecyclePath = join(
-      import.meta.dir,
-      "..",
-      "lifecycle.ts",
-    );
+    const lifecyclePath = join(import.meta.dir, "..", "lifecycle.ts");
     const content = readFileSync(lifecyclePath, "utf-8");
 
     const httpServerCtorIdx = content.indexOf("new RuntimeHttpServer(");

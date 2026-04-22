@@ -523,7 +523,8 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
     db.insert(memoryGraphNodes)
       .values({
         id: "item-cross-sched",
-        content: "cross-sourced schedule claim\nClaim from two failed schedules.",
+        content:
+          "cross-sourced schedule claim\nClaim from two failed schedules.",
         type: "semantic",
         created: now + 10,
         lastAccessed: now + 20,

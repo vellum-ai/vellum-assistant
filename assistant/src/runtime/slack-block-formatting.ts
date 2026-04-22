@@ -225,20 +225,22 @@ function splitIntoSegments(text: string): Segment[] {
 function parseTableRow(line: string): string[] {
   const ESCAPED_PIPE_PLACEHOLDER = "\x00PIPE\x00";
   const ESCAPED_BACKSLASH_PLACEHOLDER = "\x00BSLASH\x00";
-  return line
-    // First, protect escaped backslashes (\\) so they don't interfere
-    .replace(/\\\\/g, ESCAPED_BACKSLASH_PLACEHOLDER)
-    // Now a remaining \| is a genuinely escaped pipe (odd backslash)
-    .replace(/\\\|/g, ESCAPED_PIPE_PLACEHOLDER)
-    .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map((cell) =>
-      cell
-        .replaceAll(ESCAPED_PIPE_PLACEHOLDER, "|")
-        .replaceAll(ESCAPED_BACKSLASH_PLACEHOLDER, "\\\\")
-        .trim(),
-    );
+  return (
+    line
+      // First, protect escaped backslashes (\\) so they don't interfere
+      .replace(/\\\\/g, ESCAPED_BACKSLASH_PLACEHOLDER)
+      // Now a remaining \| is a genuinely escaped pipe (odd backslash)
+      .replace(/\\\|/g, ESCAPED_PIPE_PLACEHOLDER)
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .map((cell) =>
+        cell
+          .replaceAll(ESCAPED_PIPE_PLACEHOLDER, "|")
+          .replaceAll(ESCAPED_BACKSLASH_PLACEHOLDER, "\\\\")
+          .trim(),
+      )
+  );
 }
 
 /**
@@ -488,10 +490,7 @@ function computeMrkdwnSpans(window: string): Array<[number, number]> {
   return intervals;
 }
 
-function isInsideSpan(
-  pos: number,
-  spans: Array<[number, number]>,
-): boolean {
+function isInsideSpan(pos: number, spans: Array<[number, number]>): boolean {
   for (const [start, end] of spans) {
     if (pos > start && pos < end) return true;
   }

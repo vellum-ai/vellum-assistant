@@ -258,12 +258,8 @@ describe("queryNodes", () => {
   });
 
   test("filters by eventDateAfter", () => {
-    createNode(
-      makeNewNode({ content: "Old.", eventDate: 1700000000000 }),
-    );
-    createNode(
-      makeNewNode({ content: "Recent.", eventDate: 1710000000000 }),
-    );
+    createNode(makeNewNode({ content: "Old.", eventDate: 1700000000000 }));
+    createNode(makeNewNode({ content: "Recent.", eventDate: 1710000000000 }));
     createNode(makeNewNode({ content: "None.", eventDate: null }));
 
     const results = queryNodes({ eventDateAfter: 1705000000000 });
@@ -272,12 +268,8 @@ describe("queryNodes", () => {
   });
 
   test("filters by eventDateBefore", () => {
-    createNode(
-      makeNewNode({ content: "Old.", eventDate: 1700000000000 }),
-    );
-    createNode(
-      makeNewNode({ content: "Recent.", eventDate: 1710000000000 }),
-    );
+    createNode(makeNewNode({ content: "Old.", eventDate: 1700000000000 }));
+    createNode(makeNewNode({ content: "Recent.", eventDate: 1710000000000 }));
     createNode(makeNewNode({ content: "None.", eventDate: null }));
 
     const results = queryNodes({ eventDateBefore: 1705000000000 });
@@ -286,15 +278,9 @@ describe("queryNodes", () => {
   });
 
   test("combines eventDateAfter and eventDateBefore for range query", () => {
-    createNode(
-      makeNewNode({ content: "Before.", eventDate: 1690000000000 }),
-    );
-    createNode(
-      makeNewNode({ content: "In range.", eventDate: 1700000000000 }),
-    );
-    createNode(
-      makeNewNode({ content: "After.", eventDate: 1720000000000 }),
-    );
+    createNode(makeNewNode({ content: "Before.", eventDate: 1690000000000 }));
+    createNode(makeNewNode({ content: "In range.", eventDate: 1700000000000 }));
+    createNode(makeNewNode({ content: "After.", eventDate: 1720000000000 }));
 
     const results = queryNodes({
       eventDateAfter: 1695000000000,
@@ -686,7 +672,9 @@ describe("supersedeNode", () => {
 
   test("inherits eventDate from old node when new node has null eventDate", () => {
     const eventDate = 1712534400000; // April 8 2024
-    const old = createNode(makeNewNode({ content: "Dentist April 8.", eventDate }));
+    const old = createNode(
+      makeNewNode({ content: "Dentist April 8.", eventDate }),
+    );
     const newNodeInput = makeNewNode({
       content: "Dentist appointment rescheduled.",
       eventDate: null,
@@ -698,7 +686,9 @@ describe("supersedeNode", () => {
   });
 
   test("uses new node eventDate when both nodes have eventDate", () => {
-    const old = createNode(makeNewNode({ content: "Flight Tuesday.", eventDate: 1712534400000 }));
+    const old = createNode(
+      makeNewNode({ content: "Flight Tuesday.", eventDate: 1712534400000 }),
+    );
     const newEventDate = 1712620800000;
     const newNodeInput = makeNewNode({
       content: "Flight moved to Thursday.",

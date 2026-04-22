@@ -93,7 +93,8 @@ export async function synthesizeWithFishAudio(
       let timerId: ReturnType<typeof setTimeout>;
       const timeout = new Promise<never>((_, reject) => {
         timerId = setTimeout(
-          () => reject(new Error(`Fish Audio read timed out after ${timeoutMs}ms`)),
+          () =>
+            reject(new Error(`Fish Audio read timed out after ${timeoutMs}ms`)),
           timeoutMs,
         );
       });
@@ -112,7 +113,11 @@ export async function synthesizeWithFishAudio(
       }
     }
   } catch (err) {
-    try { await reader.cancel(); } catch { /* Ignore cancellation errors */ }
+    try {
+      await reader.cancel();
+    } catch {
+      /* Ignore cancellation errors */
+    }
     throw err;
   }
 

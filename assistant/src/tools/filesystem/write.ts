@@ -121,7 +121,10 @@ class FileWriteTool implements Tool {
       // Indexing `pkb/*.json` (or any other extension) here would produce
       // chunks the reconciler can't see, leading to orphaned vectors and
       // pointless embedding work.
-      if (filePath.toLowerCase().endsWith(".md") && isInsidePkbRoot(filePath, pkbRoot)) {
+      if (
+        filePath.toLowerCase().endsWith(".md") &&
+        isInsidePkbRoot(filePath, pkbRoot)
+      ) {
         enqueuePkbIndexJob({
           pkbRoot,
           absPath: filePath,

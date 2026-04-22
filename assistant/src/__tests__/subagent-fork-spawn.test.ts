@@ -78,9 +78,7 @@ function injectFakeSubagent(
   internals.parentToChildren.get(parentId)!.add(subagentId);
 }
 
-function makeConfig(
-  overrides: Partial<SubagentConfig> = {},
-): SubagentConfig {
+function makeConfig(overrides: Partial<SubagentConfig> = {}): SubagentConfig {
   return {
     id: "sub-1",
     parentConversationId: "parent-sess-1",
@@ -151,11 +149,7 @@ describe("SubagentManager fork spawn", () => {
   });
 
   test("fork state has isFork: true", () => {
-    const state = makeState(
-      "sub-fork-1",
-      { isFork: true },
-      { fork: true },
-    );
+    const state = makeState("sub-fork-1", { isFork: true }, { fork: true });
 
     expect(state.isFork).toBe(true);
   });
@@ -350,8 +344,14 @@ describe("SubagentManager fork spawn", () => {
     });
 
     let systemPrompt: string | undefined;
-    if (config.fork && !config.parentSystemPrompt && manager.resolveParentConversation) {
-      const parentConv = manager.resolveParentConversation(config.parentConversationId);
+    if (
+      config.fork &&
+      !config.parentSystemPrompt &&
+      manager.resolveParentConversation
+    ) {
+      const parentConv = manager.resolveParentConversation(
+        config.parentConversationId,
+      );
       systemPrompt = (parentConv as any)?.getCurrentSystemPrompt?.();
     }
 
@@ -370,12 +370,14 @@ describe("SubagentManager fork spawn", () => {
 
     expect(() => {
       if (config.fork && !config.parentSystemPrompt) {
-        const parentConv = resolveParentConversation(config.parentConversationId);
+        const parentConv = resolveParentConversation(
+          config.parentConversationId,
+        );
         const resolved = (parentConv as any)?.getCurrentSystemPrompt?.();
         if (!resolved) {
           throw new Error(
             "Fork spawn requires a parent system prompt but neither config.parentSystemPrompt " +
-            "nor resolveParentConversation yielded one.",
+              "nor resolveParentConversation yielded one.",
           );
         }
       }

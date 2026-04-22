@@ -90,10 +90,7 @@ describe("maybeEnqueueConversationStartersJob", () => {
     for (let i = 0; i < 55; i++) insertMemoryNode();
 
     // Set checkpoint so delta is only 4 (below threshold of 10)
-    setCheckpoint(
-      "conversation_starters:item_count_at_last_gen:default",
-      "51",
-    );
+    setCheckpoint("conversation_starters:item_count_at_last_gen:default", "51");
 
     maybeEnqueueConversationStartersJob("default");
     expect(getPendingJobs()).toHaveLength(0);

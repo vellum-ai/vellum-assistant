@@ -108,7 +108,9 @@ describe("workspace migration 043-release-notes-latex-rendering", () => {
       `${priorContent}\n${content.slice(priorContent.length + 1)}`,
     );
     // The appended block starts at the marker.
-    expect(content.slice(priorContent.length)).toMatch(/^\n<!-- release-note-id:/);
+    expect(content.slice(priorContent.length)).toMatch(
+      /^\n<!-- release-note-id:/,
+    );
     // No triple-newline (would indicate a stray blank line).
     expect(content).not.toContain("\n\n\n");
   });

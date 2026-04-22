@@ -11,10 +11,7 @@
 
 import { existsSync, type FSWatcher, watch } from "node:fs";
 
-import {
-  getAppsDir,
-  resolveAppIdByDirName,
-} from "../memory/app-store.js";
+import { getAppsDir, resolveAppIdByDirName } from "../memory/app-store.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
 
@@ -51,8 +48,10 @@ function resolveAppIdFromRelPath(relPath: string): string | null {
 
   // Skip non-source directories (include bare directory names for fs.watch events)
   if (
-    innerPath === "records" || innerPath.startsWith("records/") ||
-    innerPath === "dist" || innerPath.startsWith("dist/")
+    innerPath === "records" ||
+    innerPath.startsWith("records/") ||
+    innerPath === "dist" ||
+    innerPath.startsWith("dist/")
   ) {
     return null;
   }
@@ -89,7 +88,9 @@ export class AppSourceWatcher {
     try {
       appsDir = getAppsDir();
     } catch {
-      log.warn("Could not resolve apps directory; app source watching disabled");
+      log.warn(
+        "Could not resolve apps directory; app source watching disabled",
+      );
       return;
     }
 
@@ -102,19 +103,26 @@ export class AppSourceWatcher {
     if (!onChange) return;
 
     try {
-      this.watcher = watch(appsDir, { recursive: true }, (_eventType, filename) => {
-        if (!filename) return;
+      this.watcher = watch(
+        appsDir,
+        { recursive: true },
+        (_eventType, filename) => {
+          if (!filename) return;
 
-        const appId = resolveAppIdFromRelPath(filename);
-        if (!appId) return;
+          const appId = resolveAppIdFromRelPath(filename);
+          if (!appId) return;
 
-        this.debouncer.schedule(`app:${appId}`, () => {
-          onChange(appId);
-        });
-      });
+          this.debouncer.schedule(`app:${appId}`, () => {
+            onChange(appId);
+          });
+        },
+      );
       log.info("App source watcher started");
     } catch (err) {
-      log.warn({ err }, "Failed to watch apps directory; source watching disabled");
+      log.warn(
+        { err },
+        "Failed to watch apps directory; source watching disabled",
+      );
     }
   }
 
