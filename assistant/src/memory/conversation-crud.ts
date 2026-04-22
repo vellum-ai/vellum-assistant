@@ -1051,20 +1051,22 @@ export function getMessages(conversationId: string): MessageRow[] {
 }
 
 /**
- * Count messages whose metadata JSON contains a `slackMeta` envelope, capped
- * at `limit`. Pushes the cap into SQL (`LIKE` + `LIMIT`) so warm Slack DM
- * conversations don't require a full-table scan + JSON parse on every
- * inbound message to confirm the cold-start threshold has been cleared.
- * Returns the number of matching rows up to `limit`; callers compare against
- * the cold-start threshold to decide whether to backfill.
+ * Return raw `metadata` strings for messages whose metadata contains the
+ * literal substring `"slackMeta"`, capped at `limit`. Pushes `LIKE` + `LIMIT`
+ * into SQL so warm Slack DM conversations don't require a full-table scan on
+ * the webhook critical path. The substring match is an indexable prefilter
+ * only — callers must parse and validate each returned string against the
+ * Slack metadata schema, because a malformed row (partial write, legacy
+ * format, unrelated key accidentally containing the literal) can still slip
+ * through the substring match.
  */
-export function countMessagesWithSlackMeta(
+export function selectSlackMetaCandidateMetadata(
   conversationId: string,
   limit: number,
-): number {
+): string[] {
   const db = getDb();
   const rows = db
-    .select({ one: sql`1` })
+    .select({ metadata: messages.metadata })
     .from(messages)
     .where(
       and(
@@ -1074,7 +1076,13 @@ export function countMessagesWithSlackMeta(
     )
     .limit(limit)
     .all();
-  return rows.length;
+  const out: string[] = [];
+  for (const r of rows) {
+    if (typeof r.metadata === "string" && r.metadata.length > 0) {
+      out.push(r.metadata);
+    }
+  }
+  return out;
 }
 
 /**

@@ -21,9 +21,9 @@ import {
 } from "../../memory/conversation-attention-store.js";
 import {
   addMessage,
-  countMessagesWithSlackMeta,
   getMessageById,
   getMessages,
+  selectSlackMetaCandidateMetadata,
   updateMessageMetadata,
 } from "../../memory/conversation-crud.js";
 import * as deliveryChannels from "../../memory/delivery-channels.js";
@@ -1049,14 +1049,21 @@ export async function handleChannelInbound(
       // longer trigger backfill. Failures are non-fatal — the new message
       // proceeds without backfilled history.
       if (sourceChannel === "slack" && sourceChatType === "im") {
+        // Exclude the just-arrived webhook message from the history window —
+        // the normal inbound persistence path writes it separately, so
+        // including it here would produce duplicate user turns. Only pass a
+        // bound when we actually have a Slack ts (`<secs>.<micros>`): the
+        // fallback path writes `externalMessageId` into `channelTs`, but that
+        // identifier is not guaranteed to be a Slack ts, and Slack's
+        // `conversations.history` rejects anything that isn't a ts string.
+        const boundingTs = isSlackTs(sourceMessageId)
+          ? sourceMessageId
+          : undefined;
         await tryBackfillSlackDmIfCold({
           conversationId: result.conversationId,
           channelId: conversationExternalId,
           account: slackAccount,
-          // Exclude the just-arrived webhook message from the history window —
-          // the normal inbound persistence path writes it separately, so
-          // including it here would produce duplicate user turns.
-          latestTs: slackInbound?.channelTs,
+          latestTs: boundingTs,
         });
       }
 
@@ -1245,16 +1252,62 @@ async function persistSlackReactionAsMessage(params: {
 const SLACK_DM_BACKFILL_WARM_THRESHOLD = 3;
 
 /**
- * Count messages in a conversation whose `metadata` carries a `slackMeta`
- * envelope, capped at the warm threshold. Delegates to the DB helper which
- * pushes both `LIKE` and `LIMIT` into SQL so a warm DM conversation never
- * scans beyond the threshold's worth of rows on the webhook critical path.
+ * Shape-check for a Slack `ts` value. Slack IDs messages by `<seconds>.<micros>`
+ * strings (e.g. `"1700000000.000100"`). The daemon also stores an
+ * `externalMessageId` derived from the gateway's dedupe key which follows a
+ * different format, so any path that feeds a ts to Slack's API
+ * (`conversations.history`'s `latest`, etc.) must shape-check first — Slack
+ * rejects non-ts arguments with `invalid_arguments`, and passing a malformed
+ * bound silently disables the intended history window.
+ */
+function isSlackTs(value: string | null | undefined): value is string {
+  return typeof value === "string" && /^\d+\.\d+$/.test(value);
+}
+
+/**
+ * Over-fetch multiplier applied to the warm threshold when pulling candidate
+ * rows from SQL. A bare `LIKE '%"slackMeta"%'` match can include rows whose
+ * metadata JSON is malformed or carries the literal under an unrelated key,
+ * so we fetch a few extra and re-validate each candidate with Zod. The
+ * threshold is tiny (see `SLACK_DM_BACKFILL_WARM_THRESHOLD`), so 10× is still
+ * a trivial scan while letting a handful of bad rows not starve the count.
+ */
+const SLACK_DM_CANDIDATE_OVERFETCH = 10;
+
+/**
+ * Count messages in a conversation whose `metadata` carries a well-formed
+ * `slackMeta` envelope, capped at the warm threshold. SQL prefilters with
+ * `LIKE` + `LIMIT` so warm DM conversations never scan the full table on the
+ * webhook critical path, and each candidate is then re-validated through
+ * `readSlackMetadata` — a bare substring match would otherwise wrongly count
+ * rows whose metadata is truncated, parses but fails schema validation, or
+ * happens to contain the literal `"slackMeta"` under an unrelated key.
  */
 function countSlackMetaMessages(conversationId: string): number {
-  return countMessagesWithSlackMeta(
+  const candidates = selectSlackMetaCandidateMetadata(
     conversationId,
-    SLACK_DM_BACKFILL_WARM_THRESHOLD,
+    SLACK_DM_BACKFILL_WARM_THRESHOLD * SLACK_DM_CANDIDATE_OVERFETCH,
   );
+  let count = 0;
+  for (const raw of candidates) {
+    let parent: Record<string, unknown> | null = null;
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        parent = parsed as Record<string, unknown>;
+      }
+    } catch {
+      continue;
+    }
+    if (!parent) continue;
+    const inner = parent.slackMeta;
+    if (typeof inner !== "string") continue;
+    if (readSlackMetadata(inner)) {
+      count++;
+      if (count >= SLACK_DM_BACKFILL_WARM_THRESHOLD) return count;
+    }
+  }
+  return count;
 }
 
 /**
