@@ -41,6 +41,7 @@ import { join } from "node:path";
 import type { AssistantConfig } from "../config/schema.js";
 import { defaultLlmCallPlugin } from "../plugins/defaults/llm-call.js";
 import { defaultToolExecutePlugin } from "../plugins/defaults/tool-execute.js";
+import { defaultToolResultTruncatePlugin } from "../plugins/defaults/tool-result-truncate.js";
 import {
   registerPluginSkills,
   unregisterPluginSkills,
@@ -168,7 +169,7 @@ function ensurePluginStorageDir(pluginName: string): string {
  * that reuse a warmed-up registry) do not fail.
  */
 function registerDefaultPlugins(): void {
-  const defaults = [defaultToolExecutePlugin];
+  const defaults = [defaultToolExecutePlugin, defaultToolResultTruncatePlugin];
   for (const plugin of defaults) {
     try {
       registerPlugin(plugin);

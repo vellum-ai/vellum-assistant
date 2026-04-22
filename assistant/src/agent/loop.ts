@@ -6,12 +6,17 @@ import {
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
-import { truncateOversizedToolResults } from "../context/tool-result-truncation.js";
+import {
+  calculateMaxToolResultChars,
+  truncateToolResultText,
+} from "../context/tool-result-truncation.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
   LLMCallArgs,
   LLMCallResult,
+  ToolResultTruncateArgs,
+  ToolResultTruncateResult,
   TurnContext,
 } from "../plugins/types.js";
 import type {
@@ -748,12 +753,67 @@ export class AgentLoop {
           }),
         );
 
-        // Pre-emptively truncate oversized tool results to prevent context overflow
-        const { blocks: resultBlocks, truncatedCount } =
-          truncateOversizedToolResults(
-            rawResultBlocks,
-            this.config.maxInputTokens ?? 180_000,
+        // Pre-emptively truncate oversized tool results to prevent context
+        // overflow. The work is delegated to the `toolResultTruncate`
+        // plugin pipeline so downstream plugins can swap in a smarter
+        // truncation strategy (e.g. a summariser) while the default
+        // middleware preserves the historical tail-drop behaviour.
+        const contextWindowTokens = this.config.maxInputTokens ?? 180_000;
+        const maxChars = calculateMaxToolResultChars(contextWindowTokens);
+        const truncateMiddlewares = getMiddlewaresFor("toolResultTruncate");
+
+        let truncatedCount = 0;
+        const truncatedBlocks: ContentBlock[] = [];
+        for (const block of rawResultBlocks) {
+          if (block.type !== "tool_result") {
+            truncatedBlocks.push(block);
+            continue;
+          }
+          const toolBlock = block as ToolResultContent;
+          if (
+            typeof toolBlock.content !== "string" ||
+            toolBlock.content.length <= maxChars
+          ) {
+            truncatedBlocks.push(block);
+            continue;
+          }
+          const pipelineResult = await runPipeline<
+            ToolResultTruncateArgs,
+            ToolResultTruncateResult
+          >(
+            "toolResultTruncate",
+            truncateMiddlewares,
+            async (args) => {
+              // Terminal fallback — applies the same tail-drop truncation
+              // the loop used before plugins existed. We run it here
+              // (instead of relying purely on the default plugin) so code
+              // paths that exercise `AgentLoop.run` without first calling
+              // `bootstrapPlugins` — e.g. unit tests that construct a
+              // loop directly — retain the pre-plugin behaviour.
+              const truncated = truncateToolResultText(
+                args.content,
+                args.maxChars,
+              );
+              return {
+                content: truncated,
+                truncated: truncated !== args.content,
+              };
+            },
+            { content: toolBlock.content, maxChars },
+            turnCtx,
+            DEFAULT_TIMEOUTS.toolResultTruncate,
           );
+          if (pipelineResult.truncated) {
+            truncatedCount++;
+            truncatedBlocks.push({
+              ...toolBlock,
+              content: pipelineResult.content,
+            });
+          } else {
+            truncatedBlocks.push(block);
+          }
+        }
+        const resultBlocks = truncatedBlocks;
         if (truncatedCount > 0) {
           log.warn(
             `Truncated ${truncatedCount} oversized tool result(s) to prevent context overflow`,
