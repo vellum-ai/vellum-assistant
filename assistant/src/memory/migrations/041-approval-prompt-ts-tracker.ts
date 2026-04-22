@@ -3,12 +3,11 @@ import type { DrizzleDb } from "../db-connection.js";
 /**
  * Tracker for approval prompt message timestamps.
  *
- * Scopes guardian reaction approvals so only reactions on a known approval
- * prompt can resolve a pending request. Persisted so that a daemon restart
- * between prompt delivery and guardian reaction does not silently invalidate
- * valid reactions — the in-memory Map used previously lost all tracked
- * prompt ts's on restart, causing valid reactions within the 30-minute
- * guardian TTL to be treated as stale.
+ * Stores the (channel, chat_id, ts) tuples for delivered guardian approval
+ * prompts so only reactions on a known prompt can resolve a pending
+ * request. Persistence (rather than in-memory state) is required because
+ * the guardian approval TTL is 30 minutes, which can span a daemon
+ * restart between prompt delivery and the user's reaction.
  */
 export function createApprovalPromptTsTrackerTable(database: DrizzleDb): void {
   database.run(/*sql*/ `
