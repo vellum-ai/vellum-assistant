@@ -1298,7 +1298,11 @@ export class Conversation {
     // is `undefined` on early-return paths (no eligible messages, disabled,
     // etc.) — skip those so they don't silently reset the counter.
     if (result.summaryFailed !== undefined) {
-      trackCompactionOutcome(this, result.summaryFailed, this.sendToClient);
+      await trackCompactionOutcome(
+        this,
+        result.summaryFailed,
+        this.sendToClient,
+      );
     }
     if (result.compacted) {
       applyCompactionResult(this, result, this.sendToClient, null);

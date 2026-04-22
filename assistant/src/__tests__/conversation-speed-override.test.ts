@@ -211,6 +211,9 @@ mock.module("../agent/loop.js", () => ({
     getToolTokenBudget() {
       return 0;
     }
+    getResolvedTools() {
+      return [];
+    }
     getActiveModel() {
       return undefined;
     }
@@ -219,7 +222,9 @@ mock.module("../agent/loop.js", () => ({
       _onEvent: (event: AgentEvent) => void,
       _signal?: AbortSignal,
       _requestId?: string,
-      _onCheckpoint?: (checkpoint: CheckpointInfo) => CheckpointDecision,
+      _onCheckpoint?: (
+        checkpoint: CheckpointInfo,
+      ) => CheckpointDecision | Promise<CheckpointDecision>,
     ): Promise<Message[]> {
       return [];
     }
