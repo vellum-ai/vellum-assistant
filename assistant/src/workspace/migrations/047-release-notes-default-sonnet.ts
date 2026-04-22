@@ -15,16 +15,25 @@ const MIGRATION_ID = "047-release-notes-default-sonnet";
 const MARKER = `<!-- release-note-id:${MIGRATION_ID} -->`;
 
 const RELEASE_NOTE = `${MARKER}
-## Default LLM is now Claude Sonnet 4.6
+## Default LLM is now Claude Sonnet 4.6 (main agent stays on Opus)
 
-For new installs and configs that don't explicitly set
-\`llm.default.model\`, the default is now \`claude-sonnet-4-6\` instead
-of \`claude-opus-4-7\`. If you've already chosen a model, nothing
-changes — your persisted config takes precedence.
+The schema-level default for \`llm.default.model\` is now
+\`claude-sonnet-4-6\` instead of \`claude-opus-4-7\`, so background call
+sites that fall through to the default now use Sonnet. If you've
+already chosen a model, your persisted config takes precedence.
 
-The \`quality-optimized\` model intent still resolves to Opus, so call
-sites that explicitly request that tier are unaffected. To switch back
-to Opus as the default, run:
+The main agent conversation loop remains on Opus: a companion
+migration seeds \`llm.callSites.mainAgent = { model: "claude-opus-4-7" }\`
+when it's unset, and the \`quality-optimized\` model intent also still
+resolves to Opus.
+
+To switch the main agent to Sonnet, clear the call-site override:
+
+\`\`\`bash
+assistant config unset llm.callSites.mainAgent
+\`\`\`
+
+To switch the overall default back to Opus, run:
 
 \`\`\`bash
 assistant config set llm.default.model claude-opus-4-7
