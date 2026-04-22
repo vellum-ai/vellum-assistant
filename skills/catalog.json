@@ -622,6 +622,18 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "vellum-conversation-management",
+      "name": "vellum-conversation-management",
+      "description": "Manage conversation threads (rename, list, export, wipe)",
+      "metadata": {
+        "emoji": "💬",
+        "vellum": {
+          "display-name": "Conversations"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "vellum-github-app-setup",
       "name": "vellum-github-app-setup",
       "description": "Create and configure a GitHub App so the assistant can push commits, open PRs, and comment under its own bot identity. Use when the user wants the assistant to have its own GitHub identity, or when setting up git push access for the first time.",
