@@ -285,8 +285,8 @@ Arguments:
   title            The new title for the conversation (under 60 characters).
 
 Renames a conversation. When the assistant is running, the rename goes through
-the HTTP API so connected clients see the update in real time. Otherwise, the
-title is updated directly in the local SQLite database.
+IPC so connected clients see the update in real time. Otherwise, the title is
+updated directly in the local SQLite database.
 
 Examples:
   $ assistant conversations rename abc123 "Project planning"
@@ -312,11 +312,13 @@ Examples:
               log.info(
                 JSON.stringify({
                   ok: false,
-                  error: `Conversation not found: ${conversationId}`,
+                  error: `Conversation not found: ${conversationId}. Run 'assistant conversations list' to see available conversations.`,
                 }),
               );
             } else {
-              log.error(`Conversation not found: ${conversationId}`);
+              log.error(
+                `Conversation not found: ${conversationId}. Run 'assistant conversations list' to see available conversations.`,
+              );
             }
             process.exit(1);
           }
@@ -334,38 +336,17 @@ Examples:
           process.exit(1);
         }
 
-        // When the daemon is running, delegate to the HTTP rename endpoint
-        // so connected clients see the title update in real time.
-        if (await isHttpHealthy()) {
-          const port = getRuntimeHttpPort();
-          const host = healthCheckHost(getRuntimeHttpHost());
-          initAuthSigningKey(loadOrCreateSigningKey());
-          const token = mintDaemonDeliveryToken();
-          const res = await fetch(
-            `http://${host}:${port}/v1/conversations/${conversation.id}/name`,
-            {
-              method: "PATCH",
-              headers: {
-                Authorization: `Bearer ${token}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ name: trimmedTitle }),
-            },
-          );
-          if (!res.ok) {
-            const body = await res.text();
-            if (opts?.json) {
-              log.info(
-                JSON.stringify({
-                  ok: false,
-                  error: `Rename failed (${res.status}): ${body}`,
-                }),
-              );
-            } else {
-              log.error(`Rename failed (${res.status}): ${body}`);
-            }
-            process.exit(1);
-          }
+        // Try IPC first — the daemon publishes live title-update events.
+        const result = await cliIpcCall<{
+          ok: boolean;
+          conversationId: string;
+          title: string;
+        }>("rename_conversation", {
+          conversationId: conversation.id,
+          title: trimmedTitle,
+        });
+
+        if (result.ok) {
           if (opts?.json) {
             log.info(
               JSON.stringify({
@@ -382,7 +363,7 @@ Examples:
           return;
         }
 
-        // Daemon not running — update directly in the database.
+        // Daemon not reachable — update directly in the database.
         // isAutoTitle = 0 so auto-generation won't overwrite it.
         updateConversationTitle(conversation.id, trimmedTitle, 0);
 
