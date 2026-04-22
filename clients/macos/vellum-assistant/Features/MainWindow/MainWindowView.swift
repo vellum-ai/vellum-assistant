@@ -228,6 +228,16 @@ struct MainWindowView: View {
     }
 
     func enterAppEditing(appId: String) {
+        // Draft mode: dock onto the draft directly using its pre-assigned local
+        // UUID. Going through resolveConversationId here would route to a stale
+        // committed conversation (visibleConversations.first), and calling
+        // selectConversation with the draft id would fail because the draft
+        // isn't in the conversation list until first-message promotion.
+        if conversationManager.activeConversationId == nil,
+           let draftLocalId = conversationManager.draftLocalId {
+            windowState.setAppEditing(appId: appId, conversationId: draftLocalId)
+            return
+        }
         guard let conversationId = resolveConversationId() else {
             // No committed conversation available — createConversation() entered draft
             // mode, which has no UUID until first user send. Fall back to `.app(appId)`
