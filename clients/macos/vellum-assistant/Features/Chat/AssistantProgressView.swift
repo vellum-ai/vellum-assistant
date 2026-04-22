@@ -940,13 +940,11 @@ private struct StepDetailRow: View {
         }
     }
 
-    /// Extracts the working directory from the tool call's pending confirmation
-    /// scope options (the first non-"everywhere" scope). Falls back to home directory.
+    /// Extracts the working directory for the rule editor modal.
+    /// Uses the persisted `workingDir` from the tool call (set when the confirmation
+    /// arrived), falling back to home directory for auto-approved tools.
     private static func workingDir(from toolCall: ToolCallData) -> String {
-        if let scope = toolCall.pendingConfirmation?.scopeOptions.first(where: { $0.scope != "everywhere" })?.scope {
-            return scope
-        }
-        return NSHomeDirectory()
+        toolCall.workingDir ?? NSHomeDirectory()
     }
 
     // MARK: - Detail Content

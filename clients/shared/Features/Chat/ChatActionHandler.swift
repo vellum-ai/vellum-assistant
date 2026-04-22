@@ -1190,6 +1190,12 @@ final class ChatActionHandler {
            let msgIdx = vm.messages.firstIndex(where: { $0.id == assistantId }),
            let tcIdx = vm.messages[msgIdx].toolCalls.firstIndex(where: { $0.toolUseId == toolUseId }) {
             vm.messages[msgIdx].toolCalls[tcIdx].pendingConfirmation = confirmation
+            // Persist the working directory from scope options so it survives after
+            // pendingConfirmation is cleared on decision.
+            if vm.messages[msgIdx].toolCalls[tcIdx].workingDir == nil {
+                vm.messages[msgIdx].toolCalls[tcIdx].workingDir = confirmation.scopeOptions
+                    .first(where: { $0.scope != "everywhere" })?.scope
+            }
         }
         let confirmMsg = ChatMessage(
             role: .assistant,
