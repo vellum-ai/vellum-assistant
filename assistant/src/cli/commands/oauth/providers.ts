@@ -13,6 +13,7 @@ import {
   registerProvider,
   updateProvider,
 } from "../../../oauth/oauth-store.js";
+import type { SerializedProvider } from "../../../oauth/provider-serializer.js";
 import { serializeProvider } from "../../../oauth/provider-serializer.js";
 import { isProviderVisible } from "../../../oauth/provider-visibility.js";
 import { SEEDED_PROVIDER_KEYS } from "../../../oauth/seed-providers.js";
@@ -22,6 +23,76 @@ import { shouldOutputJson, writeOutput } from "../../output.js";
 const log = getCliLogger("cli");
 
 const LOOPBACK_CALLBACK_PATH = "/oauth/callback";
+
+// ---------------------------------------------------------------------------
+// Text formatting helpers (non-JSON output)
+// ---------------------------------------------------------------------------
+
+/**
+ * Format available scopes for text output.
+ * Returns a single-line string for URLs, or a multi-line bullet list for
+ * structured scope arrays.
+ */
+function formatAvailableScopes(
+  availableScopes: unknown,
+  indent: string = "    ",
+): string | null {
+  if (!availableScopes) return null;
+  if (typeof availableScopes === "string") return availableScopes;
+  if (Array.isArray(availableScopes)) {
+    return (
+      "\n" +
+      (availableScopes as Array<{ scope: string; description?: string }>)
+        .map(
+          (s) =>
+            `${indent}- ${s.scope}${s.description ? ` — ${s.description}` : ""}`,
+        )
+        .join("\n")
+    );
+  }
+  return null;
+}
+
+/** Render a single provider as a concise summary line for `list`. */
+function formatProviderSummary(p: SerializedProvider): string {
+  const name = p.displayName ?? p.providerKey;
+  const desc = p.description ? ` — ${p.description}` : "";
+  const managed = p.supportsManagedMode ? " [managed]" : "";
+  const scopes =
+    (p.defaultScopes as string[])?.length > 0
+      ? `  Scopes: ${(p.defaultScopes as string[]).join(", ")}`
+      : "";
+  return `${p.providerKey} (${name})${desc}${managed}${scopes ? "\n" + scopes : ""}`;
+}
+
+/** Render a single provider as structured text for `get`. */
+function formatProviderDetail(p: SerializedProvider): string {
+  const lines: string[] = [];
+  const name = p.displayName ?? p.providerKey;
+  lines.push(`${p.providerKey} (${name})`);
+  if (p.description) lines.push(`  Description: ${p.description}`);
+  if (p.supportsManagedMode) lines.push(`  Managed mode: yes`);
+  if (p.dashboardUrl) lines.push(`  Dashboard: ${p.dashboardUrl}`);
+  if (p.appType) lines.push(`  App type: ${p.appType}`);
+  if (p.requiresClientSecret) lines.push(`  Requires client secret: yes`);
+  if (p.clientIdPlaceholder)
+    lines.push(`  Client ID format: ${p.clientIdPlaceholder}`);
+  lines.push(`  Auth URL: ${p.authUrl}`);
+  lines.push(`  Token URL: ${p.tokenUrl}`);
+  if (p.refreshUrl) lines.push(`  Refresh URL: ${p.refreshUrl}`);
+  if ((p.defaultScopes as string[])?.length > 0)
+    lines.push(`  Default scopes: ${(p.defaultScopes as string[]).join(", ")}`);
+  const avail = formatAvailableScopes(p.availableScopes);
+  if (avail) lines.push(`  Available scopes: ${avail}`);
+  if (p.scopeSeparator && p.scopeSeparator !== " ")
+    lines.push(`  Scope separator: "${p.scopeSeparator}"`);
+  if (p.redirectUri) lines.push(`  Redirect URI: ${p.redirectUri}`);
+  if (p.revokeUrl) lines.push(`  Revoke URL: ${p.revokeUrl}`);
+  if (p.pingUrl) lines.push(`  Ping URL: ${p.pingUrl}`);
+  if (p.identityUrl) lines.push(`  Identity URL: ${p.identityUrl}`);
+  if (p.logoUrl) lines.push(`  Logo: ${p.logoUrl}`);
+  return lines.join("\n");
+}
 
 /**
  * Resolve a logo URL from CLI flags, enforcing mutual exclusion between
@@ -171,11 +242,17 @@ Examples:
             rows = rows.filter((r) => r && r.supportsManagedMode);
           }
 
-          if (!shouldOutputJson(cmd)) {
-            log.info(`Found ${rows.length} provider(s)`);
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, rows);
+          } else {
+            const validRows = rows.filter(
+              (r): r is NonNullable<typeof r> => r != null,
+            );
+            const lines = validRows.map(formatProviderSummary);
+            process.stdout.write(
+              `${validRows.length} provider(s):\n\n${lines.join("\n\n")}\n\nUse \`assistant oauth providers get <name>\` for full details.\n`,
+            );
           }
-
-          writeOutput(cmd, rows);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           writeOutput(cmd, { ok: false, error: message });
@@ -228,7 +305,12 @@ Examples:
           return;
         }
 
-        writeOutput(cmd, parseProviderRow(row));
+        const parsed = parseProviderRow(row);
+        if (shouldOutputJson(cmd)) {
+          writeOutput(cmd, parsed);
+        } else if (parsed) {
+          process.stdout.write(formatProviderDetail(parsed) + "\n");
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         writeOutput(cmd, { ok: false, error: message });
