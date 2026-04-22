@@ -34,7 +34,6 @@ struct PreChatOnboardingFlow: View {
             case 1:
                 TaskToneSelectionView(
                     selectedTasks: $state.selectedTasks,
-                    toneValue: $state.toneValue,
                     onBack: { advanceTo(0) },
                     onContinue: { advanceTo(2) },
                     onSkip: { advanceTo(2) }
@@ -76,7 +75,7 @@ struct PreChatOnboardingFlow: View {
         let context = PreChatOnboardingContext(
             tools: cleanTools,
             tasks: Array(state.selectedTasks).sorted(),
-            tone: state.toneLabel,
+            tone: "balanced",
             userName: state.userName.isEmpty ? nil : state.userName,
             assistantName: state.assistantName.isEmpty ? nil : state.assistantName
         )
