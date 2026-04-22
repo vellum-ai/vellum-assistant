@@ -108,9 +108,16 @@ public struct VNotification: View {
 
     private var divider: some View {
         Rectangle()
-            .fill(VColor.contentInset.opacity(dividerOpacity))
+            .fill(dividerColor.opacity(dividerOpacity))
             .frame(width: 1, height: 18)
             .accessibilityHidden(true)
+    }
+
+    private var dividerColor: Color {
+        switch style {
+        case .strong: return VColor.contentInset
+        case .weak: return foregroundColor
+        }
     }
 
     private var textFont: Font {
