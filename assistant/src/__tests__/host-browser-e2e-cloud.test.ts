@@ -568,6 +568,313 @@ describe("macOS message ingress with connected extension", () => {
   });
 });
 
+// ── macOS SSE bridge ingress (no extension registry) ────────────────
+//
+// Exercises the cloud-hosted + desktop SSE bridge path for macOS turns
+// WITHOUT relying on the ChromeExtensionRegistry. This validates the
+// native macOS host-browser proxy path where `host_browser_request`
+// frames travel through `assistantEventHub` (SSE) rather than the
+// extension WebSocket.
+//
+// In production, this path is used when:
+//   - The macOS desktop client is connected to the assistant via SSE
+//   - The user does NOT have the Chrome extension installed
+//   - The desktop client receives `host_browser_request` frames via SSE,
+//     executes CDP commands against the local Chrome, and POSTs results
+//     back to `/v1/host-browser-result`
+//
+// The test constructs a HostBrowserProxy wired to a mock SSE sender
+// (simulating the `onEvent` hub publisher) and a mock macOS client that
+// observes the sent frames and returns results via POST.
+
+describe("macOS SSE bridge ingress (no extension registry)", () => {
+  let server: RuntimeHttpServer;
+  let port: number;
+  let runtimeBaseUrl: string;
+
+  beforeEach(async () => {
+    const db = getDb();
+    db.run("DELETE FROM contact_channels");
+    db.run("DELETE FROM contacts");
+    pendingInteractions.clear();
+    __resetChromeExtensionRegistryForTests();
+
+    port = 20200 + Math.floor(Math.random() * 200);
+    runtimeBaseUrl = `http://127.0.0.1:${port}`;
+    server = new RuntimeHttpServer({ port });
+    await server.start();
+  });
+
+  afterEach(async () => {
+    await server?.stop();
+    pendingInteractions.clear();
+    __resetChromeExtensionRegistryForTests();
+  });
+
+  /**
+   * Create a HostBrowserProxy wired to a mock SSE sender. The sender
+   * captures `host_browser_request` frames and simulates what the macOS
+   * desktop client does: execute the CDP command locally and POST the
+   * result back to `/v1/host-browser-result`.
+   *
+   * Unlike `createBoundProxy` (which routes through the extension
+   * registry), this helper routes through a direct function call —
+   * simulating the `onEvent` SSE hub publisher path.
+   */
+  function createSseBoundProxy(
+    conversationId: string,
+    token: string,
+  ): {
+    proxy: HostBrowserProxy;
+    conversation: Conversation;
+    sentFrames: Array<{ type: string; [key: string]: unknown }>;
+  } {
+    let proxyRef: HostBrowserProxy | null = null;
+    const conversation = {
+      resolveHostBrowser(
+        requestId: string,
+        response: { content: string; isError: boolean },
+      ) {
+        proxyRef?.resolve(requestId, response);
+      },
+    } as unknown as Conversation;
+
+    const sentFrames: Array<{ type: string; [key: string]: unknown }> = [];
+
+    // The SSE sender simulates what `assistantEventHub.publish` does in
+    // production: it delivers the message to the connected SSE client.
+    // Here we capture the frame and immediately simulate the macOS client
+    // handling it — executing a mock CDP command and POSTing the result
+    // back to the runtime.
+    const sseSender = (msg: ServerMessage) => {
+      const frame = msg as { type: string; [key: string]: unknown };
+      sentFrames.push(frame);
+
+      if (frame.type === "host_browser_request") {
+        const requestId = frame.requestId as string;
+
+        // Register the pending interaction (in production this happens
+        // in makeHubPublisher inside conversation-routes.ts).
+        pendingInteractions.register(requestId, {
+          conversation,
+          conversationId,
+          kind: "host_browser",
+        });
+
+        // Simulate the macOS desktop client processing the CDP command
+        // and POSTing the result back to the runtime.
+        const cdpMethod = frame.cdpMethod as string;
+        let content: string;
+        let isError = false;
+        if (cdpMethod === "Browser.getVersion") {
+          content = JSON.stringify({
+            product: "Chrome/macOS-SSE-Test",
+            protocolVersion: "1.3",
+            revision: "@macos-sse",
+            userAgent: "Mozilla/5.0 (macOS SSE bridge e2e fixture)",
+            jsVersion: "0.0.0-macos-sse",
+          });
+        } else if (cdpMethod === "Runtime.evaluate") {
+          content = JSON.stringify({ result: { value: "complete" } });
+        } else {
+          content = `mock macOS client: unsupported cdpMethod "${cdpMethod}"`;
+          isError = true;
+        }
+
+        // POST result asynchronously (simulating the real macOS client).
+        void fetch(`${runtimeBaseUrl}/v1/host-browser-result`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ requestId, content, isError }),
+        })
+          .then((res) => res.body?.cancel())
+          .catch(() => {});
+      }
+    };
+
+    const proxy = new HostBrowserProxy(sseSender);
+    proxyRef = proxy;
+    return { proxy, conversation, sentFrames };
+  }
+
+  test("happy path: Browser.getVersion round-trips through the SSE bridge without extension registry", async () => {
+    const guardianId = `test-guardian-macos-sse-${crypto.randomUUID()}`;
+    const token = mintActorToken(guardianId);
+
+    const { proxy, sentFrames } = createSseBoundProxy(
+      "conv-macos-sse-happy",
+      token,
+    );
+
+    const result = await proxy.request(
+      { cdpMethod: "Browser.getVersion" },
+      "conv-macos-sse-happy",
+    );
+
+    // The request completed via the SSE bridge path, not the extension registry.
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Chrome/macOS-SSE-Test");
+
+    // The SSE sender received exactly one host_browser_request frame.
+    const requests = sentFrames.filter(
+      (f) => f.type === "host_browser_request",
+    );
+    expect(requests).toHaveLength(1);
+    expect(requests[0].cdpMethod).toBe("Browser.getVersion");
+    expect(requests[0].conversationId).toBe("conv-macos-sse-happy");
+
+    // The extension registry should NOT have been involved — no entries exist.
+    expect(getChromeExtensionRegistry().get(guardianId)).toBeUndefined();
+
+    proxy.dispose();
+  });
+
+  test("abort: SSE-bridged request resolves to 'Aborted' when signal fires", async () => {
+    const guardianId = `test-guardian-macos-sse-abort-${crypto.randomUUID()}`;
+    const _token = mintActorToken(guardianId);
+
+    // Use a CDP handler that hangs forever so we can abort mid-flight.
+    const sentFrames: Array<{ type: string; [key: string]: unknown }> = [];
+    let proxyRef: HostBrowserProxy | null = null;
+    const conversation = {
+      resolveHostBrowser(
+        requestId: string,
+        response: { content: string; isError: boolean },
+      ) {
+        proxyRef?.resolve(requestId, response);
+      },
+    } as unknown as Conversation;
+
+    const hangingSender = (msg: ServerMessage) => {
+      const frame = msg as { type: string; [key: string]: unknown };
+      sentFrames.push(frame);
+      if (frame.type === "host_browser_request") {
+        const requestId = frame.requestId as string;
+        pendingInteractions.register(requestId, {
+          conversation,
+          conversationId: "conv-macos-sse-abort",
+          kind: "host_browser",
+        });
+        // Simulate a macOS client that never responds (hangs).
+      }
+    };
+
+    const proxy = new HostBrowserProxy(hangingSender);
+    proxyRef = proxy;
+
+    const controller = new AbortController();
+    const resultPromise = proxy.request(
+      { cdpMethod: "Browser.getVersion" },
+      "conv-macos-sse-abort",
+      controller.signal,
+    );
+
+    // Wait for the SSE sender to observe the request.
+    await waitFor(() => sentFrames.length === 1);
+
+    controller.abort();
+    const result = await resultPromise;
+
+    expect(result.content).toBe("Aborted");
+    expect(result.isError).toBe(true);
+
+    // The cancel frame should have been sent through the SSE sender.
+    const cancels = sentFrames.filter((f) => f.type === "host_browser_cancel");
+    expect(cancels).toHaveLength(1);
+
+    proxy.dispose();
+  });
+
+  test("timeout: SSE-bridged request surfaces timeout when macOS client never responds", async () => {
+    const guardianId = `test-guardian-macos-sse-timeout-${crypto.randomUUID()}`;
+    const _token = mintActorToken(guardianId);
+
+    const sentFrames: Array<{ type: string; [key: string]: unknown }> = [];
+    let proxyRef: HostBrowserProxy | null = null;
+    const conversation = {
+      resolveHostBrowser(
+        requestId: string,
+        response: { content: string; isError: boolean },
+      ) {
+        proxyRef?.resolve(requestId, response);
+      },
+    } as unknown as Conversation;
+
+    const hangingSender = (msg: ServerMessage) => {
+      const frame = msg as { type: string; [key: string]: unknown };
+      sentFrames.push(frame);
+      if (frame.type === "host_browser_request") {
+        const requestId = frame.requestId as string;
+        pendingInteractions.register(requestId, {
+          conversation,
+          conversationId: "conv-macos-sse-timeout",
+          kind: "host_browser",
+        });
+        // Never respond — simulate unresponsive macOS client.
+      }
+    };
+
+    const proxy = new HostBrowserProxy(hangingSender);
+    proxyRef = proxy;
+
+    const result = await proxy.request(
+      { cdpMethod: "Browser.getVersion", timeout_seconds: 0.05 },
+      "conv-macos-sse-timeout",
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("timed out");
+
+    // The SSE sender received the request frame (confirming the timeout
+    // is from the proxy timer, not a send failure).
+    const requests = sentFrames.filter(
+      (f) => f.type === "host_browser_request",
+    );
+    expect(requests).toHaveLength(1);
+    expect(requests[0].cdpMethod).toBe("Browser.getVersion");
+
+    proxy.dispose();
+  });
+
+  test("multiple sequential commands round-trip through the SSE bridge", async () => {
+    const guardianId = `test-guardian-macos-sse-seq-${crypto.randomUUID()}`;
+    const token = mintActorToken(guardianId);
+
+    const { proxy, sentFrames } = createSseBoundProxy(
+      "conv-macos-sse-seq",
+      token,
+    );
+
+    // First command: Browser.getVersion
+    const result1 = await proxy.request(
+      { cdpMethod: "Browser.getVersion" },
+      "conv-macos-sse-seq",
+    );
+    expect(result1.isError).toBe(false);
+    expect(result1.content).toContain("Chrome/macOS-SSE-Test");
+
+    // Second command: Runtime.evaluate
+    const result2 = await proxy.request(
+      { cdpMethod: "Runtime.evaluate", cdpParams: { expression: "1+1" } },
+      "conv-macos-sse-seq",
+    );
+    expect(result2.isError).toBe(false);
+
+    // Both requests went through the SSE sender.
+    const requests = sentFrames.filter(
+      (f) => f.type === "host_browser_request",
+    );
+    expect(requests).toHaveLength(2);
+    expect(requests[0].cdpMethod).toBe("Browser.getVersion");
+    expect(requests[1].cdpMethod).toBe("Runtime.evaluate");
+
+    proxy.dispose();
+  });
+});
+
 // ── Local wait helpers ──────────────────────────────────────────────
 
 async function waitFor(
