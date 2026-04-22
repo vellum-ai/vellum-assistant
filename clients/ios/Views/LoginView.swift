@@ -16,7 +16,10 @@ struct LoginView: View {
             VColor.surfaceOverlay.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                Spacer()
+                // Biased toward the upper third (Figma Light 169) — the top
+                // Spacer is capped so the middle Spacer absorbs more of the
+                // remaining height.
+                Spacer().frame(maxHeight: 80)
 
                 ZStack {
                     Circle()
@@ -28,10 +31,10 @@ struct LoginView: View {
                                 ],
                                 center: .center,
                                 startRadius: 0,
-                                endRadius: 100
+                                endRadius: 80
                             )
                         )
-                        .frame(width: 208, height: 208)
+                        .frame(width: 160, height: 160)
 
                     VellumAppIconView()
                 }
@@ -111,7 +114,7 @@ struct LoginView: View {
 private struct VellumAppIconView: View {
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 24)
+            RoundedRectangle(cornerRadius: 18)
                 .fill(
                     LinearGradient(
                         colors: [
@@ -128,10 +131,10 @@ private struct VellumAppIconView: View {
 
             VellumVShape()
                 .fill(.white)
-                // Insets from Figma: ~25% top/bottom, ~24% left/right within 115pt icon
-                .frame(width: 59, height: 61)
+                // V shape sits at ~51% of icon width / ~53% of icon height.
+                .frame(width: 45, height: 47)
         }
-        .frame(width: 115, height: 115)
+        .frame(width: 88, height: 88)
     }
 }
 
