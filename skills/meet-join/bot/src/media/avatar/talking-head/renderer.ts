@@ -426,13 +426,21 @@ export class TalkingHeadRenderer implements AvatarRenderer {
    * The daemon fires provider synthesis concurrently with the
    * `/play_audio` POST, so some visemes for the incoming utterance can
    * land on `/avatar/viseme` BEFORE the POST that triggers this reset.
-   * Those events are already tagged with the POST's `stream_id`, so we
-   * preserve any buffered viseme whose `streamId === incomingStreamId`
-   * and drop everything else — the original "clear the entire buffer"
-   * behavior threw those early-arriving events away and defeated the
-   * very buffering this method exists to protect.
+   * Those events are already tagged with the POST's `stream_id` AND
+   * the bridge-internal `utterance_id`, so we preserve any buffered
+   * viseme whose `streamId === incomingStreamId` AND
+   * `utteranceId === incomingUtteranceId` and drop everything else.
+   * Matching on `streamId` alone would not be enough: caller-supplied
+   * stream ids can legally be reused across `MeetTtsBridge.speak()`
+   * calls, so a leftover viseme from a cancelled prior utterance and
+   * an early-arriving viseme from the reused-streamId successor would
+   * both pass a `streamId`-only filter. The fresh `utteranceId` minted
+   * per speak() call disambiguates them.
    */
-  resetPlaybackTimestamp(incomingStreamId?: string): void {
+  resetPlaybackTimestamp(
+    incomingStreamId?: string,
+    incomingUtteranceId?: string,
+  ): void {
     if (this.stopped) return;
     this.currentPlaybackTimestamp = Number.NEGATIVE_INFINITY;
     if (incomingStreamId === undefined) {
@@ -443,15 +451,23 @@ export class TalkingHeadRenderer implements AvatarRenderer {
       return;
     }
     // Filter in place so we don't reallocate; visemes already in
-    // arrival order stay that way. Same-streamId visemes belong to the
-    // incoming utterance (synthesis raced ahead of the POST) and must
-    // survive the reset; every other viseme is prior-utterance debris.
+    // arrival order stay that way. Visemes that belong to the incoming
+    // utterance (synthesis raced ahead of the POST) must match BOTH
+    // ids to survive the reset; every other viseme is prior-utterance
+    // debris. When the daemon hasn't sent an `utteranceId` yet (older
+    // build), fall back to `streamId`-only matching — degraded but no
+    // worse than the prior behavior.
     let writeIdx = 0;
     for (let readIdx = 0; readIdx < this.visemeBuffer.length; readIdx++) {
       const v = this.visemeBuffer[readIdx]!;
-      if (v.streamId === incomingStreamId) {
-        this.visemeBuffer[writeIdx++] = v;
+      if (v.streamId !== incomingStreamId) continue;
+      if (
+        incomingUtteranceId !== undefined &&
+        v.utteranceId !== incomingUtteranceId
+      ) {
+        continue;
       }
+      this.visemeBuffer[writeIdx++] = v;
     }
     this.visemeBuffer.length = writeIdx;
   }

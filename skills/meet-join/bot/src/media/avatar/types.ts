@@ -58,6 +58,21 @@ export type VisemeEvent = {
    * dropped on reset, matching the original clear-all behavior.
    */
   streamId?: string;
+  /**
+   * Optional — the bridge-internal utterance id that uniquely identifies
+   * one `MeetTtsBridge.speak()` call. Distinct from `streamId` because
+   * `streamId` can legally be reused across speak() calls (the bridge
+   * accepts caller-supplied ids and only rejects duplicates while a
+   * stream is concurrently active), so a leftover viseme from a
+   * cancelled prior utterance and an early-arriving viseme from the
+   * reused-streamId successor would both match the new POST's
+   * `streamId` and survive `resetPlaybackTimestamp` — leaking stale
+   * mouth shapes into the new utterance. The bridge mints a fresh
+   * `utteranceId` per speak() call so the renderer can require both
+   * `streamId` AND `utteranceId` to match before preserving an event,
+   * which is the minimum signal needed to disambiguate the two cases.
+   */
+  utteranceId?: string;
 };
 
 /**
@@ -155,16 +170,25 @@ export interface AvatarRenderer {
    *
    * Implementations should drop buffered visemes that belonged to the
    * prior utterance so they cannot leak into the fresh stream, but
-   * must preserve visemes tagged with `incomingStreamId` — the daemon
-   * fires synthesis concurrently with the `/play_audio` POST, so some
-   * events from the incoming utterance can land BEFORE the POST that
-   * triggers this reset. `incomingStreamId` is the `stream_id` of the
-   * new POST; visemes whose `streamId` matches it belong to the
-   * incoming utterance and must be kept. Visemes with any other
-   * `streamId` (or no `streamId` at all — the pre-tagging case) are
+   * must preserve visemes tagged with the incoming utterance's
+   * identifiers — the daemon fires synthesis concurrently with the
+   * `/play_audio` POST, so some events from the incoming utterance can
+   * land BEFORE the POST that triggers this reset.
+   *
+   * `incomingStreamId` is the `stream_id` of the new POST.
+   * `incomingUtteranceId` is the bridge-internal utterance id of the
+   * new POST. Visemes whose `streamId` AND `utteranceId` both match
+   * are preserved. Matching on `streamId` alone is unsafe because
+   * caller-supplied stream ids can be reused across speak() calls,
+   * which would let prior-utterance leftovers tagged with the same
+   * `streamId` slip through. Visemes with mismatched ids — or no
+   * `streamId`/`utteranceId` at all (the pre-tagging case) — are
    * dropped.
    */
-  resetPlaybackTimestamp?(incomingStreamId?: string): void;
+  resetPlaybackTimestamp?(
+    incomingStreamId?: string,
+    incomingUtteranceId?: string,
+  ): void;
 }
 
 /**

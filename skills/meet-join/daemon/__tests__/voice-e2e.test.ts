@@ -535,6 +535,7 @@ describe("Meet voice E2E (bridge + watcher + real assistant-event-hub)", () => {
         providerFactory: () => provider,
         spawn,
         newStreamId: () => "stream-happy",
+        newUtteranceId: () => "utt-happy",
       },
     );
 
@@ -573,7 +574,9 @@ describe("Meet voice E2E (bridge + watcher + real assistant-event-hub)", () => {
 
       // Wait for the bot to actually receive and finish reading the POST.
       const post = await postCompletion;
-      expect(post.url).toBe("/play_audio?stream_id=stream-happy");
+      expect(post.url).toBe(
+        "/play_audio?stream_id=stream-happy&utterance_id=utt-happy",
+      );
       expect(post.authorization).toBe(`Bearer ${TOKEN}`);
       expect(post.contentType).toBe("application/octet-stream");
 

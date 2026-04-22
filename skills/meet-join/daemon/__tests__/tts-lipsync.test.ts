@@ -303,6 +303,7 @@ describe("MeetTtsBridge.onViseme — provider alignment path", () => {
         providerFactory: () => provider,
         spawn,
         newStreamId: () => "stream-align",
+        newUtteranceId: () => "utt-align",
       },
     );
 
@@ -314,12 +315,25 @@ describe("MeetTtsBridge.onViseme — provider alignment path", () => {
 
     // Only the alignment events should have been forwarded; no "amp"
     // fallback entries since the provider advertised alignment support.
-    // The bridge stamps every viseme with the active stream id so the
-    // bot can distinguish prior-utterance debris from events racing
-    // ahead of a fresh `/play_audio` POST.
+    // The bridge stamps every viseme with both the active stream id and
+    // a per-speak utterance id so the bot can distinguish prior-utterance
+    // debris (including from a cancelled prior speak that reused this
+    // stream id) from events racing ahead of a fresh `/play_audio` POST.
     expect(events).toEqual([
-      { phoneme: "a", weight: 0.3, timestamp: 10, streamId: "stream-align" },
-      { phoneme: "e", weight: 0.7, timestamp: 25, streamId: "stream-align" },
+      {
+        phoneme: "a",
+        weight: 0.3,
+        timestamp: 10,
+        streamId: "stream-align",
+        utteranceId: "utt-align",
+      },
+      {
+        phoneme: "e",
+        weight: 0.7,
+        timestamp: 25,
+        streamId: "stream-align",
+        utteranceId: "utt-align",
+      },
     ]);
     expect(events.every((e) => e.phoneme !== "amp")).toBe(true);
   });
