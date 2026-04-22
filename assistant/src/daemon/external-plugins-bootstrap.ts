@@ -35,9 +35,11 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AssistantConfig } from "../config/schema.js";
+import { defaultCircuitBreakerPlugin } from "../plugins/defaults/circuit-breaker.js";
 import {
   ASSISTANT_API_VERSIONS,
   getRegisteredPlugins,
+  registerPlugin,
 } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -50,6 +52,35 @@ import { vellumRoot } from "../util/platform.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
 
 const log = getLogger("plugins-bootstrap");
+
+// ─── Default plugin registration ────────────────────────────────────────────
+//
+// First-party default plugins are registered at the top of {@link
+// bootstrapPlugins} rather than via a module-load side effect. The module-load
+// approach would race with `resetPluginRegistryForTests` across bun test
+// files (bun shares module state within a process) and throw duplicate-
+// registration errors between files. Explicit registration inside the
+// bootstrap path sidesteps that entirely — production calls `bootstrapPlugins`
+// exactly once, and tests that exercise the bootstrap path register their own
+// plugins or call this helper directly.
+
+/**
+ * Register every first-party default plugin against the current registry.
+ *
+ * Idempotent at the name level: plugins already registered under their
+ * manifest name are skipped, so repeated calls (e.g. across a test reset
+ * boundary and a subsequent `bootstrapPlugins` invocation) are safe.
+ */
+export function registerDefaultPlugins(): void {
+  const defaults: Plugin[] = [defaultCircuitBreakerPlugin];
+  const alreadyRegistered = new Set(
+    getRegisteredPlugins().map((p) => p.manifest.name),
+  );
+  for (const plugin of defaults) {
+    if (alreadyRegistered.has(plugin.manifest.name)) continue;
+    registerPlugin(plugin);
+  }
+}
 
 /**
  * Minimal context required to bootstrap the plugin layer. Kept intentionally
@@ -142,16 +173,21 @@ function ensurePluginStorageDir(pluginName: string): string {
  * {@link PluginExecutionError} on the first failure — the error message names
  * the offending plugin so operators see which `init()` bailed.
  *
- * Must be called after the registry is fully populated by this boot cycle
- * (i.e. after any static side-effect imports of first-party plugins have
- * run) and before the first conversation is served.
+ * Must be called after any custom/third-party plugin registrations have run
+ * and before the first conversation is served. First-party defaults are
+ * registered inline via {@link registerDefaultPlugins}.
  */
 export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
+  // Register first-party defaults inside the bootstrap path so the registry
+  // contains the canonical set before any `init()` runs. Idempotent — safe
+  // to call even when tests have pre-registered the defaults themselves.
+  registerDefaultPlugins();
+
   const plugins = getRegisteredPlugins();
   if (plugins.length === 0) {
-    // No-op fast path — the registry is empty (no first-party plugins have
-    // been wired yet in this PR). Emit a debug log so the call site is
-    // observable in startup traces and return.
+    // No-op fast path — the registry is empty. With first-party defaults in
+    // place this should only happen in tests that explicitly reset and then
+    // skip default registration.
     log.debug("bootstrapPlugins: registry empty — skipping");
     return;
   }
