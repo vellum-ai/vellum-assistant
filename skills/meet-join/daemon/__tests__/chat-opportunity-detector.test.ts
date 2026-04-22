@@ -13,8 +13,11 @@ import type { MeetBotEvent } from "../../contracts/index.js";
 
 import {
   type ChatOpportunityDecision,
+  type ChatOpportunityEvent,
   MeetChatOpportunityDetector,
   type ProactiveChatConfig,
+  type TimerHandle,
+  type VoiceModeConfig,
 } from "../chat-opportunity-detector.js";
 import type {
   MeetEventSubscriber,
@@ -115,6 +118,21 @@ function inboundChat(
   };
 }
 
+function participantChange(
+  meetingId: string,
+  timestamp: string,
+  joined: { id: string; name: string; isSelf?: boolean }[],
+  left: { id: string; name: string }[] = [],
+): MeetBotEvent {
+  return {
+    type: "participant.change",
+    meetingId,
+    timestamp,
+    joined,
+    left,
+  };
+}
+
 function defaultConfig(
   overrides: Partial<ProactiveChatConfig> = {},
 ): ProactiveChatConfig {
@@ -130,6 +148,58 @@ function defaultConfig(
     escalationCooldownSec: 30,
     tier2MaxTranscriptSec: 30,
     ...overrides,
+  };
+}
+
+function defaultVoiceConfig(
+  overrides: Partial<VoiceModeConfig> = {},
+): VoiceModeConfig {
+  return {
+    enabled: true,
+    eouDebounceMs: 800,
+    ...overrides,
+  };
+}
+
+/**
+ * Manual timer driver for voice-mode EOU tests. Tests register
+ * scheduled callbacks via `setTimer` and can fire them deterministically
+ * with `fireAll()` or cancel via `clearTimer`.
+ */
+function makeManualTimers(): {
+  setTimer: (cb: () => void, ms: number) => TimerHandle;
+  clearTimer: (handle: TimerHandle) => void;
+  fireAll: () => void;
+  pendingCount: () => number;
+} {
+  interface Entry {
+    id: number;
+    cb: () => void;
+    ms: number;
+    cancelled: boolean;
+  }
+  const pending = new Map<number, Entry>();
+  let nextId = 1;
+  return {
+    setTimer(cb, ms) {
+      const id = nextId++;
+      pending.set(id, { id, cb, ms, cancelled: false });
+      return id;
+    },
+    clearTimer(handle) {
+      const entry = pending.get(handle as number);
+      if (entry) entry.cancelled = true;
+      pending.delete(handle as number);
+    },
+    fireAll() {
+      for (const entry of Array.from(pending.values())) {
+        pending.delete(entry.id);
+        if (!entry.cancelled) entry.cb();
+      }
+    },
+    pendingCount() {
+      return pending.size;
+    },
   };
 }
 
@@ -151,12 +221,13 @@ describe("MeetChatOpportunityDetector — Tier 1 fast filter", () => {
         reason: "should not be called",
       }),
     );
-    const onOpportunity = mock((_reason: string) => {});
+    const onOpportunity = mock((_event: ChatOpportunityEvent) => {});
 
     const detector = new MeetChatOpportunityDetector({
       meetingId: "m1",
       assistantDisplayName: "Aria",
       config: defaultConfig(),
+      voiceConfig: defaultVoiceConfig(),
       callDetectorLLM: llm,
       onOpportunity,
       subscribe: dispatcher.subscribe,
@@ -192,12 +263,13 @@ describe("MeetChatOpportunityDetector — Tier 1 fast filter", () => {
         reason: "user addressed the assistant without a keyword",
       }),
     );
-    const onOpportunity = mock((_reason: string) => {});
+    const onOpportunity = mock((_event: ChatOpportunityEvent) => {});
 
     const detector = new MeetChatOpportunityDetector({
       meetingId: "m1",
       assistantDisplayName: "Aria",
       config: defaultConfig(),
+      voiceConfig: defaultVoiceConfig(),
       callDetectorLLM: llm,
       onOpportunity,
       subscribe: dispatcher.subscribe,
@@ -218,7 +290,9 @@ describe("MeetChatOpportunityDetector — Tier 1 fast filter", () => {
 
     expect(llm).toHaveBeenCalledTimes(1);
     expect(onOpportunity).toHaveBeenCalledTimes(1);
-    const [reason] = onOpportunity.mock.calls[0] as unknown as [string];
+    const [{ reason }] = onOpportunity.mock.calls[0] as unknown as [
+      ChatOpportunityEvent,
+    ];
     expect(reason).toBe("user addressed the assistant without a keyword");
 
     const stats = detector.getStats();
@@ -244,12 +318,13 @@ describe("MeetChatOpportunityDetector — Tier 1 fast filter", () => {
         reason: "user was talking to another human",
       }),
     );
-    const onOpportunity = mock((_reason: string) => {});
+    const onOpportunity = mock((_event: ChatOpportunityEvent) => {});
 
     const detector = new MeetChatOpportunityDetector({
       meetingId: "m1",
       assistantDisplayName: "Aria",
       config: defaultConfig(),
+      voiceConfig: defaultVoiceConfig(),
       callDetectorLLM: llm,
       onOpportunity,
       subscribe: dispatcher.subscribe,
@@ -289,12 +364,13 @@ describe("MeetChatOpportunityDetector — Tier 1 fast filter", () => {
         reason: "team is asking for a spec link the assistant can provide",
       }),
     );
-    const onOpportunity = mock((_reason: string) => {});
+    const onOpportunity = mock((_event: ChatOpportunityEvent) => {});
 
     const detector = new MeetChatOpportunityDetector({
       meetingId: "m1",
       assistantDisplayName: "Aria",
       config: defaultConfig(),
+      voiceConfig: defaultVoiceConfig(),
       callDetectorLLM: llm,
       onOpportunity,
       subscribe: dispatcher.subscribe,
@@ -315,7 +391,9 @@ describe("MeetChatOpportunityDetector — Tier 1 fast filter", () => {
 
     expect(llm).toHaveBeenCalledTimes(1);
     expect(onOpportunity).toHaveBeenCalledTimes(1);
-    const [reason] = onOpportunity.mock.calls[0] as unknown as [string];
+    const [{ reason }] = onOpportunity.mock.calls[0] as unknown as [
+      ChatOpportunityEvent,
+    ];
     expect(reason).toBe(
       "team is asking for a spec link the assistant can provide",
     );
@@ -339,12 +417,13 @@ describe("MeetChatOpportunityDetector — Tier 1 fast filter", () => {
         reason: "assistant was directly addressed",
       }),
     );
-    const onOpportunity = mock((_reason: string) => {});
+    const onOpportunity = mock((_event: ChatOpportunityEvent) => {});
 
     const detector = new MeetChatOpportunityDetector({
       meetingId: "m1",
       assistantDisplayName: "Aria",
       config: defaultConfig(),
+      voiceConfig: defaultVoiceConfig(),
       callDetectorLLM: llm,
       onOpportunity,
       subscribe: dispatcher.subscribe,
@@ -379,12 +458,13 @@ describe("MeetChatOpportunityDetector — debounce + cooldown", () => {
         reason: "not applicable",
       }),
     );
-    const onOpportunity = mock((_reason: string) => {});
+    const onOpportunity = mock((_event: ChatOpportunityEvent) => {});
 
     const detector = new MeetChatOpportunityDetector({
       meetingId: "m1",
       assistantDisplayName: "Aria",
       config: defaultConfig({ tier2DebounceMs: 5_000 }),
+      voiceConfig: defaultVoiceConfig(),
       callDetectorLLM: llm,
       onOpportunity,
       subscribe: dispatcher.subscribe,
@@ -443,7 +523,7 @@ describe("MeetChatOpportunityDetector — debounce + cooldown", () => {
         reason: "assistant should respond",
       }),
     );
-    const onOpportunity = mock((_reason: string) => {});
+    const onOpportunity = mock((_event: ChatOpportunityEvent) => {});
 
     const detector = new MeetChatOpportunityDetector({
       meetingId: "m1",
@@ -455,6 +535,7 @@ describe("MeetChatOpportunityDetector — debounce + cooldown", () => {
         tier2DebounceMs: 100,
         escalationCooldownSec: 30,
       }),
+      voiceConfig: defaultVoiceConfig(),
       callDetectorLLM: llm,
       onOpportunity,
       subscribe: dispatcher.subscribe,
@@ -518,12 +599,13 @@ describe("MeetChatOpportunityDetector — enabled=false", () => {
         reason: "should not be called",
       }),
     );
-    const onOpportunity = mock((_reason: string) => {});
+    const onOpportunity = mock((_event: ChatOpportunityEvent) => {});
 
     const detector = new MeetChatOpportunityDetector({
       meetingId: "m1",
       assistantDisplayName: "Aria",
       config: defaultConfig({ enabled: false }),
+      voiceConfig: defaultVoiceConfig(),
       callDetectorLLM: llm,
       onOpportunity,
       subscribe: dispatcher.subscribe,
@@ -572,7 +654,7 @@ describe("MeetChatOpportunityDetector — custom keywords", () => {
         reason: "custom trigger fired",
       }),
     );
-    const onOpportunity = mock((_reason: string) => {});
+    const onOpportunity = mock((_event: ChatOpportunityEvent) => {});
 
     const detector = new MeetChatOpportunityDetector({
       meetingId: "m1",
@@ -581,6 +663,7 @@ describe("MeetChatOpportunityDetector — custom keywords", () => {
         // Only this custom pattern — none of the defaults are present.
         detectorKeywords: ["\\bblue\\s+monkey\\b"],
       }),
+      voiceConfig: defaultVoiceConfig(),
       callDetectorLLM: llm,
       onOpportunity,
       subscribe: dispatcher.subscribe,
@@ -620,6 +703,332 @@ describe("MeetChatOpportunityDetector — custom keywords", () => {
     expect(detector.getStats().tier1Hits).toBe(1);
     expect(llm).toHaveBeenCalledTimes(1);
     expect(onOpportunity).toHaveBeenCalledTimes(1);
+
+    detector.dispose();
+  });
+});
+
+describe("MeetChatOpportunityDetector — 1:1 voice mode", () => {
+  test("bypasses Tier 1 and Tier 2 when participantCount === 2", async () => {
+    const dispatcher = makeFakeDispatcher();
+    const clock = makeClock(1_000);
+    const timers = makeManualTimers();
+    const llm = mock(
+      async (_prompt: string): Promise<ChatOpportunityDecision> => ({
+        shouldRespond: true,
+        reason: "LLM should never be consulted in 1:1 voice mode",
+      }),
+    );
+    const onOpportunity = mock((_event: ChatOpportunityEvent) => {});
+
+    const detector = new MeetChatOpportunityDetector({
+      meetingId: "m1",
+      assistantDisplayName: "Aria",
+      config: defaultConfig(),
+      voiceConfig: defaultVoiceConfig(),
+      callDetectorLLM: llm,
+      onOpportunity,
+      subscribe: dispatcher.subscribe,
+      now: clock.now,
+      setTimer: timers.setTimer,
+      clearTimer: timers.clearTimer,
+    });
+    detector.start();
+
+    // Seed a 1:1 meeting: bot + one human.
+    dispatcher.dispatch(
+      "m1",
+      participantChange("m1", "2024-01-01T00:00:00.000Z", [
+        { id: "bot", name: "Aria", isSelf: true },
+        { id: "alice", name: "Alice" },
+      ]),
+    );
+
+    // Transcript without any Tier 1 keyword or assistant-name mention.
+    dispatcher.dispatch(
+      "m1",
+      transcriptChunk(
+        "m1",
+        "2024-01-01T00:00:01.000Z",
+        "so what's on our agenda this week",
+      ),
+    );
+    await flushPromises();
+
+    // EOU timer is scheduled but hasn't fired yet.
+    expect(llm).toHaveBeenCalledTimes(0);
+    expect(onOpportunity).toHaveBeenCalledTimes(0);
+    expect(timers.pendingCount()).toBe(1);
+
+    // Fire the EOU timer — wake should land without consulting the LLM.
+    timers.fireAll();
+
+    expect(llm).toHaveBeenCalledTimes(0);
+    expect(onOpportunity).toHaveBeenCalledTimes(1);
+    const [event] = onOpportunity.mock.calls[0] as unknown as [
+      ChatOpportunityEvent,
+    ];
+    expect(event.kind).toBe("voice");
+    expect(event.reason).toContain("voice-turn:");
+    expect(event.reason).toContain("so what's on our agenda this week");
+
+    const stats = detector.getStats();
+    expect(stats.tier1Hits).toBe(0);
+    expect(stats.tier2Calls).toBe(0);
+    expect(stats.voiceWakesFired).toBe(1);
+    expect(stats.escalationsFired).toBe(1);
+
+    detector.dispose();
+  });
+
+  test("EOU debounce collapses rapid final chunks into a single wake", async () => {
+    const dispatcher = makeFakeDispatcher();
+    const clock = makeClock(1_000);
+    const timers = makeManualTimers();
+    const llm = mock(
+      async (_prompt: string): Promise<ChatOpportunityDecision> => ({
+        shouldRespond: true,
+        reason: "should not be called",
+      }),
+    );
+    const onOpportunity = mock((_event: ChatOpportunityEvent) => {});
+
+    const detector = new MeetChatOpportunityDetector({
+      meetingId: "m1",
+      assistantDisplayName: "Aria",
+      config: defaultConfig(),
+      voiceConfig: defaultVoiceConfig(),
+      callDetectorLLM: llm,
+      onOpportunity,
+      subscribe: dispatcher.subscribe,
+      now: clock.now,
+      setTimer: timers.setTimer,
+      clearTimer: timers.clearTimer,
+    });
+    detector.start();
+
+    dispatcher.dispatch(
+      "m1",
+      participantChange("m1", "2024-01-01T00:00:00.000Z", [
+        { id: "bot", name: "Aria", isSelf: true },
+        { id: "alice", name: "Alice" },
+      ]),
+    );
+
+    // Two quick final chunks before EOU fires. The second reschedules
+    // the timer — there is always exactly one pending timer per meeting.
+    dispatcher.dispatch(
+      "m1",
+      transcriptChunk("m1", "2024-01-01T00:00:01.000Z", "wait which one"),
+    );
+    dispatcher.dispatch(
+      "m1",
+      transcriptChunk("m1", "2024-01-01T00:00:01.500Z", "the redesign deck"),
+    );
+    expect(timers.pendingCount()).toBe(1);
+
+    timers.fireAll();
+
+    expect(onOpportunity).toHaveBeenCalledTimes(1);
+    // The wake carries the most recent utterance, not the first one.
+    const [event] = onOpportunity.mock.calls[0] as unknown as [
+      ChatOpportunityEvent,
+    ];
+    expect(event.reason).toContain("the redesign deck");
+
+    detector.dispose();
+  });
+
+  test("voice wake respects escalation cooldown", async () => {
+    const dispatcher = makeFakeDispatcher();
+    const clock = makeClock(1_000);
+    const timers = makeManualTimers();
+    const llm = mock(
+      async (_prompt: string): Promise<ChatOpportunityDecision> => ({
+        shouldRespond: true,
+        reason: "should not be called",
+      }),
+    );
+    const onOpportunity = mock((_event: ChatOpportunityEvent) => {});
+
+    const detector = new MeetChatOpportunityDetector({
+      meetingId: "m1",
+      assistantDisplayName: "Aria",
+      // Short escalation cooldown for the test; voice mode itself has no
+      // separate throttle, so the cooldown is the one gate we can trip.
+      config: defaultConfig({ escalationCooldownSec: 30 }),
+      voiceConfig: defaultVoiceConfig(),
+      callDetectorLLM: llm,
+      onOpportunity,
+      subscribe: dispatcher.subscribe,
+      now: clock.now,
+      setTimer: timers.setTimer,
+      clearTimer: timers.clearTimer,
+    });
+    detector.start();
+
+    dispatcher.dispatch(
+      "m1",
+      participantChange("m1", "2024-01-01T00:00:00.000Z", [
+        { id: "bot", name: "Aria", isSelf: true },
+        { id: "alice", name: "Alice" },
+      ]),
+    );
+
+    // First utterance + EOU fires.
+    dispatcher.dispatch(
+      "m1",
+      transcriptChunk("m1", "2024-01-01T00:00:01.000Z", "how's it going"),
+    );
+    timers.fireAll();
+    expect(onOpportunity).toHaveBeenCalledTimes(1);
+
+    // Second utterance 10s later — still inside the 30s cooldown.
+    clock.advance(10_000);
+    dispatcher.dispatch(
+      "m1",
+      transcriptChunk("m1", "2024-01-01T00:00:11.000Z", "anyway"),
+    );
+    timers.fireAll();
+
+    expect(onOpportunity).toHaveBeenCalledTimes(1); // still 1 — suppressed
+    expect(detector.getStats().escalationsSuppressed).toBe(1);
+
+    // Third utterance past the cooldown — fires again.
+    clock.advance(30_000);
+    dispatcher.dispatch(
+      "m1",
+      transcriptChunk("m1", "2024-01-01T00:00:41.000Z", "ok back to it"),
+    );
+    timers.fireAll();
+
+    expect(onOpportunity).toHaveBeenCalledTimes(2);
+
+    detector.dispose();
+  });
+
+  test("falls back to Tier 1 + Tier 2 when a third participant joins", async () => {
+    const dispatcher = makeFakeDispatcher();
+    const clock = makeClock(1_000);
+    const timers = makeManualTimers();
+    const llm = mock(
+      async (_prompt: string): Promise<ChatOpportunityDecision> => ({
+        shouldRespond: false,
+        reason: "not addressed to assistant",
+      }),
+    );
+    const onOpportunity = mock((_event: ChatOpportunityEvent) => {});
+
+    const detector = new MeetChatOpportunityDetector({
+      meetingId: "m1",
+      assistantDisplayName: "Aria",
+      config: defaultConfig(),
+      voiceConfig: defaultVoiceConfig(),
+      callDetectorLLM: llm,
+      onOpportunity,
+      subscribe: dispatcher.subscribe,
+      now: clock.now,
+      setTimer: timers.setTimer,
+      clearTimer: timers.clearTimer,
+    });
+    detector.start();
+
+    // 1:1 → voice mode.
+    dispatcher.dispatch(
+      "m1",
+      participantChange("m1", "2024-01-01T00:00:00.000Z", [
+        { id: "bot", name: "Aria", isSelf: true },
+        { id: "alice", name: "Alice" },
+      ]),
+    );
+
+    // Third participant joins — should flip to group mode and cancel any
+    // pending voice EOU timer.
+    dispatcher.dispatch(
+      "m1",
+      transcriptChunk("m1", "2024-01-01T00:00:01.000Z", "quick thought"),
+    );
+    expect(timers.pendingCount()).toBe(1);
+
+    dispatcher.dispatch(
+      "m1",
+      participantChange("m1", "2024-01-01T00:00:02.000Z", [
+        { id: "bob", name: "Bob" },
+      ]),
+    );
+    expect(timers.pendingCount()).toBe(0); // voice timer cancelled
+
+    // A non-matching transcript in group mode must not call Tier 2.
+    dispatcher.dispatch(
+      "m1",
+      transcriptChunk(
+        "m1",
+        "2024-01-01T00:00:03.000Z",
+        "and also another thing",
+      ),
+    );
+    await flushPromises();
+
+    expect(llm).toHaveBeenCalledTimes(0);
+    expect(onOpportunity).toHaveBeenCalledTimes(0);
+
+    detector.dispose();
+  });
+
+  test("voice mode disabled falls back to Tier 1 + Tier 2 even in 1:1", async () => {
+    const dispatcher = makeFakeDispatcher();
+    const clock = makeClock(1_000);
+    const timers = makeManualTimers();
+    const llm = mock(
+      async (_prompt: string): Promise<ChatOpportunityDecision> => ({
+        shouldRespond: true,
+        reason: "tier 2 is the path here",
+      }),
+    );
+    const onOpportunity = mock((_event: ChatOpportunityEvent) => {});
+
+    const detector = new MeetChatOpportunityDetector({
+      meetingId: "m1",
+      assistantDisplayName: "Aria",
+      config: defaultConfig(),
+      voiceConfig: defaultVoiceConfig({ enabled: false }),
+      callDetectorLLM: llm,
+      onOpportunity,
+      subscribe: dispatcher.subscribe,
+      now: clock.now,
+      setTimer: timers.setTimer,
+      clearTimer: timers.clearTimer,
+    });
+    detector.start();
+
+    dispatcher.dispatch(
+      "m1",
+      participantChange("m1", "2024-01-01T00:00:00.000Z", [
+        { id: "bot", name: "Aria", isSelf: true },
+        { id: "alice", name: "Alice" },
+      ]),
+    );
+
+    // Matching Tier 1 transcript — must take the Tier 2 path because
+    // voice mode is disabled, not the EOU-debounced voice path.
+    dispatcher.dispatch(
+      "m1",
+      transcriptChunk(
+        "m1",
+        "2024-01-01T00:00:01.000Z",
+        "can you share the doc?",
+      ),
+    );
+    await flushPromises();
+
+    // No voice timer scheduled.
+    expect(timers.pendingCount()).toBe(0);
+    expect(llm).toHaveBeenCalledTimes(1);
+    expect(onOpportunity).toHaveBeenCalledTimes(1);
+    const [event] = onOpportunity.mock.calls[0] as unknown as [
+      ChatOpportunityEvent,
+    ];
+    expect(event.kind).toBe("chat");
 
     detector.dispose();
   });
