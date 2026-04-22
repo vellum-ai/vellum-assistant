@@ -11,6 +11,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import { RiskLevel } from "../permissions/types.js";
 import {
   type CircuitBreakerArgs,
   type CircuitBreakerResult,
@@ -45,6 +46,7 @@ import {
   type ToolResultTruncateResult,
   type TurnContext,
 } from "../plugins/types.js";
+import type { Tool } from "../tools/types.js";
 
 const sampleTrust: TrustContext = {
   sourceChannel: "vellum",
@@ -207,6 +209,23 @@ describe("plugin core types", () => {
       },
     };
 
+    const sampleTool: Tool = {
+      name: "sample-tool",
+      description: "Sample plugin tool",
+      category: "plugins",
+      defaultRiskLevel: RiskLevel.Low,
+      getDefinition() {
+        return {
+          name: "sample-tool",
+          description: "Sample plugin tool",
+          input_schema: { type: "object", properties: {}, required: [] },
+        };
+      },
+      async execute() {
+        return { content: "ok", isError: false };
+      },
+    };
+
     const plugin = {
       manifest,
       async init(ctx: PluginInitContext) {
@@ -221,7 +240,7 @@ describe("plugin core types", () => {
       async onShutdown() {
         // no-op
       },
-      tools: [{ name: "sample-tool" }],
+      tools: [sampleTool],
       routes: [{ path: "/sample" }],
       skills: [
         {

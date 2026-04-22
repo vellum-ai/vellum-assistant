@@ -26,13 +26,19 @@
  *    {@link PluginExecutionError} naming the offending plugin and aborts
  *    bootstrap — later plugins' `init()` never runs and the daemon fails
  *    startup cleanly rather than coming up in a half-wired state.
+ * 6. After a plugin's `init()` succeeds, registers any tools declared on
+ *    `plugin.tools` with the global tool registry via
+ *    {@link registerPluginTools}. Tool contributions land after `init()` so
+ *    a plugin that fails mid-init never leaves partial tool registrations
+ *    behind.
  *
  * A single shutdown hook is registered via
  * {@link registerShutdownHook} that walks the plugin list in **reverse
- * registration order** and awaits each plugin's optional `onShutdown()`.
- * Per-plugin shutdown failures are logged and swallowed — the hook registry
- * already swallows hook-level throws, but we log at the plugin level so the
- * plugin name is attributed.
+ * registration order**. For each plugin it first unregisters the contributed
+ * tools (so `onShutdown()` observes a clean model-visible surface) and then
+ * awaits the optional `onShutdown()`. Per-plugin shutdown failures are
+ * logged and swallowed — the hook registry already swallows hook-level
+ * throws, but we log at the plugin level so the plugin name is attributed.
  */
 
 import { mkdirSync } from "node:fs";
@@ -69,6 +75,10 @@ import {
   type PluginSkillRegistration,
 } from "../plugins/types.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
+import {
+  registerPluginTools,
+  unregisterPluginTools,
+} from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import { vellumRoot } from "../util/platform.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
@@ -295,6 +305,18 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
     }
 
     // After init succeeds, wire in the plugin's model-visible capabilities.
+    // Tool contributions (PR 31) register only after `init()` succeeds so a
+    // plugin that fails mid-init never leaves partially-wired tools behind.
+    // Tool registration failures throw up the stack to abort bootstrap,
+    // matching the strict-fail semantics of `init()` errors.
+    if (plugin.tools && plugin.tools.length > 0) {
+      const accepted = registerPluginTools(name, plugin.tools);
+      log.info(
+        { plugin: name, count: accepted.length },
+        "plugin tools registered",
+      );
+    }
+
     // Skills (PR 33) register into the in-memory plugin-skill catalog so
     // `skill_load` / `skill_execute` can resolve them alongside filesystem
     // skills. A registration failure aborts bootstrap with the plugin named
@@ -340,6 +362,24 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
     for (let i = shutdownSnapshot.length - 1; i >= 0; i--) {
       const plugin = shutdownSnapshot[i]!;
       const name = plugin.manifest.name;
+
+      // Unregister tool contributions before invoking `onShutdown()` so the
+      // plugin's onShutdown hook observes a registry state where its tools
+      // are already gone — the invariant we document to plugin authors is
+      // "by the time your onShutdown runs, your model-visible surface has
+      // been removed, so you can safely tear down whatever those tools
+      // depended on".  `unregisterPluginTools` is a no-op when the plugin
+      // never contributed tools, so we don't need to guard on
+      // `plugin.tools` here.
+      try {
+        unregisterPluginTools(name);
+      } catch (err) {
+        log.warn(
+          { err, plugin: name, reason },
+          "plugin tool unregister failed (continuing with remaining plugins)",
+        );
+      }
+
       if (plugin.onShutdown) {
         try {
           await plugin.onShutdown();

@@ -33,7 +33,7 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../providers/types.js";
-import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
@@ -770,14 +770,24 @@ export interface Injector {
   produce(ctx: TurnContext): Promise<InjectionBlock | null>;
 }
 
-// ─── Model-visible capability slots (placeholder shapes) ─────────────────────
-// Tool and route shapes stay `unknown` until their respective contribution PRs
-// (31 and 32) land. Skill contributions (PR 33) ship with a concrete shape
-// below so plugins can declare catalog-discoverable skills today.
+// ─── Model-visible capability slots ──────────────────────────────────────────
+// Concrete shapes are defined by the tool/route/skill registries. Routes
+// remain `unknown`-tagged placeholders until PR 32 wires those registrations.
+// Tool contributions are wired in PR 31 and use the canonical `Tool` interface
+// from the tool registry. Skill contributions (PR 33) ship with a concrete
+// shape below so plugins can declare catalog-discoverable skills today.
 
-/** Tool registration contributed by a plugin. Concrete shape TBD. */
-export type PluginToolRegistration = unknown;
-/** HTTP route registration contributed by a plugin. Concrete shape TBD. */
+/**
+ * Tool registration contributed by a plugin. Uses the canonical {@link Tool}
+ * interface from the tool registry — the bootstrap stamps `origin: "skill"`
+ * and `ownerSkillId: <plugin.name>` before handing the batch to
+ * `registerSkillTools` so plugin-scoped ref-counting and conflict detection
+ * reuse the skill-tool machinery. Plugin authors supply the functional fields
+ * (`name`, `description`, `getDefinition`, `execute`, etc.) and leave the
+ * ownership metadata to the bootstrap to set authoritatively.
+ */
+export type PluginToolRegistration = Tool;
+/** HTTP route registration contributed by a plugin. Concrete shape TBD (PR 32). */
 export type PluginRouteRegistration = unknown;
 
 /**
