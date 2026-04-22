@@ -47,10 +47,21 @@ describe("plugin core types", () => {
       config: { parse: (input: unknown) => input },
     };
 
-    const passthrough: Middleware<
+    // Generic passthrough — typed per slot below because per-pipeline
+    // arg/result types have diverged from the early `{input: unknown}` /
+    // `{output: unknown}` placeholders as individual pipeline wrap-up PRs
+    // land.
+    function passthroughFor<A, R>(): Middleware<A, R> {
+      return async (args, next, _ctx) => next(args);
+    }
+    const passthroughPlaceholder = passthroughFor<
       { input: unknown },
       { output: unknown }
-    > = async (args, next, _ctx) => next(args);
+    >();
+    const passthroughHistoryRepair = passthroughFor<
+      import("../plugins/types.js").HistoryRepairArgs,
+      import("../plugins/types.js").HistoryRepairResult
+    >();
 
     const injector: Injector = {
       name: "sample-injector",
@@ -79,26 +90,27 @@ describe("plugin core types", () => {
       skills: [{ name: "sample-skill" }],
       injectors: [injector],
       middleware: {
-        turn: passthrough,
-        llmCall: passthrough,
-        toolExecute: passthrough,
-        memoryRetrieval: passthrough,
-        historyRepair: passthrough,
-        tokenEstimate: passthrough,
-        compaction: passthrough,
-        overflowReduce: passthrough,
-        persistence: passthrough,
-        titleGenerate: passthrough,
-        toolResultTruncate: passthrough,
-        emptyResponse: passthrough,
-        toolError: passthrough,
-        circuitBreaker: passthrough,
+        turn: passthroughPlaceholder,
+        llmCall: passthroughPlaceholder,
+        toolExecute: passthroughPlaceholder,
+        memoryRetrieval: passthroughPlaceholder,
+        historyRepair: passthroughHistoryRepair,
+        tokenEstimate: passthroughPlaceholder,
+        compaction: passthroughPlaceholder,
+        overflowReduce: passthroughPlaceholder,
+        persistence: passthroughPlaceholder,
+        titleGenerate: passthroughPlaceholder,
+        toolResultTruncate: passthroughPlaceholder,
+        emptyResponse: passthroughPlaceholder,
+        toolError: passthroughPlaceholder,
+        circuitBreaker: passthroughPlaceholder,
       },
     } satisfies Plugin;
 
     // Minimal runtime check so the test body is non-empty.
     expect(plugin.manifest.name).toBe("sample-plugin");
-    expect(plugin.middleware.turn).toBe(passthrough);
+    expect(plugin.middleware.turn).toBe(passthroughPlaceholder);
+    expect(plugin.middleware.historyRepair).toBe(passthroughHistoryRepair);
   });
 
   test("PluginTimeoutError carries pipeline, plugin, and elapsed fields", () => {

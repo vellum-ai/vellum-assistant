@@ -17,6 +17,8 @@
  */
 
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import type { RepairResult } from "../daemon/history-repair.js";
+import type { Message } from "../providers/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
@@ -130,8 +132,31 @@ export type ToolExecuteResult = { readonly output: unknown };
 export type MemoryRetrievalArgs = { readonly input: unknown };
 export type MemoryRetrievalResult = { readonly output: unknown };
 
-export type HistoryRepairArgs = { readonly input: unknown };
-export type HistoryRepairResult = { readonly output: unknown };
+/**
+ * Arguments for the `historyRepair` pipeline. `history` is the pre-repair
+ * message list scheduled for the next provider call; `provider` is the
+ * downstream provider key (`ctx.provider.name`) so plugins that want to
+ * special-case repair per provider can discriminate without looking up the
+ * ambient provider from `TurnContext`.
+ *
+ * The pipeline currently wraps only the standard pre-run repair pass
+ * (`repairHistory`). The orchestrator's one-shot deep-repair fallback
+ * (`deepRepairHistory`), invoked only after a provider ordering error,
+ * remains a direct call. Adding a `mode` discriminator here would be
+ * premature — deep-repair has no known plugin-level consumer yet.
+ */
+export type HistoryRepairArgs = {
+  readonly history: Message[];
+  readonly provider: string;
+};
+
+/**
+ * Result of the `historyRepair` pipeline. Carries both the repaired message
+ * list and the `RepairStats` record the orchestrator logs when any repair
+ * happened — the default plugin forwards the shape unchanged from
+ * {@link repairHistory}.
+ */
+export type HistoryRepairResult = RepairResult;
 
 export type TokenEstimateArgs = { readonly input: unknown };
 export type TokenEstimateResult = { readonly output: unknown };

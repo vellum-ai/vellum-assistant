@@ -68,6 +68,14 @@ import type { ConversationGraphMemory } from "../memory/graph/conversation-graph
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
+import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair.js";
+import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
+import { getMiddlewaresFor } from "../plugins/registry.js";
+import type {
+  HistoryRepairArgs,
+  HistoryRepairResult,
+  TurnContext,
+} from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
@@ -133,7 +141,7 @@ import { markSurfaceCompleted } from "./conversation-surfaces.js";
 import { resolveTrustClass } from "./conversation-tool-setup.js";
 import { recordUsage } from "./conversation-usage.js";
 import { formatTurnTimestamp } from "./date-context.js";
-import { deepRepairHistory, repairHistory } from "./history-repair.js";
+import { deepRepairHistory } from "./history-repair.js";
 import type {
   DynamicPageSurfaceData,
   ServerMessage,
@@ -165,6 +173,39 @@ const TOOL_FRIENDLY_LABEL: Record<string, string> = {
 type GitServiceInitializer = {
   ensureInitialized(): Promise<void>;
 };
+
+/**
+ * Build a {@link TurnContext} for plugin pipeline invocations inside
+ * `runAgentLoopImpl`. The orchestrator does not itself carry a
+ * `TurnContext` — it composes one on demand at each pipeline call site from
+ * ambient state.
+ *
+ * `turnIndex` is approximated by the current persisted message count: at the
+ * time the pipeline fires, this reflects the position of the next assistant
+ * turn in the conversation, which is the best stable identifier plugins can
+ * key against without threading a counter through the orchestrator.
+ *
+ * When `trustContext` is unavailable (e.g. an internal heartbeat turn that
+ * never bound an actor), we synthesize an "unknown" trust shape so the
+ * required `TurnContext.trust` field stays populated. Plugins that need a
+ * real trust class should guard on `trust.trustClass !== "unknown"`.
+ */
+function buildHistoryRepairTurnContext(
+  requestId: string,
+  conversationId: string,
+  turnIndex: number,
+  trustContext: TrustContext | undefined,
+): TurnContext {
+  return {
+    requestId,
+    conversationId,
+    turnIndex,
+    trust: trustContext ?? {
+      sourceChannel: "vellum",
+      trustClass: "unknown",
+    },
+  };
+}
 
 // ── Compaction circuit-breaker constants ────────────────────────────
 //
@@ -1155,9 +1196,28 @@ export async function runAgentLoopImpl(
       }
     }
 
-    // Pre-run repair
+    // Pre-run repair — routed through the `historyRepair` plugin pipeline so
+    // plugins can observe or override repair behavior. The default plugin
+    // (registered in `external-plugins-bootstrap.ts`) delegates to
+    // `repairHistory` unchanged, preserving existing behavior.
     let preRepairMessages = runMessages;
-    const preRunRepair = repairHistory(runMessages);
+    const preRunRepairCtx = buildHistoryRepairTurnContext(
+      reqId,
+      ctx.conversationId,
+      ctx.messages.length,
+      ctx.trustContext,
+    );
+    const preRunRepair = await runPipeline<
+      HistoryRepairArgs,
+      HistoryRepairResult
+    >(
+      "historyRepair",
+      getMiddlewaresFor("historyRepair"),
+      async (args) => defaultHistoryRepairTerminal(args),
+      { history: runMessages, provider: ctx.provider.name },
+      preRunRepairCtx,
+      DEFAULT_TIMEOUTS.historyRepair,
+    );
     if (
       preRunRepair.stats.assistantToolResultsMigrated > 0 ||
       preRunRepair.stats.missingToolResultsInserted > 0 ||

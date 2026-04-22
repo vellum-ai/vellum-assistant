@@ -35,9 +35,11 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AssistantConfig } from "../config/schema.js";
+import { defaultHistoryRepairPlugin } from "../plugins/defaults/history-repair.js";
 import {
   ASSISTANT_API_VERSIONS,
   getRegisteredPlugins,
+  registerPlugin,
 } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -50,6 +52,29 @@ import { vellumRoot } from "../util/platform.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
 
 const log = getLogger("plugins-bootstrap");
+
+// ─── First-party plugin registrations ───────────────────────────────────────
+// Side-effect registrations live at module top-level so they fire the first
+// time anything in the daemon imports this module. `bootstrapPlugins()` runs
+// after the registry is fully populated (see `lifecycle.ts` call site). Each
+// entry is a faithful wrapper around the pre-plugins code path so the swap
+// is provably a no-op for the default configuration; see each default's own
+// module docstring for details.
+//
+// Each registration is guarded against duplicate-name errors so bun's test
+// runner can re-evaluate this module (for example after a `mock.module()`
+// call on one of its transitive dependencies) without tripping the
+// registry's duplicate-name check. The registry itself rightly rejects
+// duplicate names everywhere else — this guard is specific to the
+// first-party bootstrap side-effects.
+function registerFirstPartyOnce(plugin: Plugin): void {
+  const existing = getRegisteredPlugins().find(
+    (p) => p.manifest.name === plugin.manifest.name,
+  );
+  if (existing) return;
+  registerPlugin(plugin);
+}
+registerFirstPartyOnce(defaultHistoryRepairPlugin);
 
 /**
  * Minimal context required to bootstrap the plugin layer. Kept intentionally
