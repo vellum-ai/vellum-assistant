@@ -17,6 +17,7 @@
  */
 
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import type { Tool } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
@@ -247,16 +248,25 @@ export interface Injector {
   produce(ctx: TurnContext): Promise<InjectionBlock | null>;
 }
 
-// ─── Model-visible capability slots (placeholder shapes) ─────────────────────
-// Concrete shapes are defined by the tool/route/skill registries. Typing
-// them as `unknown`-tagged aliases here keeps the Plugin interface decoupled
-// until later PRs wire real registrations.
+// ─── Model-visible capability slots ──────────────────────────────────────────
+// Concrete shapes are defined by the tool/route/skill registries. Routes and
+// skills remain `unknown`-tagged placeholders until PRs 32/33 wire those
+// registrations. Tool contributions are wired in PR 31 and use the canonical
+// `Tool` interface from the tool registry.
 
-/** Tool registration contributed by a plugin. Concrete shape TBD. */
-export type PluginToolRegistration = unknown;
-/** HTTP route registration contributed by a plugin. Concrete shape TBD. */
+/**
+ * Tool registration contributed by a plugin. Uses the canonical {@link Tool}
+ * interface from the tool registry — the bootstrap stamps `origin: "skill"`
+ * and `ownerSkillId: <plugin.name>` before handing the batch to
+ * `registerSkillTools` so plugin-scoped ref-counting and conflict detection
+ * reuse the skill-tool machinery. Plugin authors supply the functional fields
+ * (`name`, `description`, `getDefinition`, `execute`, etc.) and leave the
+ * ownership metadata to the bootstrap to set authoritatively.
+ */
+export type PluginToolRegistration = Tool;
+/** HTTP route registration contributed by a plugin. Concrete shape TBD (PR 32). */
 export type PluginRouteRegistration = unknown;
-/** Skill registration contributed by a plugin. Concrete shape TBD. */
+/** Skill registration contributed by a plugin. Concrete shape TBD (PR 33). */
 export type PluginSkillRegistration = unknown;
 
 // ─── Plugin ──────────────────────────────────────────────────────────────────
