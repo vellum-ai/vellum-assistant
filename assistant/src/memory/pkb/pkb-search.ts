@@ -28,9 +28,10 @@ const log = getLogger("pkb-search");
  *
  * PKB files are chunked at index time, so a single path can match on
  * multiple chunks. Scores collapse to the highest per path, per query.
- * The two queries are unioned by path — a path present in only one
- * response still surfaces, with the missing score left `undefined` on
- * its result.
+ * Only paths with a dense cosine score are returned (hybrid-only matches
+ * are dropped because their implicit `denseScore = 0` can never satisfy a
+ * caller's threshold, and keeping them would evict dense-qualifying hits
+ * from the pre-slice top-`limit` window).
  */
 export async function searchPkbFiles(
   queryVector: number[],
@@ -77,29 +78,47 @@ export async function searchPkbFiles(
       )
     : Promise.resolve([]);
 
-  const [denseResults, hybridResults] = await Promise.all([
+  // Use `allSettled` so a transient hybrid failure does not drop the dense
+  // results (and vice versa). Hybrid is the optional signal — losing it should
+  // degrade to dense-only, not wipe out the whole search.
+  const [denseSettled, hybridSettled] = await Promise.allSettled([
     densePromise,
     hybridPromise,
   ]);
 
+  const denseResults =
+    denseSettled.status === "fulfilled" ? denseSettled.value : [];
+  if (denseSettled.status === "rejected") {
+    log.warn(
+      { err: denseSettled.reason },
+      "Dense PKB search failed; falling back to hybrid-only results",
+    );
+  }
+  const hybridResults =
+    hybridSettled.status === "fulfilled" ? hybridSettled.value : [];
+  if (useHybrid && hybridSettled.status === "rejected") {
+    log.warn(
+      { err: hybridSettled.reason },
+      "Hybrid PKB search failed; falling back to dense-only results",
+    );
+  }
+
   const denseByPath = collapseByPath(denseResults);
   const hybridByPath = useHybrid ? collapseByPath(hybridResults) : new Map();
 
-  const allPaths = new Set<string>([
-    ...denseByPath.keys(),
-    ...hybridByPath.keys(),
-  ]);
-
+  // Only surface paths that have a dense cosine score. Hybrid-only hits
+  // (paths that appeared in the hybrid query but fell outside the dense
+  // prefetch) would have `denseScore = 0`, which is guaranteed to fail any
+  // caller's cosine threshold — and because they'd sort ahead of dense
+  // matches (hybrid-first ranking), they'd evict dense-qualifying hits from
+  // the top-`limit` window before callers ever get a chance to gate on
+  // denseScore. Dropping them keeps gating meaningful with the pre-slice.
   const merged: PkbSearchResult[] = [];
-  for (const path of allPaths) {
-    const denseScore = denseByPath.get(path);
+  for (const [path, denseScore] of denseByPath) {
     const hybridScore = hybridByPath.get(path);
-    // A path that only shows up in the hybrid query (past the dense prefetch
-    // limit) has no cosine score to gate on. Carry denseScore = 0 so callers
-    // see it but can filter it out with their threshold.
     merged.push({
       path,
-      denseScore: denseScore ?? 0,
+      denseScore,
       ...(useHybrid && hybridScore !== undefined ? { hybridScore } : {}),
     });
   }

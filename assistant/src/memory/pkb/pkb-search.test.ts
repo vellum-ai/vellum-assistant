@@ -25,6 +25,8 @@ type ScoredPoint = { id: string; score: number; payload: Payload };
 
 let hybridResults: ScoredPoint[] = [];
 let denseResults: ScoredPoint[] = [];
+let hybridThrows: Error | null = null;
+let denseThrows: Error | null = null;
 
 mock.module("../qdrant-circuit-breaker.js", () => ({
   isQdrantBreakerOpen: () => breakerOpen,
@@ -41,6 +43,7 @@ mock.module("../qdrant-client.js", () => ({
       prefetchLimit?: number;
     }) => {
       hybridSearchCalls.push(params);
+      if (hybridThrows) throw hybridThrows;
       return hybridResults;
     },
     search: async (
@@ -49,6 +52,7 @@ mock.module("../qdrant-client.js", () => ({
       filter?: Record<string, unknown>,
     ) => {
       searchCalls.push({ vector, limit, filter });
+      if (denseThrows) throw denseThrows;
       return denseResults;
     },
   }),
@@ -63,6 +67,8 @@ describe("searchPkbFiles", () => {
     searchCalls.length = 0;
     hybridResults = [];
     denseResults = [];
+    hybridThrows = null;
+    denseThrows = null;
   });
 
   test("filter payload targets pkb_file (hybrid path runs both queries)", async () => {
@@ -236,7 +242,7 @@ describe("searchPkbFiles", () => {
     expect(other?.hybridScore).toBeUndefined();
   });
 
-  test("result present only in hybrid returns denseScore=0 and a hybridScore", async () => {
+  test("hybrid-only hits (no dense match) are dropped so they can't evict dense-qualified paths before the slice", async () => {
     denseResults = [
       {
         id: "a",
@@ -248,6 +254,10 @@ describe("searchPkbFiles", () => {
         },
       },
     ];
+    // `b` appears only in the hybrid response (outside the dense prefetch).
+    // It has no cosine score, so it can never pass a downstream threshold
+    // and must not be surfaced — otherwise it could crowd out dense-qualified
+    // hits before the caller gates on denseScore.
     hybridResults = [
       {
         id: "a",
@@ -275,12 +285,62 @@ describe("searchPkbFiles", () => {
       10,
     );
 
+    expect(results).toHaveLength(1);
     const a = results.find((r) => r.path === "/notes/a.md");
-    const b = results.find((r) => r.path === "/notes/b.md");
     expect(a?.denseScore).toBe(0.8);
     expect(a?.hybridScore).toBe(0.03);
-    expect(b?.denseScore).toBe(0);
-    expect(b?.hybridScore).toBe(0.02);
+    expect(results.find((r) => r.path === "/notes/b.md")).toBeUndefined();
+  });
+
+  test("hybrid failure (transient) falls back to dense-only results", async () => {
+    denseResults = [
+      {
+        id: "a",
+        score: 0.8,
+        payload: {
+          target_type: "pkb_file",
+          target_id: "t-1",
+          path: "/notes/a.md",
+        },
+      },
+    ];
+    hybridThrows = new Error("qdrant hybrid transient failure");
+
+    const results = await searchPkbFiles(
+      [0.1],
+      { indices: [1], values: [1] },
+      10,
+    );
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.path).toBe("/notes/a.md");
+    expect(results[0]?.denseScore).toBe(0.8);
+    expect(results[0]?.hybridScore).toBeUndefined();
+  });
+
+  test("dense failure (transient) falls back to empty results even if hybrid succeeded", async () => {
+    denseThrows = new Error("qdrant dense transient failure");
+    hybridResults = [
+      {
+        id: "a",
+        score: 0.03,
+        payload: {
+          target_type: "pkb_file",
+          target_id: "t-1",
+          path: "/notes/a.md",
+        },
+      },
+    ];
+
+    // Without a dense cosine score there is nothing to gate on, so the
+    // hybrid-only fallback surfaces no results.
+    const results = await searchPkbFiles(
+      [0.1],
+      { indices: [1], values: [1] },
+      10,
+    );
+
+    expect(results).toEqual([]);
   });
 
   test("empty Qdrant response yields []", async () => {

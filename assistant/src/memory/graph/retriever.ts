@@ -877,9 +877,16 @@ export interface TurnRetrievalResult {
    */
   queryVector?: number[];
   /**
-   * Optional sparse vector passed alongside `queryVector`. Currently always
-   * `undefined` — reserved for future hybrid retrieval that produces a
-   * sparse vector at the call site.
+   * Sparse (TF-IDF) vector of the user's last message, computed once per
+   * turn and reused across every return path of `retrieveForTurn`. Surfaced
+   * so downstream callers (e.g. the PKB hint retriever in
+   * `applyRuntimeInjections`) can pair it with `queryVector` to run a
+   * hybrid dense+sparse query — RRF fusion pulls in lexical matches
+   * (exact filenames, proper nouns, uncommon tokens) that pure dense
+   * embeddings wash out. Computed locally (no embedding-service call), so
+   * it survives even when the dense embed fails via the circuit breaker.
+   * `undefined` when the user's last message is empty/whitespace-only or
+   * yields no TF-IDF tokens.
    */
   sparseVector?: QdrantSparseVector;
 }
