@@ -127,7 +127,7 @@ Arguments:
 
 Renames the conversation to the given title and marks it as a manual rename
 (auto-generated titles will not overwrite it). When the assistant is running,
-delegates to the HTTP API so connected clients update in real time. Otherwise
+delegates via IPC so connected clients update in real time. Otherwise
 updates the local database directly.
 
 Examples:
@@ -175,6 +175,17 @@ Examples:
           `Renamed conversation to "${trimmedTitle}" (${conversation.id})`,
         );
         return;
+      }
+
+      // Only fall back to direct DB access when the daemon is genuinely
+      // unreachable. Other IPC errors (timeout, handler failure) should
+      // be surfaced so users don't get silent partial renames.
+      const isConnectionError = ipcResult.error?.includes(
+        "Could not connect to assistant daemon",
+      );
+      if (!isConnectionError) {
+        log.error(`Rename failed: ${ipcResult.error}`);
+        process.exit(1);
       }
 
       // Daemon not reachable — update the database directly.
