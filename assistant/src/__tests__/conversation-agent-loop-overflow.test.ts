@@ -167,7 +167,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getMessageById: () => null,
   updateMessageContent: () => {},
   updateMessageMetadata: () => {},
-  clearPkbSystemReminderMetadataForConversation: () => {},
+  clearStrippedInjectionMetadataForConversation: () => {},
 }));
 
 mock.module("../memory/retriever.js", () => ({

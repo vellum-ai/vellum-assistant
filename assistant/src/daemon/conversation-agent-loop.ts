@@ -48,7 +48,7 @@ import { getApp, listAppFiles, resolveAppDir } from "../memory/app-store.js";
 import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
 import {
   addMessage,
-  clearPkbSystemReminderMetadataForConversation,
+  clearStrippedInjectionMetadataForConversation,
   deleteMessageById,
   getConversation,
   getConversationOriginChannel,
@@ -1318,11 +1318,11 @@ export async function runAgentLoopImpl(
       const rawHistory = stripInjectionsForCompaction(updatedHistory);
       ctx.messages = rawHistory;
       try {
-        clearPkbSystemReminderMetadataForConversation(ctx.conversationId);
+        clearStrippedInjectionMetadataForConversation(ctx.conversationId);
       } catch (err) {
         rlog.warn(
           { err },
-          "Failed to clear pkbSystemReminderBlock metadata after compaction strip (non-fatal)",
+          "Failed to clear stripped-injection metadata after compaction strip (non-fatal)",
         );
       }
 
@@ -1471,11 +1471,11 @@ export async function runAgentLoopImpl(
       if (updatedHistory.length > preRunHistoryLength) {
         ctx.messages = stripInjectionsForCompaction(updatedHistory);
         try {
-          clearPkbSystemReminderMetadataForConversation(ctx.conversationId);
+          clearStrippedInjectionMetadataForConversation(ctx.conversationId);
         } catch (err) {
           rlog.warn(
             { err },
-            "Failed to clear pkbSystemReminderBlock metadata after compaction strip (non-fatal)",
+            "Failed to clear stripped-injection metadata after compaction strip (non-fatal)",
           );
         }
         convergenceStripped = true;
@@ -1648,11 +1648,11 @@ export async function runAgentLoopImpl(
           if (updatedHistory.length > preRunHistoryLength) {
             ctx.messages = stripInjectionsForCompaction(updatedHistory);
             try {
-              clearPkbSystemReminderMetadataForConversation(ctx.conversationId);
+              clearStrippedInjectionMetadataForConversation(ctx.conversationId);
             } catch (err) {
               rlog.warn(
                 { err },
-                "Failed to clear pkbSystemReminderBlock metadata after compaction strip (non-fatal)",
+                "Failed to clear stripped-injection metadata after compaction strip (non-fatal)",
               );
             }
             convergenceStripped = true;

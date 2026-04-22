@@ -1519,22 +1519,35 @@ export function updateMessageMetadata(
 }
 
 /**
- * Bulk-remove the `pkbSystemReminderBlock` field from every user-message
- * metadata row in a conversation. Called from compaction-strip sites so
- * post-restart rehydration stays consistent with the in-memory state
- * produced by `stripInjectionsForCompaction` (which removes
- * `<system_reminder>` from live messages but cannot touch the DB).
+ * Bulk-remove the metadata fields that back the blocks stripped by
+ * `stripInjectionsForCompaction` — currently `pkbSystemReminderBlock`
+ * (`<system_reminder>`), `nowScratchpadBlock` (`<NOW.md …>`), and
+ * `pkbContextBlock` (`<knowledge_base>`). Called from compaction-strip
+ * sites so post-restart rehydration stays consistent with the in-memory
+ * state produced by `stripInjectionsForCompaction` (which removes those
+ * tags from live messages but cannot touch the DB). Fields backing
+ * blocks that are intentionally NOT stripped (`turnContextBlock`,
+ * `workspaceBlock`, `memoryInjectedBlock`) are preserved.
  */
-export function clearPkbSystemReminderMetadataForConversation(
+export function clearStrippedInjectionMetadataForConversation(
   conversationId: string,
 ): void {
   rawRun(
     `UPDATE messages
-        SET metadata = json_remove(metadata, '$.pkbSystemReminderBlock')
+        SET metadata = json_remove(
+          metadata,
+          '$.pkbSystemReminderBlock',
+          '$.nowScratchpadBlock',
+          '$.pkbContextBlock'
+        )
       WHERE conversation_id = ?
         AND role = 'user'
         AND metadata IS NOT NULL
-        AND json_extract(metadata, '$.pkbSystemReminderBlock') IS NOT NULL`,
+        AND (
+          json_extract(metadata, '$.pkbSystemReminderBlock') IS NOT NULL
+          OR json_extract(metadata, '$.nowScratchpadBlock') IS NOT NULL
+          OR json_extract(metadata, '$.pkbContextBlock') IS NOT NULL
+        )`,
     conversationId,
   );
 }
