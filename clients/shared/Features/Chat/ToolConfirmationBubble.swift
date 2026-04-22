@@ -100,9 +100,6 @@ public struct ToolConfirmationBubble: View {
 
         switch confirmation.state {
         case .approved:
-            if isV3 {
-                return "\(confirmation.toolCategory) allowed"
-            }
             switch confirmation.approvedDecision {
             case "allow_10m":
                 return "\(confirmation.toolCategory) allowed for 10 minutes"
@@ -120,12 +117,28 @@ public struct ToolConfirmationBubble: View {
         }
     }
 
-    /// Whether to show the post-decision "Create a rule" nudge (v3 only, unknown risk).
+    /// Whether to show the post-decision "Create a rule" nudge.
+    /// Note: This is not used in the legacy (v1/v2) flow.
     private var showPostDecisionNudge: Bool {
-        isV3 && isDecided && confirmation.riskLevel.lowercased() == "unknown" && onCreateRule != nil
+        false
     }
 
     public var body: some View {
+        if isV3 {
+            V3PermissionPromptView(
+                confirmation: confirmation,
+                isKeyboardActive: isKeyboardActive,
+                onAllow: onAllow,
+                onDeny: onDeny,
+                onAlwaysAllow: onAlwaysAllow
+            )
+        } else {
+            legacyBody
+        }
+    }
+
+    @ViewBuilder
+    private var legacyBody: some View {
         if confirmation.isSystemPermissionRequest {
             if isDecided {
                 systemPermissionCollapsed
@@ -235,41 +248,25 @@ public struct ToolConfirmationBubble: View {
 
     @ViewBuilder
     private var pendingContent: some View {
-        let actions = isV3 ? v3TopLevelActions : topLevelActions
+        let actions = topLevelActions
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             // Adaptive layout: horizontal when wide, vertical when narrow
             if useCompactConfirmationLayout {
-                if isV3 {
-                    v3ConfirmationDescription
-                } else {
-                    confirmationDescription
-                }
+                confirmationDescription
                 HStack {
                     Spacer()
-                    if isV3 {
-                        v3ConfirmationActions
-                    } else {
-                        confirmationActions
-                    }
+                    confirmationActions
                 }
             } else {
                 HStack(alignment: .top, spacing: VSpacing.sm) {
-                    if isV3 {
-                        v3ConfirmationDescription
-                    } else {
-                        confirmationDescription
-                    }
+                    confirmationDescription
                     Spacer(minLength: VSpacing.md)
-                    if isV3 {
-                        v3ConfirmationActions
-                    } else {
-                        confirmationActions
-                    }
+                    confirmationActions
                 }
             }
 
-            // First-time educational banner for command confirmations (hidden in v3)
-            if !isV3 && isCommandTool && !hasSeenCommandExplanation {
+            // First-time educational banner for command confirmations
+            if isCommandTool && !hasSeenCommandExplanation {
                 commandExplanationBanner
             }
 
@@ -659,94 +656,6 @@ public struct ToolConfirmationBubble: View {
                     }
                 }
             }
-        }
-    }
-
-    // MARK: - v3 Simplified Prompt
-
-    private var v3TopLevelActions: [ToolConfirmationKeyboardModel.Action] {
-        [.allowOnce, .dontAllow]
-    }
-
-    /// v3 description: tool name with inline risk badge and optional risk reason.
-    @ViewBuilder
-    private var v3ConfirmationDescription: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
-            HStack(spacing: VSpacing.sm) {
-                Text(confirmation.humanDescription)
-                    .font(VFont.bodyMediumEmphasised)
-                    .foregroundStyle(VColor.contentDefault)
-                    .fixedSize(horizontal: false, vertical: true)
-                v3RiskBadge
-            }
-            if let reason = confirmation.riskReason, !reason.isEmpty {
-                Text(reason)
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    /// Inline risk level badge for v3 prompts.
-    @ViewBuilder
-    private var v3RiskBadge: some View {
-        let level = confirmation.riskLevel
-        let label = level.isEmpty ? "Unknown" : level.prefix(1).uppercased() + level.dropFirst()
-        Text(label)
-            .font(VFont.labelDefault)
-            .foregroundStyle(v3RiskBadgeTextColor)
-            .padding(EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6))
-            .background(v3RiskBadgeBackgroundColor)
-            .clipShape(Capsule())
-    }
-
-    private var v3RiskBadgeBackgroundColor: Color {
-        switch confirmation.riskLevel.lowercased() {
-        case "low": VColor.systemPositiveStrong
-        case "medium": VColor.systemMidStrong
-        case "high": VColor.systemNegativeStrong
-        default: VColor.contentSecondary
-        }
-    }
-
-    private var v3RiskBadgeTextColor: Color {
-        switch confirmation.riskLevel.lowercased() {
-        case "medium": VColor.auxBlack
-        default: VColor.auxWhite
-        }
-    }
-
-    /// v3 simplified actions: flat Allow + Deny buttons, no split button or duration.
-    private var v3ConfirmationActions: some View {
-        HStack(spacing: VSpacing.sm) {
-            VButton(label: "Allow", style: .primary, size: .compact) {
-                markCommandExplanationSeen()
-                // In v3, "Allow" sends the selected allowlist pattern + scope
-                // through the always-allow path when patterns are available,
-                // otherwise falls back to a simple allow.
-                if let option = confirmation.allowlistOptions.first, !option.pattern.isEmpty {
-                    let scope = confirmation.scopeOptions.first?.scope ?? "everywhere"
-                    onAlwaysAllow(confirmation.requestId, option.pattern, scope, "allow")
-                } else {
-                    onAllow()
-                }
-            }
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .strokeBorder(VColor.primaryBase, lineWidth: keyboardModel?.selectedAction == .allowOnce ? 2 : 0)
-                    .allowsHitTesting(false)
-            )
-
-            VButton(label: "Deny", style: .danger, size: .compact) {
-                markCommandExplanationSeen()
-                onDeny()
-            }
-            .overlay(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .strokeBorder(VColor.systemNegativeStrong, lineWidth: keyboardModel?.selectedAction == .dontAllow ? 2 : 0)
-                    .allowsHitTesting(false)
-            )
         }
     }
 
