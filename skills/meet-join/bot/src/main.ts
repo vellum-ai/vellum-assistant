@@ -991,6 +991,34 @@ export async function runBot(deps: BotDeps): Promise<void> {
   // -------------------------------------------------------------------------
 
   /**
+   * Single-lane queue for xdotool invocations (`trusted_type` +
+   * `trusted_click`). Every xdotool operation must complete before the
+   * next begins; overlapping invocations corrupt each other via focus
+   * migration. Concrete symptom: a `trusted_type` for a ~90-char
+   * consent message racing a `trusted_click` for the send button
+   * truncates the typed text to ~30 chars — the click lands mid-
+   * typing, the composer submits whatever made it in so far, and the
+   * remaining keystrokes either drop or land on the wrong element.
+   *
+   * The extension tries to gap these via a wall-clock
+   * `trustedTypeDurationMs(text.length)` wait in `features/chat.ts`,
+   * but that timer doesn't survive NMH pipe backpressure, Chrome
+   * service-worker throttling, or a busy Bun event loop — any of which
+   * can push the two xdotool processes into overlap despite the intended
+   * ordering. The queue makes serial execution a property of the bot
+   * process itself, so overlap is impossible regardless of caller-side
+   * timing assumptions.
+   */
+  let xdotoolQueue: Promise<unknown> = Promise.resolve();
+  function enqueueXdotool<T>(op: () => Promise<T>): Promise<T> {
+    // `.catch(() => undefined)` so one failed xdotool invocation doesn't
+    // poison the chain — later type/click ops must still run.
+    const next = xdotoolQueue.catch(() => undefined).then(op);
+    xdotoolQueue = next;
+    return next;
+  }
+
+  /**
    * Route a single validated inbound message from the extension. Lifecycle
    * + telemetry forward to the daemon, diagnostics get logged, and
    * `send_chat_result` completes the pending HTTP request.
@@ -1081,53 +1109,58 @@ export async function runBot(deps: BotDeps): Promise<void> {
         else deps.logInfo(`[ext] ${msg.message}`);
         return;
       case "trusted_click": {
-        // Fire-and-forget: the extension confirms success by observing the
-        // subsequent DOM transition (waitForSelector on the in-meeting UI).
-        // We surface any xdotool failure as a logError so operators see
-        // them even though the extension can't synchronously react.
-        deps
-          .xdotoolClick({
-            x: msg.x,
-            y: msg.y,
-            display: env.xvfbDisplay,
-          })
-          .then(() =>
-            deps.logInfo(
-              `meet-bot: trusted_click dispatched at (${msg.x},${msg.y})`,
-            ),
-          )
-          .catch((err: unknown) => {
-            const detail = err instanceof Error ? err.message : String(err);
-            deps.logError(`meet-bot: trusted_click failed: ${detail}`);
-          });
+        // Serialized through `xdotoolQueue`: a click issued while a
+        // prior `trusted_type` is still in flight would shift focus
+        // mid-type and truncate the typed text. The extension is
+        // fire-and-forget; the extension observes success via the
+        // subsequent DOM transition (waitForSelector on the in-meeting
+        // UI). xdotool failure is surfaced as a logError so operators
+        // see it even though the extension can't synchronously react.
+        enqueueXdotool(() =>
+          deps
+            .xdotoolClick({
+              x: msg.x,
+              y: msg.y,
+              display: env.xvfbDisplay,
+            })
+            .then(() =>
+              deps.logInfo(
+                `meet-bot: trusted_click dispatched at (${msg.x},${msg.y})`,
+              ),
+            )
+            .catch((err: unknown) => {
+              const detail = err instanceof Error ? err.message : String(err);
+              deps.logError(`meet-bot: trusted_click failed: ${detail}`);
+            }),
+        );
         return;
       }
       case "trusted_type": {
-        // Mirror of trusted_click: fire-and-forget, log on success /
-        // failure, never cascade into a bot shutdown. The extension has
-        // already focused the target element; the bot just types into
-        // whatever is focused on the Xvfb display.
-        //
-        // We pass an explicit `timeoutMs` scaled to the message length so
-        // xdotool is not killed mid-type on long chats. `xdotool-type.ts`'s
+        // Serialized through `xdotoolQueue` — see `trusted_click` above.
+        // The extension has already focused the target element; the bot
+        // just types into whatever is focused on the Xvfb display. An
+        // explicit `timeoutMs` is scaled to the message length so xdotool
+        // is not killed mid-type on long chats. `xdotool-type.ts`'s
         // built-in default is a fixed 15s, which truncated any message
         // above ~590 characters at the default 25ms/keystroke delay.
-        deps
-          .xdotoolType({
-            text: msg.text,
-            delayMs: msg.delayMs,
-            display: env.xvfbDisplay,
-            timeoutMs: trustedTypeKillTimeoutMs(msg.text.length, msg.delayMs),
-          })
-          .then(() =>
-            deps.logInfo(
-              `meet-bot: trusted_type dispatched (${msg.text.length} chars)`,
-            ),
-          )
-          .catch((err: unknown) => {
-            const detail = err instanceof Error ? err.message : String(err);
-            deps.logError(`meet-bot: trusted_type failed: ${detail}`);
-          });
+        enqueueXdotool(() =>
+          deps
+            .xdotoolType({
+              text: msg.text,
+              delayMs: msg.delayMs,
+              display: env.xvfbDisplay,
+              timeoutMs: trustedTypeKillTimeoutMs(msg.text.length, msg.delayMs),
+            })
+            .then(() =>
+              deps.logInfo(
+                `meet-bot: trusted_type dispatched (${msg.text.length} chars)`,
+              ),
+            )
+            .catch((err: unknown) => {
+              const detail = err instanceof Error ? err.message : String(err);
+              deps.logError(`meet-bot: trusted_type failed: ${detail}`);
+            }),
+        );
         return;
       }
       case "send_chat_result": {
