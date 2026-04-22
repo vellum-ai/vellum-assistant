@@ -145,6 +145,7 @@ export class ToolExecutor {
             riskLevel: permRiskMeta?.riskLevel,
             riskReason: permRiskMeta?.riskReason,
             riskScopeOptions: permRiskMeta?.riskScopeOptions,
+            isContainerized: permRiskMeta?.isContainerized,
           };
         }
 
