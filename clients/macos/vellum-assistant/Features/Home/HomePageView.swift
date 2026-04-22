@@ -56,12 +56,6 @@ struct HomePageView<DetailPanel: View>: View {
     /// with-default pattern as `onScheduledItemSelected` so the
     /// memberwise init stays usable from tests and non-nudge callers.
     var onNudgeSelected: (FeedItem) -> Void = { _ in }
-    /// Fired when the user taps an `.action` feed item that carries a
-    /// `conversationId` (e.g. a pending tool-approval). The parent
-    /// presents a permission detail panel instead of navigating to the
-    /// conversation directly. Same var-with-default pattern as
-    /// `onScheduledItemSelected`.
-    var onPermissionSelected: (FeedItem) -> Void = { _ in }
     /// Drives the two-pane split. When false, the home content renders in
     /// its original single-column layout and the `detailPanel` slot is
     /// ignored.
@@ -379,8 +373,8 @@ struct HomePageView<DetailPanel: View>: View {
             onNudgeSelected(item)
             return
         }
-        if item.conversationId != nil {
-            onPermissionSelected(item)
+        if let conversationId = item.conversationId {
+            onFeedConversationOpened(conversationId)
             return
         }
         Task {

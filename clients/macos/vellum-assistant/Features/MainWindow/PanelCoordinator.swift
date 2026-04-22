@@ -192,7 +192,6 @@ extension MainWindowView {
                 // with the other navigation exit paths.
                 selectedScheduledItemId = nil
                 selectedNudgeItemId = nil
-                selectedPermissionItemId = nil
                 onDismiss()
                 windowState.selection = .conversation(uuid)
             },
@@ -209,7 +208,6 @@ extension MainWindowView {
                 // PR #27475).
                 selectedScheduledItemId = nil
                 selectedNudgeItemId = nil
-                selectedPermissionItemId = nil
                 onDismiss()
                 startNewConversation()
             },
@@ -228,7 +226,6 @@ extension MainWindowView {
                 // Home exit paths (Devin feedback on PR #27475).
                 selectedScheduledItemId = nil
                 selectedNudgeItemId = nil
-                selectedPermissionItemId = nil
                 conversationManager.openConversation(message: suggestion.prompt, forceNew: true)
                 onDismiss()
                 if let id = conversationManager.activeConversationId {
@@ -239,20 +236,13 @@ extension MainWindowView {
                 // Opening one detail panel closes the other — at most
                 // one panel at a time.
                 selectedNudgeItemId = nil
-                selectedPermissionItemId = nil
                 selectedScheduledItemId = item.id
             },
             onNudgeSelected: { item in
                 selectedScheduledItemId = nil
-                selectedPermissionItemId = nil
                 selectedNudgeItemId = item.id
             },
-            onPermissionSelected: { item in
-                selectedScheduledItemId = nil
-                selectedNudgeItemId = nil
-                selectedPermissionItemId = item.id
-            },
-            isDetailPanelVisible: selectedScheduledItemId != nil || selectedNudgeItemId != nil || selectedPermissionItemId != nil,
+            isDetailPanelVisible: selectedScheduledItemId != nil || selectedNudgeItemId != nil,
             detailPanel: {
                 if let selectedId = selectedScheduledItemId {
                     let details = HomeScheduledDetails.placeholder
@@ -293,31 +283,6 @@ extension MainWindowView {
                         onSecondaryAction: { selectedNudgeItemId = nil },
                         onCardAction: { _, _ in }
                     )
-                } else if let selectedId = selectedPermissionItemId {
-                    let selectedItem = feedStore.items.first(where: { $0.id == selectedId })
-                    HomeDetailPanel(
-                        icon: .arrowLeft,
-                        title: selectedItem?.title ?? "Permission Request",
-                        onGoToThread: {
-                            if let convId = selectedItem?.conversationId,
-                               let uuid = UUID(uuidString: convId) {
-                                selectedPermissionItemId = nil
-                                selectedScheduledItemId = nil
-                                selectedNudgeItemId = nil
-                                onDismiss()
-                                windowState.selection = .conversation(uuid)
-                            }
-                        },
-                        onDismiss: { selectedPermissionItemId = nil }
-                    ) {
-                        VStack(alignment: .leading, spacing: VSpacing.lg) {
-                            Text(selectedItem?.summary ?? "")
-                                .font(VFont.bodyMediumDefault)
-                                .foregroundStyle(VColor.contentSecondary)
-                        }
-                        .padding(VSpacing.lg)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    }
                 }
             }
         )
@@ -333,7 +298,6 @@ extension MainWindowView {
             // own close/action buttons (sidebar switch, conversation open, etc.).
             selectedScheduledItemId = nil
             selectedNudgeItemId = nil
-            selectedPermissionItemId = nil
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
