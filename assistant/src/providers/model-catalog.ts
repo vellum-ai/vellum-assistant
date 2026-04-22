@@ -345,16 +345,24 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     },
     models: [
       // Anthropic
+      // OpenRouter proxies anthropic/* through Anthropic's Messages API, so
+      // prompt caching and cache TTL metadata pass through unchanged and
+      // billing matches Anthropic's direct rates.
       {
         id: "anthropic/claude-opus-4.7",
         displayName: "Claude Opus 4.7",
         contextWindowTokens: 200000,
         maxOutputTokens: 32000,
         supportsThinking: true,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 15, outputPer1mTokens: 75 },
+        pricing: {
+          inputPer1mTokens: 15,
+          outputPer1mTokens: 75,
+          cacheWritePer1mTokens: 18.75,
+          cacheReadPer1mTokens: 1.5,
+        },
       },
       {
         id: "anthropic/claude-opus-4.6",
@@ -362,10 +370,15 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 200000,
         maxOutputTokens: 32000,
         supportsThinking: true,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 15, outputPer1mTokens: 75 },
+        pricing: {
+          inputPer1mTokens: 15,
+          outputPer1mTokens: 75,
+          cacheWritePer1mTokens: 18.75,
+          cacheReadPer1mTokens: 1.5,
+        },
       },
       {
         id: "anthropic/claude-sonnet-4.6",
@@ -373,10 +386,15 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 200000,
         maxOutputTokens: 64000,
         supportsThinking: true,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 3, outputPer1mTokens: 15 },
+        pricing: {
+          inputPer1mTokens: 3,
+          outputPer1mTokens: 15,
+          cacheWritePer1mTokens: 3.75,
+          cacheReadPer1mTokens: 0.3,
+        },
       },
       {
         id: "anthropic/claude-haiku-4.5",
@@ -384,10 +402,15 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         contextWindowTokens: 200000,
         maxOutputTokens: 16000,
         supportsThinking: true,
-        supportsCaching: false,
+        supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
-        pricing: { inputPer1mTokens: 1, outputPer1mTokens: 5 },
+        pricing: {
+          inputPer1mTokens: 1,
+          outputPer1mTokens: 5,
+          cacheWritePer1mTokens: 1.25,
+          cacheReadPer1mTokens: 0.1,
+        },
       },
       // xAI
       {

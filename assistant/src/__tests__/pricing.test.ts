@@ -19,7 +19,7 @@ describe("resolvePricing", () => {
         1_000_000,
       );
       expect(result.pricingStatus).toBe("priced");
-      expect(result.estimatedCostUsd).toBe(5 + 25);
+      expect(result.estimatedCostUsd).toBe(15 + 75);
     });
 
     test("returns priced for claude-opus-4", () => {
@@ -52,7 +52,7 @@ describe("resolvePricing", () => {
         1_000_000,
       );
       expect(result.pricingStatus).toBe("priced");
-      expect(result.estimatedCostUsd).toBe(0.8 + 4);
+      expect(result.estimatedCostUsd).toBe(1 + 5);
     });
   });
 
@@ -180,7 +180,7 @@ describe("resolvePricing", () => {
         1_000_000,
       );
       expect(result.pricingStatus).toBe("priced");
-      expect(result.estimatedCostUsd).toBe(5 + 25);
+      expect(result.estimatedCostUsd).toBe(15 + 75);
     });
 
     test("matches claude-sonnet-4-6 via claude-sonnet-4 prefix", () => {
@@ -269,7 +269,8 @@ describe("resolvePricingForUsage", () => {
     );
 
     expect(result.pricingStatus).toBe("priced");
-    expect(result.estimatedCostUsd).toBeCloseTo(57.4, 10);
+    // 15 (input) + 150 (output) + 0.45 (cache-read) + 3.75 (5m write) + 3.0 (1h write) = 172.2
+    expect(result.estimatedCostUsd).toBeCloseTo(172.2, 10);
   });
 
   test("returns unpriced with null cost for unknown provider", () => {
@@ -306,11 +307,15 @@ describe("fast mode pricing", () => {
       speed: "fast",
     };
 
-    const result = resolvePricingForUsage("anthropic", "claude-opus-4-6", usage);
+    const result = resolvePricingForUsage(
+      "anthropic",
+      "claude-opus-4-6",
+      usage,
+    );
 
-    // Base: $5 input + $25 output = $30; fast: $30 * 6 = $180
+    // Base: $15 input + $75 output = $90; fast: $90 * 6 = $540
     expect(result.pricingStatus).toBe("priced");
-    expect(result.estimatedCostUsd).toBe((5 + 25) * 6);
+    expect(result.estimatedCostUsd).toBe((15 + 75) * 6);
   });
 
   test("does not apply multiplier when speed is standard", () => {
@@ -323,10 +328,14 @@ describe("fast mode pricing", () => {
       speed: "standard",
     };
 
-    const result = resolvePricingForUsage("anthropic", "claude-opus-4-6", usage);
+    const result = resolvePricingForUsage(
+      "anthropic",
+      "claude-opus-4-6",
+      usage,
+    );
 
     expect(result.pricingStatus).toBe("priced");
-    expect(result.estimatedCostUsd).toBe(5 + 25);
+    expect(result.estimatedCostUsd).toBe(15 + 75);
   });
 
   test("does not apply multiplier when speed is null", () => {
@@ -339,10 +348,14 @@ describe("fast mode pricing", () => {
       speed: null,
     };
 
-    const result = resolvePricingForUsage("anthropic", "claude-opus-4-6", usage);
+    const result = resolvePricingForUsage(
+      "anthropic",
+      "claude-opus-4-6",
+      usage,
+    );
 
     expect(result.pricingStatus).toBe("priced");
-    expect(result.estimatedCostUsd).toBe(5 + 25);
+    expect(result.estimatedCostUsd).toBe(15 + 75);
   });
 
   test("fast mode multiplier stacks with cache pricing", () => {
@@ -374,7 +387,9 @@ describe("fast mode pricing", () => {
     expect(fastResult.pricingStatus).toBe("priced");
     expect(standardResult.pricingStatus).toBe("priced");
     // Fast mode applies 6x to base rates; cache multipliers stack on top
-    expect(fastResult.estimatedCostUsd).toBe(standardResult.estimatedCostUsd! * 6);
+    expect(fastResult.estimatedCostUsd).toBe(
+      standardResult.estimatedCostUsd! * 6,
+    );
   });
 
   test("does not apply fast mode multiplier for non-Anthropic providers", () => {
@@ -437,7 +452,7 @@ describe("Anthropic models on OpenRouter", () => {
       1_000_000,
     );
     expect(result.pricingStatus).toBe("priced");
-    expect(result.estimatedCostUsd).toBe(5 + 25);
+    expect(result.estimatedCostUsd).toBe(15 + 75);
   });
 
   test("prices anthropic/claude-sonnet-4.6 at Sonnet 4 rates via prefix match", () => {
@@ -459,7 +474,7 @@ describe("Anthropic models on OpenRouter", () => {
       1_000_000,
     );
     expect(result.pricingStatus).toBe("priced");
-    expect(result.estimatedCostUsd).toBe(0.8 + 4);
+    expect(result.estimatedCostUsd).toBe(1 + 5);
   });
 
   test("prices bare claude-opus-4-6 slug returned unprefixed", () => {
@@ -470,7 +485,7 @@ describe("Anthropic models on OpenRouter", () => {
       1_000_000,
     );
     expect(result.pricingStatus).toBe("priced");
-    expect(result.estimatedCostUsd).toBe(5 + 25);
+    expect(result.estimatedCostUsd).toBe(15 + 75);
   });
 
   test("prices dash-form anthropic/claude-opus-4-6 identically to dot form", () => {
@@ -481,7 +496,7 @@ describe("Anthropic models on OpenRouter", () => {
       1_000_000,
     );
     expect(result.pricingStatus).toBe("priced");
-    expect(result.estimatedCostUsd).toBe(5 + 25);
+    expect(result.estimatedCostUsd).toBe(15 + 75);
   });
 
   test("prices version-first anthropic/claude-4.7-opus-<date> at Opus 4.7 rates", () => {
@@ -495,7 +510,7 @@ describe("Anthropic models on OpenRouter", () => {
       1_000_000,
     );
     expect(result.pricingStatus).toBe("priced");
-    expect(result.estimatedCostUsd).toBe(5 + 25);
+    expect(result.estimatedCostUsd).toBe(15 + 75);
   });
 
   test("prices version-first dash-form anthropic/claude-4-7-opus-<date>", () => {
@@ -506,7 +521,7 @@ describe("Anthropic models on OpenRouter", () => {
       1_000_000,
     );
     expect(result.pricingStatus).toBe("priced");
-    expect(result.estimatedCostUsd).toBe(5 + 25);
+    expect(result.estimatedCostUsd).toBe(15 + 75);
   });
 
   test("prices version-first anthropic/claude-4.6-sonnet", () => {
@@ -528,7 +543,7 @@ describe("Anthropic models on OpenRouter", () => {
       1_000_000,
     );
     expect(result.pricingStatus).toBe("priced");
-    expect(result.estimatedCostUsd).toBe(0.8 + 4);
+    expect(result.estimatedCostUsd).toBe(1 + 5);
   });
 
   test("returns unpriced for unknown anthropic model on OpenRouter", () => {
@@ -542,10 +557,21 @@ describe("Anthropic models on OpenRouter", () => {
     expect(result.estimatedCostUsd).toBeNull();
   });
 
-  test("returns unpriced for non-Anthropic OpenRouter model", () => {
+  test("prices non-Anthropic OpenRouter model from catalog", () => {
     const result = resolvePricing(
       "openrouter",
       "x-ai/grok-4.20-beta",
+      1_000_000,
+      1_000_000,
+    );
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBe(3 + 15);
+  });
+
+  test("returns unpriced for unknown non-Anthropic OpenRouter model", () => {
+    const result = resolvePricing(
+      "openrouter",
+      "unknown-provider/some-model",
       1_000_000,
       1_000_000,
     );
@@ -566,11 +592,15 @@ describe("Anthropic models on OpenRouter", () => {
       "anthropic/claude-opus-4.6",
       usage,
     );
-    const direct = resolvePricingForUsage("anthropic", "claude-opus-4-6", usage);
+    const direct = resolvePricingForUsage(
+      "anthropic",
+      "claude-opus-4-6",
+      usage,
+    );
 
     // Cache-read tokens are charged at 10% of input rate for Anthropic models.
     expect(openRouter.pricingStatus).toBe("priced");
-    expect(openRouter.estimatedCostUsd).toBeCloseTo(5 * 0.1, 10);
+    expect(openRouter.estimatedCostUsd).toBeCloseTo(15 * 0.1, 10);
     expect(openRouter.estimatedCostUsd).toBe(direct.estimatedCostUsd);
   });
 
@@ -617,13 +647,15 @@ describe("Anthropic models on OpenRouter", () => {
     );
 
     expect(result.pricingStatus).toBe("priced");
-    expect(result.estimatedCostUsd).toBe((5 + 25) * 6);
+    expect(result.estimatedCostUsd).toBe((15 + 75) * 6);
   });
 });
 
 describe("usesAnthropicPricingRules", () => {
   test("returns true for direct Anthropic", () => {
-    expect(usesAnthropicPricingRules("anthropic", "claude-opus-4-6")).toBe(true);
+    expect(usesAnthropicPricingRules("anthropic", "claude-opus-4-6")).toBe(
+      true,
+    );
   });
 
   test("returns true for anthropic/* on OpenRouter", () => {
