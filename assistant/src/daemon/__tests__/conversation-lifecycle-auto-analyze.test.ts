@@ -7,9 +7,9 @@
  * `auto-analyze` feature flag and source-type guard).
  *
  * We stub the downstream enqueue helpers and the side-effecting lifecycle
- * deps (hook manager, notifier/skill cleanup, browser-screencast) so the test
- * can invoke `disposeConversation` with a minimal `DisposeContext` and assert
- * on the enqueue bookkeeping alone.
+ * deps (notifier/skill cleanup, browser-screencast) so the test can invoke
+ * `disposeConversation` with a minimal `DisposeContext` and assert on the
+ * enqueue bookkeeping alone.
  *
  * Two recursion guards apply when the source conversation is itself an
  * auto-analysis conversation:
@@ -83,12 +83,6 @@ mock.module("../../memory/auto-analysis-enqueue.js", () => ({
 
 // Stub all side-effecting cleanup helpers that disposeConversation chains
 // into after the enqueue block. We assert on enqueue behavior only.
-mock.module("../../hooks/manager.js", () => ({
-  getHookManager: () => ({
-    trigger: () => undefined,
-  }),
-}));
-
 mock.module("../../tools/browser/browser-screencast.js", () => ({
   unregisterConversationSender: () => {},
 }));
@@ -105,8 +99,7 @@ mock.module("../conversation-skill-tools.js", () => ({
 // Dynamic import after mock.module calls so stubs take effect.
 const { disposeConversation } = await import("../conversation-lifecycle.js");
 type DisposeContext = import("../conversation-lifecycle.js").DisposeContext;
-type TrustClass =
-  import("../../runtime/actor-trust-resolver.js").TrustClass;
+type TrustClass = import("../../runtime/actor-trust-resolver.js").TrustClass;
 
 // ---------------------------------------------------------------------------
 // Fixture builder — minimal DisposeContext satisfying the interface shape.
