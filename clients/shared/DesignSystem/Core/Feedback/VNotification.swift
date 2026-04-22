@@ -41,13 +41,15 @@ public struct VNotification: View {
                     Text(message)
                         .font(textFont)
                         .foregroundStyle(textColor)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
             } else {
                 Text(message)
                     .font(textFont)
                     .foregroundStyle(textColor)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
 
             Spacer()
