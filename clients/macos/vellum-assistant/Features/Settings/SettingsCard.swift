@@ -79,5 +79,6 @@ struct SettingsDivider: View {
         Rectangle()
             .fill(VColor.borderHover)
             .frame(height: 1)
+            .accessibilityHidden(true)
     }
 }
