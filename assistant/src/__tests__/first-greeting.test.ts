@@ -85,7 +85,7 @@ describe("first-greeting", () => {
         assistantName: "Pip",
       });
       expect(greeting).toContain("Hey Alex, I'm Pip.");
-      expect(greeting).toContain("GitHub and Linear say");
+      expect(greeting).toContain("You mentioned using GitHub and Linear");
       expect(greeting).toContain(
         "shipping code or figuring out what to ship next",
       );
@@ -100,7 +100,7 @@ describe("first-greeting", () => {
         userName: "Alex",
         assistantName: "Pip",
       });
-      expect(greeting).toContain("Notion and Linear say");
+      expect(greeting).toContain("You mentioned using Notion and Linear");
       expect(greeting).toContain("writing a spec or pushing something forward");
     });
 
@@ -112,7 +112,7 @@ describe("first-greeting", () => {
         userName: "Alex",
         assistantName: "Luna",
       });
-      expect(greeting).toContain("Notion and Google Drive say");
+      expect(greeting).toContain("You mentioned using Notion and Google Drive");
       expect(greeting).toContain("drafting something or cleaning up docs");
     });
 
@@ -124,7 +124,7 @@ describe("first-greeting", () => {
         assistantName: "Pip",
       });
       expect(greeting).toContain("Probably shipping something or debugging");
-      expect(greeting).not.toContain("Your");
+      expect(greeting).not.toContain("You mentioned using");
     });
 
     it("single tool single task: GitHub + Building", () => {
@@ -135,7 +135,7 @@ describe("first-greeting", () => {
         userName: "Alex",
         assistantName: "Pip",
       });
-      expect(greeting).toContain("Your GitHub says");
+      expect(greeting).toContain("You mentioned using GitHub");
     });
 
     it("many hats: 4 selections", () => {
@@ -218,7 +218,7 @@ describe("first-greeting", () => {
       });
       expect(greeting).toContain("I'm Pip");
       expect(greeting).toContain("I'll get sharper");
-      expect(greeting).toContain("am I on the right track");
+      expect(greeting).toContain("Am I on the right track");
     });
 
     it("two-paragraph structure with blank line", () => {
@@ -247,7 +247,7 @@ describe("first-greeting", () => {
         userName: "Alex",
         assistantName: "Pip",
       });
-      expect(greeting).toContain("GitHub and Linear say");
+      expect(greeting).toContain("You mentioned using GitHub and Linear");
       expect(greeting).not.toContain("Apple Notes");
       expect(greeting).not.toContain("Notion");
     });
@@ -261,7 +261,7 @@ describe("first-greeting", () => {
         assistantName: "Pip",
       });
       expect(greeting).toContain("Probably shipping something or debugging");
-      expect(greeting).not.toContain("Your");
+      expect(greeting).not.toContain("You mentioned using");
     });
 
     it("life admin guess uses verb phrase", () => {
@@ -272,7 +272,9 @@ describe("first-greeting", () => {
         userName: "Alex",
         assistantName: "Pip",
       });
-      expect(greeting).toContain("Gmail and Google Calendar say");
+      expect(greeting).toContain(
+        "You mentioned using Gmail and Google Calendar",
+      );
       expect(greeting).toContain("juggling travel, bills, or household stuff");
     });
 
