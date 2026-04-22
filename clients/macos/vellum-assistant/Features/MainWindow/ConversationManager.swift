@@ -147,6 +147,13 @@ final class ConversationManager: ConversationRestorerDelegate {
         set { selectionStore.draftViewModel = newValue }
     }
 
+    /// The draft's pre-assigned local UUID, available whenever a draft VM exists.
+    /// Callers use this to install selections like `.appEditing(_, draftLocalId)`
+    /// that survive the draft-to-committed promotion.
+    var draftLocalId: UUID? {
+        selectionStore.draftLocalId
+    }
+
     var pendingAnchorMessageId: UUID? {
         get { selectionStore.pendingAnchorMessageId }
         set { selectionStore.pendingAnchorMessageId = newValue }
@@ -535,6 +542,10 @@ final class ConversationManager: ConversationRestorerDelegate {
             self?.promoteDraft(fromUserSend: true)
         }
         selectionStore.draftViewModel = viewModel
+        // Pre-generate the local UUID so overlay selections like
+        // `.appEditing(_, draftLocalId)` are valid during draft mode and stay
+        // valid across promotion (promoteDraft reuses this id).
+        selectionStore.draftLocalId = UUID()
         selectionStore.performDeactivation()
         activityStore.observeActiveViewModel(viewModel.messageManager)
         log.info("Entered draft mode")
@@ -543,8 +554,11 @@ final class ConversationManager: ConversationRestorerDelegate {
     private func promoteDraft(fromUserSend: Bool) {
         guard let viewModel = selectionStore.draftViewModel else { return }
 
-        let conversation = ConversationModel(title: "Untitled", groupId: ConversationGroup.all.id)
-        let localId = conversation.id
+        // Reuse the draft's pre-assigned local UUID so any selection that
+        // references it (e.g. `.appEditing(_, draftLocalId)`) stays valid
+        // without an extra state transition after promotion.
+        let localId = selectionStore.draftLocalId ?? UUID()
+        let conversation = ConversationModel(id: localId, title: "Untitled", groupId: ConversationGroup.all.id)
         listStore.conversations.insert(conversation, at: 0)
         selectionStore.chatViewModels[conversation.id] = viewModel
         activityStore.observeBusyState(for: conversation.id, messageManager: viewModel.messageManager)
@@ -553,6 +567,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         selectionStore.touchVMAccessOrder(conversation.id)
         selectionStore.scheduleEvictionIfNeeded()
         selectionStore.draftViewModel = nil
+        selectionStore.draftLocalId = nil
 
         if fromUserSend {
             selectionStore.completedConversationCount += 1

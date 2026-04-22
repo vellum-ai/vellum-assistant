@@ -40,6 +40,14 @@ extension MainWindowView {
             } else {
                 windowState.selection = .conversation(id)
             }
+        } else if let appId = windowState.activeAppId,
+                  let draftLocalId = conversationManager.draftLocalId {
+            // Draft mode with an app open: keep the app docked next to the new
+            // draft. The draft's pre-assigned UUID is reused when the draft is
+            // promoted on first send, so the selection stays valid throughout.
+            // persistentConversationId is preserved so navigation-back returns
+            // to the prior conversation the user was editing alongside the app.
+            windowState.setAppEditing(appId: appId, conversationId: draftLocalId)
         } else {
             // Draft mode — clear selection so no sidebar conversation is highlighted
             windowState.selection = nil

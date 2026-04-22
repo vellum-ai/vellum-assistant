@@ -228,6 +228,16 @@ struct MainWindowView: View {
     }
 
     func enterAppEditing(appId: String) {
+        // Draft mode: dock onto the draft directly using its pre-assigned local
+        // UUID. Going through resolveConversationId here would route to a stale
+        // committed conversation (visibleConversations.first), and calling
+        // selectConversation with the draft id would fail because the draft
+        // isn't in the conversation list until first-message promotion.
+        if conversationManager.activeConversationId == nil,
+           let draftLocalId = conversationManager.draftLocalId {
+            windowState.setAppEditing(appId: appId, conversationId: draftLocalId)
+            return
+        }
         guard let conversationId = resolveConversationId() else {
             // No committed conversation available — createConversation() entered draft
             // mode, which has no UUID until first user send. Fall back to `.app(appId)`
@@ -349,6 +359,27 @@ struct MainWindowView: View {
                         } else {
                             windowState.applySelectionCorrection(nil)
                         }
+                    }
+                } else if case .appEditing(let appId, let id) = newSelection {
+                    // Validate the app-editing target. Nav history can replay an
+                    // `.appEditing` whose conversationId references an abandoned
+                    // draft (after switching to another conversation cleared
+                    // `draftLocalId`) or an archived conversation. Without this
+                    // guard the dock keeps rendering the previous
+                    // `activeConversationId` while the sidebar highlights
+                    // nothing — a mixed state the user lands in on Back.
+                    let isCommittedAndVisible = listStore.conversations.contains { $0.id == id && !$0.isArchived }
+                    let isCurrentDraft = conversationManager.draftLocalId == id
+                    if isCommittedAndVisible {
+                        // Sync ConversationManager so the chat dock targets
+                        // this conversation even when we arrived here via a
+                        // history replay rather than a sidebar click.
+                        if conversationManager.activeConversationId != id {
+                            conversationManager.selectConversation(id: id)
+                        }
+                    } else if !isCurrentDraft {
+                        // Stale target — drop the dock but keep the app visible.
+                        windowState.applySelectionCorrection(.app(appId))
                     }
                 }
 

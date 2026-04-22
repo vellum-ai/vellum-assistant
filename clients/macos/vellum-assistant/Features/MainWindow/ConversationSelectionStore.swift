@@ -56,6 +56,7 @@ final class ConversationSelectionStore {
         guard conversationId != activeConversationId else { return }
         // Switching to a real conversation discards any draft.
         draftViewModel = nil
+        draftLocalId = nil
         activeConversationId = conversationId
 
         let vm = getOrCreateViewModel(for: conversationId)
@@ -90,6 +91,13 @@ final class ConversationSelectionStore {
     // MARK: - Draft Mode
 
     var draftViewModel: ChatViewModel?
+
+    /// Pre-generated local UUID for the current draft. Assigned alongside
+    /// `draftViewModel` in ``ConversationManager.enterDraftMode`` and reused by
+    /// ``ConversationManager.promoteDraft`` as the final `ConversationModel.id`,
+    /// so selections like `.appEditing(_, draftLocalId)` remain valid across the
+    /// draft-to-committed transition without rewriting state.
+    var draftLocalId: UUID?
 
     // MARK: - Anchor / Highlight
 
