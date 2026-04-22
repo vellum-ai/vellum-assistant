@@ -1,9 +1,6 @@
 import type { Command } from "commander";
 
-import {
-  getRuntimeHttpHost,
-  getRuntimeHttpPort,
-} from "../../config/env.js";
+import { getRuntimeHttpHost, getRuntimeHttpPort } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
 import { healthCheckHost, isHttpHealthy } from "../../daemon/daemon-control.js";
@@ -16,6 +13,7 @@ import {
   createConversation,
   getConversation,
   getMessages,
+  updateConversationTitle,
   wipeConversation,
 } from "../../memory/conversation-crud.js";
 import { listConversations } from "../../memory/conversation-queries.js";
@@ -24,7 +22,10 @@ import {
   SPARSE_EMBEDDING_VERSION,
 } from "../../memory/embedding-backend.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
-import { initQdrantClient, resolveQdrantUrl } from "../../memory/qdrant-client.js";
+import {
+  initQdrantClient,
+  resolveQdrantUrl,
+} from "../../memory/qdrant-client.js";
 import {
   initAuthSigningKey,
   loadOrCreateSigningKey,
@@ -109,6 +110,86 @@ Examples:
       const conversation = createConversation(title);
       log.info(
         `Created conversation: ${conversation.title ?? "New Conversation"} (${conversation.id})`,
+      );
+    });
+
+  conversations
+    .command("rename <conversationId> <title>")
+    .description("Rename a conversation")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  conversationId   Conversation ID (or unique prefix). Supports prefix matching.
+                   Run 'assistant conversations list' to find IDs.
+  title            The new title for the conversation. Should be concise (under
+                   60 characters) and descriptive of the current topic.
+
+Renames the conversation to the given title and marks it as a manual rename
+(auto-generated titles will not overwrite it). When the assistant is running,
+delegates to the HTTP API so connected clients update in real time. Otherwise
+updates the local database directly.
+
+Examples:
+  $ assistant conversations rename abc123 "Project planning"
+  $ assistant conversations rename abc123 "Bug triage 2026-04-22"`,
+    )
+    .action(async (conversationId: string, title: string) => {
+      const trimmedTitle = title.trim();
+      if (!trimmedTitle) {
+        log.error("Error: title must be a non-empty string");
+        process.exit(1);
+      }
+
+      initializeDb();
+
+      // Resolve conversation with prefix matching
+      let conversation = getConversation(conversationId);
+      if (!conversation) {
+        const all = listConversations(Number.MAX_SAFE_INTEGER);
+        const match = all.find((c) => c.id.startsWith(conversationId));
+        if (match) {
+          conversation = match;
+        } else {
+          log.error(`Conversation not found: ${conversationId}`);
+          process.exit(1);
+        }
+      }
+
+      // When the daemon is running, delegate to the HTTP rename endpoint
+      // so connected clients see the update in real time.
+      if (await isHttpHealthy()) {
+        const port = getRuntimeHttpPort();
+        const host = healthCheckHost(getRuntimeHttpHost());
+        initAuthSigningKey(loadOrCreateSigningKey());
+        const token = mintDaemonDeliveryToken();
+        const res = await fetch(
+          `http://${host}:${port}/v1/conversations/${conversation.id}/name`,
+          {
+            method: "PATCH",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ name: trimmedTitle }),
+          },
+        );
+        if (!res.ok) {
+          const body = await res.text();
+          log.error(`Rename failed (${res.status}): ${body}`);
+          process.exit(1);
+        }
+        log.info(
+          `Renamed conversation to "${trimmedTitle}" (${conversation.id})`,
+        );
+        return;
+      }
+
+      // Daemon not running — update the database directly.
+      // isAutoTitle = 0 prevents auto-generation from overwriting it.
+      updateConversationTitle(conversation.id, trimmedTitle, 0);
+      log.info(
+        `Renamed conversation to "${trimmedTitle}" (${conversation.id})`,
       );
     });
 
