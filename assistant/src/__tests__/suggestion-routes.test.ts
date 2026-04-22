@@ -410,7 +410,7 @@ describe("GET /v1/suggestion", () => {
     expect(body.suggestion).toBe("sounds good");
   });
 
-  test("passes prefill message, stop_sequences, and max_tokens", async () => {
+  test("passes stop_sequences, max_tokens, and XML-framed user prompt", async () => {
     const provider = makeMockProvider("on my way");
     mockGetConfiguredProvider.mockImplementation(async () => provider);
     mockGetConversationByKey.mockImplementation(() => ({
@@ -454,9 +454,8 @@ describe("GET /v1/suggestion", () => {
       };
     };
 
-    expect(messages.length).toBe(2);
-    expect(messages[1].role).toBe("assistant");
-    expect(messages[1].content[0].text).toBe("<reply>");
+    expect(messages.length).toBe(1);
+    expect(messages[0].role).toBe("user");
     expect(options.config?.stop_sequences).toEqual(["</reply>"]);
     expect(options.config?.max_tokens).toBe(60);
     expect(messages[0].content[0].text).toContain("<assistant_message>");
