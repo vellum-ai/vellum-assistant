@@ -324,7 +324,7 @@ jobs:
 
   notify-macos:
     name: Slack Notification (macOS)
-    needs: [changes, test, build]
+    needs: [changes, test, build, flexframe-lint]
     if: always()
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -337,11 +337,11 @@ jobs:
         run: |
           GITHUB_USER="${{ github.actor }}"
 
-          if [[ "${{ needs.test.result }}" == "failure" ]] || [[ "${{ needs.build.result }}" == "failure" ]]; then
+          if [[ "${{ needs.test.result }}" == "failure" ]] || [[ "${{ needs.build.result }}" == "failure" ]] || [[ "${{ needs.flexframe-lint.result }}" == "failure" ]]; then
             STATUS="failure"
-          elif [[ "${{ needs.test.result }}" == "cancelled" ]] || [[ "${{ needs.build.result }}" == "cancelled" ]]; then
+          elif [[ "${{ needs.test.result }}" == "cancelled" ]] || [[ "${{ needs.build.result }}" == "cancelled" ]] || [[ "${{ needs.flexframe-lint.result }}" == "cancelled" ]]; then
             STATUS="cancelled"
-          elif [[ "${{ needs.test.result }}" == "skipped" ]] && [[ "${{ needs.build.result }}" == "skipped" ]]; then
+          elif [[ "${{ needs.test.result }}" == "skipped" ]] && [[ "${{ needs.build.result }}" == "skipped" ]] && [[ "${{ needs.flexframe-lint.result }}" == "skipped" ]]; then
             STATUS="skipped"
           else
             STATUS="success"
