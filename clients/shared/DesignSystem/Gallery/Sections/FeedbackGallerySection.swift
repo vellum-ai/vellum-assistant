@@ -32,7 +32,7 @@ struct FeedbackGallerySection: View {
                         HStack(spacing: VSpacing.xl) {
                             VStack(spacing: VSpacing.xs) {
                                 Text("Accent").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
-                                VBadge(style: .count(Int(badgeCount)), color: VColor.primaryBase)
+                                VBadge(count: Int(badgeCount), tone: .accent)
                             }
                             VStack(spacing: VSpacing.xs) {
                                 Text("Success").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
