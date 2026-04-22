@@ -15,7 +15,7 @@ public struct VPaidBadge: View {
         }
         .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
         .background(VColor.systemPositiveWeak)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.chip))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Paid integration")
     }
