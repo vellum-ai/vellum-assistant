@@ -68,6 +68,32 @@ final class HostBrowserExecutorTests: XCTestCase {
         XCTAssertEqual(json["code"] as? String, "unreachable")
     }
 
+    // MARK: - cdpSessionId Target Resolution
+
+    /// When cdpSessionId is provided but Chrome is unreachable, the executor
+    /// should still return a transport error — cdpSessionId is used for target
+    /// resolution from /json/list, not as a CDP protocol sessionId field.
+    func testRunWithCdpSessionIdReturnsUnreachableWhenChromeNotRunning() async {
+        let executor = HostBrowserExecutor()
+        let request = makeRequest(
+            requestId: "req-with-session",
+            cdpMethod: "Runtime.evaluate",
+            cdpSessionId: "ABCDEF1234567890"
+        )
+
+        let result = await executor.run(request)
+
+        XCTAssertEqual(result.requestId, "req-with-session")
+        XCTAssertTrue(result.isError, "Should be a transport error when Chrome is unreachable")
+
+        guard let data = result.content.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            XCTFail("Content should be valid JSON")
+            return
+        }
+        XCTAssertEqual(json["code"] as? String, "unreachable")
+    }
+
     // MARK: - Cancellation
 
     func testCancelSuppressesResultPost() async {

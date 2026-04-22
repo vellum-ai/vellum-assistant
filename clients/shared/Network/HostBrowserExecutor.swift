@@ -136,8 +136,26 @@ public final class HostBrowserExecutor {
             )
         }
 
-        // Step 2: Select a page target (first with type == "page")
-        guard let target = targets.first(where: { ($0["type"] as? String) == "page" }),
+        // Step 2: Select a page target.
+        // When cdpSessionId is provided, use it to find the target whose `id`
+        // matches — this mirrors the Chrome extension's resolveTarget() which
+        // uses cdpSessionId for target resolution (NOT as a CDP protocol
+        // sessionId). Fall back to the first page target when no cdpSessionId
+        // is provided or when no target matches.
+        let pageTargets = targets.filter { ($0["type"] as? String) == "page" }
+        let selectedTarget: [String: Any]? = {
+            if let sessionId = request.cdpSessionId {
+                // Match by target id (the Chrome DevTools target identifier)
+                if let matched = pageTargets.first(where: { ($0["id"] as? String) == sessionId }) {
+                    return matched
+                }
+                // Fall back to first page target if cdpSessionId doesn't match
+                log.warning("cdpSessionId '\(sessionId, privacy: .public)' did not match any target id; falling back to first page target")
+            }
+            return pageTargets.first
+        }()
+
+        guard let target = selectedTarget,
               let wsURL = target["webSocketDebuggerUrl"] as? String else {
             return Self.transportError(
                 requestId: request.requestId,
@@ -156,11 +174,15 @@ public final class HostBrowserExecutor {
         }
 
         do {
+            // cdpSessionId is used for target resolution above — it must NOT
+            // be forwarded as a CDP flat-session sessionId in the WebSocket
+            // message. Doing so causes Chrome to look up a non-existent
+            // session and fail with "Session with given id not found".
             let result = try await sendCDPCommand(
                 endpoint: wsEndpoint,
                 method: request.cdpMethod,
                 params: request.cdpParams,
-                sessionId: request.cdpSessionId,
+                sessionId: nil,
                 timeout: timeout
             )
             return HostBrowserResultPayload(
