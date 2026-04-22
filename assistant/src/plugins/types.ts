@@ -172,8 +172,47 @@ export interface ToolExecuteArgs {
  */
 export type ToolExecuteResult = ToolExecutionResult;
 
-export type MemoryRetrievalArgs = { readonly input: unknown };
-export type MemoryRetrievalResult = { readonly output: unknown };
+/**
+ * A single retrieved memory artifact.
+ *
+ * The memory-graph retriever emits complex, tightly-coupled state (content
+ * blocks, query vectors, metrics, events, etc.) that downstream code in the
+ * agent loop consumes holistically. Representing each memory-graph output as
+ * an opaque `MemoryBlock` lets plugins swap in completely different shapes
+ * (custom retrievers, mocks for testing) without requiring the plugin surface
+ * to re-declare the graph result schema here. Refined by consumers via
+ * runtime narrowing — the default retriever attaches a structural marker so
+ * the agent loop can safely unwrap its own output.
+ */
+export type MemoryBlock = unknown;
+
+/**
+ * Inputs to the memory-retrieval pipeline. The pipeline takes only
+ * identifiers and the trust context — the actual data sources (PKB files,
+ * NOW.md, memory graph) are side-effectful and read by the terminal.
+ */
+export interface MemoryArgs {
+  readonly conversationId: string;
+  readonly trustContext: TrustContext | undefined;
+  readonly turnIndex: number;
+}
+
+/**
+ * Outputs of the memory-retrieval pipeline.
+ *
+ * - `pkbContent` / `nowContent`: trimmed file contents ready for injection,
+ *   or `null` when the file is missing/empty.
+ * - `memoryGraphBlocks`: zero or one memory-graph retrievals (the default
+ *   retriever yields exactly one when the actor is trusted and the graph
+ *   produced output, zero otherwise). Multi-entry arrays are reserved for
+ *   future multi-source retrievers; the current agent loop consumes only
+ *   the first entry.
+ */
+export interface MemoryResult {
+  readonly pkbContent: string | null;
+  readonly nowContent: string | null;
+  readonly memoryGraphBlocks: ReadonlyArray<MemoryBlock>;
+}
 
 export type HistoryRepairArgs = { readonly input: unknown };
 export type HistoryRepairResult = { readonly output: unknown };
@@ -312,7 +351,7 @@ export interface PipelineMiddlewareMap {
   turn: Middleware<TurnArgs, TurnResult>;
   llmCall: Middleware<LLMCallArgs, LLMCallResult>;
   toolExecute: Middleware<ToolExecuteArgs, ToolExecuteResult>;
-  memoryRetrieval: Middleware<MemoryRetrievalArgs, MemoryRetrievalResult>;
+  memoryRetrieval: Middleware<MemoryArgs, MemoryResult>;
   historyRepair: Middleware<HistoryRepairArgs, HistoryRepairResult>;
   tokenEstimate: Middleware<TokenEstimateArgs, TokenEstimateResult>;
   compaction: Middleware<CompactionArgs, CompactionResult>;

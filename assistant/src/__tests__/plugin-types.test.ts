@@ -17,6 +17,8 @@ import {
   type Injector,
   type LLMCallArgs,
   type LLMCallResult,
+  type MemoryArgs,
+  type MemoryResult,
   type Middleware,
   type Plugin,
   PluginExecutionError,
@@ -100,6 +102,15 @@ describe("plugin core types", () => {
       ToolErrorDecision
     > = async (args, next, _ctx) => next(args);
 
+    // `memoryRetrieval` has a concrete typed signature (MemoryArgs →
+    // MemoryResult) introduced in PR 20, so it can't use the generic
+    // `{ input }` passthrough above.
+    const memoryPassthrough: Middleware<MemoryArgs, MemoryResult> = async (
+      args,
+      next,
+      _ctx,
+    ) => next(args);
+
     const injector: Injector = {
       name: "sample-injector",
       order: 10,
@@ -137,7 +148,7 @@ describe("plugin core types", () => {
         turn: passthrough,
         llmCall: llmCallPassthrough,
         toolExecute: toolExecutePassthrough,
-        memoryRetrieval: passthrough,
+        memoryRetrieval: memoryPassthrough,
         historyRepair: passthrough,
         tokenEstimate: passthrough,
         compaction: passthrough,
