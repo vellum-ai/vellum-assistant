@@ -34,6 +34,17 @@ import {
   type TurnContext,
 } from "./types.js";
 
+// Side-effect import: register every first-party default plugin at module
+// load so downstream consumers (production bootstrap AND tests that skip
+// `bootstrapPlugins()`) observe a fully-populated registry by default.
+// Every code path that calls `runPipeline` imports this module, so by the
+// time the first pipeline runs the defaults are already in place. User
+// plugins load via `loadUserPlugins()` inside `bootstrapPlugins()` (which
+// runs AFTER all static side-effect imports), so the onion ordering
+// (defaults inner, user middleware outer) across all 14 pipelines is
+// preserved in production.
+import "./defaults/index.js";
+
 const moduleLogger = getLogger("plugin-pipeline");
 
 // ─── Default timeouts ───────────────────────────────────────────────────────
