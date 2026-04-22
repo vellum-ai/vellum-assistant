@@ -37,6 +37,8 @@ public struct ToolConfirmationData: Equatable {
     public let toolName: String
     public let input: [String: AnyCodable]
     public let riskLevel: String
+    /// Human-readable reason for the risk classification (v3 prompt).
+    public let riskReason: String?
     public let diff: ConfirmationRequestDiff?
     public let allowlistOptions: [ConfirmationRequestAllowlistOption]
     public let scopeOptions: [ConfirmationRequestScopeOption]
@@ -545,11 +547,12 @@ public struct ToolConfirmationData: Equatable {
         )
     }
 
-    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, diff: ConfirmationRequestDiff? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption] = [], scopeOptions: [ConfirmationRequestScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], toolUseId: String? = nil, state: ToolConfirmationState = .pending) {
+    public init(requestId: String, toolName: String, input: [String: AnyCodable] = [:], riskLevel: String, riskReason: String? = nil, diff: ConfirmationRequestDiff? = nil, allowlistOptions: [ConfirmationRequestAllowlistOption] = [], scopeOptions: [ConfirmationRequestScopeOption] = [], executionTarget: String? = nil, persistentDecisionsAllowed: Bool = true, temporaryOptionsAvailable: [String] = [], toolUseId: String? = nil, state: ToolConfirmationState = .pending) {
         self.requestId = requestId
         self.toolName = toolName
         self.input = input
         self.riskLevel = riskLevel
+        self.riskReason = riskReason
         self.diff = diff
         self.allowlistOptions = allowlistOptions
         self.scopeOptions = scopeOptions
