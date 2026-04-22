@@ -733,6 +733,12 @@ private struct StepDetailRow: View {
     var skillLabel: String?
     var onRehydrate: (() -> Void)?
 
+    /// Drives the Rule Editor Modal sheet presentation. Set to a tool call
+    /// when the user taps a risk badge in the expanded view.
+    @State private var ruleEditorToolCall: ToolCallData?
+
+    private let trustRuleClient: TrustRuleClientProtocol = TrustRuleClient()
+
     private static let coloredOutputCache: NSCache<NSString, StepDetailAttributedStringCacheEntry> = {
         let cache = NSCache<NSString, StepDetailAttributedStringCacheEntry>()
         cache.countLimit = 128
@@ -830,6 +836,14 @@ private struct StepDetailRow: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
 
+                    // Risk badge (expanded view only, gated on permission-controls-v3)
+                    if let risk = toolCall.riskLevel,
+                       MacOSClientFeatureFlagManager.shared.isEnabled("permission-controls-v3") {
+                        RiskBadgeView(riskLevel: risk) {
+                            ruleEditorToolCall = toolCall
+                        }
+                    }
+
                     Spacer()
 
                     // Permission badge + duration + chevron (completed only)
@@ -874,6 +888,51 @@ private struct StepDetailRow: View {
             DispatchQueue.main.async {
                 onRehydrate?()
             }
+        }
+        .sheet(item: $ruleEditorToolCall) { tc in
+            RuleEditorModal(
+                toolName: tc.friendlyName,
+                command: tc.inputSummary,
+                currentRiskLevel: tc.riskLevel ?? "medium",
+                riskReason: tc.riskReason ?? "",
+                scopeOptions: Self.scopeOptions(from: tc),
+                workingDir: NSHomeDirectory(),
+                onSave: { rule in
+                    Task {
+                        try? await trustRuleClient.addTrustRule(
+                            toolName: rule.toolName,
+                            pattern: rule.pattern,
+                            scope: rule.scope,
+                            decision: "allow",
+                            executionTarget: nil
+                        )
+                    }
+                },
+                onDismiss: { ruleEditorToolCall = nil }
+            )
+        }
+    }
+
+    // MARK: - Scope Options
+
+    /// Constructs the scope option items from the tool call's risk scope options.
+    /// Falls back to a single "This exact command" option when none are provided.
+    private static func scopeOptions(from toolCall: ToolCallData) -> [ScopeOptionItem] {
+        guard let options = toolCall.riskScopeOptions, !options.isEmpty else {
+            return [
+                ScopeOptionItem(
+                    label: toolCall.inputSummary,
+                    description: "This exact command",
+                    pattern: toolCall.inputSummary
+                )
+            ]
+        }
+        return options.map { option in
+            ScopeOptionItem(
+                label: option.pattern,
+                description: option.label,
+                pattern: option.pattern
+            )
         }
     }
 
