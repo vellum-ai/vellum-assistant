@@ -258,8 +258,8 @@ export async function run(
     });
 
     void emitFeedEvent({
-      source: platform === "slack" ? "slack" : "gmail",
-      title: platform === "slack" ? "Slack Message Sent" : "Email Sent",
+      source: provider.id === "slack" ? "slack" : "gmail",
+      title: provider.id === "slack" ? "Slack Message Sent" : "Email Sent",
       summary: `Sent message to ${conversationId}.`,
       dedupKey: `message-sent:${result.id}`,
     }).catch((err) => {
