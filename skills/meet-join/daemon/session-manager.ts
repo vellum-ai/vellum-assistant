@@ -106,6 +106,8 @@ import {
 } from "./conversation-bridge.js";
 import {
   DockerRunner,
+  getMeetBotInstanceHash,
+  MEET_BOT_INSTANCE_LABEL,
   MEET_BOT_LABEL,
   MEET_BOT_MEETING_ID_LABEL,
   reapOrphanedMeetBots,
@@ -810,7 +812,8 @@ class MeetSessionManagerImpl {
     // transient docker-engine hiccup never tears down the session-manager
     // singleton. Tests opt out via {@link MeetSessionManagerDeps.disableStartupOrphanReaper}.
     //
-    // Two guards make the sweep race-safe with concurrent joins:
+    // Three guards make the sweep race-safe with concurrent joins and
+    // safe against cross-instance kills:
     //   1. `createdBefore` — Docker's `Created` timestamp for every
     //      container the reaper considers must predate this moment, so any
     //      container spawned by a join that races the sweep is skipped.
@@ -819,6 +822,11 @@ class MeetSessionManagerImpl {
     //      before the session lands in the map) per-container, so a join
     //      that lands mid-sweep is observed before its meeting ID is
     //      evaluated.
+    //   3. `instanceHash` — derived from `vellumRoot()`, the daemon's
+    //      per-instance data root. Multi-instance setups (prod/dev/test/
+    //      local side-by-side) are common; without this guard a second
+    //      daemon's startup reaper would SIGTERM the first daemon's live
+    //      bot containers. Only same-instance bots are reaped.
     if (!this.deps.disableStartupOrphanReaper) {
       const reaperDocker = this.deps.dockerRunnerFactory();
       const daemonStartEpochSeconds = Math.floor(Date.now() / 1000);
@@ -829,6 +837,7 @@ class MeetSessionManagerImpl {
           for (const id of this.pendingBotTokens.keys()) ids.add(id);
           return ids;
         },
+        instanceHash: getMeetBotInstanceHash(),
         createdBefore: daemonStartEpochSeconds,
         logger: log,
       }).catch((err: unknown) => {
@@ -1182,10 +1191,13 @@ class MeetSessionManagerImpl {
         network: meet.dockerNetwork,
         // Labels consumed by the orphan reaper on the next daemon boot.
         // See {@link reapOrphanedMeetBots} in `docker-runner.ts` for the
-        // full label scheme + reaper contract.
+        // full label scheme + reaper contract. The `vellum.meet.instance`
+        // label scopes the bot to this daemon's instance root so a
+        // concurrently-running second daemon cannot reap this container.
         labels: {
           [MEET_BOT_LABEL]: "true",
           [MEET_BOT_MEETING_ID_LABEL]: meetingId,
+          [MEET_BOT_INSTANCE_LABEL]: getMeetBotInstanceHash(),
         },
         // When avatar is enabled, pass through the v4l2loopback device so
         // the bot container can open `/dev/video10` (or whatever override

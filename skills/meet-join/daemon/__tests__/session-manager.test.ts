@@ -228,6 +228,7 @@ describe("MeetSessionManager.join", () => {
       }>;
       name: string;
       network: string;
+      labels: Record<string, string>;
     };
     expect(runOpts.image).toBe("vellum-meet-bot:dev");
     expect(runOpts.env.MEET_URL).toBe("https://meet.google.com/xyz-abc-def");
@@ -262,6 +263,15 @@ describe("MeetSessionManager.join", () => {
 
     expect(runOpts.name).toBe("vellum-meet-m1");
     expect(runOpts.network).toBe("bridge");
+
+    // Container labels consumed by the startup orphan reaper. The
+    // `vellum.meet.instance` label scopes the bot to this daemon's data
+    // root so a concurrently-running second daemon (different instance
+    // root) cannot cross-kill this container via its own reaper. See
+    // `docker-runner.ts:reapOrphanedMeetBots` for the full contract.
+    expect(runOpts.labels["vellum.meet.bot"]).toBe("true");
+    expect(runOpts.labels["vellum.meet.meetingId"]).toBe("m1");
+    expect(runOpts.labels["vellum.meet.instance"]).toMatch(/^[0-9a-f]{16}$/);
 
     // activeSessions and getSession both reflect the new record.
     expect(manager.activeSessions()).toHaveLength(1);
