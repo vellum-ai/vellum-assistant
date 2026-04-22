@@ -155,7 +155,15 @@ if [ -n "$SWIFT_CHANGED_FILES" ] && [ "$SKIP_SWIFT_BUILD" != "1" ]; then
         _repo_real="$(cd "$REPO_ROOT" && pwd -P)"
         _cache_slug="$(printf '%s' "$_repo_real" | md5 -q 2>/dev/null || printf '%s' "$_repo_real" | md5sum | cut -d' ' -f1)"
         _module_cache="/tmp/spm-module-cache/${_cache_slug}"
-        if ! (cd "${REPO_ROOT}/clients" && swift build --product vellum-assistant -Xswiftc -module-cache-path -Xswiftc "$_module_cache" 2>&1); then
+        # Per-worktree scratch directory so concurrent pre-push builds across
+        # parallel swarm worktrees don't contend on the shared `clients/.build`
+        # symlink (single `build.db` lock + a ModuleCache that gets polluted
+        # with sibling worktrees' `.pcm` paths). Cold first build per worktree
+        # is the cost; alternative (flock serialization) needs `flock(1)` which
+        # macOS doesn't ship by default.
+        _scratch_path="/tmp/spm-build/${_cache_slug}"
+        mkdir -p "$_scratch_path"
+        if ! (cd "${REPO_ROOT}/clients" && swift build --product vellum-assistant --scratch-path "$_scratch_path" -Xswiftc -module-cache-path -Xswiftc "$_module_cache" 2>&1); then
             echo ""
             echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
             echo -e "${RED}Swift build errors in clients/ — push blocked${NC}"
