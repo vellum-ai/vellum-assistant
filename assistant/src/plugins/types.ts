@@ -33,6 +33,7 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../providers/types.js";
+import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 
@@ -771,11 +772,12 @@ export interface Injector {
 }
 
 // ─── Model-visible capability slots ──────────────────────────────────────────
-// Concrete shapes are defined by the tool/route/skill registries. Routes
-// remain `unknown`-tagged placeholders until PR 32 wires those registrations.
-// Tool contributions are wired in PR 31 and use the canonical `Tool` interface
-// from the tool registry. Skill contributions (PR 33) ship with a concrete
-// shape below so plugins can declare catalog-discoverable skills today.
+// Concrete shapes are defined by the tool/route/skill registries. Tool
+// contributions (PR 31) use the canonical `Tool` interface; route
+// contributions (PR 32) use the `SkillRoute` shape from the skill-route
+// registry; skill contributions (PR 33) ship with the concrete
+// `PluginSkillRegistration` shape below so plugins can declare
+// catalog-discoverable skills today.
 
 /**
  * Tool registration contributed by a plugin. Uses the canonical {@link Tool}
@@ -787,8 +789,14 @@ export interface Injector {
  * ownership metadata to the bootstrap to set authoritatively.
  */
 export type PluginToolRegistration = Tool;
-/** HTTP route registration contributed by a plugin. Concrete shape TBD (PR 32). */
-export type PluginRouteRegistration = unknown;
+/**
+ * HTTP route registration contributed by a plugin. Plugins express routes as
+ * {@link SkillRoute} values — the same shape the skill-route registry
+ * consumes — so `registerSkillRoute`/`unregisterSkillRoute` can accept them
+ * directly. Bootstrap wires the registrations after `init()` succeeds and
+ * tears them down on shutdown.
+ */
+export type PluginRouteRegistration = SkillRoute;
 
 /**
  * A skill contributed by a plugin.

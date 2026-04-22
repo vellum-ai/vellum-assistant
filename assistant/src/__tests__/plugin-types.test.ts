@@ -241,7 +241,13 @@ describe("plugin core types", () => {
         // no-op
       },
       tools: [sampleTool],
-      routes: [{ path: "/sample" }],
+      routes: [
+        {
+          pattern: /^\/sample$/,
+          methods: ["GET"],
+          handler: async () => new Response("ok", { status: 200 }),
+        },
+      ],
       skills: [
         {
           id: "sample-skill",

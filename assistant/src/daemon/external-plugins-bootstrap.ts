@@ -74,6 +74,10 @@ import {
   type PluginInitContext,
   type PluginSkillRegistration,
 } from "../plugins/types.js";
+import {
+  registerSkillRoute,
+  unregisterSkillRoute,
+} from "../runtime/skill-route-registry.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import {
   registerPluginTools,
@@ -317,6 +321,20 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
       );
     }
 
+    // Route contributions (PR 32) — registered after init() succeeds so a
+    // plugin that fails to initialize never exposes a half-wired HTTP
+    // surface. Mirrors the skill-route registry shape; see
+    // {@link PluginRouteRegistration}.
+    if (plugin.routes && plugin.routes.length > 0) {
+      for (const route of plugin.routes) {
+        registerSkillRoute(route);
+      }
+      log.info(
+        { plugin: name, count: plugin.routes.length },
+        "plugin routes registered",
+      );
+    }
+
     // Skills (PR 33) register into the in-memory plugin-skill catalog so
     // `skill_load` / `skill_execute` can resolve them alongside filesystem
     // skills. A registration failure aborts bootstrap with the plugin named
@@ -363,14 +381,25 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
       const plugin = shutdownSnapshot[i]!;
       const name = plugin.manifest.name;
 
-      // Unregister tool contributions before invoking `onShutdown()` so the
-      // plugin's onShutdown hook observes a registry state where its tools
-      // are already gone — the invariant we document to plugin authors is
-      // "by the time your onShutdown runs, your model-visible surface has
-      // been removed, so you can safely tear down whatever those tools
-      // depended on".  `unregisterPluginTools` is a no-op when the plugin
-      // never contributed tools, so we don't need to guard on
-      // `plugin.tools` here.
+      // Unregister model-visible surfaces before invoking `onShutdown()` so
+      // the plugin's onShutdown hook observes a registry state where its
+      // tools and routes are already gone. Plugin authors can safely tear
+      // down whatever those surfaces depended on inside onShutdown.
+      // `unregisterPluginTools` is a no-op when the plugin never
+      // contributed tools, so we don't need to guard on `plugin.tools` here.
+      if (plugin.routes && plugin.routes.length > 0) {
+        for (const route of plugin.routes) {
+          try {
+            unregisterSkillRoute(route.pattern);
+          } catch (err) {
+            log.warn(
+              { err, plugin: name, pattern: route.pattern.source },
+              "plugin route unregister failed (continuing)",
+            );
+          }
+        }
+      }
+
       try {
         unregisterPluginTools(name);
       } catch (err) {
