@@ -7,11 +7,10 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Provi
 ///
 /// The JSON file lives at `meta/provider-env-vars.json` and is the single
 /// source of truth for **search-provider** env var mappings (e.g. Brave,
-/// Perplexity). LLM-provider env vars have moved into the LLM provider
-/// catalog (`meta/llm-provider-catalog.json`, surfaced via
-/// `LLMProviderRegistry`). Callers that need the combined LLM + search
-/// mapping should merge both sources — see `VellumCli.providerEnvVars`
-/// for the canonical combination.
+/// Perplexity). LLM-provider env vars live in the LLM provider catalog
+/// (`meta/llm-provider-catalog.json`, surfaced via `LLMProviderRegistry`).
+/// Callers that need the combined LLM + search mapping should merge both
+/// sources — see `VellumCli.providerEnvVars` for the canonical combination.
 public struct ProviderEnvVarRegistry: Decodable {
     public let version: Int
     /// Provider identifiers (e.g. "brave") mapped to their env var name
