@@ -133,7 +133,8 @@ struct MainWindowView: View {
         self.updateManager = updateManager
         self.onSendWakeUp = onSendWakeUp
         let cached = IdentityInfo.loadFromDiskCache()
-        self._cachedAssistantName = State(initialValue: AssistantDisplayName.resolve(cached?.name, fallback: "Your Assistant"))
+        let preChatName = conversationManager.preChatContext?.assistantName
+        self._cachedAssistantName = State(initialValue: AssistantDisplayName.resolve(cached?.name ?? preChatName, fallback: "Your Assistant"))
         self._assistantNameResolved = State(initialValue: cached != nil)
         self._showComingAlive = State(initialValue: onSendWakeUp != nil)
         // Show skeleton loading only for normal launches (not post-onboarding where
