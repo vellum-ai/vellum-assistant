@@ -4,23 +4,16 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { resolveIpcSocketPath } from "../socket-path.js";
 
-const LONG_WORKSPACE_DIR =
+const LONG_BASE_DIR =
   "/Users/noaflaherty/.local/share/vellum-dev/assistants/vellum-safe-dace-8hrt6e/.vellum/workspace";
 
-let savedWorkspaceDir: string | undefined;
 let savedBaseDataDir: string | undefined;
 
 beforeEach(() => {
-  savedWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
   savedBaseDataDir = process.env.BASE_DATA_DIR;
 });
 
 afterEach(() => {
-  if (savedWorkspaceDir === undefined) {
-    delete process.env.VELLUM_WORKSPACE_DIR;
-  } else {
-    process.env.VELLUM_WORKSPACE_DIR = savedWorkspaceDir;
-  }
   if (savedBaseDataDir === undefined) {
     delete process.env.BASE_DATA_DIR;
   } else {
@@ -29,24 +22,25 @@ afterEach(() => {
 });
 
 describe("resolveIpcSocketPath", () => {
-  test("uses workspace path when it is within the platform limit", () => {
-    process.env.VELLUM_WORKSPACE_DIR = "/tmp/vellum-workspace-test";
+  test("uses protected dir path when it is within the platform limit", () => {
     delete process.env.BASE_DATA_DIR;
 
-    const resolved = resolveIpcSocketPath("assistant-cli.sock");
+    const resolved = resolveIpcSocketPath(
+      "assistant-cli.sock",
+      "/tmp/vellum-test",
+    );
 
-    expect(resolved.source).toBe("workspace");
-    expect(resolved.path).toBe("/tmp/vellum-workspace-test/assistant-cli.sock");
+    expect(resolved.source).toBe("protected");
+    expect(resolved.path).toBe("/tmp/vellum-test/assistant-cli.sock");
     expect(Buffer.byteLength(resolved.path, "utf8")).toBeLessThanOrEqual(
       resolved.maxPathBytes,
     );
   });
 
-  test("falls back to BASE_DATA_DIR/ipc when workspace path is too long", () => {
-    process.env.VELLUM_WORKSPACE_DIR = LONG_WORKSPACE_DIR;
+  test("falls back to BASE_DATA_DIR/ipc when preferred path is too long", () => {
     process.env.BASE_DATA_DIR = "/tmp/vellum-instance-test";
 
-    const resolved = resolveIpcSocketPath("assistant-cli.sock");
+    const resolved = resolveIpcSocketPath("assistant-cli.sock", LONG_BASE_DIR);
 
     expect(resolved.source).toBe("base-data-dir");
     expect(resolved.path).toBe(
@@ -57,11 +51,10 @@ describe("resolveIpcSocketPath", () => {
     );
   });
 
-  test("falls back to tmpdir hash path when workspace path is too long and BASE_DATA_DIR is absent", () => {
-    process.env.VELLUM_WORKSPACE_DIR = LONG_WORKSPACE_DIR;
+  test("falls back to tmpdir hash path when preferred path is too long and BASE_DATA_DIR is absent", () => {
     delete process.env.BASE_DATA_DIR;
 
-    const resolved = resolveIpcSocketPath("assistant-cli.sock");
+    const resolved = resolveIpcSocketPath("assistant-cli.sock", LONG_BASE_DIR);
 
     expect(resolved.source).toBe("tmp-hash");
     expect(resolved.path.startsWith(join(tmpdir(), "vellum-ipc"))).toBe(true);

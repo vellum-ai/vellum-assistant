@@ -5,7 +5,7 @@
  * Returns a typed result object so callers can distinguish success
  * from connection failures and method errors.
  *
- * The preferred socket path is `{workspaceDir}/assistant-cli.sock`, with a
+ * The preferred socket path is `{protectedDir}/assistant-cli.sock`, with a
  * deterministic fallback for long AF_UNIX paths.
  */
 
