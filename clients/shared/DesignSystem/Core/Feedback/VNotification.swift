@@ -95,6 +95,7 @@ public struct VNotification: View {
         Rectangle()
             .fill(foregroundColor.opacity(dividerOpacity))
             .frame(width: 1, height: 18)
+            .accessibilityHidden(true)
     }
 
     private var textFont: Font {
@@ -145,7 +146,7 @@ public struct VNotification: View {
         switch tone {
         case .positive: return .circleCheck
         case .negative: return .circleX
-        case .warning: return .info
+        case .warning: return .triangleAlert
         case .neutral: return .info
         }
     }
