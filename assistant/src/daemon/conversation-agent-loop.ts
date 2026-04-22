@@ -68,11 +68,23 @@ import type { ConversationGraphMemory } from "../memory/graph/conversation-graph
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
-import { runPipeline } from "../plugins/pipeline.js";
+import {
+  asDefaultGraphPayload,
+  type DefaultMemoryRetrievalDeps,
+  type GraphMemoryPayload,
+  runDefaultMemoryRetrieval,
+} from "../plugins/defaults/memory-retrieval.js";
+import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate.js";
+import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
+  EstimateArgs,
+  EstimateResult,
+  MemoryArgs,
+  MemoryResult,
   OverflowReduceArgs,
   OverflowReduceResult,
+  TurnContext as PluginTurnContext,
 } from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
@@ -130,8 +142,6 @@ import {
   inboundActorContextFromTrustContext,
   loadSlackActiveThreadFocusBlock,
   loadSlackChronologicalMessages,
-  readNowScratchpad,
-  readPkbContext,
   stripInjectionsForCompaction,
 } from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
@@ -651,21 +661,61 @@ export async function runAgentLoopImpl(
 
     let runMessages = ctx.messages;
 
-    // Memory graph retrieval — dispatches to context-load / per-turn based on
-    // conversation state. Keep the query vector around so the PKB reminder
-    // can reuse it for relevance-hint search (see `applyRuntimeInjections`).
+    // Memory retrieval pipeline — fetches PKB, NOW.md, and memory-graph
+    // outputs through a single `memoryRetrieval` pipeline. Plugins may
+    // replace the terminal behavior by registering a middleware that
+    // short-circuits with its own `MemoryResult`; the default terminal
+    // below runs `runDefaultMemoryRetrieval` which reproduces the prior
+    // in-lined behavior (PKB/NOW reads + gated graph call).
+    const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
+    const memoryPluginTurnCtx: PluginTurnContext = {
+      requestId: reqId,
+      conversationId: ctx.conversationId,
+      turnIndex: ctx.turnCount,
+      ...(ctx.trustContext
+        ? { trust: ctx.trustContext }
+        : {
+            trust: {
+              sourceChannel: capturedTurnChannelContext.userMessageChannel,
+              trustClass: "unknown" as const,
+            },
+          }),
+    };
+    const memoryArgs: MemoryArgs = {
+      conversationId: ctx.conversationId,
+      trustContext: ctx.trustContext,
+      turnIndex: ctx.turnCount,
+    };
+    const memoryDeps: DefaultMemoryRetrievalDeps = {
+      messages: ctx.messages,
+      graphMemory: ctx.graphMemory,
+      config: getConfig(),
+      abortSignal: abortController.signal,
+      onEvent,
+      isTrustedActor,
+    };
+    const memoryResult: MemoryResult = await runPipeline(
+      "memoryRetrieval",
+      getMiddlewaresFor("memoryRetrieval"),
+      (args) => runDefaultMemoryRetrieval(args, memoryDeps),
+      memoryArgs,
+      memoryPluginTurnCtx,
+      DEFAULT_TIMEOUTS.memoryRetrieval,
+    );
+
+    // Consume the memory-graph block when the default retriever emitted
+    // one. Custom plugins that substitute their own blocks without the
+    // default discriminator are expected to handle their own side effects
+    // (event emission, metric persistence) inside their middleware; this
+    // block short-circuits to the original no-op behavior in that case.
+    const defaultGraphPayload: GraphMemoryPayload | null =
+      asDefaultGraphPayload(memoryResult.memoryGraphBlocks);
     let pkbQueryVector: number[] | undefined;
     let pkbSparseVector:
       | import("../memory/qdrant-client.js").QdrantSparseVector
       | undefined;
-    const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
-    if (isTrustedActor) {
-      const graphResult = await ctx.graphMemory.prepareMemory(
-        ctx.messages,
-        getConfig(),
-        abortController.signal,
-        onEvent,
-      );
+    if (defaultGraphPayload) {
+      const graphResult = defaultGraphPayload.result;
       runMessages = graphResult.runMessages;
       // Select dense+sparse as a matched pair so RRF fusion combines two
       // signals aligned to the same query text:
@@ -873,11 +923,13 @@ export async function runAgentLoopImpl(
     // Inject NOW.md and PKB content only on the first turn (or after
     // compaction re-strips them).  Old injections persist in history and
     // are never stripped on normal turns — this preserves the cached prefix.
-    const currentNowContent = readNowScratchpad();
+    // PKB/NOW content is sourced from the `memoryRetrieval` pipeline above
+    // so plugins can override either source without touching the agent loop.
+    const currentNowContent = memoryResult.nowContent;
     const shouldInjectNowAndPkb = isFirstMessage || compactedThisTurn;
     const nowScratchpad = shouldInjectNowAndPkb ? currentNowContent : null;
 
-    const currentPkbContent = readPkbContext();
+    const currentPkbContent = memoryResult.pkbContent;
     const pkbContext = shouldInjectNowAndPkb ? currentPkbContent : null;
     const pkbActive = currentPkbContent !== null;
 
@@ -1035,18 +1087,53 @@ export async function runAgentLoopImpl(
     let reducerState: ReducerState | undefined;
 
     const toolTokenBudget = ctx.agentLoop.getToolTokenBudget(runMessages);
-    // Canonical calibration key used at every `estimatePromptTokens` site in
-    // this function. Matches the key recorded by `handleUsage` for wrapper
-    // providers (OpenRouter routing to Anthropic → key is `"anthropic"`).
+    // Canonical calibration key — passed to the `tokenEstimate` pipeline for
+    // every preflight/mid-loop estimate, the overflow reducer config, and the
+    // convergence-path `estimatePromptTokens` call. Matches the key recorded
+    // by `handleUsage` for wrapper providers (OpenRouter routing to
+    // Anthropic → key is `"anthropic"`).
     const estimationProviderName = getCalibrationProviderKey(ctx.provider);
-    const preflightTokens = estimatePromptTokens(
-      runMessages,
-      ctx.systemPrompt,
-      {
-        providerName: estimationProviderName,
-        toolTokenBudget,
+
+    // Shared `TurnContext` for every `tokenEstimate` pipeline invocation in
+    // this turn. The pipeline is the extension point for plugins that want
+    // to substitute an alternate estimator (e.g. provider-native tokenization)
+    // without touching orchestrator code.
+    //
+    // `turnIndex` is 0 at the orchestrator level — the per-tool-use turn
+    // index advances inside `agent/loop.ts` and is surfaced through
+    // `CheckpointInfo` to sites that need it. Here it just satisfies the
+    // pipeline's log record. `trust` falls back to the inbound
+    // `vellum`/`unknown` default when the actor hasn't been resolved yet —
+    // the same fallback `resolveTrustClass` uses — because preflight can run
+    // before trust context is available (e.g. regenerate after daemon restart).
+    const pipelineTurnCtx: PluginTurnContext = {
+      requestId: reqId,
+      conversationId: ctx.conversationId,
+      turnIndex: 0,
+      trust: ctx.trustContext ?? {
+        sourceChannel: "vellum",
+        trustClass: "unknown",
       },
-    );
+    };
+
+    const runTokenEstimatePipeline = (
+      history: Message[],
+    ): Promise<EstimateResult> =>
+      runPipeline<EstimateArgs, EstimateResult>(
+        "tokenEstimate",
+        getMiddlewaresFor("tokenEstimate"),
+        defaultTokenEstimateTerminal,
+        {
+          history,
+          systemPrompt: ctx.systemPrompt,
+          tools: ctx.agentLoop.getResolvedTools(history),
+          providerName: estimationProviderName,
+        },
+        pipelineTurnCtx,
+        DEFAULT_TIMEOUTS.tokenEstimate,
+      );
+
+    const preflightTokens = await runTokenEstimatePipeline(runMessages);
 
     if (overflowRecovery.enabled && preflightTokens > preflightBudget) {
       rlog.warn(
@@ -1256,7 +1343,9 @@ export async function runAgentLoopImpl(
 
     let yieldedForBudget = false;
 
-    const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
+    const onCheckpoint = async (
+      checkpoint: CheckpointInfo,
+    ): Promise<CheckpointDecision> => {
       state.currentTurnToolNames = [];
 
       if (ctx.canHandoffAtCheckpoint()) {
@@ -1269,14 +1358,7 @@ export async function runAgentLoopImpl(
       // conversation-agent-loop run compaction before the provider rejects.
       if (overflowRecovery.enabled) {
         const midLoopThreshold = preflightBudget * 0.85;
-        const estimated = estimatePromptTokens(
-          checkpoint.history,
-          ctx.systemPrompt,
-          {
-            providerName: estimationProviderName,
-            toolTokenBudget,
-          },
-        );
+        const estimated = await runTokenEstimatePipeline(checkpoint.history);
         if (estimated > midLoopThreshold) {
           rlog.warn(
             { phase: "mid-loop", estimated, threshold: midLoopThreshold },
