@@ -28,6 +28,7 @@ import type {
   UserRule,
 } from "./risk-types.js";
 import { cachedParse } from "./shell-identity.js";
+import type { AllowlistOption } from "./types.js";
 
 const log = getLogger("bash-risk-classifier");
 
@@ -615,6 +616,42 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+// ── Scope → Allowlist conversion ─────────────────────────────────────────────
+
+/**
+ * Convert classifier-produced `ScopeOption[]` to `AllowlistOption[]` format.
+ *
+ * The description follows the same patterns used by `buildShellAllowlistOptions`
+ * in shell-identity.ts:
+ * - First option (exact match): "This exact command"
+ * - Last option (command-level wildcard): "Any <program> command"
+ * - Intermediate options: "Commands matching this pattern"
+ */
+export function scopeOptionsToAllowlistOptions(
+  scopeOptions: ScopeOption[],
+  parsed: ParsedCommand,
+): AllowlistOption[] {
+  if (scopeOptions.length === 0) return [];
+
+  const programName = parsed.segments[0]?.program ?? "command";
+
+  return scopeOptions.map((opt, i): AllowlistOption => {
+    let description: string;
+    if (i === 0) {
+      description = "This exact command";
+    } else if (i === scopeOptions.length - 1) {
+      description = `Any ${programName} command`;
+    } else {
+      description = "Commands matching this pattern";
+    }
+    return {
+      label: opt.label,
+      description,
+      pattern: opt.pattern,
+    };
+  });
+}
+
 // ── Main classifier ──────────────────────────────────────────────────────────
 
 /**
@@ -645,6 +682,7 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
         reason: "Empty command",
         scopeOptions: [],
         matchType: "registry",
+        allowlistOptions: [],
       };
     }
 
@@ -704,12 +742,17 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
     }
 
     const scopeOptions = generateScopeOptions(parsed, this.registry);
+    const allowlistOptions = scopeOptionsToAllowlistOptions(
+      scopeOptions,
+      parsed,
+    );
 
     const assessment: RiskAssessment = {
       riskLevel: maxRiskLevel,
       reason: maxReason,
       scopeOptions,
       matchType,
+      allowlistOptions,
     };
 
     // Risk assessment analytics

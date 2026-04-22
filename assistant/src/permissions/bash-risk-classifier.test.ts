@@ -19,6 +19,7 @@ import {
   matchesArgRule,
   maxRisk,
   riskOrd,
+  scopeOptionsToAllowlistOptions,
 } from "./bash-risk-classifier.js";
 import { DEFAULT_COMMAND_REGISTRY } from "./command-registry.js";
 import type { ArgRule, CommandRiskSpec } from "./risk-types.js";
@@ -1352,5 +1353,137 @@ describe("generateScopeOptions with parseArgs", () => {
     expect(options.length).toBe(2);
     expect(options[0].label).toBe("find . -name '*.ts' -exec rm {} \\;");
     expect(options[1].label).toBe("find *");
+  });
+});
+
+// ── scopeOptionsToAllowlistOptions ───────────────────────────────────────────
+
+describe("scopeOptionsToAllowlistOptions", () => {
+  test("converts scope options to allowlist options with correct descriptions", async () => {
+    const parsed = await cachedParse("git push origin main");
+    const scopeOptions = generateScopeOptions(parsed, DEFAULT_COMMAND_REGISTRY);
+    const allowlistOptions = scopeOptionsToAllowlistOptions(
+      scopeOptions,
+      parsed,
+    );
+
+    expect(allowlistOptions.length).toBe(scopeOptions.length);
+    expect(allowlistOptions.length).toBeGreaterThan(0);
+
+    // Every entry has all three fields
+    for (const opt of allowlistOptions) {
+      expect(opt).toHaveProperty("label");
+      expect(opt).toHaveProperty("description");
+      expect(opt).toHaveProperty("pattern");
+      expect(typeof opt.label).toBe("string");
+      expect(typeof opt.description).toBe("string");
+      expect(typeof opt.pattern).toBe("string");
+    }
+
+    // First is "This exact command", last is "Any git command"
+    expect(allowlistOptions[0].description).toBe("This exact command");
+    expect(allowlistOptions[allowlistOptions.length - 1].description).toBe(
+      "Any git command",
+    );
+
+    // Labels match scopeOptions labels
+    for (let i = 0; i < scopeOptions.length; i++) {
+      expect(allowlistOptions[i].label).toBe(scopeOptions[i].label);
+      expect(allowlistOptions[i].pattern).toBe(scopeOptions[i].pattern);
+    }
+  });
+
+  test("intermediate options get 'Commands matching this pattern' description", async () => {
+    const parsed = await cachedParse("npm install express");
+    const scopeOptions = generateScopeOptions(parsed, DEFAULT_COMMAND_REGISTRY);
+    const allowlistOptions = scopeOptionsToAllowlistOptions(
+      scopeOptions,
+      parsed,
+    );
+
+    expect(allowlistOptions.length).toBe(scopeOptions.length);
+    expect(allowlistOptions.length).toBeGreaterThan(2);
+
+    // Intermediate options (not first or last) should use generic description
+    for (let i = 1; i < allowlistOptions.length - 1; i++) {
+      expect(allowlistOptions[i].description).toBe(
+        "Commands matching this pattern",
+      );
+    }
+  });
+
+  test("returns empty array for empty scope options", async () => {
+    const parsed = await cachedParse("");
+    const result = scopeOptionsToAllowlistOptions([], parsed);
+    expect(result).toEqual([]);
+  });
+
+  test("single scope option gets 'This exact command' description", async () => {
+    // A command that produces exactly one scope option won't have intermediate
+    // or broadest — the single entry is both first and last.
+    const parsed = await cachedParse("ls");
+    const scopeOptions = generateScopeOptions(parsed, DEFAULT_COMMAND_REGISTRY);
+
+    // ls should produce exact match + command-level wildcard (at least 2)
+    // But if there's only one, the first===last so it gets "This exact command"
+    if (scopeOptions.length === 1) {
+      const allowlistOptions = scopeOptionsToAllowlistOptions(
+        scopeOptions,
+        parsed,
+      );
+      expect(allowlistOptions[0].description).toBe("This exact command");
+    }
+  });
+});
+
+// ── classify() populates allowlistOptions ────────────────────────────────────
+
+describe("classify populates allowlistOptions", () => {
+  test("git push origin main returns allowlistOptions matching scopeOptions length", async () => {
+    const classifier = makeClassifier();
+    const result = await classifier.classify({
+      command: "git push origin main",
+      toolName: "bash",
+    });
+
+    expect(result.allowlistOptions).toBeDefined();
+    expect(result.allowlistOptions!.length).toBe(result.scopeOptions.length);
+    expect(result.allowlistOptions!.length).toBeGreaterThan(0);
+
+    // Every entry has all three fields
+    for (const opt of result.allowlistOptions!) {
+      expect(typeof opt.label).toBe("string");
+      expect(typeof opt.description).toBe("string");
+      expect(typeof opt.pattern).toBe("string");
+    }
+  });
+
+  test("npm install express returns allowlistOptions matching scopeOptions length", async () => {
+    const classifier = makeClassifier();
+    const result = await classifier.classify({
+      command: "npm install express",
+      toolName: "bash",
+    });
+
+    expect(result.allowlistOptions).toBeDefined();
+    expect(result.allowlistOptions!.length).toBe(result.scopeOptions.length);
+    expect(result.allowlistOptions!.length).toBeGreaterThan(0);
+
+    for (const opt of result.allowlistOptions!) {
+      expect(typeof opt.label).toBe("string");
+      expect(typeof opt.description).toBe("string");
+      expect(typeof opt.pattern).toBe("string");
+    }
+  });
+
+  test("empty command returns empty allowlistOptions", async () => {
+    const classifier = makeClassifier();
+    const result = await classifier.classify({
+      command: "",
+      toolName: "bash",
+    });
+
+    expect(result.allowlistOptions).toBeDefined();
+    expect(result.allowlistOptions).toEqual([]);
   });
 });
