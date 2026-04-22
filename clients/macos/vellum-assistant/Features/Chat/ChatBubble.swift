@@ -71,7 +71,6 @@ struct ChatBubble: View, Equatable {
     var isLatestAssistantMessage: Bool = false
     var typographyGeneration: Int = 0
     @State private var isUserMessageExpanded: Bool = false
-    @State private var userMessageIntrinsicHeight: CGFloat = 0
     private let userMessageMaxCollapsedHeight: CGFloat = 150
     private static let heuristicUserCollapseCharacterThreshold = 3_000
     private static let heuristicUserCollapseLineThreshold = 40
@@ -609,47 +608,83 @@ struct ChatBubble: View, Equatable {
         return preview == trimmedText ? preview : "\(preview)\n\n..."
     }
 
-    /// Estimates whether the user message text will exceed the collapse
-    /// threshold when rendered. Used on the first frame before
-    /// `onGeometryChange` has fired to avoid a full-height flash.
-    private var estimatedTextExceedsCollapseThreshold: Bool {
+    /// Conservative estimate of whether the rendered user message will exceed
+    /// `userMessageMaxCollapsedHeight`. Decision is derived from the model
+    /// (text + attachments) — never from observed geometry — because the
+    /// wrapper uses `.frame(height:)` to clamp the subtree, and observing the
+    /// clamped child's height would create a state/layout feedback loop.
+    /// See [onGeometryChange](https://developer.apple.com/documentation/swiftui/view/ongeometrychange(for:of:action:)).
+    ///
+    /// Underestimates degrade gracefully: no "Show more" button, content
+    /// renders at natural height (same as non-collapsible messages).
+    private var estimatedContentExceedsCollapseThreshold: Bool {
         guard isUser, !message.isStreaming else { return false }
+
         let text = message.text as NSString
         let contentWidth = max(bubbleMaxWidth - 2 * VSpacing.lg, 0)
-        let font = NSFont.systemFont(ofSize: 14, weight: .regular)
+        // Must match the font used by MarkdownSegmentView to track rendered height.
+        let font = VFont.nsChat
         let textRect = text.boundingRect(
             with: NSSize(width: contentWidth, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
             attributes: [.font: font]
         )
-        return ceil(textRect.height) > userMessageMaxCollapsedHeight
+        let textHeight = ceil(textRect.height)
+
+        // Attachment heights mirror renderers in ChatBubbleAttachmentContent.swift.
+        let parts = partitionedAttachments
+        let imageCount = parts.images.count
+        let imageHeight: CGFloat
+        if imageCount == 0 {
+            imageHeight = 0
+        } else if imageCount == 1 {
+            imageHeight = 200
+        } else {
+            let rows = ceil(Double(imageCount) / 2)
+            imageHeight = CGFloat(rows) * 120
+        }
+        let videoHeight = CGFloat(parts.videos.count) * 200
+        let audioHeight = CGFloat(parts.audios.count) * 80
+        let fileHeight = CGFloat(parts.files.count) * 40
+
+        // Include bubble chrome padding and inter-section VStack spacing: both
+        // contribute to the rendered height that .frame(height: 150) clamps.
+        let bubbleVerticalPadding: CGFloat = 2 * VSpacing.md
+        let contentSections = [
+            textHeight > 0,
+            imageHeight > 0,
+            videoHeight > 0,
+            audioHeight > 0,
+            fileHeight > 0
+        ].filter { $0 }.count
+        let interSectionSpacing = CGFloat(max(0, contentSections - 1)) * VSpacing.sm
+
+        let totalHeight = textHeight
+            + imageHeight
+            + videoHeight
+            + audioHeight
+            + fileHeight
+            + bubbleVerticalPadding
+            + interSectionSpacing
+        return totalHeight > userMessageMaxCollapsedHeight
     }
 
     // MARK: - User Message Collapse / Expand
     //
-    // .frame(maxHeight:) creates _FlexFrameLayout which recursively measures
-    // children and resolves explicitAlignment through the entire LazyVStack
-    // subtree — O(n × depth) per layout pass, causing 35 s+ hangs.
+    // `.frame(height:)` is load-bearing — `.frame(maxHeight:)` creates
+    // `_FlexFrameLayout`, which triggers the O(n × depth) alignment cascade
+    // through the LazyVStack subtree (35s+ hangs). See AGENTS.md.
     //
-    // Fix: .frame(height:) creates _FrameLayout — O(1), no alignment cascade.
-    // When height is nil (expanded / short), _FrameLayout passes through the
-    // child's natural height. Single view identity is preserved (no
-    // _ConditionalContent), so withAnimation still drives a smooth height
-    // transition on expand/collapse.
+    // The collapse decision must come from the model, not from observed
+    // geometry — the frame clamps the child, so feeding the child's height
+    // back into @State would create a state/layout feedback loop.
 
     @ViewBuilder
     private func userMessageHeightWrapper<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        let isCollapsible = userMessageIntrinsicHeight > 0
-            ? userMessageIntrinsicHeight > userMessageMaxCollapsedHeight
-            : estimatedTextExceedsCollapseThreshold
+        let isCollapsible = estimatedContentExceedsCollapseThreshold
         let needsCollapse = isCollapsible && !isUserMessageExpanded
         VStack(alignment: .leading, spacing: 0) {
             content()
-                .onGeometryChange(for: CGFloat.self) { proxy in
-                    proxy.size.height
-                } action: { height in
-                    userMessageIntrinsicHeight = height
-                }
                 .frame(height: needsCollapse ? userMessageMaxCollapsedHeight : nil, alignment: .top)
                 .clipped()
                 .overlay(alignment: .bottom) {
