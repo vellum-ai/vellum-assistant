@@ -39,8 +39,8 @@ enum SettingsTab: String {
         if soundsEnabled { tabs.append(.sounds) }
         if billingEnabled { tabs.append(.billing) }
         tabs.append(.permissionsAndPrivacy)
-        tabs.append(.archivedConversations)
         if schedulesEnabled { tabs.append(.schedules) }
+        tabs.append(.archivedConversations)
         if debugEnabled { tabs.append(.debug) }
         return tabs
     }
