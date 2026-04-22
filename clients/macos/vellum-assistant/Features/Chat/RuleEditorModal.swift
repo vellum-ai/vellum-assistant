@@ -256,13 +256,15 @@ struct RuleEditorModal: View {
         // ~/.local/share/vellum-dev/assistants/ (development)
         // ~/.local/share/vellum-staging/assistants/ (staging)
         // ~/.local/share/vellum-test/assistants/ (test)
+        // ~/.local/share/vellum-local/assistants/ (local)
         // Anchoring on "/.local/share/vellum" avoids false-matching legit user
         // project paths like /Users/dev/code/vellum/assistants/my-bot/.
         let lower = workingDir.lowercased()
         if lower.contains("/.local/share/vellum/assistants/")
             || lower.contains("/.local/share/vellum-dev/assistants/")
             || lower.contains("/.local/share/vellum-staging/assistants/")
-            || lower.contains("/.local/share/vellum-test/assistants/") {
+            || lower.contains("/.local/share/vellum-test/assistants/")
+            || lower.contains("/.local/share/vellum-local/assistants/") {
             return false
         }
         return true
