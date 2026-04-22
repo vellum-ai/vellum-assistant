@@ -39,8 +39,6 @@ import * as contactMerge from "./bundled-skills/contacts/tools/contact-merge.js"
 import * as contactSearch from "./bundled-skills/contacts/tools/contact-search.js";
 import * as contactUpsert from "./bundled-skills/contacts/tools/contact-upsert.js";
 import * as googleContacts from "./bundled-skills/contacts/tools/google-contacts.js";
-// ── conversations ──────────────────────────────────────────────────────────────
-import * as renameConversation from "./bundled-skills/conversations/tools/rename-conversation.js";
 // ── document ───────────────────────────────────────────────────────────────────
 import * as documentCreate from "./bundled-skills/document/tools/document-create.js";
 import * as documentUpdate from "./bundled-skills/document/tools/document-update.js";
@@ -151,9 +149,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["contacts:tools/contact-search.ts", contactSearch],
   ["contacts:tools/contact-merge.ts", contactMerge],
   ["contacts:tools/google-contacts.ts", googleContacts],
-
-  // conversations
-  ["conversations:tools/rename-conversation.ts", renameConversation],
 
   // document
   ["document:tools/document-create.ts", documentCreate],

@@ -1,5 +1,5 @@
 ---
-name: conversations
+name: vellum-conversation-management
 description: Manage conversation threads (rename)
 compatibility: "Designed for Vellum personal assistants"
 metadata:
@@ -12,7 +12,7 @@ Tools for managing conversation threads.
 
 ## Renaming
 
-Use the `rename_conversation` tool to rename the current conversation thread when:
+Run `assistant conversations rename <conversationId> "<title>"` to rename a conversation thread when:
 - The topic has shifted significantly from the original title
 - The auto-generated title is generic or unhelpful
 - The user explicitly asks to rename the thread

@@ -1,9 +1,6 @@
 import type { Command } from "commander";
 
-import {
-  getRuntimeHttpHost,
-  getRuntimeHttpPort,
-} from "../../config/env.js";
+import { getRuntimeHttpHost, getRuntimeHttpPort } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
 import { healthCheckHost, isHttpHealthy } from "../../daemon/daemon-control.js";
@@ -16,6 +13,7 @@ import {
   createConversation,
   getConversation,
   getMessages,
+  updateConversationTitle,
   wipeConversation,
 } from "../../memory/conversation-crud.js";
 import { listConversations } from "../../memory/conversation-queries.js";
@@ -24,7 +22,10 @@ import {
   SPARSE_EMBEDDING_VERSION,
 } from "../../memory/embedding-backend.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
-import { initQdrantClient, resolveQdrantUrl } from "../../memory/qdrant-client.js";
+import {
+  initQdrantClient,
+  resolveQdrantUrl,
+} from "../../memory/qdrant-client.js";
 import {
   initAuthSigningKey,
   loadOrCreateSigningKey,
@@ -270,6 +271,136 @@ Examples:
 
       log.info("Done.");
     });
+
+  conversations
+    .command("rename <conversationId> <title>")
+    .description("Rename a conversation")
+    .option("--json", "Output result as JSON")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  conversationId   Conversation ID (or unique prefix). Supports prefix matching.
+                   Run 'assistant conversations list' to find IDs.
+  title            The new title for the conversation (under 60 characters).
+
+Renames a conversation. When the assistant is running, the rename goes through
+the HTTP API so connected clients see the update in real time. Otherwise, the
+title is updated directly in the local SQLite database.
+
+Examples:
+  $ assistant conversations rename abc123 "Project planning"
+  $ assistant conversations rename abc123 "Bug triage" --json`,
+    )
+    .action(
+      async (
+        conversationId: string,
+        title: string,
+        opts?: { json?: boolean },
+      ) => {
+        initializeDb();
+
+        // Resolve conversation with prefix matching
+        let conversation = getConversation(conversationId);
+        if (!conversation) {
+          const all = listConversations(Number.MAX_SAFE_INTEGER);
+          const match = all.find((c) => c.id.startsWith(conversationId));
+          if (match) {
+            conversation = match;
+          } else {
+            if (opts?.json) {
+              log.info(
+                JSON.stringify({
+                  ok: false,
+                  error: `Conversation not found: ${conversationId}`,
+                }),
+              );
+            } else {
+              log.error(`Conversation not found: ${conversationId}`);
+            }
+            process.exit(1);
+          }
+        }
+
+        const trimmedTitle = title.trim();
+        if (!trimmedTitle) {
+          if (opts?.json) {
+            log.info(
+              JSON.stringify({ ok: false, error: "Title must be non-empty" }),
+            );
+          } else {
+            log.error("Error: title must be non-empty");
+          }
+          process.exit(1);
+        }
+
+        // When the daemon is running, delegate to the HTTP rename endpoint
+        // so connected clients see the title update in real time.
+        if (await isHttpHealthy()) {
+          const port = getRuntimeHttpPort();
+          const host = healthCheckHost(getRuntimeHttpHost());
+          initAuthSigningKey(loadOrCreateSigningKey());
+          const token = mintDaemonDeliveryToken();
+          const res = await fetch(
+            `http://${host}:${port}/v1/conversations/${conversation.id}/name`,
+            {
+              method: "PATCH",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ name: trimmedTitle }),
+            },
+          );
+          if (!res.ok) {
+            const body = await res.text();
+            if (opts?.json) {
+              log.info(
+                JSON.stringify({
+                  ok: false,
+                  error: `Rename failed (${res.status}): ${body}`,
+                }),
+              );
+            } else {
+              log.error(`Rename failed (${res.status}): ${body}`);
+            }
+            process.exit(1);
+          }
+          if (opts?.json) {
+            log.info(
+              JSON.stringify({
+                ok: true,
+                conversationId: conversation.id,
+                title: trimmedTitle,
+              }),
+            );
+          } else {
+            log.info(
+              `Renamed conversation "${conversation.title ?? "Untitled"}" → "${trimmedTitle}"`,
+            );
+          }
+          return;
+        }
+
+        // Daemon not running — update directly in the database.
+        // isAutoTitle = 0 so auto-generation won't overwrite it.
+        updateConversationTitle(conversation.id, trimmedTitle, 0);
+
+        if (opts?.json) {
+          log.info(
+            JSON.stringify({
+              ok: true,
+              conversationId: conversation.id,
+              title: trimmedTitle,
+            }),
+          );
+        } else {
+          log.info(
+            `Renamed conversation "${conversation.title ?? "Untitled"}" → "${trimmedTitle}"`,
+          );
+        }
+      },
+    );
 
   conversations
     .command("wipe <conversationId>")
