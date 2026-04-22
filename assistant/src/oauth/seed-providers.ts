@@ -150,6 +150,7 @@ export const PROVIDER_SEED_DATA: Record<
       "search:read",
       "reactions:write",
     ],
+    availableScopes: "https://api.slack.com/scopes",
     authorizeParams: {
       user_scope:
         "channels:read,channels:history,groups:read,groups:history,im:read,im:history,im:write,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write",
@@ -292,6 +293,14 @@ export const PROVIDER_SEED_DATA: Record<
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/linear",
     defaultScopes: ["read", "write", "issues:create"],
+    availableScopes: [
+      { scope: "read", description: "Read access to all resources" },
+      { scope: "write", description: "Write access to all resources" },
+      { scope: "issues:create", description: "Create new issues" },
+      { scope: "comments:create", description: "Create new comments" },
+      { scope: "admin", description: "Admin access" },
+      { scope: "agent:assign", description: "Assign agents" },
+    ],
     scopeSeparator: ",",
     authorizeParams: { prompt: "consent" },
     loopbackPort: 17324,
@@ -365,6 +374,18 @@ export const PROVIDER_SEED_DATA: Record<
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/todoist",
     defaultScopes: ["data:read_write"],
+    availableScopes: [
+      {
+        scope: "data:read",
+        description: "Read-only access to tasks and projects",
+      },
+      {
+        scope: "data:read_write",
+        description: "Read and write access to tasks and projects",
+      },
+      { scope: "data:delete", description: "Delete tasks and projects" },
+      { scope: "project:delete", description: "Delete entire projects" },
+    ],
     loopbackPort: 17325,
     injectionTemplates: [
       {
@@ -433,6 +454,7 @@ export const PROVIDER_SEED_DATA: Record<
       "files.content.write",
       "sharing.read",
     ],
+    availableScopes: "https://developers.dropbox.com/oauth-guide",
     authorizeParams: { token_access_type: "offline" },
     loopbackPort: 17327,
     injectionTemplates: [
@@ -467,6 +489,7 @@ export const PROVIDER_SEED_DATA: Record<
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/asana",
     defaultScopes: ["default"],
+    availableScopes: "https://developers.asana.com/docs/oauth-scopes",
     loopbackPort: 17328,
     injectionTemplates: [
       {
@@ -497,6 +520,7 @@ export const PROVIDER_SEED_DATA: Record<
       "data.records:write",
       "schema.bases:read",
     ],
+    availableScopes: "https://airtable.com/developers/web/api/scopes",
     tokenEndpointAuthMethod: "client_secret_basic",
     loopbackPort: 17329,
     injectionTemplates: [
@@ -558,6 +582,7 @@ export const PROVIDER_SEED_DATA: Record<
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/figma",
     defaultScopes: ["files:read", "file_comments:write"],
+    availableScopes: "https://developers.figma.com/docs/rest-api/scopes/",
     tokenEndpointAuthMethod: "client_secret_basic",
     loopbackPort: 17331,
     injectionTemplates: [
