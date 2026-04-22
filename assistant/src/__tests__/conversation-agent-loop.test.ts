@@ -120,7 +120,7 @@ mock.module("../hooks/manager.js", () => ({
 const updateMessageMetadataMock = mock(
   (_id: string, _updates: Record<string, unknown>) => {},
 );
-const clearPkbSystemReminderMetadataForConversationMock = mock(
+const clearStrippedInjectionMetadataForConversationMock = mock(
   (_conversationId: string) => {},
 );
 mock.module("../memory/conversation-crud.js", () => ({
@@ -128,8 +128,8 @@ mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   updateConversationUsage: () => {},
   updateMessageMetadata: updateMessageMetadataMock,
-  clearPkbSystemReminderMetadataForConversation:
-    clearPkbSystemReminderMetadataForConversationMock,
+  clearStrippedInjectionMetadataForConversation:
+    clearStrippedInjectionMetadataForConversationMock,
   getMessages: () => [],
   getConversation: () => ({
     id: "conv-1",
@@ -514,8 +514,8 @@ beforeEach(() => {
   rebuildConversationDiskViewFromDbStateMock.mockClear();
   updateMessageMetadataMock.mockClear();
   updateMessageMetadataMock.mockImplementation(() => {});
-  clearPkbSystemReminderMetadataForConversationMock.mockClear();
-  clearPkbSystemReminderMetadataForConversationMock.mockImplementation(
+  clearStrippedInjectionMetadataForConversationMock.mockClear();
+  clearStrippedInjectionMetadataForConversationMock.mockImplementation(
     () => {},
   );
   applyRuntimeInjectionsMock.mockClear();
@@ -2368,14 +2368,14 @@ describe("session-agent-loop", () => {
       // The bulk-clear helper must have been called with the conversation id
       // at least once (one of the three strip sites fired).
       const clearCalls =
-        clearPkbSystemReminderMetadataForConversationMock.mock.calls.filter(
+        clearStrippedInjectionMetadataForConversationMock.mock.calls.filter(
           (call) => call[0] === "test-conv",
         );
       expect(clearCalls.length).toBeGreaterThanOrEqual(1);
     });
 
     test("strip-site clear is non-fatal when the helper throws", async () => {
-      clearPkbSystemReminderMetadataForConversationMock.mockImplementation(
+      clearStrippedInjectionMetadataForConversationMock.mockImplementation(
         () => {
           throw new Error("db write failed");
         },

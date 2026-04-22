@@ -219,7 +219,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getLastAssistantTimestampBefore: () => null,
   archiveConversation: () => false,
   unarchiveConversation: () => false,
-  clearPkbSystemReminderMetadataForConversation: () => {},
+  clearStrippedInjectionMetadataForConversation: () => {},
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
