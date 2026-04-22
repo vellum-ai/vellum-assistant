@@ -337,6 +337,11 @@ private let fallbackCatalog = LLMProviderCatalog(
             ),
             defaultModel: "x-ai/grok-4.20-beta",
             models: [
+                // Anthropic
+                LLMModelEntry(id: "anthropic/claude-opus-4.7", displayName: "Claude Opus 4.7"),
+                LLMModelEntry(id: "anthropic/claude-opus-4.6", displayName: "Claude Opus 4.6"),
+                LLMModelEntry(id: "anthropic/claude-sonnet-4.6", displayName: "Claude Sonnet 4.6"),
+                LLMModelEntry(id: "anthropic/claude-haiku-4.5", displayName: "Claude Haiku 4.5"),
                 // xAI
                 LLMModelEntry(id: "x-ai/grok-4.20-beta", displayName: "Grok 4.20 Beta"),
                 LLMModelEntry(id: "x-ai/grok-4", displayName: "Grok 4"),
