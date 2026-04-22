@@ -26,7 +26,7 @@ clients/
 │   ├── Features/Surfaces/     # Shared surface rendering (confirmation, form)
 │   ├── Features/Usage/        # UsageDashboardStore — usage data operations
 │   ├── DesignSystem/          # Design tokens and components (VColor, VFont, VSpacing, etc.)
-│   ├── Utilities/             # Shared utilities (APIKeyManager, PermissionManager)
+│   ├── Utilities/             # Shared utilities (APIKeyManager, FeatureFlagRegistry, etc.)
 │   └── App/                   # Shared app utilities (SigningIdentityManager)
 ├── macos/                     # macOS-specific code
 │   ├── vellum-assistant/      # VellumAssistantLib - macOS app logic
@@ -62,7 +62,7 @@ clients/
 - **Shared chat features** (`ChatViewModel`, `ChatMessage`, `MessageBubbleView`, `InputBarView`, `AttachmentStripView`, `MarkdownRenderer`, `CurrentStepIndicator`, inline widgets)
 - **Design system** (`VColor`, `VFont`, `VSpacing`, `VRadius`, `VShadow`, `VAnimation`, and all `V`-prefixed components)
 - **Shared feature stores** (`SkillsStore`, `ContactsStore`, `DirectoryStore`, `ChannelTrustStore` — cross-platform data operations for skills, contacts, apps, documents, and guardian trust)
-- **Shared utilities** (`APIKeyManager` for credential storage, `PermissionManager`, `MacOSClientFeatureFlagManager`)
+- **Shared utilities** (`APIKeyManager` for credential storage, `MacOSClientFeatureFlagManager`)
 - **Shared app utilities** (signing identity management)
 
 **Dependencies**: None (only system frameworks: AuthenticationServices, Network, Security)

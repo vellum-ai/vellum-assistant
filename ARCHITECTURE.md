@@ -287,7 +287,7 @@ subgraph "Text Q&A Session"
 
         VOICE["VoiceInputManager<br/>Fn hold → SFSpeechRecognizer"]
         ATTACH["Attachment System<br/>images, PDFs, text<br/>drag/drop, paste, picker"]
-        PERM["PermissionManager<br/>Accessibility, Screen Recording,<br/>Microphone"]
+        PERM["PermissionManager (macOS)<br/>Accessibility, Screen Recording,<br/>Microphone"]
     end
 
     subgraph "Daemon (Bun + TypeScript)"
