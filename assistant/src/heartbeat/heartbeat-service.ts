@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { HeartbeatAlert } from "../daemon/message-protocol.js";
+import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import {
   GUARDIAN_PERSONA_TEMPLATE,
@@ -396,6 +397,19 @@ export class HeartbeatService {
       }
 
       log.info({ conversationId: conversation.id }, "Heartbeat completed");
+
+      void emitFeedEvent({
+        source: "assistant",
+        title: "Heartbeat",
+        summary: "All systems healthy.",
+        dedupKey: `heartbeat:${new Date().toISOString().split("T")[0]}`,
+        priority: 30,
+      }).catch((err) => {
+        log.warn(
+          { err, conversationId: conversation.id },
+          "Failed to emit heartbeat feed event",
+        );
+      });
     } catch (err) {
       log.error({ err }, "Heartbeat failed");
       try {
@@ -407,6 +421,15 @@ export class HeartbeatService {
       } catch (alertErr) {
         log.error({ alertErr }, "Failed to broadcast heartbeat alert");
       }
+
+      void emitFeedEvent({
+        source: "assistant",
+        title: "Heartbeat",
+        summary: "Heartbeat check failed. Check logs for details.",
+        dedupKey: `heartbeat:${new Date().toISOString().split("T")[0]}`,
+        priority: 55,
+        urgency: "medium",
+      }).catch(() => {});
     }
   }
 
