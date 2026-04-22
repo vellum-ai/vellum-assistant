@@ -243,6 +243,12 @@ extension AppDelegate {
     /// it. Bootstrap will still skip the (now-wiped) in-memory credentials
     /// and re-import from the file, which is the intended local fallback.
     ///
+    /// If the lockfile entry can't be resolved (malformed/legacy lockfile,
+    /// missing entry), the hatch classification is ambiguous. Default to
+    /// treating it as remote — i.e. delete the file — so we match pre-PR
+    /// behavior and never silently re-arm a stale token on a misclassified
+    /// remote hatch.
+    ///
     /// If the delete is attempted but fails (e.g. filesystem permissions),
     /// the stale file would otherwise be re-imported by
     /// `performInitialBootstrap()`, defeating the fix. In that case pass
@@ -255,7 +261,16 @@ extension AppDelegate {
         var skipFileImport = false
         if let assistantId = LockfileAssistant.loadActiveAssistantId() {
             let assistant = LockfileAssistant.loadByName(assistantId)
-            let isRemoteHatch = assistant?.isRemote ?? false
+            // When the lockfile entry can't be resolved (malformed/legacy
+            // lockfile, missing entry, read failure) default to treating the
+            // hatch as remote. Pre-PR behavior unconditionally deleted the
+            // token file; defaulting ambiguous state to "remote" preserves
+            // that safety so we never silently re-arm a stale token on a
+            // remote hatch we failed to classify.
+            let isRemoteHatch = assistant?.isRemote ?? true
+            if assistant == nil {
+                log.warning("forceReBootstrap: could not resolve lockfile entry for active assistant — treating as remote hatch to preserve delete-on-rebootstrap safety")
+            }
             if isRemoteHatch {
                 let deleted = GuardianTokenFileReader.deleteTokenFile(assistantId: assistantId)
                 if !deleted {
