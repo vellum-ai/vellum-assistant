@@ -27,6 +27,12 @@ struct ImageGenerationServiceCard: View {
         authManager.isAuthenticated
     }
 
+    /// The API-key provider associated with the currently-selected draft model.
+    /// Flips between `"gemini"` and `"openai"` as the user switches models in the picker.
+    private var currentProvider: String {
+        SettingsStore.imageGenProvider(forModel: draftModel)
+    }
+
     /// True when the user has made changes worth saving.
     private var hasChanges: Bool {
         // In managed mode when not logged in, there is nothing actionable to save.
@@ -71,7 +77,7 @@ struct ImageGenerationServiceCard: View {
                         onSave: { save() },
                         savingLabel: "Validating...",
                         onReset: {
-                            store.clearImageGenKey()
+                            store.clearImageGenKey(for: currentProvider)
                             imageGenHasKey = false
                             apiKeyText = ""
                         },
@@ -86,7 +92,14 @@ struct ImageGenerationServiceCard: View {
             initialModel = store.selectedImageGenModel
         }
         .task {
-            imageGenHasKey = await APIKeyManager.hasKey(for: "gemini")
+            imageGenHasKey = await APIKeyManager.hasKey(for: currentProvider)
+        }
+        .onChange(of: draftModel) { _, _ in
+            // Re-fetch the "key configured" indicator when the user switches between
+            // Gemini and OpenAI models in the picker so the UI reflects the right provider.
+            Task {
+                imageGenHasKey = await APIKeyManager.hasKey(for: currentProvider)
+            }
         }
         .onChange(of: store.imageGenMode) { _, newValue in
             // Sync draft when external changes arrive (e.g. daemon reload)
@@ -129,7 +142,7 @@ struct ImageGenerationServiceCard: View {
             label: "API Key",
             hasKey: imageGenHasKey,
             text: $apiKeyText,
-            emptyPlaceholder: "Enter your Gemini API key",
+            emptyPlaceholder: currentProvider == "openai" ? "Enter your OpenAI API key" : "Enter your Gemini API key",
             errorMessage: store.imageGenKeySaveError
         )
         .disabled(store.imageGenKeySaving)
@@ -161,10 +174,11 @@ struct ImageGenerationServiceCard: View {
         let trimmedKey = apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
         if draftMode == "your-own" && !trimmedKey.isEmpty {
             let keyTextBinding = $apiKeyText
-            store.saveImageGenKey(trimmedKey, onSuccess: { [self] in
+            let provider = currentProvider
+            store.saveImageGenKey(trimmedKey, for: provider, onSuccess: { [self] in
                 imageGenHasKey = true
                 keyTextBinding.wrappedValue = ""
-                showToast("Gemini API key saved", .success)
+                showToast("\(provider == "openai" ? "OpenAI" : "Gemini") API key saved", .success)
             })
         }
 
