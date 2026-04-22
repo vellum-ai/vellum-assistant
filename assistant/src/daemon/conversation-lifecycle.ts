@@ -8,7 +8,6 @@ import { createContextSummaryMessage } from "../context/window-manager.js";
 import type { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
-import { getHookManager } from "../hooks/manager.js";
 import { enqueueAutoAnalysisIfEnabled } from "../memory/auto-analysis-enqueue.js";
 import { isAutoAnalysisConversation } from "../memory/auto-analysis-guard.js";
 import {
@@ -355,10 +354,6 @@ export function abortConversation(
 // ── dispose ──────────────────────────────────────────────────────────
 
 export function disposeConversation(ctx: DisposeContext): void {
-  void getHookManager().trigger("conversation-end", {
-    conversationId: ctx.conversationId,
-  });
-
   // Trigger graph extraction for end-of-conversation sweep.
   // Only extract from guardian conversations to preserve the memory trust
   // boundary — untrusted content must not influence future memory retrieval.
