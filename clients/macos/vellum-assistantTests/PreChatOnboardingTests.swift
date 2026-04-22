@@ -240,4 +240,36 @@ final class PreChatOnboardingTests: XCTestCase {
         XCTAssertEqual(receivedContext?.userName, "Alex")
         XCTAssertEqual(receivedContext?.assistantName, "Pax")
     }
+
+    // MARK: - Identity Cache Seeding
+
+    func testSeedCacheWritesAssistantNameToDiskCache() {
+        let testId = "test-assistant-\(UUID().uuidString)"
+
+        IdentityInfo.seedCache(name: "Wren", forAssistantId: testId)
+
+        let allCached = IdentityInfoStore.load()
+        XCTAssertEqual(allCached[testId]?.name, "Wren")
+    }
+
+    func testSeedCacheDoesNotOverwriteExistingEntry() {
+        let testId = "test-assistant-\(UUID().uuidString)"
+
+        IdentityInfo.seedCache(name: "Wren", forAssistantId: testId)
+        IdentityInfo.seedCache(name: "Pip", forAssistantId: testId)
+
+        let allCached = IdentityInfoStore.load()
+        XCTAssertEqual(allCached[testId]?.name, "Wren",
+                       "seedCache should not overwrite an existing entry")
+    }
+
+    func testAssistantDisplayNameResolvesFromSeedCache() {
+        let testId = "test-assistant-\(UUID().uuidString)"
+
+        IdentityInfo.seedCache(name: "Wren", forAssistantId: testId)
+
+        let cached = IdentityInfoStore.load()[testId]
+        let resolved = AssistantDisplayName.resolve(cached?.name, fallback: "Your Assistant")
+        XCTAssertEqual(resolved, "Wren")
+    }
 }

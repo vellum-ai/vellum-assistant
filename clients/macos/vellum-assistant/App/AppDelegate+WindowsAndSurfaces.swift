@@ -500,6 +500,10 @@ extension AppDelegate {
         // ConversationManager.enterDraftMode() creates the first draft VM.
         let context = pendingPreChatContext
         pendingPreChatContext = nil
+        if let name = context?.assistantName, !name.isEmpty,
+           let activeId = LockfileAssistant.loadActiveAssistantId() {
+            IdentityInfo.seedCache(name: name, forAssistantId: activeId)
+        }
         let main = MainWindow(
             services: services,
             updateManager: updateManager,
