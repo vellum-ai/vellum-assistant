@@ -302,6 +302,7 @@ export function registerProvider(params: {
   scopeSeparator?: string;
   authorizeParams?: Record<string, string>;
   managedServiceConfigKey?: string;
+  managedServiceIsPaid?: boolean;
   displayLabel?: string;
   description?: string;
   dashboardUrl?: string;
@@ -361,6 +362,7 @@ export function registerProvider(params: {
       ? JSON.stringify(params.revokeBodyTemplate)
       : null,
     managedServiceConfigKey: params.managedServiceConfigKey ?? null,
+    managedServiceIsPaid: params.managedServiceIsPaid === true,
     displayLabel: params.displayLabel ?? null,
     description: params.description ?? null,
     dashboardUrl: params.dashboardUrl ?? null,

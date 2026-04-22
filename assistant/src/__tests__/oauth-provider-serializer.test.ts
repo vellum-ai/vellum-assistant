@@ -29,6 +29,7 @@ function makeRow(overrides: Partial<OAuthProviderRow> = {}): OAuthProviderRow {
     revokeUrl: null,
     revokeBodyTemplate: null,
     managedServiceConfigKey: null,
+    managedServiceIsPaid: false,
     displayLabel: null,
     description: null,
     dashboardUrl: null,
