@@ -39,6 +39,7 @@ export interface PlaygroundRouteDeps {
     conversationId: string,
     role: "user" | "assistant",
     contentJson: string,
+    options?: { skipIndexing?: boolean },
   ) => Promise<{ id: string }>;
   // Later PRs will extend this interface with additional capabilities.
   // Keep this list minimal.
