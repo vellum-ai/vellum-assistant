@@ -133,6 +133,13 @@ struct ProgressCardUIState: Equatable, Sendable {
         cardCompletedDates.removeValue(forKey: cardKey)
     }
 
+    /// Clears the persisted thinking duration for a card. Called alongside
+    /// `clearCardCompletedAt` on tool resume so stale wave-1 durations don't
+    /// leak into wave-2 rendering.
+    mutating func clearThinkingDuration(for cardKey: UUID) {
+        thinkingDurations.removeValue(forKey: cardKey)
+    }
+
     /// Marks a group as having been rehydrated.
     mutating func markRehydrated(groupId: UUID) {
         rehydratedGroupIds.insert(groupId)
