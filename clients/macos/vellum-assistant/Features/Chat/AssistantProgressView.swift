@@ -350,6 +350,7 @@ struct AssistantProgressView: View {
                 cardCompletedAt = nil
                 if let key = cardKey {
                     progressUIState.clearCardCompletedAt(for: key)
+                    progressUIState.clearThinkingDuration(for: key)
                 }
             }
             // Track thinking phase start only when the daemon explicitly
