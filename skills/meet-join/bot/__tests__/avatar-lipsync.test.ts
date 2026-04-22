@@ -441,6 +441,61 @@ describe("TalkingHead renderer lip-sync alignment", () => {
     ]);
   });
 
+  test("resetPlaybackTimestamp drops leftover visemes when streamId is reused with a fresh utteranceId", async () => {
+    // Regression for the reused-streamId leak: `MeetTtsBridge.speak()`
+    // accepts caller-supplied streamIds and only rejects duplicates
+    // while a stream is concurrently active. After a cancel, a caller
+    // can legally start a new speak() with the same streamId — and any
+    // visemes from the prior utterance that were still buffered (their
+    // playback clock had not yet caught up to them) would, under
+    // streamId-only matching, look identical to the new utterance's
+    // visemes and survive the reset. The bridge mints a fresh
+    // `utteranceId` per speak() call to disambiguate; the renderer
+    // requires BOTH ids to match before preserving an event.
+    const nativeMessaging = new FakeNativeMessaging();
+    const renderer = await startRenderer(nativeMessaging);
+
+    // Utterance 1 with streamId="X", utteranceId="u1". A late-arriving
+    // viseme (audio not yet played) is buffered when the speak is
+    // cancelled — it sits in the buffer with both ids tagged.
+    renderer.pushViseme({
+      phoneme: "stale",
+      weight: 0.1,
+      timestamp: 900,
+      streamId: "X",
+      utteranceId: "u1",
+    });
+
+    // Utterance 2 reuses streamId="X" but is a brand-new speak() call
+    // so the bridge mints utteranceId="u2". Synthesis races ahead of
+    // the POST and an early viseme arrives first, tagged with both new
+    // ids.
+    renderer.pushViseme({
+      phoneme: "early",
+      weight: 0.4,
+      timestamp: 50,
+      streamId: "X",
+      utteranceId: "u2",
+    });
+
+    // The /play_audio POST for utterance 2 fires resetPlaybackTimestamp
+    // with the new ids. The "u1" stale viseme must be dropped (this is
+    // the bug being fixed); the "u2" early viseme must survive.
+    renderer.resetPlaybackTimestamp!("X", "u2");
+
+    renderer.notifyPlaybackTimestamp(50);
+    expect(nativeMessaging.pushVisemes().map((v) => v.phoneme)).toEqual([
+      "early",
+    ]);
+    // Even after the clock runs past the stale viseme's timestamp it
+    // must NEVER surface — confirming the reset evicted it rather than
+    // just hid it behind the rewound clock.
+    renderer.notifyPlaybackTimestamp(10_000);
+    expect(nativeMessaging.pushVisemes().map((v) => v.phoneme)).toEqual([
+      "early",
+    ]);
+  });
+
   test("visemes with identical timestamps are forwarded in arrival order", async () => {
     // ElevenLabs' viseme stream can legitimately produce back-to-back
     // events with the same millisecond timestamp. The buffer drain

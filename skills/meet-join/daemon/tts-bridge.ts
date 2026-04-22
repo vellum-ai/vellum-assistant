@@ -14,7 +14,8 @@
  *      16-bit signed little-endian PCM. Provider chunks are written into
  *      ffmpeg's stdin; ffmpeg's stdout is the body stream consumed by the
  *      outbound HTTP POST.
- *   4. POST `ffmpeg.stdout` to `${botUrl}/play_audio?stream_id=${streamId}`
+ *   4. POST `ffmpeg.stdout` to
+ *      `${botUrl}/play_audio?stream_id=${streamId}&utterance_id=${utteranceId}`
  *      with `Content-Type: application/octet-stream` using chunked transfer.
  *      Because Node/undici require it for streamed upload bodies, the fetch
  *      is called with `duplex: "half"`.
@@ -130,6 +131,17 @@ export interface VisemeEvent {
    * care about.
    */
   streamId?: string;
+  /**
+   * Optional — bridge-internal monotonic utterance id minted fresh on
+   * every {@link MeetTtsBridge.speak} call (independent of `streamId`,
+   * which callers may legally reuse across speaks). Paired with the
+   * `?utterance_id=` query param sent on `/play_audio` so the bot's
+   * renderer can require BOTH `streamId` and `utteranceId` to match
+   * before preserving a buffered viseme on `resetPlaybackTimestamp` —
+   * preventing stale visemes from a cancelled prior speak that reused
+   * this `streamId` from leaking into the new utterance.
+   */
+  utteranceId?: string;
 }
 
 /**
@@ -245,6 +257,14 @@ export interface MeetTtsBridgeDeps {
   spawn?: SpawnFn;
   /** Override the UUID generator used for streamId allocation (tests). */
   newStreamId?: () => string;
+  /**
+   * Override the generator used for the bridge-internal `utteranceId`
+   * allocated on every `speak()` call. Tests inject a deterministic
+   * factory so they can assert the id propagates onto viseme events
+   * and the `/play_audio?utterance_id=` query param. Defaults to
+   * `randomUUID()`.
+   */
+  newUtteranceId?: () => string;
 }
 
 // ---------------------------------------------------------------------------
@@ -361,6 +381,7 @@ export class MeetTtsBridge {
       fetch: deps.fetch ?? ((url, init) => fetch(url, init as RequestInit)),
       spawn: deps.spawn ?? nodeSpawn,
       newStreamId: deps.newStreamId ?? (() => randomUUID()),
+      newUtteranceId: deps.newUtteranceId ?? (() => randomUUID()),
     };
   }
 
@@ -378,6 +399,13 @@ export class MeetTtsBridge {
         `MeetTtsBridge: streamId ${streamId} is already active for meeting ${this.meetingId}`,
       );
     }
+    // Mint a fresh utterance id even when the caller reuses `streamId`
+    // across speaks. The bot's renderer requires both `streamId` and
+    // `utteranceId` to match before preserving a buffered viseme on
+    // reset, so a unique-per-speak `utteranceId` is what disambiguates
+    // a leftover viseme from a cancelled prior speak with the same
+    // `streamId` from an early-arriving viseme of this new speak.
+    const utteranceId = this.deps.newUtteranceId();
 
     // Pre-flight: verify ffmpeg is on PATH before we allocate any streams.
     // The probe result is memoized on the bridge instance, so this only
@@ -490,6 +518,7 @@ export class MeetTtsBridge {
               weight: clamp01(event.weight),
               timestamp: event.timestamp,
               streamId,
+              utteranceId,
             });
           }
         : undefined;
@@ -540,7 +569,7 @@ export class MeetTtsBridge {
     // fetch body reader, truncating the audio that reaches the bot.
     let httpBodySource: NodeJS.ReadableStream = ffmpeg.stdout;
     if (useAmplitudeFallback) {
-      const tap = this.createAmplitudeTap(abort.signal, streamId);
+      const tap = this.createAmplitudeTap(abort.signal, streamId, utteranceId);
       ffmpeg.stdout.pipe(tap);
       httpBodySource = tap;
     }
@@ -548,7 +577,9 @@ export class MeetTtsBridge {
       httpBodySource as Readable,
     ) as unknown as ReadableStream<Uint8Array>;
 
-    const url = `${this.botBaseUrl}/play_audio?stream_id=${encodeURIComponent(streamId)}`;
+    const url =
+      `${this.botBaseUrl}/play_audio?stream_id=${encodeURIComponent(streamId)}` +
+      `&utterance_id=${encodeURIComponent(utteranceId)}`;
 
     const postSettled = this.runPost({
       url,
@@ -699,7 +730,11 @@ export class MeetTtsBridge {
    * which keeps the calculation self-consistent and spares consumers a
    * ragged-edge weight.
    */
-  private createAmplitudeTap(signal: AbortSignal, streamId: string): Transform {
+  private createAmplitudeTap(
+    signal: AbortSignal,
+    streamId: string,
+    utteranceId: string,
+  ): Transform {
     let totalBytesConsumed = 0;
     let windowBuffer = Buffer.alloc(0);
 
@@ -728,7 +763,13 @@ export class MeetTtsBridge {
         const rms = Math.sqrt(sumOfSquares / AMPLITUDE_SAMPLES_PER_WINDOW);
         const weight = clamp01(rms / AMPLITUDE_MAX_SAMPLE);
 
-        this.emitVisemeEvent({ phoneme: "amp", weight, timestamp, streamId });
+        this.emitVisemeEvent({
+          phoneme: "amp",
+          weight,
+          timestamp,
+          streamId,
+          utteranceId,
+        });
       }
     };
 

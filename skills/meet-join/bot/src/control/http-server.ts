@@ -411,6 +411,16 @@ export function createHttpServer(
     const providedId = c.req.query("stream_id");
     const streamId =
       providedId && providedId.length > 0 ? providedId : randomUUID();
+    // Bridge-internal utterance id paired with the stream id. Allows the
+    // renderer's `resetPlaybackTimestamp` to distinguish a leftover
+    // viseme from a cancelled prior speak() that reused this same
+    // `stream_id` from an early-arriving viseme of the new speak() call.
+    // Optional so older daemons still interoperate.
+    const providedUtteranceId = c.req.query("utterance_id");
+    const utteranceId =
+      providedUtteranceId && providedUtteranceId.length > 0
+        ? providedUtteranceId
+        : undefined;
 
     // Serialize against every in-flight stream, not just one with the same
     // id. The bot owns a single shared pacat stdin (see audio-playback's
@@ -474,7 +484,7 @@ export function createHttpServer(
         rendererAtStreamStart.capabilities.needsVisemes &&
         typeof rendererAtStreamStart.resetPlaybackTimestamp === "function"
       ) {
-        rendererAtStreamStart.resetPlaybackTimestamp(streamId);
+        rendererAtStreamStart.resetPlaybackTimestamp(streamId, utteranceId);
       }
 
       const controller = new AbortController();
@@ -1014,10 +1024,18 @@ function parseVisemeEvent(body: unknown): VisemeEvent | null {
     typeof raw.streamId === "string" && raw.streamId.length > 0
       ? raw.streamId
       : undefined;
+  // `utteranceId` is also optional and follows the same compatibility
+  // policy: older daemons that haven't yet rolled out the utterance-id
+  // tagging just degrade to streamId-only matching on reset.
+  const utteranceId =
+    typeof raw.utteranceId === "string" && raw.utteranceId.length > 0
+      ? raw.utteranceId
+      : undefined;
   return {
     phoneme: raw.phoneme,
     weight: raw.weight,
     timestamp: raw.timestamp,
     ...(streamId !== undefined ? { streamId } : {}),
+    ...(utteranceId !== undefined ? { utteranceId } : {}),
   };
 }

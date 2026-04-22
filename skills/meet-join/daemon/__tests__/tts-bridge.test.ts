@@ -311,6 +311,7 @@ describe("MeetTtsBridge.speak", () => {
         providerFactory: () => provider,
         spawn,
         newStreamId: () => "stream-abc",
+        newUtteranceId: () => "utt-abc",
       },
     );
 
@@ -324,10 +325,15 @@ describe("MeetTtsBridge.speak", () => {
     await result.completion;
 
     // Assert: exactly one POST landed on the fake bot with the right URL,
-    // headers, and body bytes.
+    // headers, and body bytes. The bridge mints a per-speak utterance id
+    // and pairs it with the stream id on the URL so the bot's renderer
+    // can drop leftover visemes from a cancelled prior speak that reused
+    // the same stream id.
     expect(fakeBot.posts).toHaveLength(1);
     const post = fakeBot.posts[0]!;
-    expect(post.url).toBe("/play_audio?stream_id=stream-abc");
+    expect(post.url).toBe(
+      "/play_audio?stream_id=stream-abc&utterance_id=utt-abc",
+    );
     expect(post.authorization).toBe(`Bearer ${TOKEN}`);
     expect(post.contentType).toBe("application/octet-stream");
     expect(Array.from(post.body)).toEqual(Array.from(expected));
@@ -815,6 +821,7 @@ describe("MeetTtsBridge resampling hot-path (real ffmpeg)", () => {
           // window below.
           spawn: realSpawn,
           newStreamId: () => "stream-resample",
+          newUtteranceId: () => "utt-resample",
         },
       );
 
@@ -823,7 +830,9 @@ describe("MeetTtsBridge resampling hot-path (real ffmpeg)", () => {
 
       expect(fakeBot.posts).toHaveLength(1);
       const post = fakeBot.posts[0]!;
-      expect(post.url).toBe("/play_audio?stream_id=stream-resample");
+      expect(post.url).toBe(
+        "/play_audio?stream_id=stream-resample&utterance_id=utt-resample",
+      );
 
       // Expected output: 48 kHz mono s16le = 2 bytes/sample.
       // 500 ms @ 48 kHz = 24_000 samples = 48_000 bytes.
