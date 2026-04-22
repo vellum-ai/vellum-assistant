@@ -626,7 +626,7 @@
       "name": "vellum-conversation-management",
       "description": "Manage conversation threads (rename)",
       "metadata": {
-        "emoji": "\ud83d\udcac",
+        "emoji": "💬",
         "vellum": {
           "display-name": "Conversations"
         }

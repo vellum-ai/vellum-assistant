@@ -3,7 +3,7 @@ name: vellum-conversation-management
 description: Manage conversation threads (rename)
 compatibility: "Designed for Vellum personal assistants"
 metadata:
-  emoji: "\U0001F4AC"
+  emoji: "💬"
   vellum:
     display-name: "Conversations"
 ---
