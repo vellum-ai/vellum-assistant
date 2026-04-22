@@ -275,5 +275,25 @@ describe("first-greeting", () => {
       expect(greeting).toContain("Gmail and Google Calendar say");
       expect(greeting).toContain("juggling travel, bills, or household stuff");
     });
+
+    it("uses personalized greeting when assistantName present but no user name/tasks/tools", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        assistantName: "Pip",
+      });
+      expect(greeting).toContain("I'm Pip");
+      expect(greeting).not.toContain("no name, no memories");
+    });
+
+    it("falls back to no-signal branch for unknown task types", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        tasks: ["future-task-type"],
+        userName: "Alex",
+        assistantName: "Pip",
+      });
+      expect(greeting).toContain("What's on your plate?");
+      expect(greeting).not.toContain("\n\n\n");
+    });
   });
 });

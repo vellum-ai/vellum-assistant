@@ -192,7 +192,9 @@ function buildPersonalizedGreeting(ctx: OnboardingGreetingContext): string {
   const hasTasks = ctx.tasks.length > 0;
   const hasTools = ctx.tools.length > 0;
 
-  if (!hasName && !hasTasks && !hasTools) {
+  const hasAssistantName = assistantName && assistantName.length > 0;
+
+  if (!hasName && !hasTasks && !hasTools && !hasAssistantName) {
     return CANNED_FIRST_GREETING;
   }
 
@@ -207,7 +209,9 @@ function buildPersonalizedGreeting(ctx: OnboardingGreetingContext): string {
     secondParagraph =
       "What's on your plate? Or if it's easier, I can ask you a few questions to get oriented.";
   } else {
-    secondParagraph = buildSpecificGuess(ctx.tasks, ctx.tools);
+    secondParagraph =
+      buildSpecificGuess(ctx.tasks, ctx.tools) ||
+      "What's on your plate? Or if it's easier, I can ask you a few questions to get oriented.";
   }
 
   return [intro, "", secondParagraph].join("\n");
