@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AgentEvent } from "../agent/loop.js";
 import type { UserMessageAttachment } from "../daemon/message-protocol.js";
+import { registerDefaultOverflowReducePlugin } from "../plugins/defaults/overflow-reduce.js";
+import { resetPluginRegistryForTests } from "../plugins/registry.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 import { ProviderError } from "../util/errors.js";
 
@@ -76,9 +78,13 @@ mock.module("../config/loader.js", () => ({
 }));
 
 // Token estimator: return a small value (well within budget) so preflight
-// does not trigger in existing tests.
+// does not trigger in existing tests. Stub both the calibrated and raw
+// entry points — the latter backs the default `tokenEstimate` plugin
+// pipeline now used by the orchestrator's preflight / mid-loop checkpoints.
 mock.module("../context/token-estimator.js", () => ({
   estimatePromptTokens: () => 1000,
+  estimatePromptTokensRaw: () => 1000,
+  estimateToolsTokens: () => 0,
 }));
 
 // Overflow recovery module mocks — the convergence loop delegates to these
@@ -255,6 +261,9 @@ mock.module("../agent/loop.js", () => ({
     constructor() {}
     getToolTokenBudget() {
       return 0;
+    }
+    getResolvedTools() {
+      return [];
     }
     getActiveModel() {
       return undefined;
@@ -440,6 +449,13 @@ describe("provider ordering error retry", () => {
     firstRunErrorMode = "ordering";
     maybeCompactCalls = [];
     forceCompactionEnabled = false;
+    // Orchestrator overflow reduction runs through the plugin pipeline;
+    // ensure the default plugin is registered so the pipeline has a
+    // middleware to dispatch to (the `context-overflow-reducer` module
+    // itself is mocked above, so the default plugin's delegate goes
+    // through the mocked implementation).
+    resetPluginRegistryForTests();
+    registerDefaultOverflowReducePlugin();
   });
 
   test("simulated strict provider error triggers exactly one retry", async () => {

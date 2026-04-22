@@ -247,9 +247,10 @@ describe("plugin bootstrap", () => {
   test("empty registry: bootstrap seeds the first-party defaults without throwing", async () => {
     // The bootstrap path calls `registerDefaultPlugins` at the top, so even
     // when the test-reset registry starts empty the bootstrap emerges with
-    // the canonical defaults installed (currently the compaction circuit
-    // breaker). Just assert bootstrap completes without throwing — the
-    // surface of defaults is verified in `circuit-breaker-pipeline.test.ts`.
+    // the canonical defaults installed (compaction circuit breaker,
+    // tool-result truncate, etc.). Just assert bootstrap completes without
+    // throwing — the surface of defaults is verified in each pipeline's own
+    // dedicated test file.
     await bootstrapPlugins(fakeCtx);
   });
 });
