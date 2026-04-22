@@ -35,9 +35,11 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AssistantConfig } from "../config/schema.js";
+import { defaultEmptyResponsePlugin } from "../plugins/defaults/empty-response.js";
 import {
   ASSISTANT_API_VERSIONS,
   getRegisteredPlugins,
+  registerPlugin,
 } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -50,6 +52,16 @@ import { vellumRoot } from "../util/platform.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
 
 const log = getLogger("plugins-bootstrap");
+
+// ─── Default plugin registration ─────────────────────────────────────────────
+//
+// First-party defaults register once at module load. Production daemon startup
+// imports this bootstrap module exactly once, so the registration happens
+// before any code path that reads the registry. Test suites that reset the
+// registry between cases (`resetPluginRegistryForTests`) see an empty registry
+// post-reset — tests that need a default plugin should re-register it
+// explicitly (import from `plugins/defaults/*` and call `registerPlugin`).
+registerPlugin(defaultEmptyResponsePlugin);
 
 /**
  * Minimal context required to bootstrap the plugin layer. Kept intentionally

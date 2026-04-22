@@ -7,6 +7,13 @@ import {
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import { truncateOversizedToolResults } from "../context/tool-result-truncation.js";
+import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
+import { getMiddlewaresFor } from "../plugins/registry.js";
+import type {
+  EmptyResponseArgs,
+  EmptyResponseDecision,
+  TurnContext,
+} from "../plugins/types.js";
 import type {
   ContentBlock,
   Message,
@@ -19,7 +26,7 @@ import {
   applyStreamingSubstitution,
   applySubstitutions,
 } from "../tools/sensitive-output-placeholders.js";
-import { ProviderError } from "../util/errors.js";
+import { AssistantError, ErrorCode, ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { isRetryableNetworkError } from "../util/retry.js";
 
@@ -123,6 +130,35 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
 
 const MAX_CONSECUTIVE_ERROR_NUDGES = 3;
 const MAX_EMPTY_RESPONSE_RETRIES = 1;
+
+/**
+ * Build a minimal {@link TurnContext} for pipeline invocations inside the
+ * agent loop. The loop does not currently own conversation-scoped trust or
+ * identity — those live on the orchestrator — so we stamp in placeholders
+ * for the few required fields. Later PRs thread full trust context through
+ * `AgentLoop.run()` and replace this helper with the real context.
+ *
+ * The returned context is still useful for pipeline logging: `requestId`
+ * surfaces in every structured record, and `turnIndex` reflects the
+ * current tool-use iteration.
+ */
+function buildLoopTurnContext(
+  requestId: string | undefined,
+  turnIndex: number,
+): TurnContext {
+  return {
+    requestId: requestId ?? "agent-loop",
+    // Loop-scoped pipelines do not currently carry a conversation ID; the
+    // outer orchestrator owns that dimension. Use a fixed sentinel so log
+    // consumers can filter loop-origin records out of conversation queries.
+    conversationId: "agent-loop",
+    turnIndex,
+    trust: {
+      sourceChannel: "vellum",
+      trustClass: "unknown",
+    },
+  };
+}
 
 /**
  * User-config HTTP status codes that should never page the on-call: billing
@@ -529,6 +565,12 @@ export class AgentLoop {
         // invocations passed in via `messages`) must NOT suppress the
         // nudge — those turns completed long ago and have no bearing on
         // whether the current tool-use chain has delivered text yet.
+        //
+        // The actual decision (nudge vs. accept vs. error) is delegated to
+        // the `emptyResponse` plugin pipeline. The pipeline returns a
+        // decision; the loop carries out the side-effect (pushing the nudge
+        // or surfacing the error). See `plugins/defaults/empty-response.ts`
+        // for the default decision logic.
         const hasVisibleText = response.content.some(
           (block) => block.type === "text" && block.text.trim().length > 0,
         );
@@ -546,13 +588,33 @@ export class AgentLoop {
           }
           return false;
         })();
-        if (
-          !hasVisibleText &&
-          toolUseBlocks.length === 0 &&
-          toolUseTurns > 0 &&
-          !priorAssistantHadVisibleText &&
-          emptyResponseRetries < MAX_EMPTY_RESPONSE_RETRIES
-        ) {
+
+        const emptyResponseArgs: EmptyResponseArgs = {
+          responseContent: response.content,
+          toolUseBlocksLength: toolUseBlocks.length,
+          toolUseTurns,
+          emptyResponseRetries,
+          maxEmptyResponseRetries: MAX_EMPTY_RESPONSE_RETRIES,
+          priorAssistantHadVisibleText,
+        };
+        const emptyResponseCtx = buildLoopTurnContext(requestId, toolUseTurns);
+        const emptyResponseDecision: EmptyResponseDecision = await runPipeline(
+          "emptyResponse",
+          getMiddlewaresFor("emptyResponse"),
+          async () => ({ action: "accept" }),
+          emptyResponseArgs,
+          emptyResponseCtx,
+          DEFAULT_TIMEOUTS.emptyResponse,
+        );
+
+        if (emptyResponseDecision.action === "nudge") {
+          // Fall back to the canonical nudge text if the plugin returned
+          // `action: "nudge"` but forgot `nudgeText`. Keeps a misbehaving
+          // plugin from silently breaking the loop invariant that the
+          // model sees a coherent prompt.
+          const nudgeText =
+            emptyResponseDecision.nudgeText ??
+            "<system_notice>Your previous response was empty. You must respond to the user with a summary of what you found or did. Do not use any tools — just respond with text.</system_notice>";
           emptyResponseRetries++;
           rlog.warn(
             { turn: toolUseTurns, retry: emptyResponseRetries },
@@ -560,16 +622,25 @@ export class AgentLoop {
           );
           history.push({
             role: "user",
-            content: [
-              {
-                type: "text",
-                text: "<system_notice>Your previous response was empty. You must respond to the user with a summary of what you found or did. Do not use any tools — just respond with text.</system_notice>",
-              },
-            ],
+            content: [{ type: "text", text: nudgeText }],
           });
           continue;
         }
 
+        if (emptyResponseDecision.action === "error") {
+          rlog.error(
+            { turn: toolUseTurns, retries: emptyResponseRetries },
+            "emptyResponse pipeline requested error surface",
+          );
+          throw new AssistantError(
+            "Model returned empty response after tool results",
+            ErrorCode.INTERNAL_ERROR,
+          );
+        }
+
+        // action === "accept" — fall through. Preserve the historic log for
+        // the specific "empty turn after tool results, retries exhausted"
+        // case so ops dashboards that grep on this line keep working.
         if (
           !hasVisibleText &&
           toolUseBlocks.length === 0 &&
