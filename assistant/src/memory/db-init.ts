@@ -374,10 +374,10 @@ export function initializeDb(): void {
     migrateConversationHostAccess,
     migrateOAuthProvidersLogoUrl,
     migrateOAuthProvidersTokenExchangeBodyFormat,
-    migrateOAuthProvidersManagedServiceIsPaid,
     migrateNormalizeUserFileByPrincipal,
     migrateConversationsArchivedAt,
     migrateStripPlaceholderSentinelsFromMessages,
+    migrateOAuthProvidersManagedServiceIsPaid,
   ];
 
   // Run each migration step, catching and logging individual failures so one
