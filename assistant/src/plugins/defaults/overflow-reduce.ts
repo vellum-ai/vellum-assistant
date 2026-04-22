@@ -80,7 +80,7 @@ export const defaultOverflowReduceMiddleware: Middleware<
     // Let the orchestrator apply compaction side effects (circuit-breaker
     // tracking, event emission, ctx mutation) before we re-inject.
     if (step.compactionResult) {
-      args.onCompactionResult(step.compactionResult);
+      await args.onCompactionResult(step.compactionResult);
       if (step.compactionResult.compacted) {
         reducerCompacted = true;
       }

@@ -39,6 +39,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AssistantConfig } from "../config/schema.js";
+import { defaultCircuitBreakerPlugin } from "../plugins/defaults/circuit-breaker.js";
 import { defaultCompactionPlugin } from "../plugins/defaults/compaction.js";
 import { defaultEmptyResponsePlugin } from "../plugins/defaults/empty-response.js";
 import { defaultHistoryRepairPlugin } from "../plugins/defaults/history-repair.js";
@@ -188,6 +189,7 @@ function registerDefaultPlugins(): void {
     defaultOverflowReducePlugin,
     defaultHistoryRepairPlugin,
     defaultCompactionPlugin,
+    defaultCircuitBreakerPlugin,
   ];
   for (const plugin of defaults) {
     try {
@@ -215,9 +217,9 @@ function registerDefaultPlugins(): void {
  * {@link PluginExecutionError} on the first failure — the error message names
  * the offending plugin so operators see which `init()` bailed.
  *
- * Must be called after the registry is fully populated by this boot cycle
- * (i.e. after any static side-effect imports of first-party plugins have
- * run) and before the first conversation is served.
+ * Must be called after any custom/third-party plugin registrations have run
+ * and before the first conversation is served. First-party defaults are
+ * registered inline via {@link registerDefaultPlugins}.
  */
 export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
   // Register first-party default plugins. Each default wraps one of the

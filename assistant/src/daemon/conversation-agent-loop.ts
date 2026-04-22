@@ -80,6 +80,8 @@ import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
+  CircuitBreakerArgs,
+  CircuitBreakerResult,
   CompactionArgs,
   CompactionResult,
   EstimateArgs,
@@ -189,7 +191,7 @@ type GitServiceInitializer = {
 };
 
 /**
- * Build a {@link TurnContext} for plugin pipeline invocations inside
+ * Build a {@link PluginTurnContext} for plugin pipeline invocations inside
  * `runAgentLoopImpl`. The orchestrator does not itself carry a
  * `TurnContext` — it composes one on demand at each pipeline call site from
  * ambient state.
@@ -221,87 +223,155 @@ function buildHistoryRepairTurnContext(
   };
 }
 
-// ── Compaction circuit-breaker constants ────────────────────────────
+// ── Compaction circuit-breaker pipeline helpers ─────────────────────
 //
-// The circuit opens after `COMPACTION_CIRCUIT_FAILURE_THRESHOLD` consecutive
-// summary-LLM failures and stays open for `COMPACTION_CIRCUIT_COOLDOWN_MS`
-// before auto-compaction is allowed to retry. User-initiated compaction
-// (`force: true`) bypasses the breaker regardless of its state.
-const COMPACTION_CIRCUIT_FAILURE_THRESHOLD = 3;
-const COMPACTION_CIRCUIT_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+// The circuit-breaker behavior (3 consecutive summary-LLM failures trips a
+// 1-hour cooldown) is now implemented by the `circuitBreaker` plugin
+// pipeline. The default plugin (`plugins/defaults/circuit-breaker.ts`)
+// replicates the legacy threshold/cooldown constants and event-emission
+// semantics exactly — it operates on the `consecutiveCompactionFailures` /
+// `compactionCircuitOpenUntil` fields the conversation still owns so the
+// dev-only playground routes (`POST /playground/reset-compaction-circuit`,
+// `POST /playground/inject-compaction-failures`) continue to read and
+// mutate those fields directly.
+//
+// The helpers below build the pipeline inputs and invoke the runner. They
+// are the sole entry points the rest of the daemon uses to query or update
+// the compaction circuit.
 
-/**
- * Check whether the compaction circuit breaker is currently open for the
- * given context. The breaker auto-closes once `compactionCircuitOpenUntil`
- * has elapsed.
- */
-export function isCompactionCircuitOpen(ctx: {
-  compactionCircuitOpenUntil: number | null;
-}): boolean {
-  return (
-    ctx.compactionCircuitOpenUntil !== null &&
-    Date.now() < ctx.compactionCircuitOpenUntil
-  );
+/** Circuit-breaker key for a specific conversation's compaction pipeline. */
+function compactionCircuitKey(conversationId: string): string {
+  return `compaction:${conversationId}`;
 }
 
 /**
- * Track the outcome of a `maybeCompact()` call against the circuit breaker.
- *
- * - When the summary LLM call failed (local fallback covered the result),
- *   increment the consecutive-failure counter. If the counter reaches the
- *   threshold, open the circuit for the cooldown window and emit
- *   `compaction_circuit_open` so clients can surface a notice.
- * - When the call did not fail, reset the counter and clear any open circuit.
- *
- * This is called by every `maybeCompact()` site (including forced ones),
- * because a run of three failures is a provider-health signal regardless of
- * whether the caller bypassed the breaker.
+ * Build the minimal {@link TurnContext} the pipeline runner requires. Called
+ * both from inside the agent loop (where turn identifiers are available) and
+ * from non-turn invocations like `Conversation.forceCompact` (which falls
+ * back to stable placeholders so the runner's log records still carry the
+ * conversation identifier).
  */
-export function trackCompactionOutcome(
+function buildCircuitTurnContext(ctx: {
+  readonly conversationId: string;
+  currentRequestId?: string;
+  currentTurnTrustContext?: TrustContext;
+  trustContext?: TrustContext;
+  turnCount: number;
+}): PluginTurnContext {
+  const trust: TrustContext = ctx.currentTurnTrustContext ??
+    ctx.trustContext ?? {
+      sourceChannel: "vellum",
+      trustClass: "unknown",
+    };
+  return {
+    requestId: ctx.currentRequestId ?? "circuit-breaker",
+    conversationId: ctx.conversationId,
+    turnIndex: ctx.turnCount,
+    trust,
+  };
+}
+
+/**
+ * Run the `circuitBreaker` pipeline for the compaction circuit on this
+ * conversation. When `outcome` is provided, state is updated (and transition
+ * events emit via `onEvent`); when omitted the call is query-only.
+ *
+ * Returns the post-call decision from the pipeline. Callers gate auto-paths
+ * on `!result.open` and admit forced paths regardless of the decision.
+ */
+async function runCompactionCircuitPipeline(
   ctx: {
     readonly conversationId: string;
     consecutiveCompactionFailures: number;
     compactionCircuitOpenUntil: number | null;
+    currentRequestId?: string;
+    currentTurnTrustContext?: TrustContext;
+    trustContext?: TrustContext;
+    turnCount: number;
   },
-  summaryFailed: boolean | undefined,
+  args: {
+    outcome?: "success" | "failure";
+    onEvent?: (msg: ServerMessage) => void;
+  },
+): Promise<CircuitBreakerResult> {
+  const turnContext = buildCircuitTurnContext(ctx);
+  return runPipeline<CircuitBreakerArgs, CircuitBreakerResult>(
+    "circuitBreaker",
+    getMiddlewaresFor("circuitBreaker"),
+    async (terminalArgs) => {
+      // No plugin in the chain produced a decision. This should be
+      // unreachable in production because the default plugin registers a
+      // `circuitBreaker` middleware that always returns a decision, but we
+      // defensively derive the state here so test setups that intentionally
+      // omit the default plugin still get a sensible response.
+      const openUntil = terminalArgs.state.compactionCircuitOpenUntil;
+      const now = Date.now();
+      if (openUntil !== null && now < openUntil) {
+        return { open: true, cooldownRemainingMs: openUntil - now };
+      }
+      return { open: false };
+    },
+    {
+      key: compactionCircuitKey(ctx.conversationId),
+      // Pass the ctx directly as the mutable state container. The
+      // `CircuitBreakerArgs.state` shape deliberately matches the subset of
+      // fields the conversation owns so plugins mutate the same object the
+      // playground routes read and write.
+      state: ctx,
+      ...(args.outcome !== undefined ? { outcome: args.outcome } : {}),
+      ...(args.onEvent ? { onEvent: args.onEvent } : {}),
+    },
+    turnContext,
+    DEFAULT_TIMEOUTS.circuitBreaker,
+  );
+}
+
+/**
+ * Query-only: is the compaction circuit breaker currently open for this
+ * conversation? Thin wrapper around {@link runCompactionCircuitPipeline}
+ * with no outcome. Async because the pipeline runner is async, but the
+ * default plugin resolves synchronously on its microtask.
+ */
+export async function isCompactionCircuitOpen(ctx: {
+  readonly conversationId: string;
+  consecutiveCompactionFailures: number;
+  compactionCircuitOpenUntil: number | null;
+  currentRequestId?: string;
+  currentTurnTrustContext?: TrustContext;
+  trustContext?: TrustContext;
+  turnCount: number;
+}): Promise<boolean> {
+  const decision = await runCompactionCircuitPipeline(ctx, {});
+  return decision.open;
+}
+
+/**
+ * Update the compaction circuit breaker with the outcome of a `maybeCompact`
+ * call and emit any transition event. A `summaryFailed` value of `undefined`
+ * means the summary LLM never ran (early return) — callers must guard with
+ * `summaryFailed !== undefined` before invoking this helper so early-return
+ * paths don't silently reset the 3-strike counter.
+ *
+ * The default plugin handles threshold-based tripping and cooldown reset;
+ * see `plugins/defaults/circuit-breaker.ts` for the canonical semantics.
+ */
+export async function trackCompactionOutcome(
+  ctx: {
+    readonly conversationId: string;
+    consecutiveCompactionFailures: number;
+    compactionCircuitOpenUntil: number | null;
+    currentRequestId?: string;
+    currentTurnTrustContext?: TrustContext;
+    trustContext?: TrustContext;
+    turnCount: number;
+  },
+  summaryFailed: boolean,
   onEvent: (msg: ServerMessage) => void,
-): void {
-  if (summaryFailed) {
-    ctx.consecutiveCompactionFailures += 1;
-    // Treat a stale/expired open-until timestamp the same as null so a new
-    // 3-strike window can re-open the circuit after the prior cooldown
-    // elapses. Without this the second trip would no-op because
-    // `compactionCircuitOpenUntil` remains set to a past timestamp even
-    // though `isCompactionCircuitOpen()` correctly reports closed.
-    const circuitDormant =
-      ctx.compactionCircuitOpenUntil === null ||
-      Date.now() >= ctx.compactionCircuitOpenUntil;
-    if (
-      ctx.consecutiveCompactionFailures >=
-        COMPACTION_CIRCUIT_FAILURE_THRESHOLD &&
-      circuitDormant
-    ) {
-      const openUntil = Date.now() + COMPACTION_CIRCUIT_COOLDOWN_MS;
-      ctx.compactionCircuitOpenUntil = openUntil;
-      onEvent({
-        type: "compaction_circuit_open",
-        conversationId: ctx.conversationId,
-        reason: "3_consecutive_failures",
-        openUntil,
-      });
-    }
-  } else {
-    // Emit only on open→closed transition; firing on the common closed→closed case would be noise.
-    const wasOpen = ctx.compactionCircuitOpenUntil !== null;
-    ctx.consecutiveCompactionFailures = 0;
-    ctx.compactionCircuitOpenUntil = null;
-    if (wasOpen) {
-      onEvent({
-        type: "compaction_circuit_closed",
-        conversationId: ctx.conversationId,
-      });
-    }
-  }
+): Promise<void> {
+  await runCompactionCircuitPipeline(ctx, {
+    outcome: summaryFailed ? "failure" : "success",
+    onEvent,
+  });
 }
 
 // ── Plugin pipeline helpers ──────────────────────────────────────────
@@ -673,7 +743,7 @@ export async function runAgentLoopImpl(
     const compactCheck = ctx.contextWindowManager.shouldCompact(ctx.messages);
     // Skip auto-compaction while the circuit breaker is open. Force paths
     // and user-initiated /compact bypass this check.
-    const autoCompactAllowed = !isCompactionCircuitOpen(ctx);
+    const autoCompactAllowed = !(await isCompactionCircuitOpen(ctx));
     if (compactCheck.needed && autoCompactAllowed) {
       ctx.emitActivityState(
         "thinking",
@@ -708,7 +778,7 @@ export async function runAgentLoopImpl(
     // path) — treating those as "successful" compactions would silently reset
     // the 3-strike counter and break the invariant.
     if (compacted && compacted.summaryFailed !== undefined) {
-      trackCompactionOutcome(ctx, compacted.summaryFailed, onEvent);
+      await trackCompactionOutcome(ctx, compacted.summaryFailed, onEvent);
     }
     if (compacted?.compacted) {
       applyCompactionResult(ctx, compacted, onEvent, reqId);
@@ -1277,7 +1347,7 @@ export async function runAgentLoopImpl(
             reqId,
           );
         },
-        onCompactionResult: (result) => {
+        onCompactionResult: async (result) => {
           // Track circuit-breaker state whenever the reducer invoked
           // compaction. The reducer's forced_compaction tier uses
           // force:true, so it bypasses the open-circuit check, but we
@@ -1288,7 +1358,7 @@ export async function runAgentLoopImpl(
           // truncation-only path, etc.) that shouldn't influence the
           // breaker.
           if (result.summaryFailed !== undefined) {
-            trackCompactionOutcome(ctx, result.summaryFailed, onEvent);
+            await trackCompactionOutcome(ctx, result.summaryFailed, onEvent);
           }
           if (result.compacted) {
             applyCompactionResult(ctx, result, onEvent, reqId);
@@ -1574,7 +1644,11 @@ export async function runAgentLoopImpl(
       // for "no eligible messages" / "insufficient messages" still leave
       // `summaryFailed` undefined. Only track when the summary LLM actually ran.
       if (midLoopCompact.summaryFailed !== undefined) {
-        trackCompactionOutcome(ctx, midLoopCompact.summaryFailed, onEvent);
+        await trackCompactionOutcome(
+          ctx,
+          midLoopCompact.summaryFailed,
+          onEvent,
+        );
       }
       if (midLoopCompact.compacted) {
         applyCompactionResult(ctx, midLoopCompact, onEvent, reqId);
@@ -1800,7 +1874,7 @@ export async function runAgentLoopImpl(
           step.compactionResult &&
           step.compactionResult.summaryFailed !== undefined
         ) {
-          trackCompactionOutcome(
+          await trackCompactionOutcome(
             ctx,
             step.compactionResult.summaryFailed,
             onEvent,
@@ -1935,7 +2009,7 @@ export async function runAgentLoopImpl(
           // Only track when the summary LLM actually ran; `force: true`
           // bypasses the cooldown but not the early-return paths.
           if (emergencyCompact.summaryFailed !== undefined) {
-            trackCompactionOutcome(
+            await trackCompactionOutcome(
               ctx,
               emergencyCompact.summaryFailed,
               onEvent,

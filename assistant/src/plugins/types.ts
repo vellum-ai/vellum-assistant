@@ -24,6 +24,7 @@ import type {
   TrustContext,
 } from "../daemon/conversation-runtime-assembly.js";
 import type { RepairResult } from "../daemon/history-repair.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import type {
   ContentBlock,
   Message,
@@ -364,7 +365,9 @@ export interface OverflowReduceArgs {
    * `reducerCompacted` / `shouldInjectWorkspace` flags and the next
    * re-injection uses the fresh messages.
    */
-  readonly onCompactionResult: (result: ContextWindowResult) => void;
+  readonly onCompactionResult: (
+    result: ContextWindowResult,
+  ) => void | Promise<void>;
   /**
    * Invoked after each step to rebuild `runMessages` from the step's
    * reduced history with the requested injection mode. The orchestrator
@@ -515,8 +518,53 @@ export type ToolErrorDecision =
 /** Alias kept so `PipelineMiddlewareMap.toolError` reads result-shaped. */
 export type ToolErrorResult = ToolErrorDecision;
 
-export type CircuitBreakerArgs = { readonly input: unknown };
-export type CircuitBreakerResult = { readonly output: unknown };
+/**
+ * Arguments for the `circuitBreaker` pipeline.
+ *
+ * A single call pattern handles both querying and updating the breaker:
+ * - `{ key }` — query-only. Returns the current `{ open, cooldownRemainingMs? }`.
+ * - `{ key, outcome }` — update state, then return the post-update decision.
+ *
+ * `key` identifies the circuit bucket so independent circuits (e.g. per
+ * conversation, per provider) can coexist. The default compaction plugin
+ * uses `"compaction:<conversationId>"`.
+ *
+ * `state` is a pragmatic extension beyond the minimal `{ key, outcome? }`
+ * shape: the `Conversation` owns `consecutiveCompactionFailures` and
+ * `compactionCircuitOpenUntil` because dev-only playground routes read and
+ * mutate those fields directly. The default plugin reads/updates the same
+ * container so the pipeline stays a pure wrapper rather than forking state
+ * ownership.
+ *
+ * `onEvent` is optional — when provided, the default plugin emits
+ * `compaction_circuit_open` / `compaction_circuit_closed` transition events
+ * through it. Callers that just want to query without emitting (or without
+ * a `ServerMessage` sink handy) can omit it.
+ */
+export type CircuitBreakerArgs = {
+  readonly key: string;
+  readonly outcome?: "success" | "failure";
+  readonly state: {
+    readonly conversationId: string;
+    consecutiveCompactionFailures: number;
+    compactionCircuitOpenUntil: number | null;
+  };
+  readonly onEvent?: (msg: ServerMessage) => void;
+};
+
+/**
+ * Result of a `circuitBreaker` pipeline invocation.
+ *
+ * - `open` — `true` when the breaker is currently tripped (auto paths must
+ *   skip). `false` when closed (auto paths may proceed).
+ * - `cooldownRemainingMs` — when `open` is `true`, the number of ms until
+ *   the breaker auto-closes (for informational display). Omitted when the
+ *   breaker is closed.
+ */
+export type CircuitBreakerResult = {
+  readonly open: boolean;
+  readonly cooldownRemainingMs?: number;
+};
 
 /**
  * Mapping from {@link PipelineName} to the middleware signature the registry

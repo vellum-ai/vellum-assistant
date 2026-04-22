@@ -12,6 +12,8 @@ import { describe, expect, test } from "bun:test";
 
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import {
+  type CircuitBreakerArgs,
+  type CircuitBreakerResult,
   type CompactionArgs,
   type CompactionResult,
   type EmptyResponseArgs,
@@ -166,6 +168,14 @@ describe("plugin core types", () => {
       CompactionResult
     > = async (args, next, _ctx) => next(args);
 
+    // `circuitBreaker` carries a concrete arg shape (pipeline wrapping
+    // landed ahead of the other slots) so it needs its own passthrough
+    // rather than reusing the generic placeholder.
+    const circuitPassthrough: Middleware<
+      CircuitBreakerArgs,
+      CircuitBreakerResult
+    > = async (args, next, _ctx) => next(args);
+
     const injector: Injector = {
       name: "sample-injector",
       order: 10,
@@ -213,7 +223,7 @@ describe("plugin core types", () => {
         toolResultTruncate: truncatePassthrough,
         emptyResponse: emptyResponsePassthrough,
         toolError: toolErrorPassthrough,
-        circuitBreaker: passthrough,
+        circuitBreaker: circuitPassthrough,
       },
     } satisfies Plugin;
 

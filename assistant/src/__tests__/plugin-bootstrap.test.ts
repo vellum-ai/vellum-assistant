@@ -244,11 +244,13 @@ describe("plugin bootstrap", () => {
     expect(callOrder).toEqual(["second-registered", "first-registered"]);
   });
 
-  test("empty registry: bootstrap registers first-party defaults only", async () => {
-    // No external plugins registered. Bootstrap must still register the
-    // first-party default plugins (e.g. `default-tool-result-truncate`) so
-    // every wrapped pipeline has a terminal-like middleware — and it must
-    // not throw in the process.
+  test("empty registry: bootstrap seeds the first-party defaults without throwing", async () => {
+    // The bootstrap path calls `registerDefaultPlugins` at the top, so even
+    // when the test-reset registry starts empty the bootstrap emerges with
+    // the canonical defaults installed (compaction circuit breaker,
+    // tool-result truncate, etc.). Just assert bootstrap completes without
+    // throwing — the surface of defaults is verified in each pipeline's own
+    // dedicated test file.
     await bootstrapPlugins(fakeCtx);
   });
 });
