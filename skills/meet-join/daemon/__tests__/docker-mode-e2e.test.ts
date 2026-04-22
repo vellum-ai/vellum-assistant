@@ -157,7 +157,7 @@ async function startDockerEngineMock(): Promise<DockerEngineMock> {
 function makeFakeAudioIngest(): MeetAudioIngestLike {
   const subscribers = new Set<(bytes: Uint8Array) => void>();
   return {
-    start: mock(async () => {}),
+    start: mock(async () => ({ port: 42173, ready: Promise.resolve() })),
     stop: mock(async () => {}),
     subscribePcm: mock((cb: (bytes: Uint8Array) => void) => {
       subscribers.add(cb);

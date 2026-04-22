@@ -131,7 +131,7 @@ function makeFakeAudioIngestFactory(): {
     factory: () => {
       const subscribers = new Set<(bytes: Uint8Array) => void>();
       const ingest: FakeAudioIngest = {
-        start: mock(async () => {}),
+        start: mock(async () => ({ port: 42173, ready: Promise.resolve() })),
         stop: mock(async () => {}),
         subscribePcm: mock((cb: (bytes: Uint8Array) => void) => {
           subscribers.add(cb);
