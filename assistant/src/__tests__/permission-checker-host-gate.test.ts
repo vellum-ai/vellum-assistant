@@ -36,12 +36,6 @@ mock.module("../permissions/checker.js", () => ({
   generateScopeOptions: () => [],
 }));
 
-mock.module("../hooks/manager.js", () => ({
-  getHookManager: () => ({
-    trigger: async () => {},
-  }),
-}));
-
 const hostAccessByConversation = new Map<string, boolean>();
 
 mock.module("../memory/conversation-crud.js", () => ({

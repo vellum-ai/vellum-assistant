@@ -1,6 +1,5 @@
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
-import { getHookManager } from "../hooks/manager.js";
 import { resolveThreshold } from "../permissions/approval-policy.js";
 import {
   check,
@@ -354,13 +353,6 @@ export class PermissionChecker {
           persistentDecisionsAllowed: promptOptions.persistentDecisionsAllowed,
         });
 
-        await getHookManager().trigger("permission-request", {
-          toolName: name,
-          input: sanitizeToolInput(name, input),
-          riskLevel,
-          conversationId: context.conversationId,
-        });
-
         const response = await this.prompter.prompt(
           name,
           input,
@@ -381,13 +373,6 @@ export class PermissionChecker {
           v2ForcePrompt && !isConversationHostAccessDecision(response.decision)
             ? "deny"
             : response.decision;
-
-        await getHookManager().trigger("permission-resolve", {
-          toolName: name,
-          decision,
-          riskLevel,
-          conversationId: context.conversationId,
-        });
 
         if (decision === "deny") {
           const contextualDenial =
