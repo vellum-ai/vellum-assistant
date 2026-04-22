@@ -22,12 +22,22 @@ enum HomeDetailPanelKind: Equatable {
     /// Maps a `FeedItem` to its detail-panel kind, or returns `nil` when the
     /// item should keep the existing conversation-open flow.
     ///
-    /// Legacy dispatch rules (will be replaced by `item.detailPanel` in PR 4):
+    /// Checks `item.detailPanel` first (server-driven dispatch). Falls back
+    /// to legacy heuristics when the field is absent:
     ///   - `.thread` + `.calendar` source → `.scheduled`
     ///   - `.nudge` (any source)          → `.nudge`
     ///   - everything else                → `nil`
     static func resolve(for item: FeedItem) -> HomeDetailPanelKind? {
-        // TODO(PR4): read item.detailPanel here
+        if let panel = item.detailPanel {
+            switch panel.kind {
+            case .emailDraft: return .emailDraft(item)
+            case .documentPreview: return .documentPreview(item)
+            case .permissionChat: return .permissionChat(item)
+            case .paymentAuth: return .paymentAuth(item)
+            case .toolPermission: return .toolPermission(item)
+            case .updatesList: return .updatesList(item)
+            }
+        }
         if item.type == .thread && item.source == .calendar {
             return .scheduled(item)
         }
