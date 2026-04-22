@@ -60,24 +60,30 @@ import type { ServerMessage } from "./message-protocol.js";
 const log = getLogger("agent-loop-handlers");
 
 /**
- * Build a minimal {@link TurnContext} from the handler's deps for pipeline
- * logging and plugin attribution. The agent loop does not carry a full
- * `requestId`/`turnIndex`/`trust` envelope in every handler, so we
- * fill safe defaults here — `turnIndex` is not tracked on the handler side
- * (the orchestrator maintains it) and defaults to `0`; `trust` falls back
- * to `{ sourceChannel: "vellum", trustClass: "unknown" }` when
- * `ctx.trustContext` is not populated (e.g. a fresh conversation before
- * the trust resolver runs).
+ * Build a {@link TurnContext} from the handler's deps for pipeline logging
+ * and plugin attribution.
+ *
+ * Reads `turnIndex` from `deps.ctx.turnCount` — the orchestrator-owned
+ * per-turn counter that is stable for the entire duration of a single
+ * `runAgentLoopImpl` invocation. The handlers fire after the orchestrator
+ * has completed its in-turn pipeline work but before `ctx.turnCount++` runs
+ * in the outer `finally` block, so this value always reflects the turn the
+ * handler's event belongs to. Trust pulls from the per-turn snapshot first,
+ * then the conversation-level context, then the canonical `unknown`
+ * fallback so the required field stays populated for edge cases (fresh
+ * conversations before the trust resolver runs, heartbeat turns that never
+ * bind an actor).
  */
 function buildHandlerTurnContext(deps: EventHandlerDeps): TurnContext {
   return {
     requestId: deps.reqId,
     conversationId: deps.ctx.conversationId,
-    turnIndex: 0,
-    trust: deps.ctx.trustContext ?? {
-      sourceChannel: "vellum",
-      trustClass: "unknown",
-    },
+    turnIndex: deps.ctx.turnCount,
+    trust: deps.ctx.currentTurnTrustContext ??
+      deps.ctx.trustContext ?? {
+        sourceChannel: "vellum",
+        trustClass: "unknown",
+      },
   };
 }
 

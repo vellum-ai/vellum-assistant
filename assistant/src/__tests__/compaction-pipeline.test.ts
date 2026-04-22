@@ -55,17 +55,15 @@ const trust: TrustContext = {
 function makeTurnCtx(manager: {
   maybeCompact: (...args: unknown[]) => Promise<unknown>;
 }): TurnContext {
-  const base: TurnContext = {
+  return {
     requestId: "req-compaction-test",
     conversationId: "conv-compaction-test",
     turnIndex: 0,
     trust,
-  };
-  return {
-    ...base,
-    // The default compaction plugin reads this via lenient cast — see
-    // `plugins/defaults/compaction.ts`.
-    ...({ contextWindowManager: manager } as Partial<TurnContext>),
+    // `TurnContext.contextWindowManager` is a typed optional field; the
+    // default compaction plugin reads it directly without a cast.
+    contextWindowManager:
+      manager as unknown as TurnContext["contextWindowManager"],
   };
 }
 
