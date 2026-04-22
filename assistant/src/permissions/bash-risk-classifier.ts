@@ -365,12 +365,45 @@ export function classifySegment(
     let argRuleReason = "";
 
     const allArgs = segment.args;
-    for (let i = 0; i < allArgs.length; i++) {
-      const arg = allArgs[i];
-      let matched = false;
-      for (const rule of argRules) {
-        // Standard match: flag or positional against this arg
-        if (matchesArgRule(rule, arg)) {
+
+    // Parse args using the resolved spec's argSchema for structured lookups.
+    const schema = resolvedSpec.argSchema ?? {};
+    const parsed = parseArgs(allArgs, schema);
+
+    // Track which positionals have been covered by a rule.
+    const matchedPositionalIndices = new Set<number>();
+
+    for (const rule of argRules) {
+      if (rule.flags && rule.flags.length > 0 && rule.valuePattern) {
+        // ── Rules with flags + valuePattern ──────────────────────────────
+        // Look up each rule flag in parsed.flags. If the flag has a string
+        // value (consumed by parseArgs), test that value against the pattern.
+        // This replaces the manual next-token lookahead.
+        // Also check for --flag=value forms already handled by parseArgs.
+        let flagValueMatched = false;
+        for (const flag of rule.flags) {
+          const flagVal = parsed.flags.get(flag);
+          if (typeof flagVal === "string") {
+            if (getCompiledPattern(rule.valuePattern).test(flagVal)) {
+              flagValueMatched = true;
+              break;
+            }
+          }
+        }
+
+        // Also check raw args for inline --flag=value forms where the flag
+        // name is NOT in the argSchema.valueFlags (parseArgs wouldn't split
+        // it). matchesArgRule handles this case.
+        if (!flagValueMatched) {
+          for (const arg of allArgs) {
+            if (matchesArgRule(rule, arg)) {
+              flagValueMatched = true;
+              break;
+            }
+          }
+        }
+
+        if (flagValueMatched) {
           if (
             !anyArgRuleMatched ||
             riskOrd(rule.risk) > riskOrd(argRuleMaxRisk)
@@ -379,38 +412,123 @@ export function classifySegment(
             argRuleReason = rule.reason;
           }
           anyArgRuleMatched = true;
-          matched = true;
-          break; // first match per arg wins
         }
-        // Flag+value lookahead: if this arg is a flag listed in the rule and
-        // the rule has a valuePattern, check the NEXT arg against the pattern.
-        // This handles `curl -d @file` where `-d` is the flag and `@file` is
-        // the value in the next token.
-        if (
-          rule.flags &&
-          rule.valuePattern &&
-          rule.flags.includes(arg) &&
-          i + 1 < allArgs.length
-        ) {
-          const nextArg = allArgs[i + 1];
-          if (getCompiledPattern(rule.valuePattern).test(nextArg)) {
-            if (
-              !anyArgRuleMatched ||
-              riskOrd(rule.risk) > riskOrd(argRuleMaxRisk)
-            ) {
-              argRuleMaxRisk = rule.risk;
-              argRuleReason = rule.reason;
-            }
-            anyArgRuleMatched = true;
-            matched = true;
+      } else if (rule.flags && rule.flags.length > 0) {
+        // ── Rules with flags only (no valuePattern) ──────────────────────
+        // Check flag presence in parsed.flags Map.
+        // Also scan raw allArgs for combined short flags like `-rf` that
+        // parseArgs treats as a single boolean flag token.
+        let flagMatched = false;
+        for (const flag of rule.flags) {
+          if (parsed.flags.has(flag)) {
+            flagMatched = true;
             break;
           }
         }
+
+        // Fallback: scan raw args for combined short flags (e.g. `-rf`)
+        // that parseArgs doesn't split but the rule lists as a literal.
+        if (!flagMatched) {
+          for (const arg of allArgs) {
+            if (rule.flags.includes(arg)) {
+              flagMatched = true;
+              break;
+            }
+          }
+        }
+
+        if (flagMatched) {
+          if (
+            !anyArgRuleMatched ||
+            riskOrd(rule.risk) > riskOrd(argRuleMaxRisk)
+          ) {
+            argRuleMaxRisk = rule.risk;
+            argRuleReason = rule.reason;
+          }
+          anyArgRuleMatched = true;
+        }
+      } else if (rule.valuePattern) {
+        // ── Rules with valuePattern only (no flags) ──────────────────────
+        // Test each positional against the pattern.
+        const re = getCompiledPattern(rule.valuePattern);
+        let positionalMatched = false;
+        for (let pi = 0; pi < parsed.positionals.length; pi++) {
+          if (re.test(parsed.positionals[pi])) {
+            positionalMatched = true;
+            matchedPositionalIndices.add(pi);
+          }
+        }
+
+        // Also check raw allArgs for backward compatibility — some patterns
+        // may match flag-like tokens or args that parseArgs classified
+        // differently.
+        if (!positionalMatched) {
+          for (const arg of allArgs) {
+            if (re.test(arg)) {
+              positionalMatched = true;
+              break;
+            }
+          }
+        }
+
+        if (positionalMatched) {
+          if (
+            !anyArgRuleMatched ||
+            riskOrd(rule.risk) > riskOrd(argRuleMaxRisk)
+          ) {
+            argRuleMaxRisk = rule.risk;
+            argRuleReason = rule.reason;
+          }
+          anyArgRuleMatched = true;
+        }
+      } else {
+        // No flags and no valuePattern — always matches (unusual but allowed)
+        if (
+          !anyArgRuleMatched ||
+          riskOrd(rule.risk) > riskOrd(argRuleMaxRisk)
+        ) {
+          argRuleMaxRisk = rule.risk;
+          argRuleReason = rule.reason;
+        }
+        anyArgRuleMatched = true;
       }
-      // Track unmatched non-flag args. Flags (starting with -) are structural
-      // and don't need rule coverage for de-escalation safety.
-      if (!matched && !arg.startsWith("-")) {
+    }
+
+    // Check for unmatched positionals — any positional not covered by a
+    // valuePattern-only rule prevents de-escalation.
+    for (let pi = 0; pi < parsed.positionals.length; pi++) {
+      if (!matchedPositionalIndices.has(pi)) {
         hasUnmatchedNonFlagArg = true;
+        break;
+      }
+    }
+
+    // Also check raw allArgs for non-flag args that parseArgs may have
+    // classified as flags (e.g. combined short flags like `-rf` are boolean
+    // flags in parseArgs but are non-flag args in the old iteration model).
+    // We only need to track unmatched non-flag args from the raw iteration
+    // perspective for backward compatibility.
+    if (!hasUnmatchedNonFlagArg) {
+      for (const arg of allArgs) {
+        if (arg.startsWith("-")) continue;
+        // Check if this positional was matched by any rule
+        let wasMatched = false;
+        for (const rule of argRules) {
+          if (matchesArgRule(rule, arg)) {
+            wasMatched = true;
+            break;
+          }
+          // Check flag+value lookahead match (arg as a flag value)
+          if (rule.flags && rule.valuePattern && rule.flags.includes(arg)) {
+            // This arg is a flag that matched a rule flag — it's structural
+            wasMatched = true;
+            break;
+          }
+        }
+        if (!wasMatched) {
+          hasUnmatchedNonFlagArg = true;
+          break;
+        }
       }
     }
 
