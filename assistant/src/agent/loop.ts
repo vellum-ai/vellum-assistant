@@ -6,12 +6,19 @@ import {
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
-import { truncateOversizedToolResults } from "../context/tool-result-truncation.js";
+import {
+  calculateMaxToolResultChars,
+  truncateToolResultText,
+} from "../context/tool-result-truncation.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
   EmptyResponseArgs,
   EmptyResponseDecision,
+  LLMCallArgs,
+  LLMCallResult,
+  ToolResultTruncateArgs,
+  ToolResultTruncateResult,
   TurnContext,
 } from "../plugins/types.js";
 import type {
@@ -430,11 +437,22 @@ export class AgentLoop {
           stripOldImageBlocks(history),
         );
 
-        const response = await this.provider.sendMessage(
-          providerHistory,
-          currentTools.length > 0 ? currentTools : undefined,
-          turnSystemPrompt,
-          {
+        // Wrap the provider call in the `llmCall` pipeline so middleware
+        // contributed by plugins may observe, rewrite, short-circuit, or
+        // post-process every LLM request. The default plugin registered at
+        // bootstrap (`defaultLlmCallPlugin`) acts as the passthrough terminal
+        // and simply delegates back to `provider.sendMessage(...)`. Timeout
+        // is `null` (`DEFAULT_TIMEOUTS.llmCall`) — the provider layer already
+        // enforces its own HTTP-level budgets.
+        //
+        // The `onEvent` wrapping is kept inside `args.options` so substitution
+        // and streaming behavior exactly match the pre-pipeline call site.
+        const llmCallArgs: LLMCallArgs = {
+          provider: this.provider,
+          messages: providerHistory,
+          tools: currentTools.length > 0 ? currentTools : undefined,
+          systemPrompt: turnSystemPrompt,
+          options: {
             config: providerConfig,
             onEvent: (event) => {
               if (event.type === "text_delta") {
@@ -485,6 +503,34 @@ export class AgentLoop {
             },
             signal,
           },
+        };
+
+        // Minimal per-turn context for pipeline logging and plugin
+        // attribution. The agent loop itself does not carry a conversationId
+        // or trust context — those live upstream — so we fill safe defaults.
+        const turnCtx: TurnContext = {
+          requestId: requestId ?? "agent-loop",
+          conversationId: "agent-loop",
+          turnIndex: toolUseTurns,
+          trust: { sourceChannel: "vellum", trustClass: "unknown" },
+        };
+
+        const response: LLMCallResult = await runPipeline<
+          LLMCallArgs,
+          LLMCallResult
+        >(
+          "llmCall",
+          getMiddlewaresFor("llmCall"),
+          (args) =>
+            args.provider.sendMessage(
+              args.messages,
+              args.tools,
+              args.systemPrompt,
+              args.options,
+            ),
+          llmCallArgs,
+          turnCtx,
+          DEFAULT_TIMEOUTS.llmCall,
         );
 
         const providerDurationMs = Date.now() - providerStart;
@@ -773,12 +819,67 @@ export class AgentLoop {
           }),
         );
 
-        // Pre-emptively truncate oversized tool results to prevent context overflow
-        const { blocks: resultBlocks, truncatedCount } =
-          truncateOversizedToolResults(
-            rawResultBlocks,
-            this.config.maxInputTokens ?? 180_000,
+        // Pre-emptively truncate oversized tool results to prevent context
+        // overflow. The work is delegated to the `toolResultTruncate`
+        // plugin pipeline so downstream plugins can swap in a smarter
+        // truncation strategy (e.g. a summariser) while the default
+        // middleware preserves the historical tail-drop behaviour.
+        const contextWindowTokens = this.config.maxInputTokens ?? 180_000;
+        const maxChars = calculateMaxToolResultChars(contextWindowTokens);
+        const truncateMiddlewares = getMiddlewaresFor("toolResultTruncate");
+
+        let truncatedCount = 0;
+        const truncatedBlocks: ContentBlock[] = [];
+        for (const block of rawResultBlocks) {
+          if (block.type !== "tool_result") {
+            truncatedBlocks.push(block);
+            continue;
+          }
+          const toolBlock = block as ToolResultContent;
+          if (
+            typeof toolBlock.content !== "string" ||
+            toolBlock.content.length <= maxChars
+          ) {
+            truncatedBlocks.push(block);
+            continue;
+          }
+          const pipelineResult = await runPipeline<
+            ToolResultTruncateArgs,
+            ToolResultTruncateResult
+          >(
+            "toolResultTruncate",
+            truncateMiddlewares,
+            async (args) => {
+              // Terminal fallback — applies the same tail-drop truncation
+              // the loop used before plugins existed. We run it here
+              // (instead of relying purely on the default plugin) so code
+              // paths that exercise `AgentLoop.run` without first calling
+              // `bootstrapPlugins` — e.g. unit tests that construct a
+              // loop directly — retain the pre-plugin behaviour.
+              const truncated = truncateToolResultText(
+                args.content,
+                args.maxChars,
+              );
+              return {
+                content: truncated,
+                truncated: truncated !== args.content,
+              };
+            },
+            { content: toolBlock.content, maxChars },
+            turnCtx,
+            DEFAULT_TIMEOUTS.toolResultTruncate,
           );
+          if (pipelineResult.truncated) {
+            truncatedCount++;
+            truncatedBlocks.push({
+              ...toolBlock,
+              content: pipelineResult.content,
+            });
+          } else {
+            truncatedBlocks.push(block);
+          }
+        }
+        const resultBlocks = truncatedBlocks;
         if (truncatedCount > 0) {
           log.warn(
             `Truncated ${truncatedCount} oversized tool result(s) to prevent context overflow`,
