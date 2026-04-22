@@ -108,7 +108,7 @@ public struct VNotification: View {
 
     private var divider: some View {
         Rectangle()
-            .fill(foregroundColor.opacity(dividerOpacity))
+            .fill(VColor.contentInset.opacity(dividerOpacity))
             .frame(width: 1, height: 18)
             .accessibilityHidden(true)
     }
@@ -161,8 +161,8 @@ public struct VNotification: View {
     private var leadingIcon: VIcon {
         switch tone {
         case .positive: return .circleCheck
-        case .negative: return .circleX
-        case .warning: return .triangleAlert
+        case .negative: return .circleAlert
+        case .warning: return .info
         case .neutral: return .info
         }
     }
