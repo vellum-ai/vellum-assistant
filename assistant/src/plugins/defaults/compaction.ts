@@ -10,14 +10,11 @@
  * before the orchestrator consumes it.
  *
  * Lookup: the default middleware reads `ctx.contextWindowManager` from the
- * {@link TurnContext} via a lenient cast. The orchestrator is responsible
- * for attaching that handle to the per-turn context it hands to
- * {@link runPipeline}. `TurnContext` intentionally stays slim at the type
- * level — we avoid widening it to carry orchestrator-only accessors — and
- * use the same lenient-read pattern the pipeline runner already uses for
- * its optional `logger` slot. If the handle is missing, the middleware
- * throws a {@link PluginExecutionError} so the bug surfaces with clear
- * attribution instead of a late `undefined.maybeCompact is not a function`.
+ * {@link TurnContext} as a typed optional field. The orchestrator is
+ * responsible for attaching that handle to the per-turn context it hands to
+ * {@link runPipeline}. If the handle is missing, the middleware throws a
+ * {@link PluginExecutionError} so the bug surfaces with clear attribution
+ * instead of a late `undefined.maybeCompact is not a function`.
  *
  * Design doc: `.private/plans/agent-plugin-system.md` (PR 25).
  */
@@ -50,19 +47,18 @@ export const DEFAULT_COMPACTION_PLUGIN_NAME = "default-compaction";
  * to the default plugin instead of manifesting as a later NPE.
  */
 function extractManager(ctx: TurnContext): ContextWindowManager {
-  const maybe = (ctx as { contextWindowManager?: unknown })
-    .contextWindowManager;
+  const manager = ctx.contextWindowManager;
   if (
-    maybe == null ||
-    typeof maybe !== "object" ||
-    typeof (maybe as { maybeCompact?: unknown }).maybeCompact !== "function"
+    manager == null ||
+    typeof manager !== "object" ||
+    typeof (manager as { maybeCompact?: unknown }).maybeCompact !== "function"
   ) {
     throw new PluginExecutionError(
       "default-compaction: ctx.contextWindowManager is missing — orchestrator must attach it before invoking the compaction pipeline",
       DEFAULT_COMPACTION_PLUGIN_NAME,
     );
   }
-  return maybe as ContextWindowManager;
+  return manager;
 }
 
 /**

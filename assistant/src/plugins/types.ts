@@ -17,7 +17,10 @@
  */
 
 import type { ContextWindowConfig } from "../config/schemas/inference.js";
-import type { ContextWindowResult } from "../context/window-manager.js";
+import type {
+  ContextWindowManager,
+  ContextWindowResult,
+} from "../context/window-manager.js";
 import type { ReducerState } from "../daemon/context-overflow-reducer.js";
 import type {
   InjectionMode,
@@ -753,6 +756,22 @@ export interface TurnContext {
   pluginName?: string;
   /** Trust classification and channel identity for the inbound actor. */
   trust: TrustContext;
+  /**
+   * Optional handle to the conversation's {@link ContextWindowManager}.
+   *
+   * Attached by the orchestrator when building the per-turn context for
+   * pipeline invocations that need to defer to the real compaction machinery
+   * (notably the default `compaction` plugin). Pipelines that never touch
+   * compaction can ignore this field; the default compaction plugin throws
+   * a {@link PluginExecutionError} if it is missing, which keeps the failure
+   * attributed to the plugin rather than surfacing as a late NPE downstream.
+   *
+   * Declared as an optional typed field so plugin code can read it without a
+   * lenient cast. The optional shape is load-bearing: pipeline runner tests,
+   * synthesized handler contexts, and other non-compaction call sites still
+   * construct valid `TurnContext` literals without attaching a manager.
+   */
+  contextWindowManager?: ContextWindowManager;
 }
 
 // ─── Injectors ───────────────────────────────────────────────────────────────

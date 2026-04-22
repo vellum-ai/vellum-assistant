@@ -202,39 +202,6 @@ type GitServiceInitializer = {
   ensureInitialized(): Promise<void>;
 };
 
-/**
- * Build a {@link PluginTurnContext} for plugin pipeline invocations inside
- * `runAgentLoopImpl`. The orchestrator does not itself carry a
- * `TurnContext` — it composes one on demand at each pipeline call site from
- * ambient state.
- *
- * `turnIndex` is approximated by the current persisted message count: at the
- * time the pipeline fires, this reflects the position of the next assistant
- * turn in the conversation, which is the best stable identifier plugins can
- * key against without threading a counter through the orchestrator.
- *
- * When `trustContext` is unavailable (e.g. an internal heartbeat turn that
- * never bound an actor), we synthesize an "unknown" trust shape so the
- * required `TurnContext.trust` field stays populated. Plugins that need a
- * real trust class should guard on `trust.trustClass !== "unknown"`.
- */
-function buildHistoryRepairTurnContext(
-  requestId: string,
-  conversationId: string,
-  turnIndex: number,
-  trustContext: TrustContext | undefined,
-): PluginTurnContext {
-  return {
-    requestId,
-    conversationId,
-    turnIndex,
-    trust: trustContext ?? {
-      sourceChannel: "vellum",
-      trustClass: "unknown",
-    },
-  };
-}
-
 // ── Compaction circuit-breaker pipeline helpers ─────────────────────
 //
 // The circuit-breaker behavior (3 consecutive summary-LLM failures trips a
@@ -270,11 +237,8 @@ function buildCircuitTurnContext(ctx: {
   trustContext?: TrustContext;
   turnCount: number;
 }): PluginTurnContext {
-  const trust: TrustContext = ctx.currentTurnTrustContext ??
-    ctx.trustContext ?? {
-      sourceChannel: "vellum",
-      trustClass: "unknown",
-    };
+  const trust: TrustContext =
+    ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
   return {
     requestId: ctx.currentRequestId ?? "circuit-breaker",
     conversationId: ctx.conversationId,
@@ -388,12 +352,10 @@ export async function trackCompactionOutcome(
 
 // ── Plugin pipeline helpers ──────────────────────────────────────────
 //
-// Turn-level {@link TurnContext} builder threaded into every `runPipeline`
-// call. `TurnContext` intentionally stays slim at the type level — we attach
-// the `contextWindowManager` handle via a lenient extension field that the
-// default-compaction plugin reads with a cast. Custom plugins don't need the
-// handle (they replace the terminal behavior) so widening `TurnContext` would
-// pay no benefit.
+// Canonical {@link PluginTurnContext} builder threaded into every
+// `runPipeline` call inside `runAgentLoopImpl`. The orchestrator composes
+// the context on demand at each call site from ambient state rather than
+// carrying a persistent `TurnContext` instance across the turn.
 
 /**
  * Synthetic fallback trust context used when the orchestrator fires a pipeline
@@ -402,38 +364,47 @@ export async function trackCompactionOutcome(
  * `guardian` so a missing snapshot cannot accidentally grant elevated trust
  * to a custom plugin reading `ctx.trust`.
  */
-const FALLBACK_TURN_TRUST: TrustContext = {
+export const FALLBACK_TURN_TRUST: TrustContext = {
   sourceChannel: "vellum",
   trustClass: "unknown",
 };
 
 /**
- * Build the {@link TurnContext} passed to {@link runPipeline}. Pulls trust
- * context from the per-turn snapshot when present, otherwise from the
- * conversation-level context, otherwise the synthetic fallback above. The
- * contextWindowManager handle is attached as an extension so the default
- * compaction plugin can read it without widening `TurnContext`.
+ * Build the {@link TurnContext} passed to {@link runPipeline}.
+ *
+ * Canonical source of truth for every pipeline call site inside the agent
+ * loop. Every `runPipeline` invocation in `runAgentLoopImpl` (and in the
+ * handlers that share its ambient state) must route through this helper
+ * rather than constructing a `TurnContext` literal inline — this keeps
+ * `turnIndex`, trust resolution, and the `contextWindowManager` attachment
+ * consistent across pipeline slots, which in turn keeps structured logs
+ * filtered by `conversationId`/`turnIndex` coherent across slots.
+ *
+ * Behavior:
+ * - `turnIndex` is always `ctx.turnCount` — the orchestrator-owned
+ *   0-based turn counter. Reading from a single source avoids the
+ *   earlier inconsistency (`ctx.turnCount`, `ctx.messages.length - 1`,
+ *   `ctx.messages.length`, and `0` were all used for the same turn).
+ * - Trust pulls from the per-turn snapshot first, then the conversation-
+ *   level context, then {@link FALLBACK_TURN_TRUST}. The cascade matches
+ *   the one inside the orchestrator's inline injection assembly so
+ *   middleware reads the same trust class the runtime sees.
+ * - `contextWindowManager` is attached unconditionally. Pipelines that
+ *   don't need it can ignore it; the default compaction plugin reads it
+ *   via the typed optional field on `TurnContext`.
  */
-function buildPluginTurnContext(
+export function buildPluginTurnContext(
   ctx: AgentLoopConversationContext,
   requestId: string,
 ): PluginTurnContext {
   const trust =
     ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
-  const base: PluginTurnContext = {
+  return {
     requestId,
     conversationId: ctx.conversationId,
     turnIndex: ctx.turnCount,
     trust,
-  };
-  return {
-    ...base,
-    // Extension fields — read via lenient casts by default plugins. Kept off
-    // the declared `TurnContext` shape so plugin-facing code isn't tempted to
-    // depend on orchestrator-internal handles.
-    ...({
-      contextWindowManager: ctx.contextWindowManager,
-    } as Partial<PluginTurnContext>),
+    contextWindowManager: ctx.contextWindowManager,
   };
 }
 
@@ -731,21 +702,12 @@ export async function runAgentLoopImpl(
     if (
       isReplaceableTitle(getConversation(ctx.conversationId)?.title ?? null)
     ) {
-      // Build a TurnContext for the titleGenerate pipeline. The trust slot
-      // falls back to an `unknown`/`vellum` placeholder when the
-      // conversation has no resolved trust (e.g. reconstructed after
-      // daemon restart); downstream middleware treats that as a
-      // minimum-trust actor, which matches the previous behavior where
-      // no trust was propagated at all.
-      const titlePipelineCtx: PluginTurnContext = {
-        requestId: reqId,
-        conversationId: ctx.conversationId,
-        turnIndex: ctx.messages.length - 1,
-        trust: ctx.trustContext ?? {
-          sourceChannel: "vellum",
-          trustClass: "unknown",
-        },
-      };
+      // TurnContext routed through the canonical builder so the pipeline's
+      // log record reports the same `conversationId`/`turnIndex` shape as
+      // every other slot in this turn. Title generation does not depend on
+      // the context-window manager attached by the builder, but sharing the
+      // builder keeps the invariant enforced in one place.
+      const titlePipelineCtx = buildPluginTurnContext(ctx, reqId);
       const titleArgs = {
         conversationId: ctx.conversationId,
         provider: ctx.provider,
@@ -876,19 +838,12 @@ export async function runAgentLoopImpl(
     // below runs `runDefaultMemoryRetrieval` which reproduces the prior
     // in-lined behavior (PKB/NOW reads + gated graph call).
     const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
-    const memoryPluginTurnCtx: PluginTurnContext = {
-      requestId: reqId,
-      conversationId: ctx.conversationId,
-      turnIndex: ctx.turnCount,
-      ...(ctx.trustContext
-        ? { trust: ctx.trustContext }
-        : {
-            trust: {
-              sourceChannel: capturedTurnChannelContext.userMessageChannel,
-              trustClass: "unknown" as const,
-            },
-          }),
-    };
+    // Canonical builder — pulls trust from per-turn snapshot, then
+    // conversation-level, then the synthetic fallback. Memory retrieval
+    // does not need the context-window handle the builder attaches, but
+    // keeping every call site on one helper is load-bearing for log
+    // coherence across pipeline slots.
+    const memoryPluginTurnCtx = buildPluginTurnContext(ctx, reqId);
     const memoryArgs: MemoryArgs = {
       conversationId: ctx.conversationId,
       trustContext: ctx.trustContext,
@@ -1330,22 +1285,11 @@ export async function runAgentLoopImpl(
     // to substitute an alternate estimator (e.g. provider-native tokenization)
     // without touching orchestrator code.
     //
-    // `turnIndex` is 0 at the orchestrator level — the per-tool-use turn
-    // index advances inside `agent/loop.ts` and is surfaced through
-    // `CheckpointInfo` to sites that need it. Here it just satisfies the
-    // pipeline's log record. `trust` falls back to the inbound
-    // `vellum`/`unknown` default when the actor hasn't been resolved yet —
-    // the same fallback `resolveTrustClass` uses — because preflight can run
-    // before trust context is available (e.g. regenerate after daemon restart).
-    const pipelineTurnCtx: PluginTurnContext = {
-      requestId: reqId,
-      conversationId: ctx.conversationId,
-      turnIndex: 0,
-      trust: ctx.trustContext ?? {
-        sourceChannel: "vellum",
-        trustClass: "unknown",
-      },
-    };
+    // Routed through the canonical builder — `turnIndex` is `ctx.turnCount`,
+    // trust cascades through per-turn/conversation-level/fallback, and the
+    // context-window handle rides along so any middleware that wants to
+    // reuse the manager (e.g. to compute compaction-aware estimates) can.
+    const pipelineTurnCtx = buildPluginTurnContext(ctx, reqId);
 
     const runTokenEstimatePipeline = (
       history: Message[],
@@ -1493,16 +1437,7 @@ export async function runAgentLoopImpl(
           );
         },
         overflowArgs,
-        {
-          requestId: reqId,
-          conversationId: ctx.conversationId,
-          turnIndex: ctx.turnCount,
-          trust: ctx.currentTurnTrustContext ??
-            ctx.trustContext ?? {
-              sourceChannel: "vellum",
-              trustClass: "unknown",
-            },
-        },
+        buildPluginTurnContext(ctx, reqId),
         DEFAULT_TIMEOUTS.overflowReduce,
       );
 
@@ -1520,12 +1455,6 @@ export async function runAgentLoopImpl(
     // (registered in `external-plugins-bootstrap.ts`) delegates to
     // `repairHistory` unchanged, preserving existing behavior.
     let preRepairMessages = runMessages;
-    const preRunRepairCtx = buildHistoryRepairTurnContext(
-      reqId,
-      ctx.conversationId,
-      ctx.messages.length,
-      ctx.trustContext,
-    );
     const preRunRepair = await runPipeline<
       HistoryRepairArgs,
       HistoryRepairResult
@@ -1534,7 +1463,7 @@ export async function runAgentLoopImpl(
       getMiddlewaresFor("historyRepair"),
       async (args) => defaultHistoryRepairTerminal(args),
       { history: runMessages, provider: ctx.provider.name },
-      preRunRepairCtx,
+      buildPluginTurnContext(ctx, reqId),
       DEFAULT_TIMEOUTS.historyRepair,
     );
     if (
@@ -1618,6 +1547,14 @@ export async function runAgentLoopImpl(
 
     rlog.info({ callSite: turnCallSite }, "Starting agent loop run");
 
+    // Thread the orchestrator's canonical per-turn context into the agent
+    // loop so its internal pipeline invocations (llmCall, emptyResponse,
+    // toolError, toolResultTruncate, toolExecute) see the real
+    // conversation identity / trust / contextWindowManager instead of the
+    // synthesized `"agent-loop"` placeholder. The loop clones this value
+    // and overwrites `turnIndex` with its own tool-use iteration counter.
+    const loopTurnCtx = buildPluginTurnContext(ctx, reqId);
+
     let updatedHistory = await ctx.agentLoop.run(
       runMessages,
       eventHandler,
@@ -1625,6 +1562,7 @@ export async function runAgentLoopImpl(
       reqId,
       onCheckpoint,
       turnCallSite,
+      loopTurnCtx,
     );
 
     rlog.info(
@@ -1752,6 +1690,7 @@ export async function runAgentLoopImpl(
         reqId,
         onCheckpoint,
         turnCallSite,
+        loopTurnCtx,
       );
     }
 
@@ -1797,6 +1736,7 @@ export async function runAgentLoopImpl(
         reqId,
         onCheckpoint,
         turnCallSite,
+        loopTurnCtx,
       );
 
       if (state.orderingErrorDetected) {
@@ -1981,6 +1921,7 @@ export async function runAgentLoopImpl(
           reqId,
           onCheckpoint,
           turnCallSite,
+          loopTurnCtx,
         );
 
         // If the rerun still yields at checkpoint, the turn is still
@@ -2113,6 +2054,7 @@ export async function runAgentLoopImpl(
             reqId,
             onCheckpoint,
             turnCallSite,
+            loopTurnCtx,
           );
         }
         // action === "fail_gracefully" falls through to the final error below

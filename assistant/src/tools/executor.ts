@@ -52,6 +52,17 @@ export class ToolExecutor {
     name: string,
     input: Record<string, unknown>,
     context: ToolContext,
+    /**
+     * Optional per-turn context threaded in by the agent loop. Production
+     * sites propagate the orchestrator-built `TurnContext` (real
+     * `conversationId`, trust cascade, attached `contextWindowManager`) so
+     * middleware registered on the `toolExecute` pipeline sees the same
+     * context every other pipeline slot uses. When omitted (CLI/test
+     * invocations that call `ToolExecutor.execute` directly), the executor
+     * synthesizes a fallback context from the {@link ToolContext}, which
+     * keeps pre-threading behavior intact for legacy callers.
+     */
+    turnContext?: TurnContext,
   ): Promise<ToolExecutionResult> {
     // Compute the per-tool timeout budget upfront so the pipeline timeout
     // matches the existing per-tool timeout. `toolExecute` is intentionally
@@ -62,11 +73,12 @@ export class ToolExecutor {
     // happy path (the pipeline race is a cheap backstop).
     const perToolTimeoutMs = computePerToolTimeoutMs(name, input);
 
-    // Build a TurnContext for the pipeline runner. The executor is called
-    // outside the provider loop's TurnContext today, so we synthesize one
-    // from the ToolContext — middleware that needs richer turn state will
-    // be wired as later PRs thread a real TurnContext through.
-    const turnCtx: TurnContext = {
+    // Prefer the orchestrator-supplied `turnContext` so the pipeline sees
+    // the real conversation identity, per-turn trust, and context-window
+    // manager. When absent (CLI / test invocations that bypass the agent
+    // loop), synthesize a minimal context from the `ToolContext` — the
+    // same fallback the executor has used since the pipeline was added.
+    const turnCtx: TurnContext = turnContext ?? {
       requestId: context.requestId ?? "",
       conversationId: context.conversationId,
       turnIndex: 0,

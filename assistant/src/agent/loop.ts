@@ -142,12 +142,15 @@ const MAX_EMPTY_RESPONSE_RETRIES = 1;
 
 /**
  * Build a minimal {@link TurnContext} for pipeline invocations inside the
- * agent loop. The loop does not currently own conversation-scoped trust or
- * identity — those live on the orchestrator — so we stamp in placeholders
- * for the few required fields. Later PRs thread full trust context through
- * `AgentLoop.run()` and replace this helper with the real context.
+ * agent loop. Real production call sites thread a full `TurnContext` into
+ * `AgentLoop.run()` (see the `turnContext` parameter on
+ * {@link AgentLoop.run}); this helper is the fallback used only by unit
+ * tests that construct `AgentLoop` directly without an orchestrator.
  *
- * The returned context is still useful for pipeline logging: `requestId`
+ * When the orchestrator-supplied context is present, {@link cloneWithTurnIndex}
+ * is used instead of this helper so the pipeline sees the real
+ * `conversationId`, trust, and `contextWindowManager`. In the fallback path
+ * the returned context is still useful for pipeline logging: `requestId`
  * surfaces in every structured record, and `turnIndex` reflects the
  * current tool-use iteration.
  */
@@ -167,6 +170,29 @@ function buildLoopTurnContext(
       trustClass: "unknown",
     },
   };
+}
+
+/**
+ * Produce a `TurnContext` for a pipeline call inside {@link AgentLoop.run}.
+ *
+ * When the orchestrator supplied a `turnContext`, clone it and overwrite
+ * `requestId` + `turnIndex` with the loop-scoped values so plugin log
+ * records correctly attribute the call to the current tool-use iteration
+ * while preserving the real `conversationId`, trust context, and
+ * `contextWindowManager` the orchestrator assembled for the turn. Without
+ * an orchestrator context (unit tests that instantiate `AgentLoop` with no
+ * `turnContext`), fall back to {@link buildLoopTurnContext}'s synthesized
+ * placeholder.
+ */
+function resolveLoopTurnContext(
+  base: TurnContext | undefined,
+  requestId: string | undefined,
+  turnIndex: number,
+): TurnContext {
+  if (base) {
+    return { ...base, requestId: requestId ?? base.requestId, turnIndex };
+  }
+  return buildLoopTurnContext(requestId, turnIndex);
 }
 
 /**
@@ -211,6 +237,38 @@ export interface ResolvedSystemPrompt {
   model?: string;
 }
 
+/**
+ * Callback shape the loop uses to execute a tool invocation.
+ *
+ * The trailing `turnContext` is optional so in-process tests that wire the
+ * callback without an orchestrator keep working. Production sites (the
+ * `Conversation`'s `createToolExecutor`) forward the supplied context into
+ * `ToolExecutor.execute` so the `toolExecute` pipeline sees the orchestrator's
+ * real conversation identity/trust/contextWindowManager instead of the
+ * synthesized placeholder `ToolExecutor` would otherwise build from the
+ * `ToolContext` alone.
+ */
+export type LoopToolExecutor = (
+  name: string,
+  input: Record<string, unknown>,
+  onOutput?: (chunk: string) => void,
+  toolUseId?: string,
+  turnContext?: TurnContext,
+) => Promise<{
+  content: string;
+  isError: boolean;
+  diff?: {
+    filePath: string;
+    oldContent: string;
+    newContent: string;
+    isNewFile: boolean;
+  };
+  status?: string;
+  contentBlocks?: ContentBlock[];
+  sensitiveBindings?: SensitiveOutputBinding[];
+  yieldToUser?: boolean;
+}>;
+
 export class AgentLoop {
   private provider: Provider;
   private systemPrompt: string;
@@ -220,52 +278,14 @@ export class AgentLoop {
   private resolveSystemPrompt:
     | ((history: Message[]) => ResolvedSystemPrompt)
     | null;
-  private toolExecutor:
-    | ((
-        name: string,
-        input: Record<string, unknown>,
-        onOutput?: (chunk: string) => void,
-        toolUseId?: string,
-      ) => Promise<{
-        content: string;
-        isError: boolean;
-        diff?: {
-          filePath: string;
-          oldContent: string;
-          newContent: string;
-          isNewFile: boolean;
-        };
-        status?: string;
-        contentBlocks?: ContentBlock[];
-        sensitiveBindings?: SensitiveOutputBinding[];
-        yieldToUser?: boolean;
-      }>)
-    | null;
+  private toolExecutor: LoopToolExecutor | null;
 
   constructor(
     provider: Provider,
     systemPrompt: string,
     config?: Partial<AgentLoopConfig>,
     tools?: ToolDefinition[],
-    toolExecutor?: (
-      name: string,
-      input: Record<string, unknown>,
-      onOutput?: (chunk: string) => void,
-      toolUseId?: string,
-    ) => Promise<{
-      content: string;
-      isError: boolean;
-      diff?: {
-        filePath: string;
-        oldContent: string;
-        newContent: string;
-        isNewFile: boolean;
-      };
-      status?: string;
-      contentBlocks?: ContentBlock[];
-      sensitiveBindings?: SensitiveOutputBinding[];
-      yieldToUser?: boolean;
-    }>,
+    toolExecutor?: LoopToolExecutor,
     resolveTools?: (history: Message[]) => ToolDefinition[],
     resolveSystemPrompt?: (history: Message[]) => ResolvedSystemPrompt,
   ) {
@@ -314,6 +334,15 @@ export class AgentLoop {
       checkpoint: CheckpointInfo,
     ) => CheckpointDecision | Promise<CheckpointDecision>,
     callSite?: LLMCallSite,
+    /**
+     * Optional per-turn context supplied by the orchestrator. Every pipeline
+     * invocation inside the loop clones from this value (overwriting only
+     * `turnIndex`/`requestId`) so middleware sees the real conversation
+     * identity, trust class, and `contextWindowManager` rather than the
+     * `"agent-loop"` sentinel used when the loop is instantiated standalone
+     * in unit tests.
+     */
+    turnContext?: TurnContext,
   ): Promise<Message[]> {
     const history = [...messages];
     const initialHistoryLength = messages.length;
@@ -522,15 +551,17 @@ export class AgentLoop {
           },
         };
 
-        // Minimal per-turn context for pipeline logging and plugin
-        // attribution. The agent loop itself does not carry a conversationId
-        // or trust context — those live upstream — so we fill safe defaults.
-        const turnCtx: TurnContext = {
-          requestId: requestId ?? "agent-loop",
-          conversationId: "agent-loop",
-          turnIndex: toolUseTurns,
-          trust: { sourceChannel: "vellum", trustClass: "unknown" },
-        };
+        // Per-turn pipeline context. When the orchestrator threaded a full
+        // `turnContext` into `run()`, use it (overwriting `turnIndex` with
+        // the loop-scoped tool-use iteration) so middleware sees the real
+        // conversation identity, trust, and `contextWindowManager`. The
+        // synthesized fallback is only reached by standalone unit-test
+        // instantiations that never plumb a context through.
+        const turnCtx = resolveLoopTurnContext(
+          turnContext,
+          requestId,
+          toolUseTurns,
+        );
 
         const response: LLMCallResult = await runPipeline<
           LLMCallArgs,
@@ -660,7 +691,11 @@ export class AgentLoop {
           maxEmptyResponseRetries: MAX_EMPTY_RESPONSE_RETRIES,
           priorAssistantHadVisibleText,
         };
-        const emptyResponseCtx = buildLoopTurnContext(requestId, toolUseTurns);
+        const emptyResponseCtx = resolveLoopTurnContext(
+          turnContext,
+          requestId,
+          toolUseTurns,
+        );
         const emptyResponseDecision: EmptyResponseDecision = await runPipeline(
           "emptyResponse",
           getMiddlewaresFor("emptyResponse"),
@@ -773,6 +808,14 @@ export class AgentLoop {
                 });
               },
               toolUse.id,
+              // Forward the loop's resolved `TurnContext` through the
+              // executor callback so `ToolExecutor.execute` can thread the
+              // real orchestrator context into the `toolExecute` pipeline.
+              // Standalone tests that don't wire a `turnContext` into
+              // `AgentLoop.run()` pass `undefined` here and the executor
+              // falls back to the synthesized placeholder — preserving the
+              // existing unit-test behavior.
+              turnCtx,
             );
 
             return { toolUse, result };
@@ -957,7 +1000,8 @@ export class AgentLoop {
           consecutiveErrorTurns,
           maxConsecutiveErrorNudges: MAX_CONSECUTIVE_ERROR_NUDGES,
         };
-        const toolErrorCtx: TurnContext = buildLoopTurnContext(
+        const toolErrorCtx: TurnContext = resolveLoopTurnContext(
+          turnContext,
           requestId,
           toolUseTurns - 1,
         );
