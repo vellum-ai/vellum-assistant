@@ -42,14 +42,42 @@ export function getCannedFirstGreeting(
   return CANNED_FIRST_GREETING;
 }
 
-const TASK_SUGGESTIONS: Record<string, string> = {
-  "code-building": "help you build something",
-  writing: "draft or edit some writing",
-  research: "dig into a research question",
-  "project-management": "help organize a project",
-  scheduling: "sort out your schedule",
-  personal: "help with something personal",
+const TOOL_ENHANCED_SUGGESTIONS: Record<string, Record<string, string>> = {
+  "code-building": {
+    github: "review your open PRs or help build something",
+    _default: "help you build something",
+  },
+  writing: {
+    gmail: "triage your inbox or draft something",
+    notion: "draft or clean up something in Notion",
+    _default: "draft or edit some writing",
+  },
+  research: {
+    _default: "dig into a research topic and give you a summary",
+  },
+  "project-management": {
+    linear: "pull your Linear board and help plan what's next",
+    jira: "pull your Jira board and help plan what's next",
+    notion: "help organize a project in Notion",
+    _default: "help organize a project",
+  },
+  scheduling: {
+    "google-calendar": "look at your calendar and plan your day",
+    _default: "sort out your schedule",
+  },
+  personal: {
+    _default: "help with something personal",
+  },
 };
+
+function getSuggestion(task: string, tools: Set<string>): string | undefined {
+  const variants = TOOL_ENHANCED_SUGGESTIONS[task];
+  if (!variants) return undefined;
+  for (const tool of Object.keys(variants)) {
+    if (tool !== "_default" && tools.has(tool)) return variants[tool];
+  }
+  return variants._default;
+}
 
 function buildPersonalizedGreeting(ctx: OnboardingGreetingContext): string {
   const professional = ctx.tone === "professional";
@@ -66,25 +94,36 @@ function buildPersonalizedGreeting(ctx: OnboardingGreetingContext): string {
       : "Hey!";
 
   const intro = assistantName
-    ? `I'm ${assistantName} — brand new and ready to learn how you work.`
+    ? `I'm ${assistantName}, brand new and ready to learn how you work.`
     : "I'm brand new and ready to learn how you work.";
 
-  const suggestions = ctx.tasks.map((t) => TASK_SUGGESTIONS[t]).filter(Boolean);
+  const toolSet = new Set(ctx.tools);
+  const allSuggestions = ctx.tasks
+    .map((t) => {
+      const text = getSuggestion(t, toolSet);
+      if (!text) return undefined;
+      const enhanced = TOOL_ENHANCED_SUGGESTIONS[t]
+        ? Object.keys(TOOL_ENHANCED_SUGGESTIONS[t]).some(
+            (k) => k !== "_default" && toolSet.has(k),
+          )
+        : false;
+      return { text, enhanced };
+    })
+    .filter(Boolean) as { text: string; enhanced: boolean }[];
 
-  let actionLine = "";
+  allSuggestions.sort((a, b) => (b.enhanced ? 1 : 0) - (a.enhanced ? 1 : 0));
+  const suggestions = allSuggestions.slice(0, 2).map((s) => s.text);
+
+  let offerLine = "";
   if (suggestions.length === 1) {
-    actionLine = `Ready to ${suggestions[0]} whenever you are.`;
-  } else if (suggestions.length >= 2) {
-    actionLine = professional
-      ? `Ready to ${suggestions[0]} or ${suggestions[1]} - just say the word.`
-      : `Ready to ${suggestions[0]}, or ${suggestions[1]} - just say the word.`;
+    offerLine = `I can ${suggestions[0]}, and a lot more.`;
+  } else if (suggestions.length === 2) {
+    offerLine = `I can ${suggestions[0]}, ${suggestions[1]}, and a lot more.`;
   }
 
-  if (!actionLine) {
-    actionLine = professional
-      ? "Tell me what you need."
-      : "Throw something at me.";
-  }
+  const closing = professional
+    ? "Tell me what you're working on and let's get started."
+    : "Tell me what you're working on and let's get started.";
 
-  return [opener, intro, actionLine].filter(Boolean).join(" ");
+  return [opener, intro, offerLine, closing].filter(Boolean).join(" ");
 }

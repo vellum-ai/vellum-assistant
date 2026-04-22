@@ -99,14 +99,23 @@ describe("first-greeting", () => {
       expect(greeting).toStartWith("Hello, Alex.");
     });
 
-    it("does not mention selected tools by name", () => {
+    it("uses tool-enhanced suggestion when matching tool is present", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
-        tools: ["slack", "linear", "gmail", "notion"],
+        tasks: ["project-management"],
+        tools: ["linear"],
       });
-      expect(greeting).not.toContain("Slack");
+      expect(greeting).toContain("pull your Linear board");
+    });
+
+    it("falls back to default suggestion when no matching tool", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        tasks: ["project-management"],
+        tools: ["slack"],
+      });
+      expect(greeting).toContain("help organize a project");
       expect(greeting).not.toContain("Linear");
-      expect(greeting).not.toContain("Gmail");
     });
 
     it("suggests actions from selected tasks", () => {
@@ -115,37 +124,45 @@ describe("first-greeting", () => {
         tasks: ["code-building"],
       });
       expect(greeting).toContain("help you build something");
-      expect(greeting).not.toContain("?");
     });
 
-    it("offers two suggestions when multiple tasks selected", () => {
+    it("combines multiple task suggestions", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
         tasks: ["writing", "research"],
+        tools: ["gmail"],
       });
-      expect(greeting).toContain("draft or edit some writing");
-      expect(greeting).toContain("dig into a research question");
-      expect(greeting).not.toContain("?");
+      expect(greeting).toContain("triage your inbox or draft something");
+      expect(greeting).toContain("dig into a research topic");
     });
 
-    it("falls back to direct prompt when no tasks selected", () => {
+    it("always ends with the closing line", () => {
       const greeting = getCannedFirstGreeting({ ...base, tasks: [] });
-      expect(greeting).not.toContain("?");
+      expect(greeting).toEndWith(
+        "Tell me what you're working on and let's get started.",
+      );
     });
 
-    it("assembles a full personalized greeting", () => {
+    it("caps at 2 suggestions, preferring tool-enhanced ones", () => {
       const greeting = getCannedFirstGreeting({
-        tools: ["slack", "github"],
-        tasks: ["code-building", "research"],
+        tools: ["gmail", "google-calendar", "linear", "notion", "github"],
+        tasks: ["code-building", "project-management", "writing", "research"],
         tone: "casual",
         userName: "Alex",
         assistantName: "Pax",
       });
       expect(greeting).toStartWith("Hey Alex!");
       expect(greeting).toContain("I'm Pax");
-      expect(greeting).not.toContain("Slack");
-      expect(greeting).not.toContain("GitHub");
-      expect(greeting).toContain("help you build something");
+      const offerCount = [
+        "review your open PRs",
+        "Linear board",
+        "triage your inbox",
+        "dig into a research",
+      ].filter((s) => greeting.includes(s)).length;
+      expect(offerCount).toBe(2);
+      expect(greeting).toEndWith(
+        "Tell me what you're working on and let's get started.",
+      );
     });
   });
 });
