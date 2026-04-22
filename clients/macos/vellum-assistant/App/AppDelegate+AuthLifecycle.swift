@@ -638,7 +638,6 @@ extension AppDelegate {
         // Close and recreate the main window to reset conversation state
         mainWindow?.close()
         mainWindow = nil
-
         // 3. Persist the new assistant selection
         LockfileAssistant.setActiveAssistantId(assistant.assistantId)
         SentryDeviceInfo.updateAssistantTag(assistant.assistantId)

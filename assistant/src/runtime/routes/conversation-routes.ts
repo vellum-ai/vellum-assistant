@@ -1,7 +1,13 @@
 /**
  * Route handlers for conversation messages and suggestions.
  */
-import { existsSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join, relative } from "node:path";
 
 import { z } from "zod";
@@ -1283,31 +1289,49 @@ export function persistOnboardingArtifacts(onboarding: {
   const assistantName = onboarding.assistantName?.trim();
   if (assistantName) {
     const identityPath = getWorkspacePromptPath("IDENTITY.md");
-    if (!existsSync(identityPath)) {
-      try {
+    try {
+      if (existsSync(identityPath)) {
+        const content = readFileSync(identityPath, "utf-8");
+        const updated = content.replace(
+          /^- \*\*Name:\*\*\s*.*$/m,
+          `- **Name:** ${assistantName}`,
+        );
+        if (updated !== content) {
+          writeFileSync(identityPath, updated, "utf-8");
+        }
+      } else {
         writeFileSync(
           identityPath,
-          `# Identity\n\n- Name: ${assistantName}\n`,
+          `# Identity\n\n- **Name:** ${assistantName}\n`,
           "utf-8",
         );
-      } catch (err) {
-        log.warn(
-          { err, identityPath },
-          "Failed to seed IDENTITY.md from onboarding",
-        );
       }
+    } catch (err) {
+      log.warn(
+        { err, identityPath },
+        "Failed to seed IDENTITY.md from onboarding",
+      );
     }
   }
 
   const userName = onboarding.userName?.trim();
   if (userName) {
     const userPath = getWorkspacePromptPath("USER.md");
-    if (!existsSync(userPath)) {
-      try {
-        writeFileSync(userPath, `# User\n\n- Name: ${userName}\n`, "utf-8");
-      } catch (err) {
-        log.warn({ err, userPath }, "Failed to seed USER.md from onboarding");
+    try {
+      if (existsSync(userPath)) {
+        const content = readFileSync(userPath, "utf-8");
+        const updated = content.replace(
+          /^- \*\*Name:\*\*\s*.*$/m,
+          `- **Name:** ${userName}`,
+        );
+        if (updated !== content) {
+          writeFileSync(userPath, updated, "utf-8");
+        }
+      } else {
+        writeFileSync(userPath, `# User\n\n- **Name:** ${userName}\n`, "utf-8");
       }
+    } catch (err) {
+      log.warn({ err, userPath }, "Failed to seed USER.md from onboarding");
     }
   }
 
@@ -1501,14 +1525,15 @@ export async function handleSendMessage(
   );
 
   // Store pre-chat onboarding context on the conversation when this is the
-  // very first message (no prior messages loaded). Also persist the
-  // onboarding selections so the Home page shows onboarding-sourced
-  // chips immediately, and seed IDENTITY.md / USER.md so subsequent
-  // turn-boundary recomputes of relationship-state have a stable
-  // persona source beyond the in-memory conversation object.
-  if (body.onboarding && conversation.messages.length === 0) {
-    conversation.setOnboardingContext(body.onboarding);
-    persistOnboardingArtifacts(body.onboarding);
+  // very first message (no prior messages loaded). Artifact persistence
+  // (IDENTITY.md, USER.md, sidecar) is deferred: on the canned greeting
+  // path it runs inside the setTimeout right before warmPromptCache() so
+  // the warmed system prompt includes the identity; on the normal LLM
+  // path it runs immediately before inference starts.
+  const isFirstOnboarding =
+    !!body.onboarding && conversation.messages.length === 0;
+  if (isFirstOnboarding) {
+    conversation.setOnboardingContext(body.onboarding!);
   }
 
   // Resolve guardian context from the AuthContext's actorPrincipalId.
@@ -1775,6 +1800,9 @@ export async function handleSendMessage(
           "canned-greeting queue drain",
         );
 
+        if (isFirstOnboarding) {
+          persistOnboardingArtifacts(body.onboarding!);
+        }
         conversation.warmPromptCache();
       }, 0);
 
@@ -1790,6 +1818,10 @@ export async function handleSendMessage(
         silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
       }
     }
+  }
+
+  if (isFirstOnboarding) {
+    persistOnboardingArtifacts(body.onboarding!);
   }
 
   const attachments = hasAttachments
