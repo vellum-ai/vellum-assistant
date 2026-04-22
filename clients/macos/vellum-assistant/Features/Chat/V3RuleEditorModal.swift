@@ -23,11 +23,8 @@ struct V3SavedRule {
 struct V3RuleEditorModal: View {
     /// Raw tool identifier (e.g. "bash", "host_bash") used for trust rule persistence.
     let toolName: String
-    let inputSummary: String
     let riskLevel: String
-    let riskReason: String
     let scopeOptions: [V3ScopeOptionItem]
-    let workingDir: String
     let onSave: (V3SavedRule) -> Void
     let onDismiss: () -> Void
 
@@ -38,20 +35,6 @@ struct V3RuleEditorModal: View {
     /// Generalized pattern options (skips the exact match at index 0)
     private var generalizedOptions: [V3ScopeOptionItem] {
         Array(scopeOptions.dropFirst())
-    }
-
-    /// Maps a risk level string to a semantic color.
-    private func riskColor(for level: String) -> Color {
-        switch level.lowercased() {
-        case "high":
-            return VColor.systemNegativeStrong
-        case "medium":
-            return VColor.systemMidStrong
-        case "low":
-            return VColor.systemPositiveStrong
-        default:
-            return VColor.contentSecondary
-        }
     }
 
     /// Contextual hint for the selected risk level
@@ -98,6 +81,10 @@ struct V3RuleEditorModal: View {
         .background(VColor.surfaceLift)
         .onAppear {
             selectedRiskLevel = riskLevel.isEmpty ? "medium" : riskLevel
+            // If generalizedOptions is empty, default to index 0 (exact match)
+            if generalizedOptions.isEmpty {
+                selectedPatternIndex = 0
+            }
         }
     }
 
@@ -113,14 +100,16 @@ struct V3RuleEditorModal: View {
 
             if generalizedOptions.count == 1 {
                 // Single option: show as simple label, no radio buttons
-                Text(generalizedOptions[0].label)
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentDefault)
-                    .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(VColor.surfaceBase)
-                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
-            } else {
+                HStack {
+                    Text(generalizedOptions[0].label)
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentDefault)
+                        .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm))
+                        .background(VColor.surfaceBase)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    Spacer(minLength: 0)
+                }
+            } else if !generalizedOptions.isEmpty {
                 // Multiple options: show radio list
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     ForEach(Array(generalizedOptions.enumerated()), id: \.element.id) { index, option in
@@ -137,17 +126,17 @@ struct V3RuleEditorModal: View {
             selectedPatternIndex = index + 1 // Offset by 1 since we skip index 0
         } label: {
             HStack(spacing: VSpacing.sm) {
-                Image(systemName: selectedPatternIndex == index + 1 ? "circle.inset.filled" : "circle")
+                VIconView(selectedPatternIndex == index + 1 ? .circleDot : .circle, size: 14)
                     .foregroundStyle(selectedPatternIndex == index + 1 ? VColor.primaryBase : VColor.contentTertiary)
-                    .font(.system(size: 14))
                     .accessibilityHidden(true)
 
                 Text(option.label)
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentDefault)
+
+                Spacer(minLength: 0)
             }
             .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm))
-            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(RoundedRectangle(cornerRadius: VRadius.sm))
         }
         .buttonStyle(.plain)
@@ -223,9 +212,9 @@ struct V3RuleEditorModal: View {
             VButton(
                 label: "Save Rule",
                 style: .primary,
-                isDisabled: isSaving || scopeOptions.isEmpty
+                isDisabled: isSaving || scopeOptions.isEmpty || selectedPatternIndex >= scopeOptions.count
             ) {
-                guard !isSaving, !scopeOptions.isEmpty else { return }
+                guard !isSaving, !scopeOptions.isEmpty, selectedPatternIndex < scopeOptions.count else { return }
                 isSaving = true
                 let selectedOption = scopeOptions[selectedPatternIndex]
                 // Always use "everywhere" scope (directory scoping removed in v1)

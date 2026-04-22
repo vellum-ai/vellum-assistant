@@ -12,7 +12,6 @@ public struct V3PermissionPromptView: View {
     public let onAllow: () -> Void
     public let onDeny: () -> Void
     public let onAlwaysAllow: (String, String, String, String) -> Void
-    public let onTemporaryAllow: ((String, String) -> Void)?
 
     @State private var showTechnicalDetails = false
     @State private var keyboardModel: ToolConfirmationKeyboardModel?
@@ -25,15 +24,13 @@ public struct V3PermissionPromptView: View {
         isKeyboardActive: Bool,
         onAllow: @escaping () -> Void,
         onDeny: @escaping () -> Void,
-        onAlwaysAllow: @escaping (String, String, String, String) -> Void,
-        onTemporaryAllow: ((String, String) -> Void)? = nil
+        onAlwaysAllow: @escaping (String, String, String, String) -> Void
     ) {
         self.confirmation = confirmation
         self.isKeyboardActive = isKeyboardActive
         self.onAllow = onAllow
         self.onDeny = onDeny
         self.onAlwaysAllow = onAlwaysAllow
-        self.onTemporaryAllow = onTemporaryAllow
     }
 
     private var v3TopLevelActions: [ToolConfirmationKeyboardModel.Action] {
