@@ -76,7 +76,7 @@ public struct VNotification: View {
                                 .foregroundStyle(foregroundColor)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Dismiss")
+                        .accessibilityLabel("Dismiss \(toneA11yLabel.lowercased()): \(message)")
                     }
                 }
             }
