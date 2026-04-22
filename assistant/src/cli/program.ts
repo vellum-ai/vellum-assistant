@@ -38,7 +38,6 @@ import { registerOAuthCommand } from "./commands/oauth/index.js";
 import { registerPlatformCommand } from "./commands/platform/index.js";
 import { registerRoutesCommand } from "./commands/routes.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
-import { registerShotgunCommand } from "./commands/shotgun.js";
 import { registerSkillsCommand } from "./commands/skills.js";
 import { registerSttCommand } from "./commands/stt.js";
 import { registerTaskCommand } from "./commands/task.js";
@@ -111,7 +110,6 @@ Examples:
   registerImageGenerationCommand(program);
   registerUiCommand(program);
 
-  registerShotgunCommand(program);
   registerSequenceCommand(program);
   registerSttCommand(program);
   registerTtsCommand(program);

@@ -59,7 +59,9 @@ describe("046-seed-conversation-starters-callsite migration", () => {
     writeConfig({
       llm: {
         default: { provider: "anthropic", model: "claude-opus-4-7" },
-        callSites: { watchCommentary: { model: "claude-haiku-4-5-20251001" } },
+        callSites: {
+          interactionClassifier: { model: "claude-haiku-4-5-20251001" },
+        },
       },
     });
 
@@ -74,7 +76,7 @@ describe("046-seed-conversation-starters-callsite migration", () => {
       thinking: { enabled: false },
     });
     // Does not clobber unrelated entries.
-    expect(config.llm.callSites.watchCommentary).toEqual({
+    expect(config.llm.callSites.interactionClassifier).toEqual({
       model: "claude-haiku-4-5-20251001",
     });
   });

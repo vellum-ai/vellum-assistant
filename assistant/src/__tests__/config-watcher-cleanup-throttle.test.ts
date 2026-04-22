@@ -219,10 +219,6 @@ mock.module("../signals/mcp-reload.js", () => ({
   handleMcpReloadSignal: () => {},
 }));
 
-mock.module("../signals/shotgun.js", () => ({
-  handleShotgunSignal: () => {},
-}));
-
 mock.module("../signals/user-message.js", () => ({
   handleUserMessageSignal: () => {},
 }));

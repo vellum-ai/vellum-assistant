@@ -230,7 +230,6 @@ import { ttsRouteDefinitions } from "./routes/tts-routes.js";
 import { upgradeBroadcastRouteDefinitions } from "./routes/upgrade-broadcast-routes.js";
 import { usageRouteDefinitions } from "./routes/usage-routes.js";
 import { userRouteDefinitions } from "./routes/user-routes.js";
-import { watchRouteDefinitions } from "./routes/watch-routes.js";
 import { workItemRouteDefinitions } from "./routes/work-items-routes.js";
 import { workspaceCommitRouteDefinitions } from "./routes/workspace-commit-routes.js";
 import { workspaceRouteDefinitions } from "./routes/workspace-routes.js";
@@ -363,7 +362,6 @@ export class RuntimeHttpServer {
   private getSkillContext?: RuntimeHttpServerOptions["getSkillContext"];
   private conversationManagementDeps?: RuntimeHttpServerOptions["conversationManagementDeps"];
   private getModelSetContext?: RuntimeHttpServerOptions["getModelSetContext"];
-  private getWatchDeps?: RuntimeHttpServerOptions["getWatchDeps"];
   private getRecordingDeps?: RuntimeHttpServerOptions["getRecordingDeps"];
   private getCesClient?: RuntimeHttpServerOptions["getCesClient"];
   private onProviderCredentialsChanged?: RuntimeHttpServerOptions["onProviderCredentialsChanged"];
@@ -388,7 +386,6 @@ export class RuntimeHttpServer {
     this.getSkillContext = options.getSkillContext;
     this.conversationManagementDeps = options.conversationManagementDeps;
     this.getModelSetContext = options.getModelSetContext;
-    this.getWatchDeps = options.getWatchDeps;
     this.getRecordingDeps = options.getRecordingDeps;
     this.getCesClient = options.getCesClient;
     this.onProviderCredentialsChanged = options.onProviderCredentialsChanged;
@@ -2109,11 +2106,6 @@ export class RuntimeHttpServer {
       ...oauthAppsRouteDefinitions(),
       ...attachmentRouteDefinitions(),
 
-      ...(this.getWatchDeps
-        ? watchRouteDefinitions({
-            getWatchDeps: this.getWatchDeps,
-          })
-        : []),
       ...(this.getRecordingDeps
         ? recordingRouteDefinitions({
             getRecordingDeps: this.getRecordingDeps,

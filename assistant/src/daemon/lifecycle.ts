@@ -146,7 +146,6 @@ import {
 import { seedInterfaceFiles } from "./seed-files.js";
 import { DaemonServer } from "./server.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
-import { handleWatchObservation } from "./watch-handler.js";
 
 // Re-export public API so existing consumers don't need to change imports
 export type { StopResult } from "./daemon-control.js";
@@ -1100,28 +1099,6 @@ export async function runDaemon(): Promise<void> {
             sendEvent,
           );
         },
-      },
-      getWatchDeps: () => {
-        const ctx = server.getHandlerContext();
-        return {
-          handleWatchObservation: async (params) => {
-            await handleWatchObservation(
-              {
-                type: "watch_observation",
-                watchId: params.watchId,
-                conversationId: params.conversationId,
-                ocrText: params.ocrText,
-                appName: params.appName,
-                windowTitle: params.windowTitle,
-                bundleIdentifier: params.bundleIdentifier,
-                timestamp: params.timestamp,
-                captureIndex: params.captureIndex,
-                totalExpected: params.totalExpected,
-              },
-              ctx,
-            );
-          },
-        };
       },
       getRecordingDeps: () => ({
         getHandlerContext: () => server.getHandlerContext(),

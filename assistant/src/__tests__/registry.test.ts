@@ -117,8 +117,6 @@ describe("tool manifest", () => {
     expect(names).toContain("recall");
     expect(names).toContain("remember");
     expect(names).toContain("credential_store");
-    // start_screen_watch moved to the screen-watch bundled skill
-    expect(names).not.toContain("start_screen_watch");
   });
 
   test("registered tool count is at least eager + host", async () => {

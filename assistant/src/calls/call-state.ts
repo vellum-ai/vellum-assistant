@@ -1,8 +1,8 @@
 /**
  * Call session notifiers and controller registry.
  *
- * Follows the same notifier pattern as watch-state.ts: module-level Maps
- * with register/unregister/fire helpers keyed by conversationId.
+ * Uses module-level Maps with register/unregister/fire helpers keyed by
+ * conversationId.
  */
 
 import { getLogger } from "../util/logger.js";

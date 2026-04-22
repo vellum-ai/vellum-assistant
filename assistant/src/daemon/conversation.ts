@@ -5,7 +5,7 @@
  * - conversation-lifecycle.ts    — loadFromDb, abort, dispose
  * - conversation-messaging.ts    — enqueueMessage, persistUserMessage, redirectToSecurePrompt
  * - conversation-agent-loop.ts   — runAgentLoop, generateTitle
- * - conversation-notifiers.ts    — watch/call notifier registration
+ * - conversation-notifiers.ts    — call notifier registration
  * - conversation-tool-setup.ts   — tool definitions, executor, resolveTools callback
  * - conversation-media-retry.ts  — media trimming + raceWithTimeout
  * - conversation-process.ts      — drainQueue, processMessage
@@ -430,7 +430,7 @@ export class Conversation {
       broadcastToAllClients,
     );
 
-    // Register watch/call notifiers (reads ctx properties lazily)
+    // Register call notifiers (reads ctx properties lazily)
     registerConversationNotifiers(conversationId, this);
 
     // Tool infrastructure

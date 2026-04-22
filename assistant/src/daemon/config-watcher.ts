@@ -24,7 +24,6 @@ import { handleCancelSignal } from "../signals/cancel.js";
 import { handleConversationUndoSignal } from "../signals/conversation-undo.js";
 import { handleEmitEventSignal } from "../signals/emit-event.js";
 import { handleMcpReloadSignal } from "../signals/mcp-reload.js";
-import { handleShotgunSignal } from "../signals/shotgun.js";
 import { handleUserMessageSignal } from "../signals/user-message.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
@@ -396,7 +395,6 @@ export class ConfigWatcher {
       (filename: string) => void | Promise<void>
     > = {
       "bash.": handleBashSignal,
-      "shotgun.": handleShotgunSignal,
       "user-message.": handleUserMessageSignal,
     };
 

@@ -248,8 +248,6 @@ export interface RuntimeHttpServerOptions {
   conversationManagementDeps?: ConversationManagementDeps;
   /** Lazy factory for model config set context (conversation eviction, config reload suppression). */
   getModelSetContext?: () => import("../daemon/handlers/config-model.js").ModelSetContext;
-  /** Provider for watch observation dependencies (watch routes). */
-  getWatchDeps?: () => import("./routes/watch-routes.js").WatchDeps;
   /** Provider for recording dependencies (recording routes). */
   getRecordingDeps?: () => import("./routes/recording-routes.js").RecordingDeps;
   /** Accessor for the CES client, used to push API key updates to CES after hatch. */

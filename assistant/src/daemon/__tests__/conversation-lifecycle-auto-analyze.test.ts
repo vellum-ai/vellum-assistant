@@ -95,7 +95,6 @@ mock.module("../../tools/browser/browser-screencast.js", () => ({
 
 mock.module("../conversation-notifiers.js", () => ({
   unregisterCallNotifiers: () => {},
-  unregisterWatchNotifiers: () => {},
 }));
 
 mock.module("../conversation-skill-tools.js", () => ({
@@ -105,8 +104,7 @@ mock.module("../conversation-skill-tools.js", () => ({
 // Dynamic import after mock.module calls so stubs take effect.
 const { disposeConversation } = await import("../conversation-lifecycle.js");
 type DisposeContext = import("../conversation-lifecycle.js").DisposeContext;
-type TrustClass =
-  import("../../runtime/actor-trust-resolver.js").TrustClass;
+type TrustClass = import("../../runtime/actor-trust-resolver.js").TrustClass;
 
 // ---------------------------------------------------------------------------
 // Fixture builder — minimal DisposeContext satisfying the interface shape.
