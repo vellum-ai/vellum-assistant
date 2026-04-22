@@ -92,10 +92,22 @@ export async function handleCameraToggle(
   cmd: BotCameraEnableCommand | BotCameraDisableCommand,
 ): Promise<void> {
   const sendToBot = (event: ExtensionToBotMessage): void => {
-    try {
-      void chrome.runtime.sendMessage(event);
-    } catch (err) {
-      console.warn("[meet-ext] sendMessage failed:", err);
+    // Propagate synchronous throws (e.g. "Extension context invalidated"
+    // when the runtime is disconnected) so camera.ts can catch them and
+    // fall back to the JS `.click()` path. Swallowing them here would
+    // let `trustedClickEmitted=true` stand against a silently failed
+    // dispatch, the JS fallback would be skipped, and the poll would
+    // sit through the full 5s timeout before surfacing a stuck toggle.
+    // Async rejections are best-effort — log them but don't unwind the
+    // caller, since xdotool may well have already landed the click by
+    // the time the reject resolves.
+    const result = chrome.runtime.sendMessage(event) as
+      | Promise<unknown>
+      | undefined;
+    if (result && typeof (result as Promise<unknown>).catch === "function") {
+      (result as Promise<unknown>).catch((err) => {
+        console.warn("[meet-ext] sendMessage failed (async):", err);
+      });
     }
   };
 

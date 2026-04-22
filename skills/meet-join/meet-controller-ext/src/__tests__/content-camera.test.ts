@@ -56,6 +56,13 @@ interface InstalledHarness {
   setCameraState: (on: boolean) => void;
   /** Make the toggle's `.click()` a no-op (simulate isTrusted rejection). */
   makeClickNoOp: () => void;
+  /**
+   * Force `chrome.runtime.sendMessage` to throw synchronously on the next
+   * `trusted_click` dispatch (and only that one). Simulates the
+   * "Extension context invalidated" failure mode that MV3 surfaces when
+   * the runtime is disconnected mid-flow.
+   */
+  failNextTrustedClickSend: () => void;
   restore: () => void;
 }
 
@@ -84,22 +91,26 @@ function installHarness(): InstalledHarness {
   });
 
   const sent: unknown[] = [];
+  let failNextTrustedClickSend = false;
   const chrome: FakeChrome = {
     sent,
     runtime: {
       sendMessage: (msg) => {
+        const isTrustedClick =
+          typeof msg === "object" &&
+          msg !== null &&
+          (msg as { type?: unknown }).type === "trusted_click";
+        if (isTrustedClick && failNextTrustedClickSend) {
+          failNextTrustedClickSend = false;
+          throw new Error("Extension context invalidated.");
+        }
         sent.push(msg);
         // Simulate xdotool landing a real click when the extension emits a
         // `trusted_click`: camera.ts emits trusted_click and NO LONGER calls
         // `toggle.click()` itself (that would invert the toggle twice if the
         // isTrusted gate is ever relaxed). Flip the aria-label here so the
         // poll in `enableCamera`/`disableCamera` observes the transition.
-        if (
-          flipOnClick &&
-          typeof msg === "object" &&
-          msg !== null &&
-          (msg as { type?: unknown }).type === "trusted_click"
-        ) {
+        if (flipOnClick && isTrustedClick) {
           const label = camera.getAttribute("aria-label");
           if (label === "Turn off camera") {
             camera.setAttribute("aria-label", "Turn on camera");
@@ -140,6 +151,9 @@ function installHarness(): InstalledHarness {
     },
     makeClickNoOp: () => {
       flipOnClick = false;
+    },
+    failNextTrustedClickSend: () => {
+      failNextTrustedClickSend = true;
     },
     restore: () => {
       for (const [k, v] of Object.entries(originals)) {
@@ -233,6 +247,33 @@ describe("handleCameraToggle", () => {
     const result = results[0]!;
     if (result.type === "camera_result") {
       expect(result.requestId).toBe("req-3");
+      expect(result.ok).toBe(true);
+      expect(result.changed).toBe(true);
+    }
+  });
+
+  test("falls back to JS .click() when chrome.runtime.sendMessage throws on the trusted_click dispatch", async () => {
+    // Regression: handleCameraToggle's sendToBot must let sync throws
+    // (e.g. "Extension context invalidated" when the MV3 runtime is
+    // disconnected) propagate into camera.ts, so the feature's
+    // try/catch can fall through to the JS .click() fallback instead of
+    // treating a silently failed emit as a successful trusted click and
+    // eating the full 5s poll timeout.
+    harness!.setCameraState(false);
+    harness!.failNextTrustedClickSend();
+
+    await handleCameraToggle!({ type: "camera.enable", requestId: "req-5" });
+
+    const sent = harness!.chrome.sent as ExtensionToBotMessage[];
+    // The failed send never landed in `sent` (the fake throws before the
+    // push). JS .click() ran and flipped the label, so we still succeed.
+    expect(sent.filter((e) => e.type === "trusted_click")).toHaveLength(0);
+
+    const results = sent.filter((e) => e.type === "camera_result");
+    expect(results).toHaveLength(1);
+    const result = results[0]!;
+    if (result.type === "camera_result") {
+      expect(result.requestId).toBe("req-5");
       expect(result.ok).toBe(true);
       expect(result.changed).toBe(true);
     }
