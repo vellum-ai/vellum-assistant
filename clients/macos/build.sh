@@ -46,6 +46,7 @@ swift_with_retry() {
     local max_attempts="${SWIFT_RETRY_ATTEMPTS:-3}"
     local attempt=1
     local _pch_cleaned=0
+    local _build_cleaned=0
     local _stderr_log
     _stderr_log=$(mktemp)
     # FIFO for stderr streaming. Process substitutions (2> >(tee ...)) are
@@ -75,6 +76,18 @@ swift_with_retry() {
             find -L "$SCRIPT_DIR/../.build" -type d -name "ModuleCache" -exec rm -rf {} + 2>/dev/null || true
             [ -d "$SPM_MODULE_CACHE" ] && rm -rf "$SPM_MODULE_CACHE"
             _pch_cleaned=1
+            continue
+        fi
+        # Auto-clean stale SPM artifact paths when an XCFramework reference
+        # points at a deleted worktree. SPM bakes absolute paths into
+        # workspace-state.json, debug.yaml, and build.db; with a shared
+        # .build (via worktree symlink), removing the worktree that last
+        # built leaves those entries pointing at a path that no longer
+        # exists, and SPM has no way to re-resolve on its own.
+        if [ "$_build_cleaned" -eq 0 ] && grep -q "XCFramework Info.plist not found" "$_stderr_log" 2>/dev/null; then
+            echo "warning: stale SPM build cache detected (XCFramework path points to missing worktree), cleaning .build and retrying..."
+            rm -rf "$SCRIPT_DIR/../.build"
+            _build_cleaned=1
             continue
         fi
         # Signal 5 (SIGTRAP) is a non-transient crash (e.g. WebKit
