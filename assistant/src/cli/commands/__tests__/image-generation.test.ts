@@ -501,6 +501,91 @@ describe("provider dispatch", () => {
     expect(creds.type).toBe("direct");
     expect(creds.apiKey).toBe("test-openai-key");
   });
+
+  test("cross-provider override: config=gemini + --model gpt-image-2 dispatches to openai", async () => {
+    // Config still points at gemini (the user's Settings default), but the
+    // CLI caller explicitly picks gpt-image-2. The command must dispatch to
+    // OpenAI and resolve OpenAI credentials, not fall back to Gemini's
+    // default model.
+    mockConfig.services["image-generation"].mode = "your-own";
+    mockConfig.services["image-generation"].provider = "gemini";
+    mockConfig.services["image-generation"].model =
+      "gemini-3.1-flash-image-preview";
+    mockProviderKeys.openai = "test-openai-key";
+    mockGenerateResult = {
+      images: [
+        {
+          mimeType: "image/png",
+          dataBase64: Buffer.from("fake-png-data").toString("base64"),
+        },
+      ],
+      resolvedModel: "gpt-image-2",
+    };
+    const outDir = join(os.tmpdir(), `img-cross-openai-${Date.now()}`);
+
+    const { exitCode } = await runCommand([
+      "image-generation",
+      "generate",
+      "--prompt",
+      "Test",
+      "--model",
+      "gpt-image-2",
+      "--output-dir",
+      outDir,
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastGenerateCall).toBeDefined();
+    expect(lastGenerateCall!.provider).toBe("openai");
+    const req = lastGenerateCall!.request as { model: string };
+    expect(req.model).toBe("gpt-image-2");
+    const creds = lastGenerateCall!.credentials as {
+      type: string;
+      apiKey: string;
+    };
+    expect(creds.type).toBe("direct");
+    expect(creds.apiKey).toBe("test-openai-key");
+  });
+
+  test("cross-provider override: config=openai + --model gemini-3-pro-image-preview dispatches to gemini", async () => {
+    mockConfig.services["image-generation"].mode = "your-own";
+    mockConfig.services["image-generation"].provider = "openai";
+    mockConfig.services["image-generation"].model = "gpt-image-2";
+    mockProviderKeys.gemini = "test-gemini-key";
+    mockGenerateResult = {
+      images: [
+        {
+          mimeType: "image/png",
+          dataBase64: Buffer.from("fake-png-data").toString("base64"),
+        },
+      ],
+      resolvedModel: "gemini-3-pro-image-preview",
+    };
+    const outDir = join(os.tmpdir(), `img-cross-gemini-${Date.now()}`);
+
+    const { exitCode } = await runCommand([
+      "image-generation",
+      "generate",
+      "--prompt",
+      "Test",
+      "--model",
+      "gemini-3-pro-image-preview",
+      "--output-dir",
+      outDir,
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastGenerateCall).toBeDefined();
+    expect(lastGenerateCall!.provider).toBe("gemini");
+    const req = lastGenerateCall!.request as { model: string };
+    expect(req.model).toBe("gemini-3-pro-image-preview");
+    const creds = lastGenerateCall!.credentials as {
+      type: string;
+      apiKey: string;
+    };
+    expect(creds.type).toBe("direct");
+    expect(creds.apiKey).toBe("test-gemini-key");
+  });
 });
 
 // ---------------------------------------------------------------------------

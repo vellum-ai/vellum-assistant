@@ -223,6 +223,62 @@ describe("image-studio skill script wrapper", () => {
     expect(result.content).not.toContain("No Gemini API key");
   });
 
+  test("explicit model override routes to owning provider (gemini config → openai call)", async () => {
+    // Config says the user's default provider is gemini, but the LLM
+    // explicitly requests a gpt-* model. The tool must dispatch to OpenAI
+    // and resolve OpenAI credentials, not fall back to Gemini's default.
+    mockImageGenProvider = "gemini";
+    mockOpenAIKey = "openai-direct-key";
+
+    const result = await run(
+      { prompt: "a robot", model: "gpt-image-2" },
+      fakeContext,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(lastGenerateProvider).toBe("openai");
+    expect(lastGenerateCredentials).toEqual({
+      type: "direct",
+      apiKey: "openai-direct-key",
+    });
+  });
+
+  test("explicit model override routes to owning provider (openai config → gemini call)", async () => {
+    // The inverse: config says openai but the LLM asks for a gemini-* model.
+    mockImageGenProvider = "openai";
+    mockGeminiKey = "gemini-direct-key";
+
+    const result = await run(
+      { prompt: "a cat", model: "gemini-3-pro-image-preview" },
+      fakeContext,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(lastGenerateProvider).toBe("gemini");
+    expect(lastGenerateCredentials).toEqual({
+      type: "direct",
+      apiKey: "gemini-direct-key",
+    });
+  });
+
+  test("cross-provider override surfaces owning provider's credential error", async () => {
+    // Config: gemini (with a gemini key). LLM asks for gpt-image-2 but the
+    // OpenAI key is missing. The error hint must reference OpenAI, not
+    // Gemini, because the dispatch target is OpenAI.
+    mockImageGenProvider = "gemini";
+    mockGeminiKey = "test-gemini-key";
+    mockOpenAIKey = undefined;
+
+    const result = await run(
+      { prompt: "a robot", model: "gpt-image-2" },
+      fakeContext,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("OpenAI");
+    expect(result.content).not.toContain("No Gemini API key");
+  });
+
   test("returns generated image with contentBlocks", async () => {
     const result = await run({ prompt: "a sunset" }, fakeContext);
 
