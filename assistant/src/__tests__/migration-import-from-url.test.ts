@@ -14,11 +14,8 @@
  *
  * Memory-ceiling coverage lives at the streaming-importer layer — see
  * `vbundle-streaming-importer.test.ts` ("streamCommitImport — memory
- * ceiling"). The URL handler adds only a fixed HTTP/framing overhead on top
- * of that pipeline, not bundle-size-proportional allocation, so duplicating
- * the RSS check here through an in-process fetch round-trip was flaky under
- * parallel CI workers without catching a failure mode the direct test
- * doesn't already cover.
+ * ceiling"). The URL handler adds only fixed HTTP/framing overhead on top
+ * of that pipeline, not bundle-size-proportional allocation.
  *
  * The raw-bytes ingress path is exercised by a separate test file,
  * `migration-import-commit-http.test.ts`.
