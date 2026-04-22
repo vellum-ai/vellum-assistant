@@ -1774,6 +1774,8 @@ export async function handleSendMessage(
           conversation.drainQueue(),
           "canned-greeting queue drain",
         );
+
+        conversation.warmPromptCache();
       }, 0);
 
       log.info(
