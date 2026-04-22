@@ -22,6 +22,8 @@ import {
   type MemoryArgs,
   type MemoryResult,
   type Middleware,
+  type OverflowReduceArgs,
+  type OverflowReduceResult,
   type Plugin,
   PluginExecutionError,
   type PluginInitContext,
@@ -122,6 +124,25 @@ describe("plugin core types", () => {
       EstimateResult
     > = async (args, next, _ctx) => next(args);
 
+    // `overflowReduce` has a concrete arg/result shape (PR 23). Uses a
+    // dedicated passthrough that returns a structurally-correct result so
+    // `satisfies Plugin` keeps verifying the signature.
+    const overflowReducePassthrough: Middleware<
+      OverflowReduceArgs,
+      OverflowReduceResult
+    > = async (args, _next, _ctx) => ({
+      messages: args.messages,
+      runMessages: args.runMessages,
+      injectionMode: "full",
+      reducerState: {
+        appliedTiers: [],
+        injectionMode: "full",
+        exhausted: true,
+      },
+      reducerCompacted: false,
+      attempts: 0,
+    });
+
     const injector: Injector = {
       name: "sample-injector",
       order: 10,
@@ -163,7 +184,7 @@ describe("plugin core types", () => {
         historyRepair: passthrough,
         tokenEstimate: tokenEstimatePassthrough,
         compaction: passthrough,
-        overflowReduce: passthrough,
+        overflowReduce: overflowReducePassthrough,
         persistence: passthrough,
         titleGenerate: passthrough,
         toolResultTruncate: truncatePassthrough,

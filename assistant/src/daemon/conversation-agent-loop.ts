@@ -82,6 +82,8 @@ import type {
   EstimateResult,
   MemoryArgs,
   MemoryResult,
+  OverflowReduceArgs,
+  OverflowReduceResult,
   TurnContext as PluginTurnContext,
 } from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -1143,99 +1145,150 @@ export async function runAgentLoopImpl(
         "Preflight budget exceeded — running overflow reducer before provider call",
       );
 
-      reducerState = createInitialReducerState();
-      let preflightAttempts = 0;
-
-      while (
-        preflightAttempts < overflowRecovery.maxAttempts &&
-        !reducerState.exhausted
-      ) {
-        preflightAttempts++;
-        ctx.emitActivityState(
-          "thinking",
-          "context_compacting",
-          "assistant_turn",
-          reqId,
-        );
-        const step = await reduceContextOverflow(
-          ctx.messages,
-          {
-            providerName: estimationProviderName,
-            systemPrompt: ctx.systemPrompt,
-            contextWindow: config.llm.default.contextWindow,
-            targetTokens: preflightBudget,
-            toolTokenBudget,
-          },
-          reducerState,
-          (msgs, signal, opts) =>
-            ctx.contextWindowManager.maybeCompact(msgs, signal!, opts),
-          abortController.signal,
-        );
-
-        reducerState = step.state;
-        ctx.messages = step.messages;
-        currentInjectionMode = step.state.injectionMode;
-
-        // Track circuit-breaker state whenever the reducer invoked compaction.
-        // The reducer's forced_compaction tier uses force:true, so it bypasses
-        // the open-circuit check, but we still want failure tracking to detect
-        // a run of broken summaries and clear the counter on success. Only
-        // track when the summary LLM actually ran — `summaryFailed === undefined`
-        // indicates an early return (no eligible messages, truncation-only
-        // path, etc.) that shouldn't influence the breaker.
-        if (
-          step.compactionResult &&
-          step.compactionResult.summaryFailed !== undefined
-        ) {
-          trackCompactionOutcome(
-            ctx,
-            step.compactionResult.summaryFailed,
-            onEvent,
+      // Overflow reduction runs through the plugin pipeline. The default
+      // middleware (`default-overflow-reduce`, registered at bootstrap)
+      // contains the historical tier loop — forced compaction → tool-result
+      // truncation → media stubbing → injection downgrade — plus the
+      // re-inject/re-estimate convergence check. The callbacks below are
+      // the orchestrator-specific side effects that the plugin coordinates
+      // per iteration (activity emission, compaction application, runtime
+      // injection reassembly, token re-estimation). Registered plugins that
+      // wrap the `overflowReduce` slot see each iteration through their own
+      // middleware `next` callback.
+      const overflowArgs: OverflowReduceArgs = {
+        messages: ctx.messages,
+        runMessages,
+        systemPrompt: ctx.systemPrompt,
+        providerName: estimationProviderName,
+        contextWindow: config.llm.default.contextWindow,
+        preflightBudget,
+        toolTokenBudget,
+        maxAttempts: overflowRecovery.maxAttempts,
+        abortSignal: abortController.signal,
+        compactFn: (msgs, signal, opts) =>
+          ctx.contextWindowManager.maybeCompact(
+            msgs,
+            signal!,
+            opts as Parameters<ContextWindowManager["maybeCompact"]>[2],
+          ),
+        emitActivityState: () => {
+          ctx.emitActivityState(
+            "thinking",
+            "context_compacting",
+            "assistant_turn",
+            reqId,
           );
-        }
+        },
+        onCompactionResult: (result) => {
+          // Track circuit-breaker state whenever the reducer invoked
+          // compaction. The reducer's forced_compaction tier uses
+          // force:true, so it bypasses the open-circuit check, but we
+          // still want failure tracking to detect a run of broken
+          // summaries and clear the counter on success. Only track when
+          // the summary LLM actually ran — `summaryFailed === undefined`
+          // indicates an early return (no eligible messages,
+          // truncation-only path, etc.) that shouldn't influence the
+          // breaker.
+          if (result.summaryFailed !== undefined) {
+            trackCompactionOutcome(ctx, result.summaryFailed, onEvent);
+          }
+          if (result.compacted) {
+            applyCompactionResult(ctx, result, onEvent, reqId);
+            shouldInjectWorkspace = true;
+          }
+        },
+        reinjectForMode: async (reducedMessages, mode, didCompact) => {
+          // Mirror the pre-PR-23 behavior: `ctx.messages` must track the
+          // reducer's latest output before re-injection runs, because other
+          // sites consulted through `injectionOpts` (`workspaceTopLevelContext`,
+          // slack history, etc.) depend on it and `applyCompactionResult`
+          // only updates `ctx.messages` on a compaction tier. Assigning here
+          // keeps non-compaction tiers (tool-result truncation, media
+          // stubbing, injection downgrade) observable to downstream
+          // injection assembly on the same turn.
+          ctx.messages = reducedMessages;
 
-        if (step.compactionResult?.compacted) {
-          applyCompactionResult(ctx, step.compactionResult, onEvent, reqId);
-          shouldInjectWorkspace = true;
-          reducerCompacted = true;
-        }
-
-        // Re-inject with potentially downgraded injection mode.
-        // When compaction ran it strips existing NOW.md / PKB blocks, so we
-        // must re-inject the current content. Otherwise rely on the deduplicated
-        // value from injectionOpts to avoid duplicate injection.
-        const injection = await applyRuntimeInjections(ctx.messages, {
-          ...injectionOpts,
-          ...(step.compactionResult?.compacted && {
-            pkbContext: currentPkbContent,
+          // When compaction ran it strips existing NOW.md / PKB blocks,
+          // so we must re-inject the current content. Otherwise rely on
+          // the deduplicated value from injectionOpts to avoid duplicate
+          // injection.
+          const injection = await applyRuntimeInjections(reducedMessages, {
+            ...injectionOpts,
+            ...(didCompact && { pkbContext: currentPkbContent }),
+            ...(didCompact && { nowScratchpad: currentNowContent }),
+            workspaceTopLevelContext: shouldInjectWorkspace
+              ? ctx.workspaceTopLevelContext
+              : null,
+            // Once the reducer has compacted `ctx.messages`, the captured
+            // `slackChronologicalMessages` snapshot (built from the full
+            // persisted transcript) would overwrite the compacted history
+            // and undo compaction. Suppress the override from here on.
+            slackChronologicalMessages: didCompact
+              ? null
+              : injectionOpts.slackChronologicalMessages,
+            mode,
+          });
+          let next = injection.messages;
+          if (isTrustedActor && mode !== "minimal") {
+            const memResult = ctx.graphMemory.reinjectCachedMemory(next);
+            next = memResult.runMessages;
+          }
+          return next;
+        },
+        estimatePostInjection: (runMsgs) =>
+          estimatePromptTokens(runMsgs, ctx.systemPrompt, {
+            providerName: estimationProviderName,
+            toolTokenBudget,
           }),
-          ...(step.compactionResult?.compacted && {
-            nowScratchpad: currentNowContent,
-          }),
-          workspaceTopLevelContext: shouldInjectWorkspace
-            ? ctx.workspaceTopLevelContext
-            : null,
-          // Once the reducer has compacted `ctx.messages`, the captured
-          // `slackChronologicalMessages` snapshot (built from the full
-          // persisted transcript) would overwrite the compacted history
-          // and undo compaction. Suppress the override from here on.
-          slackChronologicalMessages: reducerCompacted
-            ? null
-            : injectionOpts.slackChronologicalMessages,
-          mode: currentInjectionMode,
-        });
-        runMessages = injection.messages;
-        if (isTrustedActor && currentInjectionMode !== "minimal") {
-          const memResult = ctx.graphMemory.reinjectCachedMemory(runMessages);
-          runMessages = memResult.runMessages;
-        }
+      };
 
-        // Re-estimate with injections included — step.estimatedTokens was
-        // computed on bare history (ctx.messages) and doesn't account for
-        // tokens added by runtime injections.
-        const postInjectionTokens = await runTokenEstimatePipeline(runMessages);
+      const overflowResult = await runPipeline<
+        OverflowReduceArgs,
+        OverflowReduceResult
+      >(
+        "overflowReduce",
+        getMiddlewaresFor("overflowReduce"),
+        // Terminal — only reached when every registered middleware calls
+        // `next` and delegates past the innermost layer. The default plugin
+        // is a terminal itself (it doesn't call `next`), so in practice
+        // this fallback fires only when the default has been explicitly
+        // deregistered (tests) and no user plugin replaces it. In that
+        // case the safest behavior is to return the history untouched —
+        // the subsequent provider call will then surface the overflow as
+        // a normal `context_too_large` error, which the convergence loop
+        // below handles.
+        async (args) => ({
+          messages: args.messages,
+          runMessages: args.runMessages,
+          injectionMode: "full" as const,
+          reducerState: {
+            appliedTiers: [],
+            injectionMode: "full",
+            exhausted: true,
+          },
+          reducerCompacted: false,
+          attempts: 0,
+        }),
+        overflowArgs,
+        {
+          requestId: reqId,
+          conversationId: ctx.conversationId,
+          turnIndex: ctx.turnCount,
+          trust: ctx.currentTurnTrustContext ??
+            ctx.trustContext ?? {
+              sourceChannel: "vellum",
+              trustClass: "guardian",
+            },
+        },
+        30000,
+      );
 
-        if (postInjectionTokens <= preflightBudget) break;
+      ctx.messages = overflowResult.messages;
+      runMessages = overflowResult.runMessages;
+      currentInjectionMode = overflowResult.injectionMode;
+      reducerState = overflowResult.reducerState;
+      if (overflowResult.reducerCompacted) {
+        reducerCompacted = true;
       }
     }
 
