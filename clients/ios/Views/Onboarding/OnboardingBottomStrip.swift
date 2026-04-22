@@ -16,6 +16,12 @@ struct OnboardingBottomStrip: View {
             .resizable()
             .aspectRatio(contentMode: .fit)
             .frame(maxWidth: .infinity)
+            // DEBUG: red outline shows exactly where this view's frame sits.
+            // The image content is centered inside this frame when
+            // .aspectRatio(.fit) has more space than it needs.
+            // Remove before shipping.
+            .background(Color.red.opacity(0.35))
+            .border(Color.blue, width: 2)
             .accessibilityHidden(true)
     }
 
