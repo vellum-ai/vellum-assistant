@@ -46,7 +46,8 @@ import { AssistantError, ErrorCode } from "../util/errors.js";
  * `provides` and `requires` are capability → semantic-version maps. The
  * registry checks each entry in `requires` against the assistant's exposed
  * capability table and refuses to register plugins that ask for a version the
- * assistant does not expose.
+ * assistant does not expose. `provides` is currently declared-but-unused —
+ * see the field docstring below.
  */
 export interface PluginManifest {
   /** Unique plugin identifier (kebab-case). Duplicate names fail registration. */
@@ -54,13 +55,27 @@ export interface PluginManifest {
   /** Plugin version (semver). Informational — the registry compares
    *  capability versions via `requires`, not this field. */
   version: string;
-  /** Capabilities this plugin exposes to other plugins (reserved for future composition). */
+  /**
+   * Capabilities this plugin exposes to other plugins.
+   *
+   * **Reserved for future cross-plugin composition — not currently consumed
+   * by any runtime code.** The field is declared so future cross-plugin work
+   * can land without a manifest version bump, but today nothing reads it and
+   * plugins must not depend on it for capability discovery. See
+   * `assistant/docs/plugins.md` (Cross-plugin communication) for the
+   * rationale.
+   */
   provides?: Record<string, string>;
   /** Capabilities this plugin needs from the assistant runtime. */
   requires: Record<string, string>;
   /** Credential keys the plugin needs resolved before `init()` runs. */
   requiresCredential?: string[];
-  /** Feature flag keys that must be enabled for this plugin to activate. */
+  /**
+   * Assistant feature-flag keys that must all be enabled for this plugin to
+   * activate. Checked by `bootstrapPlugins` via `isAssistantFeatureFlagEnabled`
+   * — if any listed flag is disabled, the plugin is skipped entirely for the
+   * boot (no `init()`, no tool/route/skill contributions, no shutdown hook).
+   */
   requiresFlag?: string[];
   /**
    * Zod-compatible validator (or any parser-like object) for the plugin's

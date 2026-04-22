@@ -12,21 +12,26 @@
  *    {@link defaultToolExecutePlugin}). Registration is idempotent so
  *    repeat calls (e.g. during integration tests) do not throw.
  * 2. Walks {@link getRegisteredPlugins} in registration order.
- * 3. For each plugin, resolves its `manifest.requiresCredential` entries via
- *    the credential store helper ({@link getSecureKeyAsync}). In Docker mode
+ * 3. For each plugin, consults `manifest.requiresFlag` against
+ *    {@link isAssistantFeatureFlagEnabled}. If any listed flag is disabled,
+ *    the plugin is skipped wholesale — no `init()`, no tool/route/skill
+ *    contributions, and no entry in the shutdown hook. This is the primary
+ *    mechanism for shipping experimental plugins behind a feature flag.
+ * 4. Resolves the plugin's `manifest.requiresCredential` entries via the
+ *    credential store helper ({@link getSecureKeyAsync}). In Docker mode
  *    that helper goes through the CES HTTP API transparently; in local mode
  *    it hits the encrypted file store / CES RPC backend.
- * 4. Validates the config block under `plugins.<name>` against
+ * 5. Validates the config block under `plugins.<name>` against
  *    `manifest.config` if the manifest supplies a parser-like validator
  *    (Zod schemas with `.parse()` are supported; anything else is passed
  *    through untouched).
- * 5. Creates `~/.vellum/plugins-data/<plugin>/` on demand for per-plugin
+ * 6. Creates `~/.vellum/plugins-data/<plugin>/` on demand for per-plugin
  *    writable state and exposes it via {@link PluginInitContext.pluginStorageDir}.
- * 6. Awaits `plugin.init(ctx)` sequentially. One init failure surfaces as a
+ * 7. Awaits `plugin.init(ctx)` sequentially. One init failure surfaces as a
  *    {@link PluginExecutionError} naming the offending plugin and aborts
  *    bootstrap — later plugins' `init()` never runs and the daemon fails
  *    startup cleanly rather than coming up in a half-wired state.
- * 7. After a plugin's `init()` succeeds, registers any tools declared on
+ * 8. After a plugin's `init()` succeeds, registers any tools declared on
  *    `plugin.tools` with the global tool registry via
  *    {@link registerPluginTools}. Tool contributions land after `init()` so
  *    a plugin that fails mid-init never leaves partial tool registrations
@@ -34,16 +39,19 @@
  *
  * A single shutdown hook is registered via
  * {@link registerShutdownHook} that walks the plugin list in **reverse
- * registration order**. For each plugin it first unregisters the contributed
- * tools (so `onShutdown()` observes a clean model-visible surface) and then
- * awaits the optional `onShutdown()`. Per-plugin shutdown failures are
- * logged and swallowed — the hook registry already swallows hook-level
- * throws, but we log at the plugin level so the plugin name is attributed.
+ * registration order**. Only plugins that actually initialized (i.e. were
+ * not skipped by the feature-flag gate) appear in that walk. For each such
+ * plugin it first unregisters the contributed tools (so `onShutdown()`
+ * observes a clean model-visible surface) and then awaits the optional
+ * `onShutdown()`. Per-plugin shutdown failures are logged and swallowed —
+ * the hook registry already swallows hook-level throws, but we log at the
+ * plugin level so the plugin name is attributed.
  */
 
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { defaultCircuitBreakerPlugin } from "../plugins/defaults/circuit-breaker.js";
 import { defaultCompactionPlugin } from "../plugins/defaults/compaction.js";
@@ -248,8 +256,34 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
 
   log.info({ count: plugins.length }, "bootstrapPlugins: initializing plugins");
 
+  // Plugins that passed `requiresFlag` gating and therefore need the full
+  // init → contribute → shutdown lifecycle. Plugins skipped by the flag gate
+  // are omitted from this list so the shutdown hook below never tears down
+  // capabilities that were never wired up in the first place.
+  const activePlugins: Plugin[] = [];
+
   for (const plugin of plugins) {
     const name = plugin.manifest.name;
+
+    // Feature-flag gating — if any key in `manifest.requiresFlag` is
+    // disabled, skip this plugin entirely. Skipping means: no `init()`, no
+    // tool / route / skill contributions, and no shutdown hook entry. A
+    // later boot with the flag flipped ON picks up the plugin cleanly.
+    const requiredFlags = plugin.manifest.requiresFlag ?? [];
+    let disabledFlag: string | undefined;
+    for (const flagKey of requiredFlags) {
+      if (!isAssistantFeatureFlagEnabled(flagKey, ctx.config)) {
+        disabledFlag = flagKey;
+        break;
+      }
+    }
+    if (disabledFlag !== undefined) {
+      log.info(
+        { plugin: name, flag: disabledFlag },
+        `skipping plugin ${name}: feature flag ${disabledFlag} is disabled`,
+      );
+      continue;
+    }
 
     // Credential resolution — gather every entry in `requiresCredential`
     // before calling `init()` so the plugin receives a fully-populated map.
@@ -347,13 +381,16 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
       }
     }
 
+    activePlugins.push(plugin);
+
     log.info({ plugin: name }, "plugin initialized");
   }
 
   // Shutdown hook — walks plugins in REVERSE registration order. We snapshot
-  // the current plugin list so later registrations (if any) don't end up
-  // being torn down by this hook; subsequent bootstraps (hot-reload) would
-  // register their own hook.
+  // only the plugins that actually initialized so later registrations (if
+  // any) don't end up being torn down by this hook, and plugins skipped by
+  // `requiresFlag` gating do not appear in the tear-down list. Subsequent
+  // bootstraps (hot-reload) would register their own hook.
   //
   // For each plugin we:
   //   1. Unregister contributed HTTP routes so incoming requests stop hitting
@@ -369,7 +406,7 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
   //      This mirrors the symmetry of registerPluginSkills() — every
   //      successful registration must get a matching unregister call,
   //      regardless of whether onShutdown throws.
-  const shutdownSnapshot: Plugin[] = [...plugins];
+  const shutdownSnapshot: Plugin[] = [...activePlugins];
   registerShutdownHook("plugins", async (reason) => {
     for (let i = shutdownSnapshot.length - 1; i >= 0; i--) {
       const plugin = shutdownSnapshot[i]!;
