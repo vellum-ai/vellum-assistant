@@ -378,11 +378,11 @@
       "defaultEnabled": true
     },
     {
-      "id": "auto-approve-threshold-ui",
+      "id": "permission-controls-v3",
       "scope": "assistant",
-      "key": "auto-approve-threshold-ui",
-      "label": "Auto-Approve Threshold UI",
-      "description": "Enable user-configurable auto-approve thresholds stored in the gateway. When enabled, the assistant reads thresholds from the gateway instead of config.json, and the macOS client shows threshold controls in Settings and the chat composer.",
+      "key": "permission-controls-v3",
+      "label": "Permission Controls v3",
+      "description": "Enables permission controls v3: gateway-backed auto-approve thresholds, risk badges on tool results, simplified Allow/Deny permission prompt, and rule editor modal.",
       "defaultEnabled": false
     },
     {
