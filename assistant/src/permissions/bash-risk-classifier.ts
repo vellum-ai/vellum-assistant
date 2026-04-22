@@ -528,14 +528,35 @@ export function generateScopeOptions(
     return options;
   }
 
-  // Separate args into flags and positionals
-  const flags: string[] = [];
-  const positionals: string[] = [];
-  for (const arg of seg.args) {
-    if (arg.startsWith("-")) {
-      flags.push(arg);
-    } else {
-      positionals.push(arg);
+  // Separate args into flags and positionals.
+  // When the command has an argSchema, use parseArgs for accurate flag/positional
+  // separation (correctly handles value-consuming flags like `find -name "*.ts"`).
+  // Otherwise, fall back to the naive `startsWith("-")` heuristic.
+  let flags: string[];
+  let positionals: string[];
+
+  if (spec?.argSchema) {
+    const parsedArgs = parseArgs(seg.args, spec.argSchema);
+    // Convert the flags Map to a flat string array: for value-consuming flags,
+    // include both the flag and its value as separate entries; for boolean flags,
+    // include just the flag.
+    flags = [];
+    for (const [flagName, flagValue] of parsedArgs.flags) {
+      flags.push(flagName);
+      if (typeof flagValue === "string") {
+        flags.push(flagValue);
+      }
+    }
+    positionals = parsedArgs.positionals;
+  } else {
+    flags = [];
+    positionals = [];
+    for (const arg of seg.args) {
+      if (arg.startsWith("-")) {
+        flags.push(arg);
+      } else {
+        positionals.push(arg);
+      }
     }
   }
 
@@ -549,12 +570,19 @@ export function generateScopeOptions(
   }
 
   // 2. Wildcard positionals right-to-left
-  if (positionals.length > 1) {
-    for (let drop = 1; drop < positionals.length; drop++) {
-      const kept = positionals.slice(0, positionals.length - drop);
-      const parts = [programName, ...flags, ...kept].filter(Boolean);
+  // When a subcommand is detected, exclude it from the positionals that get
+  // wildcarded — it's placed explicitly before flags in the label.
+  const wildcardPositionals = subcommand ? positionals.slice(1) : positionals;
+  if (wildcardPositionals.length > 1) {
+    for (let drop = 1; drop < wildcardPositionals.length; drop++) {
+      const kept = wildcardPositionals.slice(
+        0,
+        wildcardPositionals.length - drop,
+      );
+      const sub = subcommand ? [subcommand] : [];
+      const parts = [programName, ...sub, ...flags, ...kept].filter(Boolean);
       const pattern = `^${parts.map(escapeRegex).join("\\s+")}\\s+.*$`;
-      const label = [programName, ...flags, ...kept, "*"].join(" ");
+      const label = [programName, ...sub, ...flags, ...kept, "*"].join(" ");
       addOption(pattern, label);
     }
   }
