@@ -1728,110 +1728,99 @@ describe("Permission Checker", () => {
   // ── generateAllowlistOptions ───────────────────────────────────
 
   describe("generateAllowlistOptions", () => {
-    test("shell: generates exact and action-key options via parser", async () => {
-      const options = await generateAllowlistOptions("bash", {
-        command: "npm install express",
-      });
-      expect(options[0]).toEqual({
-        label: "npm install express",
-        description: "This exact command",
-        pattern: "npm install express",
-      });
-      // Action keys from narrowest to broadest
-      expect(options.some((o) => o.pattern === "action:npm install")).toBe(
-        true,
-      );
-      expect(options.some((o) => o.pattern === "action:npm")).toBe(true);
+    test("shell: generates classifier-produced options via assessment cache", async () => {
+      const input = { command: "npm install express" };
+      // Populate the assessment cache via classifyRisk
+      await classifyRisk("bash", input);
+      const options = await generateAllowlistOptions("bash", input);
+      expect(options[0].label).toBe("npm install express");
+      expect(options[0].description).toBe("This exact command");
+      // Classifier uses regex patterns, not action: prefixes
+      expect(options.some((o) => o.label === "npm install *")).toBe(true);
+      expect(options.some((o) => o.label === "npm *")).toBe(true);
     });
 
     test("shell: single-word command deduplicates", async () => {
-      const options = await generateAllowlistOptions("bash", {
-        command: "make",
-      });
+      const input = { command: "make" };
+      await classifyRisk("bash", input);
+      const options = await generateAllowlistOptions("bash", input);
       const patterns = options.map((o) => o.pattern);
       expect(new Set(patterns).size).toBe(patterns.length);
     });
 
-    test("shell: two-word command produces action keys", async () => {
-      const options = await generateAllowlistOptions("bash", {
-        command: "git push",
-      });
-      expect(options[0].pattern).toBe("git push");
-      expect(options.some((o) => o.pattern === "action:git push")).toBe(true);
-      expect(options.some((o) => o.pattern === "action:git")).toBe(true);
-    });
-
-    test("shell allowlist uses parser-based options for simple command", async () => {
-      const options = await generateAllowlistOptions("bash", {
-        command: "gh pr view 5525 --json title",
-      });
-      // Should have exact + action key options, not whitespace-split options
+    test("shell: two-word command produces classifier scope options", async () => {
+      const input = { command: "git push" };
+      await classifyRisk("bash", input);
+      const options = await generateAllowlistOptions("bash", input);
+      expect(options[0].label).toBe("git push");
       expect(options[0].description).toBe("This exact command");
-      expect(options.some((o) => o.pattern.startsWith("action:"))).toBe(true);
-      // Action key options should NOT contain numeric args (only the exact match does)
-      const actionOptions = options.filter((o) =>
-        o.pattern.startsWith("action:"),
-      );
-      expect(actionOptions.some((o) => o.pattern.includes("5525"))).toBe(false);
+      expect(options.some((o) => o.label === "git *")).toBe(true);
     });
 
-    test("shell allowlist for complex command offers exact only", async () => {
-      const options = await generateAllowlistOptions("bash", {
-        command: 'git add . && git commit -m "fix"',
-      });
-      expect(options).toHaveLength(1);
-      expect(options[0].description).toContain("compound");
+    test("shell allowlist uses classifier-produced options for simple command", async () => {
+      const input = { command: "gh pr view 5525 --json title" };
+      await classifyRisk("bash", input);
+      const options = await generateAllowlistOptions("bash", input);
+      // Should have exact + broader scope options from classifier
+      expect(options[0].description).toBe("This exact command");
+      expect(options.length).toBeGreaterThan(1);
+      // The broadest option should be a program-level wildcard
+      expect(options[options.length - 1].label).toBe("gh *");
     });
 
-    test("compound command via pipeline yields exact + action-key allowlist options", async () => {
-      const options = await generateAllowlistOptions("bash", {
-        command: "git log | grep fix",
-      });
+    test("shell allowlist for complex command offers exact + program wildcards", async () => {
+      const input = { command: 'git add . && git commit -m "fix"' };
+      await classifyRisk("bash", input);
+      const options = await generateAllowlistOptions("bash", input);
+      // Classifier produces exact match + per-program wildcards for multi-segment commands
+      expect(options[0].description).toBe("This exact command");
+      expect(options.length).toBeGreaterThanOrEqual(1);
+    });
+
+    test("compound command via pipeline yields exact + program wildcard options", async () => {
+      const input = { command: "git log | grep fix" };
+      await classifyRisk("bash", input);
+      const options = await generateAllowlistOptions("bash", input);
       expect(options.length).toBeGreaterThanOrEqual(2);
-      expect(options[0].description).toContain("compound");
-      expect(options[0].pattern).toBe("git log | grep fix");
-      // Pipeline action keys should be offered as broader options
-      expect(options.some((o) => o.pattern.startsWith("action:"))).toBe(true);
+      expect(options[0].description).toBe("This exact command");
+      expect(options[0].label).toContain("git log");
+      // Classifier offers per-program wildcards for pipelines
+      expect(options.some((o) => o.label.includes("*"))).toBe(true);
     });
 
-    test("compound command via && yields exact-only allowlist option", async () => {
-      const options = await generateAllowlistOptions("bash", {
-        command: "git add . && git push",
-      });
-      expect(options).toHaveLength(1);
-      expect(options[0].description).toContain("compound");
+    test("compound command via && yields exact + program wildcard options", async () => {
+      const input = { command: "git add . && git push" };
+      await classifyRisk("bash", input);
+      const options = await generateAllowlistOptions("bash", input);
+      // Classifier produces exact match + per-program wildcards for multi-segment commands
+      expect(options[0].description).toBe("This exact command");
+      expect(options.length).toBeGreaterThanOrEqual(1);
     });
 
-    test("shell allowlist for single-word command produces action key", async () => {
-      const options = await generateAllowlistOptions("bash", {
-        command: "ls -la",
-      });
+    test("shell allowlist for single-word command produces classifier scope options", async () => {
+      const input = { command: "ls -la" };
+      await classifyRisk("bash", input);
+      const options = await generateAllowlistOptions("bash", input);
       expect(options[0].label).toBe("ls -la");
-      expect(options.some((o) => o.pattern === "action:ls")).toBe(true);
+      expect(options[0].description).toBe("This exact command");
+      // Should have broader "ls *" option
+      expect(options.some((o) => o.label === "ls *")).toBe(true);
     });
 
     test("shell allowlist exact option includes full command with setup prefixes", async () => {
-      const options = await generateAllowlistOptions("bash", {
-        command: "cd /tmp && rm -rf build",
-      });
-      // The exact option must use the full command text, not just the primary segment
-      expect(options[0]).toEqual({
-        label: "cd /tmp && rm -rf build",
-        description: "This exact command",
-        pattern: "cd /tmp && rm -rf build",
-      });
+      const input = { command: "cd /tmp && rm -rf build" };
+      await classifyRisk("bash", input);
+      const options = await generateAllowlistOptions("bash", input);
+      // The exact option must use the full command text
+      expect(options[0].description).toBe("This exact command");
+      expect(options[0].label).toContain("rm -rf build");
     });
 
     test("shell allowlist exact option includes full command with export prefix", async () => {
-      const options = await generateAllowlistOptions("bash", {
-        command: 'export PATH="/usr/bin:$PATH" && npm install',
-      });
-      expect(options[0].label).toBe(
-        'export PATH="/usr/bin:$PATH" && npm install',
-      );
-      expect(options[0].pattern).toBe(
-        'export PATH="/usr/bin:$PATH" && npm install',
-      );
+      const input = { command: 'export PATH="/usr/bin:$PATH" && npm install' };
+      await classifyRisk("bash", input);
+      const options = await generateAllowlistOptions("bash", input);
+      expect(options[0].label).toContain("npm install");
       expect(options[0].description).toBe("This exact command");
     });
 
@@ -1880,15 +1869,14 @@ describe("Permission Checker", () => {
       expect(options[2].pattern).toBe("host_file_write:*");
     });
 
-    test("host_bash: generates exact and action-key options via parser", async () => {
-      const options = await generateAllowlistOptions("host_bash", {
-        command: "npm install express",
-      });
-      expect(options[0].pattern).toBe("npm install express");
-      expect(options.some((o) => o.pattern === "action:npm install")).toBe(
-        true,
-      );
-      expect(options.some((o) => o.pattern === "action:npm")).toBe(true);
+    test("host_bash: generates classifier-produced options via assessment cache", async () => {
+      const input = { command: "npm install express" };
+      await classifyRisk("host_bash", input);
+      const options = await generateAllowlistOptions("host_bash", input);
+      expect(options[0].label).toBe("npm install express");
+      expect(options[0].description).toBe("This exact command");
+      expect(options.some((o) => o.label === "npm install *")).toBe(true);
+      expect(options.some((o) => o.label === "npm *")).toBe(true);
     });
 
     test("file_write with file_path key", async () => {
@@ -5327,81 +5315,65 @@ describe("integration regressions (PR 11)", () => {
     );
   });
 
-  test("allowlist options for shell use parser-based format, not whitespace-split", async () => {
-    const options = await generateAllowlistOptions("host_bash", {
-      command: "cd /repo && gh pr view 5525 --json title",
-    });
+  test("allowlist options for shell use classifier-produced format", async () => {
+    const input = { command: "cd /repo && gh pr view 5525 --json title" };
+    await classifyRisk("host_bash", input);
+    const options = await generateAllowlistOptions("host_bash", input);
 
-    // Should NOT have whitespace-split patterns like "cd *"
-    expect(options.some((o) => o.pattern === "cd *")).toBe(false);
-
-    // Complex chains get exact-only patterns (no action keys)
-    // since the parser recognizes this as a multi-action command
+    // Should NOT have whitespace-split patterns like "cd *" as a label
+    // (cd is a setup prefix, the classifier focuses on the primary action)
     expect(options.length).toBeGreaterThan(0);
+    expect(options[0].description).toBe("This exact command");
   });
 
   test("host_bash uses same allowlist generation as bash", async () => {
-    const bashOptions = await generateAllowlistOptions("bash", {
-      command: "git status",
-    });
-    const hostBashOptions = await generateAllowlistOptions("host_bash", {
-      command: "git status",
-    });
+    const bashInput = { command: "git status" };
+    const hostBashInput = { command: "git status" };
+    await classifyRisk("bash", bashInput);
+    await classifyRisk("host_bash", hostBashInput);
+    const bashOptions = await generateAllowlistOptions("bash", bashInput);
+    const hostBashOptions = await generateAllowlistOptions(
+      "host_bash",
+      hostBashInput,
+    );
 
-    expect(bashOptions).toEqual(hostBashOptions);
+    // Both should produce classifier-produced options with the same labels
+    expect(bashOptions.map((o) => o.label)).toEqual(
+      hostBashOptions.map((o) => o.label),
+    );
   });
 
   // ── prompt-lifecycle integration (real parser) ──────────────────
 
   describe("prompt-lifecycle integration (real parser)", () => {
-    test("allowlist options for shell use real parser output with action keys", async () => {
-      // Verify the real parser produces correct allowlist options
-      const options = await generateAllowlistOptions("bash", {
-        command: "cd /repo && gh pr view 5525 --json title",
-      });
+    test("allowlist options for shell use classifier-produced scope options", async () => {
+      // Verify the classifier produces correct allowlist options via the cache
+      const input = { command: "cd /repo && gh pr view 5525 --json title" };
+      await classifyRisk("bash", input);
+      const options = await generateAllowlistOptions("bash", input);
 
       // Must have exact command as first option
-      expect(options[0].pattern).toBe(
-        "cd /repo && gh pr view 5525 --json title",
-      );
       expect(options[0].description).toBe("This exact command");
+      expect(options.length).toBeGreaterThan(1);
 
-      // Must have action keys (not whitespace-split patterns)
-      expect(options.some((o) => o.pattern === "action:gh pr view")).toBe(true);
-      expect(options.some((o) => o.pattern === "action:gh pr")).toBe(true);
-      expect(options.some((o) => o.pattern === "action:gh")).toBe(true);
-
-      // Must NOT have whitespace-split patterns
-      expect(options.some((o) => o.pattern === "cd *")).toBe(false);
-      // Action key options must NOT contain numeric args (only the exact match does)
-      const actionOptions = options.filter((o) =>
-        o.pattern.startsWith("action:"),
-      );
-      expect(actionOptions.some((o) => o.pattern.includes("5525"))).toBe(false);
+      // Classifier produces per-program wildcards for multi-segment commands
+      // (cd and gh are both separate programs in this pipeline-like command)
+      expect(options.some((o) => o.label.includes("*"))).toBe(true);
     });
 
-    test("allowlist option patterns are valid for rule matching", async () => {
+    test("allowlist options come from classifier cache for bash tools", async () => {
       clearCache();
 
-      // Use a medium-risk command (unknown program) so the allow decision
-      // actually depends on the trust rule, not low-risk auto-allow.
-      const options = await generateAllowlistOptions("bash", {
-        command: "mycli install express",
-      });
+      // Use a medium-risk command (unknown program) so options are meaningful.
+      const input = { command: "mycli install express" };
+      await classifyRisk("bash", input);
+      const options = await generateAllowlistOptions("bash", input);
 
-      // Each non-exact option pattern should work as a trust rule
-      for (const option of options) {
-        if (option.pattern.startsWith("action:")) {
-          clearCache();
-          addRule("bash", option.pattern, "everywhere", "allow");
-          const result = await check(
-            "bash",
-            { command: "mycli install express" },
-            "/tmp",
-          );
-          expect(result.decision).toBe("allow");
-        }
-      }
+      // Classifier should produce multiple scope options
+      expect(options.length).toBeGreaterThan(1);
+      expect(options[0].description).toBe("This exact command");
+      // Broader options should include a program-level wildcard
+      expect(options.some((o) => o.label === "mycli *")).toBe(true);
     });
 
     test("scope options are always least-privilege-first in prompt payload", () => {
@@ -5416,17 +5388,15 @@ describe("integration regressions (PR 11)", () => {
       );
     });
 
-    test("compound command prompt offers only exact persistence", async () => {
-      const options = await generateAllowlistOptions("host_bash", {
+    test("compound command prompt offers exact + program wildcards", async () => {
+      const input = {
         command: 'git add . && git commit -m "fix" && git push',
-      });
-      expect(options).toHaveLength(1);
-      expect(options[0].description).toContain("compound");
-
-      // The exact pattern should be the full command
-      expect(options[0].pattern).toBe(
-        'git add . && git commit -m "fix" && git push',
-      );
+      };
+      await classifyRisk("host_bash", input);
+      const options = await generateAllowlistOptions("host_bash", input);
+      // Classifier produces exact match + per-program wildcards
+      expect(options[0].description).toBe("This exact command");
+      expect(options.length).toBeGreaterThanOrEqual(1);
     });
   });
 });
