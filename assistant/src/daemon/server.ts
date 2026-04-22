@@ -1302,9 +1302,10 @@ export class DaemonServer {
     // Chrome-extension host_browser wiring is intentionally not supported
     // through this entry point. `prepareConversationForMessage` constructs
     // host_browser proxies that capture `conversation.getCurrentSender()`
-    // directly, which would route browser frames through the daemon SSE
-    // channel instead of the `ChromeExtensionRegistry`. Chrome-extension
-    // flows reach host_browser exclusively through the
+    // directly, which routes browser frames through the daemon SSE channel.
+    // This is correct for macOS (SSE-based host proxy), but chrome-extension
+    // requires the `ChromeExtensionRegistry` WebSocket transport instead.
+    // Chrome-extension flows reach host_browser exclusively through the
     // `/v1/messages` flow in `conversation-routes.ts`, which wires a
     // registry-aware sender and sets `hostBrowserSenderOverride`.
     //

@@ -1618,14 +1618,13 @@ export async function handleSendMessage(
     conversation.hostBrowserSenderOverride = undefined;
   }
 
-  // Provision the host browser proxy. For interfaces that natively support
-  // host_browser (chrome-extension), always provision it. For macOS, the
-  // static capability check returns false (supportsHostProxy("macos",
-  // "host_browser") === false) because the extension isn't guaranteed to be
-  // attached — but when the registry confirms an active extension
-  // connection, we provision the proxy anyway so macOS turns can drive the
-  // user's real Chrome session. When no extension is connected, macOS skips
-  // provisioning and browser tools fall through to cdp-inspect/local.
+  // Provision the host browser proxy. Both macOS and chrome-extension
+  // natively support host_browser. For macOS, the proxy is wired to the
+  // SSE sender by default so `host_browser_request` frames reach the
+  // desktop client directly. When the guardian also has an active extension
+  // connection (isRegistryRouted), the registry-routed sender is used
+  // instead so browser tools route through the user's real Chrome session.
+  // For chrome-extension, the registry sender is always used.
   const shouldProvisionBrowserProxy =
     supportsHostProxy(sourceInterface, "host_browser") ||
     (canServiceRegistryBrowser(sourceInterface) && isRegistryRouted);
@@ -1688,9 +1687,10 @@ export async function handleSendMessage(
     skipProxySenderUpdate: preservingProxies,
   });
   // Re-enable the browser proxy for turns that provisioned one. This covers:
+  // - macOS: always provisioned (SSE sender or registry-routed when extension
+  //   is connected)
   // - chrome-extension: natively supports host_browser (non-interactive but
   //   has a connected client for host_browser_request events)
-  // - macOS with extension: provisioned above when isRegistryRouted is true
   //
   // The helper bypasses the `hasNoClient` gate so chrome-extension turns can
   // drive the browser via CDP without leaking host_bash/host_file tool
