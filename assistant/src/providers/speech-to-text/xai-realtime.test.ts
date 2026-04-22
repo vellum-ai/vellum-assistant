@@ -497,14 +497,25 @@ describe("XAIRealtimeTranscriber", () => {
     const transcriber = new XAIRealtimeTranscriber(TEST_API_KEY, {
       connectTimeoutMs: 1_000,
     });
-    const { onEvent } = createEventCollector();
+    const { events, onEvent } = createEventCollector();
 
-    // First attempt: transport-level error before open.
+    // First attempt: transport-level error before open. Real WebSocket
+    // implementations commonly chain `error` → `close` on the abandoned
+    // socket, so simulate both to catch the regression where the old
+    // socket's stray close event corrupts `this.closed` and silently
+    // breaks the retry.
+    const firstSocket = mockWs;
     const firstAttempt = transcriber.start(onEvent);
-    mockWs.simulateError(new Error("ECONNREFUSED"));
+    firstSocket.simulateError(new Error("ECONNREFUSED"));
+    firstSocket.simulateClose(1006, "abnormal closure");
     await expect(firstAttempt).rejects.toThrow(/xAI realtime connect error/);
 
-    // Second attempt — instance must be reusable.
+    // The stray close on the abandoned socket must NOT have emitted a
+    // `closed` event or marked the transcriber closed — otherwise the
+    // retry below would silently no-op on sendAudio.
+    expect(events.filter((e) => e.type === "closed")).toHaveLength(0);
+
+    // Second attempt — instance must be reusable AND fully functional.
     mockWs = new MockWebSocket();
     (globalThis as Record<string, unknown>).WebSocket = class {
       constructor(
@@ -519,6 +530,63 @@ describe("XAIRealtimeTranscriber", () => {
     mockWs.simulateOpen();
     mockWs.simulateMessage(CREATED_FRAME);
     await expect(secondAttempt).resolves.toBeUndefined();
+
+    // Confirm the retry session is actually live — sendAudio must reach
+    // the new socket (proves `this.closed` wasn't sticky-corrupted).
+    transcriber.sendAudio(Buffer.from([0x01, 0x02, 0x03]), "audio/pcm");
+    expect(mockWs.sentData).toHaveLength(1);
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  // Regression: a close event on the abandoned socket fired AFTER a
+  // handshake-phase rejection must not corrupt `this.closed`. Real
+  // WebSocket impls emit `close` asynchronously after `ws.close()` is
+  // called, and commonly chain `error` → `close`; if the handshake
+  // listeners aren't detached before `forceClose()`, the stray event
+  // routes through `handleProviderClose` and flips `this.closed`,
+  // silently breaking subsequent retries.
+  // ─────────────────────────────────────────────────────────────────
+
+  test("stray close on abandoned socket after handshake rejection does not break retry", async () => {
+    const transcriber = new XAIRealtimeTranscriber(TEST_API_KEY, {
+      connectTimeoutMs: 1_000,
+    });
+    const { events, onEvent } = createEventCollector();
+
+    // First attempt: close rejects the handshake.
+    const firstSocket = mockWs;
+    const firstAttempt = transcriber.start(onEvent);
+    firstSocket.simulateClose(4001, "unauthorized");
+    await expect(firstAttempt).rejects.toThrow(
+      /xAI WebSocket closed before handshake/,
+    );
+
+    // Simulate a second close event arriving on the abandoned socket
+    // (as `forceClose()` → `ws.close()` would trigger in a real impl).
+    firstSocket.simulateClose(1006, "abnormal closure");
+
+    // The stray event must be a no-op: no `closed` event emitted, and
+    // no internal state corruption.
+    expect(events.filter((e) => e.type === "closed")).toHaveLength(0);
+
+    // Retry and confirm the session is fully functional.
+    mockWs = new MockWebSocket();
+    (globalThis as Record<string, unknown>).WebSocket = class {
+      constructor(
+        _url: string,
+        _options?: { headers?: Record<string, string> },
+      ) {
+        return mockWs;
+      }
+    };
+
+    const secondAttempt = transcriber.start(onEvent);
+    mockWs.simulateOpen();
+    mockWs.simulateMessage(CREATED_FRAME);
+    await expect(secondAttempt).resolves.toBeUndefined();
+
+    transcriber.sendAudio(Buffer.from([0x01, 0x02, 0x03]), "audio/pcm");
+    expect(mockWs.sentData).toHaveLength(1);
   });
 
   // ─────────────────────────────────────────────────────────────────

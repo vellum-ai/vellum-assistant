@@ -255,13 +255,17 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
     await new Promise<void>((resolve, reject) => {
       let settled = false;
 
-      const handshakeTimer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        this.forceClose();
-        reject(new Error("xAI realtime connect timeout"));
-      }, this.connectTimeoutMs);
-
+      // Listener references, captured so we can detach them from the
+      // abandoned socket on every reject/timeout path. Without this,
+      // `forceClose()` → `ws.close()` triggers an asynchronous `close`
+      // event (and real WebSocket impls commonly chain `error` → `close`)
+      // on the old socket. With the listeners still attached, that stray
+      // event routes through the `settled === true` branch into
+      // `handleProviderClose`, which calls `emitClosedAndCleanup()` and
+      // sets `this.closed = true`. A subsequent `start()` then resolves
+      // but `sendAudio` / `stop` / timers all no-op because `this.closed`
+      // is sticky — retry is silently dead. Detaching the handlers
+      // before `forceClose()` closes that window.
       const settleResolve = () => {
         if (settled) return;
         settled = true;
@@ -273,6 +277,9 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
         if (settled) return;
         settled = true;
         clearTimeout(handshakeTimer);
+        // Detach listeners BEFORE `forceClose()` so stray close/error
+        // events on the abandoned socket can't flip `this.closed`.
+        detachHandshakeListeners();
         // Null out this.ws (via forceClose) so the instance can be
         // reused for a retry. Without this, a subsequent start() call
         // would throw "start() called twice" even though no session
@@ -288,9 +295,8 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
       const onOpen = () => {
         ws.removeEventListener("open", onOpen);
       };
-      ws.addEventListener("open", onOpen);
 
-      ws.addEventListener("message", (ev: { data: unknown }) => {
+      const onMessage = (ev: { data: unknown }) => {
         if (!settled) {
           if (tryParseHandshakeFrame(ev.data)?.type === "transcript.created") {
             settleResolve();
@@ -303,9 +309,9 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
           return;
         }
         this.handleProviderMessage(ev.data);
-      });
+      };
 
-      ws.addEventListener("close", (ev: { code: number; reason: string }) => {
+      const onClose = (ev: { code: number; reason: string }) => {
         if (!settled) {
           // 401 / 403 on connect arrive as WebSocket close codes 4001 /
           // 4003 in most runtimes (or 1008 policy-violation in others).
@@ -320,9 +326,9 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
           return;
         }
         this.handleProviderClose(ev.code, ev.reason);
-      });
+      };
 
-      ws.addEventListener("error", (ev: unknown) => {
+      const onError = (ev: unknown) => {
         if (!settled) {
           const msg =
             ev instanceof Error
@@ -334,7 +340,26 @@ export class XAIRealtimeTranscriber implements StreamingTranscriber {
           return;
         }
         this.handleProviderError(ev);
-      });
+      };
+
+      const detachHandshakeListeners = () => {
+        ws.removeEventListener("message", onMessage);
+        ws.removeEventListener("close", onClose);
+        ws.removeEventListener("error", onError);
+      };
+
+      const handshakeTimer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        detachHandshakeListeners();
+        this.forceClose();
+        reject(new Error("xAI realtime connect timeout"));
+      }, this.connectTimeoutMs);
+
+      ws.addEventListener("open", onOpen);
+      ws.addEventListener("message", onMessage);
+      ws.addEventListener("close", onClose);
+      ws.addEventListener("error", onError);
     });
 
     this.resetInactivityTimer();
