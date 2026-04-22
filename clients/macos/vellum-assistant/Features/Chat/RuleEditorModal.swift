@@ -239,6 +239,7 @@ struct RuleEditorModal: View {
         .buttonStyle(.plain)
         .accessibilityLabel(label)
         .accessibilityAddTraits(selectedRiskLevel == value ? [.isSelected] : [])
+        .accessibilityValue(selectedRiskLevel == value ? "Selected" : "Not selected")
     }
 
     // MARK: - Section 4: Scope

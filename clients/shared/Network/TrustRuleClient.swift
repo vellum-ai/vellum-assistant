@@ -25,6 +25,29 @@ public protocol TrustRuleClientProtocol {
     ) async throws
 }
 
+/// Default parameter extension so callers that don't need `riskLevel` or
+/// `executionTarget` can omit them. Protocol declarations can't carry defaults,
+/// so this extension provides the convenience overload.
+public extension TrustRuleClientProtocol {
+    func addTrustRule(
+        toolName: String,
+        pattern: String,
+        scope: String,
+        decision: String,
+        executionTarget: String? = nil,
+        riskLevel: String? = nil
+    ) async throws {
+        try await addTrustRule(
+            toolName: toolName,
+            pattern: pattern,
+            scope: scope,
+            decision: decision,
+            executionTarget: executionTarget,
+            riskLevel: riskLevel
+        )
+    }
+}
+
 /// Gateway-backed implementation of ``TrustRuleClientProtocol``.
 public struct TrustRuleClient: TrustRuleClientProtocol {
     nonisolated public init() {}

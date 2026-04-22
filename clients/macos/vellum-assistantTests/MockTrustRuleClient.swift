@@ -6,7 +6,7 @@ import Foundation
 final class MockTrustRuleClient: TrustRuleClientProtocol {
     // MARK: - Spy State
 
-    var addTrustRuleCalls: [(toolName: String, pattern: String, scope: String, decision: String, executionTarget: String?)] = []
+    var addTrustRuleCalls: [(toolName: String, pattern: String, scope: String, decision: String, executionTarget: String?, riskLevel: String?)] = []
     var removeTrustRuleCalls: [String] = []
     var updateTrustRuleCalls: [(id: String, tool: String?, pattern: String?, scope: String?, decision: String?, priority: Int?)] = []
     var fetchTrustRulesCallCount = 0
@@ -35,7 +35,7 @@ final class MockTrustRuleClient: TrustRuleClientProtocol {
         executionTarget: String?,
         riskLevel: String? = nil
     ) async throws {
-        addTrustRuleCalls.append((toolName, pattern, scope, decision, executionTarget))
+        addTrustRuleCalls.append((toolName, pattern, scope, decision, executionTarget, riskLevel))
         if let error = addTrustRuleError { throw error }
     }
 
