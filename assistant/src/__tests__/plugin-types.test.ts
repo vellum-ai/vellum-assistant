@@ -19,6 +19,8 @@ import {
   type PluginInitContext,
   type PluginManifest,
   PluginTimeoutError,
+  type ToolResultTruncateArgs,
+  type ToolResultTruncateResult,
   type TurnContext,
 } from "../plugins/types.js";
 
@@ -51,6 +53,16 @@ describe("plugin core types", () => {
       { input: unknown },
       { output: unknown }
     > = async (args, next, _ctx) => next(args);
+
+    // `toolResultTruncate` has a concrete args/result shape (PR 17) so we
+    // need a dedicated passthrough for that slot.
+    const truncatePassthrough: Middleware<
+      ToolResultTruncateArgs,
+      ToolResultTruncateResult
+    > = async (args, _next, _ctx) => ({
+      content: args.content,
+      truncated: false,
+    });
 
     const injector: Injector = {
       name: "sample-injector",
@@ -89,7 +101,7 @@ describe("plugin core types", () => {
         overflowReduce: passthrough,
         persistence: passthrough,
         titleGenerate: passthrough,
-        toolResultTruncate: passthrough,
+        toolResultTruncate: truncatePassthrough,
         emptyResponse: passthrough,
         toolError: passthrough,
         circuitBreaker: passthrough,

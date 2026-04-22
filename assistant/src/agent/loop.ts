@@ -6,7 +6,18 @@ import {
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
-import { truncateOversizedToolResults } from "../context/tool-result-truncation.js";
+import {
+  calculateMaxToolResultChars,
+  truncateToolResultText,
+} from "../context/tool-result-truncation.js";
+import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
+import { getMiddlewaresFor } from "../plugins/registry.js";
+import type {
+  ToolResultTruncateArgs,
+  ToolResultTruncateResult,
+  TurnContext,
+} from "../plugins/types.js";
 import type {
   ContentBlock,
   Message,
@@ -123,6 +134,21 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
 
 const MAX_CONSECUTIVE_ERROR_NUDGES = 3;
 const MAX_EMPTY_RESPONSE_RETRIES = 1;
+
+/**
+ * Fallback trust context used when the agent loop constructs a {@link
+ * TurnContext} for the plugin pipeline. The agent loop itself is invoked
+ * from trust-aware entry points (conversation orchestrator, agent-wake)
+ * that already performed authorization before reaching the loop, so the
+ * loop's own pipeline invocations do not need a live channel identity —
+ * they only need a well-formed `TurnContext` for telemetry and error
+ * attribution. Later PRs in the plugin-system plan plumb the real trust
+ * context through `run()` and replace this constant with a parameter.
+ */
+const AGENT_LOOP_FALLBACK_TRUST: TrustContext = {
+  sourceChannel: "vellum",
+  trustClass: "guardian",
+};
 
 /**
  * User-config HTTP status codes that should never page the on-call: billing
@@ -702,12 +728,73 @@ export class AgentLoop {
           }),
         );
 
-        // Pre-emptively truncate oversized tool results to prevent context overflow
-        const { blocks: resultBlocks, truncatedCount } =
-          truncateOversizedToolResults(
-            rawResultBlocks,
-            this.config.maxInputTokens ?? 180_000,
+        // Pre-emptively truncate oversized tool results to prevent context
+        // overflow. The work is delegated to the `toolResultTruncate`
+        // plugin pipeline so downstream plugins can swap in a smarter
+        // truncation strategy (e.g. a summariser) while the default
+        // middleware preserves the historical tail-drop behaviour.
+        const contextWindowTokens = this.config.maxInputTokens ?? 180_000;
+        const maxChars = calculateMaxToolResultChars(contextWindowTokens);
+        const truncateMiddlewares = getMiddlewaresFor("toolResultTruncate");
+        const turnCtx: TurnContext = {
+          requestId: requestId ?? "unknown",
+          conversationId: requestId ?? "unknown",
+          turnIndex: toolUseTurns,
+          trust: AGENT_LOOP_FALLBACK_TRUST,
+        };
+
+        let truncatedCount = 0;
+        const truncatedBlocks: ContentBlock[] = [];
+        for (const block of rawResultBlocks) {
+          if (block.type !== "tool_result") {
+            truncatedBlocks.push(block);
+            continue;
+          }
+          const toolBlock = block as ToolResultContent;
+          if (
+            typeof toolBlock.content !== "string" ||
+            toolBlock.content.length <= maxChars
+          ) {
+            truncatedBlocks.push(block);
+            continue;
+          }
+          const pipelineResult = await runPipeline<
+            ToolResultTruncateArgs,
+            ToolResultTruncateResult
+          >(
+            "toolResultTruncate",
+            truncateMiddlewares,
+            async (args) => {
+              // Terminal fallback — applies the same tail-drop truncation
+              // the loop used before plugins existed. We run it here
+              // (instead of relying purely on the default plugin) so code
+              // paths that exercise `AgentLoop.run` without first calling
+              // `bootstrapPlugins` — e.g. unit tests that construct a
+              // loop directly — retain the pre-plugin behaviour.
+              const truncated = truncateToolResultText(
+                args.content,
+                args.maxChars,
+              );
+              return {
+                content: truncated,
+                truncated: truncated !== args.content,
+              };
+            },
+            { content: toolBlock.content, maxChars },
+            turnCtx,
+            DEFAULT_TIMEOUTS.toolResultTruncate,
           );
+          if (pipelineResult.truncated) {
+            truncatedCount++;
+            truncatedBlocks.push({
+              ...toolBlock,
+              content: pipelineResult.content,
+            });
+          } else {
+            truncatedBlocks.push(block);
+          }
+        }
+        const resultBlocks = truncatedBlocks;
         if (truncatedCount > 0) {
           log.warn(
             `Truncated ${truncatedCount} oversized tool result(s) to prevent context overflow`,

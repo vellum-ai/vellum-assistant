@@ -35,9 +35,11 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AssistantConfig } from "../config/schema.js";
+import { defaultToolResultTruncatePlugin } from "../plugins/defaults/tool-result-truncate.js";
 import {
   ASSISTANT_API_VERSIONS,
   getRegisteredPlugins,
+  registerPlugin,
 } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -135,6 +137,26 @@ function ensurePluginStorageDir(pluginName: string): string {
 }
 
 /**
+ * Register the first-party default plugins that ship with the assistant.
+ *
+ * These provide terminal-like implementations of each wrapped pipeline so
+ * the behaviour when no external plugins are installed is identical to the
+ * pre-plugin-era code path. We skip already-registered names so repeated
+ * bootstrap calls (e.g. in tests or hot-reload) do not throw on duplicate
+ * registration.
+ */
+function registerDefaultPlugins(): void {
+  const alreadyRegistered = new Set(
+    getRegisteredPlugins().map((p) => p.manifest.name),
+  );
+  const defaults: Plugin[] = [defaultToolResultTruncatePlugin];
+  for (const plugin of defaults) {
+    if (alreadyRegistered.has(plugin.manifest.name)) continue;
+    registerPlugin(plugin);
+  }
+}
+
+/**
  * Run every registered plugin's `init()` hook sequentially and install a
  * reverse-order shutdown hook. See the module docstring for full semantics.
  *
@@ -147,6 +169,15 @@ function ensurePluginStorageDir(pluginName: string): string {
  * run) and before the first conversation is served.
  */
 export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
+  // First-party default plugins. These must be registered before any
+  // externally-registered plugin so that middleware-composition order has
+  // the default (terminal-like) implementation at the innermost layer.
+  //
+  // Registration is idempotent across repeated bootstraps (e.g. hot-reload)
+  // by skipping already-registered names — `registerPlugin` throws on
+  // duplicates, which we'd otherwise hit on the second call.
+  registerDefaultPlugins();
+
   const plugins = getRegisteredPlugins();
   if (plugins.length === 0) {
     // No-op fast path — the registry is empty (no first-party plugins have
