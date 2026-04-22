@@ -13,11 +13,13 @@
  */
 
 import { truncateToolResultText } from "../../context/tool-result-truncation.js";
-import type {
-  Middleware,
-  Plugin,
-  ToolResultTruncateArgs,
-  ToolResultTruncateResult,
+import { registerPlugin } from "../registry.js";
+import {
+  type Middleware,
+  type Plugin,
+  PluginExecutionError,
+  type ToolResultTruncateArgs,
+  type ToolResultTruncateResult,
 } from "../types.js";
 
 /**
@@ -57,3 +59,25 @@ export const defaultToolResultTruncatePlugin: Plugin = {
     toolResultTruncate: defaultToolResultTruncateMiddleware,
   },
 };
+
+// Module-load side effect: register this default at import time so
+// downstream consumers (including tests that skip `bootstrapPlugins()`)
+// observe a populated registry by default. Idempotent via the swallowed
+// duplicate-name check. Kept local to this module (rather than iterating
+// an array in `defaults/index.ts`) so the registration only references
+// the already-initialized `defaultToolResultTruncatePlugin` identifier —
+// avoiding a TDZ crash when tests `mock.module(...)` a dependency of any
+// other default plugin and directly import this file.
+try {
+  registerPlugin(defaultToolResultTruncatePlugin);
+} catch (err) {
+  if (
+    err instanceof PluginExecutionError &&
+    err.message.includes("already registered")
+  ) {
+    // already registered — expected when both index.ts and the direct
+    // file are imported in the same process
+  } else {
+    throw err;
+  }
+}
