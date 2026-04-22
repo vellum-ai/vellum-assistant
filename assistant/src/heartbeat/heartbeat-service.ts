@@ -401,7 +401,7 @@ export class HeartbeatService {
       void emitFeedEvent({
         source: "assistant",
         title: "Heartbeat",
-        summary: "All systems healthy.",
+        summary: "Heartbeat check completed.",
         dedupKey: `heartbeat:${new Date().toISOString().split("T")[0]}`,
         priority: 30,
       }).catch((err) => {

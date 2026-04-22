@@ -107,7 +107,7 @@ describe("heartbeat feed events", () => {
     const items = readFeedItems();
     const heartbeatItem = items.find((i) => i.title === "Heartbeat");
     expect(heartbeatItem).toBeDefined();
-    expect(heartbeatItem!.summary).toBe("All systems healthy.");
+    expect(heartbeatItem!.summary).toBe("Heartbeat check completed.");
     expect(heartbeatItem!.priority).toBe(30);
     expect(heartbeatItem!.urgency).toBeUndefined();
     expect(heartbeatItem!.source).toBe("assistant");
