@@ -2418,7 +2418,12 @@ describe("Conversation attachment event payloads", () => {
       model: "mock",
       providerDurationMs: 100,
     });
-    run.onEvent({ type: "message_complete", message: assistantMsg });
+    // Await the message_complete dispatch so the async persistence pipeline
+    // (which sets `state.lastAssistantMessageId`) finishes before the mock
+    // resolves `agentLoop.run()` and downstream post-processing runs. The
+    // real agent loop in `agent/loop.ts` awaits onEvent before returning,
+    // so awaiting here keeps the mock faithful to production semantics.
+    await run.onEvent({ type: "message_complete", message: assistantMsg });
     run.resolve([...run.messages, assistantMsg]);
 
     await p1;
@@ -2592,7 +2597,10 @@ describe("Regression: cancel semantics and error channel split", () => {
       model: "mock",
       providerDurationMs: 100,
     });
-    run.onEvent({ type: "message_complete", message: assistantMsg });
+    // Await the message_complete dispatch so the async persistence pipeline
+    // finishes before the mock resolves `agentLoop.run()`. See the matching
+    // comment in "message_complete includes assistant attachments".
+    await run.onEvent({ type: "message_complete", message: assistantMsg });
     run.resolve([...run.messages, assistantMsg]);
     await p1;
 
