@@ -163,6 +163,7 @@ describe("GET /v1/oauth/providers", () => {
       "requires_client_secret",
       "logo_url",
       "supports_managed_mode",
+      "managed_service_is_paid",
       "feature_flag",
     ];
 
