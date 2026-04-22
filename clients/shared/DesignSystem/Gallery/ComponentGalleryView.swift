@@ -102,6 +102,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("vBusyIndicator", "VBusyIndicator", keywords: ["busy", "activity"], description: "Activity indicator for small, contained loading states."),
                 GalleryComponent("vSkeletonBone", "VSkeletonBone", keywords: ["skeleton", "placeholder"], description: "Placeholder bone with shimmer animation for loading skeletons. Compose multiple bones to match the target layout."),
                 GalleryComponent("vSkillTypePill", "VSkillTypePill", keywords: ["skill type", "pill"], description: "Colored pill showing a skill type category."),
+                GalleryComponent("vPaidBadge", "VPaidBadge", keywords: ["paid", "badge", "dollar"], description: "Pill badge marking an integration or feature as paid."),
                 GalleryComponent("vInfoTooltip", "VInfoTooltip", keywords: ["info", "tooltip"], description: "Info icon with hover tooltip for contextual help text."),
                 GalleryComponent("vContextWindowIndicator", "VContextWindowIndicator", keywords: ["context window", "progress", "ring"], description: "Circular ring showing context window fill level with hover popover."),
             ]
