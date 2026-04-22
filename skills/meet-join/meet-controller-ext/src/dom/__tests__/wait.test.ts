@@ -80,6 +80,20 @@ describe("waitForSelector interactable filter", () => {
     ).rejects.toThrow(/timeout waiting for #a/);
   });
 
+  test("iterates all matches and returns the first interactable one", async () => {
+    // Regression: `querySelector` only returns the first hit, so a hidden
+    // template node earlier in the tree used to mask a later interactable
+    // sibling. The fix iterates `querySelectorAll`.
+    const doc = buildDoc(
+      `<body>
+        <button class="c" aria-hidden="true">ghost</button>
+        <button class="c" id="real">real</button>
+      </body>`,
+    );
+    const el = await waitForSelector(".c", 100, doc, { interactable: true });
+    expect(el.id).toBe("real");
+  });
+
   test("resolves once a hidden match becomes interactable", async () => {
     const doc = buildDoc(
       `<body><button id="a" aria-hidden="true">pending</button></body>`,
