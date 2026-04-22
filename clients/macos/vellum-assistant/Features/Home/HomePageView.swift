@@ -42,6 +42,10 @@ struct HomePageView<DetailPanel: View>: View {
     /// Fired when the user taps one of the suggestion pills. The parent
     /// opens a fresh conversation seeded with the suggestion label.
     let onSuggestionSelected: (HomeSuggestion) -> Void
+    /// Fired when the user taps a `.thread` (scheduled) feed item — the
+    /// parent presents the scheduled detail panel instead of opening a
+    /// conversation. All other item types keep the conversation flow.
+    let onScheduledItemSelected: (FeedItem) -> Void
     /// Drives the two-pane split. When false, the home content renders in
     /// its original single-column layout and the `detailPanel` slot is
     /// ignored.
@@ -280,11 +284,21 @@ struct HomePageView<DetailPanel: View>: View {
 
     // MARK: - Actions
 
-    /// Opens the feed item in a new conversation. The daemon interprets
-    /// any unknown action id as an "open" intent and seeds the new
-    /// conversation with the first available action's prompt (or the
+    /// Opens the feed item. For `.thread` (scheduled) items the parent
+    /// presents a detail panel via `onScheduledItemSelected`; for every
+    /// other type we preserve the existing "trigger the `open` action and
+    /// navigate into the resulting conversation" flow. The daemon
+    /// interprets any unknown action id as an "open" intent and seeds the
+    /// new conversation with the first available action's prompt (or the
     /// item summary if there are no actions).
-    private func openItem(_ item: FeedItem) {
+    ///
+    /// Exposed as `internal` (not `private`) so routing tests can drive it
+    /// directly without needing to render the full view tree.
+    func openItem(_ item: FeedItem) {
+        if item.type == .thread {
+            onScheduledItemSelected(item)
+            return
+        }
         Task {
             if let conversationId = await feedStore.triggerAction(
                 itemId: item.id,
@@ -359,7 +373,8 @@ extension HomePageView where DetailPanel == EmptyView {
         onFeedConversationOpened: @escaping (String) -> Void,
         onStartNewChat: @escaping () -> Void,
         onDismissSuggestions: @escaping () -> Void,
-        onSuggestionSelected: @escaping (HomeSuggestion) -> Void
+        onSuggestionSelected: @escaping (HomeSuggestion) -> Void,
+        onScheduledItemSelected: @escaping (FeedItem) -> Void = { _ in }
     ) {
         self.init(
             store: store,
@@ -369,6 +384,7 @@ extension HomePageView where DetailPanel == EmptyView {
             onStartNewChat: onStartNewChat,
             onDismissSuggestions: onDismissSuggestions,
             onSuggestionSelected: onSuggestionSelected,
+            onScheduledItemSelected: onScheduledItemSelected,
             isDetailPanelVisible: false,
             detailPanel: { EmptyView() }
         )

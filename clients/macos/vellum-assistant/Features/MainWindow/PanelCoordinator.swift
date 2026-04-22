@@ -160,6 +160,12 @@ extension MainWindowView {
         // "Home" title would double up and steal vertical space from the
         // first scroll viewport. ``HomePageView`` paints its own full
         // background internally, so no outer chrome is needed here.
+        //
+        // Split layout: when a scheduled (`.thread`) feed item is tapped
+        // we stash its id in ``selectedScheduledItemId`` and flip the
+        // two-pane layout on. The trailing pane renders
+        // ``HomeScheduledDetailPanel`` with placeholder metadata — real
+        // schedule fields are a daemon follow-up.
         HomePageView(
             store: homeStore,
             feedStore: feedStore,
@@ -177,6 +183,12 @@ extension MainWindowView {
                     windowState.showToast(message: "Couldn't open the conversation.", style: .error)
                     return
                 }
+                // Codex P2 feedback (#27467): clear scheduled-detail selection
+                // before navigating away so re-entering Home doesn't show a
+                // stale split layout. Belt-and-suspenders with .onDisappear
+                // below in case the Home view stays mounted across this
+                // navigation path.
+                selectedScheduledItemId = nil
                 onDismiss()
                 windowState.selection = .conversation(uuid)
             },
@@ -207,6 +219,31 @@ extension MainWindowView {
                 if let id = conversationManager.activeConversationId {
                     windowState.selection = .conversation(id)
                 }
+            },
+            onScheduledItemSelected: { item in
+                selectedScheduledItemId = item.id
+            },
+            isDetailPanelVisible: selectedScheduledItemId != nil,
+            detailPanel: {
+                if selectedScheduledItemId != nil {
+                    let details = HomeScheduledDetails.placeholder
+                    // TODO: replace placeholder data with real schedule
+                    // metadata when the daemon surfaces scheduled-item
+                    // fields on FeedItem (see .private/plans/home-feed-groups.md
+                    // follow-up).
+                    HomeScheduledDetailPanel(
+                        title: "Scheduled Thing",
+                        description: details.description,
+                        rows: details.displayRows().map { row in
+                            HomeScheduledDetailPanel.DetailRow(key: row.key, value: row.value)
+                        },
+                        primaryActionLabel: "Action",
+                        secondaryActionLabel: "Action",
+                        onClose: { selectedScheduledItemId = nil },
+                        onPrimaryAction: { selectedScheduledItemId = nil },
+                        onSecondaryAction: { selectedScheduledItemId = nil }
+                    )
+                }
             }
         )
         .onAppear {
@@ -215,6 +252,11 @@ extension MainWindowView {
         }
         .onDisappear {
             homeStore.isHomeTabVisible = false
+            // Codex P2 feedback (#27467): clear scheduled-detail selection so
+            // re-entering Home doesn't show a stale split layout when the
+            // user leaves Home through routes other than the detail panel's
+            // own close/action buttons (sidebar switch, conversation open, etc.).
+            selectedScheduledItemId = nil
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
