@@ -9,8 +9,8 @@ import XCTest
 /// is touched: (1) the stored `children` list round-trips unchanged
 /// through `init`, and (2) both the collapsed and expanded body
 /// branches type-check and build without crashing. Visual fidelity is
-/// covered by the SwiftUI previews; this file exists so a rename or
-/// API drift breaks CI rather than a preview.
+/// covered by the Component Gallery; this file exists so a rename or
+/// API drift breaks CI.
 final class HomeRecapGroupRowTests: XCTestCase {
 
     private func makeChildren() -> [HomeRecapGroupRow.Child] {
