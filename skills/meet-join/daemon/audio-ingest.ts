@@ -58,13 +58,18 @@ import { getMeetSessionEventRouter } from "./session-event-router.js";
 const log = getLogger("meet-audio-ingest");
 
 /**
- * Host the audio-ingest TCP server binds to. Loopback-only: the bot
- * reaches us via Docker's `host.docker.internal` alias which maps back to
- * the host's loopback interface, so there is no reason to accept
- * connections from anywhere else. External listeners would expose the
- * raw PCM stream to anything else running on the host.
+ * Host the audio-ingest TCP server binds to. Must be all-interfaces
+ * (`0.0.0.0`) rather than loopback: on vanilla Linux Docker, the bot
+ * reaches us via `host.docker.internal:host-gateway`, which resolves to
+ * the Docker bridge gateway IP — packets arrive at the bridge interface,
+ * not loopback, so a listener bound to `127.0.0.1` would refuse them.
+ * The assistant HTTP port has the same constraint (see
+ * `cli/src/lib/__tests__/docker.test.ts` for the documented test).
+ * macOS and Windows Docker forward `host.docker.internal` to loopback,
+ * so they work either way; binding all-interfaces is the common case
+ * that works across every Docker platform we support.
  */
-export const AUDIO_INGEST_BIND_HOST = "127.0.0.1";
+export const AUDIO_INGEST_BIND_HOST = "0.0.0.0";
 
 /**
  * Maximum wall-clock time the bot is given to connect to the audio port
@@ -252,7 +257,8 @@ export class MeetAudioIngest {
    * streaming STT session, and wire PCM frames into it.
    *
    * Returns a two-phase handle:
-   *   - `port` — the OS-assigned loopback port the server is bound to.
+   *   - `port` — the OS-assigned port the server is bound to (on all
+   *     interfaces — see {@link AUDIO_INGEST_BIND_HOST}).
    *     Available as soon as the outer promise resolves, so the caller can
    *     thread it into the bot container's env before spawning.
    *   - `ready` — resolves once the bot has actually connected; rejects
@@ -301,9 +307,9 @@ export class MeetAudioIngest {
     }
     if (this.stopped) return { port: 0, ready: Promise.resolve() };
 
-    // Open the TCP server on loopback. The bot dials it via
-    // `host.docker.internal:<port>` once its Chrome extension signals
-    // `lifecycle:joined`.
+    // Open the TCP server (all interfaces — see AUDIO_INGEST_BIND_HOST).
+    // The bot dials it via `host.docker.internal:<port>` once its Chrome
+    // extension signals `lifecycle:joined`.
     let server: AudioIngestServer;
     try {
       server = await this.listen();
@@ -352,7 +358,7 @@ export class MeetAudioIngest {
         );
         reject(
           new Error(
-            `MeetAudioIngest: bot did not connect to 127.0.0.1:${boundPort} within ${this.botConnectTimeoutMs}ms`,
+            `MeetAudioIngest: bot did not connect to *:${boundPort} within ${this.botConnectTimeoutMs}ms`,
           ),
         );
       }, this.botConnectTimeoutMs);
@@ -592,9 +598,10 @@ async function defaultCreateTranscriber(): Promise<StreamingTranscriber> {
 }
 
 /**
- * Default audio-ingest listener — opens a `node:net` TCP server bound to
- * loopback with an OS-assigned port. The port is read back from the
- * server's address once `listen()` resolves and exposed on the returned
+ * Default audio-ingest listener — opens a `node:net` TCP server bound
+ * per {@link AUDIO_INGEST_BIND_HOST} (all interfaces) with an
+ * OS-assigned port. The port is read back from the server's address
+ * once `listen()` resolves and exposed on the returned
  * {@link AudioIngestServer} so the session manager can thread it through
  * to the bot container as the `DAEMON_AUDIO_PORT` env var.
  */

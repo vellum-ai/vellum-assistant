@@ -17,7 +17,7 @@ Bot ↔ extension communication flows through Chrome Native Messaging:
   - Process boot sequence (`main.ts`): Pulse → Xvfb → NMH socket server → daemon client → Chrome subprocess → `waitForReady` → dispatch `join` → audio capture → HTTP control surface.
   - HTTP control surface for the daemon (`src/control/http-server.ts` — `/leave`, `/send_chat`, `/play_audio`).
   - Daemon client (`src/control/daemon-client.ts` — outbound event ingress).
-  - Audio capture (`src/media/audio-capture.ts` — parec piped into a Unix socket the daemon reads from).
+  - Audio capture (`src/media/audio-capture.ts` — parec piped into a TCP socket on `host.docker.internal:<DAEMON_AUDIO_PORT>` where the daemon's audio-ingest server listens).
   - Audio playback (`src/media/audio-playback.ts` — pacat fed from the daemon's `/play_audio` stream).
   - Native messaging transport (`src/native-messaging/`).
   - Chrome process lifecycle (`src/browser/chrome-launcher.ts`) and Xvfb (`src/browser/xvfb.ts`).
