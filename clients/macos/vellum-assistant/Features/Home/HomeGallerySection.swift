@@ -450,7 +450,13 @@ struct HomeGallerySection: View {
                         ],
                         isExpanded: .constant(true),
                         onParentTap: {},
-                        onChildTap: { _ in }
+                        onChildTap: { _ in },
+                        // Wired as no-ops so the hover-only Dismiss button
+                        // renders on the parent header and each child in
+                        // the gallery — lets designers/reviewers verify
+                        // the affordance matches HomeRecapRow's dismiss.
+                        onParentDismiss: {},
+                        onChildDismiss: { _ in }
                     )
                 }
             }
