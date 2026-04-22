@@ -35,9 +35,11 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AssistantConfig } from "../config/schema.js";
+import { defaultLlmCallPlugin } from "../plugins/defaults/llm-call.js";
 import {
   ASSISTANT_API_VERSIONS,
   getRegisteredPlugins,
+  registerPlugin,
 } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -48,6 +50,18 @@ import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { vellumRoot } from "../util/platform.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
+
+// ─── First-party default plugins ─────────────────────────────────────────────
+//
+// Register default plugins at module load so the registry is populated before
+// `bootstrapPlugins()` runs. Each wrapped pipeline has a corresponding default
+// plugin whose middleware is the passthrough terminal — the plugin system
+// always needs a terminal to fall through to when no other plugin intercepts.
+//
+// Idempotency: this module is imported once via ES module semantics, so the
+// registry never sees duplicate registration. Test environments call
+// `resetPluginRegistryForTests()` and re-register explicitly.
+registerPlugin(defaultLlmCallPlugin);
 
 const log = getLogger("plugins-bootstrap");
 

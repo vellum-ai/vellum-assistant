@@ -17,6 +17,13 @@
  */
 
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
+import type {
+  Message,
+  Provider,
+  ProviderResponse,
+  SendMessageOptions,
+  ToolDefinition,
+} from "../providers/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
@@ -121,8 +128,28 @@ export type PipelineName =
 export type TurnArgs = { readonly input: unknown };
 export type TurnResult = { readonly output: unknown };
 
-export type LLMCallArgs = { readonly input: unknown };
-export type LLMCallResult = { readonly output: unknown };
+/**
+ * Pipeline arguments for `llmCall` — mirrors the inputs to
+ * {@link Provider.sendMessage}. The terminal handler (the default plugin)
+ * delegates straight to `args.provider.sendMessage(args.messages, args.tools,
+ * args.systemPrompt, args.options)`; middleware may observe or rewrite any
+ * field before that call, short-circuit with a synthetic {@link LLMCallResult},
+ * or post-process the response on the way out.
+ *
+ * `provider` is passed in `args` (rather than resolved from the runtime) so
+ * middleware can swap it deterministically per-call. `options` carries the
+ * full `SendMessageOptions` bag — `config`, `onEvent`, and `signal` — so
+ * middleware can substitute streaming handlers or cancellation signals
+ * without reconstructing them.
+ */
+export type LLMCallArgs = {
+  readonly provider: Provider;
+  readonly messages: Message[];
+  readonly tools?: ToolDefinition[];
+  readonly systemPrompt?: string;
+  readonly options?: SendMessageOptions;
+};
+export type LLMCallResult = ProviderResponse;
 
 export type ToolExecuteArgs = { readonly input: unknown };
 export type ToolExecuteResult = { readonly output: unknown };

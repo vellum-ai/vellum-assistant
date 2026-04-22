@@ -13,6 +13,8 @@ import { describe, expect, test } from "bun:test";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import {
   type Injector,
+  type LLMCallArgs,
+  type LLMCallResult,
   type Middleware,
   type Plugin,
   PluginExecutionError,
@@ -52,6 +54,15 @@ describe("plugin core types", () => {
       { output: unknown }
     > = async (args, next, _ctx) => next(args);
 
+    // `llmCall` has concrete arg/result types (upgraded from the initial
+    // `{ input }/{ output }` placeholder in PR 15) so it gets its own
+    // passthrough rather than sharing the generic one above.
+    const llmCallPassthrough: Middleware<LLMCallArgs, LLMCallResult> = async (
+      args,
+      next,
+      _ctx,
+    ) => next(args);
+
     const injector: Injector = {
       name: "sample-injector",
       order: 10,
@@ -80,7 +91,7 @@ describe("plugin core types", () => {
       injectors: [injector],
       middleware: {
         turn: passthrough,
-        llmCall: passthrough,
+        llmCall: llmCallPassthrough,
         toolExecute: passthrough,
         memoryRetrieval: passthrough,
         historyRepair: passthrough,

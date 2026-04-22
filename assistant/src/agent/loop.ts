@@ -7,6 +7,13 @@ import {
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import { truncateOversizedToolResults } from "../context/tool-result-truncation.js";
+import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
+import { getMiddlewaresFor } from "../plugins/registry.js";
+import type {
+  LLMCallArgs,
+  LLMCallResult,
+  TurnContext,
+} from "../plugins/types.js";
 import type {
   ContentBlock,
   Message,
@@ -394,11 +401,22 @@ export class AgentLoop {
           stripOldImageBlocks(history),
         );
 
-        const response = await this.provider.sendMessage(
-          providerHistory,
-          currentTools.length > 0 ? currentTools : undefined,
-          turnSystemPrompt,
-          {
+        // Wrap the provider call in the `llmCall` pipeline so middleware
+        // contributed by plugins may observe, rewrite, short-circuit, or
+        // post-process every LLM request. The default plugin registered at
+        // bootstrap (`defaultLlmCallPlugin`) acts as the passthrough terminal
+        // and simply delegates back to `provider.sendMessage(...)`. Timeout
+        // is `null` (`DEFAULT_TIMEOUTS.llmCall`) — the provider layer already
+        // enforces its own HTTP-level budgets.
+        //
+        // The `onEvent` wrapping is kept inside `args.options` so substitution
+        // and streaming behavior exactly match the pre-pipeline call site.
+        const llmCallArgs: LLMCallArgs = {
+          provider: this.provider,
+          messages: providerHistory,
+          tools: currentTools.length > 0 ? currentTools : undefined,
+          systemPrompt: turnSystemPrompt,
+          options: {
             config: providerConfig,
             onEvent: (event) => {
               if (event.type === "text_delta") {
@@ -449,6 +467,34 @@ export class AgentLoop {
             },
             signal,
           },
+        };
+
+        // Minimal per-turn context for pipeline logging and plugin
+        // attribution. The agent loop itself does not carry a conversationId
+        // or trust context — those live upstream — so we fill safe defaults.
+        const turnCtx: TurnContext = {
+          requestId: requestId ?? "agent-loop",
+          conversationId: "agent-loop",
+          turnIndex: toolUseTurns,
+          trust: { sourceChannel: "vellum", trustClass: "unknown" },
+        };
+
+        const response: LLMCallResult = await runPipeline<
+          LLMCallArgs,
+          LLMCallResult
+        >(
+          "llmCall",
+          getMiddlewaresFor("llmCall"),
+          (args) =>
+            args.provider.sendMessage(
+              args.messages,
+              args.tools,
+              args.systemPrompt,
+              args.options,
+            ),
+          llmCallArgs,
+          turnCtx,
+          DEFAULT_TIMEOUTS.llmCall,
         );
 
         const providerDurationMs = Date.now() - providerStart;
