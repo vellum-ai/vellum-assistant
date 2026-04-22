@@ -274,6 +274,12 @@ final class AvatarAppearanceManager {
     @ObservationIgnored private var traitsRetryInFlight = false
     @ObservationIgnored private var avatarRetryTask: Task<Void, Never>?
     @ObservationIgnored private var traitsRetryTask: Task<Void, Never>?
+    /// Tracks the primary (non-retry) fetch Tasks spawned by `reloadAvatar()` so
+    /// `resetForDisconnect()` can cancel a fetch in flight. Without cancellation,
+    /// a late-arriving response from the previous assistant would bypass the
+    /// `Task.isCancelled` guards in the fetch methods and stale-flash state.
+    @ObservationIgnored private var avatarPrimaryTask: Task<Void, Never>?
+    @ObservationIgnored private var traitsPrimaryTask: Task<Void, Never>?
 
     private func scheduleAvatarRetry() {
         guard !avatarRetryInFlight else { return }
@@ -376,9 +382,13 @@ final class AvatarAppearanceManager {
         cachedFullFallbackAvatar = nil
         cachedFullFallbackName = nil
 
-        Task { [weak self] in
+        avatarPrimaryTask?.cancel()
+        traitsPrimaryTask?.cancel()
+        avatarPrimaryTask = Task { [weak self] in
             await self?.fetchComponents()
             await self?.fetchAvatarViaHTTP()
+        }
+        traitsPrimaryTask = Task { [weak self] in
             await self?.fetchTraitsViaHTTP()
         }
     }
@@ -442,6 +452,13 @@ final class AvatarAppearanceManager {
         traitsRetryTask?.cancel()
         traitsRetryTask = nil
         traitsRetryInFlight = false
+        // Cancel in-flight primary fetches too; the `Task.isCancelled` guards
+        // inside `fetchAvatarViaHTTP`/`fetchTraitsViaHTTP` suppress the state
+        // mutation once the surrounding Task is cancelled.
+        avatarPrimaryTask?.cancel()
+        avatarPrimaryTask = nil
+        traitsPrimaryTask?.cancel()
+        traitsPrimaryTask = nil
         customAvatarImage = nil
         characterBodyShape = nil
         characterEyeStyle = nil
