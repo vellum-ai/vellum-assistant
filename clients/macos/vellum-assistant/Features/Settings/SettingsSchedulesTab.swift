@@ -11,7 +11,9 @@ struct SettingsSchedulesTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            header
+            if !isLoading {
+                header
+            }
             content
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -84,8 +86,7 @@ struct SettingsSchedulesTab: View {
                 interactive: true
             )
         }
-        .padding(.horizontal, VSpacing.md)
-        .padding(.vertical, VSpacing.md)
+        .padding(VSpacing.md)
         .background(VColor.surfaceBase)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md, style: .continuous))
         .overlay(
@@ -165,15 +166,11 @@ struct SettingsSchedulesTab: View {
     private func nextRunText(_ schedule: ScheduleItem) -> String {
         guard schedule.nextRunAt > 0 else { return "—" }
         let date = Date(timeIntervalSince1970: Double(schedule.nextRunAt) / 1000)
-        return Self.nextRunFormatter.string(from: date)
-    }
-
-    /// "Apr 23, 2026 at 9:00 AM GMT+2" — matches Figma format.
-    private static let nextRunFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        formatter.doesRelativeDateFormatting = false
-        return formatter
-    }()
+        formatter.dateFormat = "MMM d, yyyy 'at' h:mm a zzz"
+        if let tz = schedule.timezone, let timeZone = TimeZone(identifier: tz) {
+            formatter.timeZone = timeZone
+        }
+        return formatter.string(from: date)
+    }
 }
