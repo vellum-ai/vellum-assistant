@@ -15,25 +15,38 @@
  * plus grace).
  */
 import { getSqlite } from "../../memory/db-connection.js";
+import { getLogger } from "../../util/logger.js";
+
+const log = getLogger("runtime-http");
 
 const APPROVAL_PROMPT_TS_TTL_MS = 35 * 60 * 1000;
 
+// Swallow errors: callers run this inside their delivery try/catch, so a
+// tracker throw would be misread as a delivery failure and trigger
+// fallback/retry, double-posting the guardian prompt.
 export function trackApprovalPromptTs(
   channel: string,
   chatId: string,
   ts: string,
 ): void {
-  const now = Date.now();
-  const expiresAt = now + APPROVAL_PROMPT_TS_TTL_MS;
-  const db = getSqlite();
-  db.run(
-    /*sql*/ `DELETE FROM approval_prompt_ts_tracker WHERE expires_at <= ?`,
-    [now],
-  );
-  db.run(
-    /*sql*/ `INSERT OR REPLACE INTO approval_prompt_ts_tracker (channel, chat_id, ts, expires_at) VALUES (?, ?, ?, ?)`,
-    [channel, chatId, ts, expiresAt],
-  );
+  try {
+    const now = Date.now();
+    const expiresAt = now + APPROVAL_PROMPT_TS_TTL_MS;
+    const db = getSqlite();
+    db.run(
+      /*sql*/ `DELETE FROM approval_prompt_ts_tracker WHERE expires_at <= ?`,
+      [now],
+    );
+    db.run(
+      /*sql*/ `INSERT OR REPLACE INTO approval_prompt_ts_tracker (channel, chat_id, ts, expires_at) VALUES (?, ?, ?, ?)`,
+      [channel, chatId, ts, expiresAt],
+    );
+  } catch (err) {
+    log.error(
+      { err, channel, chatId, ts },
+      "Failed to persist approval prompt ts tracker entry; continuing without tracking",
+    );
+  }
 }
 
 export function isTrackedApprovalPromptTs(
