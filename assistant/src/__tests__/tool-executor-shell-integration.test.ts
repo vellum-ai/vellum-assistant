@@ -3,8 +3,8 @@
  *
  * Unlike tool-executor.test.ts, this file does NOT mock ../permissions/checker.js,
  * so generateAllowlistOptions and generateScopeOptions run through the actual
- * implementation (buildShellAllowlistOptions → analyzeShellCommand → tree-sitter
- * WASM parser). This validates the full e2e chain from executor to parser-derived
+ * implementation (classifier → assessment cache → tree-sitter WASM parser).
+ * This validates the full e2e chain from executor to classifier-produced
  * allowlist options.
  */
 import { beforeAll, describe, expect, mock, test } from "bun:test";

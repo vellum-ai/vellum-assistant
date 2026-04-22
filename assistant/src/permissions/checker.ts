@@ -33,9 +33,9 @@ import {
   riskToRiskLevel,
 } from "./risk-types.js";
 import {
-  buildShellAllowlistOptions,
-  buildShellCommandCandidates,
+  analyzeShellCommand,
   cachedParse,
+  deriveShellActionKeys,
   type ParsedCommand,
 } from "./shell-identity.js";
 import { skillLoadRiskClassifier } from "./skill-risk-classifier.js";
@@ -253,10 +253,27 @@ async function buildCommandCandidates(
   preParsed?: ParsedCommand,
 ): Promise<string[]> {
   if (toolName === "bash" || toolName === "host_bash") {
-    return buildShellCommandCandidates(
-      getStringField(input, "command"),
-      preParsed,
-    );
+    const command = getStringField(input, "command").trim();
+    if (!command) return [command];
+
+    const analysis = await analyzeShellCommand(command, preParsed);
+    const actionResult = deriveShellActionKeys(analysis);
+
+    const candidates: string[] = [command];
+
+    if (actionResult.keys.length > 0) {
+      if (actionResult.isSimpleAction && actionResult.primarySegment) {
+        const canonical = actionResult.primarySegment.command;
+        if (canonical !== command) {
+          candidates.push(canonical);
+        }
+      }
+      for (const actionKey of actionResult.keys) {
+        candidates.push(actionKey.key);
+      }
+    }
+
+    return [...new Set(candidates)];
   }
 
   if (toolName === "skill_load") {
@@ -749,18 +766,6 @@ type AllowlistStrategy = (
   input: Record<string, unknown>,
 ) => Promise<AllowlistOption[]> | AllowlistOption[];
 
-function shellAllowlistStrategy(
-  _toolName: string,
-  input: Record<string, unknown>,
-): Promise<AllowlistOption[]> {
-  const command = ((input.command as string) ?? "").trim();
-  // TODO(phase-3): Wire RiskAssessment.scopeOptions into permission prompts
-  // and retire buildShellAllowlistOptions + buildShellCommandCandidates from
-  // shell-identity.ts. The classifier's generateScopeOptions produces the
-  // canonical scope ladder; this legacy path should not diverge further.
-  return buildShellAllowlistOptions(command);
-}
-
 function fileAllowlistStrategy(
   toolName: string,
   input: Record<string, unknown>,
@@ -930,8 +935,6 @@ function skillLoadAllowlistStrategy(
 }
 
 const ALLOWLIST_STRATEGIES: Record<string, AllowlistStrategy> = {
-  bash: shellAllowlistStrategy,
-  host_bash: shellAllowlistStrategy,
   file_read: fileAllowlistStrategy,
   file_write: fileAllowlistStrategy,
   file_edit: fileAllowlistStrategy,
@@ -966,8 +969,7 @@ export async function generateAllowlistOptions(
   }
 
   // Fall back to the per-tool strategy function for tools that don't have
-  // classifier-produced options (e.g. bash tools use the shell identity
-  // strategy, or when the cache was missed).
+  // classifier-produced options (e.g. file tools, web tools, skill tools).
   if (Object.hasOwn(ALLOWLIST_STRATEGIES, toolName)) {
     return ALLOWLIST_STRATEGIES[toolName](toolName, input);
   }
