@@ -1,5 +1,5 @@
 ---
-name: heartbeat
+name: vellum-heartbeat
 description: Configure periodic background checklist runs
 compatibility: "Designed for Vellum personal assistants"
 metadata:
