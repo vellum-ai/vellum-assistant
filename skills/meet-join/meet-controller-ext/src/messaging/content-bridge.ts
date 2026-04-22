@@ -95,8 +95,22 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Monotonic counter bumped on every fan-out. A pending retry loop compares
+// its captured generation against this value after each sleep and aborts
+// when it has been superseded — e.g. a `join` that is still waiting for the
+// content script to mount must not fire if a later `leave` has already
+// been dispatched for the same session.
+let fanOutGeneration = 0;
+
 async function fanOutToMeetTabs(msg: BotToExtensionMessage): Promise<void> {
+  const myGeneration = ++fanOutGeneration;
   for (let attempt = 0; attempt <= DELIVERY_RETRY_DELAYS_MS.length; attempt++) {
+    if (myGeneration !== fanOutGeneration) {
+      console.warn(
+        `[meet-ext] aborting stale bot->content fan-out type=${msg.type}; superseded by newer message`,
+      );
+      return;
+    }
     let tabs: chrome.tabs.Tab[];
     try {
       tabs = await chrome.tabs.query({ url: MEET_TAB_URL_PATTERN });
