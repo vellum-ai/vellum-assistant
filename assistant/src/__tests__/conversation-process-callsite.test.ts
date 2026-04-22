@@ -170,6 +170,9 @@ mock.module("../agent/loop.js", () => ({
     getToolTokenBudget() {
       return 0;
     }
+    getResolvedTools() {
+      return [];
+    }
     async run(
       messages: Message[],
       onEvent: (event: Record<string, unknown>) => void,

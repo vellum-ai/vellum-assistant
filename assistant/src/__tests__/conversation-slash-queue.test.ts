@@ -30,7 +30,7 @@ mock.module("../providers/registry.js", () => ({
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},
-    
+
     llm: {
       default: {
         provider: "mock-provider",
@@ -207,6 +207,9 @@ mock.module("../agent/loop.js", () => ({
     getToolTokenBudget() {
       return 0;
     }
+    getResolvedTools() {
+      return [];
+    }
     getActiveModel() {
       return undefined;
     }
@@ -215,7 +218,9 @@ mock.module("../agent/loop.js", () => ({
       onEvent: (event: AgentEvent) => void,
       _signal?: AbortSignal,
       _requestId?: string,
-      _onCheckpoint?: (checkpoint: CheckpointInfo) => CheckpointDecision,
+      _onCheckpoint?: (
+        checkpoint: CheckpointInfo,
+      ) => CheckpointDecision | Promise<CheckpointDecision>,
     ): Promise<Message[]> {
       return new Promise<Message[]>((resolve) => {
         pendingRuns.push({ resolve, messages, onEvent });

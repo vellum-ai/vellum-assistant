@@ -244,9 +244,13 @@ describe("plugin bootstrap", () => {
     expect(callOrder).toEqual(["second-registered", "first-registered"]);
   });
 
-  test("empty registry: bootstrap is a no-op", async () => {
-    // Nothing registered. Bootstrap must not throw, and there is no shutdown
-    // hook registered (so downstream shutdown runs are unaffected).
+  test("empty registry: bootstrap seeds the first-party defaults without throwing", async () => {
+    // The bootstrap path calls `registerDefaultPlugins` at the top, so even
+    // when the test-reset registry starts empty the bootstrap emerges with
+    // the canonical defaults installed (compaction circuit breaker,
+    // tool-result truncate, etc.). Just assert bootstrap completes without
+    // throwing — the surface of defaults is verified in each pipeline's own
+    // dedicated test file.
     await bootstrapPlugins(fakeCtx);
   });
 });
