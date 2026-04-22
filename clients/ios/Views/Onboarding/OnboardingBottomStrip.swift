@@ -2,14 +2,15 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Decorative botanical strip that runs along the bottom edge of every
-/// onboarding screen (Figma "Light 169–174"). Rendered entirely from SwiftUI
-/// shapes so it can be swapped for a final Figma export later without
-/// touching callers.
+/// Decorative botanical strip for the bottom edge of onboarding screens.
 ///
-/// Pair with `.ignoresSafeArea(.container, edges: .bottom)` at the call site
-/// so the strip bleeds past the home indicator.
+/// Pair with `.ignoresSafeArea(.container, edges: .bottom)` at the call
+/// site so the strip bleeds past the home indicator.
 struct OnboardingBottomStrip: View {
+    /// Intrinsic height. Exposed so callers can reserve matching space
+    /// above the strip without duplicating the literal.
+    static let height: CGFloat = 88
+
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .bottom) {
@@ -35,7 +36,7 @@ struct OnboardingBottomStrip: View {
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .bottom)
         }
-        .frame(height: 88)
+        .frame(height: Self.height)
         .accessibilityHidden(true)
     }
 

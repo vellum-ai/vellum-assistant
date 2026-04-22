@@ -18,7 +18,6 @@ struct LoginView: View {
             VStack(spacing: 0) {
                 Spacer()
 
-                // App icon with soft radial glow — matches Figma Light 169 onboarding screen
                 ZStack {
                     Circle()
                         .fill(
@@ -101,9 +100,7 @@ struct LoginView: View {
                     .padding(.top, VSpacing.xl)
                     .padding(.bottom, VSpacing.md)
             }
-            // Reserve space so the footer clears the decorative strip layered
-            // below. Matches OnboardingBottomStrip's 88pt intrinsic height.
-            .padding(.bottom, 88)
+            .padding(.bottom, OnboardingBottomStrip.height)
 
             OnboardingBottomStrip()
                 .ignoresSafeArea(.container, edges: .bottom)
