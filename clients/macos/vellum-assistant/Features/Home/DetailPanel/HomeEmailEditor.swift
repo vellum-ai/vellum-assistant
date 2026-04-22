@@ -60,7 +60,12 @@ struct HomeEmailEditor: View {
                 .font(VFont.bodyMediumEmphasised)
                 .foregroundStyle(VColor.contentDefault)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding(VSpacing.md)
+                .padding(EdgeInsets(
+                    top: VSpacing.md,
+                    leading: VSpacing.lg,
+                    bottom: VSpacing.md,
+                    trailing: VSpacing.lg
+                ))
 
             if !attachments.isEmpty {
                 insetHairline
