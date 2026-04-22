@@ -2023,8 +2023,14 @@ export class RuntimeHttpServer {
           const row = createConversation({ title });
           return { id: row.id };
         },
-        addMessage: async (conversationId, role, contentJson) => {
-          const persisted = await addMessage(conversationId, role, contentJson);
+        addMessage: async (conversationId, role, contentJson, options) => {
+          const persisted = await addMessage(
+            conversationId,
+            role,
+            contentJson,
+            undefined,
+            options,
+          );
           return { id: persisted.id };
         },
       }),
