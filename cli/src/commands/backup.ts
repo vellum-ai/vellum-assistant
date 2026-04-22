@@ -111,7 +111,14 @@ export async function backup(): Promise<void> {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ description: "CLI backup" }),
+      body: JSON.stringify({
+        description: "CLI backup",
+        // ATL-103: opt into plaintext credential inclusion. Same reasoning
+        // as teleport — the CLI hits the local runtime as a `local`
+        // principal, so the server honors the flag and the bundle
+        // contains credentials needed for a faithful offline backup.
+        includeCredentials: true,
+      }),
       signal: AbortSignal.timeout(120_000),
     });
 
@@ -136,7 +143,14 @@ export async function backup(): Promise<void> {
             Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ description: "CLI backup" }),
+          body: JSON.stringify({
+            description: "CLI backup",
+            // ATL-103: opt into plaintext credential inclusion. Same reasoning
+            // as teleport — the CLI hits the local runtime as a `local`
+            // principal, so the server honors the flag and the bundle
+            // contains credentials needed for a faithful offline backup.
+            includeCredentials: true,
+          }),
           signal: AbortSignal.timeout(120_000),
         });
       }

@@ -58,11 +58,52 @@ mock.module("../config/env.js", () => ({
   setIngressPublicBaseUrl: () => {},
 }));
 
+// ATL-103: mock the credential store so gate tests can assert on whether
+// `credentials/<account>` entries appear in the exported bundle. The default
+// (pre-gate) tests above use principalType=local WITHOUT includeCredentials,
+// so the gate short-circuits before these mocks are invoked — existing
+// assertions are unaffected.
+const FAKE_CREDENTIAL_ACCOUNTS = ["atl-103-test-cred-a", "atl-103-test-cred-b"];
+mock.module("../security/secure-keys.js", () => ({
+  listSecureKeysAsync: async () => ({
+    unreachable: false,
+    accounts: FAKE_CREDENTIAL_ACCOUNTS,
+  }),
+  getSecureKeyResultAsync: async (account: string) => ({
+    unreachable: false,
+    value: `secret-value-for-${account}`,
+  }),
+  getSecureKeyAsync: async () => null,
+  bulkSetSecureKeysAsync: async () => {},
+}));
+
+import type { AuthContext, PrincipalType } from "../runtime/auth/types.js";
 import { validateVBundle } from "../runtime/migrations/vbundle-validator.js";
 import {
   handleMigrationExport,
   handleMigrationValidate,
 } from "../runtime/routes/migration-routes.js";
+
+/**
+ * Build a test AuthContext. Default principal is `local` (the CLI shape) so
+ * most tests exercise the "trusted caller" path, matching pre-ATL-103
+ * behavior. ATL-103 gate tests override `principalType` to exercise the
+ * `svc_gateway` / `svc_daemon` / `actor` branches explicitly.
+ */
+function makeAuthContext(
+  overrides: Partial<AuthContext> & { principalType?: PrincipalType } = {},
+): AuthContext {
+  return {
+    subject: "test-subject",
+    principalType: "local",
+    assistantId: "test-assistant",
+    actorPrincipalId: undefined,
+    scopeProfile: "actor_client_v1",
+    scopes: new Set(),
+    policyEpoch: 0,
+    ...overrides,
+  } as AuthContext;
+}
 
 // Test fixture data: a minimal SQLite header to simulate a real database file
 const SQLITE_HEADER = new Uint8Array([
@@ -134,7 +175,7 @@ describe("handleMigrationExport", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await handleMigrationExport(req, makeAuthContext());
 
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("application/octet-stream");
@@ -153,7 +194,7 @@ describe("handleMigrationExport", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await handleMigrationExport(req, makeAuthContext());
     const arrayBuffer = await res.arrayBuffer();
     const archiveData = new Uint8Array(arrayBuffer);
 
@@ -169,7 +210,7 @@ describe("handleMigrationExport", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await handleMigrationExport(req, makeAuthContext());
     const arrayBuffer = await res.arrayBuffer();
     const archiveData = new Uint8Array(arrayBuffer);
 
@@ -201,7 +242,7 @@ describe("handleMigrationExport", () => {
       body: JSON.stringify({ description: "My custom export description" }),
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await handleMigrationExport(req, makeAuthContext());
     const arrayBuffer = await res.arrayBuffer();
     const archiveData = new Uint8Array(arrayBuffer);
 
@@ -218,7 +259,7 @@ describe("handleMigrationExport", () => {
       body: "not valid json{{{",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await handleMigrationExport(req, makeAuthContext());
 
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("application/octet-stream");
@@ -235,7 +276,7 @@ describe("handleMigrationExport", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await handleMigrationExport(req, makeAuthContext());
 
     expect(res.status).toBe(200);
 
@@ -251,7 +292,7 @@ describe("handleMigrationExport", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await handleMigrationExport(req, makeAuthContext());
     const arrayBuffer = await res.arrayBuffer();
 
     expect(Number(res.headers.get("Content-Length"))).toBe(
@@ -270,7 +311,7 @@ describe("export data population", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await handleMigrationExport(req, makeAuthContext());
     const archiveData = new Uint8Array(await res.arrayBuffer());
     const entries = parseTarEntries(archiveData);
 
@@ -288,7 +329,7 @@ describe("export data population", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await handleMigrationExport(req, makeAuthContext());
     const archiveData = new Uint8Array(await res.arrayBuffer());
     const entries = parseTarEntries(archiveData);
 
@@ -306,7 +347,7 @@ describe("export data population", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await handleMigrationExport(req, makeAuthContext());
     const archiveData = new Uint8Array(await res.arrayBuffer());
 
     const validationResult = validateVBundle(archiveData);
@@ -333,7 +374,7 @@ describe("export data population", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await handleMigrationExport(req, makeAuthContext());
     const archiveData = new Uint8Array(await res.arrayBuffer());
     const entries = parseTarEntries(archiveData);
 
@@ -352,7 +393,7 @@ describe("export data population", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await handleMigrationExport(req, makeAuthContext());
     const archiveData = new Uint8Array(await res.arrayBuffer());
 
     const validationResult = validateVBundle(archiveData);
@@ -371,7 +412,7 @@ describe("export data population", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await handleMigrationExport(req, makeAuthContext());
     const archiveData = new Uint8Array(await res.arrayBuffer());
     const entries = parseTarEntries(archiveData);
 
@@ -461,7 +502,7 @@ describe("export config sanitization", () => {
       method: "POST",
     });
 
-    const res = await handleMigrationExport(req);
+    const res = await handleMigrationExport(req, makeAuthContext());
     const archiveData = new Uint8Array(await res.arrayBuffer());
     const entries = parseTarEntries(archiveData);
 
@@ -484,6 +525,173 @@ describe("export config sanitization", () => {
     expect(parsedConfig.ingress.port).toBe(8080);
     expect(parsedConfig.skills.load.autoReload).toBe(true);
     expect(parsedConfig.memory.enabled).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ATL-103 credential inclusion gate
+// ---------------------------------------------------------------------------
+//
+// Plaintext credential values are written into the bundle under
+// `credentials/<account>`. Prior to ATL-103 those entries were emitted
+// unconditionally, which let any `settings.write` bearer (including one
+// minted by the gateway proxy) download every credential in the store.
+// The handler now requires BOTH a body flag (`includeCredentials: true`)
+// AND a trusted principal type (`actor` or `local`). Untrusted principals
+// (`svc_gateway`, `svc_daemon`) never get credentials even with the flag.
+
+describe("credential inclusion gate (ATL-103)", () => {
+  const credentialPathFor = (account: string) => `credentials/${account}`;
+
+  function countCredentialEntries(entries: TarEntry[]): number {
+    return entries.filter((e) => e.name.startsWith("credentials/")).length;
+  }
+
+  test("local principal without flag: bundle omits credentials", async () => {
+    const req = new Request("http://localhost/v1/migrations/export", {
+      method: "POST",
+    });
+
+    const res = await handleMigrationExport(
+      req,
+      makeAuthContext({ principalType: "local" }),
+    );
+    const entries = parseTarEntries(new Uint8Array(await res.arrayBuffer()));
+
+    expect(countCredentialEntries(entries)).toBe(0);
+  });
+
+  test("actor principal without flag: bundle omits credentials", async () => {
+    const req = new Request("http://localhost/v1/migrations/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ description: "no-flag" }),
+    });
+
+    const res = await handleMigrationExport(
+      req,
+      makeAuthContext({ principalType: "actor" }),
+    );
+    const entries = parseTarEntries(new Uint8Array(await res.arrayBuffer()));
+
+    expect(countCredentialEntries(entries)).toBe(0);
+  });
+
+  test("local principal with flag: bundle includes credentials", async () => {
+    const req = new Request("http://localhost/v1/migrations/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ includeCredentials: true }),
+    });
+
+    const res = await handleMigrationExport(
+      req,
+      makeAuthContext({ principalType: "local" }),
+    );
+    const entries = parseTarEntries(new Uint8Array(await res.arrayBuffer()));
+
+    expect(countCredentialEntries(entries)).toBe(
+      FAKE_CREDENTIAL_ACCOUNTS.length,
+    );
+    for (const account of FAKE_CREDENTIAL_ACCOUNTS) {
+      const entry = entries.find((e) => e.name === credentialPathFor(account));
+      expect(entry).toBeDefined();
+      expect(new TextDecoder().decode(entry!.data)).toBe(
+        `secret-value-for-${account}`,
+      );
+    }
+  });
+
+  test("actor principal with flag: bundle includes credentials", async () => {
+    const req = new Request("http://localhost/v1/migrations/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ includeCredentials: true }),
+    });
+
+    const res = await handleMigrationExport(
+      req,
+      makeAuthContext({ principalType: "actor" }),
+    );
+    const entries = parseTarEntries(new Uint8Array(await res.arrayBuffer()));
+
+    expect(countCredentialEntries(entries)).toBe(
+      FAKE_CREDENTIAL_ACCOUNTS.length,
+    );
+  });
+
+  test("svc_gateway principal with flag: bundle STILL omits credentials", async () => {
+    const req = new Request("http://localhost/v1/migrations/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ includeCredentials: true }),
+    });
+
+    const res = await handleMigrationExport(
+      req,
+      makeAuthContext({ principalType: "svc_gateway" }),
+    );
+    const entries = parseTarEntries(new Uint8Array(await res.arrayBuffer()));
+
+    // Core ATL-103 guarantee: gateway-proxied caller holding a valid
+    // settings.write token still cannot exfiltrate credentials even if
+    // they request them explicitly. The bundle body must be identical
+    // (minus credential entries) to the no-flag actor path.
+    expect(countCredentialEntries(entries)).toBe(0);
+  });
+
+  test("svc_daemon principal with flag: bundle STILL omits credentials", async () => {
+    const req = new Request("http://localhost/v1/migrations/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ includeCredentials: true }),
+    });
+
+    const res = await handleMigrationExport(
+      req,
+      makeAuthContext({ principalType: "svc_daemon" }),
+    );
+    const entries = parseTarEntries(new Uint8Array(await res.arrayBuffer()));
+
+    expect(countCredentialEntries(entries)).toBe(0);
+  });
+
+  test("includeCredentials=false + local principal: bundle omits credentials", async () => {
+    const req = new Request("http://localhost/v1/migrations/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ includeCredentials: false }),
+    });
+
+    const res = await handleMigrationExport(
+      req,
+      makeAuthContext({ principalType: "local" }),
+    );
+    const entries = parseTarEntries(new Uint8Array(await res.arrayBuffer()));
+
+    expect(countCredentialEntries(entries)).toBe(0);
+  });
+
+  test("unknown request body keys alongside includeCredentials: gate still honored", async () => {
+    const req = new Request("http://localhost/v1/migrations/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        description: "mixed body",
+        includeCredentials: true,
+        extra: "ignored",
+      }),
+    });
+
+    const res = await handleMigrationExport(
+      req,
+      makeAuthContext({ principalType: "local" }),
+    );
+    const entries = parseTarEntries(new Uint8Array(await res.arrayBuffer()));
+
+    expect(countCredentialEntries(entries)).toBe(
+      FAKE_CREDENTIAL_ACCOUNTS.length,
+    );
   });
 });
 

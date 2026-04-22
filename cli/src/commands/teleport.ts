@@ -265,7 +265,16 @@ async function exportViaHttp(
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ description: "teleport export" }),
+      body: JSON.stringify({
+        description: "teleport export",
+        // ATL-103: opt into plaintext credential inclusion. The runtime
+        // honors this only for `actor`/`local` principals — gateway and
+        // daemon-service callers still receive a credential-less bundle.
+        // The local CLI connects over loopback as a `local` principal,
+        // so this flag is respected here and the round-trip import can
+        // restore credentials intact.
+        includeCredentials: true,
+      }),
       signal: AbortSignal.timeout(120_000),
     });
 
@@ -289,7 +298,16 @@ async function exportViaHttp(
             Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ description: "teleport export" }),
+          body: JSON.stringify({
+            description: "teleport export",
+            // ATL-103: opt into plaintext credential inclusion. The runtime
+            // honors this only for `actor`/`local` principals — gateway and
+            // daemon-service callers still receive a credential-less bundle.
+            // The local CLI connects over loopback as a `local` principal,
+            // so this flag is respected here and the round-trip import can
+            // restore credentials intact.
+            includeCredentials: true,
+          }),
           signal: AbortSignal.timeout(120_000),
         });
       }

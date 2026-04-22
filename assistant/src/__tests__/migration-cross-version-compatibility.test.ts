@@ -87,6 +87,7 @@ mock.module("../config/env.js", () => ({
   setIngressPublicBaseUrl: () => {},
 }));
 
+import type { AuthContext } from "../runtime/auth/types.js";
 import { buildVBundle } from "../runtime/migrations/vbundle-builder.js";
 import {
   analyzeImport,
@@ -100,6 +101,22 @@ import {
   handleMigrationImportPreflight,
   handleMigrationValidate,
 } from "../runtime/routes/migration-routes.js";
+
+// ATL-103: handleMigrationExport now requires an AuthContext. Round-trip
+// tests here exercise the `local` CLI principal (matching teleport/backup).
+// The round-trip paths don't depend on credential inclusion, so the flag
+// is omitted — credentials simply stay out of the bundle. This keeps the
+// round-trip semantics identical to the pre-ATL-103 behavior for all
+// non-credential fields, which is what these tests actually exercise.
+const ROUND_TRIP_AUTH_CONTEXT: AuthContext = {
+  subject: "test-local-cli",
+  principalType: "local",
+  assistantId: "test-assistant",
+  actorPrincipalId: undefined,
+  scopeProfile: "actor_client_v1",
+  scopes: new Set(),
+  policyEpoch: 0,
+} as AuthContext;
 
 // ---------------------------------------------------------------------------
 // Test fixture data
@@ -713,7 +730,10 @@ describe("round-trip: export -> validate -> preflight -> import", () => {
     const exportReq = new Request("http://localhost/v1/migrations/export", {
       method: "POST",
     });
-    const exportRes = await handleMigrationExport(exportReq);
+    const exportRes = await handleMigrationExport(
+      exportReq,
+      ROUND_TRIP_AUTH_CONTEXT,
+    );
     expect(exportRes.status).toBe(200);
 
     const archiveBuffer = await exportRes.arrayBuffer();
@@ -844,7 +864,10 @@ describe("round-trip: export -> validate -> preflight -> import", () => {
     const exportReq = new Request("http://localhost/v1/migrations/export", {
       method: "POST",
     });
-    const exportRes = await handleMigrationExport(exportReq);
+    const exportRes = await handleMigrationExport(
+      exportReq,
+      ROUND_TRIP_AUTH_CONTEXT,
+    );
     const archiveData = new Uint8Array(await exportRes.arrayBuffer());
 
     // The X-Vbundle-Manifest-Sha256 response header should match

@@ -41,6 +41,7 @@ import {
   getWorkspaceDir,
   getWorkspaceHooksDir,
 } from "../../util/platform.js";
+import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import {
@@ -213,9 +214,25 @@ export async function handleMigrationValidate(req: Request): Promise<Response> {
  *   500: Standard error envelope for unexpected failures.
  *
  * Auth: Requires settings.write scope. Allowed for actor, svc_gateway, svc_daemon, local.
+ *
+ * Credential inclusion (ATL-103):
+ *   Plaintext credential values are written into the bundle under
+ *   `credentials/<account>`. To prevent any `settings.write` bearer reaching
+ *   us via the gateway proxy from downloading every stored secret, the
+ *   bundle OMITS credentials by default. Callers must BOTH set
+ *   `{ "includeCredentials": true }` in the JSON body AND be a trusted
+ *   principal (`actor` or `local` — i.e. the user's own client or host-local
+ *   CLI, not a gateway-proxied or daemon-service request). This matches the
+ *   pre-commit-ca5e763 shape of the export and preserves the prior
+ *   "no plaintext secret read API" invariant for remote callers while
+ *   keeping the CLI teleport/backup round-trip working.
  */
-export async function handleMigrationExport(req: Request): Promise<Response> {
+export async function handleMigrationExport(
+  req: Request,
+  authContext: AuthContext,
+): Promise<Response> {
   let description: string | undefined;
+  let requestIncludeCredentials = false;
 
   // Parse optional JSON body for export metadata
   const contentType = req.headers.get("content-type") ?? "";
@@ -225,31 +242,59 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
       if (typeof body.description === "string") {
         description = body.description;
       }
+      if (body.includeCredentials === true) {
+        requestIncludeCredentials = true;
+      }
     } catch (err) {
       log.warn({ err }, "Failed to parse export request body — using defaults");
     }
   }
 
+  // Credential-inclusion gate (ATL-103). Plaintext credentials are only
+  // included when the caller explicitly opts in AND is a trusted principal
+  // type. Gateway-proxied (`svc_gateway`) and daemon-service (`svc_daemon`)
+  // requests never get credentials, regardless of the opt-in flag — that
+  // closes the "settings.write token via gateway proxy" attack path.
+  const trustedPrincipalForCredentials =
+    authContext.principalType === "actor" ||
+    authContext.principalType === "local";
+  const includeCredentials =
+    requestIncludeCredentials && trustedPrincipalForCredentials;
+
+  if (requestIncludeCredentials && !trustedPrincipalForCredentials) {
+    log.warn(
+      {
+        principalType: authContext.principalType,
+        subject: authContext.subject,
+      },
+      "Migration export requested includeCredentials=true from untrusted principal — redacting",
+    );
+  }
+
   let cleanup: (() => Promise<void>) | undefined;
 
   try {
-    // Read all stored credentials to include in the export bundle
-    const credentialList = await listSecureKeysAsync();
+    // Read stored credentials to include in the export bundle ONLY when
+    // the caller is a trusted principal AND opted in. Otherwise the
+    // `credentials` array stays empty and the bundle contains no secrets.
     const credentials: Array<{ account: string; value: string }> = [];
-    if (credentialList.unreachable) {
-      log.warn(
-        "Credential store is unreachable — export will not include credentials",
-      );
-    } else {
-      for (const account of credentialList.accounts) {
-        const result = await getSecureKeyResultAsync(account);
-        if (result.unreachable) {
-          log.warn(
-            { account },
-            "Credential store unreachable when reading credential — skipping",
-          );
-        } else if (result.value != null) {
-          credentials.push({ account, value: result.value });
+    if (includeCredentials) {
+      const credentialList = await listSecureKeysAsync();
+      if (credentialList.unreachable) {
+        log.warn(
+          "Credential store is unreachable — export will not include credentials",
+        );
+      } else {
+        for (const account of credentialList.accounts) {
+          const result = await getSecureKeyResultAsync(account);
+          if (result.unreachable) {
+            log.warn(
+              { account },
+              "Credential store unreachable when reading credential — skipping",
+            );
+          } else if (result.value != null) {
+            credentials.push({ account, value: result.value });
+          }
         }
       }
     }
@@ -1166,7 +1211,8 @@ export function migrationRouteDefinitions(): RouteDefinition[] {
       requestBody: z.object({
         description: z.string().describe("Human-readable export description"),
       }),
-      handler: async ({ req }) => handleMigrationExport(req),
+      handler: async ({ req, authContext }) =>
+        handleMigrationExport(req, authContext),
     },
     {
       endpoint: "migrations/import-preflight",
