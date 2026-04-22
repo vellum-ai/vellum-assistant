@@ -6754,6 +6754,34 @@ paths:
           required: true
           schema:
             type: string
+  /v1/schedules/{id}/runs:
+    get:
+      operationId: schedules_by_id_runs_get
+      summary: List schedule runs
+      description: Return recent invocation history for a schedule.
+      tags:
+        - schedules
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runs:
+                    type: array
+                    items: {}
+                    description: Schedule run objects
+                required:
+                  - runs
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/schedules/{id}/toggle:
     post:
       operationId: schedules_by_id_toggle_post
