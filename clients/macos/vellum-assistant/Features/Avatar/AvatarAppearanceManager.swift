@@ -182,6 +182,11 @@ final class AvatarAppearanceManager {
                 params: ["path": "data/avatar/avatar-image.png"],
                 timeout: 10
             )
+            // Short-circuit state mutations if the task was cancelled while
+            // the HTTP request was in flight — otherwise a late-arriving
+            // response from the previous assistant can stale-flash the
+            // avatar after resetForDisconnect() has cleared state.
+            guard !Task.isCancelled else { return }
             if response.isSuccess, !response.data.isEmpty {
                 cachedChatAvatar = nil
                 customAvatarImage = NSImage(data: response.data)
@@ -199,6 +204,7 @@ final class AvatarAppearanceManager {
             log.warning("Transient avatar fetch failure (HTTP \(response.statusCode)) — preserving cached image and scheduling retry")
             scheduleAvatarRetry()
         } catch {
+            guard !Task.isCancelled else { return }
             log.warning("Transport failure fetching avatar — preserving cached image and scheduling retry: \(error.localizedDescription)")
             scheduleAvatarRetry()
         }
@@ -215,6 +221,11 @@ final class AvatarAppearanceManager {
                 params: ["path": "data/avatar/character-traits.json"],
                 timeout: 10
             )
+            // Short-circuit state mutations if the task was cancelled while
+            // the HTTP request was in flight — otherwise a late-arriving
+            // response from the previous assistant can stale-flash the
+            // traits after resetForDisconnect() has cleared state.
+            guard !Task.isCancelled else { return }
             if response.isSuccess, !response.data.isEmpty {
                 guard let components = try? JSONDecoder().decode(AvatarComponents.self, from: response.data) else {
                     return
@@ -249,6 +260,7 @@ final class AvatarAppearanceManager {
             log.warning("Transient traits fetch failure (HTTP \(response.statusCode)) — preserving cached traits and scheduling retry")
             scheduleTraitsRetry()
         } catch {
+            guard !Task.isCancelled else { return }
             log.warning("Transport failure fetching character traits — preserving cached traits and scheduling retry: \(error.localizedDescription)")
             scheduleTraitsRetry()
         }
