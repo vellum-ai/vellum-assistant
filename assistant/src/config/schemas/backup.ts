@@ -54,7 +54,7 @@ export const BackupConfigSchema = z
       .int("backup.retention must be an integer")
       .min(1, "backup.retention must be >= 1")
       .max(100, "backup.retention must be <= 100")
-      .default(7)
+      .default(3)
       .describe("Number of recent backups to retain"),
     offsite: BackupOffsiteConfigSchema.default(
       BackupOffsiteConfigSchema.parse({}),

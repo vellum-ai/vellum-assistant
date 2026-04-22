@@ -12,10 +12,15 @@ describe("BackupConfigSchema", () => {
     expect(parsed).toEqual({
       enabled: false,
       intervalHours: 6,
-      retention: 7,
+      retention: 3,
       offsite: { enabled: true, destinations: null },
       localDirectory: null,
     });
+  });
+
+  test("default retention is 3 (ATL-193 — snapshots are full copies, not incremental)", () => {
+    const parsed = BackupConfigSchema.parse({});
+    expect(parsed.retention).toBe(3);
   });
 
   test("rejects intervalHours: 0 (must be >= 1)", () => {
@@ -105,7 +110,7 @@ describe("BackupConfigSchema", () => {
     expect(parsed).toEqual({
       enabled: true,
       intervalHours: 6,
-      retention: 7,
+      retention: 3,
       offsite: { enabled: true, destinations: null },
       localDirectory: null,
     });
