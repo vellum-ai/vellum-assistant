@@ -45,7 +45,7 @@ struct OnboardingView: View {
                     )
                     .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
                 case .ready:
-                    ReadyStep(isCompleted: $isCompleted)
+                    ReadyStep(isCompleted: $isCompleted, isReplay: isReplay)
                         .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading)))
                 }
             }
@@ -145,6 +145,10 @@ struct OnboardingView: View {
 
 struct ReadyStep: View {
     @Binding var isCompleted: Bool
+    /// When true, the step was reached via the developer replay tool rather
+    /// than a real login; a muted indicator is shown so it is obvious this
+    /// is a dev-tool shortcut and not a fresh onboarding completion.
+    var isReplay: Bool = false
 
     var body: some View {
         VStack(spacing: VSpacing.xl) {
@@ -163,6 +167,13 @@ struct ReadyStep: View {
                 isCompleted = true
             }
             .buttonStyle(.borderedProminent)
+
+            if isReplay {
+                Text("(Developer replay — login was skipped)")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentDisabled)
+                    .multilineTextAlignment(.center)
+            }
 
             Spacer()
         }
