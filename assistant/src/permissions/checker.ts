@@ -975,6 +975,18 @@ export async function generateAllowlistOptions(
   return [{ label: "*", description: "Everything", pattern: "*" }];
 }
 
+/**
+ * Retrieve a cached RiskAssessment for a given tool invocation.
+ * Returns `undefined` when no classifier-backed assessment exists
+ * (e.g. MCP tools, unknown tools that fall through to registry defaults).
+ */
+export function getCachedAssessment(
+  toolName: string,
+  input: Record<string, unknown>,
+): RiskAssessment | undefined {
+  return assessmentCache.get(assessmentCacheKey(toolName, input));
+}
+
 // Directory-based scope only applies to filesystem and shell tools.
 // All other tools auto-use "everywhere" (the client handles this).
 export const SCOPE_AWARE_TOOLS = new Set([

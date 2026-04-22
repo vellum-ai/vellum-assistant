@@ -242,6 +242,12 @@ export interface ToolExecutionResult {
    * the LLM voluntarily end its turn.
    */
   yieldToUser?: boolean;
+  /** Risk level from the classifier (populated during permission check). */
+  riskLevel?: string;
+  /** Human-readable reason for the risk classification. */
+  riskReason?: string;
+  /** Scope options ladder for the rule editor (narrowest to broadest). */
+  riskScopeOptions?: Array<{ pattern: string; label: string }>;
   /**
    * When present, indicates that a CES tool returned an `approval_required`
    * response. The executor uses the approval bridge to prompt the guardian,
