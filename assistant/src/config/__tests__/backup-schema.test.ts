@@ -12,10 +12,19 @@ describe("BackupConfigSchema", () => {
     expect(parsed).toEqual({
       enabled: false,
       intervalHours: 6,
-      retention: 7,
+      retention: 3,
       offsite: { enabled: true, destinations: null },
       localDirectory: null,
     });
+  });
+
+  // ATL-193: retention default was lowered from 7 → 3 because each .vbundle
+  // snapshot is a full copy (no dedup/incremental) and 7 × ~6.5 GB × 2
+  // destinations was silently filling user disks. This focused test guards
+  // against an accidental revert.
+  test("default retention is 3 (ATL-193 — snapshots are full copies, not incremental)", () => {
+    const parsed = BackupConfigSchema.parse({});
+    expect(parsed.retention).toBe(3);
   });
 
   test("rejects intervalHours: 0 (must be >= 1)", () => {
@@ -105,7 +114,7 @@ describe("BackupConfigSchema", () => {
     expect(parsed).toEqual({
       enabled: true,
       intervalHours: 6,
-      retention: 7,
+      retention: 3,
       offsite: { enabled: true, destinations: null },
       localDirectory: null,
     });
