@@ -49,7 +49,7 @@ encode_text() {
 }
 
 usage() {
-  sed -n '3,30p' "$0" | sed 's/^# \?//'
+  sed -n '3,22p' "$0" | sed 's/^# \?//'
   exit 1
 }
 
