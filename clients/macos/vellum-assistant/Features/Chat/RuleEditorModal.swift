@@ -6,13 +6,13 @@ import VellumAssistantShared
 struct ScopeOptionItem: Identifiable, Equatable {
     let id = UUID()
     let label: String
-    let description: String
     let pattern: String
 }
 
 struct SavedRule {
     let toolName: String
     let pattern: String
+    let riskLevel: String
     let scope: String
 }
 
@@ -35,6 +35,7 @@ struct RuleEditorModal: View {
     let onDismiss: () -> Void
 
     @State private var selectedPatternIndex: Int = 0
+    @State private var selectedRiskLevel: String = "medium"
     @State private var selectedScope: String = "everywhere"
     @State private var isSaving: Bool = false
 
@@ -80,6 +81,7 @@ struct RuleEditorModal: View {
                 VStack(alignment: .leading, spacing: VSpacing.xl) {
                     contextSection
                     patternLadderSection
+                    riskLevelSection
                     scopeSection
                     saveSection
                 }
@@ -88,7 +90,9 @@ struct RuleEditorModal: View {
         }
         .frame(width: 480)
         .background(VColor.surfaceLift)
-        .onAppear {}
+        .onAppear {
+            selectedRiskLevel = currentRiskLevel.isEmpty ? "medium" : currentRiskLevel
+        }
     }
 
     // MARK: - Section 1: Context (read-only)
@@ -160,20 +164,15 @@ struct RuleEditorModal: View {
         Button {
             selectedPatternIndex = index
         } label: {
-            HStack(alignment: .top, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.sm) {
                 Image(systemName: selectedPatternIndex == index ? "circle.inset.filled" : "circle")
                     .foregroundStyle(selectedPatternIndex == index ? VColor.primaryBase : VColor.contentTertiary)
                     .font(.system(size: 14))
                     .accessibilityHidden(true)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(option.label)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(VColor.contentDefault)
-                    Text(option.description)
-                        .font(VFont.bodySmallDefault)
-                        .foregroundStyle(VColor.contentSecondary)
-                }
+                Text(option.label)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(VColor.contentDefault)
             }
             .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm))
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -186,12 +185,90 @@ struct RuleEditorModal: View {
             .contentShape(RoundedRectangle(cornerRadius: VRadius.sm))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(option.label): \(option.description)")
+        .accessibilityLabel(option.label)
         .accessibilityAddTraits(selectedPatternIndex == index ? [.isSelected] : [])
         .accessibilityValue(selectedPatternIndex == index ? "Selected" : "Not selected")
     }
 
-    // MARK: - Section 3: Scope
+    // MARK: - Section 3: Risk Level Picker
+
+    @ViewBuilder
+    private var riskLevelSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Text("Risk Level")
+                .font(VFont.bodyMediumEmphasised)
+                .foregroundStyle(VColor.contentDefault)
+                .accessibilityAddTraits(.isHeader)
+
+            HStack(spacing: VSpacing.sm) {
+                riskLevelButton(label: "Low", value: "low", color: VColor.systemPositiveStrong)
+                riskLevelButton(label: "Medium", value: "medium", color: VColor.systemMidStrong)
+                riskLevelButton(label: "High", value: "high", color: VColor.systemNegativeStrong)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func riskLevelButton(label: String, value: String, color: Color) -> some View {
+        Button {
+            selectedRiskLevel = value
+        } label: {
+            HStack(spacing: VSpacing.xs) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 8, height: 8)
+                Text(label)
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentDefault)
+            }
+            .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
+            .background(
+                selectedRiskLevel == value
+                    ? VColor.surfaceActive
+                    : Color.clear
+            )
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .strokeBorder(
+                        selectedRiskLevel == value ? color : VColor.borderBase,
+                        lineWidth: selectedRiskLevel == value ? 1.5 : 0.5
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(selectedRiskLevel == value ? [.isSelected] : [])
+        .accessibilityValue(selectedRiskLevel == value ? "Selected" : "Not selected")
+    }
+
+    // MARK: - Section 4: Scope
+
+    /// Whether the working directory looks like a real user project (not an
+    /// internal sandbox/container path). When false, the "In [project]" scope
+    /// option is hidden — only "Everywhere" is offered.
+    ///
+    // TODO: The daemon could provide an isContainerized flag on tool call data
+    // so the client doesn't need path heuristics to detect sandbox directories.
+    private var isUserProjectDir: Bool {
+        // Internal sandbox paths live under the XDG data directory structure:
+        // ~/.local/share/vellum/assistants/ (production)
+        // ~/.local/share/vellum-dev/assistants/ (development)
+        // ~/.local/share/vellum-staging/assistants/ (staging)
+        // ~/.local/share/vellum-test/assistants/ (test)
+        // ~/.local/share/vellum-local/assistants/ (local)
+        // Anchoring on "/.local/share/vellum" avoids false-matching legit user
+        // project paths like /Users/dev/code/vellum/assistants/my-bot/.
+        let lower = workingDir.lowercased()
+        if lower.contains("/.local/share/vellum/assistants/")
+            || lower.contains("/.local/share/vellum-dev/assistants/")
+            || lower.contains("/.local/share/vellum-staging/assistants/")
+            || lower.contains("/.local/share/vellum-test/assistants/")
+            || lower.contains("/.local/share/vellum-local/assistants/") {
+            return false
+        }
+        return true
+    }
 
     @ViewBuilder
     private var scopeSection: some View {
@@ -206,10 +283,12 @@ struct RuleEditorModal: View {
                     label: "Everywhere",
                     value: "everywhere"
                 )
-                scopeRadioButton(
-                    label: "In \(displayPath)",
-                    value: "project"
-                )
+                if isUserProjectDir {
+                    scopeRadioButton(
+                        label: "In \(displayPath)",
+                        value: "project"
+                    )
+                }
             }
         }
     }
@@ -263,6 +342,7 @@ struct RuleEditorModal: View {
                 let rule = SavedRule(
                     toolName: toolName,
                     pattern: selectedOption.pattern,
+                    riskLevel: selectedRiskLevel,
                     scope: resolvedScope
                 )
                 onSave(rule)

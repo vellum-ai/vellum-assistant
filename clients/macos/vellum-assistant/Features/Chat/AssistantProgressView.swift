@@ -912,7 +912,8 @@ private struct StepDetailRow: View {
                             pattern: rule.pattern,
                             scope: rule.scope,
                             decision: "allow",
-                            executionTarget: nil
+                            executionTarget: nil,
+                            riskLevel: rule.riskLevel
                         )
                     }
                 },
@@ -930,7 +931,6 @@ private struct StepDetailRow: View {
             return [
                 ScopeOptionItem(
                     label: toolCall.inputSummary,
-                    description: "This exact command",
                     pattern: toolCall.inputSummary
                 )
             ]
@@ -938,7 +938,6 @@ private struct StepDetailRow: View {
         return options.map { option in
             ScopeOptionItem(
                 label: option.label,
-                description: option.pattern,
                 pattern: option.pattern
             )
         }
