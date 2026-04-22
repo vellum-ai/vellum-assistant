@@ -35,6 +35,7 @@ mock.module("../memory/qdrant-client.js", () => ({
     deletePoints: async () => {},
   }),
   initQdrantClient: () => {},
+  resolveQdrantUrl: () => "http://127.0.0.1:6333",
 }));
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";

@@ -56,6 +56,7 @@ mock.module("../../memory/qdrant-client.js", () => ({
     searchWithFilter: async () => [...mockHybridSearchResults],
   }),
   initQdrantClient: () => {},
+  resolveQdrantUrl: () => "http://127.0.0.1:6333",
 }));
 
 mock.module("../../memory/qdrant-circuit-breaker.js", () => ({
