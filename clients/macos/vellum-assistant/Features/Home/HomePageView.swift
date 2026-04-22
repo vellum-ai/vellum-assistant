@@ -143,15 +143,48 @@ struct HomePageView<DetailPanel: View>: View {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         HomeFeedGroupHeader(label: bucket.group.label)
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            ForEach(bucket.items, id: \.id) { item in
-                                HomeRecapRow(
-                                    icon: icon(for: item),
-                                    iconForeground: iconForeground(for: item),
-                                    iconBackground: iconBackground(for: item),
-                                    title: item.title,
-                                    onDismiss: { dismissItem(item) },
-                                    onTap: { openItem(item) }
-                                )
+                            ForEach(bucket.rows, id: \.id) { row in
+                                switch row {
+                                case .single(let item):
+                                    HomeRecapRow(
+                                        icon: icon(for: item),
+                                        iconForeground: iconForeground(for: item),
+                                        iconBackground: iconBackground(for: item),
+                                        title: item.title,
+                                        onDismiss: { dismissItem(item) },
+                                        onTap: { openItem(item) }
+                                    )
+                                case .group(let parent, let children):
+                                    HomeRecapGroupRow(
+                                        parentIcon: icon(for: parent),
+                                        parentIconForeground: iconForeground(for: parent),
+                                        parentIconBackground: iconBackground(for: parent),
+                                        parentTitle: parent.title,
+                                        children: children.map { child in
+                                            HomeRecapGroupRow.Child(
+                                                id: child.id,
+                                                icon: icon(for: child),
+                                                iconForeground: iconForeground(for: child),
+                                                iconBackground: iconBackground(for: child),
+                                                title: child.title
+                                            )
+                                        },
+                                        // Always-expanded matches Figma `3679:21591` which shows the
+                                        // group's children already visible. Keeping expand/collapse as
+                                        // an affordance conflicted with tap-to-open (Devin P1 feedback
+                                        // on PR #27466 cycle 2) — any tap would either navigate away
+                                        // (losing the expand affordance) or block open (making the
+                                        // parent unreachable, Codex P2 cycle 1). Always-expanded keeps
+                                        // both open-tap AND visible children.
+                                        isExpanded: .constant(true),
+                                        onParentTap: { openItem(parent) },
+                                        onChildTap: { child in
+                                            if let feedChild = children.first(where: { $0.id == child.id }) {
+                                                openItem(feedChild)
+                                            }
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -206,19 +239,31 @@ struct HomePageView<DetailPanel: View>: View {
     /// Sorts the feed by `priority desc, createdAt desc`, hides
     /// dismissed items (so `dismissItem(_:)` gives immediate feedback
     /// without waiting for a server refresh to rewrite the array),
-    /// applies the active type filter (nil = show all), then delegates
-    /// to `HomeFeedTimeGroup.bucket(_:)` for day-bucketing. Replaces
-    /// the prior `attentionItems` / `activityItems` partitioning.
-    private var groupedFeed: [(group: HomeFeedTimeGroup, items: [FeedItem])] {
+    /// applies the active type filter (nil = show all), buckets via
+    /// `HomeFeedTimeGroup.bucket(_:)`, then collapses contiguous
+    /// low-priority digest runs within each bucket via
+    /// `HomeFeedGrouping.group(_:)`.
+    // Exposed for HomePageViewGroupingTests — kept out of public API via no-op accessor; grouping is a behavior that benefits from direct unit testing.
+    var groupedFeed: [(group: HomeFeedTimeGroup, rows: [HomeFeedGroupedRow])] {
+        groupedFeed(for: activeFilter)
+    }
+
+    /// Pure grouping pipeline exposed for unit tests. Mirrors the logic
+    /// used by ``groupedFeed`` but takes the filter as a parameter so
+    /// tests don't need to manipulate `@State`.
+    func groupedFeed(for filter: FeedItemType?) -> [(group: HomeFeedTimeGroup, rows: [HomeFeedGroupedRow])] {
         let sorted = feedStore.items.sorted { a, b in
             if a.priority != b.priority { return a.priority > b.priority }
             return a.createdAt > b.createdAt
         }
         let filtered = sorted.filter { item in
             item.status != .dismissed
-                && (activeFilter == nil || activeFilter == item.type)
+                && (filter == nil || filter == item.type)
         }
-        return HomeFeedTimeGroup.bucket(filtered)
+        let buckets = HomeFeedTimeGroup.bucket(filtered)
+        return buckets.map { bucket in
+            (group: bucket.group, rows: HomeFeedGrouping.group(bucket.items))
+        }
     }
 
     // MARK: - Suggestions
