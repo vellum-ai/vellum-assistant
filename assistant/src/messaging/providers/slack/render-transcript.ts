@@ -150,6 +150,24 @@ function sortKey(msg: RenderableSlackMessage): number {
  * outbound Slack replies (`[04/22/26 21:25]: on it. ...`). Deleted
  * assistant rows collapse to the short `[deleted]` sentinel so chronology
  * is preserved without carrying a mimickable timestamp.
+ *
+ * Tradeoffs deliberately accepted by this simplification:
+ * - Thread arrows (`→ Mxxxxxx`) are dropped from assistant rows. In the
+ *   common single-thread-at-a-time case, role alternation + chronological
+ *   adjacency tells the model which user turn each assistant reply answers,
+ *   so no attribution is lost. The degenerate case is a channel where the
+ *   assistant is fielding two thread conversations in parallel and the
+ *   model has to disambiguate which reply lands in which thread from the
+ *   full chronological transcript — the bracketed arrow previously carried
+ *   that signal and is now absent. The `<active_thread>` focus block
+ *   (single thread by construction) is unaffected.
+ * - Edited assistant rows render only the latest content, not an edit
+ *   marker. Edits are rare for the assistant and the latest content is the
+ *   only replayable signal anyway.
+ *
+ * Any alternative "subtle" marker (e.g. an unbracketed `→ Mxxxxxx`) would
+ * reintroduce a consistent, mimickable prefix pattern — the very problem
+ * this function is designed to avoid — so we keep the content-only form.
  */
 function renderMessage(msg: RenderableSlackMessage): string {
   if (msg.role === "assistant") {
