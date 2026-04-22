@@ -96,8 +96,10 @@ describe("generateAndSaveAvatar", () => {
     expect(result.content).toContain("No image data returned");
   });
 
-  test("generic error returns mapped message", async () => {
-    mockRouterError = new Error("Network timeout");
+  test("router-mapped error message is surfaced verbatim", async () => {
+    // avatar-router now maps provider errors before throwing, so the
+    // generator just surfaces error.message directly.
+    mockRouterError = new Error("Image generation failed: Network timeout");
 
     const result = await executeAvatar("a cat");
 
