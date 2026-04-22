@@ -167,6 +167,44 @@ describe("startContentBridge bot→content fan-out", () => {
   });
 
   test(
+    "pending join retry aborts when a later leave supersedes it",
+    async () => {
+      // A join fan-out is stuck retrying because no tab exists yet. Before
+      // the first retry fires, a leave arrives — the later message must
+      // cancel the stale join so we don't join a session the bot has
+      // already decided to leave.
+      fake.tabs.query = async (q) => {
+        fake.queryCalls.push(q);
+        return [];
+      };
+      const join: BotToExtensionMessage = {
+        type: "join",
+        meetingUrl: "https://meet.google.com/abc-defg-hij",
+        displayName: "Bot",
+        consentMessage: "hello",
+      };
+      const leave: BotToExtensionMessage = { type: "leave", reason: "cancel" };
+      port.emitFromBot(join);
+      await flushMicrotasks();
+      // One query from the join attempt, no tabs -> sleeping 100ms.
+      const queriesAfterJoin = fake.queryCalls.length;
+      expect(queriesAfterJoin).toBe(1);
+      // Now the leave supersedes. Let it run — its own query will count.
+      port.emitFromBot(leave);
+      // Wait long enough for the join's first retry (100ms) to fire if
+      // the generation guard weren't in place, plus margin.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      // We expect: queriesAfterJoin (1) + 1 for leave's attempt (which also
+      // found no tabs and is itself sleeping). The stale join retry must
+      // not have added another query after the leave bumped the generation.
+      // So total should be exactly 2 (one from join, one from leave's first
+      // attempt) — the join's 100ms retry was skipped.
+      expect(fake.queryCalls.length).toBe(2);
+    },
+    5_000,
+  );
+
+  test(
     "join retries when the only tab responds with {ok:false}",
     async () => {
       // Simulate a profile that has exactly one Meet tab open and that tab is
