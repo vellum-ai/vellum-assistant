@@ -134,6 +134,7 @@ import {
   featureFlagRoutes,
   getMergedFeatureFlags,
 } from "./ipc/feature-flag-handlers.js";
+import { thresholdRoutes } from "./ipc/threshold-handlers.js";
 import { AvatarChannelSyncer } from "./avatar-sync/avatar-channel-syncer.js";
 import { AvatarSyncWatcher } from "./avatar-sync/avatar-sync-watcher.js";
 import { SlackAvatarSyncer } from "./avatar-sync/slack-avatar-syncer.js";
@@ -1900,6 +1901,7 @@ async function main() {
   const ipcServer = new GatewayIpcServer([
     ...featureFlagRoutes,
     ...contactRoutes,
+    ...thresholdRoutes,
   ]);
   ipcServer.start();
 
