@@ -35,9 +35,11 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AssistantConfig } from "../config/schema.js";
+import { defaultToolErrorPlugin } from "../plugins/defaults/tool-error.js";
 import {
   ASSISTANT_API_VERSIONS,
   getRegisteredPlugins,
+  registerPlugin,
 } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -135,6 +137,32 @@ function ensurePluginStorageDir(pluginName: string): string {
 }
 
 /**
+ * Register first-party default plugins with the registry. Called at the top
+ * of {@link bootstrapPlugins} so the defaults are always present regardless
+ * of external registration state. Idempotent: duplicate-registration is
+ * swallowed so repeated bootstraps (hot-reload, test suites that share the
+ * registry) don't throw.
+ */
+function registerFirstPartyPlugins(): void {
+  const defaults: Plugin[] = [defaultToolErrorPlugin];
+  for (const plugin of defaults) {
+    try {
+      registerPlugin(plugin);
+    } catch (err) {
+      // Already registered — ignore. Any other error re-throws with the
+      // original attribution (registerPlugin already tags the plugin name).
+      if (
+        err instanceof PluginExecutionError &&
+        err.message.includes("already registered")
+      ) {
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+/**
  * Run every registered plugin's `init()` hook sequentially and install a
  * reverse-order shutdown hook. See the module docstring for full semantics.
  *
@@ -147,6 +175,8 @@ function ensurePluginStorageDir(pluginName: string): string {
  * run) and before the first conversation is served.
  */
 export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
+  registerFirstPartyPlugins();
+
   const plugins = getRegisteredPlugins();
   if (plugins.length === 0) {
     // No-op fast path — the registry is empty (no first-party plugins have

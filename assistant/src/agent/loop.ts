@@ -7,6 +7,13 @@ import {
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import { truncateOversizedToolResults } from "../context/tool-result-truncation.js";
+import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
+import { getMiddlewaresFor } from "../plugins/registry.js";
+import type {
+  ToolErrorArgs,
+  ToolErrorDecision,
+  TurnContext,
+} from "../plugins/types.js";
 import type {
   ContentBlock,
   Message,
@@ -123,6 +130,32 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
 
 const MAX_CONSECUTIVE_ERROR_NUDGES = 3;
 const MAX_EMPTY_RESPONSE_RETRIES = 1;
+
+/**
+ * Build a minimal {@link TurnContext} for pipelines invoked from within the
+ * agent loop itself (not the orchestrator). The loop does not have first-class
+ * conversation/trust identity — those live in the surrounding orchestrator
+ * layer in `daemon/conversation-agent-loop.ts`. Later PRs in the
+ * `agent-plugin-system` plan thread those identifiers through. For now, loop-
+ * level pipelines receive the `requestId` the caller supplied (falling back to
+ * a stable synthetic value), a synthetic conversation id, and a placeholder
+ * trust context typed as `unknown` — plugins at this layer generally care
+ * about the per-turn args, not the surrounding identity.
+ */
+function buildLoopTurnContext(
+  requestId: string | undefined,
+  turnIndex: number,
+): TurnContext {
+  return {
+    requestId: requestId ?? "agent-loop",
+    conversationId: "agent-loop-internal",
+    turnIndex,
+    trust: {
+      sourceChannel: "vellum",
+      trustClass: "unknown",
+    },
+  };
+}
 
 /**
  * User-config HTTP status codes that should never page the on-call: billing
@@ -754,20 +787,43 @@ export class AgentLoop {
         // When any tool returned an error, nudge the LLM to retry with
         // corrected parameters instead of ending its turn. Skip the nudge
         // after MAX_CONSECUTIVE_ERROR_NUDGES consecutive error turns
-        // (the error is likely unrecoverable at that point).
+        // (the error is likely unrecoverable at that point). The nudge
+        // decision is delegated to the `toolError` plugin pipeline so user
+        // plugins can change the text, observe the event, or suppress it.
         const hasToolError = toolResults.some(({ result }) => result.isError);
         if (hasToolError) {
           consecutiveErrorTurns++;
         } else {
           consecutiveErrorTurns = 0;
         }
-        if (
-          hasToolError &&
-          consecutiveErrorTurns <= MAX_CONSECUTIVE_ERROR_NUDGES
-        ) {
+        const toolErrorArgs: ToolErrorArgs = {
+          hasToolError,
+          consecutiveErrorTurns,
+          maxConsecutiveErrorNudges: MAX_CONSECUTIVE_ERROR_NUDGES,
+        };
+        const toolErrorCtx: TurnContext = buildLoopTurnContext(
+          requestId,
+          toolUseTurns - 1,
+        );
+        const toolErrorDecision = await runPipeline<
+          ToolErrorArgs,
+          ToolErrorDecision
+        >(
+          "toolError",
+          getMiddlewaresFor("toolError"),
+          // Terminal fallback: fires only when no plugin contributes a
+          // `toolError` middleware. The default plugin's middleware shadows
+          // this with the full decision logic, so production runs never hit
+          // the fallback.
+          async () => ({ action: "skip" }),
+          toolErrorArgs,
+          toolErrorCtx,
+          DEFAULT_TIMEOUTS.toolError,
+        );
+        if (toolErrorDecision.action === "nudge") {
           resultBlocks.push({
             type: "text",
-            text: "<system_notice>One or more tool calls returned an error. If the error looks recoverable (e.g. missing or invalid parameters), fix the parameters and retry. If the error is clearly unrecoverable (e.g. a service is down, a resource does not exist, or a permission is permanently denied), report it to the user.</system_notice>",
+            text: toolErrorDecision.nudgeText,
           });
         }
 

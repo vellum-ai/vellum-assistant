@@ -19,6 +19,8 @@ import {
   type PluginInitContext,
   type PluginManifest,
   PluginTimeoutError,
+  type ToolErrorArgs,
+  type ToolErrorDecision,
   type TurnContext,
 } from "../plugins/types.js";
 
@@ -50,6 +52,14 @@ describe("plugin core types", () => {
     const passthrough: Middleware<
       { input: unknown },
       { output: unknown }
+    > = async (args, next, _ctx) => next(args);
+
+    // A few pipelines have concrete args/result types (PR 19 onward refines
+    // placeholders in place). Use purpose-built passthroughs for those slots
+    // so the shape-only test keeps compiling as types get tightened.
+    const toolErrorPassthrough: Middleware<
+      ToolErrorArgs,
+      ToolErrorDecision
     > = async (args, next, _ctx) => next(args);
 
     const injector: Injector = {
@@ -91,7 +101,7 @@ describe("plugin core types", () => {
         titleGenerate: passthrough,
         toolResultTruncate: passthrough,
         emptyResponse: passthrough,
-        toolError: passthrough,
+        toolError: toolErrorPassthrough,
         circuitBreaker: passthrough,
       },
     } satisfies Plugin;
