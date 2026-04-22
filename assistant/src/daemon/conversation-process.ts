@@ -137,7 +137,6 @@ export interface ProcessConversationContext {
     userMessageId: string,
     onEvent: (msg: ServerMessage) => void,
     options?: {
-      skipPreMessageRollback?: boolean;
       isInteractive?: boolean;
       isUserMessage?: boolean;
       titleText?: string;

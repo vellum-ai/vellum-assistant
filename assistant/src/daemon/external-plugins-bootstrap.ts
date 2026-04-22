@@ -95,18 +95,6 @@ import { getLogger } from "../util/logger.js";
 import { vellumRoot } from "../util/platform.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
 
-// ─── First-party default plugins ─────────────────────────────────────────────
-//
-// Register default plugins at module load so the registry is populated before
-// `bootstrapPlugins()` runs. Each wrapped pipeline has a corresponding default
-// plugin whose middleware is the passthrough terminal — the plugin system
-// always needs a terminal to fall through to when no other plugin intercepts.
-//
-// Idempotency: this module is imported once via ES module semantics, so the
-// registry never sees duplicate registration. Test environments call
-// `resetPluginRegistryForTests()` and re-register explicitly.
-registerPlugin(defaultLlmCallPlugin);
-
 const log = getLogger("plugins-bootstrap");
 
 /**
@@ -170,17 +158,16 @@ function validatePluginConfig(
 }
 
 /**
- * Read `config.plugins.<name>` defensively. The AssistantConfig schema does
- * not (yet) declare a `plugins` block, so accessing it goes through
- * `unknown` casts rather than compile-time field access.
+ * Read `config.plugins.<name>`. `AssistantConfigSchema` declares `plugins` as
+ * an optional `Record<string, unknown>`, so the field is type-safe at the
+ * schema boundary; per-plugin validation happens downstream via
+ * `plugin.manifest.config` in `validatePluginConfig`.
  */
 function getPluginConfigRaw(
   config: AssistantConfig,
   pluginName: string,
 ): unknown {
-  const plugins = (config as { plugins?: Record<string, unknown> }).plugins;
-  if (plugins == null || typeof plugins !== "object") return undefined;
-  return plugins[pluginName];
+  return config.plugins?.[pluginName];
 }
 
 /**
@@ -203,6 +190,7 @@ function ensurePluginStorageDir(pluginName: string): string {
  */
 function registerDefaultPlugins(): void {
   const defaults = [
+    defaultLlmCallPlugin,
     defaultToolExecutePlugin,
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
@@ -405,12 +393,18 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
   // bootstraps (hot-reload) would register their own hook.
   //
   // For each plugin we:
-  //   1. Call `onShutdown()` (if defined) so user code can clean up first,
-  //      while the skill is still registered and any in-flight `skill_load`
-  //      call is still serviceable.
-  //   2. Unregister the plugin's contributed skills via the ref-counted
-  //      helper. This mirrors the symmetry of registerPluginSkills() —
-  //      every successful registration must get a matching unregister call,
+  //   1. Unregister contributed HTTP routes so incoming requests stop hitting
+  //      the plugin's handlers before its state is torn down.
+  //   2. Unregister contributed tools so the model-visible tool surface is
+  //      cleared before `onShutdown()` runs.
+  //   3. Call `onShutdown()` (if defined) so the plugin can release resources
+  //      (background tasks, timers, connections) with its tools and routes
+  //      already removed.
+  //   4. Unregister contributed skills via the ref-counted helper. Skills tear
+  //      down last so `onShutdown()` can still invoke skill-resolving code
+  //      (e.g. to flush pending skill work) before the catalog is emptied.
+  //      This mirrors the symmetry of registerPluginSkills() — every
+  //      successful registration must get a matching unregister call,
   //      regardless of whether onShutdown throws.
   const shutdownSnapshot: Plugin[] = [...activePlugins];
   registerShutdownHook("plugins", async (reason) => {

@@ -55,7 +55,6 @@ describe("SecretDetectionHandler under v2", () => {
       "allow",
       Date.now(),
       emitLifecycleEvent,
-      (_toolName, input) => input,
     );
 
     expect(result.earlyReturn).toBe(true);

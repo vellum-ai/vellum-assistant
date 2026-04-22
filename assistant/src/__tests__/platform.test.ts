@@ -133,7 +133,6 @@ describe("path characterization", () => {
 
     // Workspace dirs (in our temp location)
     expect(existsSync(wsDir)).toBe(true);
-    expect(existsSync(join(wsDir, "hooks"))).toBe(true);
     expect(existsSync(join(wsDir, "skills"))).toBe(true);
 
     // Data sub-dirs under workspace

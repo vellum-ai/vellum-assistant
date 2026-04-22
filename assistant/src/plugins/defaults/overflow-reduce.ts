@@ -25,7 +25,6 @@ import {
   reduceContextOverflow,
   type ReducerState,
 } from "../../daemon/context-overflow-reducer.js";
-import { registerPlugin } from "../registry.js";
 import type {
   Middleware,
   OverflowReduceArgs,
@@ -130,13 +129,3 @@ export const defaultOverflowReducePlugin: Plugin = {
     overflowReduce: defaultOverflowReduceMiddleware,
   },
 };
-
-/**
- * Register the default plugin with the global registry. Idempotent-safe
- * only via `resetPluginRegistryForTests` — registration itself throws on
- * duplicates, so callers must guard repeat calls during daemon re-init or
- * test setup.
- */
-export function registerDefaultOverflowReducePlugin(): void {
-  registerPlugin(defaultOverflowReducePlugin);
-}

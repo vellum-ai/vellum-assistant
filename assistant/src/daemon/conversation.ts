@@ -1455,7 +1455,6 @@ export class Conversation {
     userMessageId: string,
     onEvent: (msg: ServerMessage) => void,
     options?: {
-      skipPreMessageRollback?: boolean;
       isInteractive?: boolean;
       isUserMessage?: boolean;
       titleText?: string;

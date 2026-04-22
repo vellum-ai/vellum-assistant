@@ -94,6 +94,7 @@ import type {
   PersistResult,
   TurnContext as PluginTurnContext,
 } from "../plugins/types.js";
+import { PluginExecutionError } from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
@@ -596,7 +597,6 @@ export async function runAgentLoopImpl(
   userMessageId: string,
   onEvent: (msg: ServerMessage) => void,
   options?: {
-    skipPreMessageRollback?: boolean;
     isInteractive?: boolean;
     isUserMessage?: boolean;
     titleText?: string;
@@ -809,7 +809,7 @@ export async function runAgentLoopImpl(
             },
           },
           buildPluginTurnContext(ctx, reqId),
-          30000,
+          DEFAULT_TIMEOUTS.compaction,
         )) as Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>)
       : null;
     // Only track circuit-breaker state when a summary LLM call actually ran.
@@ -1483,23 +1483,15 @@ export async function runAgentLoopImpl(
         // `next` and delegates past the innermost layer. The default plugin
         // is a terminal itself (it doesn't call `next`), so in practice
         // this fallback fires only when the default has been explicitly
-        // deregistered (tests) and no user plugin replaces it. In that
-        // case the safest behavior is to return the history untouched —
-        // the subsequent provider call will then surface the overflow as
-        // a normal `context_too_large` error, which the convergence loop
-        // below handles.
-        async (args) => ({
-          messages: args.messages,
-          runMessages: args.runMessages,
-          injectionMode: "full" as const,
-          reducerState: {
-            appliedTiers: [],
-            injectionMode: "full",
-            exhausted: true,
-          },
-          reducerCompacted: false,
-          attempts: 0,
-        }),
+        // deregistered (tests) and no user plugin replaces it. Strict-fail
+        // semantics: throw so the missing terminal surfaces as a visible
+        // error instead of silently returning the history untouched.
+        async () => {
+          throw new PluginExecutionError(
+            "overflowReduce pipeline has no terminal handler — every reducer middleware called next() without providing a replacement",
+            "overflowReduce",
+          );
+        },
         overflowArgs,
         {
           requestId: reqId,
@@ -1508,10 +1500,10 @@ export async function runAgentLoopImpl(
           trust: ctx.currentTurnTrustContext ??
             ctx.trustContext ?? {
               sourceChannel: "vellum",
-              trustClass: "guardian",
+              trustClass: "unknown",
             },
         },
-        30000,
+        DEFAULT_TIMEOUTS.overflowReduce,
       );
 
       ctx.messages = overflowResult.messages;
@@ -1701,7 +1693,7 @@ export async function runAgentLoopImpl(
           },
         },
         buildPluginTurnContext(ctx, reqId),
-        30000,
+        DEFAULT_TIMEOUTS.compaction,
       )) as Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>;
       // `force: true` bypasses the cooldown/threshold gates but early returns
       // for "no eligible messages" / "insufficient messages" still leave
@@ -2065,7 +2057,7 @@ export async function runAgentLoopImpl(
               },
             },
             buildPluginTurnContext(ctx, reqId),
-            30000,
+            DEFAULT_TIMEOUTS.compaction,
           )) as Awaited<
             ReturnType<typeof ctx.contextWindowManager.maybeCompact>
           >;
