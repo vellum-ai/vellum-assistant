@@ -550,6 +550,63 @@ describe("browser_mode wiring through tool execution", () => {
     expect(result.content).toContain("Remediation:");
   });
 
+  // ── Transport-classified host-browser errors produce failover diagnostics ──
+
+  test("pinned extension with transport-classified host_browser error surfaces failover diagnostics", async () => {
+    // Simulate a structured transport error envelope from the host_browser
+    // dispatcher (e.g. { code: "unreachable", message: "..." }) that the
+    // extension-cdp-client now classifies as transport_error.
+    factoryThrowError = new CdpError(
+      "transport_error",
+      "Host browser not reachable",
+      {
+        attemptDiagnostics: [
+          {
+            candidateKind: "extension",
+            inclusionReason: "pinned mode: extension",
+            stage: "send",
+            errorCode: "transport_error",
+            errorMessage: "Host browser not reachable",
+          },
+        ],
+      },
+    );
+
+    const result = await executeBrowserNavigate(
+      { url: "https://example.com", browser_mode: "extension" },
+      ctx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Browser mode "extension" failed');
+    expect(result.content).toContain("extension: FAILED at send");
+    expect(result.content).toContain("Reason: Host browser not reachable");
+    expect(result.content).toContain("Remediation:");
+    expect(result.content).toContain("extension is installed and enabled");
+  });
+
+  test("pinned extension with timeout transport error surfaces failover diagnostics in snapshot", async () => {
+    factoryThrowError = new CdpError("transport_error", "CDP call timed out", {
+      attemptDiagnostics: [
+        {
+          candidateKind: "extension",
+          inclusionReason: "pinned mode: extension",
+          stage: "send",
+          errorCode: "transport_error",
+          errorMessage: "CDP call timed out",
+        },
+      ],
+    });
+
+    const result = await executeBrowserSnapshot(
+      { browser_mode: "extension" },
+      ctx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Browser mode "extension" failed');
+    expect(result.content).toContain("extension: FAILED at send");
+    expect(result.content).toContain("Remediation:");
+  });
+
   // ── Per-conversation sticky backend kind ─────────────────────────
 
   test("auto-mode call after an explicit pin sticks to the pinned kind", async () => {

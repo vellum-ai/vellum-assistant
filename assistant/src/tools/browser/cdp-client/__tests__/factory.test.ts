@@ -1058,20 +1058,41 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
     expect(candidates[2].kind).toBe("local");
   });
 
-  test("macOS turn with proxy unavailable skips desktop-auto cdp-inspect (extension intent)", () => {
+  test("macOS turn with registry-routed proxy unavailable skips desktop-auto cdp-inspect (extension intent)", () => {
     const fakeProxy = makeUnavailableProxy();
     const ctx = makeContext({
       conversationId: "macos-proxy-unavailable-no-inspect",
       hostBrowserProxy: fakeProxy,
       transportInterface: "macos",
+      hostBrowserRegistryRouted: true,
     });
 
     const candidates = buildCandidateList(ctx);
 
     // Should only include local -- cdp-inspect is suppressed because extension
-    // transport is expected (proxy exists) but temporarily unavailable.
+    // transport is expected (registry-routed proxy) but temporarily unavailable.
     expect(candidates.length).toBe(1);
     expect(candidates[0].kind).toBe("local");
+  });
+
+  test("macOS turn with SSE-backed proxy unavailable still includes desktop-auto cdp-inspect", () => {
+    const fakeProxy = makeUnavailableProxy();
+    const ctx = makeContext({
+      conversationId: "macos-sse-proxy-unavailable-inspect-allowed",
+      hostBrowserProxy: fakeProxy,
+      transportInterface: "macos",
+      // hostBrowserRegistryRouted is NOT set -- SSE-backed proxy
+    });
+
+    const candidates = buildCandidateList(ctx);
+
+    // SSE-backed proxy that is unavailable (non-interactive turn) should NOT
+    // suppress cdp-inspect -- the SSE proxy was never expected to service
+    // browser requests, so cdp-inspect remains available as a fallback.
+    expect(candidates.length).toBe(2);
+    expect(candidates[0].kind).toBe("cdp-inspect");
+    expect(candidates[0].reason).toContain("desktopAuto");
+    expect(candidates[1].kind).toBe("local");
   });
 
   test("macOS turn with no proxy still includes desktop-auto cdp-inspect", () => {
@@ -1242,17 +1263,19 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
     expect(candidates[0].kind).toBe("local");
   });
 
-  test("macOS turn with proxy unavailable routes to local without trying cdp-inspect", async () => {
+  test("macOS turn with registry-routed proxy unavailable routes to local without trying cdp-inspect", async () => {
     const fakeProxy = makeUnavailableProxy();
     const ctx = makeContext({
       conversationId: "macos-proxy-unavail-route",
       hostBrowserProxy: fakeProxy,
       transportInterface: "macos",
+      hostBrowserRegistryRouted: true,
     });
 
     const client = getCdpClient(ctx);
 
     // Should go straight to local -- no cdp-inspect candidate inserted
+    // because the registry-routed extension was expected but is unavailable.
     expect(client.kind).toBe("local");
     const result = await client.send<{ ok: boolean; via: string }>(
       "Page.navigate",
@@ -1261,6 +1284,29 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
     expect(createCdpInspectClientMock).not.toHaveBeenCalled();
     expect(createExtensionCdpClientMock).not.toHaveBeenCalled();
     expect(createLocalCdpClientMock).toHaveBeenCalledTimes(1);
+    client.dispose();
+  });
+
+  test("macOS turn with SSE-backed proxy unavailable falls through to cdp-inspect", async () => {
+    const fakeProxy = makeUnavailableProxy();
+    const ctx = makeContext({
+      conversationId: "macos-sse-proxy-unavail-inspect",
+      hostBrowserProxy: fakeProxy,
+      transportInterface: "macos",
+      // hostBrowserRegistryRouted is NOT set -- SSE-backed proxy
+    });
+
+    const client = getCdpClient(ctx);
+
+    // SSE-backed proxy unavailable (non-interactive turn) should NOT
+    // suppress cdp-inspect -- it falls through to desktop-auto cdp-inspect.
+    expect(client.kind).toBe("cdp-inspect");
+    const result = await client.send<{ ok: boolean; via: string }>(
+      "Page.navigate",
+    );
+    expect(result).toEqual({ ok: true, via: "cdp-inspect" });
+    expect(createExtensionCdpClientMock).not.toHaveBeenCalled();
+    expect(createCdpInspectClientMock).toHaveBeenCalledTimes(1);
     client.dispose();
   });
 
@@ -1989,5 +2035,102 @@ describe("no-fallback guarantees", () => {
         c.args[1].includes("auto-mode fallback"),
     );
     expect(fallbackLogs.length).toBe(0);
+  });
+});
+
+// ── macOS host-browser proxy backend selection ─────────────────────────
+//
+// Verify that macOS turns can use the host browser proxy without requiring
+// extension registry connectivity. When a HostBrowserProxy is provisioned
+// via the SSE sender path (no extension), the factory should select
+// extension as the top candidate (because hostBrowserProxy is available).
+// When both proxy and fallback backends exist, selection is deterministic:
+// extension > cdp-inspect > local.
+
+describe("macOS host-browser proxy without extension registry", () => {
+  beforeEach(() => {
+    createExtensionCdpClientMock.mockClear();
+    createLocalCdpClientMock.mockClear();
+    createCdpInspectClientMock.mockClear();
+    lastExtensionClient = undefined;
+    lastLocalClient = undefined;
+    lastCdpInspectClient = undefined;
+    cdpInspectEnabled = false;
+    desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
+    _resetDesktopAutoCooldown();
+    logWarnCalls.length = 0;
+    logDebugCalls.length = 0;
+  });
+
+  test("macOS turn with SSE-provisioned hostBrowserProxy selects extension backend", async () => {
+    // Simulates macOS provisioning a HostBrowserProxy via SSE (no extension
+    // registry connection). The proxy is available so extension is selected.
+    const fakeProxy = makeAvailableProxy();
+    const ctx = makeContext({
+      conversationId: "macos-sse-proxy",
+      hostBrowserProxy: fakeProxy,
+      transportInterface: "macos",
+    });
+
+    const client = getCdpClient(ctx);
+
+    expect(client.kind).toBe("extension");
+    const result = await client.send<{ ok: boolean; via: string }>(
+      "Page.navigate",
+      { url: "https://example.com" },
+    );
+    expect(result).toEqual({ ok: true, via: "extension" });
+    expect(createExtensionCdpClientMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("macOS turn with both proxy and cdp-inspect produces deterministic 3-candidate chain", () => {
+    const fakeProxy = makeAvailableProxy();
+    const ctx = makeContext({
+      conversationId: "macos-deterministic",
+      hostBrowserProxy: fakeProxy,
+      transportInterface: "macos",
+    });
+
+    const candidates = buildCandidateList(ctx);
+
+    // Deterministic order: extension > cdp-inspect (desktop-auto) > local
+    expect(candidates.length).toBe(3);
+    expect(candidates[0].kind).toBe("extension");
+    expect(candidates[1].kind).toBe("cdp-inspect");
+    expect(candidates[2].kind).toBe("local");
+  });
+
+  test("macOS turn without proxy falls through to cdp-inspect then local", () => {
+    const ctx = makeContext({
+      conversationId: "macos-no-proxy-fallback",
+      transportInterface: "macos",
+    });
+
+    const candidates = buildCandidateList(ctx);
+
+    // No proxy => skip extension, desktop-auto cdp-inspect + local
+    expect(candidates.length).toBe(2);
+    expect(candidates[0].kind).toBe("cdp-inspect");
+    expect(candidates[1].kind).toBe("local");
+  });
+
+  test("non-macOS interface with proxy still selects extension (unchanged behavior)", async () => {
+    // Verify non-macOS interfaces are unaffected by the macOS host-browser
+    // enablement — proxy presence drives extension selection regardless of
+    // interface.
+    const fakeProxy = makeAvailableProxy();
+    const ctx = makeContext({
+      conversationId: "non-macos-proxy",
+      hostBrowserProxy: fakeProxy,
+      transportInterface: "cli",
+    });
+
+    const client = getCdpClient(ctx);
+
+    expect(client.kind).toBe("extension");
+    const result = await client.send<{ ok: boolean; via: string }>(
+      "Page.navigate",
+    );
+    expect(result).toEqual({ ok: true, via: "extension" });
   });
 });

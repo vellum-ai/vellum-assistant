@@ -46,6 +46,7 @@ mock.module("../qdrant-client.js", () => ({
       deleteCalls.push({ path, memoryScopeId });
     },
   }),
+  resolveQdrantUrl: () => "http://127.0.0.1:6333",
 }));
 
 // Circuit breaker — pass-through.

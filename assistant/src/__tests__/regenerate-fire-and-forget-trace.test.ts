@@ -54,6 +54,7 @@ mock.module("../memory/qdrant-client.js", () => ({
   getQdrantClient: () => {
     throw new Error("Qdrant not initialized");
   },
+  resolveQdrantUrl: () => "http://127.0.0.1:6333",
 }));
 
 import {

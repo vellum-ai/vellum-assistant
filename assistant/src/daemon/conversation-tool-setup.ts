@@ -121,6 +121,17 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   cesClient?: CesClient;
   /** The interface ID of the connected client driving the current turn (e.g. "macos", "chrome-extension"). Propagated into ToolContext for browser backend selection. */
   readonly transportInterface?: InterfaceId;
+  /**
+   * Registry-routed sender override for the host browser proxy. When set
+   * (non-undefined), indicates the browser proxy sender was replaced by a
+   * ChromeExtensionRegistry WebSocket sender — i.e., an extension connection
+   * was actively wired at turn-start. Propagated into ToolContext as
+   * `hostBrowserRegistryRouted` (boolean) so the CDP factory can distinguish
+   * SSE-backed proxies from extension-backed proxies.
+   */
+  hostBrowserSenderOverride?: (
+    msg: import("./message-protocol.js").ServerMessage,
+  ) => void;
   /** Turn-scoped flag: true when any tool call in the current turn received explicit user approval via interactive prompt. Cleared at turn end. */
   approvedViaPromptThisTurn?: boolean;
 }
@@ -229,6 +240,7 @@ export function createToolExecutor(
       isPlatformHosted: getIsPlatform(),
       cesClient: ctx.cesClient,
       transportInterface: ctx.transportInterface,
+      hostBrowserRegistryRouted: !!ctx.hostBrowserSenderOverride,
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {
         // Tool context's sendToClient uses a loose { type: string; [key: string]: unknown }

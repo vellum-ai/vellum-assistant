@@ -49,15 +49,23 @@ describe("first-greeting", () => {
     });
   });
 
-  describe("getCannedFirstGreeting", () => {
-    it("returns the generic greeting when no onboarding context", () => {
-      const greeting = getCannedFirstGreeting();
-      expect(greeting).toBe(CANNED_FIRST_GREETING);
-      expect(greeting).toContain("brand new");
+  describe("no-onboarding branch", () => {
+    it("returns no-onboarding greeting when context is undefined", () => {
+      expect(getCannedFirstGreeting(undefined)).toBe(CANNED_FIRST_GREETING);
     });
 
-    it("returns the generic greeting when onboarding is undefined", () => {
-      expect(getCannedFirstGreeting(undefined)).toBe(CANNED_FIRST_GREETING);
+    it("returns no-onboarding greeting when everything is empty", () => {
+      const greeting = getCannedFirstGreeting({
+        tools: [],
+        tasks: [],
+        tone: "",
+      });
+      expect(greeting).toBe(CANNED_FIRST_GREETING);
+    });
+
+    it("no-onboarding greeting uses two-paragraph structure", () => {
+      expect(CANNED_FIRST_GREETING).toContain("\n\n");
+      expect(CANNED_FIRST_GREETING).toContain("I can ask");
     });
   });
 
@@ -68,89 +76,224 @@ describe("first-greeting", () => {
       tone: "balanced",
     };
 
-    it("includes user name when provided", () => {
-      const greeting = getCannedFirstGreeting({ ...base, userName: "Alex" });
-      expect(greeting).toContain("Alex");
-    });
-
-    it("includes assistant name when provided", () => {
+    it("full dev stack: GitHub + Linear, Building + PM", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
-        assistantName: "Pax",
-      });
-      expect(greeting).toContain("I'm Pax");
-    });
-
-    it("uses casual tone", () => {
-      const greeting = getCannedFirstGreeting({
-        ...base,
-        tone: "casual",
+        tools: ["github", "linear"],
+        tasks: ["code-building", "project-management"],
         userName: "Alex",
+        assistantName: "Pip",
       });
-      expect(greeting).toStartWith("Hey Alex!");
+      expect(greeting).toContain("Hey Alex, I'm Pip.");
+      expect(greeting).toContain("GitHub and Linear say");
+      expect(greeting).toContain(
+        "shipping code or figuring out what to ship next",
+      );
+      expect(greeting).toContain("\n\n");
     });
 
-    it("uses professional tone", () => {
+    it("PM + comms: Linear + Notion, PM + Writing", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
-        tone: "professional",
+        tools: ["linear", "notion"],
+        tasks: ["project-management", "writing"],
         userName: "Alex",
+        assistantName: "Pip",
       });
-      expect(greeting).toStartWith("Hello, Alex.");
+      expect(greeting).toContain("Notion and Linear say");
+      expect(greeting).toContain("writing a spec or pushing something forward");
     });
 
-    it("mentions selected tools", () => {
+    it("writer: Notion + Google Drive, Writing only", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
-        tools: ["slack", "linear"],
+        tools: ["notion", "google-drive"],
+        tasks: ["writing"],
+        userName: "Alex",
+        assistantName: "Luna",
       });
-      expect(greeting).toContain("Slack");
-      expect(greeting).toContain("Linear");
+      expect(greeting).toContain("Notion and Google Drive say");
+      expect(greeting).toContain("drafting something or cleaning up docs");
     });
 
-    it("truncates long tool lists", () => {
-      const greeting = getCannedFirstGreeting({
-        ...base,
-        tools: ["slack", "linear", "gmail", "notion"],
-      });
-      expect(greeting).toContain("Slack, Linear, and 2 more");
-    });
-
-    it("suggests actions from selected tasks", () => {
+    it("single task no tools: Building only", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
         tasks: ["code-building"],
+        userName: "Alex",
+        assistantName: "Pip",
       });
-      expect(greeting).toContain("help you build something");
+      expect(greeting).toContain("Probably shipping something or debugging");
+      expect(greeting).not.toContain("Your");
     });
 
-    it("offers two suggestions when multiple tasks selected", () => {
+    it("single tool single task: GitHub + Building", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
-        tasks: ["writing", "research"],
-      });
-      expect(greeting).toContain("draft or edit some writing");
-      expect(greeting).toContain("dig into a research question");
-    });
-
-    it("falls back to generic prompt when no tasks selected", () => {
-      const greeting = getCannedFirstGreeting({ ...base, tasks: [] });
-      expect(greeting).toContain("tackle first");
-    });
-
-    it("assembles a full personalized greeting", () => {
-      const greeting = getCannedFirstGreeting({
-        tools: ["slack", "github"],
-        tasks: ["code-building", "research"],
-        tone: "casual",
+        tools: ["github"],
+        tasks: ["code-building"],
         userName: "Alex",
-        assistantName: "Pax",
+        assistantName: "Pip",
       });
-      expect(greeting).toStartWith("Hey Alex!");
-      expect(greeting).toContain("I'm Pax");
-      expect(greeting).toContain("Slack");
-      expect(greeting).toContain("GitHub");
-      expect(greeting).toContain("help you build something");
+      expect(greeting).toContain("Your GitHub says");
+    });
+
+    it("many hats: 4 selections", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        tasks: ["code-building", "writing", "research", "project-management"],
+        userName: "Alex",
+        assistantName: "Pip",
+      });
+      expect(greeting).toContain("wear a lot of hats");
+      expect(greeting).toContain("Where should we start?");
+    });
+
+    it("many hats: 6 selections", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        tasks: [
+          "code-building",
+          "writing",
+          "research",
+          "project-management",
+          "scheduling",
+          "personal",
+        ],
+        userName: "Alex",
+        assistantName: "Pip",
+      });
+      expect(greeting).toContain("wear a lot of hats");
+    });
+
+    it("no tasks with tools: no-signal branch", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        tools: ["gmail", "linear"],
+        tasks: [],
+        userName: "Alex",
+        assistantName: "Pip",
+      });
+      expect(greeting).toContain("What's on your plate?");
+      expect(greeting).toContain("I can ask you a few questions");
+    });
+
+    it("missing name uses Hey comma opener", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        tasks: ["code-building"],
+        assistantName: "Pip",
+      });
+      expect(greeting).toStartWith("Hey, I'm Pip.");
+    });
+
+    it("3-selection falls back to highest-priority single template", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        tasks: ["writing", "research", "scheduling"],
+        userName: "Alex",
+        assistantName: "Pip",
+      });
+      expect(greeting).toContain("drafting something or cleaning up docs");
+    });
+
+    it("unlisted 2-combo falls back to highest-priority single", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        tasks: ["research", "personal"],
+        userName: "Alex",
+        assistantName: "Pip",
+      });
+      expect(greeting).toContain(
+        "digging into a topic or making sense of something",
+      );
+    });
+
+    it("uses capital I throughout", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        tasks: ["code-building"],
+        userName: "Alex",
+        assistantName: "Pip",
+      });
+      expect(greeting).toContain("I'm Pip");
+      expect(greeting).toContain("I'll get sharper");
+      expect(greeting).toContain("am I on the right track");
+    });
+
+    it("two-paragraph structure with blank line", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        tasks: ["code-building"],
+        userName: "Alex",
+        assistantName: "Pip",
+      });
+      const paragraphs = greeting.split("\n\n");
+      expect(paragraphs.length).toBe(2);
+    });
+
+    it("picks relevant tools for guess, not arbitrary selection order", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        tools: [
+          "notion",
+          "linear",
+          "gmail",
+          "google-calendar",
+          "github",
+          "apple-notes",
+        ],
+        tasks: ["code-building", "project-management"],
+        userName: "Alex",
+        assistantName: "Pip",
+      });
+      expect(greeting).toContain("GitHub and Linear say");
+      expect(greeting).not.toContain("Apple Notes");
+      expect(greeting).not.toContain("Notion");
+    });
+
+    it("falls back to no-tool prefix when no relevant tools match", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        tools: ["notion", "apple-notes"],
+        tasks: ["code-building"],
+        userName: "Alex",
+        assistantName: "Pip",
+      });
+      expect(greeting).toContain("Probably shipping something or debugging");
+      expect(greeting).not.toContain("Your");
+    });
+
+    it("life admin guess uses verb phrase", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        tools: ["gmail", "google-calendar"],
+        tasks: ["personal"],
+        userName: "Alex",
+        assistantName: "Pip",
+      });
+      expect(greeting).toContain("Gmail and Google Calendar say");
+      expect(greeting).toContain("juggling travel, bills, or household stuff");
+    });
+
+    it("uses personalized greeting when assistantName present but no user name/tasks/tools", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        assistantName: "Pip",
+      });
+      expect(greeting).toContain("I'm Pip");
+      expect(greeting).not.toContain("no name, no memories");
+    });
+
+    it("falls back to no-signal branch for unknown task types", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        tasks: ["future-task-type"],
+        userName: "Alex",
+        assistantName: "Pip",
+      });
+      expect(greeting).toContain("What's on your plate?");
+      expect(greeting).not.toContain("\n\n\n");
     });
   });
 });

@@ -6,7 +6,7 @@ private let userDefaultsPrefix = "MacOSFeatureFlag."
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "FeatureFlags")
 
 /// Represents the resolved state of a single macOS feature flag for UI display.
-public struct MacOSFeatureFlagState: Identifiable {
+public struct MacOSFeatureFlagState: Identifiable, Equatable {
     public let id: String
     public let key: String
     public let label: String

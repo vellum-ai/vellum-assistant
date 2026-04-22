@@ -21,7 +21,7 @@ import { getWorkspaceDir } from "../../util/platform.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "../checkpoints.js";
 import { getDb, rawAll, rawGet, rawRun } from "../db.js";
 import { enqueueMemoryJob, hasActiveJobOfType } from "../jobs-store.js";
-import { initQdrantClient } from "../qdrant-client.js";
+import { initQdrantClient, resolveQdrantUrl } from "../qdrant-client.js";
 import { conversations, memoryGraphNodes, memorySegments } from "../schema.js";
 import { runGraphExtraction } from "./extraction.js";
 import { countNodes } from "./store.js";
@@ -71,7 +71,7 @@ export async function bootstrapFromHistory(
   // Initialize Qdrant client for inline embedding
   try {
     initQdrantClient({
-      url: config.memory.qdrant.url ?? "http://127.0.0.1:6333",
+      url: resolveQdrantUrl(config),
       collection: config.memory.qdrant.collection,
       vectorSize: config.memory.qdrant.vectorSize,
       onDisk: config.memory.qdrant.onDisk ?? true,
