@@ -20,6 +20,7 @@ mock.module("../../util/platform.js", () => ({
   getWorkspaceDir: () => workspaceDir,
   getWorkspacePromptPath: (name: string) => join(workspaceDir, name),
   vellumRoot: () => workspaceDir,
+  getDataDir: () => join(workspaceDir, "data"),
 }));
 
 // Stub config so heartbeat is enabled.
