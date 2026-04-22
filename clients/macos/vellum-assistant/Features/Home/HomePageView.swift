@@ -45,7 +45,10 @@ struct HomePageView<DetailPanel: View>: View {
     /// Fired when the user taps a `.thread` (scheduled) feed item — the
     /// parent presents the scheduled detail panel instead of opening a
     /// conversation. All other item types keep the conversation flow.
-    let onScheduledItemSelected: (FeedItem) -> Void
+    /// Defaults to a no-op so callers that don't need the scheduled-panel
+    /// flow don't have to supply it (and the memberwise init stays usable
+    /// from tests that only care about the detail-panel split).
+    let onScheduledItemSelected: (FeedItem) -> Void = { _ in }
     /// Drives the two-pane split. When false, the home content renders in
     /// its original single-column layout and the `detailPanel` slot is
     /// ignored.
