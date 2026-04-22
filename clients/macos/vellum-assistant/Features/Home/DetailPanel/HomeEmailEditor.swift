@@ -4,10 +4,13 @@ import VellumAssistantShared
 /// Pure body content for the Home detail side panel's email composer
 /// variant.
 ///
-/// Matches Figma node `3496:72522` — formatting toolbar, To/Subject
-/// labeled fields, editable body text, and at the bottom a two-row
-/// footer: a horizontal scroll of attachment chips (only when
-/// attachments are present) followed by a primary `Send` button. The
+/// Based on Figma node `3496:72522`, with the formatting toolbar moved
+/// to sit between the subject divider and the body text (so the
+/// To/Subject metadata reads as a header block and the toolbar frames
+/// the composable body). Layout: To/Subject labeled fields, formatting
+/// toolbar, editable body text, and at the bottom a two-row footer: a
+/// horizontal scroll of attachment chips (only when attachments are
+/// present) followed by a primary `Send` button. The
 /// enclosing `HomeDetailPanel` chrome supplies the header title +
 /// optional dismiss; the `Send` action lives on this component rather
 /// than on the panel header because the mock puts it at the bottom of
@@ -40,15 +43,6 @@ struct HomeEmailEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VFormattingToolbar(onAction: onFormatAction)
-
-            // The first hairline, directly under the toolbar, sits flush
-            // against the panel edges — matches the Figma mock's full-bleed
-            // divider beneath the header.
-            VColor.borderBase
-                .frame(height: 1)
-                .accessibilityHidden(true)
-
             VStack(alignment: .leading, spacing: 0) {
                 labeledField("to:", $toAddress)
 
@@ -58,6 +52,11 @@ struct HomeEmailEditor: View {
 
                 insetHairline
             }
+
+            // Formatting toolbar sits between the subject divider and the
+            // body text, so the fields act as metadata and the toolbar
+            // frames the composable content below it.
+            VFormattingToolbar(onAction: onFormatAction)
 
             TextField("Compose your reply…", text: $bodyText, axis: .vertical)
                 .textFieldStyle(.plain)
