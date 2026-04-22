@@ -1389,8 +1389,16 @@ describe("scopeOptionsToAllowlistOptions", () => {
     // Labels match scopeOptions labels
     for (let i = 0; i < scopeOptions.length; i++) {
       expect(allowlistOptions[i].label).toBe(scopeOptions[i].label);
-      expect(allowlistOptions[i].pattern).toBe(scopeOptions[i].pattern);
     }
+
+    // Patterns are glob-compatible (not regex) for trust rule matching:
+    // - First option: raw command string (exact match)
+    // - Last option: action:<program> format
+    // - Intermediate: label-based glob patterns
+    expect(allowlistOptions[0].pattern).toBe("git push origin main");
+    expect(
+      allowlistOptions[allowlistOptions.length - 1].pattern,
+    ).toBe("action:git");
   });
 
   test("intermediate options get 'Commands matching this pattern' description", async () => {

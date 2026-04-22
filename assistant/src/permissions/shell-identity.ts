@@ -4,6 +4,7 @@ import {
   parse,
   type ParsedCommand,
 } from "../tools/terminal/parser.js";
+import type { AllowlistOption } from "./types.js";
 
 export type { ParsedCommand };
 
@@ -223,5 +224,74 @@ export function deriveShellActionKeys(
   }
 
   return { keys, isSimpleAction: true, primarySegment };
+}
+
+/**
+ * Build allowlist options for shell commands using parser-derived identity.
+ *
+ * For simple actions (optional setup prefix + one action), options are:
+ *   1. Exact canonical primary command
+ *   2. Deepest action key (e.g. "action:gh pr view")
+ *   3. Broader action keys (e.g. "action:gh pr", "action:gh")
+ *
+ * For pipelines, the exact command plus action-key-based broader options
+ * are offered. For other complex commands (multi-action chains, semicolons,
+ * etc.), only the exact command is offered.
+ */
+export async function buildShellAllowlistOptions(
+  command: string,
+): Promise<AllowlistOption[]> {
+  const trimmed = command.trim();
+  if (!trimmed) return [];
+
+  const analysis = await analyzeShellCommand(trimmed);
+  const actionResult = deriveShellActionKeys(analysis);
+
+  if (!actionResult.isSimpleAction || !actionResult.primarySegment) {
+    const options: AllowlistOption[] = [
+      {
+        label: trimmed,
+        description: "This exact compound command",
+        pattern: trimmed,
+      },
+    ];
+    // If pipeline action keys were extracted, offer them as broader options
+    for (const actionKey of actionResult.keys) {
+      const keyTokens = actionKey.key.replace(/^action:/, "");
+      options.push({
+        label: `${keyTokens} *`,
+        description: `Any "${keyTokens}" command`,
+        pattern: actionKey.key,
+      });
+    }
+    return options;
+  }
+
+  const options: AllowlistOption[] = [];
+
+  // Full original command text
+  options.push({
+    label: trimmed,
+    description: "This exact command",
+    pattern: trimmed,
+  });
+
+  // Action keys from narrowest to broadest
+  for (const actionKey of actionResult.keys) {
+    const keyTokens = actionKey.key.replace(/^action:/, "");
+    options.push({
+      label: `${keyTokens} *`,
+      description: `Any "${keyTokens}" command`,
+      pattern: actionKey.key,
+    });
+  }
+
+  // Deduplicate by pattern
+  const seen = new Set<string>();
+  return options.filter((o) => {
+    if (seen.has(o.pattern)) return false;
+    seen.add(o.pattern);
+    return true;
+  });
 }
 

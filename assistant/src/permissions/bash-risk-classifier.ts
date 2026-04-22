@@ -621,11 +621,12 @@ function escapeRegex(s: string): string {
 /**
  * Convert classifier-produced `ScopeOption[]` to `AllowlistOption[]` format.
  *
- * The description follows the same patterns used by `buildShellAllowlistOptions`
- * in shell-identity.ts:
- * - First option (exact match): "This exact command"
- * - Last option (command-level wildcard): "Any <program> command"
- * - Intermediate options: "Commands matching this pattern"
+ * Patterns must be glob-compatible (not regex) because trust rules use
+ * Minimatch for matching against command candidates produced by
+ * `buildCommandCandidates()`. The format:
+ * - First option (exact match): raw command string
+ * - Intermediate options: label as a glob pattern (e.g. "npm install *")
+ * - Command-level wildcards: "action:<program>" prefix matching action key candidates
  */
 export function scopeOptionsToAllowlistOptions(
   scopeOptions: ScopeOption[],
@@ -637,18 +638,28 @@ export function scopeOptionsToAllowlistOptions(
 
   return scopeOptions.map((opt, i): AllowlistOption => {
     let description: string;
+    let pattern: string;
+
     if (i === 0) {
+      // Exact match: raw command string (matches the raw candidate)
       description = "This exact command";
-    } else if (i === scopeOptions.length - 1) {
-      description = `Any ${programName} command`;
+      pattern = opt.label;
+    } else if (
+      opt.label.endsWith(" *") &&
+      !opt.label.slice(0, -2).includes(" ")
+    ) {
+      // Command-level wildcard (label is "<program> *"): use action: prefix
+      // to match action key candidates from buildCommandCandidates()
+      const prog = opt.label.slice(0, -2);
+      description = `Any ${prog} command`;
+      pattern = `action:${prog}`;
     } else {
+      // Intermediate wildcard: use label as a glob pattern
       description = "Commands matching this pattern";
+      pattern = opt.label;
     }
-    return {
-      label: opt.label,
-      description,
-      pattern: opt.pattern,
-    };
+
+    return { label: opt.label, description, pattern };
   });
 }
 
