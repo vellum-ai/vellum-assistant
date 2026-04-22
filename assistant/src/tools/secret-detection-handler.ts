@@ -1,5 +1,4 @@
 import { getConfig } from "../config/loader.js";
-import { getHookManager } from "../hooks/manager.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
 import { isPermissionControlsV2Enabled } from "../permissions/v2-consent-policy.js";
@@ -210,7 +209,7 @@ export class SecretDetectionHandler {
       context: ToolContext,
       event: ToolLifecycleEvent,
     ) => void,
-    sanitizeToolInput: (
+    _sanitizeToolInput: (
       toolName: string,
       input: Record<string, unknown>,
     ) => Record<string, unknown>,
@@ -237,15 +236,6 @@ export class SecretDetectionHandler {
       result: blockedResult,
     });
 
-    void getHookManager().trigger("post-tool-execute", {
-      toolName: name,
-      input: sanitizeToolInput(name, input),
-      riskLevel,
-      isError: true,
-      durationMs,
-      conversationId: context.conversationId,
-    });
-
     return { result: blockedResult, earlyReturn: true };
   }
 
@@ -263,7 +253,7 @@ export class SecretDetectionHandler {
       context: ToolContext,
       event: ToolLifecycleEvent,
     ) => void,
-    sanitizeToolInput: (
+    _sanitizeToolInput: (
       toolName: string,
       input: Record<string, unknown>,
     ) => Record<string, unknown>,
@@ -286,15 +276,6 @@ export class SecretDetectionHandler {
         decision: "deny",
         reason: "Secret output blocked without deterministic prompt under v2",
         durationMs,
-      });
-
-      void getHookManager().trigger("post-tool-execute", {
-        toolName: name,
-        input: sanitizeToolInput(name, input),
-        riskLevel,
-        isError: true,
-        durationMs,
-        conversationId: context.conversationId,
       });
 
       return {
@@ -320,15 +301,6 @@ export class SecretDetectionHandler {
         decision: "deny",
         reason: "Non-interactive session: auto-blocked secret output",
         durationMs,
-      });
-
-      void getHookManager().trigger("post-tool-execute", {
-        toolName: name,
-        input: sanitizeToolInput(name, input),
-        riskLevel,
-        isError: true,
-        durationMs,
-        conversationId: context.conversationId,
       });
 
       return {
@@ -387,15 +359,6 @@ export class SecretDetectionHandler {
         decision: response.decision === "always_deny" ? "always_deny" : "deny",
         reason: `User denied output containing secrets: ${types}`,
         durationMs,
-      });
-
-      void getHookManager().trigger("post-tool-execute", {
-        toolName: name,
-        input: sanitizeToolInput(name, input),
-        riskLevel,
-        isError: true,
-        durationMs,
-        conversationId: context.conversationId,
       });
 
       return {
