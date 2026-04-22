@@ -14,8 +14,13 @@ import type { WorkspaceMigration } from "./types.js";
  *      config with just this seed. `loadConfig()` runs after migrations
  *      and backfills the remaining schema defaults via `deepMergeMissing`.
  *
- * Only applied when the resolved provider is Anthropic — other providers
- * must own their own `mainAgent` model choice.
+ * Applied only when:
+ *   - the resolved provider is Anthropic (other providers own their
+ *     own mainAgent model choice), **and**
+ *   - `llm.default.model` is either unset or equal to the previous
+ *     schema default `claude-opus-4-7` — a user who explicitly picked
+ *     a different Anthropic model (e.g. Haiku) kept their own choice,
+ *     so forcing Opus onto their mainAgent would be surprising.
  */
 export const seedMainAgentOpusCallsiteMigration: WorkspaceMigration = {
   id: "048-seed-main-agent-opus-callsite",
@@ -43,6 +48,11 @@ export const seedMainAgentOpusCallsiteMigration: WorkspaceMigration = {
 
     const explicitProvider = readString(defaultBlock?.provider);
     if (explicitProvider !== undefined && explicitProvider !== "anthropic") {
+      return;
+    }
+
+    const explicitModel = readString(defaultBlock?.model);
+    if (explicitModel !== undefined && explicitModel !== "claude-opus-4-7") {
       return;
     }
 
