@@ -124,6 +124,10 @@ struct MainWindowView: View {
     /// At most one of `selectedScheduledItemId` / `selectedNudgeItemId`
     /// is non-nil at a time — opening one clears the other.
     @State var selectedNudgeItemId: String? = nil
+    /// Parallel to the other detail-panel selection states: when non-nil,
+    /// the Home panel renders a permission detail panel for a feed item
+    /// that carries a `conversationId` (e.g. a pending tool approval).
+    @State var selectedPermissionItemId: String? = nil
     init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, assistantFeatureFlagStore: AssistantFeatureFlagStore, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil, initialAssistantName: String? = nil) {
         self.conversationManager = conversationManager
         self.listStore = conversationManager.listStore

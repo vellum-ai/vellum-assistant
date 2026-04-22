@@ -99,6 +99,8 @@ export interface FeedItem {
   actions?: FeedAction[];
   /** Visual urgency treatment — controls badge color independently of sort priority. */
   urgency?: FeedItemUrgency;
+  /** Optional conversation this feed item is associated with. */
+  conversationId?: string;
   /** Internal: who authored this item. */
   author: FeedItemAuthor;
   /** Internal: ISO-8601 writer-record time, used for ordering + TTL. */
@@ -202,6 +204,7 @@ export const feedItemSchema = z.object({
   minTimeAway: z.number().int().min(0).optional(),
   actions: z.array(feedActionSchema).optional(),
   urgency: feedItemUrgencySchema.optional(),
+  conversationId: z.string().optional(),
   author: feedItemAuthorSchema,
   createdAt: z.string(),
 });

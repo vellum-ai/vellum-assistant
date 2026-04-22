@@ -54,6 +54,7 @@ import type {
   NonHostProxyTransportMetadata,
 } from "../../daemon/message-types/conversations.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
+import { emitFeedEvent } from "../../home/emit-feed-event.js";
 import {
   writeOnboardingSidecar,
   writeRelationshipState,
@@ -1002,6 +1003,27 @@ function makeHubPublisher(
           persistentDecisionsAllowed: msg.persistentDecisionsAllowed,
           temporaryOptionsAvailable: msg.temporaryOptionsAvailable,
         },
+      });
+
+      const inputRecord = msg.input as Record<string, unknown>;
+      const commandPreview =
+        redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) ||
+        undefined;
+      const feedTitle = commandPreview
+        ? `Requesting permission: ${commandPreview}`
+        : `Requesting approval to use ${msg.toolName}.`;
+      void emitFeedEvent({
+        source: "assistant",
+        title: feedTitle,
+        summary: feedTitle,
+        dedupKey: `tool-approval:${msg.requestId}`,
+        urgency: msg.riskLevel === "high" ? "high" : "medium",
+        conversationId,
+      }).catch((err) => {
+        log.warn(
+          { err, requestId: msg.requestId },
+          "Failed to emit tool approval request feed event",
+        );
       });
 
       // Create a canonical guardian request so HTTP handlers can find it
