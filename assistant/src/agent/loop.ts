@@ -10,10 +10,11 @@ import {
   calculateMaxToolResultChars,
   truncateToolResultText,
 } from "../context/tool-result-truncation.js";
-import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
+  LLMCallArgs,
+  LLMCallResult,
   ToolResultTruncateArgs,
   ToolResultTruncateResult,
   TurnContext,
@@ -134,21 +135,6 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
 
 const MAX_CONSECUTIVE_ERROR_NUDGES = 3;
 const MAX_EMPTY_RESPONSE_RETRIES = 1;
-
-/**
- * Fallback trust context used when the agent loop constructs a {@link
- * TurnContext} for the plugin pipeline. The agent loop itself is invoked
- * from trust-aware entry points (conversation orchestrator, agent-wake)
- * that already performed authorization before reaching the loop, so the
- * loop's own pipeline invocations do not need a live channel identity —
- * they only need a well-formed `TurnContext` for telemetry and error
- * attribution. Later PRs in the plugin-system plan plumb the real trust
- * context through `run()` and replace this constant with a parameter.
- */
-const AGENT_LOOP_FALLBACK_TRUST: TrustContext = {
-  sourceChannel: "vellum",
-  trustClass: "guardian",
-};
 
 /**
  * User-config HTTP status codes that should never page the on-call: billing
@@ -420,11 +406,22 @@ export class AgentLoop {
           stripOldImageBlocks(history),
         );
 
-        const response = await this.provider.sendMessage(
-          providerHistory,
-          currentTools.length > 0 ? currentTools : undefined,
-          turnSystemPrompt,
-          {
+        // Wrap the provider call in the `llmCall` pipeline so middleware
+        // contributed by plugins may observe, rewrite, short-circuit, or
+        // post-process every LLM request. The default plugin registered at
+        // bootstrap (`defaultLlmCallPlugin`) acts as the passthrough terminal
+        // and simply delegates back to `provider.sendMessage(...)`. Timeout
+        // is `null` (`DEFAULT_TIMEOUTS.llmCall`) — the provider layer already
+        // enforces its own HTTP-level budgets.
+        //
+        // The `onEvent` wrapping is kept inside `args.options` so substitution
+        // and streaming behavior exactly match the pre-pipeline call site.
+        const llmCallArgs: LLMCallArgs = {
+          provider: this.provider,
+          messages: providerHistory,
+          tools: currentTools.length > 0 ? currentTools : undefined,
+          systemPrompt: turnSystemPrompt,
+          options: {
             config: providerConfig,
             onEvent: (event) => {
               if (event.type === "text_delta") {
@@ -475,6 +472,34 @@ export class AgentLoop {
             },
             signal,
           },
+        };
+
+        // Minimal per-turn context for pipeline logging and plugin
+        // attribution. The agent loop itself does not carry a conversationId
+        // or trust context — those live upstream — so we fill safe defaults.
+        const turnCtx: TurnContext = {
+          requestId: requestId ?? "agent-loop",
+          conversationId: "agent-loop",
+          turnIndex: toolUseTurns,
+          trust: { sourceChannel: "vellum", trustClass: "unknown" },
+        };
+
+        const response: LLMCallResult = await runPipeline<
+          LLMCallArgs,
+          LLMCallResult
+        >(
+          "llmCall",
+          getMiddlewaresFor("llmCall"),
+          (args) =>
+            args.provider.sendMessage(
+              args.messages,
+              args.tools,
+              args.systemPrompt,
+              args.options,
+            ),
+          llmCallArgs,
+          turnCtx,
+          DEFAULT_TIMEOUTS.llmCall,
         );
 
         const providerDurationMs = Date.now() - providerStart;
@@ -736,12 +761,6 @@ export class AgentLoop {
         const contextWindowTokens = this.config.maxInputTokens ?? 180_000;
         const maxChars = calculateMaxToolResultChars(contextWindowTokens);
         const truncateMiddlewares = getMiddlewaresFor("toolResultTruncate");
-        const turnCtx: TurnContext = {
-          requestId: requestId ?? "unknown",
-          conversationId: requestId ?? "unknown",
-          turnIndex: toolUseTurns,
-          trust: AGENT_LOOP_FALLBACK_TRUST,
-        };
 
         let truncatedCount = 0;
         const truncatedBlocks: ContentBlock[] = [];

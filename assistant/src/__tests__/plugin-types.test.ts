@@ -13,12 +13,16 @@ import { describe, expect, test } from "bun:test";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import {
   type Injector,
+  type LLMCallArgs,
+  type LLMCallResult,
   type Middleware,
   type Plugin,
   PluginExecutionError,
   type PluginInitContext,
   type PluginManifest,
   PluginTimeoutError,
+  type ToolExecuteArgs,
+  type ToolExecuteResult,
   type ToolResultTruncateArgs,
   type ToolResultTruncateResult,
   type TurnContext,
@@ -52,6 +56,19 @@ describe("plugin core types", () => {
     const passthrough: Middleware<
       { input: unknown },
       { output: unknown }
+    > = async (args, next, _ctx) => next(args);
+
+    // `llmCall` has concrete arg/result types (upgraded in PR 15).
+    const llmCallPassthrough: Middleware<LLMCallArgs, LLMCallResult> = async (
+      args,
+      next,
+      _ctx,
+    ) => next(args);
+
+    // `toolExecute` has concrete arg/result types (refined in PR 16).
+    const toolExecutePassthrough: Middleware<
+      ToolExecuteArgs,
+      ToolExecuteResult
     > = async (args, next, _ctx) => next(args);
 
     // `toolResultTruncate` has a concrete args/result shape (PR 17) so we
@@ -88,12 +105,19 @@ describe("plugin core types", () => {
       },
       tools: [{ name: "sample-tool" }],
       routes: [{ path: "/sample" }],
-      skills: [{ name: "sample-skill" }],
+      skills: [
+        {
+          id: "sample-skill",
+          name: "Sample Skill",
+          description: "Demo plugin-contributed skill",
+          body: "## Sample\n\nPlugin-provided skill body.",
+        },
+      ],
       injectors: [injector],
       middleware: {
         turn: passthrough,
-        llmCall: passthrough,
-        toolExecute: passthrough,
+        llmCall: llmCallPassthrough,
+        toolExecute: toolExecutePassthrough,
         memoryRetrieval: passthrough,
         historyRepair: passthrough,
         tokenEstimate: passthrough,

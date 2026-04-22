@@ -326,10 +326,14 @@ export function postInstallSkill(
 
 /** Map the old `source` field to the new `kind` axis. */
 function deriveKind(
-  source: "bundled" | "managed" | "workspace" | "extra" | "catalog",
+  source: "bundled" | "managed" | "workspace" | "extra" | "catalog" | "plugin",
 ): SlimSkillResponse["kind"] {
   if (source === "bundled") return "bundled";
   if (source === "catalog") return "catalog";
+  // Plugin-contributed skills are framework-provided like bundled skills —
+  // expose them under the same "bundled" kind so the UI doesn't invent a
+  // new category that existing clients don't know how to render.
+  if (source === "plugin") return "bundled";
   return "installed"; // managed, workspace, extra
 }
 
