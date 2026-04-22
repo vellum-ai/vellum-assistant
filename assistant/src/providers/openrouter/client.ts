@@ -157,7 +157,11 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
     };
     const only = extractOnlyList(config);
     if (only.length > 0) {
-      extras.provider = { only };
+      const existingProvider = (config?.provider ?? {}) as Record<
+        string,
+        unknown
+      >;
+      extras.provider = { ...existingProvider, only };
     }
     return extras;
   }
