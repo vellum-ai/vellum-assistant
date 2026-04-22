@@ -380,6 +380,11 @@ export function classifySegment(
         // value (consumed by parseArgs), test that value against the pattern.
         // This replaces the manual next-token lookahead.
         // Also check for --flag=value forms already handled by parseArgs.
+        //
+        // Known limitation: parseArgs stores flags in a Map (last value wins),
+        // so repeated flags like `curl -d @/etc/shadow -d safe` only check
+        // the last value. A future improvement could store flag values as
+        // arrays to catch all occurrences.
         let flagValueMatched = false;
         for (const flag of rule.flags) {
           const flagVal = parsed.flags.get(flag);
