@@ -19,19 +19,31 @@ enum HomeDetailPanelKind: Equatable {
     case toolPermission(FeedItem)
     case updatesList(FeedItem)
 
-    /// Resolves from the wire-contract `detailPanel` field. Returns `nil`
-    /// when absent.
+    /// Resolves from the wire-contract `detailPanel` field when present,
+    /// otherwise falls back to legacy type+source heuristics so
+    /// scheduled/nudge panels remain reachable for items that don't yet
+    /// carry a `detailPanel`.
     static func resolve(for item: FeedItem) -> HomeDetailPanelKind? {
-        guard let panel = item.detailPanel else {
-            return nil
+        if let panel = item.detailPanel {
+            switch panel.kind {
+            case .emailDraft: return .emailDraft(item)
+            case .documentPreview: return .documentPreview(item)
+            case .permissionChat: return .permissionChat(item)
+            case .paymentAuth: return .paymentAuth(item)
+            case .toolPermission: return .toolPermission(item)
+            case .updatesList: return .updatesList(item)
+            }
         }
-        switch panel.kind {
-        case .emailDraft: return .emailDraft(item)
-        case .documentPreview: return .documentPreview(item)
-        case .permissionChat: return .permissionChat(item)
-        case .paymentAuth: return .paymentAuth(item)
-        case .toolPermission: return .toolPermission(item)
-        case .updatesList: return .updatesList(item)
+
+        // Legacy heuristic fallbacks — kept until the daemon populates
+        // `detailPanel` for every item type.
+        switch item.type {
+        case .thread where item.source == .calendar:
+            return .scheduled(item)
+        case .nudge:
+            return .nudge(item)
+        default:
+            return nil
         }
     }
 }
