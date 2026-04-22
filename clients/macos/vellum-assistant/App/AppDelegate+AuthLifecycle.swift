@@ -15,9 +15,8 @@ extension AppDelegate {
             await authManager.checkSession()
             SentryDeviceInfo.updateUserTag(authManager.currentUser?.id)
             let isAuthed = authManager.isAuthenticated
-            let hasKey = APIKeyManager.hasAnyKey()
-            log.info("[authFlow] isAuthenticated=\(isAuthed) hasAnyKey=\(hasKey)")
-            if isAuthed || hasKey {
+            log.info("[authFlow] isAuthenticated=\(isAuthed)")
+            if isAuthed {
                 // Delegate the post-auth routing decision to
                 // ReturningUserRouter so this call site and ReauthView
                 // share one source of truth.
@@ -49,13 +48,17 @@ extension AppDelegate {
                     showAuthWindow()
                 }
             } else {
-                // Check if the lockfile has a non-managed assistant we can connect to
-                // without authentication. Local/remote assistants run independently
-                // of the platform auth session, so the app can open in a logged-out
-                // state and the user can sign in from Settings > General.
-                // Skip managed assistants from a different platform environment.
-                // Migration: fall back to UserDefaults for users upgrading from
-                // the old version whose lockfile doesn't yet have activeAssistant.
+                // Not authenticated: only non-managed assistants may bypass
+                // the auth window. Local/remote assistants run independently
+                // of the platform auth session, so the app can open in a
+                // logged-out state and the user can sign in from Settings >
+                // General. Managed (platform-hosted) assistants always
+                // require platform authentication — presence of locally
+                // stored provider API keys does NOT substitute for a
+                // platform session.
+                // Migration: fall back to UserDefaults for users upgrading
+                // from the old version whose lockfile doesn't yet have
+                // activeAssistant.
                 let storedId = LockfileAssistant.loadActiveAssistantId()
                     ?? UserDefaults.standard.string(forKey: "connectedAssistantId")
                 let assistant = storedId.flatMap { LockfileAssistant.loadByName($0) }
