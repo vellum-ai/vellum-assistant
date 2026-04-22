@@ -7,18 +7,28 @@
  * Two-tier design:
  *
  *   1. **Tier 1 (regex fast filter)** — synchronous on every final
- *      transcript chunk and every inbound chat message. Default patterns
- *      cover direct assistant-name mentions, `(hey|hi|…) <name>, … ?` style
- *      address-then-question forms, and generic "can you / does anyone
- *      know" requests. A hit feeds Tier 2 with a short trigger reason.
+ *      transcript chunk. Default patterns cover direct assistant-name
+ *      mentions, `(hey|hi|…) <name>, … ?` style address-then-question
+ *      forms, and generic "can you / does anyone know" requests. A hit
+ *      feeds Tier 2 with a short trigger reason.
  *
- *   2. **Tier 2 (LLM confirmation)** — fires on every Tier 1 hit,
- *      subject to a configurable debounce. The prompt includes the
- *      rolling transcript (last N seconds), the most recent 5 chat
- *      messages, the trigger chunk, and the Tier 1 reason, and asks for
- *      strict JSON `{ shouldRespond: boolean, reason: string }`. Positive
- *      verdicts are rate-limited further by an "escalation cooldown" so
- *      a chatty meeting can't fire the callback repeatedly.
+ *      Inbound chat messages intentionally **bypass** Tier 1 and proceed
+ *      straight to Tier 2 with a synthetic `"tier1:chat-always-on"`
+ *      reason. Chat volume is orders of magnitude lower than transcript
+ *      (typically <1/5s even on chatty meetings), so the regex gate's
+ *      cost savings don't pay off there — and users typing in chat
+ *      expect the assistant to read every message rather than be filtered
+ *      by an English-interrogative keyword list. Debounce + escalation
+ *      cooldown remain in effect, so burst bounds are preserved.
+ *
+ *   2. **Tier 2 (LLM confirmation)** — fires on every Tier 1 hit and
+ *      every inbound chat, subject to a configurable debounce. The
+ *      prompt includes the rolling transcript (last N seconds), the
+ *      most recent 5 chat messages, the trigger chunk, and the Tier 1
+ *      reason, and asks for strict JSON `{ shouldRespond: boolean,
+ *      reason: string }`. Positive verdicts are rate-limited further
+ *      by an "escalation cooldown" so a chatty meeting can't fire the
+ *      callback repeatedly.
  *
  * The detector is intentionally inert until wired: it does not itself
  * post to meeting chat, consult any session manager, or share state with
@@ -307,11 +317,15 @@ export class MeetChatOpportunityDetector {
     });
     while (this.chatBuffer.length > CHAT_BUFFER_SIZE) this.chatBuffer.shift();
 
-    const reason = this.tier1Match(raw);
-    if (reason !== null) {
-      this.stats.tier1Hits += 1;
-      void this.maybeRunTier2(reason, raw);
-    }
+    // Every non-empty inbound chat proceeds to Tier 2 unconditionally.
+    // Chat volume is low enough (<1/5s typical) that the debounce +
+    // escalation cooldown are sufficient throttles on their own, and a
+    // keyword gate silently drops natural-but-unkeyworded invitations
+    // like "yo where's that deck" or "wait which one". The synthetic
+    // `tier1:chat-always-on` reason keeps log-grep patterns (`tier1:*`)
+    // working and signals the bypass path in telemetry.
+    this.stats.tier1Hits += 1;
+    void this.maybeRunTier2("tier1:chat-always-on", raw);
   }
 
   // ── Tier 1 ────────────────────────────────────────────────────────────────

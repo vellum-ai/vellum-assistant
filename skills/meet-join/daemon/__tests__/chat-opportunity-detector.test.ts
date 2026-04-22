@@ -142,7 +142,7 @@ async function flushPromises(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 describe("MeetChatOpportunityDetector — Tier 1 fast filter", () => {
-  test("Tier 1 miss does not invoke Tier 2 and does not fire callback", async () => {
+  test("transcript Tier 1 miss does not invoke Tier 2 and does not fire callback", async () => {
     const dispatcher = makeFakeDispatcher();
     const clock = makeClock(1_000);
     const llm = mock(
@@ -172,10 +172,6 @@ describe("MeetChatOpportunityDetector — Tier 1 fast filter", () => {
         "The weather is nice today.",
       ),
     );
-    dispatcher.dispatch(
-      "m1",
-      inboundChat("m1", "2024-01-01T00:00:01.000Z", "hello team"),
-    );
 
     await flushPromises();
 
@@ -185,6 +181,58 @@ describe("MeetChatOpportunityDetector — Tier 1 fast filter", () => {
 
     detector.dispose();
     expect(dispatcher.subscriberCount("m1")).toBe(0);
+  });
+
+  test("inbound chat always invokes Tier 2 regardless of Tier 1 content", async () => {
+    const dispatcher = makeFakeDispatcher();
+    const clock = makeClock(1_000);
+    const llm = mock(
+      async (_prompt: string): Promise<ChatOpportunityDecision> => ({
+        shouldRespond: true,
+        reason: "user addressed the assistant without a keyword",
+      }),
+    );
+    const onOpportunity = mock((_reason: string) => {});
+
+    const detector = new MeetChatOpportunityDetector({
+      meetingId: "m1",
+      assistantDisplayName: "Aria",
+      config: defaultConfig(),
+      callDetectorLLM: llm,
+      onOpportunity,
+      subscribe: dispatcher.subscribe,
+      now: clock.now,
+    });
+    detector.start();
+
+    // Plain "hello team" does NOT match any Tier 1 regex (no assistant
+    // name, no `can you`, no `does anyone`). Before the chat-bypass
+    // change this test would have asserted zero Tier 2 calls; post-
+    // change the detector sends every inbound chat straight to Tier 2.
+    dispatcher.dispatch(
+      "m1",
+      inboundChat("m1", "2024-01-01T00:00:00.000Z", "hello team"),
+    );
+
+    await flushPromises();
+
+    expect(llm).toHaveBeenCalledTimes(1);
+    expect(onOpportunity).toHaveBeenCalledTimes(1);
+    const [reason] = onOpportunity.mock.calls[0] as unknown as [string];
+    expect(reason).toBe("user addressed the assistant without a keyword");
+
+    const stats = detector.getStats();
+    expect(stats.tier1Hits).toBe(1);
+    expect(stats.tier2Calls).toBe(1);
+    expect(stats.tier2PositiveCount).toBe(1);
+    expect(stats.escalationsFired).toBe(1);
+
+    // The Tier 2 prompt should carry the synthetic bypass reason so
+    // operators grepping `tier1:*` in logs still see the trigger.
+    const [prompt] = llm.mock.calls[0] as unknown as [string];
+    expect(prompt).toContain("tier1:chat-always-on");
+
+    detector.dispose();
   });
 
   test("Tier 1 hit + Tier 2 false does not fire callback", async () => {
@@ -556,10 +604,12 @@ describe("MeetChatOpportunityDetector — custom keywords", () => {
     expect(detector.getStats().tier1Hits).toBe(0);
     expect(llm).toHaveBeenCalledTimes(0);
 
-    // The custom pattern should match.
+    // The custom pattern should match. Use a transcript chunk here
+    // (not an inbound chat) because inbound chat bypasses Tier 1
+    // entirely — we want this test to exercise Tier 1 regex matching.
     dispatcher.dispatch(
       "m1",
-      inboundChat(
+      transcriptChunk(
         "m1",
         "2024-01-01T00:00:01.000Z",
         "my favorite is the blue monkey at the zoo",
