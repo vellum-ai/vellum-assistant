@@ -814,8 +814,9 @@ describe("DeepgramRealtimeTranscriber", () => {
       keepaliveIntervalMs: 30,
     });
 
-    // Wait long enough for at least two KeepAlives to fire.
-    await new Promise((resolve) => setTimeout(resolve, 95));
+    // Wait long enough that at least two KeepAlives fire even on a loaded
+    // CI runner with event-loop jitter.
+    await new Promise((resolve) => setTimeout(resolve, 250));
 
     const keepalives = mockWs.sentData.filter(
       (d) => typeof d === "string" && d === '{"type":"KeepAlive"}',
