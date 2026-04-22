@@ -7,18 +7,22 @@
  * {@link bootstrapPlugins} runs, the registry has been fully populated for
  * this boot cycle. This function:
  *
- * 1. Walks {@link getRegisteredPlugins} in registration order.
- * 2. For each plugin, resolves its `manifest.requiresCredential` entries via
+ * 1. Registers the canonical first-party default plugins (one per pipeline
+ *    that has been wrapped so far — currently only `toolExecute` via
+ *    {@link defaultToolExecutePlugin}). Registration is idempotent so
+ *    repeat calls (e.g. during integration tests) do not throw.
+ * 2. Walks {@link getRegisteredPlugins} in registration order.
+ * 3. For each plugin, resolves its `manifest.requiresCredential` entries via
  *    the credential store helper ({@link getSecureKeyAsync}). In Docker mode
  *    that helper goes through the CES HTTP API transparently; in local mode
  *    it hits the encrypted file store / CES RPC backend.
- * 3. Validates the config block under `plugins.<name>` against
+ * 4. Validates the config block under `plugins.<name>` against
  *    `manifest.config` if the manifest supplies a parser-like validator
  *    (Zod schemas with `.parse()` are supported; anything else is passed
  *    through untouched).
- * 4. Creates `~/.vellum/plugins-data/<plugin>/` on demand for per-plugin
+ * 5. Creates `~/.vellum/plugins-data/<plugin>/` on demand for per-plugin
  *    writable state and exposes it via {@link PluginInitContext.pluginStorageDir}.
- * 5. Awaits `plugin.init(ctx)` sequentially. One init failure surfaces as a
+ * 6. Awaits `plugin.init(ctx)` sequentially. One init failure surfaces as a
  *    {@link PluginExecutionError} naming the offending plugin and aborts
  *    bootstrap — later plugins' `init()` never runs and the daemon fails
  *    startup cleanly rather than coming up in a half-wired state.
@@ -35,7 +39,17 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AssistantConfig } from "../config/schema.js";
+import { defaultEmptyResponsePlugin } from "../plugins/defaults/empty-response.js";
 import { defaultInjectorsPlugin } from "../plugins/defaults/injectors.js";
+import { defaultLlmCallPlugin } from "../plugins/defaults/llm-call.js";
+import { defaultMemoryRetrievalPlugin } from "../plugins/defaults/memory-retrieval.js";
+import { defaultToolErrorPlugin } from "../plugins/defaults/tool-error.js";
+import { defaultToolExecutePlugin } from "../plugins/defaults/tool-execute.js";
+import { defaultToolResultTruncatePlugin } from "../plugins/defaults/tool-result-truncate.js";
+import {
+  registerPluginSkills,
+  unregisterPluginSkills,
+} from "../plugins/plugin-skill-contributions.js";
 import {
   ASSISTANT_API_VERSIONS,
   getRegisteredPlugins,
@@ -45,33 +59,24 @@ import {
   type Plugin,
   PluginExecutionError,
   type PluginInitContext,
+  type PluginSkillRegistration,
 } from "../plugins/types.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { vellumRoot } from "../util/platform.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
 
-/**
- * Register first-party default plugins into the registry.
- *
- * Called by {@link bootstrapPlugins} before it walks the registry so every
- * default plugin's `init()` runs alongside any third-party plugins loaded
- * via side-effect imports earlier in the boot sequence.
- *
- * Idempotent: skips any default plugin already present in the registry (by
- * manifest name). This lets tests pre-register a stub `default-injectors`
- * plugin to override the real chain, and keeps re-entry safe when a caller
- * invokes `bootstrapPlugins` multiple times in the same process (e.g.
- * hot-reload).
- */
-function registerDefaultPlugins(): void {
-  const existingNames = new Set(
-    getRegisteredPlugins().map((p) => p.manifest.name),
-  );
-  if (!existingNames.has(defaultInjectorsPlugin.manifest.name)) {
-    registerPlugin(defaultInjectorsPlugin);
-  }
-}
+// ─── First-party default plugins ─────────────────────────────────────────────
+//
+// Register default plugins at module load so the registry is populated before
+// `bootstrapPlugins()` runs. Each wrapped pipeline has a corresponding default
+// plugin whose middleware is the passthrough terminal — the plugin system
+// always needs a terminal to fall through to when no other plugin intercepts.
+//
+// Idempotency: this module is imported once via ES module semantics, so the
+// registry never sees duplicate registration. Test environments call
+// `resetPluginRegistryForTests()` and re-register explicitly.
+registerPlugin(defaultLlmCallPlugin);
 
 const log = getLogger("plugins-bootstrap");
 
@@ -159,6 +164,42 @@ function ensurePluginStorageDir(pluginName: string): string {
 }
 
 /**
+ * Register every first-party default plugin. Called from `bootstrapPlugins`
+ * before enumerating the registry so the defaults are always present when
+ * the daemon serves traffic. Each registration is guarded by a
+ * `registeredPlugins` lookup via try/catch — the registry throws
+ * `PluginExecutionError` on duplicate names, which we treat as "already
+ * registered" so repeated bootstrap calls (notably in integration tests
+ * that reuse a warmed-up registry) do not fail.
+ */
+function registerDefaultPlugins(): void {
+  const defaults = [
+    defaultToolExecutePlugin,
+    defaultToolResultTruncatePlugin,
+    defaultEmptyResponsePlugin,
+    defaultToolErrorPlugin,
+    defaultMemoryRetrievalPlugin,
+    defaultInjectorsPlugin,
+  ];
+  for (const plugin of defaults) {
+    try {
+      registerPlugin(plugin);
+    } catch (err) {
+      // Duplicate-name registrations surface as PluginExecutionError with a
+      // specific "already registered" substring. Swallow that one case —
+      // every other error (shape failure, version mismatch) re-throws.
+      if (
+        err instanceof PluginExecutionError &&
+        err.message.includes("already registered")
+      ) {
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+/**
  * Run every registered plugin's `init()` hook sequentially and install a
  * reverse-order shutdown hook. See the module docstring for full semantics.
  *
@@ -171,10 +212,12 @@ function ensurePluginStorageDir(pluginName: string): string {
  * run) and before the first conversation is served.
  */
 export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
-  // Register first-party default plugins before walking the registry so the
-  // default injector chain (`defaultInjectorsPlugin`) is present on every
-  // boot. Third-party plugins register themselves via side-effect imports
-  // earlier in the boot sequence; they remain in whatever order they loaded.
+  // Register first-party default plugins. Each default wraps one of the
+  // assistant's canonical pipelines (`toolExecute`, `llmCall`, ...) with a
+  // passthrough so the pipeline shape is explicit at boot even when no
+  // third-party plugins are loaded. Registration is idempotent via the
+  // already-registered guard so repeated calls (e.g. during integration
+  // tests) do not throw.
   registerDefaultPlugins();
 
   const plugins = getRegisteredPlugins();
@@ -237,6 +280,31 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
       }
     }
 
+    // After init succeeds, wire in the plugin's model-visible capabilities.
+    // Skills (PR 33) register into the in-memory plugin-skill catalog so
+    // `skill_load` / `skill_execute` can resolve them alongside filesystem
+    // skills. A registration failure aborts bootstrap with the plugin named
+    // — same strict-fail posture as init() throws.
+    if (plugin.skills && plugin.skills.length > 0) {
+      try {
+        // `plugin.skills` is typed as `PluginSkillRegistration[]` at the
+        // Plugin interface — the type assertion here is a narrowing from
+        // that generic slot into the concrete shape the registry expects.
+        registerPluginSkills(
+          name,
+          plugin.skills as readonly PluginSkillRegistration[],
+        );
+      } catch (err) {
+        throw new PluginExecutionError(
+          `plugin ${name} skill registration failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+          name,
+          { cause: err },
+        );
+      }
+    }
+
     log.info({ plugin: name }, "plugin initialized");
   }
 
@@ -244,23 +312,43 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
   // the current plugin list so later registrations (if any) don't end up
   // being torn down by this hook; subsequent bootstraps (hot-reload) would
   // register their own hook.
+  //
+  // For each plugin we:
+  //   1. Call `onShutdown()` (if defined) so user code can clean up first,
+  //      while the skill is still registered and any in-flight `skill_load`
+  //      call is still serviceable.
+  //   2. Unregister the plugin's contributed skills via the ref-counted
+  //      helper. This mirrors the symmetry of registerPluginSkills() —
+  //      every successful registration must get a matching unregister call,
+  //      regardless of whether onShutdown throws.
   const shutdownSnapshot: Plugin[] = [...plugins];
   registerShutdownHook("plugins", async (reason) => {
     for (let i = shutdownSnapshot.length - 1; i >= 0; i--) {
       const plugin = shutdownSnapshot[i]!;
       const name = plugin.manifest.name;
-      if (!plugin.onShutdown) continue;
-      try {
-        await plugin.onShutdown();
-      } catch (err) {
-        // Swallow — we want every plugin's onShutdown to get a chance to
-        // run even when an earlier one throws. The outer runShutdownHooks
-        // already logs at hook level, but the plugin-name attribution here
-        // is what operators read first.
-        log.warn(
-          { err, plugin: name, reason },
-          "plugin onShutdown failed (continuing with remaining plugins)",
-        );
+      if (plugin.onShutdown) {
+        try {
+          await plugin.onShutdown();
+        } catch (err) {
+          // Swallow — we want every plugin's onShutdown to get a chance to
+          // run even when an earlier one throws. The outer runShutdownHooks
+          // already logs at hook level, but the plugin-name attribution here
+          // is what operators read first.
+          log.warn(
+            { err, plugin: name, reason },
+            "plugin onShutdown failed (continuing with remaining plugins)",
+          );
+        }
+      }
+      if (plugin.skills && plugin.skills.length > 0) {
+        try {
+          unregisterPluginSkills(name);
+        } catch (err) {
+          log.warn(
+            { err, plugin: name, reason },
+            "plugin skill unregistration failed (continuing with remaining plugins)",
+          );
+        }
       }
     }
   });

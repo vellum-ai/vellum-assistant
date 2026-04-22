@@ -68,6 +68,19 @@ import type { ConversationGraphMemory } from "../memory/graph/conversation-graph
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
+import {
+  asDefaultGraphPayload,
+  type DefaultMemoryRetrievalDeps,
+  type GraphMemoryPayload,
+  runDefaultMemoryRetrieval,
+} from "../plugins/defaults/memory-retrieval.js";
+import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
+import { getMiddlewaresFor } from "../plugins/registry.js";
+import type {
+  MemoryArgs,
+  MemoryResult,
+  TurnContext as PluginTurnContext,
+} from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
@@ -124,8 +137,6 @@ import {
   inboundActorContextFromTrustContext,
   loadSlackActiveThreadFocusBlock,
   loadSlackChronologicalMessages,
-  readNowScratchpad,
-  readPkbContext,
   stripInjectionsForCompaction,
 } from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
@@ -645,21 +656,61 @@ export async function runAgentLoopImpl(
 
     let runMessages = ctx.messages;
 
-    // Memory graph retrieval — dispatches to context-load / per-turn based on
-    // conversation state. Keep the query vector around so the PKB reminder
-    // can reuse it for relevance-hint search (see `applyRuntimeInjections`).
+    // Memory retrieval pipeline — fetches PKB, NOW.md, and memory-graph
+    // outputs through a single `memoryRetrieval` pipeline. Plugins may
+    // replace the terminal behavior by registering a middleware that
+    // short-circuits with its own `MemoryResult`; the default terminal
+    // below runs `runDefaultMemoryRetrieval` which reproduces the prior
+    // in-lined behavior (PKB/NOW reads + gated graph call).
+    const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
+    const memoryPluginTurnCtx: PluginTurnContext = {
+      requestId: reqId,
+      conversationId: ctx.conversationId,
+      turnIndex: ctx.turnCount,
+      ...(ctx.trustContext
+        ? { trust: ctx.trustContext }
+        : {
+            trust: {
+              sourceChannel: capturedTurnChannelContext.userMessageChannel,
+              trustClass: "unknown" as const,
+            },
+          }),
+    };
+    const memoryArgs: MemoryArgs = {
+      conversationId: ctx.conversationId,
+      trustContext: ctx.trustContext,
+      turnIndex: ctx.turnCount,
+    };
+    const memoryDeps: DefaultMemoryRetrievalDeps = {
+      messages: ctx.messages,
+      graphMemory: ctx.graphMemory,
+      config: getConfig(),
+      abortSignal: abortController.signal,
+      onEvent,
+      isTrustedActor,
+    };
+    const memoryResult: MemoryResult = await runPipeline(
+      "memoryRetrieval",
+      getMiddlewaresFor("memoryRetrieval"),
+      (args) => runDefaultMemoryRetrieval(args, memoryDeps),
+      memoryArgs,
+      memoryPluginTurnCtx,
+      DEFAULT_TIMEOUTS.memoryRetrieval,
+    );
+
+    // Consume the memory-graph block when the default retriever emitted
+    // one. Custom plugins that substitute their own blocks without the
+    // default discriminator are expected to handle their own side effects
+    // (event emission, metric persistence) inside their middleware; this
+    // block short-circuits to the original no-op behavior in that case.
+    const defaultGraphPayload: GraphMemoryPayload | null =
+      asDefaultGraphPayload(memoryResult.memoryGraphBlocks);
     let pkbQueryVector: number[] | undefined;
     let pkbSparseVector:
       | import("../memory/qdrant-client.js").QdrantSparseVector
       | undefined;
-    const isTrustedActor = resolveTrustClass(ctx.trustContext) === "guardian";
-    if (isTrustedActor) {
-      const graphResult = await ctx.graphMemory.prepareMemory(
-        ctx.messages,
-        getConfig(),
-        abortController.signal,
-        onEvent,
-      );
+    if (defaultGraphPayload) {
+      const graphResult = defaultGraphPayload.result;
       runMessages = graphResult.runMessages;
       // Select dense+sparse as a matched pair so RRF fusion combines two
       // signals aligned to the same query text:
@@ -867,11 +918,13 @@ export async function runAgentLoopImpl(
     // Inject NOW.md and PKB content only on the first turn (or after
     // compaction re-strips them).  Old injections persist in history and
     // are never stripped on normal turns — this preserves the cached prefix.
-    const currentNowContent = readNowScratchpad();
+    // PKB/NOW content is sourced from the `memoryRetrieval` pipeline above
+    // so plugins can override either source without touching the agent loop.
+    const currentNowContent = memoryResult.nowContent;
     const shouldInjectNowAndPkb = isFirstMessage || compactedThisTurn;
     const nowScratchpad = shouldInjectNowAndPkb ? currentNowContent : null;
 
-    const currentPkbContent = readPkbContext();
+    const currentPkbContent = memoryResult.pkbContent;
     const pkbContext = shouldInjectNowAndPkb ? currentPkbContent : null;
     const pkbActive = currentPkbContent !== null;
 
