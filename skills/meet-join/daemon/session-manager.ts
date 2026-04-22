@@ -416,7 +416,16 @@ interface ActiveSession extends MeetSession {
  * unsubscribe lets callers drop their tap without disturbing peers.
  */
 export interface MeetAudioIngestLike {
-  start(meetingId: string, socketPath: string): Promise<void>;
+  /**
+   * Open the audio-ingest TCP server and streaming STT session.
+   *
+   * Returns `{ port, ready }` as soon as the server is bound — `port` is
+   * the OS-assigned loopback port the session manager threads into the
+   * bot container as `DAEMON_AUDIO_PORT`, and `ready` resolves once the
+   * bot has actually connected (or rejects on timeout). Splitting the two
+   * lets the container spawn run concurrently with the bot-connect wait.
+   */
+  start(meetingId: string): Promise<{ port: number; ready: Promise<void> }>;
   stop(): Promise<void>;
   subscribePcm(cb: (bytes: Uint8Array) => void): () => void;
 }
@@ -940,7 +949,6 @@ class MeetSessionManagerImpl {
     let meet: ReturnType<typeof getMeetConfig>;
     let workspaceDir: string;
     let meetingDir: string;
-    let socketsDir: string;
     let outDir: string;
     let botApiToken: string;
     let ttsKey: string;
@@ -958,9 +966,7 @@ class MeetSessionManagerImpl {
 
       workspaceDir = this.deps.getWorkspaceDir();
       meetingDir = join(workspaceDir, "meets", meetingId);
-      socketsDir = join(meetingDir, "sockets");
       outDir = join(meetingDir, "out");
-      mkdirSync(socketsDir, { recursive: true });
       mkdirSync(outDir, { recursive: true });
 
       botApiToken = generateBotApiToken();
@@ -1045,30 +1051,48 @@ class MeetSessionManagerImpl {
     // of `start()`, which may begin emitting partials immediately.
     registerMeetingDispatcher(meetingId);
 
-    // Audio ingest + container spawn are started concurrently:
-    //   1. The ingest opens its Unix-socket server and a streaming STT
-    //      session (provider resolved from `services.stt.provider` via
-    //      the provider catalog), then waits for the bot to connect
-    //      (bounded by a 30s timeout).
-    //   2. The container is started in parallel; once it boots, the bot
-    //      process inside dials the shared socket.
+    // Audio ingest first, container spawn second:
+    //   1. The ingest opens a streaming STT session (provider resolved
+    //      from `services.stt.provider` via the provider catalog) and
+    //      binds a loopback TCP port. Resolves with `{ port, ready }` as
+    //      soon as the server is listening.
+    //   2. The container is spawned with `DAEMON_AUDIO_PORT=<port>` in
+    //      its env so the bot knows where to dial.
+    //   3. Container spawn and the bot-connect wait (`ready`) run
+    //      concurrently — spawn typically dominates (seconds) while the
+    //      bot's in-browser join flow takes up to 120s.
     //
-    // Starting the ingest first (i.e. before `runner.run()` returns) is
-    // what lets the bot connect as soon as its process comes up. Running
-    // them concurrently keeps the total latency bounded — the join
-    // completes once both steps succeed, or fails fast if either step
-    // rejects (e.g. with a {@link MeetAudioIngestError} when no
-    // streaming-capable STT provider is configured).
-    const audioSocketPath = join(socketsDir, "audio.sock");
+    // The port phase is synchronous-ish (STT handshake + TCP bind,
+    // normally ~200ms), so the concurrency loss vs. the old "kick ingest
+    // + container in parallel" path is negligible. A failure here
+    // (e.g. {@link MeetAudioIngestError} when no streaming-capable STT
+    // provider is configured) fails fast before we spend time spinning up
+    // a container.
     const audioIngest = this.deps.audioIngestFactory();
-    const audioIngestPromise = audioIngest.start(meetingId, audioSocketPath);
-    // Guard the ingest promise immediately so a rejection between here and
-    // the first explicit `await audioIngestPromise` (after `runner.run()`)
+    let audioIngestReady: Promise<void>;
+    let audioPort: number;
+    try {
+      const handle = await audioIngest.start(meetingId);
+      audioPort = handle.port;
+      audioIngestReady = handle.ready;
+    } catch (err) {
+      unregisterMeetingDispatcher(meetingId);
+      this.pendingBotTokens.delete(meetingId);
+      void publishMeetEvent(
+        DAEMON_INTERNAL_ASSISTANT_ID,
+        meetingId,
+        "meet.error",
+        { detail: errorDetail(err) },
+      );
+      throw err;
+    }
+    // Guard the ready promise immediately so a rejection between here and
+    // the first explicit `await audioIngestReady` (after `runner.run()`)
     // does not surface as an unhandled rejection. The global handler in
     // `shutdown-handlers.ts` calls `process.exit(1)` on unhandled
-    // rejections, so without this guard a transient STT failure during
-    // container spawn would crash the entire daemon.
-    audioIngestPromise.catch(() => {});
+    // rejections, so without this guard a transient bot-connect failure
+    // during container spawn would crash the entire daemon.
+    audioIngestReady.catch(() => {});
 
     const env: Record<string, string> = {
       MEET_URL: url,
@@ -1082,7 +1106,14 @@ class MeetSessionManagerImpl {
       CONSENT_MESSAGE: resolvedConsentMessage,
       DAEMON_URL: daemonUrl,
       BOT_API_TOKEN: botApiToken,
-      // STT credentials live on the daemon, not the bot — bot connects via Unix socket.
+      // Loopback TCP port the daemon's audio-ingest server bound. The bot
+      // dials `host.docker.internal:<port>` to stream PCM. Unix sockets
+      // over a bind mount are not usable here — Docker Desktop on macOS
+      // rejects connect() across the host↔VM VirtioFS boundary.
+      DAEMON_AUDIO_PORT: String(audioPort),
+      // STT credentials live on the daemon, not the bot — the bot just
+      // streams raw PCM and the daemon forwards it to the configured
+      // streaming STT provider.
       TTS_API_KEY: ttsKey,
       // Enable the in-container Pulse null-sink by default (set to "1" to
       // disable in dev). Match the meet-bot image expectation.
@@ -1132,12 +1163,8 @@ class MeetSessionManagerImpl {
         // Logical workspace-rooted mounts. DockerRunner resolves each one
         // to either a host-path bind (bare-metal mode) or a named-volume
         // subpath mount (Docker mode) based on the daemon's runtime mode.
-        // Session-manager stays mode-agnostic — the only thing we rely on
-        // is that the directories exist under the daemon's view of the
-        // workspace so the audio-ingest socket path lines up with what the
-        // bot sees inside its container.
+        // Session-manager stays mode-agnostic.
         workspaceMounts: [
-          { target: "/sockets", subpath: `meets/${meetingId}/sockets` },
           { target: "/out", subpath: `meets/${meetingId}/out` },
         ],
         ports: [
@@ -1208,17 +1235,13 @@ class MeetSessionManagerImpl {
       throw new Error(detail);
     }
 
-    // Now that the container is up, wait for the ingest to finish setup
-    // (streaming STT session opened + bot connected via the shared
-    // socket). If the bot never connects within the 30s timeout — or the
-    // ingest fails to open a streaming session (e.g. no STT provider
-    // configured; surfaced as `MeetAudioIngestError`) — the promise
-    // rejects and we roll the container back before re-throwing. The
-    // error's `message` is forwarded to the caller via both the `throw`
-    // and the `meet.error` event, so the user sees a pointer at
-    // `services.stt.provider` when that's the cause.
+    // Now that the container is up, wait for the bot to dial our loopback
+    // TCP port. If it fails to connect within {@link BOT_CONNECT_TIMEOUT_MS}
+    // the promise rejects and we roll the container back before re-throwing.
+    // The error's `message` is forwarded to the caller via both the
+    // `throw` and the `meet.error` event.
     try {
-      await audioIngestPromise;
+      await audioIngestReady;
     } catch (err) {
       log.error(
         { err, meetingId, containerId: runResult.containerId },

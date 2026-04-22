@@ -3,10 +3,16 @@
  *
  * Spawns `parec` against the `meet_capture.monitor` Pulse source (set up by
  * `pulse-setup.sh` in PR 5), chunks the raw PCM stream into fixed-size
- * frames, and writes those frames into a Unix socket whose server end is
- * opened by the daemon (`MeetAudioIngest`, PR 16) on the host. The socket
- * path is bind-mounted into the container so the bot can connect as a
- * client.
+ * frames, and writes those frames into a TCP socket whose server end is
+ * opened by the daemon (`MeetAudioIngest`) on the host loopback interface.
+ * The bot dials `host.docker.internal:<port>` to reach it.
+ *
+ * TCP (rather than a Unix-domain socket over a bind mount) is required
+ * because Docker Desktop on macOS exposes the socket file through its
+ * VirtioFS/gRPC-FUSE layer but the kernel rejects `connect()` with
+ * `EOPNOTSUPP` — so Unix sockets across the host↔VM mount boundary work
+ * on Linux only. Loopback TCP traverses `host.docker.internal` cleanly on
+ * every platform the bot runs on.
  *
  * Defaults are tuned for Deepgram's realtime STT: s16le mono 16kHz with
  * 20ms frames (320 bytes = 160 samples * 2 bytes). Callers can override the
@@ -66,10 +72,12 @@ const STABILITY_WINDOW_SECONDS = 2;
 
 export interface AudioCaptureOptions {
   /**
-   * Absolute path to the Unix socket the daemon is listening on. The daemon
-   * owns the server end; the bot is the client.
+   * Host to dial for the daemon's audio server. In production the bot reaches
+   * the daemon via `host.docker.internal`; tests pass `127.0.0.1`.
    */
-  socketPath: string;
+  daemonHost: string;
+  /** TCP port the daemon's audio server is listening on. */
+  daemonPort: number;
   /**
    * Pulse source to capture from. Defaults to the monitor of the
    * `meet_capture` null-sink created by `pulse-setup.sh`.
@@ -155,7 +163,7 @@ export interface CapturedSocket {
   ): void;
 }
 
-export type ConnectFactory = (socketPath: string) => CapturedSocket;
+export type ConnectFactory = (host: string, port: number) => CapturedSocket;
 
 /** Default spawn factory — delegates to `Bun.spawn` with the parec flags. */
 function defaultSpawn(argv: readonly string[]): SpawnedParec {
@@ -171,9 +179,9 @@ function defaultSpawn(argv: readonly string[]): SpawnedParec {
   };
 }
 
-/** Default connect factory — a Node `net.createConnection` over a Unix path. */
-function defaultConnect(socketPath: string): CapturedSocket {
-  const sock: NetSocket = netCreateConnection({ path: socketPath });
+/** Default connect factory — a Node `net.createConnection` over loopback TCP. */
+function defaultConnect(host: string, port: number): CapturedSocket {
+  const sock: NetSocket = netCreateConnection({ host, port });
   return {
     write: (chunk) => sock.write(chunk),
     end: () => sock.end(),
@@ -293,7 +301,7 @@ export async function startAudioCapture(
     // 2. Connect to the daemon socket.
     let sock: CapturedSocket;
     try {
-      sock = connect(opts.socketPath);
+      sock = connect(opts.daemonHost, opts.daemonPort);
     } catch (err) {
       // Socket open failed synchronously — kill parec and report.
       try {

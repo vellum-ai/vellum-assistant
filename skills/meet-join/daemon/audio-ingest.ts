@@ -34,9 +34,9 @@
  *     without touching real sockets or a real STT provider account.
  */
 
-import { existsSync, unlinkSync } from "node:fs";
 import {
   createServer as netCreateServer,
+  type AddressInfo,
   type Server as NetServer,
   type Socket as NetSocket,
 } from "node:net";
@@ -58,7 +58,16 @@ import { getMeetSessionEventRouter } from "./session-event-router.js";
 const log = getLogger("meet-audio-ingest");
 
 /**
- * Maximum wall-clock time the bot is given to connect to the audio socket
+ * Host the audio-ingest TCP server binds to. Loopback-only: the bot
+ * reaches us via Docker's `host.docker.internal` alias which maps back to
+ * the host's loopback interface, so there is no reason to accept
+ * connections from anywhere else. External listeners would expose the
+ * raw PCM stream to anything else running on the host.
+ */
+export const AUDIO_INGEST_BIND_HOST = "127.0.0.1";
+
+/**
+ * Maximum wall-clock time the bot is given to connect to the audio port
  * after `start()` opens it. Exceeding this rejects `start()` with a clear
  * error so the session manager can abort the join and clean up the
  * container.
@@ -116,9 +125,11 @@ export class MeetAudioIngestError extends Error {
  * keeping the surface small makes the factory override easier to mock in
  * tests without pulling in the full net module types.
  */
-export interface UnixSocketServer {
+export interface AudioIngestServer {
+  /** TCP port the server accepted its bind on. */
+  readonly port: number;
   /** Register a listener for inbound client connections. */
-  onConnection(listener: (socket: UnixSocketConnection) => void): void;
+  onConnection(listener: (socket: AudioIngestConnection) => void): void;
   /** Register a listener for server-level errors. */
   onError(listener: (err: Error) => void): void;
   /**
@@ -134,7 +145,7 @@ export interface UnixSocketServer {
  * Keyed off `node:net`'s `Socket` but intentionally narrower — we only use
  * data/close/error listeners and a destroy method.
  */
-export interface UnixSocketConnection {
+export interface AudioIngestConnection {
   onData(listener: (chunk: Buffer) => void): void;
   onClose(listener: () => void): void;
   onError(listener: (err: Error) => void): void;
@@ -142,12 +153,12 @@ export interface UnixSocketConnection {
 }
 
 /**
- * Factory signature used to open the Unix-socket server. Production code
- * passes the default (node:net) implementation; tests inject a shim.
+ * Factory signature used to open the audio-ingest TCP server. Production
+ * code passes the default (node:net) implementation; tests inject a shim.
+ * The factory binds to an OS-assigned port on loopback and returns the
+ * server handle with the resolved port exposed.
  */
-export type UnixSocketListenFn = (
-  socketPath: string,
-) => Promise<UnixSocketServer>;
+export type AudioIngestListenFn = () => Promise<AudioIngestServer>;
 
 // ---------------------------------------------------------------------------
 // Streaming transcriber factory
@@ -170,8 +181,8 @@ export type StreamingTranscriberFactory = () => Promise<StreamingTranscriber>;
 export interface MeetAudioIngestDeps {
   /** Override for the streaming-transcriber factory (tests). */
   createTranscriber?: StreamingTranscriberFactory;
-  /** Override for the Unix-socket listener factory (tests). */
-  listen?: UnixSocketListenFn;
+  /** Override for the audio-ingest TCP listener factory (tests). */
+  listen?: AudioIngestListenFn;
   /** Override the bot-connect timeout (tests). */
   botConnectTimeoutMs?: number;
   /**
@@ -194,14 +205,12 @@ export type PcmSubscriber = (bytes: Uint8Array) => void;
  */
 export class MeetAudioIngest {
   private readonly createTranscriber: StreamingTranscriberFactory;
-  private readonly listen: UnixSocketListenFn;
+  private readonly listen: AudioIngestListenFn;
   private readonly botConnectTimeoutMs: number;
   private readonly diarize: boolean;
 
-  /** Stored only for teardown — set in `start()`. */
-  private socketPath: string | null = null;
-  private server: UnixSocketServer | null = null;
-  private connection: UnixSocketConnection | null = null;
+  private server: AudioIngestServer | null = null;
+  private connection: AudioIngestConnection | null = null;
   private transcriber: StreamingTranscriber | null = null;
   private meetingId: string | null = null;
   private stopped = false;
@@ -239,39 +248,34 @@ export class MeetAudioIngest {
   }
 
   /**
-   * Open the Unix-socket server the bot will connect to, start a streaming
-   * STT session, and wire PCM frames into it.
+   * Open the audio-ingest TCP server the bot will connect to, start a
+   * streaming STT session, and wire PCM frames into it.
    *
-   * The promise resolves once:
-   *   - the socket server is listening, AND
-   *   - the streaming session has connected.
+   * Returns a two-phase handle:
+   *   - `port` — the OS-assigned loopback port the server is bound to.
+   *     Available as soon as the outer promise resolves, so the caller can
+   *     thread it into the bot container's env before spawning.
+   *   - `ready` — resolves once the bot has actually connected; rejects
+   *     if the bot fails to connect within {@link BOT_CONNECT_TIMEOUT_MS}.
    *
-   * It rejects if either step fails or if the bot has not connected within
-   * {@link BOT_CONNECT_TIMEOUT_MS} of `start()` being called. Rejections
-   * due to missing provider configuration surface as
-   * {@link MeetAudioIngestError}.
+   * The outer promise rejects if the STT session fails to open or the
+   * server cannot bind. Rejections due to missing provider configuration
+   * surface as {@link MeetAudioIngestError}.
+   *
+   * Splitting "port available" from "bot connected" lets the session
+   * manager keep container spawn concurrent with the bot-connect wait
+   * without losing the env-var threading we need to point the bot at a
+   * per-meeting port.
    */
-  async start(meetingId: string, socketPath: string): Promise<void> {
+  async start(
+    meetingId: string,
+  ): Promise<{ port: number; ready: Promise<void> }> {
     if (this.meetingId) {
       throw new Error(
         `MeetAudioIngest: start() called twice (meetingId=${this.meetingId})`,
       );
     }
     this.meetingId = meetingId;
-    this.socketPath = socketPath;
-
-    // Remove any stale socket file left over from a previous run so
-    // `listen()` doesn't fail with EADDRINUSE.
-    if (existsSync(socketPath)) {
-      try {
-        unlinkSync(socketPath);
-      } catch (err) {
-        log.warn(
-          { err, socketPath },
-          "Failed to unlink stale audio socket (continuing)",
-        );
-      }
-    }
 
     // Open the streaming STT session first. We want the socket server
     // to be able to pump audio into an already-connected session as
@@ -281,10 +285,9 @@ export class MeetAudioIngest {
       transcriber = await this.createTranscriber();
     } catch (err) {
       this.meetingId = null;
-      this.socketPath = null;
       throw err;
     }
-    if (this.stopped) return;
+    if (this.stopped) return { port: 0, ready: Promise.resolve() };
     this.transcriber = transcriber;
 
     try {
@@ -294,16 +297,16 @@ export class MeetAudioIngest {
     } catch (err) {
       this.transcriber = null;
       this.meetingId = null;
-      this.socketPath = null;
       throw err;
     }
-    if (this.stopped) return;
+    if (this.stopped) return { port: 0, ready: Promise.resolve() };
 
-    // Open the Unix-socket server. The bot will dial this path from inside
-    // its container as soon as it boots.
-    let server: UnixSocketServer;
+    // Open the TCP server on loopback. The bot dials it via
+    // `host.docker.internal:<port>` once its Chrome extension signals
+    // `lifecycle:joined`.
+    let server: AudioIngestServer;
     try {
-      server = await this.listen(socketPath);
+      server = await this.listen();
     } catch (err) {
       // Streaming session is already up — tear it down before propagating.
       try {
@@ -313,7 +316,6 @@ export class MeetAudioIngest {
       }
       this.transcriber = null;
       this.meetingId = null;
-      this.socketPath = null;
       throw err;
     }
     // If stop() was called concurrently while listen() was in flight, it
@@ -326,28 +328,31 @@ export class MeetAudioIngest {
       } catch (err) {
         log.warn({ err }, "MeetAudioIngest: server close after stop threw");
       }
-      return;
+      return { port: 0, ready: Promise.resolve() };
     }
     this.server = server;
+    const boundPort = server.port;
 
     server.onError((err) => {
       log.error({ err, meetingId }, "MeetAudioIngest: socket server error");
     });
 
     // Wait for the bot to connect, bounded by BOT_CONNECT_TIMEOUT_MS.
-    await new Promise<void>((resolve, reject) => {
+    // Returned to the caller as `ready` so container spawn can run
+    // concurrently with the connect wait.
+    const ready = new Promise<void>((resolve, reject) => {
       let settled = false;
 
       const timer = setTimeout(() => {
         if (settled) return;
         settled = true;
         log.warn(
-          { meetingId, socketPath, timeoutMs: this.botConnectTimeoutMs },
+          { meetingId, port: boundPort, timeoutMs: this.botConnectTimeoutMs },
           "MeetAudioIngest: bot did not connect within timeout",
         );
         reject(
           new Error(
-            `MeetAudioIngest: bot did not connect to ${socketPath} within ${this.botConnectTimeoutMs}ms`,
+            `MeetAudioIngest: bot did not connect to 127.0.0.1:${boundPort} within ${this.botConnectTimeoutMs}ms`,
           ),
         );
       }, this.botConnectTimeoutMs);
@@ -368,19 +373,22 @@ export class MeetAudioIngest {
 
         this.connection = conn;
         this.wireConnection(conn, meetingId);
+        log.info(
+          { meetingId, port: boundPort },
+          "MeetAudioIngest: bot connected",
+        );
         resolve();
       });
     });
 
-    log.info({ meetingId, socketPath }, "MeetAudioIngest: bot connected");
+    return { port: boundPort, ready };
   }
 
   /**
    * Tear down the ingest:
    *   1. Stop forwarding audio.
    *   2. Close the streaming session (provider may flush remaining finals).
-   *   3. Close the socket server.
-   *   4. Unlink the socket file.
+   *   3. Close the TCP server.
    *
    * Idempotent — calling `stop()` twice is a no-op after the first call.
    */
@@ -423,21 +431,6 @@ export class MeetAudioIngest {
       }
     }
 
-    // Unlink the socket file best-effort — the file may already be gone
-    // (e.g. the workspace directory was cleaned up).
-    const socketPath = this.socketPath;
-    this.socketPath = null;
-    if (socketPath && existsSync(socketPath)) {
-      try {
-        unlinkSync(socketPath);
-      } catch (err) {
-        log.warn(
-          { err, socketPath },
-          "MeetAudioIngest: socket unlink threw — file may leak",
-        );
-      }
-    }
-
     // Drop any lingering PCM subscribers so they can't keep a reference to
     // the ingest alive past stop. Subscribers that unsubscribed on their
     // own (e.g. the storage writer on `stop()`) are already gone.
@@ -453,7 +446,7 @@ export class MeetAudioIngest {
    * subscriber. Subscribers that throw are logged and evicted so one
    * misbehaving consumer cannot break peers.
    */
-  private wireConnection(conn: UnixSocketConnection, meetingId: string): void {
+  private wireConnection(conn: AudioIngestConnection, meetingId: string): void {
     conn.onData((chunk) => {
       if (this.stopped) return;
       const transcriber = this.transcriber;
@@ -599,14 +592,17 @@ async function defaultCreateTranscriber(): Promise<StreamingTranscriber> {
 }
 
 /**
- * Default socket-server factory — opens a `node:net` server listening on
- * the Unix-domain path. Each incoming connection is wrapped in a small
- * shim implementing {@link UnixSocketConnection}.
+ * Default audio-ingest listener — opens a `node:net` TCP server bound to
+ * loopback with an OS-assigned port. The port is read back from the
+ * server's address once `listen()` resolves and exposed on the returned
+ * {@link AudioIngestServer} so the session manager can thread it through
+ * to the bot container as the `DAEMON_AUDIO_PORT` env var.
  */
-function defaultListen(socketPath: string): Promise<UnixSocketServer> {
-  return new Promise<UnixSocketServer>((resolve, reject) => {
+function defaultListen(): Promise<AudioIngestServer> {
+  return new Promise<AudioIngestServer>((resolve, reject) => {
     let settled = false;
-    const connectionListeners: Array<(conn: UnixSocketConnection) => void> = [];
+    const connectionListeners: Array<(conn: AudioIngestConnection) => void> =
+      [];
     const errorListeners: Array<(err: Error) => void> = [];
 
     const netServer: NetServer = netCreateServer((socket) => {
@@ -635,11 +631,30 @@ function defaultListen(socketPath: string): Promise<UnixSocketServer> {
       }
     });
 
-    netServer.listen(socketPath, () => {
+    netServer.listen({ host: AUDIO_INGEST_BIND_HOST, port: 0 }, () => {
       if (settled) return;
       settled = true;
 
-      const wrapped: UnixSocketServer = {
+      const address = netServer.address();
+      if (!address || typeof address === "string") {
+        // `netServer.address()` returns `null` only if the server is not
+        // listening, and a `string` only for Unix-domain servers — neither
+        // can occur after a successful TCP `listen()`. Guard anyway so a
+        // future refactor that reintroduces Unix-domain listens (tests,
+        // alternate transports) fails loudly instead of silently passing
+        // `0` as the port.
+        netServer.close();
+        reject(
+          new Error(
+            `MeetAudioIngest: unexpected listen address shape: ${JSON.stringify(address)}`,
+          ),
+        );
+        return;
+      }
+      const port = (address as AddressInfo).port;
+
+      const wrapped: AudioIngestServer = {
+        port,
         onConnection: (listener) => {
           connectionListeners.push(listener);
         },
@@ -658,9 +673,9 @@ function defaultListen(socketPath: string): Promise<UnixSocketServer> {
 
 /**
  * Adapt a raw `node:net` Socket to the narrow
- * {@link UnixSocketConnection} surface consumed by the ingest.
+ * {@link AudioIngestConnection} surface consumed by the ingest.
  */
-function adaptNetSocket(socket: NetSocket): UnixSocketConnection {
+function adaptNetSocket(socket: NetSocket): AudioIngestConnection {
   return {
     onData: (listener) => socket.on("data", listener),
     onClose: (listener) => socket.on("close", listener),

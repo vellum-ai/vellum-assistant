@@ -204,7 +204,8 @@ describe("startAudioCapture — argv + defaults", () => {
     const sock = recordingSocket();
 
     const capture = await startAudioCapture({
-      socketPath: "/tmp/test.sock",
+      daemonHost: "127.0.0.1",
+      daemonPort: 9000,
       spawn: (argv) => {
         spawnedArgv.push([...argv]);
         return proc;
@@ -231,7 +232,8 @@ describe("startAudioCapture — argv + defaults", () => {
     const sock = recordingSocket();
 
     const capture = await startAudioCapture({
-      socketPath: "/tmp/test.sock",
+      daemonHost: "127.0.0.1",
+      daemonPort: 9000,
       sourceDevice: "custom_source.monitor",
       rateHz: 48_000,
       spawn: (argv) => {
@@ -253,21 +255,24 @@ describe("startAudioCapture — argv + defaults", () => {
     await capture.stop();
   });
 
-  test("passes the socketPath verbatim to the connect factory", async () => {
+  test("passes daemonHost and daemonPort verbatim to the connect factory", async () => {
     const { proc } = fakeParec([]);
     const sock = recordingSocket();
-    const seenPaths: string[] = [];
+    const seenTargets: Array<{ host: string; port: number }> = [];
 
     const capture = await startAudioCapture({
-      socketPath: "/var/run/meet/audio-xyz.sock",
+      daemonHost: "host.docker.internal",
+      daemonPort: 42173,
       spawn: () => proc,
-      connect: (path) => {
-        seenPaths.push(path);
+      connect: (host, port) => {
+        seenTargets.push({ host, port });
         return sock;
       },
     });
 
-    expect(seenPaths).toEqual(["/var/run/meet/audio-xyz.sock"]);
+    expect(seenTargets).toEqual([
+      { host: "host.docker.internal", port: 42173 },
+    ]);
     await capture.stop();
   });
 
@@ -278,7 +283,8 @@ describe("startAudioCapture — argv + defaults", () => {
     let thrown: unknown;
     try {
       await startAudioCapture({
-        socketPath: "/tmp/x.sock",
+        daemonHost: "127.0.0.1",
+        daemonPort: 9000,
         frameBytes: 0,
         spawn: () => proc,
         connect: () => sock,
@@ -306,7 +312,8 @@ describe("startAudioCapture — framing", () => {
     const sock = recordingSocket();
 
     const capture = await startAudioCapture({
-      socketPath: "/tmp/t.sock",
+      daemonHost: "127.0.0.1",
+      daemonPort: 9000,
       spawn: () => proc,
       connect: () => sock,
     });
@@ -335,7 +342,8 @@ describe("startAudioCapture — framing", () => {
     const sock = recordingSocket();
 
     const capture = await startAudioCapture({
-      socketPath: "/tmp/t.sock",
+      daemonHost: "127.0.0.1",
+      daemonPort: 9000,
       frameBytes,
       spawn: () => proc,
       connect: () => sock,
@@ -358,7 +366,8 @@ describe("startAudioCapture — framing", () => {
     const sock = recordingSocket();
 
     const capture = await startAudioCapture({
-      socketPath: "/tmp/t.sock",
+      daemonHost: "127.0.0.1",
+      daemonPort: 9000,
       frameBytes,
       spawn: () => proc,
       connect: () => sock,
@@ -389,7 +398,8 @@ describe("startAudioCapture — reconnect", () => {
     const sock = recordingSocket();
 
     const capture = await startAudioCapture({
-      socketPath: "/tmp/t.sock",
+      daemonHost: "127.0.0.1",
+      daemonPort: 9000,
       spawn: (argv) => {
         spawnCalls.push([...argv]);
         const p = procs[spawnIdx++];
@@ -413,7 +423,8 @@ describe("startAudioCapture — reconnect", () => {
     // must reject with an Error mentioning the retry exhaustion.
     let spawnCount = 0;
     const capture = await startAudioCapture({
-      socketPath: "/tmp/t.sock",
+      daemonHost: "127.0.0.1",
+      daemonPort: 9000,
       spawn: () => {
         spawnCount += 1;
         return fakeFailedParec(1);
@@ -445,7 +456,8 @@ describe("startAudioCapture — reconnect", () => {
     const errors: Error[] = [];
     let spawnCount = 0;
     const capture = await startAudioCapture({
-      socketPath: "/tmp/t.sock",
+      daemonHost: "127.0.0.1",
+      daemonPort: 9000,
       onError: (err) => errors.push(err),
       spawn: () => {
         spawnCount += 1;
@@ -478,7 +490,8 @@ describe("startAudioCapture — stop semantics", () => {
     const sock = recordingSocket();
 
     const capture = await startAudioCapture({
-      socketPath: "/tmp/t.sock",
+      daemonHost: "127.0.0.1",
+      daemonPort: 9000,
       spawn: () => proc,
       connect: () => sock,
     });
@@ -498,7 +511,8 @@ describe("startAudioCapture — stop semantics", () => {
     const sock = recordingSocket();
 
     const capture = await startAudioCapture({
-      socketPath: "/tmp/t.sock",
+      daemonHost: "127.0.0.1",
+      daemonPort: 9000,
       spawn: () => proc,
       connect: () => sock,
     });
@@ -521,7 +535,8 @@ describe("startAudioCapture — stop semantics", () => {
     let spawnIdx = 0;
 
     const capture = await startAudioCapture({
-      socketPath: "/tmp/t.sock",
+      daemonHost: "127.0.0.1",
+      daemonPort: 9000,
       spawn: () => procs[spawnIdx++]!,
       connect: () => (connectIdx++ === 0 ? sock1 : sock2),
     });

@@ -118,7 +118,10 @@ function makeFakeAudioIngestFactory(): {
     factory: () => {
       const subscribers = new Set<(bytes: Uint8Array) => void>();
       const ingest: FakeAudioIngest = {
-        start: mock(async () => {}),
+        start: mock(async () => ({
+          port: 42173,
+          ready: Promise.resolve(),
+        })),
         stop: mock(async () => {}),
         subscribePcm: mock((cb: (bytes: Uint8Array) => void) => {
           subscribers.add(cb);
@@ -188,8 +191,8 @@ describe("MeetSessionManager.join", () => {
     expect(session.botBaseUrl).toBe("http://127.0.0.1:49200");
     expect(session.joinTimeoutMs).toBeGreaterThan(0);
 
-    // Workspace directories created.
-    expect(existsSync(join(workspaceDir, "meets", "m1", "sockets"))).toBe(true);
+    // Workspace directories created. Audio socket is a loopback TCP port
+    // now — no per-meeting `sockets/` subdir.
     expect(existsSync(join(workspaceDir, "meets", "m1", "out"))).toBe(true);
 
     // Event router registered a handler for this meeting.
@@ -244,9 +247,9 @@ describe("MeetSessionManager.join", () => {
     expect(runOpts.env.SKIP_PULSE).toBe("0");
 
     expect(runOpts.workspaceMounts).toEqual([
-      { target: "/sockets", subpath: "meets/m1/sockets" },
       { target: "/out", subpath: "meets/m1/out" },
     ]);
+    expect(runOpts.env.DAEMON_AUDIO_PORT).toBeDefined();
 
     expect(runOpts.ports).toEqual([
       {
@@ -309,6 +312,7 @@ describe("MeetSessionManager.join", () => {
     const factory = (): MeetAudioIngestLike => ({
       start: mock(async () => {
         await ingestStartPromise;
+        return { port: 42173, ready: Promise.resolve() };
       }),
       stop: mock(async () => {}),
       subscribePcm: mock(() => () => {}),
@@ -668,13 +672,10 @@ describe("MeetSessionManager audio ingest wiring", () => {
     const ingest = audioIngestFactory.getLastIngest();
     expect(ingest).not.toBeNull();
     expect(ingest!.start).toHaveBeenCalledTimes(1);
-    const call = ingest!.start.mock.calls[0] as unknown as [string, string];
-    expect(call).toHaveLength(2);
-    const [meetingId, socketPath] = call;
+    const call = ingest!.start.mock.calls[0] as unknown as [string];
+    expect(call).toHaveLength(1);
+    const [meetingId] = call;
     expect(meetingId).toBe("m-audio");
-    expect(socketPath).toBe(
-      join(workspaceDir, "meets", "m-audio", "sockets", "audio.sock"),
-    );
     // Session manager no longer fetches a Deepgram key — STT resolution
     // lives inside the audio ingest.
     expect(getProviderKey).not.toHaveBeenCalledWith("deepgram");
@@ -732,9 +733,14 @@ describe("MeetSessionManager audio ingest wiring", () => {
       botLeaveFetch: async () => {},
       audioIngestFactory: () => {
         const ingest = audioIngestFactory.factory();
-        ingest.start = mock(async () => {
-          throw new Error("bot-connect timeout");
-        });
+        // Simulate the port-bind succeeding but the bot never connecting:
+        // the session manager spawns the container concurrently with the
+        // bot-connect wait, so a `ready` rejection is the path that needs
+        // container rollback.
+        ingest.start = mock(async () => ({
+          port: 42173,
+          ready: Promise.reject(new Error("bot-connect timeout")),
+        }));
         return ingest;
       },
     });
@@ -1080,6 +1086,7 @@ describe("MeetSessionManager dispatcher sequencing", () => {
             callOrder.push(
               `ingest.start registeredCount=${getMeetSessionEventRouter().registeredCount()} meetingId=${meetingId}`,
             );
+            return { port: 42173, ready: Promise.resolve() };
           },
           stop: async () => {
             callOrder.push("ingest.stop");

@@ -120,8 +120,18 @@ interface BotEnv {
   consentMessage: string | undefined;
   daemonUrl: string | undefined;
   botApiToken: string | undefined;
-  /** Directory containing `audio.sock` — defaults to `/sockets`. */
-  socketDir: string;
+  /**
+   * Host to dial for the daemon's audio-ingest TCP port. Defaults to
+   * `host.docker.internal` — the alias Docker sets via `ExtraHosts` so the
+   * bot can reach its parent daemon on the host.
+   */
+  daemonAudioHost: string;
+  /**
+   * TCP port the daemon's audio-ingest server is listening on. Required —
+   * the session manager picks an ephemeral port and threads it through so
+   * multiple bots can coexist without colliding on a fixed port.
+   */
+  daemonAudioPort: number | undefined;
   /** When "1", skip PulseAudio setup — used by the boot smoke test. */
   skipPulse: boolean;
   /** Bind port for the HTTP control surface. Defaults to 3000. */
@@ -194,7 +204,10 @@ function readEnv(env: NodeJS.ProcessEnv = process.env): BotEnv {
     consentMessage: env.CONSENT_MESSAGE,
     daemonUrl: env.DAEMON_URL,
     botApiToken: env.BOT_API_TOKEN,
-    socketDir: env.SOCKET_DIR ?? "/sockets",
+    daemonAudioHost: env.DAEMON_AUDIO_HOST ?? "host.docker.internal",
+    daemonAudioPort: env.DAEMON_AUDIO_PORT
+      ? Number(env.DAEMON_AUDIO_PORT)
+      : undefined,
     skipPulse: env.SKIP_PULSE === "1",
     httpPort: env.HTTP_PORT ? Number(env.HTTP_PORT) : 3000,
     extensionPath: env.EXTENSION_PATH ?? "/app/ext",
@@ -892,9 +905,39 @@ export async function runBot(deps: BotDeps): Promise<void> {
 
     // ---------------------------------------------------------------------
     // Step 7 — audio capture.
+    //
+    // Dials the daemon's audio-ingest TCP port on `host.docker.internal`.
+    // If the port is missing we fail the boot: the bot cannot do useful
+    // work without streaming audio, and a silent no-op would manifest
+    // downstream as the daemon's 120s "bot did not connect" timeout.
     // ---------------------------------------------------------------------
+    if (env.daemonAudioPort === undefined || Number.isNaN(env.daemonAudioPort)) {
+      await shutdown(
+        "error",
+        "DAEMON_AUDIO_PORT env var is missing or not a number",
+      );
+      detachSigterm();
+      detachSigint();
+      deps.exit(1);
+      return;
+    }
     subsystems.audioCapture = await deps.startAudioCapture({
-      socketPath: `${env.socketDir}/audio.sock`,
+      daemonHost: env.daemonAudioHost,
+      daemonPort: env.daemonAudioPort,
+      onError: (err) => {
+        // Exhausted reconnect budget — the daemon is unreachable or the
+        // pipeline is flapping. Shut the bot down so the daemon rolls the
+        // container back instead of waiting out its 120s join timeout.
+        if (shutdownInProgress) return;
+        deps.logError(`meet-bot: audio capture fatal: ${errMsg(err)}`);
+        void shutdown("error", `audio capture failed: ${errMsg(err)}`).then(
+          () => {
+            detachSigterm();
+            detachSigint();
+            deps.exit(1);
+          },
+        );
+      },
     });
     if (shutdownInProgress) return;
 

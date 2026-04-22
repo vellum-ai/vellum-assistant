@@ -151,7 +151,8 @@ function makeDeps(opts: MakeDepsOpts = {}): {
     consentMessage: "Hi, I'm an AI assistant listening in.",
     daemonUrl: "http://daemon.local:7000",
     botApiToken: "secret",
-    socketDir: "/sockets",
+    daemonAudioHost: "host.docker.internal",
+    daemonAudioPort: 42173,
     skipPulse: true,
     httpPort: 0,
     extensionPath: "/app/ext",
@@ -276,7 +277,11 @@ function makeDeps(opts: MakeDepsOpts = {}): {
       if (opts.xdotoolTypeError) throw opts.xdotoolTypeError;
     },
     startAudioCapture: async (audioOpts) => {
-      calls.push({ kind: "audio.start", socketPath: audioOpts.socketPath });
+      calls.push({
+        kind: "audio.start",
+        daemonHost: audioOpts.daemonHost,
+        daemonPort: audioOpts.daemonPort,
+      });
       return {
         stop: async () => {
           audioStops += 1;
@@ -495,13 +500,14 @@ describe("runBot — boot sequence", () => {
     expect(lifecycleStates).not.toContain("error");
   });
 
-  test("audio capture uses socketDir/audio.sock", async () => {
+  test("audio capture dials DAEMON_AUDIO_HOST:DAEMON_AUDIO_PORT", async () => {
     BotState.__resetForTests();
     const { deps, handles } = makeDeps();
     await bootHappyPath(deps, handles);
 
     const audioCall = handles.calls.find((c) => c.kind === "audio.start");
-    expect(audioCall?.socketPath).toBe("/sockets/audio.sock");
+    expect(audioCall?.daemonHost).toBe("host.docker.internal");
+    expect(audioCall?.daemonPort).toBe(42173);
   });
 });
 
