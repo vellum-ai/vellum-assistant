@@ -624,8 +624,8 @@ final class VellumCli: AssistantManagementClient {
 
         var env = Self.makeBaseEnvironment()
 
-        if env["VELLUM_PLATFORM_URL"] == nil {
-            env["VELLUM_PLATFORM_URL"] = VellumEnvironment.current.containerPlatformURL
+        if config.remote == "docker", env["VELLUM_PLATFORM_URL"] == nil {
+            env["VELLUM_PLATFORM_URL"] = VellumEnvironment.current.dockerHostPlatformURL
         }
 
         for (envVar, value) in config.providerApiKeys where !value.isEmpty {
