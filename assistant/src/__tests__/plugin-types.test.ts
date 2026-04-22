@@ -12,6 +12,8 @@ import { describe, expect, test } from "bun:test";
 
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import {
+  type EmptyResponseArgs,
+  type EmptyResponseResult,
   type Injector,
   type LLMCallArgs,
   type LLMCallResult,
@@ -81,6 +83,13 @@ describe("plugin core types", () => {
       truncated: false,
     });
 
+    // The `emptyResponse` slot has concrete args/result types; use a
+    // dedicated passthrough so the `satisfies Plugin` check stays honest.
+    const emptyResponsePassthrough: Middleware<
+      EmptyResponseArgs,
+      EmptyResponseResult
+    > = async (args, next, _ctx) => next(args);
+
     const injector: Injector = {
       name: "sample-injector",
       order: 10,
@@ -126,7 +135,7 @@ describe("plugin core types", () => {
         persistence: passthrough,
         titleGenerate: passthrough,
         toolResultTruncate: truncatePassthrough,
-        emptyResponse: passthrough,
+        emptyResponse: emptyResponsePassthrough,
         toolError: passthrough,
         circuitBreaker: passthrough,
       },

@@ -18,6 +18,7 @@
 
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import type {
+  ContentBlock,
   Message,
   Provider,
   ProviderResponse,
@@ -212,8 +213,61 @@ export type ToolResultTruncateResult = {
   readonly truncated: boolean;
 };
 
-export type EmptyResponseArgs = { readonly input: unknown };
-export type EmptyResponseResult = { readonly output: unknown };
+/**
+ * Snapshot of the just-completed assistant turn plus retry/context counters
+ * the `emptyResponse` pipeline needs to decide whether to nudge, accept, or
+ * surface an error.
+ *
+ * `emptyResponseRetries` is the *current* retry counter — the pipeline may
+ * compare it to `maxEmptyResponseRetries` to implement a retry cap. The loop
+ * increments the counter only after a `"nudge"` decision; the pipeline is
+ * stateless across turns.
+ *
+ * `priorAssistantHadVisibleText` signals that an earlier turn in the current
+ * `run()` invocation already delivered user-visible text. When true, an
+ * empty follow-up is the model correctly ending its turn and nudging would
+ * mislead it into resending text the user already saw.
+ */
+export interface EmptyResponseArgs {
+  /** Content blocks produced by the assistant on this turn. */
+  readonly responseContent: ReadonlyArray<ContentBlock>;
+  /**
+   * Number of `tool_use` blocks in `responseContent`. Mirrors the loop's own
+   * count so middleware doesn't have to recompute it. When > 0 the turn is
+   * not empty — the model issued tool calls.
+   */
+  readonly toolUseBlocksLength: number;
+  /** 0-based index of the tool-use turn being evaluated. */
+  readonly toolUseTurns: number;
+  /** How many empty-response nudges the loop has already issued this run. */
+  readonly emptyResponseRetries: number;
+  /** Upper bound for `emptyResponseRetries`. The default is 1. */
+  readonly maxEmptyResponseRetries: number;
+  /**
+   * Whether ANY prior assistant turn in the current `run()` call carried
+   * visible text. See `agent/loop.ts` for why the whole-run scan matters.
+   */
+  readonly priorAssistantHadVisibleText: boolean;
+}
+
+/**
+ * Decision produced by the `emptyResponse` pipeline.
+ *
+ * - `"nudge"`  — loop appends `nudgeText` as a `user` message and retries.
+ *                `nudgeText` MUST be present; it is what the model will see.
+ * - `"accept"` — loop treats the turn as complete (pushes the assistant
+ *                message to history and exits the tool-use chain normally).
+ * - `"error"`  — loop surfaces a clear error. Reserved for middleware that
+ *                wants to escalate an empty response rather than absorb it.
+ */
+export interface EmptyResponseDecision {
+  readonly action: "nudge" | "accept" | "error";
+  /** Nudge text the loop will push to history. Required when `action === "nudge"`. */
+  readonly nudgeText?: string;
+}
+
+/** Alias so the {@link PipelineMiddlewareMap} entry names its own result shape. */
+export type EmptyResponseResult = EmptyResponseDecision;
 
 export type ToolErrorArgs = { readonly input: unknown };
 export type ToolErrorResult = { readonly output: unknown };

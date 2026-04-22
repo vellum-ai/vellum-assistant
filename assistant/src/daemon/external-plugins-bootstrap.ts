@@ -39,6 +39,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AssistantConfig } from "../config/schema.js";
+import { defaultEmptyResponsePlugin } from "../plugins/defaults/empty-response.js";
 import { defaultLlmCallPlugin } from "../plugins/defaults/llm-call.js";
 import { defaultToolExecutePlugin } from "../plugins/defaults/tool-execute.js";
 import { defaultToolResultTruncatePlugin } from "../plugins/defaults/tool-result-truncate.js";
@@ -169,7 +170,11 @@ function ensurePluginStorageDir(pluginName: string): string {
  * that reuse a warmed-up registry) do not fail.
  */
 function registerDefaultPlugins(): void {
-  const defaults = [defaultToolExecutePlugin, defaultToolResultTruncatePlugin];
+  const defaults = [
+    defaultToolExecutePlugin,
+    defaultToolResultTruncatePlugin,
+    defaultEmptyResponsePlugin,
+  ];
   for (const plugin of defaults) {
     try {
       registerPlugin(plugin);
