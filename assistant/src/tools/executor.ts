@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 import { getConfig } from "../config/loader.js";
 import { bridgeCesApproval } from "../credential-execution/approval-bridge.js";
 import { isCesShellLockdownEnabled } from "../credential-execution/feature-gates.js";
-import { getHookManager } from "../hooks/manager.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
 import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
@@ -136,36 +135,6 @@ export class ToolExecutor {
         if (permResult.wasPrompted) {
           context.approvedViaPrompt = true;
         }
-      }
-
-      const hookResult = await getHookManager().trigger("pre-tool-execute", {
-        toolName: name,
-        input: sanitizeToolInput(name, input),
-        riskLevel,
-        decision,
-        workingDir: context.workingDir,
-        conversationId: context.conversationId,
-      });
-
-      if (hookResult.blocked) {
-        const msg = `Tool execution blocked by hook "${hookResult.blockedBy}"`;
-        const durationMs = Date.now() - startTime;
-        emitLifecycleEvent(context, {
-          type: "error",
-          toolName: name,
-          executionTarget,
-          input,
-          workingDir: context.workingDir,
-          conversationId: context.conversationId,
-          requestId: context.requestId,
-          riskLevel,
-          decision: "blocked",
-          durationMs,
-          errorMessage: msg,
-          isExpected: true,
-          errorCategory: "tool_failure",
-        });
-        return { content: msg, isError: true };
       }
 
       // Execute the tool - proxy tools delegate to an external resolver
@@ -388,15 +357,6 @@ export class ToolExecutor {
         result: safeResult,
       });
 
-      void getHookManager().trigger("post-tool-execute", {
-        toolName: name,
-        input: sanitizeToolInput(name, input),
-        riskLevel,
-        isError: execResult.isError,
-        durationMs,
-        conversationId: context.conversationId,
-      });
-
       return execResult;
     } catch (err) {
       // Extract classified risk level if the PermissionChecker attached it
@@ -446,15 +406,6 @@ export class ToolExecutor {
         errorStack: err instanceof Error ? err.stack : undefined,
       });
 
-      void getHookManager().trigger("post-tool-execute", {
-        toolName: name,
-        input: sanitizeToolInput(name, input),
-        riskLevel,
-        isError: true,
-        durationMs,
-        conversationId: context.conversationId,
-      });
-
       if (isExpected) {
         return { content: msg, isError: true };
       }
@@ -474,7 +425,7 @@ export { isSideEffectTool } from "./side-effects.js";
 export { PermissionChecker } from "./permission-checker.js";
 
 /**
- * Sanitize tool inputs before they are emitted in lifecycle events and hooks.
+ * Sanitize tool inputs before they are emitted in lifecycle events.
  * Applies recursive field-level redaction for known-sensitive keys.
  */
 function sanitizeToolInput(

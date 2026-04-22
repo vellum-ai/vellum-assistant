@@ -111,13 +111,6 @@ mock.module("../tools/terminal/sandbox.js", () => ({
   wrapCommand: () => ({ command: "", sandboxed: false }),
 }));
 
-// ── Hooks manager ──
-mock.module("../hooks/manager.js", () => ({
-  getHookManager: () => ({
-    trigger: async () => ({ blocked: false }),
-  }),
-}));
-
 // ── Ephemeral permissions ──
 mock.module("../tasks/ephemeral-permissions.js", () => ({
   getTaskRunRules: () => [],
