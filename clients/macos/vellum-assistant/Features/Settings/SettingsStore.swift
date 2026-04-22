@@ -4216,6 +4216,7 @@ struct OAuthProviderMetadata: Codable, Sendable {
     let client_id_placeholder: String?
     let requires_client_secret: Bool
     let logo_url: String?
+    let managed_service_is_paid: Bool?
 
     /// The platform OAuth slug is the provider_key itself (bare name, e.g. "google").
     var platformOAuthSlug: String {
@@ -4226,6 +4227,12 @@ struct OAuthProviderMetadata: Codable, Sendable {
     var logoURL: URL? {
         guard let raw = logo_url, !raw.isEmpty else { return nil }
         return URL(string: raw)
+    }
+
+    /// Whether this provider's managed service incurs additional costs.
+    /// Falls back to `false` when the daemon didn't supply the flag.
+    var isPaid: Bool {
+        managed_service_is_paid ?? false
     }
 }
 
