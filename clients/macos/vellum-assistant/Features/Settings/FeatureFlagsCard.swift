@@ -122,7 +122,7 @@ struct FeatureFlagsCard: View {
     /// Merge assistant-scoped and macOS-scoped flags into a single sorted list.
     /// If a flag key exists in both scopes, the macOS entry wins and the
     /// assistant duplicate is dropped.
-    static func buildUnifiedFlags(
+    private static func buildUnifiedFlags(
         assistantFlags: [AssistantFeatureFlag],
         macOSFlagStates: [MacOSFeatureFlagState]
     ) -> [UnifiedFeatureFlag] {
