@@ -43,6 +43,8 @@ export {
   TwilioConfigSchema,
   WhatsAppConfigSchema,
 } from "./schemas/channels.js";
+export type { ConversationsConfig } from "./schemas/conversations.js";
+export { ConversationsConfigSchema } from "./schemas/conversations.js";
 export {
   DEFAULT_ELEVENLABS_VOICE_ID,
   VALID_CONVERSATION_TIMEOUTS,
@@ -240,6 +242,7 @@ import {
   TwilioConfigSchema,
   WhatsAppConfigSchema,
 } from "./schemas/channels.js";
+import { ConversationsConfigSchema } from "./schemas/conversations.js";
 import { FilingConfigSchema } from "./schemas/filing.js";
 import { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
 import { HostBrowserConfigSchema } from "./schemas/host-browser.js";
@@ -306,6 +309,9 @@ export const AssistantConfigSchema = z
     updates: UpdatesConfigSchema.default(UpdatesConfigSchema.parse({})),
     hostBrowser: HostBrowserConfigSchema.default(
       HostBrowserConfigSchema.parse({}),
+    ),
+    conversations: ConversationsConfigSchema.default(
+      ConversationsConfigSchema.parse({}),
     ),
     journal: JournalConfigSchema.default(JournalConfigSchema.parse({})),
     analysis: AnalysisConfigSchema.default(AnalysisConfigSchema.parse({})),

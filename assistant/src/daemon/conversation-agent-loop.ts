@@ -2041,8 +2041,9 @@ export async function runAgentLoopImpl(
 
     // Second title pass: after 3 completed turns, re-generate the title
     // using the last 3 messages for better context. Only fires when the
-    // current title was auto-generated (isAutoTitle = 1).
-    if (ctx.turnCount === 2) {
+    // current title was auto-generated (isAutoTitle = 1) and the user
+    // has not opted out via `conversations.skipAutoRetitling`.
+    if (ctx.turnCount === 2 && !getConfig().conversations.skipAutoRetitling) {
       // turnCount is 0-indexed, incremented in finally; 2 = about to become 3rd turn
       queueRegenerateConversationTitle({
         conversationId: ctx.conversationId,
