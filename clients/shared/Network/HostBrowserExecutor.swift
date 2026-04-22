@@ -217,22 +217,21 @@ public final class HostBrowserExecutor {
                     message: "WebSocket connection to Chrome DevTools failed: \(reason)"
                 )
             case .protocolError(let code, let message):
-                // CDP protocol errors are command-level errors (not transport
-                // failures), so they are NOT isError=true transport errors.
-                // Return them as successful results containing the error info
-                // so the backend processes them as CDP responses.
+                // CDP protocol errors are command-level failures. The backend
+                // ExtensionCdpClient checks isError to enter the error-handling
+                // branch, so this must be true. The content is a flat object
+                // with code and message at the top level so
+                // classifyHostBrowserError can read the code field directly.
                 let errorPayload: [String: Any] = [
-                    "error": [
-                        "code": code,
-                        "message": message
-                    ]
+                    "code": code,
+                    "message": message
                 ]
                 let jsonData = try? JSONSerialization.data(withJSONObject: errorPayload)
-                let jsonString = jsonData.flatMap { String(data: $0, encoding: .utf8) } ?? "{\"error\":{\"code\":\(code),\"message\":\"\(message)\"}}"
+                let jsonString = jsonData.flatMap { String(data: $0, encoding: .utf8) } ?? "{\"code\":\(code),\"message\":\"\(message)\"}"
                 return HostBrowserResultPayload(
                     requestId: request.requestId,
                     content: jsonString,
-                    isError: false
+                    isError: true
                 )
             }
         } catch {
