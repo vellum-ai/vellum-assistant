@@ -2,6 +2,7 @@ import type { Command } from "commander";
 
 import { cliIpcCall } from "../../ipc/cli-client.js";
 import type { ClientEntryJSON } from "../../runtime/client-registry.js";
+import { log } from "../logger.js";
 import { writeOutput } from "../output.js";
 
 interface ListClientsResponse {
@@ -13,6 +14,20 @@ export function registerClientsCommand(program: Command): void {
     .command("clients")
     .description("Discover connected clients and their capabilities");
 
+  clients.addHelpText(
+    "after",
+    `
+Clients are the applications currently connected to the assistant —
+macOS desktop, iOS, web, Chrome extension, or CLI. Each client has a
+set of capabilities (e.g. host_bash, host_file) that determine which
+tools the assistant can route through it.
+
+Examples:
+  $ assistant clients list                       List all connected clients
+  $ assistant clients list --json                Machine-readable JSON output
+  $ assistant clients list --capability host_bash  Show only clients that can run host commands`,
+  );
+
   clients
     .command("list")
     .description("List all currently connected clients")
@@ -20,6 +35,23 @@ export function registerClientsCommand(program: Command): void {
     .option(
       "--capability <name>",
       "Filter to clients supporting this capability (e.g. host_bash, host_file, host_cu, host_browser)",
+    )
+    .addHelpText(
+      "after",
+      `
+Options:
+  --json                Output as compact JSON instead of a table.
+  --capability <name>   Only show clients that support the named capability.
+                        Valid values: host_bash, host_file, host_cu, host_browser.
+
+The table shows each client's ID, interface type, capabilities,
+connection timestamps, and host environment (when available).
+Clients are sorted by most recently active first.
+
+Examples:
+  $ assistant clients list
+  $ assistant clients list --capability host_bash
+  $ assistant clients list --json | jq '.clients[0].capabilities'`,
     )
     .action(
       async (opts: { json?: boolean; capability?: string }, cmd: Command) => {
@@ -34,7 +66,7 @@ export function registerClientsCommand(program: Command): void {
         );
 
         if (!result.ok) {
-          console.error(result.error ?? "Failed to list clients");
+          log.error(result.error ?? "Failed to list clients");
           process.exitCode = 1;
           return;
         }
@@ -48,7 +80,7 @@ export function registerClientsCommand(program: Command): void {
         }
 
         if (entries.length === 0) {
-          console.log("No clients connected.");
+          log.info("No clients connected.");
           return;
         }
 
@@ -81,10 +113,10 @@ export function registerClientsCommand(program: Command): void {
         const line = header
           .map((h: string, i: number) => pad(h, colWidths[i]))
           .join("  ");
-        console.log(line);
-        console.log(colWidths.map((w: number) => "─".repeat(w)).join("  "));
+        log.info(line);
+        log.info(colWidths.map((w: number) => "─".repeat(w)).join("  "));
         for (const row of rows) {
-          console.log(
+          log.info(
             row.map((c: string, i: number) => pad(c, colWidths[i])).join("  "),
           );
         }

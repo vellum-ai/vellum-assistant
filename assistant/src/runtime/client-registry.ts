@@ -26,6 +26,13 @@ import { getLogger } from "../util/logger.js";
 
 const log = getLogger("client-registry");
 
+/**
+ * Default staleness threshold: entries not refreshed within this window are
+ * evicted on the next read. 30 minutes is generous — messages refresh the
+ * entry on every turn, so any actively used client stays well within this.
+ */
+const DEFAULT_STALE_AGE_MS = 30 * 60 * 1000;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -162,9 +169,11 @@ export class ClientRegistry {
 
   /**
    * Return all registered clients, sorted by `lastActiveAt` descending
-   * (most recently active first).
+   * (most recently active first). Lazily evicts stale entries before
+   * returning so disconnected clients don't linger indefinitely.
    */
   listAll(): ClientEntry[] {
+    this.evictStale();
     return Array.from(this.clients.values()).sort(
       (a, b) => b.lastActiveAt - a.lastActiveAt,
     );
@@ -186,6 +195,29 @@ export class ClientRegistry {
     capability: HostProxyCapability,
   ): ClientEntry | undefined {
     return this.listByCapability(capability)[0];
+  }
+
+  /**
+   * Remove entries whose `lastActiveAt` is older than `maxAgeMs`.
+   * Called lazily before reads to prevent unbounded map growth from
+   * churning client IDs that are never explicitly unregistered.
+   *
+   * @returns Number of evicted entries.
+   */
+  evictStale(maxAgeMs: number = DEFAULT_STALE_AGE_MS): number {
+    const cutoff = Date.now() - maxAgeMs;
+    let evicted = 0;
+    for (const [id, entry] of this.clients) {
+      if (entry.lastActiveAt < cutoff) {
+        this.clients.delete(id);
+        evicted++;
+        log.debug(
+          { clientId: id, interfaceId: entry.interfaceId },
+          "client evicted (stale)",
+        );
+      }
+    }
+    return evicted;
   }
 
   /**

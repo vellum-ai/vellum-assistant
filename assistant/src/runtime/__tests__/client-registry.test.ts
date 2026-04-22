@@ -233,6 +233,46 @@ describe("ClientRegistry", () => {
     expect(json.hostUsername).toBeUndefined();
   });
 
+  // ── evictStale ─────────────────────────────────────────────────────────────
+
+  test("evictStale removes entries older than maxAgeMs", () => {
+    const registry = new ClientRegistry();
+    const entry = registry.register({
+      clientId: "old-mac",
+      interfaceId: "macos",
+    });
+    // Backdate lastActiveAt by 1 hour
+    entry.lastActiveAt = Date.now() - 60 * 60 * 1000;
+
+    const evicted = registry.evictStale(30 * 60 * 1000); // 30 min threshold
+    expect(evicted).toBe(1);
+    expect(registry.size).toBe(0);
+  });
+
+  test("evictStale keeps fresh entries", () => {
+    const registry = new ClientRegistry();
+    registry.register({ clientId: "fresh", interfaceId: "macos" });
+
+    const evicted = registry.evictStale(30 * 60 * 1000);
+    expect(evicted).toBe(0);
+    expect(registry.size).toBe(1);
+  });
+
+  test("listAll triggers lazy eviction", () => {
+    const registry = new ClientRegistry();
+    const entry = registry.register({
+      clientId: "stale-cli",
+      interfaceId: "cli",
+    });
+    entry.lastActiveAt = Date.now() - 60 * 60 * 1000;
+
+    registry.register({ clientId: "fresh-mac", interfaceId: "macos" });
+
+    const all = registry.listAll();
+    expect(all.length).toBe(1);
+    expect(all[0].clientId).toBe("fresh-mac");
+  });
+
   // ── singleton ─────────────────────────────────────────────────────────────
 
   test("getClientRegistry returns a singleton", () => {
