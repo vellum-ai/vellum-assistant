@@ -15,6 +15,7 @@ interface FakeConversationOptions {
   messagesBefore?: Message[];
   messagesAfter?: Message[];
   result?: Partial<ContextWindowResult>;
+  processing?: boolean;
 }
 
 interface FakeConversation {
@@ -48,6 +49,7 @@ function makeFakeConversation(
   };
 
   const fake = {
+    processing: options.processing ?? false,
     getMessages(): Message[] {
       // First call returns the pre-compaction messages; subsequent calls
       // return the post-compaction messages. This mirrors how the route
@@ -200,6 +202,40 @@ describe("forceCompactRouteDefinitions", () => {
     expect(body.newTokens).toBeLessThan(body.previousTokens);
 
     expect(fake.forceCompactCallCount()).toBe(1);
+  });
+
+  test("returns 409 and skips forceCompact when conversation is already processing", async () => {
+    // Simulate a turn (or a concurrent /compact) already in flight against
+    // this conversation. A second playground POST landing in this window
+    // would otherwise race with the first call: duplicate
+    // `contextCompactedMessageCount` increments, duplicate
+    // `context_compacted` SSE events, and double usage recording. Easy to
+    // trigger by double-clicking the playground "Force Compact" button.
+    const fake = makeFakeConversation({
+      messagesBefore: [
+        { role: "user", content: [{ type: "text", text: "hi" }] },
+      ],
+      processing: true,
+    });
+
+    const deps = makeDeps({
+      isPlaygroundEnabled: () => true,
+      getConversationById: () => fake.conversation,
+    });
+    const [route] = forceCompactRouteDefinitions(deps);
+
+    const res = await route.handler(makeRouteContext("conv-busy"));
+    expect(res.status).toBe(409);
+
+    const body = (await res.json()) as {
+      error: { code: string; message: string };
+    };
+    expect(body.error.code).toBe("CONFLICT");
+    expect(body.error.message).toContain("already in progress");
+
+    // Critical: we must NOT have invoked forceCompact a second time while
+    // an existing call was in flight.
+    expect(fake.forceCompactCallCount()).toBe(0);
   });
 
   test("defaults summaryText/summaryFailed to null when forceCompact omits them", async () => {

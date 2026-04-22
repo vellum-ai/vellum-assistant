@@ -38,6 +38,24 @@ export function forceCompactRouteDefinitions(
           );
         }
 
+        // Per-conversation in-flight guard. `Conversation.processing` is set
+        // to `true` whenever an agent turn or a slash-`/compact` is mid-flight
+        // (see `conversation-routes.ts` and `Conversation.persistUserMessage`).
+        // If we ran a second `forceCompact()` against the same conversation
+        // while one was already in progress, we would race and double up
+        // `contextCompactedMessageCount`, emit duplicate `context_compacted`
+        // SSE events, and double-record usage. Easy to trigger by
+        // double-clicking the playground "Force Compact" button. Fail fast
+        // with 409 — the playground is a debug tool and clobbering legitimate
+        // in-flight processing is worse than a brief retryable error.
+        if (conversation.processing) {
+          return httpError(
+            "CONFLICT",
+            "Compaction already in progress for this conversation",
+            409,
+          );
+        }
+
         const messagesBefore = conversation.getMessages();
         const previousTokens = estimatePromptTokens(messagesBefore);
         const result = await conversation.forceCompact();
