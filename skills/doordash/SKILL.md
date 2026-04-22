@@ -24,9 +24,7 @@ A task progress card is shown automatically when you run your first DoorDash com
 
 When the user asks you to order food (e.g. "Order pizza from Andiamo's"):
 
-1. **Check session** - run `bun {baseDir}/scripts/doordash-entry.ts status --json`. If `loggedIn` is false or the session is expired, tell the user: "A Chrome window will open to the DoorDash login page. Please sign in there - I'll detect your login automatically and minimize the window." Then run `bun {baseDir}/scripts/doordash-entry.ts refresh --json`. This captures your session automatically and auto-stops once it detects you've signed in. The session is imported automatically. **This command blocks until login is complete - just wait for it.**
-
-   Keep the DoorDash Chrome window open in the background - it's needed for API requests.
+1. **Check session** - run `bun {baseDir}/scripts/doordash-entry.ts status --json`. If `loggedIn` is false or the session is expired, inform the user that their DoorDash session has expired and they need to log in again.
 
 2. **Search** - run `bun {baseDir}/scripts/doordash-entry.ts search "<query>" --json` to find matching restaurants. Present the top results to the user with name, rating, and delivery info. If the user named a specific restaurant, pick the best match. If ambiguous, ask.
 
