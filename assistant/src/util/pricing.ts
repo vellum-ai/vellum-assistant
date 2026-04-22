@@ -51,7 +51,7 @@ const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
   fireworks: {
     "accounts/fireworks/models/kimi-k2p5": {
       inputPer1M: 0.6,
-      outputPer1M: 3.0,
+      outputPer1M: 2.5,
     },
   },
 };
