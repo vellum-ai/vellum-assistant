@@ -102,11 +102,14 @@ describe("in-meeting selectors", () => {
     // selector ever stops matching, the join flow's step-5 wait will
     // time out after 90s on every real-world join — fail loud here so
     // the drift is caught during fixture refresh rather than in prod.
+    //
+    // The selector is an OR-list of the chat and participants panel
+    // toggles, so both should be present in a real in-meeting capture.
     const nodes = doc.querySelectorAll(controlSelectors.INGAME_READY_INDICATOR);
-    expect(nodes.length).toBe(1);
-    expect((nodes[0] as HTMLElement).getAttribute("aria-label")).toBe(
-      "Turn off microphone",
-    );
+    const labels = Array.from(nodes)
+      .map((n) => (n as HTMLElement).getAttribute("aria-label"))
+      .sort();
+    expect(labels).toEqual(["Chat with everyone", "Show everyone"]);
   });
 
   test("INGAME_READY_INDICATOR does NOT resolve in the prejoin fixture", () => {
