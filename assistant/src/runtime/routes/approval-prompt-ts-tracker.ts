@@ -1,31 +1,22 @@
 /**
- * In-memory tracker for approval prompt message timestamps.
+ * Persistent tracker for approval prompt message timestamps.
  *
- * Scopes guardian reaction approvals so only reactions on a known
- * approval prompt can resolve a pending request. Without this, a stray
- * 👍/✅ on any message in the guardian chat could approve a pending
- * request (since reactions are now admitted from any subscribed channel,
- * not just tracked bot threads).
+ * Scopes guardian reaction approvals so only reactions on a known approval
+ * prompt can resolve a pending request. Without this, a stray 👍/✅ on any
+ * message in the guardian chat could approve a pending request (since
+ * reactions are now admitted from any subscribed channel, not just tracked
+ * bot threads).
  *
- * Entries expire after `APPROVAL_PROMPT_TS_TTL_MS` (matches the guardian
- * approval TTL of 30 minutes, plus grace). Populated when an approval
- * prompt is successfully delivered; consulted before applying a guardian
- * reaction decision.
+ * Entries are stored in the `approval_prompt_ts_tracker` table (created by
+ * `createApprovalPromptTsTrackerTable`) so that a daemon restart between
+ * prompt delivery and guardian reaction does not silently invalidate
+ * reactions that are still within the 30-minute guardian approval TTL.
+ * Entries expire after `APPROVAL_PROMPT_TS_TTL_MS` (guardian approval TTL
+ * plus grace).
  */
+import { getSqlite } from "../../memory/db-connection.js";
 
 const APPROVAL_PROMPT_TS_TTL_MS = 35 * 60 * 1000;
-
-const tracked = new Map<string, number>();
-
-function key(channel: string, chatId: string, ts: string): string {
-  return `${channel}\u0000${chatId}\u0000${ts}`;
-}
-
-function pruneExpired(now: number): void {
-  for (const [k, expiresAt] of tracked) {
-    if (expiresAt <= now) tracked.delete(k);
-  }
-}
 
 export function trackApprovalPromptTs(
   channel: string,
@@ -33,8 +24,16 @@ export function trackApprovalPromptTs(
   ts: string,
 ): void {
   const now = Date.now();
-  pruneExpired(now);
-  tracked.set(key(channel, chatId, ts), now + APPROVAL_PROMPT_TS_TTL_MS);
+  const expiresAt = now + APPROVAL_PROMPT_TS_TTL_MS;
+  const db = getSqlite();
+  db.run(
+    /*sql*/ `DELETE FROM approval_prompt_ts_tracker WHERE expires_at <= ?`,
+    [now],
+  );
+  db.run(
+    /*sql*/ `INSERT OR REPLACE INTO approval_prompt_ts_tracker (channel, chat_id, ts, expires_at) VALUES (?, ?, ?, ?)`,
+    [channel, chatId, ts, expiresAt],
+  );
 }
 
 export function isTrackedApprovalPromptTs(
@@ -42,11 +41,19 @@ export function isTrackedApprovalPromptTs(
   chatId: string,
   ts: string,
 ): boolean {
-  const k = key(channel, chatId, ts);
-  const expiresAt = tracked.get(k);
-  if (expiresAt === undefined) return false;
-  if (expiresAt <= Date.now()) {
-    tracked.delete(k);
+  const now = Date.now();
+  const db = getSqlite();
+  const row = db
+    .query(
+      /*sql*/ `SELECT expires_at FROM approval_prompt_ts_tracker WHERE channel = ? AND chat_id = ? AND ts = ?`,
+    )
+    .get(channel, chatId, ts) as { expires_at: number } | null;
+  if (!row) return false;
+  if (row.expires_at <= now) {
+    db.run(
+      /*sql*/ `DELETE FROM approval_prompt_ts_tracker WHERE channel = ? AND chat_id = ? AND ts = ?`,
+      [channel, chatId, ts],
+    );
     return false;
   }
   return true;
@@ -54,5 +61,5 @@ export function isTrackedApprovalPromptTs(
 
 /** @internal Test-only — clear all tracked entries. */
 export function _clearApprovalPromptTsTrackerForTesting(): void {
-  tracked.clear();
+  getSqlite().run(/*sql*/ `DELETE FROM approval_prompt_ts_tracker`);
 }

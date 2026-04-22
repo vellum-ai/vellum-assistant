@@ -80,6 +80,7 @@ function resetState(): void {
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
+  _clearApprovalPromptTsTrackerForTesting();
 }
 
 function seedActiveMember(): void {
