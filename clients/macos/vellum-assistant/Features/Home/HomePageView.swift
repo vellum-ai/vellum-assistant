@@ -63,6 +63,11 @@ struct HomePageView<DetailPanel: View>: View {
     /// the filter is a transient read-time affordance, not a setting.
     @State private var activeFilter: FeedItemType? = nil
 
+    /// IDs of group rows whose nested children list is currently expanded.
+    /// Deliberately view-local (not persisted): the expanded state is a
+    /// transient read-time affordance matched to the current group identity.
+    @State private var expandedGroupIds: Set<String> = []
+
     /// Editorial column width. Bumped from 600pt to 960pt to match the
     /// Figma redesign — the new three-block layout reads as a wider page,
     /// not a narrow column.
@@ -139,15 +144,55 @@ struct HomePageView<DetailPanel: View>: View {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         HomeFeedGroupHeader(label: bucket.group.label)
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            ForEach(bucket.items, id: \.id) { item in
-                                HomeRecapRow(
-                                    icon: icon(for: item),
-                                    iconForeground: iconForeground(for: item),
-                                    iconBackground: iconBackground(for: item),
-                                    title: item.title,
-                                    onDismiss: { dismissItem(item) },
-                                    onTap: { openItem(item) }
-                                )
+                            ForEach(bucket.rows, id: \.id) { row in
+                                switch row {
+                                case .single(let item):
+                                    HomeRecapRow(
+                                        icon: icon(for: item),
+                                        iconForeground: iconForeground(for: item),
+                                        iconBackground: iconBackground(for: item),
+                                        title: item.title,
+                                        onDismiss: { dismissItem(item) },
+                                        onTap: { openItem(item) }
+                                    )
+                                case .group(let parent, let children):
+                                    HomeRecapGroupRow(
+                                        parentIcon: icon(for: parent),
+                                        parentIconForeground: iconForeground(for: parent),
+                                        parentIconBackground: iconBackground(for: parent),
+                                        parentTitle: parent.title,
+                                        children: children.map { child in
+                                            HomeRecapGroupRow.Child(
+                                                id: child.id,
+                                                icon: icon(for: child),
+                                                iconForeground: iconForeground(for: child),
+                                                iconBackground: iconBackground(for: child),
+                                                title: child.title
+                                            )
+                                        },
+                                        isExpanded: Binding(
+                                            get: { expandedGroupIds.contains(parent.id) },
+                                            set: { newValue in
+                                                if newValue { expandedGroupIds.insert(parent.id) }
+                                                else { expandedGroupIds.remove(parent.id) }
+                                            }
+                                        ),
+                                        onParentTap: {
+                                            withAnimation(VAnimation.fast) {
+                                                if expandedGroupIds.contains(parent.id) {
+                                                    expandedGroupIds.remove(parent.id)
+                                                } else {
+                                                    expandedGroupIds.insert(parent.id)
+                                                }
+                                            }
+                                        },
+                                        onChildTap: { child in
+                                            if let feedChild = children.first(where: { $0.id == child.id }) {
+                                                openItem(feedChild)
+                                            }
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -202,19 +247,31 @@ struct HomePageView<DetailPanel: View>: View {
     /// Sorts the feed by `priority desc, createdAt desc`, hides
     /// dismissed items (so `dismissItem(_:)` gives immediate feedback
     /// without waiting for a server refresh to rewrite the array),
-    /// applies the active type filter (nil = show all), then delegates
-    /// to `HomeFeedTimeGroup.bucket(_:)` for day-bucketing. Replaces
-    /// the prior `attentionItems` / `activityItems` partitioning.
-    private var groupedFeed: [(group: HomeFeedTimeGroup, items: [FeedItem])] {
+    /// applies the active type filter (nil = show all), buckets via
+    /// `HomeFeedTimeGroup.bucket(_:)`, then collapses contiguous
+    /// low-priority digest runs within each bucket via
+    /// `HomeFeedGrouping.group(_:)`.
+    // Exposed for HomePageViewGroupingTests — kept out of public API via no-op accessor; grouping is a behavior that benefits from direct unit testing.
+    var groupedFeed: [(group: HomeFeedTimeGroup, rows: [HomeFeedGroupedRow])] {
+        groupedFeed(for: activeFilter)
+    }
+
+    /// Pure grouping pipeline exposed for unit tests. Mirrors the logic
+    /// used by ``groupedFeed`` but takes the filter as a parameter so
+    /// tests don't need to manipulate `@State`.
+    func groupedFeed(for filter: FeedItemType?) -> [(group: HomeFeedTimeGroup, rows: [HomeFeedGroupedRow])] {
         let sorted = feedStore.items.sorted { a, b in
             if a.priority != b.priority { return a.priority > b.priority }
             return a.createdAt > b.createdAt
         }
         let filtered = sorted.filter { item in
             item.status != .dismissed
-                && (activeFilter == nil || activeFilter == item.type)
+                && (filter == nil || filter == item.type)
         }
-        return HomeFeedTimeGroup.bucket(filtered)
+        let buckets = HomeFeedTimeGroup.bucket(filtered)
+        return buckets.map { bucket in
+            (group: bucket.group, rows: HomeFeedGrouping.group(bucket.items))
+        }
     }
 
     // MARK: - Suggestions
