@@ -1293,7 +1293,7 @@ export function persistOnboardingArtifacts(onboarding: {
       if (existsSync(identityPath)) {
         const content = readFileSync(identityPath, "utf-8");
         const updated = content.replace(
-          /^- \*\*Name:\*\*\s*.*$/m,
+          /^- (?:\*\*)?Name:(?:\*\*)?\s*.*$/m,
           `- **Name:** ${assistantName}`,
         );
         if (updated !== content) {
@@ -1321,7 +1321,7 @@ export function persistOnboardingArtifacts(onboarding: {
       if (existsSync(userPath)) {
         const content = readFileSync(userPath, "utf-8");
         const updated = content.replace(
-          /^- \*\*Name:\*\*\s*.*$/m,
+          /^- (?:\*\*)?Name:(?:\*\*)?\s*.*$/m,
           `- **Name:** ${userName}`,
         );
         if (updated !== content) {

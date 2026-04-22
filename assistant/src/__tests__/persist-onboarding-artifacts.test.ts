@@ -145,7 +145,24 @@ describe("persistOnboardingArtifacts", () => {
     expect(content).toBe("# User\n\n- **Name:** NewUser\n");
   });
 
-  test("does not touch existing file without **Name:** field", () => {
+  test("updates old-format Name field in existing IDENTITY.md", () => {
+    writeFileSync(
+      workspacePath("IDENTITY.md"),
+      "# Identity\n\n- Name: OldFormat\n",
+    );
+
+    persistOnboardingArtifacts({
+      tools: [],
+      tasks: [],
+      tone: "casual",
+      assistantName: "NewName",
+    });
+
+    const content = readFileSync(workspacePath("IDENTITY.md"), "utf-8");
+    expect(content).toBe("# Identity\n\n- **Name:** NewName\n");
+  });
+
+  test("does not touch existing file without Name field", () => {
     writeFileSync(
       workspacePath("IDENTITY.md"),
       "# Identity\n\nCustom content here\n",
