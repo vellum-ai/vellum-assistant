@@ -237,6 +237,32 @@ final class VellumCli: AssistantManagementClient {
             throw ManagementClientError.noActiveAssistant
         }
 
+        // Managed (platform-hosted) assistants have no local daemon, data
+        // directory, or Qdrant instance. Retire them via the gateway
+        // (which already has auth) instead of the CLI (which would need
+        // a file-based platform-token the desktop app never writes).
+        let entry = LockfileAssistant.loadByName(resolvedName)
+        if entry?.isManaged == true {
+            log.info("[audit] Managed retire: routing through gateway for '\(resolvedName, privacy: .public)'")
+            do {
+                let response = try await GatewayHTTPClient.withAssistant(resolvedName) {
+                    try await GatewayHTTPClient.delete(
+                        path: "assistants/{assistantId}/retire",
+                        timeout: 30
+                    )
+                }
+                if response.isSuccess {
+                    log.info("Managed assistant retired via gateway for '\(resolvedName, privacy: .public)'")
+                } else {
+                    log.error("Gateway retire failed for '\(resolvedName, privacy: .public)': HTTP \(response.statusCode, privacy: .public)")
+                }
+            } catch {
+                log.warning("Gateway retire failed for '\(resolvedName, privacy: .public)': \(error.localizedDescription, privacy: .public) — continuing with local cleanup")
+            }
+            LockfileAssistant.removeEntry(assistantId: resolvedName)
+            return await findReplacementAfterRetire(retiredId: resolvedName)
+        }
+
         guard let binaryURL = cliBinaryURL else {
             log.info("No bundled CLI binary found — skipping retire (dev mode)")
             throw CLIError.binaryNotFound
