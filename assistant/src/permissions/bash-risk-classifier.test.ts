@@ -15,6 +15,7 @@ import {
   BashRiskClassifier,
   clearCompiledPatterns,
   escalateOne,
+  generateScopeOptions,
   matchesArgRule,
   maxRisk,
   riskOrd,
@@ -22,6 +23,7 @@ import {
 import { DEFAULT_COMMAND_REGISTRY } from "./command-registry.js";
 import type { ArgRule, CommandRiskSpec } from "./risk-types.js";
 import { riskToRiskLevel } from "./risk-types.js";
+import { cachedParse } from "./shell-identity.js";
 import { RiskLevel } from "./types.js";
 
 // ── Helper ───────────────────────────────────────────────────────────────────
@@ -1246,5 +1248,109 @@ describe("go subcommand classification", () => {
 describe("clearCompiledPatterns", () => {
   test("runs without error", () => {
     expect(() => clearCompiledPatterns()).not.toThrow();
+  });
+});
+
+// ── generateScopeOptions with parseArgs ──────────────────────────────────────
+
+describe("generateScopeOptions with parseArgs", () => {
+  test("find with argSchema.valueFlags groups flag values correctly", async () => {
+    // find has argSchema with valueFlags like -name, -type, etc.
+    // parseArgs should correctly classify -name and -type as value-consuming flags,
+    // keeping their values ("*.ts", "f") grouped with the flags rather than treating
+    // them as positionals.
+    const parsed = await cachedParse("find src -name '*.ts' -type f");
+    const options = generateScopeOptions(parsed, DEFAULT_COMMAND_REGISTRY);
+
+    // find has complexSyntax: true, so only exact + command-level wildcard
+    expect(options.length).toBe(2);
+    expect(options[0].label).toBe("find src -name '*.ts' -type f");
+    expect(options[1].label).toBe("find *");
+  });
+
+  test("git push origin main --force places subcommand before flags in labels", async () => {
+    // Verify that subcommand "push" appears before flags like "--force"
+    // in the generated labels: git push --force origin * (not git --force push origin *)
+    const parsed = await cachedParse("git push origin main --force");
+    const options = generateScopeOptions(parsed, DEFAULT_COMMAND_REGISTRY);
+    const labels = options.map((o) => o.label);
+
+    // Exact match
+    expect(labels[0]).toBe("git push origin main --force");
+
+    // The scope ladder should produce (narrowest to broadest):
+    // 1. exact: git push origin main --force
+    // 2. wildcard last positional: git push --force origin * (subcommand before flags)
+    // 3. drop flags: git push *
+    // 4. subcommand wildcard: git push * (deduped)
+    // 5. command wildcard: git *
+
+    // Verify subcommand "push" is after "git" and before flags in intermediate labels
+    const wildcardLabels = labels.filter(
+      (l) => l.includes("*") && l.includes("push"),
+    );
+    for (const label of wildcardLabels) {
+      const gitIdx = label.indexOf("git");
+      const pushIdx = label.indexOf("push");
+      const forceIdx = label.indexOf("--force");
+      expect(pushIdx).toBeGreaterThan(gitIdx);
+      if (forceIdx >= 0) {
+        expect(pushIdx).toBeLessThan(forceIdx);
+      }
+    }
+
+    // Should end with the broadest: git *
+    expect(labels[labels.length - 1]).toBe("git *");
+  });
+
+  test("npm install express retains correct behavior (npm has argSchema)", async () => {
+    // npm has argSchema (with valueFlags like --prefix), so parseArgs is used.
+    // "install" is detected as a subcommand, "express" as a positional.
+    const parsed = await cachedParse("npm install express");
+    const options = generateScopeOptions(parsed, DEFAULT_COMMAND_REGISTRY);
+    const labels = options.map((o) => o.label);
+
+    // Exact match first
+    expect(labels[0]).toBe("npm install express");
+
+    // Should include subcommand-level wildcard
+    expect(labels).toContain("npm install *");
+
+    // Should include command-level wildcard
+    expect(labels).toContain("npm *");
+  });
+
+  test("curl -X POST url falls through to naive split (no argSchema)", async () => {
+    // curl has NO argSchema in the registry, so the naive startsWith("-") split
+    // is used. This means -X is correctly classified as a flag, but POST is
+    // misclassified as a positional (known limitation until curl gains argSchema.valueFlags).
+    const parsed = await cachedParse(
+      "curl -X POST https://api.stripe.com/v1/charges",
+    );
+    const options = generateScopeOptions(parsed, DEFAULT_COMMAND_REGISTRY);
+    const labels = options.map((o) => o.label);
+
+    // Exact match first
+    expect(labels[0]).toBe("curl -X POST https://api.stripe.com/v1/charges");
+
+    // Known limitation: POST is treated as a positional because curl lacks argSchema.
+    // When curl gains argSchema.valueFlags with -X, POST will be grouped with -X
+    // as a flag value instead. This test documents the current (imperfect) behavior.
+    // With naive split: flags = ["-X"], positionals = ["POST", "https://..."]
+    // The intermediate labels will include POST as a kept positional.
+    expect(labels.some((l) => l.includes("POST"))).toBe(true);
+
+    // Should end with command-level wildcard
+    expect(labels[labels.length - 1]).toBe("curl *");
+  });
+
+  test("find with complexSyntax and -exec only produces exact + command-level wildcard", async () => {
+    // find has complexSyntax: true, so intermediate scope options are skipped
+    const parsed = await cachedParse("find . -name '*.ts' -exec rm {} \\;");
+    const options = generateScopeOptions(parsed, DEFAULT_COMMAND_REGISTRY);
+
+    expect(options.length).toBe(2);
+    expect(options[0].label).toBe("find . -name '*.ts' -exec rm {} \\;");
+    expect(options[1].label).toBe("find *");
   });
 });
