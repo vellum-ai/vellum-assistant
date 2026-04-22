@@ -47,6 +47,31 @@ final class HostBrowserExecutorTests: XCTestCase {
         XCTAssertEqual(json["message"] as? String, "Connection refused")
     }
 
+    /// The `non_loopback` error code is used when either the initial HTTP
+    /// endpoint or the WebSocket URL from `/json/list` points to a
+    /// non-loopback host. Verify it produces valid structured JSON.
+    func testTransportErrorNonLoopbackFormatsStructuredJSON() {
+        let result = HostBrowserExecutor.transportError(
+            requestId: "req-ws-loopback",
+            code: "non_loopback",
+            message: "WebSocket URL host 'evil.example.com' is not a loopback address. Only localhost, 127.0.0.1, and ::1 are permitted."
+        )
+
+        XCTAssertEqual(result.requestId, "req-ws-loopback")
+        XCTAssertTrue(result.isError, "non_loopback errors must set isError=true for backend failover")
+
+        guard let data = result.content.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            XCTFail("Transport error content should be valid JSON")
+            return
+        }
+        XCTAssertEqual(json["code"] as? String, "non_loopback")
+        XCTAssertTrue(
+            (json["message"] as? String)?.contains("evil.example.com") == true,
+            "Error message should include the rejected host"
+        )
+    }
+
     // MARK: - Executor Run (Unit — No Real Chrome)
 
     /// When Chrome DevTools is not running, the executor should return a
