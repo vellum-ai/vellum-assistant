@@ -15,6 +15,7 @@ final class HomeScheduledDetailsTests: XCTestCase {
             schedule: "Every day at 9:00 AM (Europe/Ljubljana)",
             enabled: enabled,
             nextRun: Date(timeIntervalSince1970: 0),
+            nextRunTimeZone: TimeZone(identifier: "Europe/Ljubljana")!,
             description: "Test description."
         )
     }
@@ -47,5 +48,6 @@ final class HomeScheduledDetailsTests: XCTestCase {
 
         XCTAssertEqual(placeholder.name, "Morning check-in")
         XCTAssertEqual(placeholder.schedule, "Every day at 9:00 AM (Europe/Ljubljana)")
+        XCTAssertEqual(placeholder.nextRunTimeZone, TimeZone(identifier: "Europe/Ljubljana"))
     }
 }
