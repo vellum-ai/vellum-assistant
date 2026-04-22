@@ -211,6 +211,7 @@ struct ChatView: View {
                 .padding(.trailing, VSpacing.xl)
                 .padding(.top, VSpacing.sm)
                 .transition(.opacity.combined(with: .move(edge: .top)))
+                .layoutHangSignpost("chat.searchBar")
             }
         }
         .animation(VAnimation.fast, value: isSearchActive)
@@ -468,6 +469,7 @@ struct ChatView: View {
                     composerAttachments: $viewModel.pendingAttachments
                 )
                 .transition(.move(edge: .bottom).combined(with: .opacity))
+                .layoutHangSignpost("chat.queuedMessagesDrawer")
             }
 
             if isReadonly {
@@ -654,6 +656,7 @@ struct ChatView: View {
             .padding(.horizontal, VSpacing.lg)
             .padding(.bottom, VSpacing.xxxl + VSpacing.xxl)
             .transition(.opacity.combined(with: .move(edge: .bottom)))
+            .layoutHangSignpost("chat.btwOverlay")
         }
     }
 

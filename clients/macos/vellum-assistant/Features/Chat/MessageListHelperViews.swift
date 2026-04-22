@@ -40,6 +40,7 @@ struct ScrollToLatestOverlayView: View {
             .background { ScrollWheelPassthrough() }
             .padding(.bottom, VSpacing.lg)
             .transition(.move(edge: .bottom).combined(with: .opacity))
+            .layoutHangSignpost("chat.scrollToLatestOverlay")
         }
     }
 }

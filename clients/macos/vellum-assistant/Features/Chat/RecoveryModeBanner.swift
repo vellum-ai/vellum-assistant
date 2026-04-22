@@ -82,6 +82,7 @@ struct RecoveryModeBanner: View {
             )
         )
         .transition(.move(edge: .bottom).combined(with: .opacity))
+        .layoutHangSignpost("chat.recoveryModeBanner")
         .accessibilityElement(children: .contain)
     }
 }

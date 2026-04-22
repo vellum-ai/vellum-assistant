@@ -127,6 +127,7 @@ struct IdentityPanel: View {
                     .frame(width: computedSidebarWidth)
                     .padding(.trailing, VSpacing.lg)
                     .transition(.move(edge: .leading).combined(with: .opacity))
+                    .layoutHangSignpost("panel.identity.sidebar")
                 }
 
             // Hex grid fills the rest of the space — card when not fullscreen

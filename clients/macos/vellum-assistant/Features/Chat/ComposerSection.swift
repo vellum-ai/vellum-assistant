@@ -91,6 +91,7 @@ struct ComposerSection: View, Equatable {
                     .padding(.horizontal, VSpacing.lg)
                     .padding(.bottom, VSpacing.sm)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .layoutHangSignpost("composer.watchProgress")
             }
 
             ComposerView(

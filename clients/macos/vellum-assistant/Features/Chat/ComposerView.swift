@@ -141,6 +141,7 @@ struct ComposerView: View, Equatable {
                     onSelect: { command in selectSlashCommand(command) }
                 )
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .layoutHangSignpost("composer.slashCommandPopup")
             }
 
             if composerController.showEmojiMenu {
@@ -150,6 +151,7 @@ struct ComposerView: View, Equatable {
                     onSelect: { entry in selectEmoji(entry) }
                 )
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .layoutHangSignpost("composer.emojiPickerPopup")
             }
 
             // Composer box — switches on the two-mode state machine
@@ -167,6 +169,7 @@ struct ComposerView: View, Equatable {
         }
         #endif
         .fixedSize(horizontal: false, vertical: true)
+        .layoutHangSignpost("composer.outerVStack.fixedSize")
         .padding(.horizontal, VSpacing.lg)
         .padding(.top, VSpacing.sm)
         .disabled(!isInteractionEnabled)
