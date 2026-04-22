@@ -185,10 +185,13 @@ describe("ClientRegistry", () => {
 
   test("getMostRecentByCapability returns the most recently active client", () => {
     const registry = new ClientRegistry();
-    registry.register({ clientId: "mac-1", interfaceId: "macos" });
-    registry.register({ clientId: "mac-2", interfaceId: "macos" });
+    const mac1 = registry.register({ clientId: "mac-1", interfaceId: "macos" });
+    const mac2 = registry.register({ clientId: "mac-2", interfaceId: "macos" });
 
-    // mac-2 was registered last, so it should be most recent
+    // Ensure deterministic ordering — both may register within the same ms
+    mac1.lastActiveAt = Date.now() - 5000;
+    mac2.lastActiveAt = Date.now();
+
     const best = registry.getMostRecentByCapability("host_bash");
     expect(best).toBeDefined();
     expect(best!.clientId).toBe("mac-2");
