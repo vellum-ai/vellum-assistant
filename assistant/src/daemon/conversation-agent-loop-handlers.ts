@@ -538,6 +538,9 @@ export function handleToolResult(
     imageData: imageDataList?.[0],
     imageDataList,
     toolUseId: event.toolUseId,
+    riskLevel: event.riskLevel,
+    riskReason: event.riskReason,
+    riskScopeOptions: event.riskScopeOptions,
   });
 }
 

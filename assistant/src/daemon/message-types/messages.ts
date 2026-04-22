@@ -145,6 +145,12 @@ export interface ToolResult {
   imageDataList?: string[];
   /** The tool_use block ID for client-side correlation. */
   toolUseId?: string;
+  /** Risk level from the classifier ("low" | "medium" | "high" | "unknown"). */
+  riskLevel?: string;
+  /** Human-readable reason for the risk classification. */
+  riskReason?: string;
+  /** Scope options ladder for the rule editor modal (narrowest to broadest). */
+  riskScopeOptions?: Array<{ pattern: string; label: string }>;
 }
 
 export interface ConfirmationRequest {
