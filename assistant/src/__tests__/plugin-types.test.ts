@@ -63,10 +63,21 @@ describe("plugin core types", () => {
       config: { parse: (input: unknown) => input },
     };
 
+    // Generic passthrough — typed per slot below because per-pipeline
+    // arg/result types have diverged from the early `{input: unknown}` /
+    // `{output: unknown}` placeholders as individual pipeline wrap-up PRs
+    // land.
+    function passthroughFor<A, R>(): Middleware<A, R> {
+      return async (args, next, _ctx) => next(args);
+    }
     const passthrough: Middleware<
       { input: unknown },
       { output: unknown }
     > = async (args, next, _ctx) => next(args);
+    const passthroughHistoryRepair = passthroughFor<
+      import("../plugins/types.js").HistoryRepairArgs,
+      import("../plugins/types.js").HistoryRepairResult
+    >();
 
     // `llmCall` has concrete arg/result types (upgraded in PR 15).
     const llmCallPassthrough: Middleware<LLMCallArgs, LLMCallResult> = async (
@@ -181,7 +192,7 @@ describe("plugin core types", () => {
         llmCall: llmCallPassthrough,
         toolExecute: toolExecutePassthrough,
         memoryRetrieval: memoryPassthrough,
-        historyRepair: passthrough,
+        historyRepair: passthroughHistoryRepair,
         tokenEstimate: tokenEstimatePassthrough,
         compaction: passthrough,
         overflowReduce: overflowReducePassthrough,
@@ -197,6 +208,7 @@ describe("plugin core types", () => {
     // Minimal runtime check so the test body is non-empty.
     expect(plugin.manifest.name).toBe("sample-plugin");
     expect(plugin.middleware.turn).toBe(passthrough);
+    expect(plugin.middleware.historyRepair).toBe(passthroughHistoryRepair);
   });
 
   test("PluginTimeoutError carries pipeline, plugin, and elapsed fields", () => {

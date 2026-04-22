@@ -40,6 +40,7 @@ import { join } from "node:path";
 
 import type { AssistantConfig } from "../config/schema.js";
 import { defaultEmptyResponsePlugin } from "../plugins/defaults/empty-response.js";
+import { defaultHistoryRepairPlugin } from "../plugins/defaults/history-repair.js";
 import { defaultInjectorsPlugin } from "../plugins/defaults/injectors.js";
 import { defaultLlmCallPlugin } from "../plugins/defaults/llm-call.js";
 import { defaultMemoryRetrievalPlugin } from "../plugins/defaults/memory-retrieval.js";
@@ -184,6 +185,7 @@ function registerDefaultPlugins(): void {
     defaultInjectorsPlugin,
     defaultTokenEstimatePlugin,
     defaultOverflowReducePlugin,
+    defaultHistoryRepairPlugin,
   ];
   for (const plugin of defaults) {
     try {
