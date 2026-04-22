@@ -289,6 +289,7 @@ describe("serializeProviderSummary", () => {
       requires_client_secret: true,
       logo_url: null,
       supports_managed_mode: true,
+      managed_service_is_paid: false,
       feature_flag: null,
     });
   });
