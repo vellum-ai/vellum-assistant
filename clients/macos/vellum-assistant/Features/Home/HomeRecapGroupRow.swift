@@ -18,6 +18,12 @@ import VellumAssistantShared
 /// caller should wrap the state flip in ``VAnimation/fast`` — e.g.
 /// `withAnimation(VAnimation.fast) { isExpanded.toggle() }`. The view
 /// itself only supplies the `.transition(...)` on the conditional block.
+///
+/// Dismiss affordance: when `onParentDismiss` / `onChildDismiss` are
+/// supplied, a hover-only "Dismiss" button appears on the parent header
+/// and on each child row — matching the single-row `HomeRecapRow`
+/// treatment so grouped and non-grouped rows share the same dismiss
+/// behavior (Codex/Devin review feedback on PR #27475).
 struct HomeRecapGroupRow: View {
 
     /// A nested feed item rendered inside the expanded children list.
@@ -39,6 +45,14 @@ struct HomeRecapGroupRow: View {
     /// other side effects can run alongside the state flip.
     let onParentTap: () -> Void
     let onChildTap: (Child) -> Void
+    /// Optional dismiss for the parent summary row. When nil, no dismiss
+    /// affordance renders on the parent header.
+    var onParentDismiss: (() -> Void)? = nil
+    /// Optional dismiss for an individual child row. When nil, no dismiss
+    /// affordance renders on children.
+    var onChildDismiss: ((Child) -> Void)? = nil
+
+    @State private var isParentHovering: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
@@ -74,14 +88,22 @@ struct HomeRecapGroupRow: View {
                     .foregroundStyle(VColor.contentSecondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
+
+                Spacer(minLength: VSpacing.sm)
+
+                if isParentHovering, let onParentDismiss {
+                    Self.dismissButton(action: onParentDismiss)
+                }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .pointerCursor()
+        .onHover { isParentHovering = $0 }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(parentTitle))
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: Text("Dismiss"), onParentDismiss ?? {})
     }
 
     // MARK: - Children
@@ -89,13 +111,53 @@ struct HomeRecapGroupRow: View {
     private var childrenList: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             ForEach(children) { child in
-                childRow(child)
+                ChildRow(
+                    child: child,
+                    onTap: { onChildTap(child) },
+                    onDismiss: onChildDismiss.map { callback in { callback(child) } }
+                )
             }
         }
     }
 
-    private func childRow(_ child: Child) -> some View {
-        Button(action: { onChildTap(child) }) {
+    // MARK: - Shared dismiss button
+
+    /// Single-source renderer for the hover-only "Dismiss" affordance.
+    /// Matches `HomeRecapRow`'s styling so grouped/non-grouped rows share
+    /// the same dismiss treatment. The outer `Button` isolates the tap
+    /// from the enclosing row button — SwiftUI resolves the innermost
+    /// tappable first.
+    fileprivate static func dismissButton(action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: VSpacing.xs) {
+                VIconView(.x, size: 7)
+                    .foregroundStyle(VColor.contentDisabled)
+                Text("Dismiss")
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentDisabled)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+        .accessibilityLabel(Text("Dismiss"))
+    }
+}
+
+// MARK: - Child row subview
+
+/// Private subview that owns its own hover state so each child row can
+/// independently reveal/hide the dismiss affordance without re-rendering
+/// the whole group.
+private struct ChildRow: View {
+    let child: HomeRecapGroupRow.Child
+    let onTap: () -> Void
+    let onDismiss: (() -> Void)?
+
+    @State private var isHovering: Bool = false
+
+    var body: some View {
+        Button(action: onTap) {
             HStack(spacing: VSpacing.sm) {
                 ZStack {
                     Circle().fill(child.iconBackground)
@@ -111,6 +173,10 @@ struct HomeRecapGroupRow: View {
                     .truncationMode(.tail)
 
                 Spacer(minLength: VSpacing.sm)
+
+                if isHovering, let onDismiss {
+                    HomeRecapGroupRow.dismissButton(action: onDismiss)
+                }
             }
             .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.md, bottom: VSpacing.sm, trailing: VSpacing.md))
             .background(
@@ -121,8 +187,10 @@ struct HomeRecapGroupRow: View {
         }
         .buttonStyle(.plain)
         .pointerCursor()
+        .onHover { isHovering = $0 }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(child.title))
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: Text("Dismiss"), onDismiss ?? {})
     }
 }

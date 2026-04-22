@@ -225,14 +225,19 @@ extension MainWindowView {
             },
             isDetailPanelVisible: selectedScheduledItemId != nil,
             detailPanel: {
-                if selectedScheduledItemId != nil {
+                if let selectedId = selectedScheduledItemId {
                     let details = HomeScheduledDetails.placeholder
+                    // Surface the tapped item's title so distinct scheduled
+                    // rows render distinct panel headers while the rest of
+                    // the schedule metadata still uses placeholder data
+                    // (Devin feedback on PR #27475).
                     // TODO: replace placeholder data with real schedule
                     // metadata when the daemon surfaces scheduled-item
                     // fields on FeedItem (see .private/plans/home-feed-groups.md
                     // follow-up).
+                    let selectedItem = feedStore.items.first(where: { $0.id == selectedId })
                     HomeScheduledDetailPanel(
-                        title: "Scheduled Thing",
+                        title: selectedItem?.title ?? "Scheduled Thing",
                         description: details.description,
                         rows: details.displayRows().map { row in
                             HomeScheduledDetailPanel.DetailRow(key: row.key, value: row.value)

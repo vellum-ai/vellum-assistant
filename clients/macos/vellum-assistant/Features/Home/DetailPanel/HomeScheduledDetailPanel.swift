@@ -123,6 +123,7 @@ struct HomeScheduledDetailPanel: View {
             Text("Details")
                 .font(VFont.bodyMediumEmphasised)
                 .foregroundStyle(VColor.contentEmphasized)
+                .accessibilityAddTraits(.isHeader)
 
             ForEach(rows) { row in
                 HStack {

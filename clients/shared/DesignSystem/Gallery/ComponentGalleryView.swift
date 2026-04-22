@@ -118,10 +118,22 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("homeFeedGroupHeader", "HomeFeedGroupHeader", keywords: ["feed", "group", "header", "section", "today", "yesterday"], description: "Section header for time-bucketed feed groups (Today / Yesterday / Older)."),
                 GalleryComponent("homeRecapRow", "HomeRecapRow", keywords: ["recap", "row", "feed", "bucket"], description: "Compact row used in the time-bucketed Home feed with tinted icon and optional trailing action."),
                 GalleryComponent(
+                    "homeRecapGroupRow",
+                    "HomeRecapGroupRow",
+                    keywords: ["recap", "group", "row", "feed", "collapsed", "low priority", "digest"],
+                    description: "Grouped Home feed row: parent summary header with a nested list of child rows. Used when HomeFeedGrouping collapses 3+ contiguous low-priority digests into a single card."
+                ),
+                GalleryComponent(
                     "homeDetailPanel",
                     "HomeDetailPanel",
                     keywords: ["detail panel", "side panel", "home", "container"],
                     description: "Reusable white right-side panel container with standardized header (icon + title + primary/secondary actions + dismiss)."
+                ),
+                GalleryComponent(
+                    "homeScheduledDetailPanel",
+                    "HomeScheduledDetailPanel",
+                    keywords: ["scheduled", "detail panel", "thread", "calendar", "home"],
+                    description: "Right-hand detail panel surfaced when a scheduled (.thread, source: .calendar) feed item is tapped. Shows schedule metadata (Name, Syntax, Mode, Schedule, Enabled, Next Run) plus outlined secondary + filled primary actions."
                 ),
                 GalleryComponent(
                     "homeEmailEditor",

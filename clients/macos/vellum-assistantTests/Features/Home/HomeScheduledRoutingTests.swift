@@ -19,6 +19,7 @@ final class HomeScheduledRoutingTests: XCTestCase {
     private func makeItem(
         id: String = "item-1",
         type: FeedItemType = .thread,
+        source: FeedItemSource? = nil,
         title: String = "Fixture"
     ) -> FeedItem {
         let now = Date(timeIntervalSince1970: 1_760_000_000)
@@ -28,7 +29,7 @@ final class HomeScheduledRoutingTests: XCTestCase {
             priority: 50,
             title: title,
             summary: "summary",
-            source: nil,
+            source: source,
             timestamp: now,
             status: .new,
             expiresAt: nil,
@@ -75,7 +76,7 @@ final class HomeScheduledRoutingTests: XCTestCase {
 
     // MARK: - Tests
 
-    func test_openItem_threadType_firesScheduledCallback() async {
+    func test_openItem_calendarSourcedThread_firesScheduledCallback() async {
         let (homeStore, feedStore, feedClient) = makeStores()
         var captured: [FeedItem] = []
         var conversationOpens = 0
@@ -86,15 +87,40 @@ final class HomeScheduledRoutingTests: XCTestCase {
             onFeedConversationOpened: { _ in conversationOpens += 1 }
         )
 
-        let item = makeItem(id: "sched-1", type: .thread)
+        let item = makeItem(id: "sched-1", type: .thread, source: .calendar)
         view.openItem(item)
 
         XCTAssertEqual(captured.map { $0.id }, ["sched-1"],
-                       "scheduled callback should fire exactly once with the tapped item")
+                       "calendar-sourced thread should fire the scheduled callback exactly once")
         XCTAssertEqual(feedClient.triggerCallCount, 0,
-                       "thread taps must not round-trip through triggerAction")
+                       "calendar-sourced thread must not round-trip through triggerAction")
         XCTAssertEqual(conversationOpens, 0,
-                       "thread taps must not attempt to open a conversation")
+                       "calendar-sourced thread must not attempt to open a conversation")
+    }
+
+    /// Gates the scheduled flow on `source == .calendar` (Codex P1 on
+    /// PR #27475): `.thread` is also used by rollup-producer for general
+    /// multi-action threads that must keep the conversation-open flow.
+    func test_openItem_nonCalendarThread_skipsScheduledCallback() async {
+        // As with the non-thread test below we only assert the spy — we
+        // don't wait on the detached triggerAction Task. HomeFeedStoreTests
+        // covers that path.
+        let (homeStore, feedStore, _) = makeStores()
+
+        for source in [nil, .gmail, .slack, .assistant] as [FeedItemSource?] {
+            var captured: [FeedItem] = []
+            let view = makeView(
+                homeStore: homeStore,
+                feedStore: feedStore,
+                onScheduledItemSelected: { item in captured.append(item) }
+            )
+
+            let label = source.map { "\($0)" } ?? "nil"
+            view.openItem(makeItem(id: "rollup-\(label)", type: .thread, source: source))
+
+            XCTAssertTrue(captured.isEmpty,
+                          "\(label)-sourced thread must not fire the scheduled callback")
+        }
     }
 
     func test_openItem_nonThreadType_skipsScheduledCallback() async {
@@ -112,7 +138,10 @@ final class HomeScheduledRoutingTests: XCTestCase {
                 onScheduledItemSelected: { item in captured.append(item) }
             )
 
-            view.openItem(makeItem(id: "n-\(nonThreadType)", type: nonThreadType))
+            // Use calendar source here to prove that type-gating runs
+            // independently of the source gate — even a calendar-sourced
+            // non-thread must not route through the scheduled callback.
+            view.openItem(makeItem(id: "n-\(nonThreadType)", type: nonThreadType, source: .calendar))
 
             XCTAssertTrue(captured.isEmpty,
                           "\(nonThreadType) taps must not fire the scheduled callback")

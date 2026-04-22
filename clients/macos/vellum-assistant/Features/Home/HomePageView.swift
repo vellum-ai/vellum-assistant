@@ -186,6 +186,15 @@ struct HomePageView<DetailPanel: View>: View {
                                             if let feedChild = children.first(where: { $0.id == child.id }) {
                                                 openItem(feedChild)
                                             }
+                                        },
+                                        // Mirror HomeRecapRow's dismiss affordance on the parent and
+                                        // each child so grouped rows aren't sticky in the feed
+                                        // (Codex P2 + Devin feedback on PR #27475).
+                                        onParentDismiss: { dismissItem(parent) },
+                                        onChildDismiss: { child in
+                                            if let feedChild = children.first(where: { $0.id == child.id }) {
+                                                dismissItem(feedChild)
+                                            }
                                         }
                                     )
                                 }
@@ -333,18 +342,24 @@ struct HomePageView<DetailPanel: View>: View {
 
     // MARK: - Actions
 
-    /// Opens the feed item. For `.thread` (scheduled) items the parent
-    /// presents a detail panel via `onScheduledItemSelected`; for every
-    /// other type we preserve the existing "trigger the `open` action and
-    /// navigate into the resulting conversation" flow. The daemon
-    /// interprets any unknown action id as an "open" intent and seeds the
-    /// new conversation with the first available action's prompt (or the
+    /// Opens the feed item. Calendar-sourced `.thread` items are
+    /// scheduled jobs and route to the detail panel via
+    /// `onScheduledItemSelected`; every other item (including other
+    /// `.thread` items such as rollup-producer general-purpose threads)
+    /// keeps the existing "trigger the `open` action and navigate into
+    /// the resulting conversation" flow. The daemon interprets any
+    /// unknown action id as an "open" intent and seeds the new
+    /// conversation with the first available action's prompt (or the
     /// item summary if there are no actions).
+    ///
+    /// Gating on `source == .calendar` (Codex P1 on PR #27475): `.thread`
+    /// is also used by non-scheduled rollups, so type alone isn't enough
+    /// to identify a scheduled job.
     ///
     /// Exposed as `internal` (not `private`) so routing tests can drive it
     /// directly without needing to render the full view tree.
     func openItem(_ item: FeedItem) {
-        if item.type == .thread {
+        if item.type == .thread && item.source == .calendar {
             onScheduledItemSelected(item)
             return
         }
