@@ -26,7 +26,7 @@
  *    {@link PluginExecutionError} naming the offending plugin and aborts
  *    bootstrap — later plugins' `init()` never runs and the daemon fails
  *    startup cleanly rather than coming up in a half-wired state.
- * 6. After a plugin's `init()` succeeds, registers any tools declared on
+ * 7. After a plugin's `init()` succeeds, registers any tools declared on
  *    `plugin.tools` with the global tool registry via
  *    {@link registerPluginTools}. Tool contributions land after `init()` so
  *    a plugin that fails mid-init never leaves partial tool registrations
@@ -86,18 +86,6 @@ import {
 import { getLogger } from "../util/logger.js";
 import { vellumRoot } from "../util/platform.js";
 import { registerShutdownHook } from "./shutdown-registry.js";
-
-// ─── First-party default plugins ─────────────────────────────────────────────
-//
-// Register default plugins at module load so the registry is populated before
-// `bootstrapPlugins()` runs. Each wrapped pipeline has a corresponding default
-// plugin whose middleware is the passthrough terminal — the plugin system
-// always needs a terminal to fall through to when no other plugin intercepts.
-//
-// Idempotency: this module is imported once via ES module semantics, so the
-// registry never sees duplicate registration. Test environments call
-// `resetPluginRegistryForTests()` and re-register explicitly.
-registerPlugin(defaultLlmCallPlugin);
 
 const log = getLogger("plugins-bootstrap");
 
@@ -195,6 +183,7 @@ function ensurePluginStorageDir(pluginName: string): string {
  */
 function registerDefaultPlugins(): void {
   const defaults = [
+    defaultLlmCallPlugin,
     defaultToolExecutePlugin,
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
@@ -368,12 +357,18 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
   // register their own hook.
   //
   // For each plugin we:
-  //   1. Call `onShutdown()` (if defined) so user code can clean up first,
-  //      while the skill is still registered and any in-flight `skill_load`
-  //      call is still serviceable.
-  //   2. Unregister the plugin's contributed skills via the ref-counted
-  //      helper. This mirrors the symmetry of registerPluginSkills() —
-  //      every successful registration must get a matching unregister call,
+  //   1. Unregister contributed HTTP routes so incoming requests stop hitting
+  //      the plugin's handlers before its state is torn down.
+  //   2. Unregister contributed tools so the model-visible tool surface is
+  //      cleared before `onShutdown()` runs.
+  //   3. Call `onShutdown()` (if defined) so the plugin can release resources
+  //      (background tasks, timers, connections) with its tools and routes
+  //      already removed.
+  //   4. Unregister contributed skills via the ref-counted helper. Skills tear
+  //      down last so `onShutdown()` can still invoke skill-resolving code
+  //      (e.g. to flush pending skill work) before the catalog is emptied.
+  //      This mirrors the symmetry of registerPluginSkills() — every
+  //      successful registration must get a matching unregister call,
   //      regardless of whether onShutdown throws.
   const shutdownSnapshot: Plugin[] = [...plugins];
   registerShutdownHook("plugins", async (reason) => {
