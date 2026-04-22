@@ -618,8 +618,8 @@ describe("provider operations", () => {
       raw.exec(`
         INSERT INTO oauth_providers (
           provider_key, auth_url, token_url, token_endpoint_auth_method,
-          default_scopes, scope_policy, scope_separator, requires_client_secret,
-          created_at, updated_at
+          default_scopes, scope_policy, available_scopes, scope_separator,
+          requires_client_secret, created_at, updated_at
         ) VALUES (
           'legacy-null-provider',
           'https://example.com/authorize',
@@ -627,6 +627,7 @@ describe("provider operations", () => {
           NULL,
           '[]',
           '{}',
+          NULL,
           ' ',
           1,
           ${Date.now()},

@@ -13,7 +13,6 @@
  *
  * The orchestrator handles:
  * - Provider config resolution (from DB)
- * - Scope policy enforcement
  * - Building the OAuth2Config
  * - Running the interactive or deferred flow
  * - Storing tokens on completion
