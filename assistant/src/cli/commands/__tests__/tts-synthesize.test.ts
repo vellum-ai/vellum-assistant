@@ -128,6 +128,14 @@ async function runCommand(
   const stdoutChunks: string[] = [];
   const stderrChunks: string[] = [];
 
+  // Mock isTTY to undefined so the stdin fallback path is reachable even
+  // when tests run from an interactive terminal (where isTTY === true).
+  const originalIsTTY = process.stdin.isTTY;
+  Object.defineProperty(process.stdin, "isTTY", {
+    value: undefined,
+    configurable: true,
+  });
+
   process.stdout.write = ((chunk: unknown) => {
     stdoutChunks.push(typeof chunk === "string" ? chunk : String(chunk));
     return true;
@@ -161,6 +169,10 @@ async function runCommand(
     process.stdout.write = originalStdoutWrite;
     process.stderr.write = originalStderrWrite;
     process.exit = originalExit;
+    Object.defineProperty(process.stdin, "isTTY", {
+      value: originalIsTTY,
+      configurable: true,
+    });
   }
 
   const exitCode = process.exitCode ?? 0;
