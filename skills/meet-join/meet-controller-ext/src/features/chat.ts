@@ -45,6 +45,75 @@ import { chatSelectors } from "../dom/selectors.js";
 import { waitForSelector } from "../dom/wait.js";
 
 /**
+ * Build a one-line inventory of the current DOM state that is most useful
+ * when the composer query turns up empty. Embeds:
+ *
+ *   - `chat-panel-button`: whether the toggle exists and its aria-expanded
+ *     / aria-pressed state — answers "is the chat panel actually open?".
+ *   - `aria-labels`: up to 20 `[aria-label]` elements as `TAG[label]` tuples
+ *     so we can spot localization or wording drift ("Send a message" →
+ *     something else) at a glance.
+ *   - `contenteditables`: count + the closest `[aria-label]` for each,
+ *     since the editable target is the thing that needs to be findable.
+ *   - `shadow-roots`: count of elements with an attached `shadowRoot` so
+ *     a shadow-DOM-encapsulated composer shows up as a non-zero count
+ *     here even though `querySelector` returned nothing for it.
+ *
+ * Kept as a helper so the sender/panel-open paths stay readable and the
+ * diagnostic format stays identical across call sites.
+ */
+function describeComposerSearch(): string {
+  const parts: string[] = [];
+
+  const toggle = document.querySelector(chatSelectors.PANEL_BUTTON);
+  if (toggle) {
+    const expanded = toggle.getAttribute("aria-expanded") ?? "<unset>";
+    const pressed = toggle.getAttribute("aria-pressed") ?? "<unset>";
+    parts.push(
+      `chat-panel-button: found (aria-expanded=${expanded}, aria-pressed=${pressed})`,
+    );
+  } else {
+    parts.push("chat-panel-button: <missing>");
+  }
+
+  const ariaLabeled = Array.from(document.querySelectorAll("[aria-label]"));
+  const ariaInventory = ariaLabeled
+    .slice(0, 20)
+    .map((el) => {
+      const label = (el.getAttribute("aria-label") ?? "")
+        .replace(/\s+/g, " ")
+        .slice(0, 60);
+      return `${el.tagName}[${label}]`;
+    })
+    .join(", ");
+  parts.push(
+    `aria-labels(${ariaLabeled.length}): ${ariaInventory || "<none>"}`,
+  );
+
+  const editables = Array.from(document.querySelectorAll("[contenteditable]"));
+  const editableInventory = editables
+    .slice(0, 6)
+    .map((el) => {
+      const nearest = el.closest("[aria-label]");
+      const label = nearest?.getAttribute("aria-label") ?? "<no-aria-ancestor>";
+      return `${el.tagName}<=${label.replace(/\s+/g, " ").slice(0, 40)}`;
+    })
+    .join(", ");
+  parts.push(
+    `contenteditables(${editables.length}): ${editableInventory || "<none>"}`,
+  );
+
+  // Non-zero here means the composer may be inside an encapsulated subtree
+  // that a plain `querySelector` cannot pierce.
+  const shadowHosts = Array.from(document.querySelectorAll("*")).filter(
+    (el) => (el as Element & { shadowRoot: ShadowRoot | null }).shadowRoot,
+  );
+  parts.push(`shadow-roots: ${shadowHosts.length}`);
+
+  return parts.join("; ");
+}
+
+/**
  * How long {@link ensurePanelOpen} waits for the chat message list to mount
  * after clicking the toggle before giving up.
  *
@@ -251,7 +320,7 @@ export async function sendChat(
   );
   if (!input) {
     throw new Error(
-      `sendChat: chat input not found (selector: ${chatSelectors.INPUT})`,
+      `sendChat: chat input not found (selector: ${chatSelectors.INPUT}; ${describeComposerSearch()})`,
     );
   }
 
@@ -459,7 +528,9 @@ export async function postConsentMessage(
  * its own "chat input not found" diagnostic, which the join flow's
  * `try/catch` already handles.
  */
-async function ensurePanelOpen(opts?: EnsurePanelOpenOptions): Promise<void> {
+export async function ensurePanelOpen(
+  opts?: EnsurePanelOpenOptions,
+): Promise<void> {
   // Prefer the composer as the panel-open signal: if it's in the DOM,
   // `sendChat` will succeed regardless of the surrounding chrome.
   // `MESSAGE_LIST` is retained as a fallback so existing tests (which

@@ -18,7 +18,7 @@ import type {
 } from "../../contracts/native-messaging.js";
 
 import { disableCamera, enableCamera } from "./features/camera.js";
-import { sendChat } from "./features/chat.js";
+import { ensurePanelOpen, sendChat } from "./features/chat.js";
 
 /**
  * Execute a {@link BotSendChatCommand} and emit a matching
@@ -46,7 +46,15 @@ export async function handleSendChat(cmd: BotSendChatCommand): Promise<void> {
 
   let reply: ExtensionSendChatResultMessage;
   try {
-    await sendChat(cmd.text, {
+    // Open the chat panel before typing. The runtime `meet_send_chat`
+    // path cannot assume the panel is already open — the consent-post
+    // flow (`postConsentMessage`) opens it at join time, but any failure
+    // in that path leaves the panel collapsed, and every subsequent
+    // runtime send then lands on a missing composer and throws "chat
+    // input not found". Mirroring `postConsentMessage`'s
+    // `ensurePanelOpen + sendChat` sequence here keeps the runtime path
+    // self-sufficient regardless of the consent-post outcome.
+    const opts = {
       onEvent: sendToBot,
       // Pass the live `window` so `sendChat` can compute screen-space
       // coordinates for the send button's `trusted_click`. Mirrors the
@@ -57,7 +65,9 @@ export async function handleSendChat(cmd: BotSendChatCommand): Promise<void> {
         outerHeight: number;
         innerHeight: number;
       },
-    });
+    };
+    await ensurePanelOpen(opts);
+    await sendChat(cmd.text, opts);
     reply = {
       type: "send_chat_result",
       requestId: cmd.requestId,

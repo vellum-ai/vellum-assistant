@@ -113,18 +113,26 @@ export const chatSelectors = {
    * prefix match covers both the bare and decorated forms, mirroring the
    * approach used for `ASK_TO_JOIN_BUTTON`.
    *
-   * We also accept `div[contenteditable="true"]` variants since some Meet
-   * builds render the composer as a contenteditable div rather than a
-   * textarea. Note that `chat.ts` currently writes via `.value`, which is a
-   * textarea-only affordance — if Meet has migrated to contenteditable, the
-   * selector will resolve but `sendChat` will silently no-op. That's a
-   * follow-up (tracked in the PR body) and out of scope for this selector
-   * drift fix.
+   * Three DOM shapes are accepted, in historical order:
+   *
+   *   1. Legacy textarea: `<textarea aria-label="Send a message ...">`.
+   *   2. Flat contenteditable: `<div contenteditable="true"
+   *      aria-label="Send a message ...">`.
+   *   3. Nested contenteditable: `<div aria-label="Send a message ...">
+   *      <div contenteditable="true">...</div></div>`. As of late April 2026
+   *      live Meet renders the composer this way — the aria-label sits on
+   *      the wrapper, the editable target is a child. The third clause
+   *      resolves directly to the focusable child so `xdotool`-type focus
+   *      lands on the right element.
+   *
+   * `chat.ts`'s xdotool-type path only needs `.focus()` on the matched
+   * element; the `.value =` synthetic-setter fallback is textarea-only and
+   * is exercised only by the test harness.
    */
   // TODO(meet-dom): aria-label is localized. Future versions may need to
   // match multiple locales or fall back to role=textbox + placeholder.
   INPUT:
-    'textarea[aria-label^="Send a message"], div[contenteditable="true"][aria-label^="Send a message"]',
+    'textarea[aria-label^="Send a message"], div[contenteditable="true"][aria-label^="Send a message"], [aria-label^="Send a message"] [contenteditable="true"]',
 
   /**
    * Send button adjacent to the chat composer. Prefix match handles Meet's
