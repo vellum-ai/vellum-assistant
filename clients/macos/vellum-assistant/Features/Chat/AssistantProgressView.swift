@@ -639,6 +639,7 @@ struct AssistantProgressView: View {
                 if let confirmation = toolCall.pendingConfirmation {
                     ToolConfirmationBubble(
                         confirmation: confirmation,
+                        isV3: MacOSClientFeatureFlagManager.shared.isEnabled("permission-controls-v3"),
                         isKeyboardActive: confirmation.requestId == activeConfirmationRequestId,
                         onAllow: { onConfirmationAllow?(confirmation.requestId) },
                         onDeny: { onConfirmationDeny?(confirmation.requestId) },
@@ -893,7 +894,8 @@ private struct StepDetailRow: View {
         }
         .sheet(item: $ruleEditorToolCall) { tc in
             RuleEditorModal(
-                toolName: tc.friendlyName,
+                toolName: tc.toolName,
+                displayName: tc.friendlyName,
                 command: tc.inputSummary,
                 currentRiskLevel: tc.riskLevel ?? "medium",
                 riskReason: tc.riskReason ?? "",

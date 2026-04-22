@@ -51,6 +51,7 @@ struct HomePermissionChatPreview: View {
             // branch (guardian, surfaces, retry, etc.).
             ToolConfirmationBubble(
                 confirmation: confirmation,
+                isV3: MacOSClientFeatureFlagManager.shared.isEnabled("permission-controls-v3"),
                 onAllow: onAllow,
                 onDeny: onDeny,
                 onAlwaysAllow: onAlwaysAllow,

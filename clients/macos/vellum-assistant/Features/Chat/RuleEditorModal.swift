@@ -12,7 +12,6 @@ struct ScopeOptionItem: Identifiable, Equatable {
 struct SavedRule {
     let toolName: String
     let pattern: String
-    let riskLevel: String
     let scope: String
 }
 
@@ -22,7 +21,10 @@ struct SavedRule {
 /// Presents five sections: context (read-only), pattern ladder (radio buttons),
 /// risk level picker (segmented control), scope toggle, and a save button.
 struct RuleEditorModal: View {
+    /// Raw tool identifier (e.g. "bash", "host_bash") used for trust rule persistence.
     let toolName: String
+    /// Human-friendly display name (e.g. "Run Command") shown in the context section.
+    let displayName: String
     let command: String
     let currentRiskLevel: String
     let riskReason: String
@@ -32,7 +34,6 @@ struct RuleEditorModal: View {
     let onDismiss: () -> Void
 
     @State private var selectedPatternIndex: Int = 0
-    @State private var selectedRiskLevel: String = "medium"
     @State private var selectedScope: String = "everywhere"
     @State private var isSaving: Bool = false
 
@@ -78,7 +79,6 @@ struct RuleEditorModal: View {
                 VStack(alignment: .leading, spacing: VSpacing.xl) {
                     contextSection
                     patternLadderSection
-                    riskLevelSection
                     scopeSection
                     saveSection
                 }
@@ -87,9 +87,7 @@ struct RuleEditorModal: View {
         }
         .frame(width: 480)
         .background(VColor.surfaceLift)
-        .onAppear {
-            selectedRiskLevel = currentRiskLevel
-        }
+        .onAppear {}
     }
 
     // MARK: - Section 1: Context (read-only)
@@ -107,7 +105,7 @@ struct RuleEditorModal: View {
                     Text("Tool:")
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentSecondary)
-                    Text(toolName)
+                    Text(displayName)
                         .font(VFont.bodySmallEmphasised)
                         .foregroundStyle(VColor.contentDefault)
                 }
@@ -192,27 +190,7 @@ struct RuleEditorModal: View {
         .accessibilityValue(selectedPatternIndex == index ? "Selected" : "Not selected")
     }
 
-    // MARK: - Section 3: Risk Level Picker
-
-    @ViewBuilder
-    private var riskLevelSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            Text("Risk Level")
-                .font(VFont.bodyMediumEmphasised)
-                .foregroundStyle(VColor.contentDefault)
-                .accessibilityAddTraits(.isHeader)
-
-            Picker("Risk Level", selection: $selectedRiskLevel) {
-                Text("Low").tag("low")
-                Text("Medium").tag("medium")
-                Text("High").tag("high")
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-        }
-    }
-
-    // MARK: - Section 4: Scope
+    // MARK: - Section 3: Scope
 
     @ViewBuilder
     private var scopeSection: some View {
@@ -279,11 +257,12 @@ struct RuleEditorModal: View {
                 guard !isSaving, !scopeOptions.isEmpty else { return }
                 isSaving = true
                 let selectedOption = scopeOptions[selectedPatternIndex]
+                // Resolve "project" to the actual filesystem path for trust matching.
+                let resolvedScope = selectedScope == "project" ? workingDir : selectedScope
                 let rule = SavedRule(
                     toolName: toolName,
                     pattern: selectedOption.pattern,
-                    riskLevel: selectedRiskLevel,
-                    scope: selectedScope
+                    scope: resolvedScope
                 )
                 onSave(rule)
                 onDismiss()
