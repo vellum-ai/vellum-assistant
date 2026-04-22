@@ -568,4 +568,104 @@ describe("GET /v1/suggestion", () => {
       | undefined;
     expect(options?.config?.callSite).toBe("conversationStarters");
   });
+
+  test("does not send an assistant-role prefill message", async () => {
+    // Regression guard: Anthropic rejects assistant-message prefill
+    // whenever the request triggers extended thinking (e.g. Opus 4.x at
+    // `effort: "xhigh"`). The suggestion generator must only send a
+    // single user-role message so it stays compatible with every
+    // possible `conversationStarters` call-site config.
+    const provider = makeMockProvider("<reply>Sure, works for me</reply>");
+    mockGetConfiguredProvider.mockImplementation(async () => provider);
+    mockGetConversationByKey.mockImplementation(() => ({
+      conversationId: "conv-test",
+    }));
+    mockGetMessages.mockImplementation(() => [
+      {
+        id: "msg-asst-1",
+        conversationId: "conv-test",
+        role: "assistant",
+        content: JSON.stringify([
+          { type: "text", text: "Want to meet tomorrow?" },
+        ]),
+        createdAt: Date.now(),
+        metadata: null,
+      },
+    ]);
+
+    const url = makeUrl({ conversationKey: "test-key" });
+    const deps = makeDeps();
+    const response = await handleGetSuggestion(url, deps);
+
+    expect(provider.sendMessage).toHaveBeenCalledTimes(1);
+    const callArgs = provider.sendMessage.mock.calls[0] as unknown[];
+    const messages = callArgs[0] as Array<{ role: string }>;
+    expect(messages).toHaveLength(1);
+    expect(messages[0].role).toBe("user");
+    expect(messages.every((m) => m.role === "user")).toBe(true);
+
+    // Tag-wrapped response is extracted back to just the reply text.
+    const body = (await response.json()) as { suggestion: string | null };
+    expect(body.suggestion).toBe("Sure, works for me");
+  });
+
+  test("handles untagged model response by falling back to raw text", async () => {
+    // Some non-Anthropic models and some Anthropic configs drop the
+    // `<reply>…</reply>` wrapper entirely. The parser must still
+    // produce a usable suggestion from the raw text.
+    const provider = makeMockProvider("Sounds good to me");
+    mockGetConfiguredProvider.mockImplementation(async () => provider);
+    mockGetConversationByKey.mockImplementation(() => ({
+      conversationId: "conv-test",
+    }));
+    mockGetMessages.mockImplementation(() => [
+      {
+        id: "msg-asst-untagged",
+        conversationId: "conv-test",
+        role: "assistant",
+        content: JSON.stringify([
+          { type: "text", text: "Want to meet tomorrow?" },
+        ]),
+        createdAt: Date.now(),
+        metadata: null,
+      },
+    ]);
+
+    const url = makeUrl({ conversationKey: "test-key" });
+    const deps = makeDeps();
+    const response = await handleGetSuggestion(url, deps);
+
+    const body = (await response.json()) as { suggestion: string | null };
+    expect(body.suggestion).toBe("Sounds good to me");
+  });
+
+  test("extracts reply content when model adds preamble before tag", async () => {
+    // Without assistant-role prefill, nothing stops a chatty model from
+    // adding a preamble. The parser's tag-extraction step must take the
+    // `<reply>…</reply>` span and ignore surrounding commentary.
+    const provider = makeMockProvider(
+      "Here's a good option:\n\n<reply>Let's do it</reply>",
+    );
+    mockGetConfiguredProvider.mockImplementation(async () => provider);
+    mockGetConversationByKey.mockImplementation(() => ({
+      conversationId: "conv-test",
+    }));
+    mockGetMessages.mockImplementation(() => [
+      {
+        id: "msg-asst-preamble",
+        conversationId: "conv-test",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Ready to ship it?" }]),
+        createdAt: Date.now(),
+        metadata: null,
+      },
+    ]);
+
+    const url = makeUrl({ conversationKey: "test-key" });
+    const deps = makeDeps();
+    const response = await handleGetSuggestion(url, deps);
+
+    const body = (await response.json()) as { suggestion: string | null };
+    expect(body.suggestion).toBe("Let's do it");
+  });
 });

@@ -2249,11 +2249,15 @@ async function generateLlmSuggestion(
     `Write the user's next reply, focusing on the LAST question or call-to-action in the assistant message. Keep it short (under 15 words), casual, and in the user's voice. Respond in this exact format:\n\n` +
     `<reply>YOUR_REPLY_HERE</reply>`;
 
+  // Single user message only — no assistant-role prefill. Anthropic
+  // rejects assistant prefill whenever the request triggers extended
+  // thinking (e.g. Opus 4.x at `effort: "xhigh"`), and the call-site
+  // config is user-controlled, so we can't statically guarantee a
+  // prefill-safe model. Keep `stop_sequences: ["</reply>"]` as an
+  // early-termination hint; the parser below handles both tagged and
+  // untagged responses so untagged "casual answer" replies still work.
   const response = await provider.sendMessage(
-    [
-      { role: "user", content: [{ type: "text", text: userPrompt }] },
-      { role: "assistant", content: [{ type: "text", text: "<reply>" }] },
-    ],
+    [{ role: "user", content: [{ type: "text", text: userPrompt }] }],
     [], // no tools
     systemPrompt,
     {
@@ -2268,7 +2272,12 @@ async function generateLlmSuggestion(
 
   const textBlock = response.content.find((b) => b.type === "text");
   const raw = textBlock && "text" in textBlock ? textBlock.text : "";
-  const stripped = raw
+  // Prefer the content inside <reply>…</reply> when the model honors the
+  // tag format. If the response has no tags, fall back to the raw text —
+  // a plain "Sure, tomorrow works" without tags is still a valid chip.
+  const tagMatch = raw.match(/<reply>([\s\S]*?)(?:<\/reply>|$)/i);
+  const extracted = tagMatch ? tagMatch[1] : raw;
+  const stripped = extracted
     .replace(/<\/?reply>/gi, "")
     .replace(/^["'`]+|["'`]+$/g, "")
     .trim();
