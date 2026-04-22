@@ -118,32 +118,38 @@ export async function getAutoApproveThreshold(
         return cached.threshold;
       }
     } else {
-      try {
-        const result = (await ipcCall("get_conversation_threshold", {
-          conversationId,
-        })) as ConversationThreshold | null;
+      // ipcCall() returns undefined on transport failure (socket not found,
+      // timeout, etc.) and null when the gateway explicitly says "no override".
+      // We must distinguish the two: only cache the negative on `null`, and
+      // fall back to hardcoded defaults on `undefined` without poisoning the
+      // cache — otherwise a transient IPC failure would cause subsequent
+      // approval checks to skip a real override for up to 5 seconds.
+      const result = (await ipcCall("get_conversation_threshold", {
+        conversationId,
+      })) as ConversationThreshold | null | undefined;
 
-        if (result && isValidThreshold(result.threshold)) {
-          conversationThresholdCache.set(conversationId, {
-            threshold: result.threshold,
-            timestamp: Date.now(),
-          });
-          return result.threshold;
-        }
-
-        // null means no override — cache the negative result
-        conversationThresholdCache.set(conversationId, {
-          threshold: null,
-          timestamp: Date.now(),
-        });
-        // Fall through to global
-      } catch (err) {
+      if (result === undefined) {
         log.warn(
-          { conversationId, error: String(err) },
-          "Failed to fetch conversation threshold override, falling back to defaults",
+          { conversationId },
+          "IPC call failed for conversation threshold override, falling back to defaults",
         );
         return HARDCODED_DEFAULTS[ctx];
       }
+
+      if (result && isValidThreshold(result.threshold)) {
+        conversationThresholdCache.set(conversationId, {
+          threshold: result.threshold,
+          timestamp: Date.now(),
+        });
+        return result.threshold;
+      }
+
+      // result === null (or an unexpected shape) — cache the negative result
+      // and fall through to global defaults.
+      conversationThresholdCache.set(conversationId, {
+        threshold: null,
+        timestamp: Date.now(),
+      });
     }
   }
 
