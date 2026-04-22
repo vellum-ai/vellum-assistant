@@ -319,8 +319,20 @@ extension AppDelegate {
             // writes guardian-token.json asynchronously — poll for it. On
             // bare-metal the file is written synchronously at hatch time, so
             // if the first check missed it the file isn't coming.
+            //
+            // When the lockfile entry can't be resolved, default to treating
+            // the hatch as remote (poll) to stay aligned with
+            // `forceReBootstrap()`'s "treat unresolved as remote" default.
+            // A bare-metal run with an unresolvable entry otherwise falls
+            // straight into `/v1/guardian/init`, which is permanently 403'd
+            // after the first hatch — producing a non-recovering loop.
+            // Polling first gives the CLI/launcher a chance to (re)write the
+            // token file before the HTTP fallback is exercised.
             let assistant = LockfileAssistant.loadByName(assistantId)
-            let shouldPoll = assistant?.isRemote ?? false
+            let shouldPoll = assistant?.isRemote ?? true
+            if assistant == nil {
+                log.warning("performInitialBootstrap: could not resolve lockfile entry for active assistant — polling for guardian token file before HTTP fallback")
+            }
 
             if shouldPoll {
                 let maxAttempts = 30
