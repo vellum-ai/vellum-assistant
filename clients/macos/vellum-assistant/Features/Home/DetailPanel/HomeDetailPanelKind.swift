@@ -12,6 +12,12 @@ import VellumAssistantShared
 enum HomeDetailPanelKind: Equatable {
     case scheduled(FeedItem)
     case nudge(FeedItem)
+    case emailDraft(FeedItem)
+    case documentPreview(FeedItem)
+    case permissionChat(FeedItem)
+    case paymentAuth(FeedItem)
+    case toolPermission(FeedItem)
+    case updatesList(FeedItem)
 
     /// Maps a `FeedItem` to its detail-panel kind, or returns `nil` when the
     /// item should keep the existing conversation-open flow.
