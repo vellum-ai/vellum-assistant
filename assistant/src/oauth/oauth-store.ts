@@ -451,6 +451,7 @@ export function updateProvider(
     identityFormat: string;
     identityOkField: string;
     featureFlag: string;
+    managedServiceIsPaid: boolean;
   }>,
 ): OAuthProviderRow | undefined {
   const existing = getProvider(provider);
@@ -519,6 +520,8 @@ export function updateProvider(
   if (params.identityOkField !== undefined)
     set.identityOkField = params.identityOkField;
   if (params.featureFlag !== undefined) set.featureFlag = params.featureFlag;
+  if (params.managedServiceIsPaid !== undefined)
+    set.managedServiceIsPaid = params.managedServiceIsPaid ? 1 : 0;
 
   db.update(oauthProviders)
     .set(set)
