@@ -59,10 +59,10 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         pricing: {
-          inputPer1mTokens: 15,
-          outputPer1mTokens: 75,
-          cacheWritePer1mTokens: 18.75,
-          cacheReadPer1mTokens: 1.5,
+          inputPer1mTokens: 5,
+          outputPer1mTokens: 25,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
         },
       },
       {
@@ -75,10 +75,10 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: true,
         supportsToolUse: true,
         pricing: {
-          inputPer1mTokens: 15,
-          outputPer1mTokens: 75,
-          cacheWritePer1mTokens: 18.75,
-          cacheReadPer1mTokens: 1.5,
+          inputPer1mTokens: 5,
+          outputPer1mTokens: 25,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
         },
       },
       {

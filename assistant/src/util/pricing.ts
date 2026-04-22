@@ -21,9 +21,9 @@ const ANTHROPIC_FAST_MODE_MULTIPLIER = 6;
  */
 const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
   anthropic: {
-    "claude-opus-4-7": { inputPer1M: 15, outputPer1M: 75 },
-    "claude-opus-4-6": { inputPer1M: 15, outputPer1M: 75 },
-    "claude-opus-4": { inputPer1M: 15, outputPer1M: 75 },
+    "claude-opus-4-7": { inputPer1M: 5, outputPer1M: 25 },
+    "claude-opus-4-6": { inputPer1M: 5, outputPer1M: 25 },
+    "claude-opus-4": { inputPer1M: 5, outputPer1M: 25 },
     "claude-sonnet-4": { inputPer1M: 3, outputPer1M: 15 },
     "claude-haiku-4": { inputPer1M: 1, outputPer1M: 5 },
   },
