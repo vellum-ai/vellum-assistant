@@ -174,12 +174,6 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("vTextEditor", "VTextEditor", keywords: ["text editor", "multiline"], description: "Multi-line text editor with placeholder and configurable min/max height."),
                 GalleryComponent("vToggle", "VToggle", keywords: ["toggle", "switch"], description: "Custom toggle switch with optional label and animated knob transition."),
                 GalleryComponent("vDropdown", "VDropdown", keywords: ["dropdown", "select", "picker"], description: "Generic dropdown picker with label, error, icon, and size variants (.regular, .small).", useInsteadOf: "Raw Menu + Picker with manual styling"),
-                GalleryComponent(
-                    "vFormattingToolbar",
-                    "VFormattingToolbar",
-                    keywords: ["formatting", "toolbar", "rich text", "bold italic underline"],
-                    description: "Horizontal row of icon-only formatting action buttons (B/I/U, alignment, link, lists, quote). Stateless — fires callbacks on tap."
-                ),
                 GalleryComponent("combinedForm", "Combined Form", keywords: ["form", "combined"], description: "Example of VTextField and VDropdown composed together in a form layout."),
             ]
         case .layout:

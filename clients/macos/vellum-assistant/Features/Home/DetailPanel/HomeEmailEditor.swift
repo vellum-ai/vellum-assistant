@@ -4,17 +4,14 @@ import VellumAssistantShared
 /// Pure body content for the Home detail side panel's email composer
 /// variant.
 ///
-/// Based on Figma node `3496:72522`, with the formatting toolbar moved
-/// to sit between the subject divider and the body text (so the
-/// To/Subject metadata reads as a header block and the toolbar frames
-/// the composable body). Layout: To/Subject labeled fields, formatting
-/// toolbar, editable body text, and at the bottom a two-row footer: a
-/// horizontal scroll of attachment chips (only when attachments are
-/// present) followed by a primary `Send` button. The
-/// enclosing `HomeDetailPanel` chrome supplies the header title +
-/// optional dismiss; the `Send` action lives on this component rather
-/// than on the panel header because the mock puts it at the bottom of
-/// the panel, not in the header.
+/// Based on Figma node `3496:72522`. Layout: To/Subject labeled fields,
+/// editable body text, and at the bottom a two-row footer — a horizontal
+/// scroll of attachment chips (only when attachments are present)
+/// followed by a primary `Send` button. The enclosing `HomeDetailPanel`
+/// chrome supplies the header title + optional dismiss; the `Send`
+/// action lives on this component rather than on the panel header
+/// because the mock puts it at the bottom of the panel, not in the
+/// header.
 ///
 /// The body text field expands to fill all vertical space between the
 /// subject divider and the attachments/send footer, so the footer
@@ -39,7 +36,6 @@ struct HomeEmailEditor: View {
     let onAttachmentTap: (Attachment) -> Void
     /// Fired when the user taps the footer `Send` button.
     let onSend: () -> Void
-    var onFormatAction: (VFormattingToolbar.Action) -> Void = { _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -58,13 +54,6 @@ struct HomeEmailEditor: View {
 
                 insetHairline
             }
-
-            // Formatting toolbar sits between the subject divider and the
-            // body text, so the fields read as a metadata header and the
-            // toolbar frames the composable content below it.
-            VFormattingToolbar(onAction: onFormatAction)
-
-            insetHairline
 
             TextField("Compose your reply…", text: $bodyText, axis: .vertical)
                 .textFieldStyle(.plain)
