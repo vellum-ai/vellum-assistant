@@ -176,6 +176,82 @@ describe("pollJobUntilDone", () => {
       expect(calls).toBe(2);
     });
 
+    test("refreshOn401 is invoked on 401 and polling continues after refresh", async () => {
+      let calls = 0;
+      let refreshes = 0;
+      const result = await pollJobUntilDone({
+        label: "expiring auth",
+        intervalMs: 1,
+        timeoutMs: 1_000,
+        maxTransientErrors: 0,
+        refreshOn401: async () => {
+          refreshes += 1;
+        },
+        poll: async () => {
+          calls += 1;
+          if (calls === 1) {
+            throw new Error("Local job status check failed: 401 Unauthorized");
+          }
+          return {
+            jobId: "j401",
+            type: "export",
+            status: "complete",
+          } as UnifiedJobStatus;
+        },
+      });
+      expect(result.status).toBe("complete");
+      expect(refreshes).toBe(1);
+      expect(calls).toBe(2);
+      // The 401 branch logs its own distinct warning (not the generic
+      // "polling failed, retrying" one) so operators can distinguish an
+      // auth refresh from a transient-error retry in the output.
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("refreshing auth"),
+      );
+    });
+
+    test("propagates 401 once maxAuthRefreshes is exceeded", async () => {
+      const maxAuthRefreshes = 2;
+      let calls = 0;
+      let refreshes = 0;
+      await expect(
+        pollJobUntilDone({
+          label: "persistently unauthorized",
+          intervalMs: 1,
+          timeoutMs: 1_000,
+          maxAuthRefreshes,
+          refreshOn401: async () => {
+            refreshes += 1;
+          },
+          poll: async () => {
+            calls += 1;
+            throw new Error("Local job status check failed: 401 Unauthorized");
+          },
+        }),
+      ).rejects.toThrow(/401 Unauthorized/);
+      // Helper allows `maxAuthRefreshes` successful refresh-and-retry cycles
+      // (each counted against the budget after the poll fails), plus one
+      // final attempt on the refreshed token that exceeds the budget.
+      expect(calls).toBe(maxAuthRefreshes + 1);
+      expect(refreshes).toBe(maxAuthRefreshes);
+    });
+
+    test("without refreshOn401, 401 still propagates as a permanent 4xx", async () => {
+      let calls = 0;
+      await expect(
+        pollJobUntilDone({
+          label: "no refresh hook",
+          intervalMs: 1,
+          timeoutMs: 1_000,
+          poll: async () => {
+            calls += 1;
+            throw new Error("Local job status check failed: 401 Unauthorized");
+          },
+        }),
+      ).rejects.toThrow(/401 Unauthorized/);
+      expect(calls).toBe(1);
+    });
+
     test("unclassified network-style errors are treated as transient", async () => {
       let calls = 0;
       const result = await pollJobUntilDone({
