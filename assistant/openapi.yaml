@@ -5633,6 +5633,54 @@ paths:
               required:
                 - description
               additionalProperties: false
+  /v1/migrations/export-to-gcs:
+    post:
+      operationId: migrations_exporttogcs_post
+      summary: Start an async export streamed to a GCS signed URL
+      description:
+        Kick off a background export job that PUTs a freshly-built .vbundle archive to the supplied GCS signed URL.
+        Returns 202 with a job_id the caller can poll via the job-status endpoint. Fails fast with 409 if another export
+        job is already pending or running.
+      tags:
+        - migrations
+      responses:
+        "202":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+                  status:
+                    type: string
+                    const: pending
+                  type:
+                    type: string
+                    const: export
+                required:
+                  - job_id
+                  - status
+                  - type
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                upload_url:
+                  type: string
+                  format: uri
+                  description: Signed GCS PUT URL that receives the exported bundle.
+                description:
+                  description: Human-readable export description.
+                  type: string
+              required:
+                - upload_url
+              additionalProperties: false
   /v1/migrations/import:
     post:
       operationId: migrations_import_post
