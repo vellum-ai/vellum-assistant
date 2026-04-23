@@ -64,10 +64,13 @@ export function mapImageGenError(
  *   - anything else (or `undefined`) → the provided `fallback`
  */
 export function providerForModel(
-  model: string | undefined,
+  model: unknown,
   fallback: ImageGenProvider,
 ): ImageGenProvider {
-  if (!model) return fallback;
+  // `model` originates from an LLM tool call's `input.model`, which is a
+  // `Record<string, unknown>` without runtime validation — so a non-string
+  // value (e.g. `{"model": 123}`) must not crash `.startsWith`.
+  if (typeof model !== "string" || !model) return fallback;
   if (model.startsWith("gpt-") || model.startsWith("dall-e-")) return "openai";
   if (model.startsWith("gemini-")) return "gemini";
   return fallback;
