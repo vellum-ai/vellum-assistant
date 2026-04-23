@@ -145,6 +145,14 @@ jobs:
           path: assistant/.test-durations
           key: test-durations-${{ github.run_id }}
 
+      # Smoke-run the meet-join manifest emitter so an assistant-side
+      # change that breaks the `SkillHost` contract or `register(host)`
+      # fails here instead of only at Docker-build or macOS-packaging
+      # time. Skill-only changes are covered by pr-skills.yaml via
+      # __tests__/emit-manifest.test.ts.
+      - name: Smoke test meet-join manifest emit
+        run: cd .. && bun run skills/meet-join/scripts/emit-manifest.ts --output /tmp/meet-join-manifest.json
+
   openapi-check:
     name: OpenAPI Spec Check
     runs-on: ubuntu-latest
