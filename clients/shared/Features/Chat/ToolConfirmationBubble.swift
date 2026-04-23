@@ -125,13 +125,26 @@ public struct ToolConfirmationBubble: View {
 
     public var body: some View {
         if isV3 {
-            V3PermissionPromptView(
-                confirmation: confirmation,
-                isKeyboardActive: isKeyboardActive,
-                onAllow: onAllow,
-                onDeny: onDeny,
-                onAlwaysAllow: onAlwaysAllow
-            )
+            // System permissions still use the legacy system permission card
+            if confirmation.isSystemPermissionRequest {
+                if isDecided {
+                    systemPermissionCollapsed
+                } else {
+                    systemPermissionCard
+                }
+            } else if isDecided {
+                // Decided confirmations use the legacy collapsed view
+                collapsedContent
+            } else {
+                // Pending v3 prompts use the new v3 view
+                V3PermissionPromptView(
+                    confirmation: confirmation,
+                    isKeyboardActive: isKeyboardActive,
+                    onAllow: onAllow,
+                    onDeny: onDeny,
+                    onAlwaysAllow: onAlwaysAllow
+                )
+            }
         } else {
             legacyBody
         }
@@ -731,17 +744,7 @@ public struct ToolConfirmationBubble: View {
         markCommandExplanationSeen()
         switch action {
         case .allowOnce:
-            if isV3 {
-                // v3: route through the allowlist pattern path if available
-                if let option = confirmation.allowlistOptions.first, !option.pattern.isEmpty {
-                    let scope = confirmation.scopeOptions.first?.scope ?? "everywhere"
-                    onAlwaysAllow(confirmation.requestId, option.pattern, scope, "allow")
-                } else {
-                    onAllow()
-                }
-            } else {
-                onAllow()
-            }
+            onAllow()
         case .allow10m:
             onTemporaryAllow?(confirmation.requestId, "allow_10m")
         case .allowConversation:
