@@ -223,11 +223,17 @@ async function getAccessToken(
   runtimeUrl: string,
   assistantId: string,
   displayName: string,
+  options?: { forceRefresh?: boolean },
 ): Promise<string> {
-  const tokenData = loadGuardianToken(assistantId);
+  // When forceRefresh is set (e.g. after a runtime 401 on the cached token)
+  // we skip the cache and lease a brand-new token from the gateway, so a
+  // stale-but-unexpired token can't keep failing on every retry.
+  if (!options?.forceRefresh) {
+    const tokenData = loadGuardianToken(assistantId);
 
-  if (tokenData && new Date(tokenData.accessTokenExpiresAt) > new Date()) {
-    return tokenData.accessToken;
+    if (tokenData && new Date(tokenData.accessTokenExpiresAt) > new Date()) {
+      return tokenData.accessToken;
+    }
   }
 
   try {
@@ -243,6 +249,47 @@ async function getAccessToken(
       process.exit(1);
     }
     throw err;
+  }
+}
+
+/**
+ * Detect a 401 Unauthorized raised by `localRuntimeExportToGcs` /
+ * `localRuntimeImportFromGcs`. Both throw Error with a message of the form
+ * `"Local runtime <op> failed (401): ..."` when the gateway rejects the
+ * cached guardian token.
+ */
+function isRuntime401(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /Local runtime [^(]*failed \(401\)/.test(msg);
+}
+
+/**
+ * Run a runtime kickoff (`localRuntimeExportToGcs` / `localRuntimeImportFromGcs`)
+ * with a one-shot refresh-and-retry on 401. Matches the pre-rewrite
+ * `exportViaHttp`/`importViaHttp` behavior: if the cached guardian token is
+ * stale-but-unexpired and the runtime returns 401, we lease a fresh token
+ * and retry once. Any other error — or a repeated 401 on the refreshed token
+ * — propagates to the caller.
+ */
+async function callRuntimeWithAuthRetry<T>(
+  runtimeUrl: string,
+  assistantId: string,
+  fn: (token: string) => Promise<T>,
+): Promise<T> {
+  const firstToken = await getAccessToken(runtimeUrl, assistantId, assistantId);
+  try {
+    return await fn(firstToken);
+  } catch (err) {
+    if (!isRuntime401(err)) {
+      throw err;
+    }
+    const refreshedToken = await getAccessToken(
+      runtimeUrl,
+      assistantId,
+      assistantId,
+      { forceRefresh: true },
+    );
+    return await fn(refreshedToken);
   }
 }
 
@@ -331,20 +378,27 @@ async function exportFromAssistant(
       bundlePlatformUrl,
     );
 
-    const accessToken = await getAccessToken(
-      entry.runtimeUrl,
-      entry.assistantId,
-      entry.assistantId,
-    );
-
+    // Wrap the kickoff in a one-shot refresh-and-retry helper so a stale-but-
+    // unexpired cached guardian token surfaces as 401 → re-lease → retry
+    // rather than a terminal failure. `accessToken` below is whichever token
+    // succeeded on the kickoff; we reuse it for polling so the runtime sees a
+    // consistent credential throughout the migration.
     let jobId: string;
+    let accessToken: string;
     try {
-      const result = await localRuntimeExportToGcs(
+      const result = await callRuntimeWithAuthRetry(
         entry.runtimeUrl,
-        accessToken,
-        { uploadUrl, description: "teleport export" },
+        entry.assistantId,
+        async (token) => {
+          const r = await localRuntimeExportToGcs(entry.runtimeUrl, token, {
+            uploadUrl,
+            description: "teleport export",
+          });
+          return { jobId: r.jobId, token };
+        },
       );
       jobId = result.jobId;
+      accessToken = result.token;
     } catch (err) {
       if (err instanceof MigrationInProgressError) {
         // Fail fast — the existing job is writing to a different GCS object
@@ -559,22 +613,23 @@ async function importToAssistant(
       bundlePlatformUrl,
     );
 
-    const accessToken = await getAccessToken(
-      entry.runtimeUrl,
-      entry.assistantId,
-      entry.assistantId,
-    );
-
     console.log("Importing data...");
 
     let jobId: string;
+    let accessToken: string;
     try {
-      const result = await localRuntimeImportFromGcs(
+      const result = await callRuntimeWithAuthRetry(
         entry.runtimeUrl,
-        accessToken,
-        { bundleUrl },
+        entry.assistantId,
+        async (token) => {
+          const r = await localRuntimeImportFromGcs(entry.runtimeUrl, token, {
+            bundleUrl,
+          });
+          return { jobId: r.jobId, token };
+        },
       );
       jobId = result.jobId;
+      accessToken = result.token;
     } catch (err) {
       if (err instanceof MigrationInProgressError) {
         // Fail fast — the existing job is importing someone else's bundle

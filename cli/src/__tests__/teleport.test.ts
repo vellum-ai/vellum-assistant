@@ -1863,6 +1863,174 @@ describe("platform credential injection", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Auth / transient-error resilience (Codex P1/P2 regression guards)
+// ---------------------------------------------------------------------------
+
+describe("auth + transient-error resilience", () => {
+  test("runtime 401 on export kickoff triggers token refresh and retry", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
+
+    // First kickoff call fails with 401, second succeeds.
+    localRuntimeExportToGcsMock.mockImplementationOnce(async () => {
+      throw new Error("Local runtime export-to-gcs failed (401): stale token");
+    });
+    localRuntimeExportToGcsMock.mockImplementationOnce(async () => ({
+      jobId: "local-export-job-after-refresh",
+    }));
+
+    // Ensure the refresh path returns a distinguishable token.
+    leaseGuardianTokenMock.mockResolvedValueOnce({
+      accessToken: "refreshed-token",
+      accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    } as unknown as Awaited<
+      ReturnType<typeof guardianToken.leaseGuardianToken>
+    >);
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await teleport();
+    } finally {
+      restoreFetch();
+    }
+
+    // Kickoff was attempted twice: once with the cached token, once after
+    // a forced refresh lease.
+    expect(localRuntimeExportToGcsMock).toHaveBeenCalledTimes(2);
+
+    const firstTokenArg = localRuntimeExportToGcsMock.mock.calls[0][1];
+    const secondTokenArg = localRuntimeExportToGcsMock.mock.calls[1][1];
+    expect(firstTokenArg).toBe("local-token");
+    expect(secondTokenArg).toBe("refreshed-token");
+
+    // A fresh lease was requested exactly once (the forceRefresh path).
+    expect(leaseGuardianTokenMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("runtime 401 on import kickoff triggers token refresh and retry", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    platformPollJobStatusMock.mockResolvedValue({
+      jobId: "platform-export-job-1",
+      type: "export",
+      status: "complete",
+      bundleKey: "b-key",
+    });
+
+    localRuntimeImportFromGcsMock.mockImplementationOnce(async () => {
+      throw new Error(
+        "Local runtime import-from-gcs failed (401): stale token",
+      );
+    });
+    localRuntimeImportFromGcsMock.mockImplementationOnce(async () => ({
+      jobId: "local-import-after-refresh",
+    }));
+
+    leaseGuardianTokenMock.mockResolvedValueOnce({
+      accessToken: "refreshed-import-token",
+      accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    } as unknown as Awaited<
+      ReturnType<typeof guardianToken.leaseGuardianToken>
+    >);
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await teleport();
+    } finally {
+      restoreFetch();
+    }
+
+    expect(localRuntimeImportFromGcsMock).toHaveBeenCalledTimes(2);
+    expect(localRuntimeImportFromGcsMock.mock.calls[0][1]).toBe("local-token");
+    expect(localRuntimeImportFromGcsMock.mock.calls[1][1]).toBe(
+      "refreshed-import-token",
+    );
+  });
+
+  test("runtime non-401 errors do NOT trigger token refresh", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
+
+    localRuntimeExportToGcsMock.mockRejectedValue(
+      new Error("Local runtime export-to-gcs failed (500): boom"),
+    );
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await expect(teleport()).rejects.toThrow(/500.*boom/);
+    } finally {
+      restoreFetch();
+    }
+
+    // One attempt, no forced-refresh lease.
+    expect(localRuntimeExportToGcsMock).toHaveBeenCalledTimes(1);
+    expect(leaseGuardianTokenMock).not.toHaveBeenCalled();
+  });
+
+  test("transient poll error does not abort teleport (job completes after retry)", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
+
+    // Throw once with a 503 (transient), then succeed with terminal complete.
+    let pollCalls = 0;
+    localRuntimePollJobStatusMock.mockImplementation(
+      async (_runtimeUrl, _token, jobId) => {
+        pollCalls += 1;
+        if (pollCalls === 1) {
+          throw new Error(
+            "Local job status check failed: 503 Service Unavailable",
+          );
+        }
+        return {
+          jobId,
+          type: "export" as const,
+          status: "complete" as const,
+          result: undefined,
+        };
+      },
+    );
+
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    const restoreFetch = installTrackingFetch();
+    try {
+      // Should NOT reject — a single transient 503 is retried, not fatal.
+      await teleport();
+      expect(pollCalls).toBeGreaterThanOrEqual(2);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("polling failed, retrying"),
+      );
+    } finally {
+      restoreFetch();
+      warnSpy.mockRestore();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Misc: legacy --to deprecation
 // ---------------------------------------------------------------------------
 
