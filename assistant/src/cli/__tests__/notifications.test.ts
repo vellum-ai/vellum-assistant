@@ -1,15 +1,7 @@
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
-// Test isolation: in-memory SQLite via temp directory
+// Test isolation: mock logger and IPC client
 // ---------------------------------------------------------------------------
 
 mock.module("../../util/logger.js", () => ({
@@ -23,40 +15,23 @@ mock.module("../../util/logger.js", () => ({
     }),
 }));
 
-// Track emitNotificationSignal calls
-const emitSignalCalls: Array<Record<string, unknown>> = [];
-mock.module("../../notifications/emit-signal.js", () => ({
-  emitNotificationSignal: async (params: Record<string, unknown>) => {
-    emitSignalCalls.push(params);
-    return {
-      signalId: "mock-id",
-      deduplicated: false,
-      dispatched: true,
-      reason: "ok",
-      deliveryResults: [],
-    };
-  },
-}));
+// Track cliIpcCall invocations and control responses
+const ipcCalls: Array<{ method: string; params?: Record<string, unknown> }> =
+  [];
+let ipcResponse: { ok: boolean; result?: unknown; error?: string } = {
+  ok: true,
+  result: {},
+};
 
-mock.module("../../channels/config.js", () => ({
-  getDeliverableChannels: () => ["vellum", "telegram", "slack"],
-  getChannelPolicy: () => ({
-    notification: {
-      deliveryEnabled: true,
-      conversationStrategy: "start_new_conversation",
-    },
-    invite: { codeRedemptionEnabled: false },
-  }),
-  isNotificationDeliverable: () => true,
-  getConversationStrategy: () => "start_new_conversation",
-  getChannelInvitePolicy: () => ({ codeRedemptionEnabled: false }),
-  isInviteCodeRedemptionEnabled: () => false,
+mock.module("../../ipc/cli-client.js", () => ({
+  cliIpcCall: async (method: string, params?: Record<string, unknown>) => {
+    ipcCalls.push({ method, params });
+    return ipcResponse;
+  },
 }));
 
 import { Command } from "commander";
 
-import { getDb, initializeDb } from "../../memory/db.js";
-import { createEvent } from "../../notifications/events-store.js";
 import { registerNotificationsCommand } from "../commands/notifications.js";
 
 // ---------------------------------------------------------------------------
@@ -119,12 +94,17 @@ async function runCommand(args: string[]): Promise<CommandResult> {
 // Setup / teardown
 // ---------------------------------------------------------------------------
 
-beforeAll(() => {
-  initializeDb();
-});
-
 beforeEach(() => {
-  emitSignalCalls.length = 0;
+  ipcCalls.length = 0;
+  ipcResponse = {
+    ok: true,
+    result: {
+      signalId: "mock-id",
+      dispatched: true,
+      deduplicated: false,
+      reason: "ok",
+    },
+  };
   process.exitCode = 0;
 });
 
@@ -137,7 +117,7 @@ afterAll(() => {
 // ---------------------------------------------------------------------------
 
 describe("notifications send", () => {
-  test("send with valid args emits signal", async () => {
+  test("send with valid args calls emit_notification_signal via IPC", async () => {
     const { parsed, exitCode } = await runCommand([
       "send",
       "--source-channel",
@@ -152,11 +132,12 @@ describe("notifications send", () => {
     expect(parsed.ok).toBe(true);
     expect(parsed.signalId).toBe("mock-id");
 
-    expect(emitSignalCalls).toHaveLength(1);
-    const call = emitSignalCalls[0];
-    expect(call.sourceChannel).toBe("assistant_tool");
-    expect(call.sourceEventName).toBe("user.send_notification");
-    const payload = call.contextPayload as Record<string, unknown>;
+    expect(ipcCalls).toHaveLength(1);
+    const call = ipcCalls[0];
+    expect(call.method).toBe("emit_notification_signal");
+    expect(call.params?.sourceChannel).toBe("assistant_tool");
+    expect(call.params?.sourceEventName).toBe("user.send_notification");
+    const payload = call.params?.contextPayload as Record<string, unknown>;
     expect(payload.requestedMessage).toBe("Hello");
   });
 
@@ -178,8 +159,8 @@ describe("notifications send", () => {
     expect(exitCode).toBe(0);
     expect(parsed.ok).toBe(true);
 
-    expect(emitSignalCalls).toHaveLength(1);
-    const hints = emitSignalCalls[0].attentionHints as Record<string, unknown>;
+    expect(ipcCalls).toHaveLength(1);
+    const hints = ipcCalls[0].params?.attentionHints as Record<string, unknown>;
     expect(hints.urgency).toBe("high");
     expect(hints.requiresAction).toBe(true);
     expect(hints.isAsyncBackground).toBe(true);
@@ -201,51 +182,12 @@ describe("notifications send", () => {
     expect(exitCode).toBe(0);
     expect(parsed.ok).toBe(true);
 
-    expect(emitSignalCalls).toHaveLength(1);
-    const payload = emitSignalCalls[0].contextPayload as Record<
+    expect(ipcCalls).toHaveLength(1);
+    const payload = ipcCalls[0].params?.contextPayload as Record<
       string,
       unknown
     >;
     expect(payload.preferredChannels).toEqual(["telegram", "slack"]);
-  });
-
-  test("send rejects invalid source channel", async () => {
-    const { parsed, exitCode } = await runCommand([
-      "send",
-      "--source-channel",
-      "bogus",
-      "--source-event-name",
-      "user.send_notification",
-      "--message",
-      "Hello",
-    ]);
-
-    expect(exitCode).toBe(1);
-    expect(parsed.ok).toBe(false);
-    expect(parsed.error).toContain("bogus");
-    // Should list valid channels from the registry
-    expect(parsed.error).toContain("assistant_tool");
-    expect(parsed.error).toContain("scheduler");
-    expect(parsed.error).toContain("watcher");
-  });
-
-  test("send rejects invalid source event name", async () => {
-    const { parsed, exitCode } = await runCommand([
-      "send",
-      "--source-channel",
-      "assistant_tool",
-      "--source-event-name",
-      "bogus.event",
-      "--message",
-      "Hello",
-    ]);
-
-    expect(exitCode).toBe(1);
-    expect(parsed.ok).toBe(false);
-    expect(parsed.error).toContain("bogus.event");
-    // Should list valid event names from the registry
-    expect(parsed.error).toContain("user.send_notification");
-    expect(parsed.error).toContain("schedule.notify");
   });
 
   test("send rejects invalid urgency", async () => {
@@ -267,9 +209,17 @@ describe("notifications send", () => {
     expect(parsed.error).toContain("low");
     expect(parsed.error).toContain("medium");
     expect(parsed.error).toContain("high");
+
+    // Urgency validation is local — no IPC call should have been made
+    expect(ipcCalls).toHaveLength(0);
   });
 
-  test("send rejects invalid preferred channel", async () => {
+  test("send surfaces IPC error response", async () => {
+    ipcResponse = {
+      ok: false,
+      error: "Daemon rejected the signal",
+    };
+
     const { parsed, exitCode } = await runCommand([
       "send",
       "--source-channel",
@@ -278,17 +228,11 @@ describe("notifications send", () => {
       "user.send_notification",
       "--message",
       "Hello",
-      "--preferred-channels",
-      "badchannel",
     ]);
 
     expect(exitCode).toBe(1);
     expect(parsed.ok).toBe(false);
-    expect(parsed.error).toContain("badchannel");
-    // Should list valid deliverable channels from the mock
-    expect(parsed.error).toContain("vellum");
-    expect(parsed.error).toContain("telegram");
-    expect(parsed.error).toContain("slack");
+    expect(parsed.error).toBe("Daemon rejected the signal");
   });
 });
 
@@ -297,150 +241,82 @@ describe("notifications send", () => {
 // ---------------------------------------------------------------------------
 
 describe("notifications list", () => {
-  beforeEach(() => {
-    getDb().run("DELETE FROM notification_events");
-  });
-
   test("list returns empty array when no events", async () => {
+    ipcResponse = { ok: true, result: [] };
+
     const { parsed, exitCode } = await runCommand(["list"]);
 
     expect(exitCode).toBe(0);
     expect(parsed.ok).toBe(true);
     expect(parsed.events).toEqual([]);
+
+    expect(ipcCalls).toHaveLength(1);
+    expect(ipcCalls[0].method).toBe("list_notification_events");
   });
 
-  test("list returns events", async () => {
-    createEvent({
-      id: `evt-${Date.now()}-1`,
-      sourceEventName: "user.send_notification",
-      sourceChannel: "assistant_tool",
-      sourceContextId: "session-1",
-      attentionHints: {
-        requiresAction: true,
-        urgency: "medium",
-        isAsyncBackground: false,
-        visibleInSourceNow: false,
-      },
-      payload: { requestedMessage: "Test event" },
-    });
+  test("list returns events from IPC", async () => {
+    ipcResponse = {
+      ok: true,
+      result: [
+        {
+          id: "evt-1",
+          sourceEventName: "user.send_notification",
+          sourceChannel: "assistant_tool",
+          sourceContextId: "session-1",
+          urgency: "medium",
+          dedupeKey: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    };
 
     const { parsed, exitCode } = await runCommand(["list"]);
 
     expect(exitCode).toBe(0);
     expect(parsed.ok).toBe(true);
     const events = parsed.events as Array<Record<string, unknown>>;
-    expect(events.length).toBeGreaterThanOrEqual(1);
+    expect(events).toHaveLength(1);
     expect(events[0].sourceEventName).toBe("user.send_notification");
   });
 
-  test("list respects --limit", async () => {
-    for (let i = 0; i < 5; i++) {
-      createEvent({
-        id: `evt-limit-${Date.now()}-${i}`,
-        sourceEventName: "user.send_notification",
-        sourceChannel: "assistant_tool",
-        sourceContextId: `session-limit-${i}`,
-        attentionHints: {
-          requiresAction: true,
-          urgency: "medium",
-          isAsyncBackground: false,
-          visibleInSourceNow: false,
-        },
-        payload: { requestedMessage: `Limit test ${i}` },
-      });
-    }
+  test("list passes --limit to IPC", async () => {
+    ipcResponse = { ok: true, result: [] };
 
-    const { parsed, exitCode } = await runCommand(["list", "--limit", "2"]);
+    const { parsed, exitCode } = await runCommand(["list", "--limit", "5"]);
 
     expect(exitCode).toBe(0);
     expect(parsed.ok).toBe(true);
-    const events = parsed.events as Array<Record<string, unknown>>;
-    expect(events).toHaveLength(2);
+
+    expect(ipcCalls).toHaveLength(1);
+    expect(ipcCalls[0].params?.limit).toBe(5);
   });
 
-  test("list filters by --source-event-name", async () => {
-    createEvent({
-      id: `evt-filter-notif-${Date.now()}`,
-      sourceEventName: "user.send_notification",
-      sourceChannel: "assistant_tool",
-      sourceContextId: "session-filter-1",
-      attentionHints: {
-        requiresAction: true,
-        urgency: "medium",
-        isAsyncBackground: false,
-        visibleInSourceNow: false,
-      },
-      payload: { requestedMessage: "Notification event" },
-    });
-
-    createEvent({
-      id: `evt-filter-reminder-${Date.now()}`,
-      sourceEventName: "schedule.notify",
-      sourceChannel: "scheduler",
-      sourceContextId: "session-filter-2",
-      attentionHints: {
-        requiresAction: true,
-        urgency: "high",
-        isAsyncBackground: false,
-        visibleInSourceNow: false,
-      },
-      payload: { requestedMessage: "Reminder event" },
-    });
+  test("list passes --source-event-name to IPC", async () => {
+    ipcResponse = { ok: true, result: [] };
 
     const { parsed, exitCode } = await runCommand([
       "list",
       "--source-event-name",
-      "user.send_notification",
+      "schedule.notify",
     ]);
 
     expect(exitCode).toBe(0);
     expect(parsed.ok).toBe(true);
-    const events = parsed.events as Array<Record<string, unknown>>;
-    expect(events.length).toBeGreaterThanOrEqual(1);
-    for (const event of events) {
-      expect(event.sourceEventName).toBe("user.send_notification");
-    }
+
+    expect(ipcCalls).toHaveLength(1);
+    expect(ipcCalls[0].params?.sourceEventName).toBe("schedule.notify");
   });
 
-  test("list accepts custom (non-registered) source event names", async () => {
-    createEvent({
-      id: `evt-custom-${Date.now()}`,
-      sourceEventName: "custom.my_event",
-      sourceChannel: "assistant_tool",
-      sourceContextId: "session-custom",
-      attentionHints: {
-        requiresAction: true,
-        urgency: "medium",
-        isAsyncBackground: false,
-        visibleInSourceNow: false,
-      },
-      payload: { requestedMessage: "Custom event" },
-    });
+  test("list surfaces IPC error response", async () => {
+    ipcResponse = {
+      ok: false,
+      error: "Could not connect to assistant daemon. Is it running?",
+    };
 
-    const { parsed, exitCode } = await runCommand([
-      "list",
-      "--source-event-name",
-      "custom.my_event",
-    ]);
+    const { parsed, exitCode } = await runCommand(["list"]);
 
-    expect(exitCode).toBe(0);
-    expect(parsed.ok).toBe(true);
-    const events = parsed.events as Array<Record<string, unknown>>;
-    expect(events.length).toBeGreaterThanOrEqual(1);
-    for (const event of events) {
-      expect(event.sourceEventName).toBe("custom.my_event");
-    }
-  });
-
-  test("list returns empty for non-matching custom event name", async () => {
-    const { parsed, exitCode } = await runCommand([
-      "list",
-      "--source-event-name",
-      "nonexistent.event",
-    ]);
-
-    expect(exitCode).toBe(0);
-    expect(parsed.ok).toBe(true);
-    expect(parsed.events).toEqual([]);
+    expect(exitCode).toBe(1);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Could not connect");
   });
 });

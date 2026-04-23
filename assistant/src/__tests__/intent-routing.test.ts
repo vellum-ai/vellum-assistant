@@ -57,13 +57,10 @@ const scheduleCreateDef = scheduleToolsJson.tools.find(
   (t: { name: string }) => t.name === "schedule_create",
 );
 
-// Load send_notification description from the bundled skill TOOLS.json
+// Load send_notification description from the notifications skill TOOLS.json
 const notifToolsJson = JSON.parse(
   readFileSync(
-    join(
-      import.meta.dirname,
-      "../config/bundled-skills/notifications/TOOLS.json",
-    ),
+    join(import.meta.dirname, "../../../skills/notifications/TOOLS.json"),
     "utf-8",
   ),
 );
