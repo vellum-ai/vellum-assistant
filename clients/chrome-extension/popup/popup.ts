@@ -418,7 +418,7 @@ function loadAssistantCatalog(): void {
 
       if (isNativeHostForbidden(errMsg)) {
         showError(
-          'Native host access is blocked for this extension ID. Add the ID to ~/.vellum/chrome-extension-allowlist.local.json, restart the assistant, then reload Chrome.',
+          'Native host access is blocked for this extension ID. Add the ID to ~/.vellum/chrome-extension-allowlist.local.json, restart the desktop app, then reload the extension.',
         );
         return;
       }

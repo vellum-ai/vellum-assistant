@@ -143,7 +143,7 @@ The native messaging host lets the extension discover running assistants via the
 
 ### With the macOS app (recommended)
 
-The macOS app installs the native messaging host automatically on every launch. It reads all merged allowlist IDs and writes them into the manifest's `allowed_origins`, so both the CWS extension and your dev build are accepted. After adding your dev ID to the local allowlist (see above), just restart the macOS app and Chrome.
+The macOS app installs the native messaging host automatically on every launch. It reads all merged allowlist IDs and writes them into the manifest's `allowed_origins`, so both the CWS extension and your dev build are accepted. After adding your dev ID to the local allowlist (see above), just restart the desktop app and reload the extension in Chrome.
 
 ### Manual setup (without the macOS app)
 
@@ -215,7 +215,7 @@ chmod 644 "$NATIVE_HOSTS_DIR/com.vellum.daemon.json"
 |---|---|
 | `Access to the specified native messaging host is forbidden` | Manifest missing/invalid, or extension ID not in the allowlist. Add it to `~/.vellum/chrome-extension-allowlist.local.json` (see Extension ID & Allowlisting above). |
 | `Native host has exited` | Chrome couldn't launch Bun. Use a wrapper script with an absolute Bun path in the manifest. |
-| `assistant pair request failed with HTTP 401` | Extension ID not in allowlist. Add it to `~/.vellum/chrome-extension-allowlist.local.json` and restart the assistant (see Extension ID & Allowlisting above). |
+| `assistant pair request failed with HTTP 401` | Extension ID not in allowlist. Add it to `~/.vellum/chrome-extension-allowlist.local.json` and restart the desktop app (see Extension ID & Allowlisting above). |
 | `failed to reach assistant at http://127.0.0.1:<port>/...` | Assistant not running, wrong port, or firewall blocking. |
 | `Automatic cloud sign-in failed` | Use "Re-sign in" in the popup's Troubleshooting section, then click Connect. |
 | `Automatic local pairing failed` | Use "Re-pair" in the popup's Troubleshooting section, then click Connect. |
