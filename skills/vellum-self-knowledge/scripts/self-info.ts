@@ -11,60 +11,237 @@
  * earlier versions that always emitted JSON).
  */
 
-// ---------------------------------------------------------------------------
-// Display name mappings (mirrors model-catalog.ts)
-// ---------------------------------------------------------------------------
-
-const MODEL_DISPLAY_NAMES: Record<string, string> = {
-  "claude-opus-4-7": "Claude Opus 4.7",
-  "claude-opus-4-6": "Claude Opus 4.6",
-  "claude-sonnet-4-6": "Claude Sonnet 4.6",
-  "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
-  "gpt-5.2": "GPT-5.2",
-  "gpt-5.4": "GPT-5.4",
-  "gpt-5.4-nano": "GPT-5.4 Nano",
-  "gemini-3-flash": "Gemini 3 Flash",
-  "gemini-3-pro": "Gemini 3 Pro",
-  "llama3.2": "Llama 3.2",
-  mistral: "Mistral",
-  "accounts/fireworks/models/kimi-k2p5": "Kimi K2.5",
-  "x-ai/grok-4": "Grok 4",
-  "x-ai/grok-4.20-beta": "Grok 4.20 Beta",
-  "deepseek/deepseek-r1-0528": "DeepSeek R1",
-  "deepseek/deepseek-chat-v3-0324": "DeepSeek V3",
-  "qwen/qwen3.5-plus-02-15": "Qwen 3.5 Plus",
-  "qwen/qwen3.5-397b-a17b": "Qwen 3.5 397B",
-  "qwen/qwen3.5-flash-02-23": "Qwen 3.5 Flash",
-  "qwen/qwen3-coder-next": "Qwen 3 Coder",
-  "moonshotai/kimi-k2.5": "Kimi K2.5",
-  "mistralai/mistral-medium-3": "Mistral Medium 3",
-  "mistralai/mistral-small-2603": "Mistral Small 4",
-  "mistralai/devstral-2512": "Devstral 2",
-  "meta-llama/llama-4-maverick": "Llama 4 Maverick",
-  "meta-llama/llama-4-scout": "Llama 4 Scout",
-  "amazon/nova-pro-v1": "Amazon Nova Pro",
-};
-
-const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  anthropic: "Anthropic",
-  openai: "OpenAI",
-  gemini: "Google Gemini",
-  ollama: "Ollama",
-  fireworks: "Fireworks",
-  openrouter: "OpenRouter",
-};
+import { readFileSync } from "node:fs";
+import { dirname, join, parse } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
+interface CatalogModel {
+  id: string;
+  displayName?: string;
+}
+
+interface CatalogProvider {
+  id: string;
+  displayName?: string;
+  models?: CatalogModel[];
+}
+
+interface CatalogFile {
+  providers?: CatalogProvider[];
+}
+
+interface CatalogLookup {
+  catalogPath: string;
+  providers: Map<string, string>;
+  models: Map<string, string>;
+  modelsByProvider: Map<string, Map<string, string>>;
+}
+
+interface CommandResult {
+  ok: boolean;
+  stdout?: string;
+  error?: string;
+}
+
+interface InferenceConfig {
+  model?: string;
+  provider?: string;
+  mode?: string;
+}
+
+interface CatalogFileRead {
+  catalogPath: string;
+  raw: string;
+}
+
 function outputJson(data: unknown): void {
   process.stdout.write(JSON.stringify(data) + "\n");
 }
 
-function outputJsonError(message: string, code = 1): void {
+function outputJsonError(message: string): void {
   outputJson({ ok: false, error: message });
-  process.exitCode = code;
+}
+
+function readCatalogFile(): CatalogFileRead | null {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  const root = parse(dir).root;
+
+  while (true) {
+    const candidate = join(dir, "meta", "llm-provider-catalog.json");
+    try {
+      return {
+        catalogPath: candidate,
+        raw: readFileSync(candidate, "utf-8"),
+      };
+    } catch {
+      if (dir === root) {
+        return null;
+      }
+
+      dir = dirname(dir);
+    }
+  }
+}
+
+function loadCatalogLookup(): CatalogLookup | null {
+  const catalogFile = readCatalogFile();
+  if (!catalogFile) {
+    return null;
+  }
+
+  try {
+    const catalog = JSON.parse(catalogFile.raw) as CatalogFile;
+    const providers = new Map<string, string>();
+    const models = new Map<string, string>();
+    const modelsByProvider = new Map<string, Map<string, string>>();
+
+    for (const provider of catalog.providers ?? []) {
+      if (!provider.id) {
+        continue;
+      }
+
+      if (provider.displayName) {
+        providers.set(provider.id, provider.displayName);
+      }
+
+      const providerModels = new Map<string, string>();
+      for (const model of provider.models ?? []) {
+        if (!model.id || !model.displayName) {
+          continue;
+        }
+
+        providerModels.set(model.id, model.displayName);
+        if (!models.has(model.id)) {
+          models.set(model.id, model.displayName);
+        }
+      }
+
+      modelsByProvider.set(provider.id, providerModels);
+    }
+
+    return {
+      catalogPath: catalogFile.catalogPath,
+      providers,
+      models,
+      modelsByProvider,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function readConfigValue(key: string): Promise<CommandResult> {
+  try {
+    const proc = Bun.spawn(["assistant", "config", "get", key], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const stdout = await new Response(proc.stdout).text();
+    const stderr = await new Response(proc.stderr).text();
+    const exitCode = await proc.exited;
+
+    if (exitCode !== 0) {
+      return {
+        ok: false,
+        error:
+          stderr.trim() || `assistant config get ${key} exited ${exitCode}`,
+      };
+    }
+
+    return { ok: true, stdout: stdout.trim() };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+function parseConfigObject(raw: string | undefined): Record<string, unknown> {
+  if (!raw || raw === "(not set)") {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function stringField(
+  value: unknown,
+  fallback: string | undefined = undefined,
+): string | undefined {
+  return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+async function readInferenceConfig(): Promise<{
+  config: InferenceConfig;
+  available: boolean;
+  error?: string;
+}> {
+  const [llmDefault, inference] = await Promise.all([
+    readConfigValue("llm.default"),
+    readConfigValue("services.inference"),
+  ]);
+
+  if (!llmDefault.ok && !inference.ok) {
+    return {
+      config: {},
+      available: false,
+      error: llmDefault.error ?? inference.error,
+    };
+  }
+
+  const llmConfig = llmDefault.ok ? parseConfigObject(llmDefault.stdout) : {};
+  const inferenceConfig = inference.ok
+    ? parseConfigObject(inference.stdout)
+    : {};
+
+  return {
+    config: {
+      model: stringField(llmConfig.model, stringField(inferenceConfig.model)),
+      provider: stringField(
+        llmConfig.provider,
+        stringField(inferenceConfig.provider),
+      ),
+      mode: stringField(inferenceConfig.mode),
+    },
+    available: true,
+    error: !llmDefault.ok
+      ? llmDefault.error
+      : !inference.ok
+        ? inference.error
+        : undefined,
+  };
+}
+
+function getModelDisplayName(
+  lookup: CatalogLookup | null,
+  providerId: string,
+  modelId: string,
+): string {
+  return (
+    lookup?.modelsByProvider.get(providerId)?.get(modelId) ??
+    lookup?.models.get(modelId) ??
+    modelId
+  );
+}
+
+function getProviderDisplayName(
+  lookup: CatalogLookup | null,
+  providerId: string,
+): string {
+  return lookup?.providers.get(providerId) ?? providerId;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,56 +252,15 @@ async function main(): Promise<void> {
   const jsonMode = process.argv.includes("--json");
 
   try {
-    const proc = Bun.spawn(
-      ["assistant", "config", "get", "services.inference"],
-      {
-        stdout: "pipe",
-        stderr: "pipe",
-      },
-    );
-
-    const stdout = await new Response(proc.stdout).text();
-    const stderr = await new Response(proc.stderr).text();
-    const exitCode = await proc.exited;
-
-    if (exitCode !== 0) {
-      const msg = `Failed to read inference config: ${stderr.trim() || "unknown error"}`;
-      if (jsonMode) {
-        outputJsonError(msg);
-      } else {
-        process.stdout.write(`[self-info unavailable: ${msg}]\n`);
-        process.exitCode = 1;
-      }
-      return;
-    }
-
-    const raw = stdout.trim();
-
-    // When the inference config hasn't been explicitly set, the CLI returns
-    // the literal string "(not set)". Fall back to sensible defaults rather
-    // than crashing with a cryptic JSON-parse error.
-    let config: { model?: string; provider?: string; mode?: string };
-    if (raw === "(not set)" || raw === "") {
-      config = {
-        model: "claude-opus-4-7",
-        provider: "anthropic",
-        mode: "your-own",
-      };
-    } else {
-      config = JSON.parse(raw) as {
-        model?: string;
-        provider?: string;
-        mode?: string;
-      };
-    }
+    const catalog = loadCatalogLookup();
+    const { config, available, error } = await readInferenceConfig();
 
     const modelId = config.model ?? "unknown";
     const providerId = config.provider ?? "unknown";
     const mode = config.mode ?? "unknown";
 
-    const modelDisplayName = MODEL_DISPLAY_NAMES[modelId] ?? modelId;
-    const providerDisplayName =
-      PROVIDER_DISPLAY_NAMES[providerId] ?? providerId;
+    const modelDisplayName = getModelDisplayName(catalog, providerId, modelId);
+    const providerDisplayName = getProviderDisplayName(catalog, providerId);
 
     const modeLabel =
       mode === "your-own"
@@ -133,11 +269,20 @@ async function main(): Promise<void> {
           ? "managed platform proxy"
           : mode;
 
-    const summary = `You are running as ${modelDisplayName} via ${providerDisplayName} (${modeLabel}).`;
+    const summary = available
+      ? `You are running as ${modelDisplayName} via ${providerDisplayName} (${modeLabel}).`
+      : `Current assistant inference configuration is unavailable${
+          error ? `: ${error}` : "."
+        }`;
 
     if (jsonMode) {
       outputJson({
         ok: true,
+        configAvailable: available,
+        ...(error ? { configWarning: error } : {}),
+        catalog: catalog
+          ? { available: true, path: catalog.catalogPath }
+          : { available: false },
         model: { id: modelId, displayName: modelDisplayName },
         provider: { id: providerId, displayName: providerDisplayName },
         mode,
@@ -153,7 +298,6 @@ async function main(): Promise<void> {
       outputJsonError(msg);
     } else {
       process.stdout.write(`[self-info unavailable: ${msg}]\n`);
-      process.exitCode = 1;
     }
   }
 }
