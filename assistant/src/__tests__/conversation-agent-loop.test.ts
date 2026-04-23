@@ -16,8 +16,8 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
+function makeMockConfig() {
+  return {
     llm: {
       default: {
         provider: "mock-provider",
@@ -49,7 +49,13 @@ mock.module("../config/loader.js", () => ({
     rateLimit: { maxRequestsPerMinute: 0 },
     workspaceGit: { turnCommitMaxWaitMs: 10 },
     ui: {},
-  }),
+  };
+}
+
+let mockConfig = makeMockConfig();
+
+mock.module("../config/loader.js", () => ({
+  getConfig: () => mockConfig,
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
   invalidateConfigCache: () => {},
@@ -501,6 +507,7 @@ function makeCtx(
 // ── Tests ────────────────────────────────────────────────────────────
 
 beforeEach(() => {
+  mockConfig = makeMockConfig();
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
@@ -1474,6 +1481,64 @@ describe("session-agent-loop", () => {
       expect(agentLoopCalls).toBe(1);
       const complete = events.find((e) => e.type === "message_complete");
       expect(complete).toBeDefined();
+    });
+
+    test("preflight budget uses catalog context window when lower than config", async () => {
+      mockConfig.llm.default.provider = "anthropic";
+      mockConfig.llm.default.model = "claude-opus-4-6";
+      mockConfig.llm.default.contextWindow.maxInputTokens = 500_000;
+      mockEstimateTokens = 191_000;
+
+      let reducerContextWindowMax: number | undefined;
+      mockReducerStepFn = (msgs: Message[], cfg: unknown) => {
+        reducerContextWindowMax = (
+          cfg as { contextWindow: { maxInputTokens: number } }
+        ).contextWindow.maxInputTokens;
+        return {
+          messages: msgs,
+          tier: "forced_compaction",
+          state: {
+            appliedTiers: ["forced_compaction"],
+            injectionMode: "full",
+            exhausted: true,
+          },
+          estimatedTokens: 100_000,
+        };
+      };
+
+      const ctx = makeCtx();
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(reducerContextWindowMax).toBe(200_000);
+    });
+
+    test("preflight budget keeps config override when lower than catalog", async () => {
+      mockConfig.llm.default.provider = "anthropic";
+      mockConfig.llm.default.model = "claude-opus-4-6";
+      mockConfig.llm.default.contextWindow.maxInputTokens = 150_000;
+      mockEstimateTokens = 143_000;
+
+      let reducerContextWindowMax: number | undefined;
+      mockReducerStepFn = (msgs: Message[], cfg: unknown) => {
+        reducerContextWindowMax = (
+          cfg as { contextWindow: { maxInputTokens: number } }
+        ).contextWindow.maxInputTokens;
+        return {
+          messages: msgs,
+          tier: "forced_compaction",
+          state: {
+            appliedTiers: ["forced_compaction"],
+            injectionMode: "full",
+            exhausted: true,
+          },
+          estimatedTokens: 75_000,
+        };
+      };
+
+      const ctx = makeCtx();
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(reducerContextWindowMax).toBe(150_000);
     });
   });
 

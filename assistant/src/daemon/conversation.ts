@@ -74,6 +74,7 @@ import { getLogger } from "../util/logger.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import {
   applyCompactionResult,
+  resolveEffectiveDefaultContextWindowConfig,
   runAgentLoopImpl,
   trackCompactionOutcome,
 } from "./conversation-agent-loop.js";
@@ -517,13 +518,15 @@ export class Conversation {
     const fastModeEnabled = isAssistantFeatureFlagEnabled("fast-mode", config);
     const resolvedSpeed = speedOverride ?? config.llm.default.speed;
     const llmDefault = config.llm.default;
+    const effectiveContextWindow =
+      resolveEffectiveDefaultContextWindowConfig(config);
 
     this.agentLoop = new AgentLoop(
       provider,
       systemPrompt,
       {
         maxTokens,
-        maxInputTokens: llmDefault.contextWindow.maxInputTokens,
+        maxInputTokens: effectiveContextWindow.maxInputTokens,
         thinking: llmDefault.thinking,
         effort: llmDefault.effort,
         ...(fastModeEnabled && resolvedSpeed === "fast"
@@ -539,7 +542,7 @@ export class Conversation {
     this.contextWindowManager = new ContextWindowManager({
       provider,
       systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
-      config: llmDefault.contextWindow,
+      config: effectiveContextWindow,
       toolTokenBudget: this.agentLoop.getToolTokenBudget(),
     });
   }

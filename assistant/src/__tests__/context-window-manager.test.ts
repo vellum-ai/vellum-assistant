@@ -10,6 +10,7 @@ import {
   getSummaryFromContextMessage,
   stripCompactionOnlyInjections,
 } from "../context/window-manager.js";
+import { resolveEffectiveContextWindowTokens } from "../providers/model-context.js";
 import type {
   ContentBlock,
   Message,
@@ -55,6 +56,34 @@ function message(role: "user" | "assistant", text: string): Message {
 }
 
 describe("ContextWindowManager", () => {
+  test("resolves effective max input tokens as min of catalog and config", () => {
+    expect(
+      resolveEffectiveContextWindowTokens({
+        provider: "anthropic",
+        model: "claude-opus-4-6",
+        configuredMaxInputTokens: 500_000,
+      }),
+    ).toBe(200_000);
+
+    expect(
+      resolveEffectiveContextWindowTokens({
+        provider: "anthropic",
+        model: "claude-opus-4-6",
+        configuredMaxInputTokens: 150_000,
+      }),
+    ).toBe(150_000);
+  });
+
+  test("keeps configured max input tokens for unknown models", () => {
+    expect(
+      resolveEffectiveContextWindowTokens({
+        provider: "anthropic",
+        model: "custom-model",
+        configuredMaxInputTokens: 123_456,
+      }),
+    ).toBe(123_456);
+  });
+
   test("skips compaction when estimated tokens are below threshold", async () => {
     const provider = createProvider(() => {
       throw new Error("should not be called");
