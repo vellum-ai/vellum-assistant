@@ -125,6 +125,7 @@ import { HostBrowserProxy } from "./host-browser-proxy.js";
 import type { CuObservationResult } from "./host-cu-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { HostFileProxy } from "./host-file-proxy.js";
+import { HostTransferProxy } from "./host-transfer-proxy.js";
 import type {
   ServerMessage,
   SurfaceData,
@@ -215,6 +216,7 @@ export class Conversation {
   /** @internal */ hostBrowserProxy?: HostBrowserProxy;
   /** @internal */ hostCuProxy?: HostCuProxy;
   /** @internal */ hostFileProxy?: HostFileProxy;
+  /** @internal */ hostTransferProxy?: HostTransferProxy;
   /**
    * Optional override sender used by `restoreBrowserProxyAvailability` so
    * registry-routed transports can preserve their sender across drain queue
@@ -673,6 +675,7 @@ export class Conversation {
       this.hostBrowserProxy?.updateSender(sendToClient, !hasNoClient);
       this.hostCuProxy?.updateSender(sendToClient, !hasNoClient);
       this.hostFileProxy?.updateSender(sendToClient, !hasNoClient);
+      this.hostTransferProxy?.updateSender(sendToClient, !hasNoClient);
     }
 
     // Replay last activity state so a reconnecting client sees the current phase
@@ -700,6 +703,7 @@ export class Conversation {
     this.hostBrowserProxy?.updateSender(this.sendToClient, false);
     this.hostCuProxy?.updateSender(this.sendToClient, false);
     this.hostFileProxy?.updateSender(this.sendToClient, false);
+    this.hostTransferProxy?.updateSender(this.sendToClient, false);
   }
 
   /**
@@ -716,6 +720,7 @@ export class Conversation {
       }
       this.hostCuProxy?.updateSender(this.sendToClient, true);
       this.hostFileProxy?.updateSender(this.sendToClient, true);
+      this.hostTransferProxy?.updateSender(this.sendToClient, true);
     }
   }
 
@@ -851,6 +856,7 @@ export class Conversation {
     this.hostBrowserProxy?.dispose();
     this.hostCuProxy?.dispose();
     this.hostFileProxy?.dispose();
+    this.hostTransferProxy?.dispose();
     // CES client is owned by DaemonServer — just drop the reference.
     // Do NOT close it here; the server manages the CES lifecycle.
     this.cesClient = undefined;
@@ -1225,6 +1231,28 @@ export class Conversation {
       this.hostFileProxy.dispose();
     }
     this.hostFileProxy = proxy;
+  }
+
+  resolveHostTransfer(
+    requestId: string,
+    result: {
+      isError: boolean;
+      bytesWritten?: number;
+      errorMessage?: string;
+    },
+  ): void {
+    this.hostTransferProxy?.resolveTransferResult(requestId, result);
+  }
+
+  setHostTransferProxy(proxy: HostTransferProxy | undefined): void {
+    if (this.hostTransferProxy && this.hostTransferProxy !== proxy) {
+      this.hostTransferProxy.dispose();
+    }
+    this.hostTransferProxy = proxy;
+  }
+
+  getHostTransferProxy(): HostTransferProxy | undefined {
+    return this.hostTransferProxy;
   }
 
   resolveHostCu(requestId: string, observation: CuObservationResult): void {

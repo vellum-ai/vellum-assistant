@@ -117,6 +117,8 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   hostBrowserProxy?: import("./host-browser-proxy.js").HostBrowserProxy;
   /** Optional proxy for delegating host_file_read/write/edit execution to a connected client. */
   hostFileProxy?: import("./host-file-proxy.js").HostFileProxy;
+  /** Optional proxy for delegating bidirectional file transfers between sandbox and host. */
+  hostTransferProxy?: import("./host-transfer-proxy.js").HostTransferProxy;
   /** CES RPC client for credential execution operations. Injected when CES tools are enabled and the CES process is available. */
   cesClient?: CesClient;
   /** The interface ID of the connected client driving the current turn (e.g. "macos", "chrome-extension"). Propagated into ToolContext for browser backend selection. */
@@ -239,6 +241,7 @@ export function createToolExecutor(
       hostBashProxy: ctx.hostBashProxy,
       hostBrowserProxy: ctx.hostBrowserProxy,
       hostFileProxy: ctx.hostFileProxy,
+      hostTransferProxy: ctx.hostTransferProxy,
       isPlatformHosted: getIsPlatform(),
       cesClient: ctx.cesClient,
       transportInterface: ctx.transportInterface,

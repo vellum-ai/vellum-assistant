@@ -1765,10 +1765,7 @@ public struct HostTransferRequest: Decodable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case type, requestId, conversationId, direction
-        case transferId = "transfer_id"
-        case destPath = "dest_path"
-        case sourcePath = "source_path"
-        case sizeBytes = "size_bytes"
+        case transferId, destPath, sourcePath, sizeBytes
         case sha256, overwrite
     }
 }
