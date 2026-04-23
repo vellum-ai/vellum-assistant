@@ -197,6 +197,20 @@ Examples:
       try {
         unlinkSync(avatarPath);
 
+        // If native character traits exist, regenerate the PNG so consumers
+        // that read the file from disk see the restored character immediately.
+        const traitsPath = join(getAvatarDir(), "character-traits.json");
+        if (existsSync(traitsPath)) {
+          try {
+            const traits = JSON.parse(
+              readFileSync(traitsPath, "utf-8"),
+            ) as CharacterTraits;
+            writeTraitsAndRenderAvatar(traits);
+          } catch {
+            // Best-effort — the character will regenerate on next access
+          }
+        }
+
         // Update IDENTITY.md to reflect that no custom image is set
         updateIdentityAvatarSection(
           "Default character avatar (no custom image set)",
