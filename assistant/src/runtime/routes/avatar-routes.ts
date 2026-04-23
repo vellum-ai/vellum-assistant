@@ -32,6 +32,21 @@ function publishAvatarUpdated(): void {
 export function avatarRouteDefinitions(): RouteDefinition[] {
   return [
     {
+      endpoint: "avatar/notify-updated",
+      method: "POST",
+      summary: "Notify avatar updated",
+      description:
+        "Publish an avatar_updated SSE event to all connected clients.",
+      tags: ["avatar"],
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
+      handler: () => {
+        publishAvatarUpdated();
+        return Response.json({ ok: true });
+      },
+    },
+    {
       endpoint: "avatar/character-components",
       method: "GET",
       summary: "Get character components",
