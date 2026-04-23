@@ -219,6 +219,18 @@ export function getInjectors(): Injector[] {
   return out;
 }
 
+/**
+ * Remove a plugin from the registry. Invoked from the bootstrap's failure path
+ * after {@link Plugin.onShutdown} and contribution teardown have run, so
+ * {@link getMiddlewaresFor} and {@link getInjectors} no longer expose a
+ * plugin whose `init()` aborted mid-bootstrap. Without this, every subsequent
+ * pipeline invocation would re-enter the uninitialized plugin's middleware.
+ * Safe to call on an already-absent name (no-op).
+ */
+export function unregisterPlugin(name: string): void {
+  registeredPlugins.delete(name);
+}
+
 // ─── Test hooks ──────────────────────────────────────────────────────────────
 
 /**

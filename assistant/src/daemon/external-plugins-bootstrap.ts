@@ -60,6 +60,7 @@ import {
 import {
   ASSISTANT_API_VERSIONS,
   getRegisteredPlugins,
+  unregisterPlugin,
 } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -208,6 +209,17 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
   // onShutdown" invariant.
   const activePlugins: ActivePlugin[] = [];
 
+  // Tear down a plugin's contributions AND remove it from the registry. The
+  // two steps always move together on the bootstrap failure path: the former
+  // clears tools/routes/skills (so they stop appearing to the model/HTTP
+  // server), the latter drops the plugin's entry from the Map (so
+  // `getMiddlewaresFor` / `getInjectors` don't re-enter an uninitialized
+  // plugin on the next pipeline invocation).
+  async function rollbackPlugin(active: ActivePlugin): Promise<void> {
+    await teardownPlugin(active, "bootstrap-failed");
+    unregisterPlugin(active.plugin.manifest.name);
+  }
+
   // If one plugin's init or contribution phase throws, tear down any plugins
   // that already fully initialized (in reverse registration order) before
   // re-throwing. Without this, a mid-loop failure would leave earlier plugins
@@ -215,7 +227,7 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
   // hook is only registered once the loop completes successfully.
   async function teardownPartialInit(): Promise<void> {
     for (let i = activePlugins.length - 1; i >= 0; i--) {
-      await teardownPlugin(activePlugins[i]!, "bootstrap-failed");
+      await rollbackPlugin(activePlugins[i]!);
     }
   }
 
@@ -241,6 +253,11 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
       );
       continue;
     }
+
+    // Collected as routes are accepted so the catch block can revoke exactly
+    // the routes this plugin contributed if a later contribution step throws.
+    // Hoisted above the try so it's in scope for the error path.
+    const routeHandles: SkillRouteHandle[] = [];
 
     try {
       // Credential resolution — gather every entry in `requiresCredential`
@@ -319,7 +336,6 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
       // teardown path unregisters by identity rather than pattern text — two
       // plugins (or a plugin and a skill) that happen to register the same
       // regex must not evict each other's routes during shutdown.
-      const routeHandles: SkillRouteHandle[] = [];
       if (plugin.routes && plugin.routes.length > 0) {
         for (const route of plugin.routes) {
           routeHandles.push(registerSkillRoute(route));
@@ -358,11 +374,13 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
 
       log.info({ plugin: name }, "plugin initialized");
     } catch (err) {
-      // Tear down every plugin that already made it through its full init +
-      // contribution phase, in reverse order, before propagating the error.
-      // Without this, the caller would see a partially-wired registry (tools,
-      // routes, skills all live) with no shutdown hook to clean them up, since
-      // `registerShutdownHook` is only called after the loop completes.
+      // Roll back the currently-failing plugin first — it is not in
+      // `activePlugins` yet (that push happens only after every contribution
+      // step succeeds), so `teardownPartialInit()` alone would leave its
+      // already-registered tools, routes, and skills live. Every teardown
+      // step is idempotent, so this is safe regardless of which contribution
+      // step threw.
+      await rollbackPlugin({ plugin, routeHandles });
       await teardownPartialInit();
       throw err;
     }
