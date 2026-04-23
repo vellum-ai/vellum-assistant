@@ -63,6 +63,7 @@ const HOST_TOOLS = new Set([
   "host_file_read",
   "host_file_write",
   "host_file_edit",
+  "host_file_transfer",
   "host_bash",
   "computer_use_run_applescript",
 ]);

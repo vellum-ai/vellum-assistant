@@ -353,7 +353,8 @@ async function buildCommandCandidates(
   if (
     toolName === "host_file_read" ||
     toolName === "host_file_write" ||
-    toolName === "host_file_edit"
+    toolName === "host_file_edit" ||
+    toolName === "host_file_transfer"
   ) {
     const resolved = fileTarget ? resolve(fileTarget) : fileTarget;
     const normalized =
@@ -452,6 +453,7 @@ export async function classifyRisk(
       "host_file_read",
       "host_file_write",
       "host_file_edit",
+      "host_file_transfer",
     ].includes(toolName)
   ) {
     const filePath = getStringField(input, "path", "file_path");
@@ -463,7 +465,8 @@ export async function classifyRisk(
         | "file_edit"
         | "host_file_read"
         | "host_file_write"
-        | "host_file_edit",
+        | "host_file_edit"
+        | "host_file_transfer",
       filePath,
       workingDir: isHostTool ? "/" : (workingDir ?? process.cwd()),
     });
@@ -763,6 +766,7 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   host_file_read: "host file reads",
   host_file_write: "host file writes",
   host_file_edit: "host file edits",
+  host_file_transfer: "host file transfers",
   web_fetch: "URL fetches",
   network_request: "network requests",
 };
@@ -971,6 +975,7 @@ const ALLOWLIST_STRATEGIES: Record<string, AllowlistStrategy> = {
   host_file_read: fileAllowlistStrategy,
   host_file_write: fileAllowlistStrategy,
   host_file_edit: fileAllowlistStrategy,
+  host_file_transfer: fileAllowlistStrategy,
   web_fetch: urlAllowlistStrategy,
   network_request: urlAllowlistStrategy,
   scaffold_managed_skill: managedSkillAllowlistStrategy,
@@ -1035,6 +1040,7 @@ export const SCOPE_AWARE_TOOLS = new Set([
   "host_file_read",
   "host_file_write",
   "host_file_edit",
+  "host_file_transfer",
 ]);
 
 export function generateScopeOptions(

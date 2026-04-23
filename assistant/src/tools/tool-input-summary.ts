@@ -49,7 +49,8 @@ export function summarizeToolInput(
     case "file_edit":
     case "host_file_read":
     case "host_file_write":
-    case "host_file_edit": {
+    case "host_file_edit":
+    case "host_file_transfer": {
       const path = extractString(input, "file_path", "path");
       return path ? path.trim() : "";
     }

@@ -1,8 +1,9 @@
 /**
  * File risk classifier — path-based risk classification for file tools.
  *
- * Implements RiskClassifier<FileClassifierInput> for all six file tool types:
- * file_read, file_write, file_edit, host_file_read, host_file_write, host_file_edit.
+ * Implements RiskClassifier<FileClassifierInput> for all seven file tool types:
+ * file_read, file_write, file_edit, host_file_read, host_file_write,
+ * host_file_edit, host_file_transfer.
  *
  * Risk escalation paths:
  * - file_read: Low by default, High if targeting the actor token signing key.
@@ -11,6 +12,8 @@
  * - host_file_read: Medium (tool registry default; no special escalation).
  * - host_file_write / host_file_edit: Medium by default, High if targeting
  *   skill source code or the workspace hooks directory.
+ * - host_file_transfer: Medium by default, High if the destination path
+ *   targets skill source code or the workspace hooks directory.
  */
 
 import { homedir } from "node:os";
@@ -40,7 +43,8 @@ export interface FileClassifierInput {
     | "file_edit"
     | "host_file_read"
     | "host_file_write"
-    | "host_file_edit";
+    | "host_file_edit"
+    | "host_file_transfer";
   filePath: string;
   workingDir: string;
 }
@@ -90,6 +94,7 @@ const FILE_TOOL_DISPLAY_NAMES: Record<string, string> = {
   host_file_read: "host file reads",
   host_file_write: "host file writes",
   host_file_edit: "host file edits",
+  host_file_transfer: "host file transfers",
 };
 
 function friendlyBasename(filePath: string): string {
@@ -231,7 +236,11 @@ export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
       }
 
       case "host_file_write":
-      case "host_file_edit": {
+      case "host_file_edit":
+      case "host_file_transfer": {
+        // "Writes" for write/edit (both mutate files), "Transfers" for transfer.
+        const actionVerb =
+          toolName === "host_file_transfer" ? "Transfers" : "Writes";
         if (filePath) {
           // Host file tools resolve paths without workingDir — resolve(filePath)
           // treats the path as absolute or relative to cwd.
@@ -241,7 +250,7 @@ export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
           ) {
             return {
               riskLevel: "high",
-              reason: "Writes to skill source code",
+              reason: `${actionVerb} to skill source code`,
               scopeOptions: [],
               matchType: "registry",
               allowlistOptions,
@@ -250,7 +259,7 @@ export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
           if (isHooksPath(resolvedPath)) {
             return {
               riskLevel: "high",
-              reason: "Writes to hooks directory",
+              reason: `${actionVerb} to hooks directory`,
               scopeOptions: [],
               matchType: "registry",
               allowlistOptions,
@@ -258,9 +267,15 @@ export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
           }
         }
         // Fall through to tool registry default (Medium).
+        const defaultLabel =
+          toolName === "host_file_write"
+            ? "write"
+            : toolName === "host_file_edit"
+              ? "edit"
+              : "transfer";
         return {
           riskLevel: "medium",
-          reason: `Host file ${toolName === "host_file_write" ? "write" : "edit"} (default)`,
+          reason: `Host file ${defaultLabel} (default)`,
           scopeOptions: [],
           matchType: "registry",
           allowlistOptions,
