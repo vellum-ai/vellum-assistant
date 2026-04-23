@@ -171,7 +171,7 @@ describe("resolvePricing", () => {
     });
   });
 
-  describe("prefix matching", () => {
+  describe("local estimate prefix matching, not hosted billing", () => {
     test("matches claude-opus-4-6-20260205 via claude-opus-4-6 prefix", () => {
       const result = resolvePricing(
         "anthropic",

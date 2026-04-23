@@ -18,6 +18,9 @@ const ANTHROPIC_FAST_MODE_MULTIPLIER = 6;
 /**
  * Multi-provider pricing catalog keyed by provider then model pattern.
  * Model patterns are matched by exact match first, then by prefix.
+ *
+ * These rates are local/public estimates for assistant-side cost display or
+ * telemetry. Hosted billing rate cards are owned by vellum-assistant-platform.
  */
 const PROVIDER_PRICING: Record<string, Record<string, ModelPricing>> = {
   anthropic: {
