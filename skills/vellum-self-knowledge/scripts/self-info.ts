@@ -34,11 +34,9 @@ interface CatalogFile {
   providers?: CatalogProvider[];
 }
 
-interface CatalogLookup {
+interface CatalogData {
   catalogPath: string;
-  providers: Map<string, string>;
-  models: Map<string, string>;
-  modelsByProvider: Map<string, Map<string, string>>;
+  catalog: CatalogFile;
 }
 
 interface CommandResult {
@@ -58,11 +56,18 @@ interface CatalogFileRead {
   raw: string;
 }
 
+const DEFAULT_INFERENCE_CONFIG: Required<InferenceConfig> = {
+  model: "claude-sonnet-4-6",
+  provider: "anthropic",
+  mode: "your-own",
+};
+
 function outputJson(data: unknown): void {
   process.stdout.write(JSON.stringify(data) + "\n");
 }
 
 function outputJsonError(message: string): void {
+  process.exitCode = 1;
   outputJson({ ok: false, error: message });
 }
 
@@ -87,47 +92,16 @@ function readCatalogFile(): CatalogFileRead | null {
   }
 }
 
-function loadCatalogLookup(): CatalogLookup | null {
+function loadCatalog(): CatalogData | null {
   const catalogFile = readCatalogFile();
   if (!catalogFile) {
     return null;
   }
 
   try {
-    const catalog = JSON.parse(catalogFile.raw) as CatalogFile;
-    const providers = new Map<string, string>();
-    const models = new Map<string, string>();
-    const modelsByProvider = new Map<string, Map<string, string>>();
-
-    for (const provider of catalog.providers ?? []) {
-      if (!provider.id) {
-        continue;
-      }
-
-      if (provider.displayName) {
-        providers.set(provider.id, provider.displayName);
-      }
-
-      const providerModels = new Map<string, string>();
-      for (const model of provider.models ?? []) {
-        if (!model.id || !model.displayName) {
-          continue;
-        }
-
-        providerModels.set(model.id, model.displayName);
-        if (!models.has(model.id)) {
-          models.set(model.id, model.displayName);
-        }
-      }
-
-      modelsByProvider.set(provider.id, providerModels);
-    }
-
     return {
       catalogPath: catalogFile.catalogPath,
-      providers,
-      models,
-      modelsByProvider,
+      catalog: JSON.parse(catalogFile.raw) as CatalogFile,
     };
   } catch {
     return null;
@@ -163,12 +137,13 @@ async function readConfigValue(key: string): Promise<CommandResult> {
 }
 
 function parseConfigObject(raw: string | undefined): Record<string, unknown> {
-  if (!raw || raw === "(not set)") {
+  const value = raw?.trim();
+  if (!value || value === "(not set)") {
     return {};
   }
 
   try {
-    const parsed = JSON.parse(raw) as unknown;
+    const parsed = JSON.parse(value) as unknown;
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
       : {};
@@ -181,7 +156,12 @@ function stringField(
   value: unknown,
   fallback: string | undefined = undefined,
 ): string | undefined {
-  return typeof value === "string" && value.trim() ? value : fallback;
+  if (typeof value !== "string") {
+    return fallback;
+  }
+
+  const trimmed = value.trim();
+  return trimmed && trimmed !== "(not set)" ? trimmed : fallback;
 }
 
 async function readInferenceConfig(): Promise<{
@@ -209,12 +189,18 @@ async function readInferenceConfig(): Promise<{
 
   return {
     config: {
-      model: stringField(llmConfig.model, stringField(inferenceConfig.model)),
+      model: stringField(
+        llmConfig.model,
+        stringField(inferenceConfig.model, DEFAULT_INFERENCE_CONFIG.model),
+      ),
       provider: stringField(
         llmConfig.provider,
-        stringField(inferenceConfig.provider),
+        stringField(
+          inferenceConfig.provider,
+          DEFAULT_INFERENCE_CONFIG.provider,
+        ),
       ),
-      mode: stringField(inferenceConfig.mode),
+      mode: stringField(inferenceConfig.mode, DEFAULT_INFERENCE_CONFIG.mode),
     },
     available: true,
     error: !llmDefault.ok
@@ -226,22 +212,33 @@ async function readInferenceConfig(): Promise<{
 }
 
 function getModelDisplayName(
-  lookup: CatalogLookup | null,
+  catalog: CatalogData | null,
   providerId: string,
   modelId: string,
 ): string {
-  return (
-    lookup?.modelsByProvider.get(providerId)?.get(modelId) ??
-    lookup?.models.get(modelId) ??
-    modelId
+  const provider = catalog?.catalog.providers?.find(
+    (entry) => entry.id === providerId,
   );
+  const providerModel = provider?.models?.find((model) => model.id === modelId);
+  if (providerModel?.displayName) {
+    return providerModel.displayName;
+  }
+
+  const catalogModel = catalog?.catalog.providers
+    ?.flatMap((entry) => entry.models ?? [])
+    .find((model) => model.id === modelId);
+
+  return catalogModel?.displayName ?? modelId;
 }
 
 function getProviderDisplayName(
-  lookup: CatalogLookup | null,
+  catalog: CatalogData | null,
   providerId: string,
 ): string {
-  return lookup?.providers.get(providerId) ?? providerId;
+  return (
+    catalog?.catalog.providers?.find((provider) => provider.id === providerId)
+      ?.displayName ?? providerId
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -252,7 +249,7 @@ async function main(): Promise<void> {
   const jsonMode = process.argv.includes("--json");
 
   try {
-    const catalog = loadCatalogLookup();
+    const catalog = loadCatalog();
     const { config, available, error } = await readInferenceConfig();
 
     const modelId = config.model ?? "unknown";
@@ -276,8 +273,12 @@ async function main(): Promise<void> {
         }`;
 
     if (jsonMode) {
+      if (!available) {
+        process.exitCode = 1;
+      }
+
       outputJson({
-        ok: true,
+        ok: available,
         configAvailable: available,
         ...(error ? { configWarning: error } : {}),
         catalog: catalog
