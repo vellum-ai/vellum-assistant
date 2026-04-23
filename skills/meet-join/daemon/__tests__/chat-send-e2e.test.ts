@@ -46,8 +46,13 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { AssistantEvent } from "../../../../assistant/src/runtime/assistant-event.js";
 import { assistantEventHub } from "../../../../assistant/src/runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../../assistant/src/runtime/assistant-scope.js";
-import { meetEventDispatcher } from "../event-publisher.js";
+import {
+  _resetEventPublisherForTests,
+  createEventPublisher,
+  meetEventDispatcher,
+} from "../event-publisher.js";
 import { __resetMeetSessionEventRouterForTests } from "../session-event-router.js";
+import { installSessionManagerTestHost } from "./test-host.js";
 import {
   _createMeetSessionManagerForTests,
   MEET_BOT_INTERNAL_PORT,
@@ -198,6 +203,8 @@ let fakeBot: FakeBotServer;
 beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "chat-send-e2e-"));
   __resetMeetSessionEventRouterForTests();
+  _resetEventPublisherForTests();
+  createEventPublisher(installSessionManagerTestHost());
   meetEventDispatcher._resetForTests();
   fakeBot = startFakeBot();
 });

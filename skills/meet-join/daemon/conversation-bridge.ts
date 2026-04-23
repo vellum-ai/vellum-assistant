@@ -3,70 +3,76 @@
  * messages and live ephemeral updates.
  *
  * The bridge subscribes to a meeting's bot-event stream via
- * {@link subscribeToMeetingEvents} (the PR 19 fan-out dispatcher). It fans
- * incoming {@link MeetBotEvent}s into four sinks:
+ * {@link subscribeToMeetingEvents} and fans incoming {@link MeetBotEvent}s
+ * into four sinks:
  *
- *   1. **Final transcripts** (`transcript.chunk` with `isFinal === true`)
- *      are run through {@link MeetSpeakerResolver} to arbitrate Deepgram
- *      vs DOM speaker attribution, then persisted as `"user"` messages
- *      with a `[<speakerName>]: <text>` attribution. Speaker metadata
+ *   1. Final transcripts (`transcript.chunk` with `isFinal === true`) are
+ *      run through {@link MeetSpeakerResolver} to arbitrate provider vs
+ *      DOM speaker attribution, then persisted as `"user"` messages with
+ *      a `[<speakerName>]: <text>` attribution. Speaker metadata
  *      (`meetSpeakerLabel`, `meetSpeakerId`, `meetSpeakerName`,
  *      `meetSpeakerConfidence`, `meetTimestamp`) rides in the message
  *      metadata so later PRs can surface the raw speaker context without
  *      re-parsing the content.
  *
- *   2. **Interim transcripts** (`transcript.chunk` with `isFinal === false`)
- *      are NOT persisted. They are published via
- *      {@link assistantEventHub} as `meet.transcript_interim` so live
- *      clients can render in-progress text and have it superseded once a
- *      final chunk arrives.
+ *   2. Interim transcripts (`transcript.chunk` with `isFinal === false`)
+ *      are NOT persisted. They are published via the host's event hub as
+ *      `meet.transcript_interim` so live clients can render in-progress
+ *      text and have it superseded once a final chunk arrives.
  *
- *   3. **Inbound chat** (`chat.inbound`) is persisted as a `"user"`
- *      message prefixed with `"[Meet chat] <fromName>: <text>"` — this is
- *      the repo's existing "tag it in the content" pattern used by
- *      pointer / call messages (see `assistant/src/calls/call-pointer-messages.ts`).
+ *   3. Inbound chat (`chat.inbound`) is persisted as a `"user"` message
+ *      prefixed with `"[Meet chat] <fromName>: <text>"` — this is the
+ *      repo's existing "tag it in the content" pattern used by pointer
+ *      and call messages.
  *
- *   4. **Participant changes** (`participant.change`) are persisted as
- *      short `"user"`-role lines (`"[Meeting] <name> joined"` /
+ *   4. Participant changes (`participant.change`) are persisted as short
+ *      `"user"`-role lines (`"[Meeting] <name> joined"` /
  *      `"[Meeting] <name> left"`) with `automated: true` in metadata so
  *      they don't pollute memory indexing. Using `"user"` role keeps
  *      untrusted participant names from carrying assistant-level
  *      authority in model context.
  *
  * `speaker.change` and `lifecycle` are intentionally consumed elsewhere
- * (PR 18 storage writer, PR 19 lifecycle listener, PR 21 speaker
- * resolver); this bridge is a no-op for them at the top level, though
- * the resolver transparently observes `speaker.change` via its own
- * subscription.
+ * (storage writer, lifecycle listener, speaker resolver); this bridge is
+ * a no-op for them at the top level, though the resolver transparently
+ * observes `speaker.change` via its own subscription.
  *
- * Dependency injection keeps the bridge test-friendly: the message-insert
- * function, the dispatcher subscribe, the event hub, and the resolver
- * can all be supplied at construction time so unit tests never need to
- * spin up SQLite or the real singleton.
+ * ## Host-based factory
+ *
+ * The module previously reached into `assistant/` for `buildAssistantEvent`,
+ * `assistantEventHub`, `getLogger`, and `DAEMON_INTERNAL_ASSISTANT_ID`. The
+ * skill-isolation plan replaces those with the runtime-injected
+ * {@link SkillHost}. {@link createConversationBridge} captures a host and
+ * returns a builder that constructs {@link MeetConversationBridge}
+ * instances with host-backed defaults pre-wired; each instance's deps bag
+ * still accepts overrides so tests can inject shims without threading a
+ * full host through.
  */
+
+import type {
+  AssistantEvent,
+  Logger,
+  ServerMessage,
+  SkillHost,
+} from "@vellumai/skill-host-contracts";
+import { buildAssistantEvent } from "@vellumai/skill-host-contracts";
 
 import type { MeetBotEvent } from "../contracts/index.js";
 
-import type { ServerMessage } from "../../../assistant/src/daemon/message-protocol.js";
-import { buildAssistantEvent } from "../../../assistant/src/runtime/assistant-event.js";
-import { assistantEventHub as defaultAssistantEventHub } from "../../../assistant/src/runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../assistant/src/runtime/assistant-scope.js";
-import { getLogger } from "../../../assistant/src/util/logger.js";
 import {
   type MeetEventSubscriber,
   type MeetEventUnsubscribe,
   subscribeToMeetingEvents as defaultSubscribeToMeetingEvents,
 } from "./event-publisher.js";
+import { registerSubModule } from "./modules-registry.js";
 import { MeetSpeakerResolver } from "./speaker-resolver.js";
-
-const log = getLogger("meet-conversation-bridge");
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 /**
- * Narrow shape of `addMessage` from `memory/conversation-crud.ts` — the
+ * Narrow shape of `addMessage` from the assistant's memory module — the
  * bridge only needs the subset of fields that the conversation message
  * insert path actually accepts. Declared locally so tests can supply a
  * recording shim without importing the full database module.
@@ -79,9 +85,9 @@ export type InsertMessageFn = (
   opts?: { skipIndexing?: boolean },
 ) => Promise<{ id: string } & Record<string, unknown>>;
 
-/** Minimal hub surface the bridge depends on — matches `assistantEventHub`. */
+/** Minimal hub surface the bridge depends on — matches `host.events`. */
 export interface AssistantEventPublisher {
-  publish: (event: ReturnType<typeof buildAssistantEvent>) => Promise<void>;
+  publish: (event: AssistantEvent) => Promise<void>;
 }
 
 /**
@@ -93,6 +99,17 @@ export type SubscribeToMeetingEventsFn = (
   cb: MeetEventSubscriber,
 ) => MeetEventUnsubscribe;
 
+/**
+ * Build an {@link AssistantEvent} envelope. The default uses the neutral
+ * `buildAssistantEvent` from `@vellumai/skill-host-contracts`; tests may
+ * inject a recorder.
+ */
+export type BuildEventFn = (
+  assistantId: string,
+  message: ServerMessage,
+  conversationId?: string,
+) => AssistantEvent;
+
 export interface MeetConversationBridgeDeps {
   /** Required: the per-meeting id the dispatcher keys on. */
   meetingId: string;
@@ -102,10 +119,14 @@ export interface MeetConversationBridgeDeps {
   insertMessage: InsertMessageFn;
   /**
    * Optional: override the dispatcher subscribe function. Defaults to the
-   * process singleton {@link subscribeToMeetingEvents}.
+   * legacy module-level thunk from `event-publisher.ts`.
    */
   subscribeToMeetingEvents?: SubscribeToMeetingEventsFn;
-  /** Optional: override the event hub (defaults to the process singleton). */
+  /**
+   * Optional: override the event hub (defaults to whatever
+   * {@link createConversationBridge} captured, or — for tests that build
+   * the class directly — falls back to a no-op implementation).
+   */
   assistantEventHub?: AssistantEventPublisher;
   /**
    * Optional: override the speaker resolver. The bridge constructs a
@@ -114,12 +135,45 @@ export interface MeetConversationBridgeDeps {
    */
   resolver?: MeetSpeakerResolver;
   /**
-   * Optional: override the assistant id on emitted interim events. The
-   * daemon normally uses `DAEMON_INTERNAL_ASSISTANT_ID` ("self"); tests
-   * may want to verify scope behavior.
+   * Optional: override the assistant id on emitted interim events.
+   * Defaults to the host's internal assistant id when the factory is used,
+   * or `"self"` when the class is constructed directly (tests).
    */
   assistantId?: string;
+  /**
+   * Optional: structural logger. Defaults to a host-backed logger when the
+   * factory is used, or a console-wrapping shim when the class is
+   * constructed directly without a host.
+   */
+  log?: Logger;
+  /**
+   * Optional: override the `AssistantEvent` builder. Defaults to the
+   * pure-function {@link buildAssistantEvent} in
+   * `@vellumai/skill-host-contracts`.
+   */
+  buildEvent?: BuildEventFn;
 }
+
+// ---------------------------------------------------------------------------
+// Fallback logger
+// ---------------------------------------------------------------------------
+
+/**
+ * Structural logger used when a bridge is constructed without a host or
+ * explicit `log` dep. The default pipes through `console.*` so test
+ * failures still surface — callers that want structured output wire in a
+ * host-backed logger via the factory.
+ */
+const consoleFallbackLogger: Logger = {
+  // eslint-disable-next-line no-console
+  debug: (msg, meta) => console.debug(msg, meta),
+  // eslint-disable-next-line no-console
+  info: (msg, meta) => console.info(msg, meta),
+  // eslint-disable-next-line no-console
+  warn: (msg, meta) => console.warn(msg, meta),
+  // eslint-disable-next-line no-console
+  error: (msg, meta) => console.error(msg, meta),
+};
 
 // ---------------------------------------------------------------------------
 // Bridge
@@ -130,9 +184,11 @@ export class MeetConversationBridge {
   private readonly conversationId: string;
   private readonly insertMessage: InsertMessageFn;
   private readonly subscribeFn: SubscribeToMeetingEventsFn;
-  private readonly hub: AssistantEventPublisher;
+  private readonly hub: AssistantEventPublisher | null;
   private readonly resolver: MeetSpeakerResolver;
   private readonly assistantId: string;
+  private readonly log: Logger;
+  private readonly buildEvent: BuildEventFn;
   private unsubscribeFn: MeetEventUnsubscribe | null = null;
 
   constructor(deps: MeetConversationBridgeDeps) {
@@ -141,14 +197,22 @@ export class MeetConversationBridge {
     this.insertMessage = deps.insertMessage;
     this.subscribeFn =
       deps.subscribeToMeetingEvents ?? defaultSubscribeToMeetingEvents;
-    this.hub = deps.assistantEventHub ?? defaultAssistantEventHub;
+    // No direct daemon-singleton fallback — callers that don't provide a
+    // hub get a no-op publish so the bridge still installs cleanly.
+    this.hub = deps.assistantEventHub ?? null;
     this.resolver =
       deps.resolver ??
       new MeetSpeakerResolver({
         meetingId: deps.meetingId,
         subscribe: this.subscribeFn,
       });
-    this.assistantId = deps.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
+    // `"self"` is the literal value of `DAEMON_INTERNAL_ASSISTANT_ID`; the
+    // factory ordinarily supplies `host.identity.internalAssistantId`
+    // through the deps bag, but direct test construction keeps a
+    // matching fallback so interim events stay scoped consistently.
+    this.assistantId = deps.assistantId ?? "self";
+    this.log = deps.log ?? consoleFallbackLogger;
+    this.buildEvent = deps.buildEvent ?? buildAssistantEvent;
   }
 
   /**
@@ -162,10 +226,11 @@ export class MeetConversationBridge {
       // Defer to async-aware branch but don't block the dispatcher — late
       // errors are logged, not surfaced.
       void this.handleEvent(event).catch((err) => {
-        log.error(
-          { err, meetingId: this.meetingId, eventType: event.type },
-          "MeetConversationBridge: handler failed",
-        );
+        this.log.error("MeetConversationBridge: handler failed", {
+          err,
+          meetingId: this.meetingId,
+          eventType: event.type,
+        });
       });
     });
   }
@@ -179,9 +244,12 @@ export class MeetConversationBridge {
       try {
         this.unsubscribeFn();
       } catch (err) {
-        log.warn(
-          { err, meetingId: this.meetingId },
+        this.log.warn(
           "MeetConversationBridge: dispatcher unsubscribe threw",
+          {
+            err,
+            meetingId: this.meetingId,
+          },
         );
       }
       this.unsubscribeFn = null;
@@ -216,14 +284,14 @@ export class MeetConversationBridge {
         // bridge itself doesn't need to react to active-speaker changes.
         return;
       case "lifecycle":
-        // PR 19 (lifecycle listener) owns this.
+        // The lifecycle listener owns this.
         return;
       default: {
         const exhaustiveCheck: never = event;
-        log.warn(
-          { meetingId: this.meetingId, event: exhaustiveCheck },
-          "MeetConversationBridge: unknown event type",
-        );
+        this.log.warn("MeetConversationBridge: unknown event type", {
+          meetingId: this.meetingId,
+          event: exhaustiveCheck,
+        });
         return;
       }
     }
@@ -258,7 +326,7 @@ export class MeetConversationBridge {
     if (resolved.speakerId !== undefined) {
       metadata.meetSpeakerId = resolved.speakerId;
     } else if (event.speakerId !== undefined) {
-      // Preserve the raw Deepgram speakerId even when the resolver didn't
+      // Preserve the raw provider speakerId even when the resolver didn't
       // produce a binding — it can still help downstream consumers pair
       // ASR segments to the same opaque speaker.
       metadata.meetSpeakerId = event.speakerId;
@@ -272,7 +340,7 @@ export class MeetConversationBridge {
   ): Promise<void> {
     // Never persisted — interim chunks are hub-only so the UI can render
     // live text that will be superseded by the next final chunk.
-    const message = {
+    const message: ServerMessage = {
       type: "meet.transcript_interim",
       meetingId: this.meetingId,
       conversationId: this.conversationId,
@@ -281,17 +349,19 @@ export class MeetConversationBridge {
       speakerLabel: event.speakerLabel,
       speakerId: event.speakerId,
       confidence: event.confidence,
-    } as unknown as ServerMessage;
+    };
+
+    if (!this.hub) return;
 
     try {
       await this.hub.publish(
-        buildAssistantEvent(this.assistantId, message, this.conversationId),
+        this.buildEvent(this.assistantId, message, this.conversationId),
       );
     } catch (err) {
-      log.warn(
-        { err, meetingId: this.meetingId },
-        "MeetConversationBridge: interim publish failed",
-      );
+      this.log.warn("MeetConversationBridge: interim publish failed", {
+        err,
+        meetingId: this.meetingId,
+      });
     }
   }
 
@@ -314,10 +384,10 @@ export class MeetConversationBridge {
   private async handleParticipantChange(
     event: Extract<MeetBotEvent, { type: "participant.change" }>,
   ): Promise<void> {
-    // Emit one short status line per join/leave so the conversation
-    // stays readable — one batched summary would hide concurrent moves.
-    // Persisted as "user" with `automated: true` so untrusted participant
-    // names never carry assistant-level authority in model context.
+    // Emit one short status line per join/leave so the conversation stays
+    // readable — one batched summary would hide concurrent moves. Persisted
+    // as "user" with `automated: true` so untrusted participant names never
+    // carry assistant-level authority in model context.
     for (const participant of event.joined) {
       const safeName = sanitizeParticipantName(participant.name);
       const line = `[Meeting] ${safeName} joined`;
@@ -356,6 +426,58 @@ export class MeetConversationBridge {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Factory
+// ---------------------------------------------------------------------------
+
+/**
+ * Inputs a caller still needs to supply when building a bridge via the
+ * factory. The factory injects host-derived fields (hub, logger, assistant
+ * id, event builder) so consumers only think about the per-meeting bits.
+ */
+export interface BuildConversationBridgeArgs {
+  meetingId: string;
+  conversationId: string;
+  insertMessage: InsertMessageFn;
+  subscribeToMeetingEvents?: SubscribeToMeetingEventsFn;
+  resolver?: MeetSpeakerResolver;
+}
+
+export interface ConversationBridgeBuilder {
+  (args: BuildConversationBridgeArgs): MeetConversationBridge;
+}
+
+/**
+ * Build the conversation-bridge factory against a {@link SkillHost}. The
+ * returned function is the production entry point: callers pass
+ * per-meeting args and receive a fully wired {@link MeetConversationBridge}
+ * with host-backed publish, log, and identity dependencies.
+ */
+export function createConversationBridge(
+  host: SkillHost,
+): ConversationBridgeBuilder {
+  const log = host.logger.get("meet-conversation-bridge");
+  // `host.events.buildEvent` curries the internal assistant id; the bridge
+  // always publishes as the internal assistant, so we wrap the curried form
+  // in a builder whose `assistantId` argument is accepted but unused.
+  // Passing it through to `buildEvent` would re-curry the same constant.
+  const buildEvent: BuildEventFn = (_assistantId, message, conversationId) =>
+    host.events.buildEvent(message, conversationId);
+
+  return (args) =>
+    new MeetConversationBridge({
+      meetingId: args.meetingId,
+      conversationId: args.conversationId,
+      insertMessage: args.insertMessage,
+      subscribeToMeetingEvents: args.subscribeToMeetingEvents,
+      resolver: args.resolver,
+      assistantEventHub: host.events,
+      assistantId: host.identity.internalAssistantId,
+      log,
+      buildEvent,
+    });
+}
+
 /**
  * Strip control characters and collapse whitespace in a participant display
  * name so it can't inject newlines, tabs, or other formatting tricks when
@@ -369,3 +491,13 @@ function sanitizeParticipantName(raw: string): string {
     .trim()
     .slice(0, 100);
 }
+
+// ---------------------------------------------------------------------------
+// Sub-module registration
+// ---------------------------------------------------------------------------
+//
+// The factory slot here is `createConversationBridge` — consumers (the
+// session manager in PR 17) pull the builder via `getSubModule` instead
+// of taking a static import on this file.
+
+registerSubModule("conversation-bridge", createConversationBridge);
