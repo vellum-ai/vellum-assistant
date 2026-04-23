@@ -1,3 +1,8 @@
+import {
+  buildUpstreamUrl,
+  createTimeoutController,
+} from "@vellumai/assistant-client";
+
 import type { ChannelId, InterfaceId } from "../channels/types.js";
 import { mintIngressToken, mintServiceToken } from "../auth/token-exchange.js";
 import type { GatewayConfig } from "../config.js";
@@ -90,29 +95,43 @@ function cbOnFailure(): void {
   }
 }
 
+// ── Transport helpers ────────────────────────────────────────────────
+
 /**
- * Build common headers for runtime requests using JWT auth.
- *
- * Mints a short-lived token (aud=vellum-daemon) per-request. The token
- * itself proves gateway origin — only the gateway holds the signing key
- * needed to mint daemon-audience tokens. No separate origin header needed.
+ * Build headers for ingress requests (webhook-originated traffic).
+ * Mints a short-lived ingress token per-request.
  */
-function runtimeIngressHeaders(
-  config: GatewayConfig,
+function ingressHeaders(
   extra?: Record<string, string>,
 ): Record<string, string> {
-  const headers: Record<string, string> = { ...extra };
-  headers["Authorization"] = `Bearer ${mintIngressToken()}`;
-  return headers;
+  return { ...extra, Authorization: `Bearer ${mintIngressToken()}` };
 }
 
-function runtimeServiceHeaders(
-  config: GatewayConfig,
+/**
+ * Build headers for service requests (gateway-originated traffic).
+ * Mints a short-lived service token per-request.
+ */
+function serviceHeaders(
   extra?: Record<string, string>,
 ): Record<string, string> {
-  const headers: Record<string, string> = { ...extra };
-  headers["Authorization"] = `Bearer ${mintServiceToken()}`;
-  return headers;
+  return { ...extra, Authorization: `Bearer ${mintServiceToken()}` };
+}
+
+async function timedFetch(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const { controller, clear } = createTimeoutController(timeoutMs);
+  try {
+    const response = await fetchImpl(url, {
+      ...init,
+      signal: controller.signal,
+    });
+    return response;
+  } finally {
+    clear();
+  }
 }
 
 /**
@@ -200,7 +219,10 @@ export async function forwardToRuntime(
 ): Promise<RuntimeInboundResponse> {
   const isHalfOpenProbe = cbBeforeRequest();
 
-  const url = `${config.assistantRuntimeBaseUrl}/v1/channels/inbound`;
+  const url = buildUpstreamUrl(
+    config.assistantRuntimeBaseUrl,
+    "/v1/channels/inbound",
+  );
 
   const extraHeaders: Record<string, string> = {
     "Content-Type": "application/json",
@@ -223,12 +245,15 @@ export async function forwardToRuntime(
     }
 
     try {
-      const response = await fetchImpl(url, {
-        method: "POST",
-        headers: runtimeIngressHeaders(config, extraHeaders),
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(config.runtimeTimeoutMs),
-      });
+      const response = await timedFetch(
+        url,
+        {
+          method: "POST",
+          headers: ingressHeaders(extraHeaders),
+          body: JSON.stringify(payload),
+        },
+        config.runtimeTimeoutMs,
+      );
 
       if (response.status >= 400 && response.status < 500) {
         const body = await response.text();
@@ -281,18 +306,22 @@ export async function resetConversation(
 ): Promise<void> {
   cbBeforeRequest();
 
-  const url = `${config.assistantRuntimeBaseUrl}/v1/channels/conversation`;
+  const url = buildUpstreamUrl(
+    config.assistantRuntimeBaseUrl,
+    "/v1/channels/conversation",
+  );
 
   let response: Response;
   try {
-    response = await fetchImpl(url, {
-      method: "DELETE",
-      headers: runtimeServiceHeaders(config, {
-        "Content-Type": "application/json",
-      }),
-      body: JSON.stringify({ sourceChannel, conversationExternalId }),
-      signal: AbortSignal.timeout(config.runtimeTimeoutMs),
-    });
+    response = await timedFetch(
+      url,
+      {
+        method: "DELETE",
+        headers: serviceHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ sourceChannel, conversationExternalId }),
+      },
+      config.runtimeTimeoutMs,
+    );
   } catch (err) {
     cbOnFailure();
     throw err;
@@ -327,15 +356,19 @@ async function fetchAttachmentContentRaw(
   config: GatewayConfig,
   attachmentId: string,
 ): Promise<Buffer> {
-  const url = `${
-    config.assistantRuntimeBaseUrl
-  }/v1/attachments/${encodeURIComponent(attachmentId)}/content`;
+  const url = buildUpstreamUrl(
+    config.assistantRuntimeBaseUrl,
+    `/v1/attachments/${encodeURIComponent(attachmentId)}/content`,
+  );
 
-  const response = await fetchImpl(url, {
-    method: "GET",
-    headers: runtimeServiceHeaders(config),
-    signal: AbortSignal.timeout(config.runtimeTimeoutMs),
-  });
+  const response = await timedFetch(
+    url,
+    {
+      method: "GET",
+      headers: serviceHeaders(),
+    },
+    config.runtimeTimeoutMs,
+  );
 
   if (!response.ok) {
     const body = await response.text();
@@ -370,17 +403,21 @@ export async function downloadAttachment(
 ): Promise<HydratedAttachmentPayload> {
   cbBeforeRequest();
 
-  const url = `${
-    config.assistantRuntimeBaseUrl
-  }/v1/attachments/${encodeURIComponent(attachmentId)}`;
+  const url = buildUpstreamUrl(
+    config.assistantRuntimeBaseUrl,
+    `/v1/attachments/${encodeURIComponent(attachmentId)}`,
+  );
 
   let response: Response;
   try {
-    response = await fetchImpl(url, {
-      method: "GET",
-      headers: runtimeServiceHeaders(config),
-      signal: AbortSignal.timeout(config.runtimeTimeoutMs),
-    });
+    response = await timedFetch(
+      url,
+      {
+        method: "GET",
+        headers: serviceHeaders(),
+      },
+      config.runtimeTimeoutMs,
+    );
   } catch (err) {
     cbOnFailure();
     throw err;
@@ -445,18 +482,22 @@ export async function forwardTwilioVoiceWebhook(
 ): Promise<TwilioForwardResponse> {
   cbBeforeRequest();
 
-  const url = `${config.assistantRuntimeBaseUrl}/v1/internal/twilio/voice-webhook`;
+  const url = buildUpstreamUrl(
+    config.assistantRuntimeBaseUrl,
+    "/v1/internal/twilio/voice-webhook",
+  );
 
   let response: Response;
   try {
-    response = await fetchImpl(url, {
-      method: "POST",
-      headers: runtimeServiceHeaders(config, {
-        "Content-Type": "application/json",
-      }),
-      body: JSON.stringify({ params, originalUrl }),
-      signal: AbortSignal.timeout(config.runtimeTimeoutMs),
-    });
+    response = await timedFetch(
+      url,
+      {
+        method: "POST",
+        headers: serviceHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ params, originalUrl }),
+      },
+      config.runtimeTimeoutMs,
+    );
   } catch (err) {
     cbOnFailure();
     throw err;
@@ -481,18 +522,22 @@ export async function forwardTwilioStatusWebhook(
 ): Promise<TwilioForwardResponse> {
   cbBeforeRequest();
 
-  const url = `${config.assistantRuntimeBaseUrl}/v1/internal/twilio/status`;
+  const url = buildUpstreamUrl(
+    config.assistantRuntimeBaseUrl,
+    "/v1/internal/twilio/status",
+  );
 
   let response: Response;
   try {
-    response = await fetchImpl(url, {
-      method: "POST",
-      headers: runtimeServiceHeaders(config, {
-        "Content-Type": "application/json",
-      }),
-      body: JSON.stringify({ params }),
-      signal: AbortSignal.timeout(config.runtimeTimeoutMs),
-    });
+    response = await timedFetch(
+      url,
+      {
+        method: "POST",
+        headers: serviceHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ params }),
+      },
+      config.runtimeTimeoutMs,
+    );
   } catch (err) {
     cbOnFailure();
     throw err;
@@ -517,18 +562,22 @@ export async function forwardTwilioConnectActionWebhook(
 ): Promise<TwilioForwardResponse> {
   cbBeforeRequest();
 
-  const url = `${config.assistantRuntimeBaseUrl}/v1/internal/twilio/connect-action`;
+  const url = buildUpstreamUrl(
+    config.assistantRuntimeBaseUrl,
+    "/v1/internal/twilio/connect-action",
+  );
 
   let response: Response;
   try {
-    response = await fetchImpl(url, {
-      method: "POST",
-      headers: runtimeServiceHeaders(config, {
-        "Content-Type": "application/json",
-      }),
-      body: JSON.stringify({ params }),
-      signal: AbortSignal.timeout(config.runtimeTimeoutMs),
-    });
+    response = await timedFetch(
+      url,
+      {
+        method: "POST",
+        headers: serviceHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ params }),
+      },
+      config.runtimeTimeoutMs,
+    );
   } catch (err) {
     cbOnFailure();
     throw err;
@@ -558,18 +607,22 @@ export async function uploadAttachment(
   const isProbe = cbBeforeRequest();
   const recordOutcome = !skipCb || isProbe;
 
-  const url = `${config.assistantRuntimeBaseUrl}/v1/attachments`;
+  const url = buildUpstreamUrl(
+    config.assistantRuntimeBaseUrl,
+    "/v1/attachments",
+  );
 
   let response: Response;
   try {
-    response = await fetchImpl(url, {
-      method: "POST",
-      headers: runtimeServiceHeaders(config, {
-        "Content-Type": "application/json",
-      }),
-      body: JSON.stringify(input),
-      signal: AbortSignal.timeout(config.runtimeTimeoutMs),
-    });
+    response = await timedFetch(
+      url,
+      {
+        method: "POST",
+        headers: serviceHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(input),
+      },
+      config.runtimeTimeoutMs,
+    );
   } catch (err) {
     if (recordOutcome) cbOnFailure();
     throw err;
@@ -614,18 +667,22 @@ export async function forwardOAuthCallback(
 ): Promise<OAuthCallbackResponse> {
   cbBeforeRequest();
 
-  const url = `${config.assistantRuntimeBaseUrl}/v1/internal/oauth/callback`;
+  const url = buildUpstreamUrl(
+    config.assistantRuntimeBaseUrl,
+    "/v1/internal/oauth/callback",
+  );
 
   let response: Response;
   try {
-    response = await fetchImpl(url, {
-      method: "POST",
-      headers: runtimeServiceHeaders(config, {
-        "Content-Type": "application/json",
-      }),
-      body: JSON.stringify({ state, code, error }),
-      signal: AbortSignal.timeout(config.runtimeTimeoutMs),
-    });
+    response = await timedFetch(
+      url,
+      {
+        method: "POST",
+        headers: serviceHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ state, code, error }),
+      },
+      config.runtimeTimeoutMs,
+    );
   } catch (err) {
     cbOnFailure();
     throw err;
