@@ -14,7 +14,13 @@ When you introduce a new env var that the assistant process needs to read at run
 
 ## Daemon startup philosophy
 
-The daemon must **never** block startup under *any circumstance*. All possible errors should be logged so that the assistant can recover from it's corrupted state after the fact.
+The daemon must **never** block startup under _any circumstance_. All possible errors should be logged so that the assistant can recover from it's corrupted state after the fact.
+
+## Post-execution hooks
+
+Tool post-execution hooks (`src/daemon/tool-side-effects.ts`) run after a tool executor returns. Treat the executor's output as authoritative: hooks must not re-do work the executor already completed, especially destructive work like wiping and rebuilding a generated-output directory. If the hook needs to recover from a failed executor step, gate the recovery on an explicit failure signal in the tool result (e.g. a `compile_errors` field) rather than running unconditionally.
+
+Shared mutable resources written by more than one caller (e.g. `dist/` directories produced by `compileApp()`) must be serialised per-resource so concurrent callers cannot race on `rm -rf` + write sequences.
 
 ## Code comments
 
