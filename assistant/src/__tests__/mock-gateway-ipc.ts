@@ -1,5 +1,6 @@
 /**
- * Global test utility for mocking gateway IPC calls via `node:net`.
+ * Global test utility for mocking gateway IPC calls via
+ * `@vellumai/gateway-client/ipc-client`.
  *
  * Usage:
  *   import { mockGatewayIpc, resetMockGatewayIpc } from "../__tests__/mock-gateway-ipc.js";
@@ -23,10 +24,10 @@
  * a real gateway socket. Call `mockGatewayIpc()` to configure specific
  * responses when the test cares about the IPC result.
  *
- * Mocks `node:net` at the socket level, but ONLY intercepts connections to
- * `gateway.sock` paths. All other `node:net` exports and non-gateway
- * `connect()` calls pass through to the real implementation so that proxy /
- * tunnel tests continue to work.
+ * Mocks `@vellumai/gateway-client/ipc-client` at the package level so the
+ * assistant's thin wrapper in `ipc/gateway-client.ts` (which delegates to
+ * the package) gets the fake implementation. Non-gateway IPC paths (e.g.
+ * CLI IPC) are unaffected since they don't import from the package.
  */
 
 import { EventEmitter } from "node:events";
@@ -39,35 +40,26 @@ import { mock } from "bun:test";
 /** IPC result the fake gateway will return (keyed by method name). */
 let ipcResults: Record<string, unknown> = {};
 
-/** Whether the fake socket should simulate a connection error. */
+/** Whether the fake ipcCall should simulate a connection error. */
 let simulateError = false;
 
-/** Error code to use when simulating an error. */
-let simulateErrorCode = "ENOENT";
-
 // ---------------------------------------------------------------------------
-// FakeSocket — simulates the gateway IPC protocol
+// FakePersistentIpcClient — mirrors PersistentIpcClient API
 // ---------------------------------------------------------------------------
 
-class FakeSocket extends EventEmitter {
-  unref() {
-    /* no-op */
-  }
-  destroy() {
-    /* no-op */
-  }
-  write(data: string) {
-    try {
-      const req = JSON.parse(data.trim());
-      const result =
-        req.method in ipcResults ? ipcResults[req.method] : undefined;
-      const response = JSON.stringify({ id: req.id, result });
-      queueMicrotask(() => {
-        this.emit("data", Buffer.from(response + "\n"));
-      });
-    } catch {
-      // Malformed request — ignore
+class FakePersistentIpcClient extends EventEmitter {
+  async call(
+    method: string,
+    _params?: Record<string, unknown>,
+  ): Promise<unknown> {
+    if (simulateError) {
+      throw new Error("Mock IPC socket error");
     }
+    return method in ipcResults ? ipcResults[method] : undefined;
+  }
+
+  destroy(): void {
+    /* no-op */
   }
 }
 
@@ -76,39 +68,19 @@ class FakeSocket extends EventEmitter {
 // ---------------------------------------------------------------------------
 
 export function installGatewayIpcMock(): void {
-  // Snapshot the real node:net exports BEFORE mock.module replaces them.
-  // require() returns the current (real) module synchronously; after
-  // mock.module() the namespace is replaced for all future importers
-  // (like gateway-client.ts), but our captured references stay real.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports -- require() is intentional: we need a synchronous snapshot of the real module before mock.module() replaces it
-  const realNet = require("node:net") as typeof import("node:net");
-  const realConnect = realNet.connect;
-
-  mock.module("node:net", () => ({
-    ...realNet,
-    connect(...args: unknown[]) {
-      // Only intercept Unix domain socket connections to gateway.sock.
-      // Everything else (TCP ports, other Unix sockets) passes through
-      // to the real node:net so proxy / tunnel tests keep working.
-      if (
-        typeof args[0] === "string" &&
-        (args[0] as string).endsWith("gateway.sock")
-      ) {
-        const socket = new FakeSocket();
-        queueMicrotask(() => {
-          if (simulateError) {
-            const err = new Error(simulateErrorCode) as NodeJS.ErrnoException;
-            err.code = simulateErrorCode;
-            socket.emit("error", err);
-            socket.emit("close");
-          } else {
-            socket.emit("connect");
-          }
-        });
-        return socket;
+  mock.module("@vellumai/gateway-client/ipc-client", () => ({
+    ipcCall: async (
+      _socketPath: string,
+      method: string,
+      _params?: Record<string, unknown>,
+    ): Promise<unknown> => {
+      if (simulateError) {
+        // Real ipcCall returns undefined on failure — mirror that behavior.
+        return undefined;
       }
-      return realConnect(...(args as Parameters<typeof realConnect>));
+      return method in ipcResults ? ipcResults[method] : undefined;
     },
+    PersistentIpcClient: FakePersistentIpcClient,
   }));
 }
 
@@ -122,8 +94,8 @@ export function installGatewayIpcMock(): void {
  * @param flags — feature flag map returned by `get_feature_flags`. Pass
  *   `null` to skip setting a result (useful when only simulating errors).
  * @param opts.error — simulate a socket connection error
- * @param opts.code — error code (default "ENOENT")
- * @param opts.results — raw method→result map for arbitrary IPC methods
+ * @param opts.code — error code (kept for API compat, unused by package mock)
+ * @param opts.results — raw method->result map for arbitrary IPC methods
  */
 export function mockGatewayIpc(
   flags?: Record<string, boolean> | null,
@@ -137,7 +109,6 @@ export function mockGatewayIpc(
   }
   if (opts?.error) {
     simulateError = true;
-    simulateErrorCode = opts.code ?? "ENOENT";
   }
 }
 
@@ -147,5 +118,4 @@ export function mockGatewayIpc(
 export function resetMockGatewayIpc(): void {
   ipcResults = {};
   simulateError = false;
-  simulateErrorCode = "ENOENT";
 }
