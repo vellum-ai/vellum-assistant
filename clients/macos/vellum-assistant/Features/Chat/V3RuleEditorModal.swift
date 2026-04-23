@@ -23,6 +23,8 @@ struct V3SavedRule {
 struct V3RuleEditorModal: View {
     /// Raw tool identifier (e.g. "bash", "host_bash") used for trust rule persistence.
     let toolName: String
+    let commandText: String
+    let commandDescription: String
     let riskLevel: String
     let scopeOptions: [V3ScopeOptionItem]
     let onSave: (V3SavedRule) -> Void
@@ -44,15 +46,24 @@ struct V3RuleEditorModal: View {
         scopeOptions.count == 1
     }
 
+    /// Whether the options look like a pipeline decomposition (all "program *" patterns).
+    /// Pipeline commands produce per-program wildcards that aren't useful as individual radio choices.
+    private var isPipelineDecomposition: Bool {
+        generalizedOptions.count > 3 && generalizedOptions.allSatisfy { option in
+            let parts = option.label.split(separator: " ")
+            return parts.count == 2 && parts.last == "*"
+        }
+    }
+
     /// Contextual hint for the selected risk level
     private var riskLevelHint: String {
         switch selectedRiskLevel.lowercased() {
         case "low":
-            return "Will auto-approve in most configurations"
+            return "Auto-approved at Default tolerance or higher"
         case "medium":
-            return "May require approval depending on your settings"
+            return "Auto-approved at Relaxed tolerance or higher"
         case "high":
-            return "Will always require approval"
+            return "Auto-approved only at Full Access tolerance"
         default:
             return ""
         }
@@ -78,6 +89,7 @@ struct V3RuleEditorModal: View {
             .padding(EdgeInsets(top: VSpacing.lg, leading: VSpacing.lg, bottom: VSpacing.md, trailing: VSpacing.lg))
 
             VStack(alignment: .leading, spacing: VSpacing.xl) {
+                contextHeader
                 applyToSection
                 treatAsSection
                 saveSection
@@ -95,6 +107,30 @@ struct V3RuleEditorModal: View {
         }
     }
 
+    // MARK: - Context Header
+
+    @ViewBuilder
+    private var contextHeader: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            // Command text in code-style block
+            Text(commandText)
+                .font(VFont.bodySmallDefault.monospaced())
+                .foregroundStyle(VColor.contentDefault)
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .padding(VSpacing.sm)
+                .background(VColor.surfaceBase)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+
+            // Description text
+            if !commandDescription.isEmpty {
+                Text(commandDescription)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+        }
+    }
+
     // MARK: - Section 1: Apply to
 
     @ViewBuilder
@@ -105,7 +141,18 @@ struct V3RuleEditorModal: View {
                 .foregroundStyle(VColor.contentSecondary)
                 .accessibilityAddTraits(.isHeader)
 
-            if generalizedOptions.count == 1 {
+            if isPipelineDecomposition {
+                // Pipeline decomposition: show first option as static label
+                HStack {
+                    Text(generalizedOptions[0].label)
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentDefault)
+                        .padding(EdgeInsets(top: VSpacing.sm, leading: VSpacing.sm, bottom: VSpacing.sm, trailing: VSpacing.sm))
+                        .background(VColor.surfaceBase)
+                        .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    Spacer(minLength: 0)
+                }
+            } else if generalizedOptions.count == 1 {
                 // Single option: show as simple label, no radio buttons
                 HStack {
                     Text(generalizedOptions[0].label)

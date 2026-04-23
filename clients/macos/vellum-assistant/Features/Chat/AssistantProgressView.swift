@@ -839,6 +839,8 @@ private struct ToolCallStepDetailRow: View {
             if assistantFeatureFlagStore.isEnabled("permission-controls-v3") {
                 V3RuleEditorModal(
                     toolName: tc.toolName,
+                    commandText: tc.inputSummary,
+                    commandDescription: tc.reasonDescription ?? "",
                     riskLevel: tc.riskLevel ?? "medium",
                     scopeOptions: Self.v3ScopeOptions(from: tc),
                     onSave: { rule in
