@@ -962,6 +962,10 @@ fi
 if [ "$GATEWAY_BIN_NEEDS_BUILD" = true ]; then
     build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
         "$SCRIPT_DIR/gateway-bin" "vellum-gateway"
+fi
+# Always refresh WASM assets (not embedded by bun --compile).
+# These must be copied even when the gateway binary is reused from a previous build.
+if [ -d "$SCRIPT_DIR/gateway-bin" ] && [ -d "$GATEWAY_SRC_DIR/node_modules/web-tree-sitter" ]; then
     cp "$GATEWAY_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" "$SCRIPT_DIR/gateway-bin/"
     cp "$GATEWAY_SRC_DIR/node_modules/tree-sitter-bash/tree-sitter-bash.wasm" "$SCRIPT_DIR/gateway-bin/"
 fi
