@@ -268,6 +268,15 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
     // Hoisted above the try so it's in scope for the error path.
     const routeHandles: SkillRouteHandle[] = [];
 
+    // Tracks whether `plugin.init()` ran to completion (or the plugin has no
+    // init at all). The catch block consults this to decide whether the
+    // currently-failing plugin's `onShutdown()` may run: onShutdown is paired
+    // with init, so a plugin that never completed init never set up the state
+    // onShutdown is meant to tear down. Calling onShutdown in that case would
+    // surprise plugin authors (their teardown runs against an uninitialized
+    // self) and breaks the documented lifecycle contract.
+    let initCompleted = false;
+
     try {
       // Credential resolution — gather every entry in `requiresCredential`
       // before calling `init()` so the plugin receives a fully-populated map.
@@ -313,6 +322,9 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
           );
         }
       }
+      // Reached when init() succeeded or the plugin has no init hook. The
+      // catch block reads this to decide whether onShutdown may run.
+      initCompleted = true;
 
       // After init succeeds, wire in the plugin's model-visible capabilities.
       // Tool contributions (PR 31) register only after `init()` succeeds so a
@@ -386,10 +398,25 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
       // Roll back the currently-failing plugin first — it is not in
       // `activePlugins` yet (that push happens only after every contribution
       // step succeeds), so `teardownPartialInit()` alone would leave its
-      // already-registered tools, routes, and skills live. Every teardown
-      // step is idempotent, so this is safe regardless of which contribution
-      // step threw.
-      await rollbackPlugin({ plugin, routeHandles });
+      // already-registered tools, routes, and skills live.
+      //
+      // Branching on `initCompleted` keeps the init/onShutdown pairing
+      // intact. When init succeeded but a later contribution step (tools,
+      // routes, skills) threw, the plugin has live init-side state that
+      // `onShutdown()` is responsible for cleaning up, so the full
+      // rollbackPlugin() path runs. When init itself failed (or a step
+      // before init — credential resolution, config validation — threw),
+      // onShutdown must not run: calling it would invoke the plugin's
+      // teardown against an uninitialized self, violating the lifecycle
+      // contract documented on `Plugin.onShutdown`. In the init-failed case
+      // there is also nothing to unregister — tools, routes, and skills are
+      // all registered after init — so just drop the plugin from the
+      // registry (idempotent if already removed).
+      if (initCompleted) {
+        await rollbackPlugin({ plugin, routeHandles });
+      } else {
+        unregisterPlugin(name);
+      }
       await teardownPartialInit();
       throw err;
     }
