@@ -1958,6 +1958,27 @@ class MeetSessionManagerImpl {
     this.sessions.delete(meetingId);
     this.pendingBotTokens.delete(meetingId);
 
+    // Synthesize a `lifecycle:left` event BEFORE tearing the dispatcher
+    // down so the storage writer's `meta.json` flush runs while its
+    // subscription is still live. Without this, an unexpected container
+    // exit skips the only code path that writes final meeting metadata
+    // (MeetStorageWriter only flushes on `lifecycle:left`). Mirrors the
+    // dispatch in `leave()`.
+    try {
+      meetEventDispatcher.dispatch(meetingId, {
+        type: "lifecycle",
+        meetingId,
+        timestamp: new Date().toISOString(),
+        state: "left",
+        detail: "container-exit",
+      });
+    } catch (err) {
+      log.warn(
+        { err, meetingId },
+        "Meet synthesized lifecycle:left dispatch threw during container-exit teardown",
+      );
+    }
+
     try {
       session.conversationBridge.unsubscribe();
     } catch (err) {

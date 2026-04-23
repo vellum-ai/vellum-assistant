@@ -790,6 +790,61 @@ describe("MeetSessionManager container-exit watcher", () => {
     }
   });
 
+  test("synthesizes lifecycle:left (detail=container-exit) so the storage writer flushes meta.json before teardown", async () => {
+    const runner = makeMockRunner();
+    const audioIngestFactory = makeFakeAudioIngestFactory();
+    const { dispose } = captureHub();
+    const dispatched: Array<{ type: string; detail?: string; state?: string }> =
+      [];
+
+    try {
+      const manager = _createMeetSessionManagerForTests({
+        dockerRunnerFactory: () => runner,
+        getProviderKey: async () => "k",
+        getWorkspaceDir: () => workspaceDir,
+        botLeaveFetch: async () => {},
+        audioIngestFactory: audioIngestFactory.factory,
+      });
+
+      await manager.join({
+        url: "u",
+        meetingId: "m-exit-lifecycle",
+        conversationId: "c",
+      });
+
+      // External subscriber, same channel the storage writer uses. We rely
+      // on this instead of the storageWriter mock because `MeetStorageWriter`
+      // only writes meta.json in response to `lifecycle:left` — missing that
+      // dispatch silently loses final meeting metadata on unexpected exits.
+      const unsub = meetEventDispatcher.subscribe(
+        "m-exit-lifecycle",
+        (event) => {
+          dispatched.push({
+            type: event.type,
+            detail: (event as { detail?: string }).detail,
+            state: (event as { state?: string }).state,
+          });
+        },
+      );
+
+      runner.fireContainerExit("container-123", 137);
+
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
+
+      unsub();
+
+      const leftEvent = dispatched.find(
+        (e) => e.type === "lifecycle" && e.state === "left",
+      );
+      expect(leftEvent).toBeDefined();
+      expect(leftEvent!.detail).toBe("container-exit");
+    } finally {
+      dispose();
+    }
+  });
+
   test("daemon-initiated leave() suppresses the watcher (no duplicate meet.error)", async () => {
     const runner = makeMockRunner();
     const audioIngestFactory = makeFakeAudioIngestFactory();
