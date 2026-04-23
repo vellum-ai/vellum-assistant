@@ -1,4 +1,12 @@
 import {
+  buildUpstreamUrl,
+  prepareUpstreamHeaders,
+  createTimeoutController,
+  isTimeoutError,
+  stripHopByHop,
+} from "@vellumai/assistant-client";
+
+import {
   validateEdgeToken,
   mintExchangeToken,
   mintServiceToken,
@@ -7,7 +15,6 @@ import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
 import { isLoopbackAddress } from "../../util/is-loopback-address.js";
-import { stripHopByHop } from "../../util/strip-hop-by-hop.js";
 
 const log = getLogger("runtime-proxy");
 
@@ -78,13 +85,16 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
       upstreamPath = `/v1/${assistantScopedMatch[1]}`;
     }
 
-    const upstream = `${config.assistantRuntimeBaseUrl}${upstreamPath}${url.search}`;
+    const upstream = buildUpstreamUrl(
+      config.assistantRuntimeBaseUrl,
+      upstreamPath,
+      url.search,
+    );
 
-    const reqHeaders = stripHopByHop(new Headers(req.headers));
-    reqHeaders.delete("host");
-    // Always strip the incoming authorization — it was the edge token consumed
-    // above. The exchange token (or ingress token) replaces it below.
-    reqHeaders.delete("authorization");
+    const reqHeaders = prepareUpstreamHeaders(
+      new Headers(req.headers),
+      exchangeToken,
+    );
 
     // Inject the real client IP so the runtime can rate-limit per-user,
     // overwriting any client-supplied value to prevent spoofing.
@@ -97,21 +107,12 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
       reqHeaders.delete("x-forwarded-for");
     }
 
-    // Replace with the exchange token for the runtime (proves gateway origin)
-    reqHeaders.set("authorization", `Bearer ${exchangeToken}`);
-
     // Use a manual AbortController so the timeout only covers the connection
     // phase (waiting for response headers). Once headers arrive, the timeout is
     // cleared so streaming responses (SSE, chunked) can run indefinitely.
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => {
-      controller.abort(
-        new DOMException(
-          "The operation was aborted due to timeout",
-          "TimeoutError",
-        ),
-      );
-    }, config.runtimeTimeoutMs);
+    const { controller, clear } = createTimeoutController(
+      config.runtimeTimeoutMs,
+    );
 
     // Buffer the request body instead of streaming req.body to avoid
     // Content-Length mismatches when Bun re-sends a ReadableStream, which
@@ -130,11 +131,11 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
         body: bodyBuffer,
         signal: controller.signal,
       });
-      clearTimeout(timeoutId);
+      clear();
     } catch (err) {
-      clearTimeout(timeoutId);
+      clear();
       const duration = Math.round(performance.now() - start);
-      if (err instanceof DOMException && err.name === "TimeoutError") {
+      if (isTimeoutError(err)) {
         log.error(
           {
             method: req.method,
@@ -160,7 +161,7 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
       const body = await response.text();
       const level = response.status >= 500 ? "error" : "warn";
       const bodySnippet =
-        body.length > 256 ? body.slice(0, 256) + "…[truncated]" : body;
+        body.length > 256 ? body.slice(0, 256) + "\u2026[truncated]" : body;
       log[level](
         {
           method: req.method,
