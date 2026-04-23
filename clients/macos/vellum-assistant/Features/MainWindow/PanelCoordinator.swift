@@ -282,16 +282,10 @@ extension MainWindowView {
                             .padding(VSpacing.lg)
                     }
                 case .documentPreview(let item):
-                    HomeDetailPanel(
-                        icon: nil,
-                        title: item.title,
-                        onDismiss: { activeHomeDetailPanel = nil }
-                    ) {
-                        Text(item.summary)
-                            .font(VFont.bodyMediumDefault)
-                            .foregroundStyle(VColor.contentSecondary)
-                            .padding(VSpacing.lg)
-                    }
+                    HomeDocumentPreviewPanel(
+                        item: item,
+                        onClose: { activeHomeDetailPanel = nil }
+                    )
                 case .permissionChat(let item):
                     HomeDetailPanel(
                         icon: nil,
@@ -304,13 +298,10 @@ extension MainWindowView {
                             .padding(VSpacing.lg)
                     }
                 case .paymentAuth(let item):
-                    HomeDetailPanel(
-                        icon: nil,
-                        title: item.title,
-                        onDismiss: { activeHomeDetailPanel = nil }
-                    ) {
-                        HomeAuthDetailCard(item: item)
-                    }
+                    HomePaymentAuthPanel(
+                        item: item,
+                        onClose: { activeHomeDetailPanel = nil }
+                    )
                 case .toolPermission(let item):
                     HomeDetailPanel(
                         icon: nil,
