@@ -36,10 +36,13 @@ const SCHEDULE_GUARDIAN_TRUST_CONTEXT = {
 // Handlers
 // ---------------------------------------------------------------------------
 
-function handleListSchedules(): Response {
+function handleListSchedules(excludeCreatedBy?: string): Response {
   const jobs = listSchedules();
+  const filtered = excludeCreatedBy
+    ? jobs.filter((j) => j.createdBy !== excludeCreatedBy)
+    : jobs;
   return Response.json({
-    schedules: jobs.map((j) => ({
+    schedules: filtered.map((j) => ({
       id: j.id,
       name: j.name,
       enabled: j.enabled,
@@ -391,7 +394,11 @@ export function scheduleRouteDefinitions(deps: {
       responseBody: z.object({
         schedules: z.array(z.unknown()).describe("Schedule objects"),
       }),
-      handler: () => handleListSchedules(),
+      handler: ({ url }) => {
+        const excludeCreatedBy =
+          url.searchParams.get("exclude_created_by") ?? undefined;
+        return handleListSchedules(excludeCreatedBy);
+      },
     },
     {
       endpoint: "schedules/:id/runs",
