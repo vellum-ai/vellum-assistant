@@ -21,6 +21,8 @@ const TRANSPORT_ERROR_CODES = new Set([
   "unreachable",
   "timeout",
   "non_loopback",
+  "cdp_session_not_found",
+  "cancelled",
 ]);
 
 /**
@@ -174,7 +176,8 @@ export class ExtensionCdpClient implements ScopedCdpClient {
  *
  * Structured envelopes from the host_browser dispatcher carry a
  * `code` string field (e.g. `"transport_error"`, `"unreachable"`,
- * `"timeout"`, `"non_loopback"`). When the code matches a known
+ * `"timeout"`, `"non_loopback"`, `"cdp_session_not_found"`,
+ * `"cancelled"`). When the code matches a known
  * transport-level value, the error is eligible for factory failover.
  * All other codes (or missing codes) are treated as CDP command
  * errors that should propagate without failover.
