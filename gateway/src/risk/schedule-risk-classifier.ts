@@ -49,7 +49,40 @@ export class ScheduleRiskClassifier implements RiskClassifier<ScheduleClassifier
   async classify(input: ScheduleClassifierInput): Promise<RiskAssessment> {
     const { toolName, mode, script } = input;
 
-    // Check risk rule cache for user overrides
+    // Run normal classification first (including script-mode escalation),
+    // then check for user overrides at the end. This ensures the high-risk
+    // script-mode escalation cannot be bypassed by a user override.
+    const hasScriptContent =
+      typeof script === "string" && script.trim().length > 0;
+    const involvesScriptMode = mode === "script" || hasScriptContent;
+
+    let assessment: RiskAssessment;
+
+    if (involvesScriptMode) {
+      assessment = {
+        riskLevel: "high",
+        reason: SCRIPT_MODE_REASON,
+        scopeOptions: [],
+        matchType: "registry",
+      };
+    } else {
+      // Non-script schedules keep their registry default (medium). Returning
+      // medium here preserves existing behaviour for notify/execute modes
+      // and keeps trust-rule auto-allow ergonomic for routine automations.
+      assessment = {
+        riskLevel: "medium",
+        reason:
+          toolName === "schedule_create"
+            ? "Schedule create (notify/execute)"
+            : "Schedule update (notify/execute)",
+        scopeOptions: [],
+        matchType: "registry",
+      };
+    }
+
+    // Check risk rule cache for user overrides AFTER normal classification.
+    // This preserves security escalations — overrides only apply to the
+    // final result, they cannot bypass high-risk checks like script mode.
     try {
       const ruleCache = getTrustRuleV3Cache();
       const override = ruleCache.findToolOverride(
@@ -71,31 +104,7 @@ export class ScheduleRiskClassifier implements RiskClassifier<ScheduleClassifier
       // Cache not initialized — no override
     }
 
-    const hasScriptContent =
-      typeof script === "string" && script.trim().length > 0;
-    const involvesScriptMode = mode === "script" || hasScriptContent;
-
-    if (involvesScriptMode) {
-      return {
-        riskLevel: "high",
-        reason: SCRIPT_MODE_REASON,
-        scopeOptions: [],
-        matchType: "registry",
-      };
-    }
-
-    // Non-script schedules keep their registry default (medium). Returning
-    // medium here preserves existing behaviour for notify/execute modes
-    // and keeps trust-rule auto-allow ergonomic for routine automations.
-    return {
-      riskLevel: "medium",
-      reason:
-        toolName === "schedule_create"
-          ? "Schedule create (notify/execute)"
-          : "Schedule update (notify/execute)",
-      scopeOptions: [],
-      matchType: "registry",
-    };
+    return assessment;
   }
 }
 

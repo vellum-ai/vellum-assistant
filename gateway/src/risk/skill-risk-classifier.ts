@@ -168,12 +168,62 @@ export class SkillLoadRiskClassifier implements RiskClassifier<SkillClassifierIn
   async classify(input: SkillClassifierInput): Promise<RiskAssessment> {
     const { toolName, skillSelector, resolvedMetadata } = input;
 
-    // Check risk rule cache for user overrides
+    // Run normal classification first, then check for user overrides at
+    // the end. This ensures security escalations cannot be bypassed.
+    let assessment: RiskAssessment;
+
+    switch (toolName) {
+      case "skill_load":
+        assessment = {
+          riskLevel: "low",
+          reason: "Skill load (default)",
+          scopeOptions: [],
+          matchType: "registry",
+          allowlistOptions: buildSkillLoadAllowlistOptions(
+            skillSelector,
+            resolvedMetadata,
+          ),
+        };
+        break;
+      case "scaffold_managed_skill":
+        assessment = {
+          riskLevel: "high",
+          reason: "Skill scaffold — writes persistent skill source code",
+          scopeOptions: [],
+          matchType: "registry",
+          allowlistOptions: buildManagedSkillAllowlistOptions(
+            toolName,
+            skillSelector,
+          ),
+        };
+        break;
+      case "delete_managed_skill":
+        assessment = {
+          riskLevel: "high",
+          reason: "Skill delete — removes persistent skill source code",
+          scopeOptions: [],
+          matchType: "registry",
+          allowlistOptions: buildManagedSkillAllowlistOptions(
+            toolName,
+            skillSelector,
+          ),
+        };
+        break;
+    }
+
+    // Check risk rule cache for user overrides AFTER normal classification.
+    // Use the same key format as buildSkillLoadAllowlistOptions: resolved
+    // skillId from metadata (when available), and skill_load_dynamic as the
+    // tool key for dynamic skills.
     try {
       const ruleCache = getTrustRuleV3Cache();
+      const isDynamic =
+        resolvedMetadata?.isDynamic && resolvedMetadata?.hasInlineExpansions;
+      const overrideTool = isDynamic ? "skill_load_dynamic" : toolName;
+      const overridePattern = resolvedMetadata?.skillId ?? skillSelector ?? "";
       const override = ruleCache.findToolOverride(
-        toolName,
-        skillSelector ?? "",
+        overrideTool,
+        overridePattern,
       );
       if (
         override &&
@@ -190,41 +240,7 @@ export class SkillLoadRiskClassifier implements RiskClassifier<SkillClassifierIn
       // Cache not initialized — no override
     }
 
-    switch (toolName) {
-      case "skill_load":
-        return {
-          riskLevel: "low",
-          reason: "Skill load (default)",
-          scopeOptions: [],
-          matchType: "registry",
-          allowlistOptions: buildSkillLoadAllowlistOptions(
-            skillSelector,
-            resolvedMetadata,
-          ),
-        };
-      case "scaffold_managed_skill":
-        return {
-          riskLevel: "high",
-          reason: "Skill scaffold — writes persistent skill source code",
-          scopeOptions: [],
-          matchType: "registry",
-          allowlistOptions: buildManagedSkillAllowlistOptions(
-            toolName,
-            skillSelector,
-          ),
-        };
-      case "delete_managed_skill":
-        return {
-          riskLevel: "high",
-          reason: "Skill delete — removes persistent skill source code",
-          scopeOptions: [],
-          matchType: "registry",
-          allowlistOptions: buildManagedSkillAllowlistOptions(
-            toolName,
-            skillSelector,
-          ),
-        };
-    }
+    return assessment!;
   }
 }
 

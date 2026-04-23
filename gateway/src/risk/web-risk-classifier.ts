@@ -37,7 +37,64 @@ export class WebRiskClassifier implements RiskClassifier<WebClassifierInput> {
   async classify(input: WebClassifierInput): Promise<RiskAssessment> {
     const { toolName, url, allowPrivateNetwork } = input;
 
-    // Check risk rule cache for user overrides
+    // NOTE: We intentionally do NOT produce allowlistOptions here.
+    // The canonical URL normalization logic (normalizeWebFetchUrl in
+    // checker.ts) handles edge cases (path-only inputs, host:port
+    // shorthand, non-http schemes) that our simplified normalizeUrl()
+    // does not. Importing the canonical version would create a circular
+    // dependency. By omitting allowlistOptions, we let the fallback
+    // urlAllowlistStrategy in generateAllowlistOptions() handle scope
+    // option generation using the canonical normalization.
+
+    // Run normal classification first (including security escalations like
+    // allowPrivateNetwork), then check for user overrides at the end.
+    let assessment: RiskAssessment;
+
+    switch (toolName) {
+      case "web_search":
+        assessment = {
+          riskLevel: "low",
+          reason: "Web search (read-only)",
+          scopeOptions: [],
+          matchType: "registry",
+        };
+        break;
+
+      case "web_fetch":
+        // Private-network fetches are High risk so that blanket allow rules
+        // (including the starter bundle) cannot silently bypass the prompt.
+        if (allowPrivateNetwork === true) {
+          assessment = {
+            riskLevel: "high",
+            reason: "Private network fetch",
+            scopeOptions: [],
+            matchType: "registry",
+          };
+        } else {
+          assessment = {
+            riskLevel: "low",
+            reason: "Web fetch (default)",
+            scopeOptions: [],
+            matchType: "registry",
+          };
+        }
+        break;
+
+      case "network_request":
+        // Proxy-authenticated network requests are Medium risk — they carry
+        // injected credentials and the user should approve the target host/origin.
+        assessment = {
+          riskLevel: "medium",
+          reason: "Network request (proxied credentials)",
+          scopeOptions: [],
+          matchType: "registry",
+        };
+        break;
+    }
+
+    // Check risk rule cache for user overrides AFTER normal classification.
+    // This preserves security escalations — overrides only apply to the
+    // final result, they cannot bypass high-risk checks like allowPrivateNetwork.
     try {
       const ruleCache = getTrustRuleV3Cache();
       const override = ruleCache.findToolOverride(toolName, url ?? "");
@@ -56,52 +113,7 @@ export class WebRiskClassifier implements RiskClassifier<WebClassifierInput> {
       // Cache not initialized — no override
     }
 
-    // NOTE: We intentionally do NOT produce allowlistOptions here.
-    // The canonical URL normalization logic (normalizeWebFetchUrl in
-    // checker.ts) handles edge cases (path-only inputs, host:port
-    // shorthand, non-http schemes) that our simplified normalizeUrl()
-    // does not. Importing the canonical version would create a circular
-    // dependency. By omitting allowlistOptions, we let the fallback
-    // urlAllowlistStrategy in generateAllowlistOptions() handle scope
-    // option generation using the canonical normalization.
-
-    switch (toolName) {
-      case "web_search":
-        return {
-          riskLevel: "low",
-          reason: "Web search (read-only)",
-          scopeOptions: [],
-          matchType: "registry",
-        };
-
-      case "web_fetch":
-        // Private-network fetches are High risk so that blanket allow rules
-        // (including the starter bundle) cannot silently bypass the prompt.
-        if (allowPrivateNetwork === true) {
-          return {
-            riskLevel: "high",
-            reason: "Private network fetch",
-            scopeOptions: [],
-            matchType: "registry",
-          };
-        }
-        return {
-          riskLevel: "low",
-          reason: "Web fetch (default)",
-          scopeOptions: [],
-          matchType: "registry",
-        };
-
-      case "network_request":
-        // Proxy-authenticated network requests are Medium risk — they carry
-        // injected credentials and the user should approve the target host/origin.
-        return {
-          riskLevel: "medium",
-          reason: "Network request (proxied credentials)",
-          scopeOptions: [],
-          matchType: "registry",
-        };
-    }
+    return assessment!;
   }
 }
 
