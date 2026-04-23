@@ -60,16 +60,14 @@ export class ToolExecutor {
      * middleware registered on the `toolExecute` pipeline sees the same
      * context every other pipeline slot uses. When omitted (CLI/test
      * invocations that call `ToolExecutor.execute` directly), the executor
-     * synthesizes a fallback context from the {@link ToolContext}, which
-     * keeps pre-threading behavior intact for legacy callers.
+     * synthesizes a fallback context from the {@link ToolContext}.
      */
     turnContext?: TurnContext,
   ): Promise<ToolExecutionResult> {
     // Prefer the orchestrator-supplied `turnContext` so the pipeline sees
     // the real conversation identity, per-turn trust, and context-window
     // manager. When absent (CLI / test invocations that bypass the agent
-    // loop), synthesize a minimal context from the `ToolContext` — the
-    // same fallback the executor has used since the pipeline was added.
+    // loop), synthesize a minimal context from the `ToolContext`.
     const turnCtx: TurnContext = turnContext ?? {
       requestId: context.requestId ?? "",
       conversationId: context.conversationId,
@@ -85,14 +83,11 @@ export class ToolExecutor {
 
     // No pipeline-level timeout: `executeInternal` already wraps the real
     // tool invocation in `executeWithTimeout`, which is the sole enforcer
-    // of the per-tool budget. Propagating `perToolTimeoutMs` to
-    // `runPipeline` made the pipeline race everything upstream of the
-    // tool call — permission checks, approval waits, middleware — against
-    // the same budget, so a slow human clicking "allow" produced a
-    // `PluginTimeoutError` thrown past `executeInternal`'s catch block,
-    // breaking the `execute()` never-throws contract. Letting the pipeline
-    // run untimed keeps the contract intact; runaway middleware is a
-    // plugin-health concern handled by per-plugin timeouts, not here.
+    // of the per-tool budget. The pipeline itself runs untimed so that
+    // upstream phases (permission checks, approval waits, middleware) are
+    // not racing the tool budget — only the actual tool call is. Runaway
+    // middleware is a plugin-health concern handled by per-plugin timeouts,
+    // not here.
     return runPipeline<ToolExecuteArgs, ToolExecuteResult>(
       "toolExecute",
       middlewares,

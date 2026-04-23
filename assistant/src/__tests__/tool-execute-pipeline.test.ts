@@ -334,14 +334,12 @@ describe("ToolExecutor.execute → toolExecute pipeline", () => {
   });
 
   test("slow middleware does not trip a pipeline-level timeout", async () => {
-    // Regression: `ToolExecutor.execute` used to pass the per-tool timeout
-    // to `runPipeline`, which made the pipeline race everything upstream of
-    // the tool call (permission checks, approval waits, middleware) against
-    // the same budget. A slow human clicking "allow" produced a
-    // `PluginTimeoutError` thrown past `executeInternal`'s catch block,
-    // breaking the `execute()` never-throws contract. The pipeline is now
-    // untimed; `executeWithTimeout` inside `executeInternal` is the sole
-    // enforcer of the per-tool budget and only wraps the actual tool call.
+    // Regression: the pipeline must NOT arm a timer — `executeWithTimeout`
+    // inside `executeInternal` is the sole enforcer of the per-tool budget
+    // and only wraps the actual tool call. Upstream phases (permission
+    // checks, approval waits, middleware) must not race the tool budget,
+    // because that would break the `execute()` never-throws contract when
+    // a slow phase (e.g. a human clicking "allow") exceeds the budget.
     const slow: Middleware<ToolExecuteArgs, ToolExecuteResult> =
       async function slowMw(args, next) {
         await new Promise((resolve) => setTimeout(resolve, 50));
