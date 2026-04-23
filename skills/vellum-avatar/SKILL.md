@@ -17,9 +17,7 @@ You are helping the user customize their assistant's avatar. There are three way
 The avatar system supports two representations:
 
 - **Native character** - Defined by `data/avatar/character-traits.json` (body shape, eye style, color). Rendered client-side as an animated character. A static PNG at `data/avatar/avatar-image.png` is auto-generated for use by other clients and the dock icon.
-- **Custom image** - A static PNG at `data/avatar/avatar-image.png`. Used for uploaded or AI-generated avatars. No traits file exists.
-
-See [Mutual Exclusivity Rule](#mutual-exclusivity-rule) for how these modes interact.
+- **Custom image** - A static PNG at `data/avatar/avatar-image.png`. Used for uploaded or AI-generated avatars. Character traits are preserved so the native character can be restored later via `assistant avatar remove`.
 
 ## Mode 1: Native Character Traits
 
@@ -67,33 +65,27 @@ The user picks a body shape, eye style, and color. Present the options conversat
 
 ### Setting traits
 
-After the user chooses, run the following command to set the character traits. This writes `character-traits.json`, generates the static PNG, and creates an ASCII representation in one step:
+After the user chooses, run the following command to set the character traits. This writes `character-traits.json`, generates the static PNG, creates an ASCII representation, updates IDENTITY.md, and notifies connected clients — all in one step:
 
 ```bash
 assistant avatar character update --body-shape <value> --eye-style <value> --color <value>
 ```
 
-The client will detect the traits file and render the animated character. The assistant also generates a static PNG for use as dock icon and by other clients.
+The client will detect the traits file and render the animated character.
 
 ## Mode 2: Upload a Custom Image
 
 The user provides a file path to an image they want to use as their avatar.
 
-Copy the image to the avatar location:
+Use the CLI command to set it:
 
 ```bash
-mkdir -p "$VELLUM_WORKSPACE_DIR/data/avatar"
-cp "<user-provided-path>" "$VELLUM_WORKSPACE_DIR/data/avatar/avatar-image.png"
+assistant avatar set --image "<user-provided-path>"
 ```
 
-Then remove the native character files, since a custom image overrides the native character:
+The path can be absolute or relative to the workspace (e.g. `conversations/<id>/attachments/Dropped Image.png`). The command copies the image to the canonical avatar location, clears the IDENTITY.md avatar description, and notifies connected clients. Character traits are preserved so the native character can be restored later via `assistant avatar remove`.
 
-```bash
-rm -f "$VELLUM_WORKSPACE_DIR/data/avatar/character-traits.json"
-rm -f "$VELLUM_WORKSPACE_DIR/data/avatar/character-ascii.txt"
-```
-
-Tell the user their avatar has been updated. The client will pick up the new image automatically.
+**Do NOT use raw `cp`/`rm` commands** — always use `assistant avatar set` so the app is properly notified and IDENTITY.md is updated.
 
 ## Mode 3: AI-Generated Image
 
@@ -108,7 +100,28 @@ The user describes what they want their avatar to look like. Use the `bash` tool
 }
 ```
 
-This generates an image using AI, saves it to `data/avatar/avatar-image.png`, and removes any native character files automatically. The generated avatar will appear automatically in the client.
+This generates an image using AI, saves it to `data/avatar/avatar-image.png`, removes any native character files, updates IDENTITY.md, and notifies connected clients automatically.
+
+## Removing the Avatar
+
+When the user wants to remove their custom avatar and go back to the default:
+
+```bash
+assistant avatar remove
+```
+
+This removes the custom image. If a native character was previously configured, it is automatically restored (the character traits are preserved). The command also regenerates the character PNG, updates IDENTITY.md, and notifies connected clients.
+
+## Viewing the Avatar
+
+When the user asks to see their current avatar, use the `get_avatar` tool. Do NOT use `file_read` — the `get_avatar` tool returns the image inline and handles regeneration from character traits if needed. Only call it once.
+
+To get the avatar path or base64 data programmatically:
+
+```bash
+assistant avatar get                  # prints the file path
+assistant avatar get --format base64  # prints base64-encoded PNG
+```
 
 ## UX Guidelines
 
@@ -123,17 +136,3 @@ This generates an image using AI, saves it to `data/avatar/avatar-image.png`, an
 - **After any avatar change**, update the `## Avatar` section in `IDENTITY.md` with a plain-text description of the current avatar appearance. Do NOT use markdown image links — write a human-readable description instead. This ensures you remember what you look like across sessions. Example: `## Avatar\nA friendly purple cat with green eyes wearing a tiny hat`
 - **When the user asks what your avatar looks like**, read the `## Avatar` section in `IDENTITY.md` for your text description.
 - **When the user asks you to show or provide your avatar**, use the `get_avatar` tool. Do NOT use `file_read` — the `get_avatar` tool handles everything. Only call it once.
-
-## Mutual Exclusivity Rule
-
-`character-traits.json` and `avatar-image.png` represent different avatar modes:
-
-- **Native character** - `character-traits.json` is the source of truth. The assistant auto-generates `avatar-image.png` as a static representation, so both files coexist.
-- **Custom image** - `avatar-image.png` is user-provided (uploaded or AI-generated). No traits file exists.
-
-The client checks for character traits first - if `character-traits.json` exists, it renders the animated character. Otherwise, it falls back to `avatar-image.png` for custom images.
-
-Enforcement rules:
-
-- **Setting native character traits** → run `assistant avatar character update --body-shape X --eye-style Y --color Z`. This writes `character-traits.json`, auto-generates the PNG, and creates ASCII art in one step.
-- **Uploading or generating a custom image** → write `avatar-image.png` and remove `character-traits.json` and `character-ascii.txt`.

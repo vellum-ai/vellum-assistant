@@ -7,7 +7,6 @@
     "src/messaging/providers/*/types.ts",
     "src/messaging/providers/*/client.ts",
     "src/memory/graph/inspect.ts",
-    "src/cli/lib/daemon-avatar-client.ts",
     "../skills/meet-join/**/*.test.ts",
     "../skills/meet-join/**/__tests__/**/*.ts",
     "!../skills/meet-join/bot/**",
