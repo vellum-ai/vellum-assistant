@@ -11,6 +11,7 @@
  *   Returns: { token: string, expiresIn: number, guardianId: string }
  */
 
+import { timingSafeEqual } from "node:crypto";
 import { getLogger } from "../../logger.js";
 import { mintToken } from "../../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
@@ -88,7 +89,7 @@ export function createCloudOAuthTokenHandler() {
       }
 
       const bearerToken = extractBearerToken(req);
-      if (!bearerToken || bearerToken !== expectedInternalKey) {
+      if (!matchesInternalKey(bearerToken, expectedInternalKey)) {
         return Response.json({ error: "Forbidden" }, { status: 403 });
       }
 
@@ -130,4 +131,15 @@ function extractBearerToken(req: Request): string | null {
     return null;
   }
   return authHeader.slice(7).trim();
+}
+
+function matchesInternalKey(
+  providedKey: string | null,
+  expectedKey: string,
+): boolean {
+  if (!providedKey) return false;
+  const provided = Buffer.from(providedKey);
+  const expected = Buffer.from(expectedKey);
+  if (provided.length !== expected.length) return false;
+  return timingSafeEqual(provided, expected);
 }
