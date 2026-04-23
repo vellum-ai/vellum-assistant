@@ -1,0 +1,55 @@
+# Socket.dev supply-chain policy.
+# Gates the `socket-security` GitHub App checks that run on every PR.
+# Free tier only: no reachability, no priority scoring, no Slack, no org-wide rules.
+#
+# Shape: `<alertName>: true` enables the alert (severity and block-vs-warn
+# are determined by Socket's default severity mapping plus the Socket
+# dashboard Security Policy). `<alertName>: false` suppresses the alert
+# entirely. Three-state (block/warn/ignore) granularity lives in the
+# dashboard policy, not in this file — see docs/socket.md.
+#
+# Package-specific exceptions: add under the relevant alert with a rationale
+# comment (why suppressing, who approved, date, expiry if any). Reviewers
+# block suppressions without rationale.
+#
+# Alert names below verified against https://docs.socket.dev/docs/socket-yml
+# and https://socket.dev/alerts in 2026-04; re-verify on next edit.
+# Runbook: docs/socket.md (lands in PR 3 of the same plan — ATL-106).
+
+version: 2
+
+projectIgnorePaths:
+  - "**/node_modules/**"
+  - "**/.build/**"
+  - "clients/.build/**"
+  - "**/dist/**"
+  - "**/build/**"
+  - "**/.build-ios/**"
+  - "**/*.tsbuildinfo"
+  - "**/*.bun-build"
+
+issueRules:
+  # Supply-chain-attack signals — always on (reported and, per Socket default
+  # severity, block the check).
+  malware: true
+  gptMalware: true
+  didYouMean: true
+  installScripts: true
+  hasNativeCode: true
+  shellAccess: true
+
+  # Hygiene / trust signals — on (reported; block-vs-warn is controlled by
+  # Socket dashboard Security Policies, not this YAML).
+  unpublishedLicense: true
+  deprecated: true
+  unmaintained: true
+  dynamicRequire: true
+
+  # CVEs — critical and high are on (block per Socket default severity).
+  # Medium/low suppressed here; surface them via dashboard policy if we want
+  # to gate on them later. Package-specific exceptions go here with a
+  # rationale comment (why, who, date, expiry).
+  criticalCVE: true
+  highCVE: true
+  mediumCVE: false
+  lowCVE: false
