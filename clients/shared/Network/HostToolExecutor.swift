@@ -472,6 +472,22 @@ public enum HostToolExecutor {
         return nil
     }
 
+    // MARK: - Host Transfer (stub — PR 7)
+
+    /// Execute a host file transfer request locally.
+    // TODO: implement in host-file-xfer/pr-7
+    @MainActor
+    public static func executeHostTransferRequest(_ request: HostTransferRequest) {
+        log.warning("executeHostTransferRequest not yet implemented — requestId=\(request.requestId, privacy: .public)")
+    }
+
+    /// Cancel an in-flight host file transfer request.
+    // TODO: implement in host-file-xfer/pr-7
+    public static func cancelHostTransferRequest(_ requestId: String) {
+        markCancelled(requestId)
+        log.warning("cancelHostTransferRequest not yet implemented — requestId=\(requestId, privacy: .public)")
+    }
+
     private enum FileOperationError: LocalizedError {
         case noMatch
         case multipleMatches(Int)

@@ -407,6 +407,11 @@ extension AppDelegate {
                 case .hostBrowserCancel(let msg):
                     self.hostBrowserExecutor.cancel(msg.requestId)
 
+                case .hostTransferRequest(let msg):
+                    HostToolExecutor.executeHostTransferRequest(msg)
+                case .hostTransferCancel(let msg):
+                    HostToolExecutor.cancelHostTransferRequest(msg.requestId)
+
                 case .hostBashCancel(let msg):
                     HostToolExecutor.cancelHostBashRequest(msg.requestId)
                 case .hostFileCancel(let msg):

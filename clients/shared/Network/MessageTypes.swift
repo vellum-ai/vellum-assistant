@@ -61,6 +61,12 @@ import Foundation
 // │                                 │ decoded from flat fields               │
 // │ SkillsshOriginMeta             │ Payload struct for skillssh origin;    │
 // │                                 │ decoded from flat fields               │
+// │ HostTransferRequest            │ Hand-maintained alongside              │
+// │                                 │ HostTransferCancelRequest              │
+// │ HostTransferCancelRequest      │ Hand-maintained alongside              │
+// │                                 │ HostTransferRequest                    │
+// │ HostTransferResultPayload      │ Posted back to daemon; hand-maintained │
+// │                                 │ alongside HostTransferRequest          │
 // └─────────────────────────────────┴──────────────────────────────────────────┘
 //
 // **Do not add new manual structs** without documenting the reason here.
@@ -1739,6 +1745,47 @@ public struct HostBrowserResultPayload: Codable, Sendable {
     }
 }
 
+// MARK: - Host File Transfer
+
+/// Request from the daemon to transfer a file between the sandbox and the host
+/// machine. `direction` is either `"to_host"` (sandbox → host) or `"to_sandbox"`
+/// (host → sandbox). The client decodes this to keep the SSE stream healthy and
+/// routes it to the executor for processing.
+public struct HostTransferRequest: Decodable, Sendable {
+    public let type: String
+    public let requestId: String
+    public let conversationId: String
+    public let direction: String
+    public let transferId: String
+    public let destPath: String?
+    public let sourcePath: String?
+    public let sizeBytes: Int?
+    public let sha256: String?
+    public let overwrite: Bool?
+}
+
+/// Cancellation signal from the daemon telling the client to abort an in-flight
+/// host file transfer identified by `requestId`.
+public struct HostTransferCancelRequest: Decodable, Sendable {
+    public let type: String
+    public let requestId: String
+}
+
+/// Payload posted back to the daemon with the result of a host file transfer.
+public struct HostTransferResultPayload: Codable, Sendable {
+    public let requestId: String
+    public let isError: Bool
+    public let bytesWritten: Int?
+    public let errorMessage: String?
+
+    public init(requestId: String, isError: Bool, bytesWritten: Int?, errorMessage: String?) {
+        self.requestId = requestId
+        self.isError = isError
+        self.bytesWritten = bytesWritten
+        self.errorMessage = errorMessage
+    }
+}
+
 // MARK: - Meet (live meeting state)
 
 /// A single participant in a meeting as broadcast by the Meet-bot.
@@ -2617,6 +2664,8 @@ public enum ServerMessage: Decodable, Sendable {
     case hostCuCancel(HostCuCancelRequest)
     case hostBrowserRequest(HostBrowserRequest)
     case hostBrowserCancel(HostBrowserCancelRequest)
+    case hostTransferRequest(HostTransferRequest)
+    case hostTransferCancel(HostTransferCancelRequest)
     case meetJoining(MeetJoiningMessage)
     case meetJoined(MeetJoinedMessage)
     case meetParticipantChanged(MeetParticipantChangedMessage)
@@ -3111,6 +3160,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "host_browser_cancel":
             let message = try HostBrowserCancelRequest(from: decoder)
             self = .hostBrowserCancel(message)
+        case "host_transfer_request":
+            let message = try HostTransferRequest(from: decoder)
+            self = .hostTransferRequest(message)
+        case "host_transfer_cancel":
+            let message = try HostTransferCancelRequest(from: decoder)
+            self = .hostTransferCancel(message)
         case "context_compacted":
             let message = try ContextCompacted(from: decoder)
             self = .contextCompacted(message)
