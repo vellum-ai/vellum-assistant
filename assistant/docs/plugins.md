@@ -505,9 +505,10 @@ middleware. Each is optional.
 ### Tools (`plugin.tools`)
 
 An array of `Tool` objects. The bootstrap registers them with the global
-tool registry after `init()` succeeds, stamping `origin: "skill"` and
-`ownerSkillId: <plugin.name>` so they participate in skill-scoped
-ref-counting.
+tool registry after `init()` succeeds, stamping `origin: "plugin"` and
+`ownerPluginId: <plugin.name>` so they live in a ref-count namespace
+disjoint from real skills (a plugin whose `manifest.name` happens to
+match a skill id cannot collide with that skill's registrations).
 
 ```typescript
 const myPlugin: Plugin = {

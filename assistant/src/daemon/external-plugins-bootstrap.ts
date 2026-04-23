@@ -285,14 +285,25 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
       // After init succeeds, wire in the plugin's model-visible capabilities.
       // Tool contributions (PR 31) register only after `init()` succeeds so a
       // plugin that fails mid-init never leaves partially-wired tools behind.
-      // Tool registration failures throw up the stack to abort bootstrap,
-      // matching the strict-fail semantics of `init()` errors.
+      // Tool registration failures are wrapped in a PluginExecutionError so
+      // the offending plugin name surfaces in the abort — matching the
+      // strict-fail semantics of `init()` errors.
       if (plugin.tools && plugin.tools.length > 0) {
-        const accepted = registerPluginTools(name, plugin.tools);
-        log.info(
-          { plugin: name, count: accepted.length },
-          "plugin tools registered",
-        );
+        try {
+          const accepted = registerPluginTools(name, plugin.tools);
+          log.info(
+            { plugin: name, count: accepted.length },
+            "plugin tools registered",
+          );
+        } catch (err) {
+          throw new PluginExecutionError(
+            `plugin ${name} tool registration failed: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+            name,
+            { cause: err },
+          );
+        }
       }
 
       // Route contributions (PR 32) — registered after init() succeeds so a

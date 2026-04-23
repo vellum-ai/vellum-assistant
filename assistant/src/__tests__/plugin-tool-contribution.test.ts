@@ -6,14 +6,13 @@
  *
  * - Registering a plugin with `tools: Tool[]`, running `bootstrapPlugins`,
  *   and observing the contributed tool via `getAllTools()` / `getTool()`.
- * - Tool ownership metadata (`origin: "skill"`, `ownerSkillId: <plugin>`)
+ * - Tool ownership metadata (`origin: "plugin"`, `ownerPluginId: <plugin>`)
  *   stamped authoritatively by `registerPluginTools` regardless of what the
  *   plugin author set on the incoming object.
  * - Shutdown hook unregistering the contributed tools so the registry is
  *   clean again after teardown.
- * - Thin-wrapper semantics of `registerPluginTools` /
- *   `unregisterPluginTools` over `registerSkillTools` /
- *   `unregisterSkillTools`, including ref-counting.
+ * - Direct `registerPluginTools` / `unregisterPluginTools` semantics,
+ *   including the plugin-scoped ref count.
  *
  * Uses `mock.module` to stub the credential store so bootstrap doesn't hit
  * the real backend. `resetPluginRegistryForTests()` and
@@ -55,7 +54,7 @@ import {
   __clearRegistryForTesting,
   __resetRegistryForTesting,
   getAllTools,
-  getSkillRefCount,
+  getPluginRefCount,
   getTool,
   registerPluginTools,
   unregisterPluginTools,
@@ -140,9 +139,11 @@ describe("plugin tool contributions", () => {
     expect(retrieved).toBeDefined();
     // Ownership metadata must be stamped authoritatively by the bootstrap —
     // the registry uses it to drive ref-counting and conflict detection when
-    // the plugin shuts down or is hot-reloaded.
-    expect(retrieved?.origin).toBe("skill");
-    expect(retrieved?.ownerSkillId).toBe("alpha-contributor");
+    // the plugin shuts down or is hot-reloaded. Plugin tools live in their
+    // own `origin: "plugin"` namespace, disjoint from real skills, so a
+    // plugin name that happens to match a skill id cannot collide.
+    expect(retrieved?.origin).toBe("plugin");
+    expect(retrieved?.ownerPluginId).toBe("alpha-contributor");
 
     // The tool surfaces in the global `getAllTools()` snapshot, which is
     // what downstream consumers (tool-manifest, session projection) read.
@@ -163,7 +164,7 @@ describe("plugin tool contributions", () => {
     await runShutdownHooks("test-shutdown");
 
     expect(getTool("bravo-tool")).toBeUndefined();
-    expect(getSkillRefCount("bravo-contributor")).toBe(0);
+    expect(getPluginRefCount("bravo-contributor")).toBe(0);
   });
 
   test("bootstrap is a no-op for plugins that declare no tools", async () => {
@@ -220,32 +221,36 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
     __resetRegistryForTesting();
   });
 
-  test("registerPluginTools stamps origin and ownerSkillId from the plugin name", () => {
+  test("registerPluginTools stamps origin and ownerPluginId from the plugin name", () => {
     // Even if the plugin author hands in a tool with no ownership metadata,
     // the helper fills it in so the tool can be unregistered later.
     const accepted = registerPluginTools("my-plugin", [
       makeFakeTool("pt_stamped"),
     ]);
     expect(accepted).toHaveLength(1);
-    expect(accepted[0]?.origin).toBe("skill");
-    expect(accepted[0]?.ownerSkillId).toBe("my-plugin");
+    expect(accepted[0]?.origin).toBe("plugin");
+    expect(accepted[0]?.ownerPluginId).toBe("my-plugin");
 
     const retrieved = getTool("pt_stamped");
-    expect(retrieved?.origin).toBe("skill");
-    expect(retrieved?.ownerSkillId).toBe("my-plugin");
+    expect(retrieved?.origin).toBe("plugin");
+    expect(retrieved?.ownerPluginId).toBe("my-plugin");
   });
 
   test("registerPluginTools overwrites any pre-existing ownership metadata", () => {
     // A plugin author could (maliciously or mistakenly) hand in a tool
-    // pre-tagged with another skill's ID. The helper must overwrite it so
-    // the bootstrap is always the source of truth for ownership.
+    // pre-tagged with another skill's or plugin's ID. The helper must
+    // overwrite it so the bootstrap is always the source of truth for
+    // ownership — and it must clear cross-origin fields (ownerSkillId /
+    // ownerMcpServerId) so the stamped tool cannot leak across namespaces.
     const spoofed = makeFakeTool("pt_spoof", {
       origin: "skill",
       ownerSkillId: "some-other-skill",
     });
     registerPluginTools("my-plugin", [spoofed]);
     const retrieved = getTool("pt_spoof");
-    expect(retrieved?.ownerSkillId).toBe("my-plugin");
+    expect(retrieved?.origin).toBe("plugin");
+    expect(retrieved?.ownerPluginId).toBe("my-plugin");
+    expect(retrieved?.ownerSkillId).toBeUndefined();
   });
 
   test("unregisterPluginTools removes the plugin's tools", () => {
@@ -269,13 +274,13 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
   test("ref-counting: repeated registrations require matching unregister calls", () => {
     registerPluginTools("rc-plugin", [makeFakeTool("pt_rc")]);
     registerPluginTools("rc-plugin", [makeFakeTool("pt_rc")]);
-    expect(getSkillRefCount("rc-plugin")).toBe(2);
+    expect(getPluginRefCount("rc-plugin")).toBe(2);
 
     unregisterPluginTools("rc-plugin");
     expect(getTool("pt_rc")).toBeDefined();
 
     unregisterPluginTools("rc-plugin");
     expect(getTool("pt_rc")).toBeUndefined();
-    expect(getSkillRefCount("rc-plugin")).toBe(0);
+    expect(getPluginRefCount("rc-plugin")).toBe(0);
   });
 });
