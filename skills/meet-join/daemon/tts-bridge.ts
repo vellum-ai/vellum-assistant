@@ -661,22 +661,29 @@ export class MeetTtsBridge {
     // See {@link SPEAK_FAST_FAIL_WINDOW_MS} for the full rationale; the
     // short version is that Bun's fetch can't be awaited for connection-
     // only (the `Response` only resolves when the bot has consumed the
-    // full body) so we race the whole settle against a short deadline.
+    // full body) so we race the raw POST against a short deadline.
+    //
+    // Race against `postSettled` (not `settled`): `settled` chains
+    // `synthesisPromise` teardown, so a connect-level POST rejection
+    // would stay pending until synthesis finishes. For utterances whose
+    // synthesis exceeds the window, the race would then return
+    // "timeout" and hide the rejection — the exact bug this window
+    // exists to prevent.
     //
     // Three outcomes:
-    //   - "rejected": settled already rejected — rethrow so the caller's
-    //     `try/catch` sees the same error the fire-and-forget `.catch`
-    //     in `session-manager.speak` would have otherwise published only
-    //     via `meet.speaking_ended`.
-    //   - "resolved": settled completed successfully inside the window
-    //     (short utterance, fast local bot, test harness) — fall through
-    //     to the normal return.
-    //   - "timeout": settled is still in-flight — fall through to the
-    //     normal return; the body is streaming and any later failure is
-    //     still reported via `completion`.
+    //   - "rejected": postSettled already rejected — rethrow so the
+    //     caller's `try/catch` sees the same error the fire-and-forget
+    //     `.catch` in `session-manager.speak` would have otherwise
+    //     published only via `meet.speaking_ended`.
+    //   - "resolved": postSettled completed successfully inside the
+    //     window (short utterance, fast local bot, test harness) —
+    //     fall through to the normal return.
+    //   - "timeout": postSettled is still in-flight — fall through to
+    //     the normal return; the body is streaming and any later
+    //     failure is still reported via `completion`.
     if (this.deps.speakFastFailWindowMs > 0) {
       const fastFailOutcome = await Promise.race([
-        settled.then<"resolved", { kind: "rejected"; err: unknown }>(
+        postSettled.then<"resolved", { kind: "rejected"; err: unknown }>(
           () => "resolved",
           (err) => ({ kind: "rejected", err }),
         ),
