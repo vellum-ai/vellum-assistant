@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { getGatewaySecurityDir, getLegacyRootDir } from "../paths.js";
 import { runDataMigrations } from "./data-migrations/index.js";
 import * as schema from "./schema.js";
+import { seedTrustRuleV3sFromRegistry } from "./seed-trust-rules-v3.js";
+import { TrustRuleV3Store } from "./trust-rule-v3-store.js";
 
 export type GatewayDb = ReturnType<typeof drizzle<typeof schema>>;
 
@@ -79,6 +81,9 @@ export async function initGatewayDb(): Promise<void> {
   }
 
   runDataMigrations(getRawDb(db));
+
+  const trustRuleV3Store = new TrustRuleV3Store(db);
+  seedTrustRuleV3sFromRegistry(trustRuleV3Store);
 }
 
 /**

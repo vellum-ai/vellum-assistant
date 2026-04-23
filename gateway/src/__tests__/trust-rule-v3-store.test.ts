@@ -9,10 +9,23 @@ import "./test-preload.js";
 
 let store: TrustRuleV3Store;
 
+/**
+ * Baseline counts captured after initGatewayDb() seeds the registry defaults.
+ * Tests that assert counts use these as a starting point.
+ */
+let seededDefaultCount: number;
+let seededBashCount: number;
+let seededTotalCount: number;
+
 beforeEach(async () => {
   resetGatewayDb();
   await initGatewayDb();
   store = new TrustRuleV3Store();
+
+  // Capture baselines — initGatewayDb() seeds DEFAULT_COMMAND_REGISTRY
+  seededDefaultCount = store.list({ origin: "default" }).length;
+  seededBashCount = store.list({ tool: "bash" }).length;
+  seededTotalCount = store.list().length;
 });
 
 afterEach(() => {
@@ -52,7 +65,7 @@ describe("create()", () => {
     const before = new Date().toISOString();
     const rule = store.create({
       tool: "bash",
-      pattern: "ls",
+      pattern: "my-custom-ls",
       risk: "low",
       description: "test",
     });
@@ -84,7 +97,7 @@ describe("list()", () => {
     });
 
     const rules = store.list();
-    expect(rules).toHaveLength(2);
+    expect(rules).toHaveLength(seededTotalCount + 2);
   });
 
   test("filters by origin", () => {
@@ -107,8 +120,8 @@ describe("list()", () => {
     expect(userRules[0].origin).toBe("user_defined");
 
     const defaultRules = store.list({ origin: "default" });
-    expect(defaultRules).toHaveLength(1);
-    expect(defaultRules[0].origin).toBe("default");
+    expect(defaultRules).toHaveLength(seededDefaultCount + 1);
+    expect(defaultRules.every((r) => r.origin === "default")).toBe(true);
   });
 
   test("filters by tool", () => {
@@ -126,8 +139,8 @@ describe("list()", () => {
     });
 
     const bashRules = store.list({ tool: "bash" });
-    expect(bashRules).toHaveLength(1);
-    expect(bashRules[0].tool).toBe("bash");
+    expect(bashRules).toHaveLength(seededBashCount + 1);
+    expect(bashRules.every((r) => r.tool === "bash")).toBe(true);
   });
 
   test("excludes soft-deleted rules by default", () => {
@@ -141,7 +154,9 @@ describe("list()", () => {
     store.remove("default:bash:danger");
 
     const rules = store.list();
-    expect(rules).toHaveLength(0);
+    // Should have the seeded rules but not the soft-deleted one
+    expect(rules).toHaveLength(seededTotalCount);
+    expect(rules.find((r) => r.id === "default:bash:danger")).toBeUndefined();
   });
 
   test("includes soft-deleted rules when includeDeleted is true", () => {
@@ -155,8 +170,10 @@ describe("list()", () => {
     store.remove("default:bash:danger");
 
     const rules = store.list({ includeDeleted: true });
-    expect(rules).toHaveLength(1);
-    expect(rules[0].deleted).toBe(true);
+    expect(rules).toHaveLength(seededTotalCount + 1);
+    const deleted = rules.find((r) => r.id === "default:bash:danger");
+    expect(deleted).toBeDefined();
+    expect(deleted!.deleted).toBe(true);
   });
 });
 
@@ -210,17 +227,17 @@ describe("update()", () => {
 
   test("sets userModified=true for default rules", () => {
     store.upsertDefault({
-      id: "default:bash:test",
+      id: "default:bash:test-update",
       tool: "bash",
-      pattern: "test",
+      pattern: "test-update",
       risk: "low",
       description: "Default rule",
     });
 
-    const rule = store.getById("default:bash:test")!;
+    const rule = store.getById("default:bash:test-update")!;
     expect(rule.userModified).toBe(false);
 
-    const updated = store.update("default:bash:test", { risk: "high" });
+    const updated = store.update("default:bash:test-update", { risk: "high" });
     expect(updated.userModified).toBe(true);
   });
 
@@ -269,22 +286,24 @@ describe("remove()", () => {
 
   test("soft-deletes default rules", () => {
     store.upsertDefault({
-      id: "default:bash:test",
+      id: "default:bash:test-remove",
       tool: "bash",
-      pattern: "test",
+      pattern: "test-remove",
       risk: "low",
       description: "Default rule",
     });
 
-    const result = store.remove("default:bash:test");
+    const result = store.remove("default:bash:test-remove");
     expect(result).toBe(true);
 
-    // Should not appear in default list
+    // Should not appear in default list (without includeDeleted)
     const rules = store.list();
-    expect(rules).toHaveLength(0);
+    expect(
+      rules.find((r) => r.id === "default:bash:test-remove"),
+    ).toBeUndefined();
 
     // Should still exist as soft-deleted
-    const found = store.getById("default:bash:test");
+    const found = store.getById("default:bash:test-remove");
     expect(found).not.toBeNull();
     expect(found!.deleted).toBe(true);
   });
@@ -303,24 +322,24 @@ describe("remove()", () => {
 describe("reset()", () => {
   test("clears userModified and deleted, restores risk", () => {
     store.upsertDefault({
-      id: "default:bash:test",
+      id: "default:bash:test-reset",
       tool: "bash",
-      pattern: "test",
+      pattern: "test-reset",
       risk: "low",
       description: "Default rule",
     });
 
     // Modify and delete
-    store.update("default:bash:test", { risk: "high" });
-    store.remove("default:bash:test");
+    store.update("default:bash:test-reset", { risk: "high" });
+    store.remove("default:bash:test-reset");
 
-    const beforeReset = store.getById("default:bash:test")!;
+    const beforeReset = store.getById("default:bash:test-reset")!;
     expect(beforeReset.userModified).toBe(true);
     expect(beforeReset.deleted).toBe(true);
     expect(beforeReset.risk).toBe("high");
 
     // Reset
-    const resetRule = store.reset("default:bash:test", "low");
+    const resetRule = store.reset("default:bash:test-reset", "low");
     expect(resetRule.userModified).toBe(false);
     expect(resetRule.deleted).toBe(false);
     expect(resetRule.risk).toBe("low");
@@ -354,14 +373,14 @@ describe("reset()", () => {
 describe("upsertDefault()", () => {
   test("inserts a new default rule", () => {
     store.upsertDefault({
-      id: "default:bash:test",
+      id: "default:bash:test-upsert",
       tool: "bash",
-      pattern: "test",
+      pattern: "test-upsert",
       risk: "low",
       description: "Default rule",
     });
 
-    const rule = store.getById("default:bash:test");
+    const rule = store.getById("default:bash:test-upsert");
     expect(rule).not.toBeNull();
     expect(rule!.origin).toBe("default");
     expect(rule!.userModified).toBe(false);
@@ -371,53 +390,53 @@ describe("upsertDefault()", () => {
 
   test("updates unmodified default rule on conflict", () => {
     store.upsertDefault({
-      id: "default:bash:test",
+      id: "default:bash:test-upsert-conflict",
       tool: "bash",
-      pattern: "test",
+      pattern: "test-upsert-conflict",
       risk: "low",
       description: "Original",
     });
 
     // Re-upsert with updated risk and description
     store.upsertDefault({
-      id: "default:bash:test",
+      id: "default:bash:test-upsert-conflict",
       tool: "bash",
-      pattern: "test",
+      pattern: "test-upsert-conflict",
       risk: "medium",
       description: "Updated",
     });
 
-    const rule = store.getById("default:bash:test")!;
+    const rule = store.getById("default:bash:test-upsert-conflict")!;
     expect(rule.risk).toBe("medium");
     expect(rule.description).toBe("Updated");
   });
 
   test("three-guard: does NOT overwrite user-modified rule", () => {
     store.upsertDefault({
-      id: "default:bash:test",
+      id: "default:bash:test-3g-modified",
       tool: "bash",
-      pattern: "test",
+      pattern: "test-3g-modified",
       risk: "low",
       description: "Original",
     });
 
     // User modifies the rule
-    store.update("default:bash:test", { risk: "high" });
+    store.update("default:bash:test-3g-modified", { risk: "high" });
 
-    const modified = store.getById("default:bash:test")!;
+    const modified = store.getById("default:bash:test-3g-modified")!;
     expect(modified.userModified).toBe(true);
     expect(modified.risk).toBe("high");
 
     // Re-upsert should NOT overwrite because userModified=true
     store.upsertDefault({
-      id: "default:bash:test",
+      id: "default:bash:test-3g-modified",
       tool: "bash",
-      pattern: "test",
+      pattern: "test-3g-modified",
       risk: "low",
       description: "Should not overwrite",
     });
 
-    const afterUpsert = store.getById("default:bash:test")!;
+    const afterUpsert = store.getById("default:bash:test-3g-modified")!;
     expect(afterUpsert.risk).toBe("high");
     expect(afterUpsert.description).toBe("Original");
     expect(afterUpsert.userModified).toBe(true);
@@ -425,29 +444,29 @@ describe("upsertDefault()", () => {
 
   test("three-guard: does NOT overwrite soft-deleted rule", () => {
     store.upsertDefault({
-      id: "default:bash:test",
+      id: "default:bash:test-3g-deleted",
       tool: "bash",
-      pattern: "test",
+      pattern: "test-3g-deleted",
       risk: "low",
       description: "Original",
     });
 
     // Soft-delete the rule
-    store.remove("default:bash:test");
+    store.remove("default:bash:test-3g-deleted");
 
-    const deleted = store.getById("default:bash:test")!;
+    const deleted = store.getById("default:bash:test-3g-deleted")!;
     expect(deleted.deleted).toBe(true);
 
     // Re-upsert should NOT overwrite because deleted=true
     store.upsertDefault({
-      id: "default:bash:test",
+      id: "default:bash:test-3g-deleted",
       tool: "bash",
-      pattern: "test",
+      pattern: "test-3g-deleted",
       risk: "medium",
       description: "Should not overwrite",
     });
 
-    const afterUpsert = store.getById("default:bash:test")!;
+    const afterUpsert = store.getById("default:bash:test-3g-deleted")!;
     expect(afterUpsert.risk).toBe("low");
     expect(afterUpsert.description).toBe("Original");
     expect(afterUpsert.deleted).toBe(true);
@@ -474,10 +493,11 @@ describe("upsertDefault()", () => {
 
     // The user-defined rule should remain unchanged
     const rules = store.list({ tool: "bash" });
-    expect(rules).toHaveLength(1);
-    expect(rules[0].origin).toBe("user_defined");
-    expect(rules[0].risk).toBe("high");
-    expect(rules[0].description).toBe("User created");
+    const customRule = rules.find((r) => r.pattern === "custom-pattern");
+    expect(customRule).toBeDefined();
+    expect(customRule!.origin).toBe("user_defined");
+    expect(customRule!.risk).toBe("high");
+    expect(customRule!.description).toBe("User created");
   });
 });
 
@@ -503,8 +523,10 @@ describe("listActive()", () => {
     store.remove("default:bash:danger");
 
     const active = store.listActive();
-    expect(active).toHaveLength(1);
-    expect(active[0].pattern).toBe("echo *");
+    // Seeded rules + 1 user rule, but NOT the soft-deleted danger rule
+    expect(active).toHaveLength(seededTotalCount + 1);
+    expect(active.find((r) => r.pattern === "echo *")).toBeDefined();
+    expect(active.find((r) => r.pattern === "danger")).toBeUndefined();
   });
 
   test("filters by tool", () => {
@@ -522,8 +544,8 @@ describe("listActive()", () => {
     });
 
     const bashRules = store.listActive("bash");
-    expect(bashRules).toHaveLength(1);
-    expect(bashRules[0].tool).toBe("bash");
+    expect(bashRules).toHaveLength(seededBashCount + 1);
+    expect(bashRules.every((r) => r.tool === "bash")).toBe(true);
 
     const fileRules = store.listActive("file_read");
     expect(fileRules).toHaveLength(1);
@@ -545,6 +567,6 @@ describe("listActive()", () => {
     });
 
     const allActive = store.listActive();
-    expect(allActive).toHaveLength(2);
+    expect(allActive).toHaveLength(seededTotalCount + 2);
   });
 });
