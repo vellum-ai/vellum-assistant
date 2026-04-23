@@ -17,6 +17,7 @@
         "@vellumai/ces-contracts": "file:../packages/ces-contracts",
         "@vellumai/credential-storage": "file:../packages/credential-storage",
         "@vellumai/egress-proxy": "file:../packages/egress-proxy",
+        "@vellumai/skill-host-contracts": "file:../packages/skill-host-contracts",
         "archiver": "7.0.1",
         "commander": "13.1.0",
         "croner": "10.0.1",
@@ -390,6 +391,8 @@
     "@vellumai/credential-storage": ["@vellumai/credential-storage@file:../packages/credential-storage", { "devDependencies": { "@types/bun": "^1.2.4", "typescript": "^5.7.3" } }],
 
     "@vellumai/egress-proxy": ["@vellumai/egress-proxy@file:../packages/egress-proxy", { "devDependencies": { "@types/bun": "^1.2.4", "typescript": "^5.7.3" } }],
+
+    "@vellumai/skill-host-contracts": ["@vellumai/skill-host-contracts@file:../packages/skill-host-contracts", { "devDependencies": { "@types/bun": "1.3.10", "typescript": "5.9.3" } }],
 
     "abort-controller": ["abort-controller@3.0.0", "", { "dependencies": { "event-target-shim": "^5.0.0" } }, "sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg=="],
 

@@ -1,1 +1,1 @@
-export {};
+export * from "./assistant-event.js";
