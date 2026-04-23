@@ -1481,11 +1481,24 @@ func parseSVGPath(_ d: String) -> CGPath {
         return CGFloat(Double(numStr) ?? 0)
     }
 
+    var lastCmd: Character = " "
+
     while i < chars.count {
         skipWhitespaceAndCommas()
         if i >= chars.count { break }
-        let cmd = chars[i]
-        if cmd.isLetter { i += 1 }
+
+        // Determine the command: explicit letter or implicit repetition
+        var cmd: Character
+        if chars[i].isLetter {
+            cmd = chars[i]; i += 1
+        } else {
+            // Implicit repetition: reuse last command (M promotes to L per SVG spec)
+            cmd = lastCmd
+            if cmd == "M" { cmd = "L" }
+            if cmd == "m" { cmd = "l" }
+        }
+        lastCmd = cmd
+
         switch cmd {
         case "M":
             let x = parseNumber(); let y = parseNumber()
@@ -1503,11 +1516,50 @@ func parseSVGPath(_ d: String) -> CGPath {
             let dx = parseNumber(); let dy = parseNumber()
             currentX += dx; currentY += dy
             path.addLine(to: CGPoint(x: currentX, y: currentY))
+        case "H":
+            currentX = parseNumber()
+            path.addLine(to: CGPoint(x: currentX, y: currentY))
+        case "h":
+            currentX += parseNumber()
+            path.addLine(to: CGPoint(x: currentX, y: currentY))
+        case "V":
+            currentY = parseNumber()
+            path.addLine(to: CGPoint(x: currentX, y: currentY))
+        case "v":
+            currentY += parseNumber()
+            path.addLine(to: CGPoint(x: currentX, y: currentY))
+        case "C":
+            let x1 = parseNumber(); let y1 = parseNumber()
+            let x2 = parseNumber(); let y2 = parseNumber()
+            let x = parseNumber(); let y = parseNumber()
+            path.addCurve(to: CGPoint(x: x, y: y),
+                          control1: CGPoint(x: x1, y: y1),
+                          control2: CGPoint(x: x2, y: y2))
+            currentX = x; currentY = y
+        case "c":
+            let dx1 = parseNumber(); let dy1 = parseNumber()
+            let dx2 = parseNumber(); let dy2 = parseNumber()
+            let dx = parseNumber(); let dy = parseNumber()
+            path.addCurve(to: CGPoint(x: currentX + dx, y: currentY + dy),
+                          control1: CGPoint(x: currentX + dx1, y: currentY + dy1),
+                          control2: CGPoint(x: currentX + dx2, y: currentY + dy2))
+            currentX += dx; currentY += dy
+        case "Q":
+            let x1 = parseNumber(); let y1 = parseNumber()
+            let x = parseNumber(); let y = parseNumber()
+            path.addQuadCurve(to: CGPoint(x: x, y: y),
+                              control: CGPoint(x: x1, y: y1))
+            currentX = x; currentY = y
+        case "q":
+            let dx1 = parseNumber(); let dy1 = parseNumber()
+            let dx = parseNumber(); let dy = parseNumber()
+            path.addQuadCurve(to: CGPoint(x: currentX + dx, y: currentY + dy),
+                              control: CGPoint(x: currentX + dx1, y: currentY + dy1))
+            currentX += dx; currentY += dy
         case "Z", "z":
             path.closeSubpath()
         default:
-            // Skip unknown commands by advancing past their numeric arguments
-            // to avoid an infinite loop on unsupported SVG path commands (C, H, V, etc.)
+            // Skip unrecognized commands by advancing past their arguments
             while i < chars.count && !chars[i].isLetter { i += 1 }
         }
     }
