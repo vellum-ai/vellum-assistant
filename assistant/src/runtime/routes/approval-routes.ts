@@ -19,7 +19,9 @@ import {
   isConversationHostAccessEnablePrompt,
   isPermissionControlsV2Enabled,
 } from "../../permissions/v2-consent-policy.js";
+import { redactSecrets } from "../../security/secret-scanner.js";
 import { getTool } from "../../tools/registry.js";
+import { summarizeToolInput } from "../../tools/tool-input-summary.js";
 import { getLogger } from "../../util/logger.js";
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { AuthContext } from "../auth/types.js";
@@ -213,6 +215,14 @@ export async function handleConfirm(
 
   const approved = effectiveDecision === "allow";
   const toolName = interaction.confirmationDetails?.toolName ?? "unknown tool";
+  const commandPreviewRaw = interaction.confirmationDetails?.input
+    ? redactSecrets(
+        summarizeToolInput(
+          toolName,
+          interaction.confirmationDetails.input as Record<string, unknown>,
+        ),
+      ) || undefined
+    : undefined;
   void emitFeedEvent({
     source: "assistant",
     title: `${approved ? "Approved" : "Denied"} use of ${toolName}.`,
@@ -220,6 +230,16 @@ export async function handleConfirm(
     dedupKey: `tool-approval:${requestId}`,
     urgency: approved ? undefined : "medium",
     conversationId: interaction.conversationId,
+    detailPanel: {
+      kind: "permissionChat",
+      data: {
+        toolName,
+        commandPreview: commandPreviewRaw || undefined,
+        riskLevel: interaction.confirmationDetails?.riskLevel,
+        requestId,
+        decision: effectiveDecision,
+      },
+    },
   }).catch((err) => {
     log.warn(
       { err, requestId },

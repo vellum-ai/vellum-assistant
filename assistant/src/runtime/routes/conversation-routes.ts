@@ -1016,6 +1016,15 @@ function makeHubPublisher(
         : `Requesting approval to use ${msg.toolName}.`;
       const dedupKey = `tool-approval:${msg.requestId}`;
 
+      const permissionChatData: Record<string, unknown> = {
+        toolName: msg.toolName,
+        commandPreview: commandPreview ?? undefined,
+        riskLevel: msg.riskLevel,
+        requestId: msg.requestId,
+        userMessage: "",
+        assistantResponse: "",
+      };
+
       // Emit immediately with the technical preview.
       void emitFeedEvent({
         source: "assistant",
@@ -1024,6 +1033,10 @@ function makeHubPublisher(
         dedupKey,
         urgency: msg.riskLevel === "high" ? "high" : "medium",
         conversationId,
+        detailPanel: {
+          kind: "permissionChat",
+          data: permissionChatData,
+        },
       }).catch((err) => {
         log.warn(
           { err, requestId: msg.requestId },
@@ -1044,6 +1057,10 @@ function makeHubPublisher(
                 dedupKey,
                 urgency: msg.riskLevel === "high" ? "high" : "medium",
                 conversationId,
+                detailPanel: {
+                  kind: "permissionChat",
+                  data: permissionChatData,
+                },
               });
             }
           })
