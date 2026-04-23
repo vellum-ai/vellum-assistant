@@ -25,6 +25,8 @@
 !skills/meet-join/routes/**
 !skills/meet-join/shared/
 !skills/meet-join/shared/**
+!skills/meet-join/scripts/
+!skills/meet-join/scripts/**
 
 # Exclude local dependencies and build outputs from included directories.
 assistant/node_modules/

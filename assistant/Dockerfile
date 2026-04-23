@@ -20,6 +20,7 @@ ENV PATH="/root/.bun/bin:${PATH}"
 COPY packages/ces-contracts ./packages/ces-contracts
 COPY packages/credential-storage ./packages/credential-storage
 COPY packages/egress-proxy ./packages/egress-proxy
+COPY packages/skill-host-contracts ./packages/skill-host-contracts
 # Install assistant dependencies first for cache reuse
 COPY assistant/package.json assistant/bun.lock ./assistant/
 RUN cd /app/assistant && bun install --frozen-lockfile
@@ -35,6 +36,18 @@ RUN set -eu; for pkg in /app/skills/*/package.json; do \
       echo "Installing dependencies for $dir"; \
       (cd "$dir" && (bun install --frozen-lockfile 2>/dev/null || bun install)); \
     done
+
+# Copy assistant source so emit-manifest can resolve the skill's remaining
+# `../../assistant/src/...` imports while walking the register() module
+# graph. Those imports disappear when skill-isolation Phase 1 completes
+# (plan PR 18); the collector host short-circuits before any runtime path
+# touches them, so the emitted manifest is correct in the meantime.
+COPY assistant ./assistant
+
+# Emit the meet-join manifest consumed by the daemon-side loader to
+# register proxy tools/routes without importing the skill in-process.
+RUN bun run /app/skills/meet-join/scripts/emit-manifest.ts \
+      --output /app/skills/meet-join/manifest.json
 
 # Final stage
 FROM debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13fcd800a78ef7c7a AS runner
@@ -130,12 +143,9 @@ EXPOSE 3001
 ENV RUNTIME_HTTP_PORT=3001
 ENV IS_CONTAINERIZED=true
 
-# Copy installed deps + shared packages + bundled skills from builder.
-# Skills stay in the builder copy because they require per-skill `bun install` runs.
+# Copy installed deps, shared packages, bundled skills, assistant source,
+# and the generated meet-join manifest from the builder stage.
 COPY --from=builder /app /app
-
-# Copy source separately to avoid invalidating builder layer.
-COPY assistant ./
 
 RUN chmod +x /app/assistant/docker-entrypoint.sh
 
