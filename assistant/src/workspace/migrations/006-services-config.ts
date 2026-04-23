@@ -1,13 +1,22 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { providerForImageModelPrefix } from "../../media/types.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   getProviderKeyAsync,
   getSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import type { WorkspaceMigration } from "./types.js";
+
+// Inlined per workspace-migration self-containment rule (see migrations
+// AGENTS.md). Mirrors the runtime prefix logic in `media/types.ts` and
+// `media/image-service.ts`; kept strict (`gpt-`/`dall-e-`) to match.
+function providerForImageModelPrefix(model: string): "gemini" | "openai" {
+  if (model.startsWith("gpt-") || model.startsWith("dall-e-")) {
+    return "openai";
+  }
+  return "gemini";
+}
 
 export const servicesConfigMigration: WorkspaceMigration = {
   id: "006-services-config",
