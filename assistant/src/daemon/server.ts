@@ -28,6 +28,7 @@ import type { FilingService } from "../filing/filing-service.js";
 import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { CliIpcServer } from "../ipc/cli-server.js";
 import { registerBrowserIpcContextResolver } from "../ipc/routes/browser-context.js";
+import { SkillIpcServer } from "../ipc/skill-server.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import * as attachmentsStore from "../memory/attachments-store.js";
 import {
@@ -309,6 +310,7 @@ export class DaemonServer {
   private configWatcher = new ConfigWatcher();
   private appSourceWatcher = new AppSourceWatcher();
   private cliIpc = new CliIpcServer();
+  private skillIpc = new SkillIpcServer();
 
   // CES (Credential Execution Service) — process-level singleton.
   // Lifecycle is managed by startCesProcess() in lifecycle.ts; the server
@@ -895,6 +897,12 @@ export class DaemonServer {
     // invoke daemon-side operations that require in-process state.
     this.cliIpc.start();
 
+    // Start the skill IPC server. First-party skill processes connect to this
+    // socket to access host capabilities (host.log, host.config.*,
+    // host.events.*, host.registries.*). Route registry is populated by
+    // subsequent PRs in the skill-isolation plan.
+    this.skillIpc.start();
+
     // Wire the launchConversation helper to daemon-side state so
     // handleSurfaceAction can spawn conversations through it.
     registerLaunchConversationDeps({
@@ -949,6 +957,7 @@ export class DaemonServer {
     this.configWatcher.stop();
     this.appSourceWatcher.stop();
     this.cliIpc.stop();
+    this.skillIpc.stop();
     if (this.unsubscribeContactChange) {
       this.unsubscribeContactChange();
       this.unsubscribeContactChange = null;
