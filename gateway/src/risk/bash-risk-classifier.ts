@@ -28,6 +28,7 @@ import {
   type UserRule,
 } from "./risk-types.js";
 import { cachedParse } from "./shell-identity.js";
+import { getTrustRuleV3Cache } from "./trust-rule-v3-cache.js";
 
 // ── Risk ordering helpers ────────────────────────────────────────────────────
 
@@ -322,6 +323,41 @@ export function classifySegment(
   const { spec: resolvedSpec, remainingArgs: _remainingArgs } =
     resolveSubcommand(spec, segment.args);
 
+  // 4b. Check TrustRuleV3Cache for base risk overrides.
+  // The cache overrides ONLY baseRisk — structural data (argRules, subcommands,
+  // isWrapper, sandboxAutoApprove, argSchema) still comes from the registry.
+  let effectiveBaseRisk: Risk = resolvedSpec.baseRisk;
+  let effectiveMatchType: RiskAssessment["matchType"] = "registry";
+
+  try {
+    // Build the subcommand pattern (e.g., "git push") to look up in cache.
+    // Determine the subcommand name the same way resolveSubcommand does.
+    let subcommand: string | undefined;
+    if (spec.subcommands && segment.args.length > 0) {
+      const valueFlagsList = spec.argSchema?.valueFlags;
+      const valueFlags = valueFlagsList ? new Set(valueFlagsList) : undefined;
+      subcommand = firstPositionalArg(segment.args, valueFlags);
+      if (subcommand && !spec.subcommands[subcommand]) {
+        subcommand = undefined;
+      }
+    }
+    const subcommandPattern = subcommand
+      ? `${programName} ${subcommand}`
+      : programName;
+    const cachedRule = getTrustRuleV3Cache().findBaseRisk(
+      "bash",
+      subcommandPattern,
+    );
+    if (cachedRule) {
+      effectiveBaseRisk = cachedRule.risk;
+      if (cachedRule.userModified || cachedRule.origin === "user_defined") {
+        effectiveMatchType = "user_rule";
+      }
+    }
+  } catch {
+    // Cache not initialized (e.g., in tests) — use registry baseRisk
+  }
+
   // 5. Evaluate arg rules
   //
   // Arg rules can both escalate AND de-escalate from baseRisk.
@@ -334,7 +370,7 @@ export function classifySegment(
   //
   // Escalation always applies — any matched rule that's higher than baseRisk
   // raises the risk regardless of unmatched args.
-  let risk: Risk = resolvedSpec.baseRisk;
+  let risk: Risk = effectiveBaseRisk;
   let reason = resolvedSpec.reason || `${segment.program} (default)`;
 
   const argRules = resolvedSpec.argRules;
@@ -541,7 +577,7 @@ export function classifySegment(
   // Example: `curl http://localhost:$PORT` — arg rule de-escalates to low,
   // but baseRisk=medium is the floor, so escalateOne(medium) → high.
   if (segment.args.some((a) => a.includes("$"))) {
-    const escalationBase = maxRisk(risk, resolvedSpec.baseRisk);
+    const escalationBase = maxRisk(risk, effectiveBaseRisk);
     const escalated = escalateOne(escalationBase);
     if (riskOrd(escalated) > riskOrd(risk)) {
       risk = escalated;
@@ -570,7 +606,7 @@ export function classifySegment(
     }
   }
 
-  return { risk, reason, matchType: "registry" };
+  return { risk, reason, matchType: effectiveMatchType };
 }
 
 // ── Scope option generation ──────────────────────────────────────────────────
