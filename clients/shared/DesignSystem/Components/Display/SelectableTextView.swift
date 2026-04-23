@@ -287,25 +287,25 @@ public struct VSelectableTextView: NSViewRepresentable {
         return size
     }
 
-    /// Teardown path invoked by SwiftUI immediately before the `NSTextView`
-    /// is released. Intentionally does NOT mutate `textView.textStorage` —
-    /// any edit here (e.g. `setAttributedString(NSAttributedString())`)
-    /// posts an `NSTextStorage` edit notification which AppKit processes
-    /// synchronously on the main thread: layout invalidation →
-    /// `setSelectedRanges:affinity:stillSelecting:` → an accessibility
-    /// post that queries `NSTextView.description` via
-    /// `__CFStringAppendFormatCore`. Per view the cost is modest, but the
-    /// chat message list tears every visible cell down in one pass on
-    /// conversation switch (the `ScrollView` carries `.id(conversationId)`),
-    /// so the cascade accumulates to multi-second main-thread hangs.
-    /// See [`dismantleNSView(_:coordinator:)`](https://developer.apple.com/documentation/swiftui/nsviewrepresentable/dismantlensview(_:coordinator:))
-    /// — Apple documents this hook as for clean-up such as removing
-    /// observers, not for mutating the view that is about to be released.
-    /// ARC tears down the full TextKit stack (`NSTextView` strong-refs
-    /// `NSTextContainer`; `NSTextStorage` owns its layout managers) when
-    /// the view is released, so no explicit storage clear is needed. The
-    /// coordinator's retained attributed strings are released via
-    /// `coordinator.reset()` below.
+    /// Tears down coordinator state when SwiftUI releases the NSTextView.
+    ///
+    /// Must not mutate `textView.textStorage`. Any edit on the text storage
+    /// (e.g. `setAttributedString(_:)`) posts an `NSTextStorage` notification
+    /// that AppKit processes synchronously: layout invalidation →
+    /// `setSelectedRanges:affinity:stillSelecting:` → an accessibility post
+    /// that formats `NSTextView.description` via `__CFStringAppendFormatCore`.
+    /// Batched teardown (e.g. a full chat message list replaced on
+    /// conversation switch) multiplies the per-view cost into a main-thread
+    /// hang.
+    ///
+    /// The TextKit stack does not need an explicit reset: ARC releases
+    /// `NSTextView` → `NSTextContainer` → `NSLayoutManager` → `NSTextStorage`
+    /// when this returns. `coordinator.reset()` releases the coordinator's
+    /// retained attributed strings and cancels any queued async apply.
+    ///
+    /// Reference: [`NSViewRepresentable.dismantleNSView`](https://developer.apple.com/documentation/swiftui/nsviewrepresentable/dismantlensview(_:coordinator:))
+    /// — Apple scopes this hook to observer removal and external-state
+    /// cleanup, not view-content mutation.
     public static func dismantleNSView(_ textView: NSTextView, coordinator: Coordinator) {
         coordinator.reset()
     }
