@@ -4,8 +4,10 @@ import "./test-preload.js";
 import {
   initSigningKey,
   loadOrCreateSigningKey,
+  mintToken,
   verifyToken,
 } from "../auth/token-service.js";
+import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 import { createCloudOAuthTokenHandler } from "../http/routes/cloud-oauth-token.js";
 
 beforeAll(() => {
@@ -13,14 +15,22 @@ beforeAll(() => {
 });
 
 const handler = createCloudOAuthTokenHandler();
+const ASSISTANT_ID = "asst-123";
+const ACTOR_PRINCIPAL_ID = "user-456";
 
 /** Build a POST request to the cloud OAuth token endpoint. */
-function makeRequest(body: unknown): Request {
+function makeRequest(body: unknown, authorization?: string): Request {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (authorization) {
+    headers.authorization = authorization;
+  }
   return new Request(
     "http://gateway.test/v1/internal/oauth/chrome-extension/token",
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: typeof body === "string" ? body : JSON.stringify(body),
     },
   );
@@ -28,8 +38,18 @@ function makeRequest(body: unknown): Request {
 
 describe("POST /v1/internal/oauth/chrome-extension/token", () => {
   test("happy path: valid body returns 200 with token, expiresIn, and guardianId", async () => {
+    const actorToken = mintToken({
+      aud: "vellum-gateway",
+      sub: `actor:${ASSISTANT_ID}:${ACTOR_PRINCIPAL_ID}`,
+      scope_profile: "actor_client_v1",
+      policy_epoch: CURRENT_POLICY_EPOCH,
+      ttlSeconds: 60,
+    });
     const res = await handler.handleMintToken(
-      makeRequest({ assistantId: "asst-123", actorPrincipalId: "user-456" }),
+      makeRequest(
+        { assistantId: ASSISTANT_ID, actorPrincipalId: ACTOR_PRINCIPAL_ID },
+        `Bearer ${actorToken}`,
+      ),
     );
 
     expect(res.status).toBe(200);
@@ -42,13 +62,15 @@ describe("POST /v1/internal/oauth/chrome-extension/token", () => {
     expect(typeof body.token).toBe("string");
     expect(body.token.split(".").length).toBe(3); // JWT format
     expect(body.expiresIn).toBe(3600);
-    expect(body.guardianId).toBe("user-456");
+    expect(body.guardianId).toBe(ACTOR_PRINCIPAL_ID);
 
     // Verify the minted token has the correct claims
     const result = verifyToken(body.token, "vellum-gateway");
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.claims.sub).toBe("actor:asst-123:user-456");
+      expect(result.claims.sub).toBe(
+        `actor:${ASSISTANT_ID}:${ACTOR_PRINCIPAL_ID}`,
+      );
       expect(result.claims.aud).toBe("vellum-gateway");
       expect(result.claims.scope_profile).toBe("actor_client_v1");
     }
@@ -65,7 +87,7 @@ describe("POST /v1/internal/oauth/chrome-extension/token", () => {
 
   test("missing actorPrincipalId returns 400", async () => {
     const res = await handler.handleMintToken(
-      makeRequest({ assistantId: "asst-123" }),
+      makeRequest({ assistantId: ASSISTANT_ID }),
     );
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
@@ -83,7 +105,7 @@ describe("POST /v1/internal/oauth/chrome-extension/token", () => {
 
   test("empty actorPrincipalId string returns 400", async () => {
     const res = await handler.handleMintToken(
-      makeRequest({ assistantId: "asst-123", actorPrincipalId: "" }),
+      makeRequest({ assistantId: ASSISTANT_ID, actorPrincipalId: "" }),
     );
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
@@ -92,7 +114,7 @@ describe("POST /v1/internal/oauth/chrome-extension/token", () => {
 
   test("whitespace-only strings return 400", async () => {
     const res = await handler.handleMintToken(
-      makeRequest({ assistantId: "   ", actorPrincipalId: "user-456" }),
+      makeRequest({ assistantId: "   ", actorPrincipalId: ACTOR_PRINCIPAL_ID }),
     );
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
@@ -117,7 +139,7 @@ describe("POST /v1/internal/oauth/chrome-extension/token", () => {
 
   test("non-string assistantId returns 400", async () => {
     const res = await handler.handleMintToken(
-      makeRequest({ assistantId: 123, actorPrincipalId: "user-456" }),
+      makeRequest({ assistantId: 123, actorPrincipalId: ACTOR_PRINCIPAL_ID }),
     );
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
@@ -126,7 +148,10 @@ describe("POST /v1/internal/oauth/chrome-extension/token", () => {
 
   test("colon in assistantId returns 400", async () => {
     const res = await handler.handleMintToken(
-      makeRequest({ assistantId: "asst:123", actorPrincipalId: "user-456" }),
+      makeRequest({
+        assistantId: "asst:123",
+        actorPrincipalId: ACTOR_PRINCIPAL_ID,
+      }),
     );
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
@@ -135,14 +160,75 @@ describe("POST /v1/internal/oauth/chrome-extension/token", () => {
 
   test("colon in actorPrincipalId returns 400", async () => {
     const res = await handler.handleMintToken(
-      makeRequest({ assistantId: "asst-123", actorPrincipalId: "user:456" }),
+      makeRequest({ assistantId: ASSISTANT_ID, actorPrincipalId: "user:456" }),
     );
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain("colon");
   });
 
-  test("request without authorization header succeeds for valid payload", async () => {
+  test("request with invalid token returns 403", async () => {
+    const res = await handler.handleMintToken(
+      makeRequest(
+        { assistantId: ASSISTANT_ID, actorPrincipalId: ACTOR_PRINCIPAL_ID },
+        "Bearer not-a-jwt",
+      ),
+    );
+    expect(res.status).toBe(403);
+  });
+
+  test("request with mismatched actor token assistant returns 403", async () => {
+    const actorToken = mintToken({
+      aud: "vellum-gateway",
+      sub: `actor:other-assistant:${ACTOR_PRINCIPAL_ID}`,
+      scope_profile: "actor_client_v1",
+      policy_epoch: CURRENT_POLICY_EPOCH,
+      ttlSeconds: 60,
+    });
+    const res = await handler.handleMintToken(
+      makeRequest(
+        { assistantId: ASSISTANT_ID, actorPrincipalId: ACTOR_PRINCIPAL_ID },
+        `Bearer ${actorToken}`,
+      ),
+    );
+    expect(res.status).toBe(403);
+  });
+
+  test("request with mismatched actor token principal returns 403", async () => {
+    const actorToken = mintToken({
+      aud: "vellum-gateway",
+      sub: `actor:${ASSISTANT_ID}:other-user`,
+      scope_profile: "actor_client_v1",
+      policy_epoch: CURRENT_POLICY_EPOCH,
+      ttlSeconds: 60,
+    });
+    const res = await handler.handleMintToken(
+      makeRequest(
+        { assistantId: ASSISTANT_ID, actorPrincipalId: ACTOR_PRINCIPAL_ID },
+        `Bearer ${actorToken}`,
+      ),
+    );
+    expect(res.status).toBe(403);
+  });
+
+  test("request with non-actor service token returns 403", async () => {
+    const serviceToken = mintToken({
+      aud: "vellum-gateway",
+      sub: "svc:gateway:self",
+      scope_profile: "gateway_service_v1",
+      policy_epoch: CURRENT_POLICY_EPOCH,
+      ttlSeconds: 60,
+    });
+    const res = await handler.handleMintToken(
+      makeRequest(
+        { assistantId: ASSISTANT_ID, actorPrincipalId: ACTOR_PRINCIPAL_ID },
+        `Bearer ${serviceToken}`,
+      ),
+    );
+    expect(res.status).toBe(403);
+  });
+
+  test("request without authorization header succeeds for valid payload when auth is not enforced", async () => {
     const res = await handler.handleMintToken(
       new Request(
         "http://gateway.test/v1/internal/oauth/chrome-extension/token",
@@ -150,12 +236,27 @@ describe("POST /v1/internal/oauth/chrome-extension/token", () => {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            assistantId: "asst-123",
-            actorPrincipalId: "user-456",
+            assistantId: ASSISTANT_ID,
+            actorPrincipalId: ACTOR_PRINCIPAL_ID,
           }),
         },
       ),
     );
     expect(res.status).toBe(200);
+  });
+
+  test("request without authorization header returns 403 when auth is enforced", async () => {
+    process.env.CHROME_OAUTH_TOKEN_REQUIRE_AUTH = "true";
+    try {
+      const res = await handler.handleMintToken(
+        makeRequest({
+          assistantId: ASSISTANT_ID,
+          actorPrincipalId: ACTOR_PRINCIPAL_ID,
+        }),
+      );
+      expect(res.status).toBe(403);
+    } finally {
+      delete process.env.CHROME_OAUTH_TOKEN_REQUIRE_AUTH;
+    }
   });
 });
