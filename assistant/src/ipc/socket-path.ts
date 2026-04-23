@@ -2,18 +2,23 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { getProtectedDir } from "../util/platform.js";
+import { getWorkspaceDir } from "../util/platform.js";
 
 const DARWIN_UNIX_SOCKET_MAX_PATH_BYTES = 103;
 const DEFAULT_UNIX_SOCKET_MAX_PATH_BYTES = 107;
 const IPC_TMP_DIR_NAME = "vellum-ipc";
+const IPC_BASE_DATA_DIR_NAME = "ipc";
 
-export type IpcSocketPathSource = "protected" | "tmp-hash" | "tmp-short-hash";
+export type IpcSocketPathSource =
+  | "workspace"
+  | "base-data-dir"
+  | "tmp-hash"
+  | "tmp-short-hash";
 
 export interface IpcSocketPathResolution {
   path: string;
   source: IpcSocketPathSource;
-  preferredPath: string;
+  workspacePath: string;
   maxPathBytes: number;
 }
 
@@ -27,12 +32,18 @@ function isPathWithinSocketLimit(path: string, maxPathBytes: number): boolean {
   return Buffer.byteLength(path, "utf8") <= maxPathBytes;
 }
 
+function buildBaseDataDirCandidate(socketFileName: string): string | null {
+  const baseDataDir = process.env.BASE_DATA_DIR?.trim();
+  if (!baseDataDir) return null;
+  return join(baseDataDir, IPC_BASE_DATA_DIR_NAME, socketFileName);
+}
+
 function buildTmpCandidate(
-  preferredPath: string,
+  workspacePath: string,
   socketFileName: string,
 ): { hashedPath: string; shortPath: string } {
   const hash = createHash("sha256")
-    .update(preferredPath)
+    .update(workspacePath)
     .digest("hex")
     .slice(0, 12);
   return {
@@ -43,26 +54,39 @@ function buildTmpCandidate(
 
 export function resolveIpcSocketPath(
   socketFileName: string,
-  baseDir: string = getProtectedDir(),
+  workspaceDir: string = getWorkspaceDir(),
 ): IpcSocketPathResolution {
   const maxPathBytes = getUnixSocketMaxPathBytes();
-  const preferredPath = join(baseDir, socketFileName);
+  const workspacePath = join(workspaceDir, socketFileName);
 
-  if (isPathWithinSocketLimit(preferredPath, maxPathBytes)) {
+  if (isPathWithinSocketLimit(workspacePath, maxPathBytes)) {
     return {
-      path: preferredPath,
-      source: "protected",
-      preferredPath,
+      path: workspacePath,
+      source: "workspace",
+      workspacePath,
       maxPathBytes,
     };
   }
 
-  const tmpCandidate = buildTmpCandidate(preferredPath, socketFileName);
+  const baseDataDirCandidate = buildBaseDataDirCandidate(socketFileName);
+  if (
+    baseDataDirCandidate &&
+    isPathWithinSocketLimit(baseDataDirCandidate, maxPathBytes)
+  ) {
+    return {
+      path: baseDataDirCandidate,
+      source: "base-data-dir",
+      workspacePath,
+      maxPathBytes,
+    };
+  }
+
+  const tmpCandidate = buildTmpCandidate(workspacePath, socketFileName);
   if (isPathWithinSocketLimit(tmpCandidate.hashedPath, maxPathBytes)) {
     return {
       path: tmpCandidate.hashedPath,
       source: "tmp-hash",
-      preferredPath,
+      workspacePath,
       maxPathBytes,
     };
   }
@@ -70,7 +94,7 @@ export function resolveIpcSocketPath(
   return {
     path: tmpCandidate.shortPath,
     source: "tmp-short-hash",
-    preferredPath,
+    workspacePath,
     maxPathBytes,
   };
 }

@@ -135,6 +135,7 @@ import {
   getMergedFeatureFlags,
 } from "./ipc/feature-flag-handlers.js";
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
+import { trustRuleRoutes } from "./ipc/trust-rule-handlers.js";
 import { AvatarChannelSyncer } from "./avatar-sync/avatar-channel-syncer.js";
 import { AvatarSyncWatcher } from "./avatar-sync/avatar-sync-watcher.js";
 import { SlackAvatarSyncer } from "./avatar-sync/slack-avatar-syncer.js";
@@ -1902,6 +1903,7 @@ async function main() {
     ...featureFlagRoutes,
     ...contactRoutes,
     ...thresholdRoutes,
+    ...trustRuleRoutes,
   ]);
   ipcServer.start();
 

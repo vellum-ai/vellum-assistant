@@ -78,7 +78,7 @@ struct NameExchangeView: View {
             VStack(spacing: VSpacing.lg) {
                 // "I'll call you..." field
                 VTextField(
-                    "I'll call you...",
+                    "What's your name?",
                     placeholder: "Your name",
                     text: $userName
                 )
@@ -86,7 +86,7 @@ struct NameExchangeView: View {
                 // "Call me..." field + suggestion pills
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     VTextField(
-                        "Call me...",
+                        "What should I go by?",
                         placeholder: "Assistant name",
                         text: $assistantName
                     )
