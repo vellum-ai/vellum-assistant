@@ -42,20 +42,14 @@ struct HomePageView<DetailPanel: View>: View {
     /// Fired when the user taps one of the suggestion pills. The parent
     /// opens a fresh conversation seeded with the suggestion label.
     let onSuggestionSelected: (HomeSuggestion) -> Void
-    /// Fired when the user taps a `.thread` (scheduled) feed item — the
-    /// parent presents the scheduled detail panel instead of opening a
-    /// conversation. All other item types keep the conversation flow.
+    /// Fired when the user taps a feed item that resolves to a detail
+    /// panel via ``HomeDetailPanelKind.resolve(for:)``. The parent
+    /// presents the appropriate panel instead of opening a conversation.
     /// Declared as `var` with a no-op default so the synthesized memberwise
     /// initializer still accepts this argument (Swift bakes `let` defaults
     /// in and omits them from the memberwise init, which breaks the
     /// convenience-init forwarding path and any direct memberwise callers).
-    var onScheduledItemSelected: (FeedItem) -> Void = { _ in }
-    /// Fired when the user taps a `.nudge` feed item — the parent
-    /// presents the nudge detail panel (N cards with optional actions)
-    /// instead of opening a conversation via triggerAction. Same var-
-    /// with-default pattern as `onScheduledItemSelected` so the
-    /// memberwise init stays usable from tests and non-nudge callers.
-    var onNudgeSelected: (FeedItem) -> Void = { _ in }
+    var onDetailPanelSelected: (FeedItem) -> Void = { _ in }
     /// Drives the two-pane split. When false, the home content renders in
     /// its original single-column layout and the `detailPanel` slot is
     /// ignored.
@@ -348,9 +342,9 @@ struct HomePageView<DetailPanel: View>: View {
 
     // MARK: - Actions
 
-    /// Opens the feed item. Calendar-sourced `.thread` items are
-    /// scheduled jobs and route to the detail panel via
-    /// `onScheduledItemSelected`; every other item (including other
+    /// Opens the feed item. Items that resolve to a detail panel via
+    /// ``HomeDetailPanelKind.resolve(for:)`` route to
+    /// `onDetailPanelSelected`; every other item (including non-calendar
     /// `.thread` items such as rollup-producer general-purpose threads)
     /// keeps the existing "trigger the `open` action and navigate into
     /// the resulting conversation" flow. The daemon interprets any
@@ -358,19 +352,11 @@ struct HomePageView<DetailPanel: View>: View {
     /// conversation with the first available action's prompt (or the
     /// item summary if there are no actions).
     ///
-    /// Gating on `source == .calendar` (Codex P1 on PR #27475): `.thread`
-    /// is also used by non-scheduled rollups, so type alone isn't enough
-    /// to identify a scheduled job.
-    ///
     /// Exposed as `internal` (not `private`) so routing tests can drive it
     /// directly without needing to render the full view tree.
     func openItem(_ item: FeedItem) {
-        if item.type == .thread && item.source == .calendar {
-            onScheduledItemSelected(item)
-            return
-        }
-        if item.type == .nudge {
-            onNudgeSelected(item)
+        if HomeDetailPanelKind.resolve(for: item) != nil {
+            onDetailPanelSelected(item)
             return
         }
         if let conversationId = item.conversationId {
@@ -452,8 +438,7 @@ extension HomePageView where DetailPanel == EmptyView {
         onStartNewChat: @escaping () -> Void,
         onDismissSuggestions: @escaping () -> Void,
         onSuggestionSelected: @escaping (HomeSuggestion) -> Void,
-        onScheduledItemSelected: @escaping (FeedItem) -> Void = { _ in },
-        onNudgeSelected: @escaping (FeedItem) -> Void = { _ in }
+        onDetailPanelSelected: @escaping (FeedItem) -> Void = { _ in }
     ) {
         self.init(
             store: store,
@@ -463,8 +448,7 @@ extension HomePageView where DetailPanel == EmptyView {
             onStartNewChat: onStartNewChat,
             onDismissSuggestions: onDismissSuggestions,
             onSuggestionSelected: onSuggestionSelected,
-            onScheduledItemSelected: onScheduledItemSelected,
-            onNudgeSelected: onNudgeSelected,
+            onDetailPanelSelected: onDetailPanelSelected,
             isDetailPanelVisible: false,
             detailPanel: { EmptyView() }
         )

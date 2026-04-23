@@ -67,6 +67,20 @@ export interface FeedAction {
   prompt: string;
 }
 
+/** Which detail panel the macOS client should open for this feed item. */
+export type FeedItemDetailPanelKind =
+  | "emailDraft"
+  | "documentPreview"
+  | "permissionChat"
+  | "paymentAuth"
+  | "toolPermission"
+  | "updatesList";
+
+/** Server-driven detail panel descriptor attached to a feed item. */
+export interface FeedItemDetailPanel {
+  kind: FeedItemDetailPanelKind;
+}
+
 /**
  * A single item rendered in the Home feed.
  *
@@ -101,6 +115,8 @@ export interface FeedItem {
   urgency?: FeedItemUrgency;
   /** Optional conversation this feed item is associated with. */
   conversationId?: string;
+  /** Server-driven detail panel descriptor; when present, the client opens this panel kind. */
+  detailPanel?: FeedItemDetailPanel;
   /** Internal: who authored this item. */
   author: FeedItemAuthor;
   /** Internal: ISO-8601 writer-record time, used for ordering + TTL. */
@@ -177,6 +193,19 @@ const feedActionSchema = z.object({
   prompt: z.string(),
 });
 
+const feedItemDetailPanelKindSchema = z.enum([
+  "emailDraft",
+  "documentPreview",
+  "permissionChat",
+  "paymentAuth",
+  "toolPermission",
+  "updatesList",
+]);
+
+const feedItemDetailPanelSchema = z.object({
+  kind: feedItemDetailPanelKindSchema,
+});
+
 /**
  * Schema for a single `FeedItem`.
  *
@@ -205,6 +234,7 @@ export const feedItemSchema = z.object({
   actions: z.array(feedActionSchema).optional(),
   urgency: feedItemUrgencySchema.optional(),
   conversationId: z.string().optional(),
+  detailPanel: feedItemDetailPanelSchema.optional(),
   author: feedItemAuthorSchema,
   createdAt: z.string(),
 });
