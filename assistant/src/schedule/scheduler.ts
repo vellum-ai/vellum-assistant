@@ -3,6 +3,7 @@ import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { getConversation } from "../memory/conversation-crud.js";
 import { invalidateAssistantInferredItemsForConversation } from "../memory/task-memory-cleanup.js";
+import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { runSequencesOnce } from "../sequence/engine.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -221,6 +222,48 @@ async function runScheduleOnce(
           "Script schedule execution failed",
         );
         completeScheduleRun(runId, { status: "error", error: errorMsg });
+        if (isOneShot) failOneShot(job.id);
+      }
+      processed += 1;
+      continue;
+    }
+
+    // ── Wake mode (resume an existing conversation) ─────────────────
+    if (job.mode === "wake") {
+      const { wakeConversationId } = job;
+      if (!wakeConversationId) {
+        log.warn(
+          { jobId: job.id, name: job.name },
+          "Wake schedule missing wakeConversationId — completing as no-op",
+        );
+        if (isOneShot) completeOneShot(job.id);
+        processed += 1;
+        continue;
+      }
+
+      try {
+        log.info(
+          { jobId: job.id, name: job.name, wakeConversationId, isOneShot },
+          "Executing wake schedule",
+        );
+        await wakeAgentForOpportunity({
+          conversationId: wakeConversationId,
+          hint: job.message,
+          source: "defer",
+        });
+        if (isOneShot) completeOneShot(job.id);
+        if (!job.quiet) {
+          emitScheduleFeedEvent({
+            title: job.name,
+            summary: "Deferred wake fired.",
+            dedupKey: `schedule-wake:${job.id}`,
+          });
+        }
+      } catch (err) {
+        log.warn(
+          { err, jobId: job.id, name: job.name, wakeConversationId, isOneShot },
+          "Wake schedule execution failed",
+        );
         if (isOneShot) failOneShot(job.id);
       }
       processed += 1;
