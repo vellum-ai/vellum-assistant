@@ -712,6 +712,14 @@ export function serviceDockerRunArgs(opts: {
       if (opts.signingKey) {
         args.push("-e", `ACTOR_TOKEN_SIGNING_KEY=${opts.signingKey}`);
       }
+      if (opts.bootstrapSecret) {
+        // Mirror the secret into the assistant container so the runtime's
+        // guardian-bootstrap handler can validate the x-bootstrap-secret
+        // header forwarded by the gateway. Without this, the published
+        // runtime port would expose an unauthenticated token-minting
+        // endpoint reachable from the host bypassing the gateway's gate.
+        args.push("-e", `GUARDIAN_BOOTSTRAP_SECRET=${opts.bootstrapSecret}`);
+      }
       for (const envVar of [
         ...Object.values(PROVIDER_ENV_VAR_NAMES),
         "VELLUM_ENVIRONMENT",
