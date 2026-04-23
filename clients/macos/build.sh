@@ -520,9 +520,10 @@ build_binaries() {
         exit 1
     fi
 
-    # Post-build: copy assets that bun --compile doesn't embed
-    cp "$ASSISTANT_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" "$SCRIPT_DIR/daemon-bin/"
-    cp "$ASSISTANT_SRC_DIR/node_modules/tree-sitter-bash/tree-sitter-bash.wasm" "$SCRIPT_DIR/daemon-bin/"
+    # Post-build: copy WASM assets that bun --compile doesn't embed.
+    # tree-sitter is used by the gateway (risk classification), not the daemon.
+    cp "$GATEWAY_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" "$SCRIPT_DIR/gateway-bin/"
+    cp "$GATEWAY_SRC_DIR/node_modules/tree-sitter-bash/tree-sitter-bash.wasm" "$SCRIPT_DIR/gateway-bin/"
     rm -rf "$SCRIPT_DIR/daemon-bin/node_modules"
     rm -rf "$SCRIPT_DIR/daemon-bin/bundled-skills"
     cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" "$SCRIPT_DIR/daemon-bin/bundled-skills"
@@ -838,8 +839,6 @@ if [ "$DAEMON_BIN_NEEDS_BUILD" = true ]; then
     fi
     build_bun_binary "$ASSISTANT_SRC_DIR" "$ASSISTANT_SRC_DIR/src/daemon/main.ts" \
         "$SCRIPT_DIR/daemon-bin" "vellum-daemon" "${local_daemon_flags[@]}"
-    cp "$ASSISTANT_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" "$SCRIPT_DIR/daemon-bin/"
-    cp "$ASSISTANT_SRC_DIR/node_modules/tree-sitter-bash/tree-sitter-bash.wasm" "$SCRIPT_DIR/daemon-bin/"
     # Embedding runtime (onnxruntime-node + @huggingface/transformers) is no longer
     # shipped with the app. It's downloaded post-hatch by EmbeddingRuntimeManager.
     rm -rf "$SCRIPT_DIR/daemon-bin/node_modules"
@@ -964,6 +963,12 @@ if [ "$GATEWAY_BIN_NEEDS_BUILD" = true ]; then
     build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
         "$SCRIPT_DIR/gateway-bin" "vellum-gateway"
 fi
+# Always refresh WASM assets (not embedded by bun --compile).
+# These must be copied even when the gateway binary is reused from a previous build.
+if [ -d "$SCRIPT_DIR/gateway-bin" ] && [ -d "$GATEWAY_SRC_DIR/node_modules/web-tree-sitter" ]; then
+    cp "$GATEWAY_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" "$SCRIPT_DIR/gateway-bin/"
+    cp "$GATEWAY_SRC_DIR/node_modules/tree-sitter-bash/tree-sitter-bash.wasm" "$SCRIPT_DIR/gateway-bin/"
+fi
 
 # Also rebuild if gateway binary changed or newly added
 if [ -f "$SCRIPT_DIR/gateway-bin/vellum-gateway" ]; then
@@ -1047,10 +1052,6 @@ if [ "$NEEDS_REBUILD" = true ]; then
         echo "Bundling daemon binary..."
         cp "$DAEMON_BIN" "$MACOS_DIR/vellum-daemon"
         chmod +x "$MACOS_DIR/vellum-daemon"
-        # Bundle WASM assets into Resources (not embedded by bun --compile)
-        for wasm in "$SCRIPT_DIR/daemon-bin/"*.wasm; do
-            [ -f "$wasm" ] && cp "$wasm" "$RESOURCES_DIR/"
-        done
         # Embedding runtime is now downloaded post-hatch (no bundled node_modules)
         rm -rf "$MACOS_DIR/node_modules"
     else
@@ -1083,6 +1084,11 @@ if [ "$NEEDS_REBUILD" = true ]; then
         echo "Bundling gateway binary..."
         cp "$GATEWAY_BIN" "$MACOS_DIR/vellum-gateway"
         chmod +x "$MACOS_DIR/vellum-gateway"
+        # Bundle WASM assets into Resources (not embedded by bun --compile).
+        # tree-sitter is used by the gateway for risk classification.
+        for wasm in "$SCRIPT_DIR/gateway-bin/"*.wasm; do
+            [ -f "$wasm" ] && cp "$wasm" "$RESOURCES_DIR/"
+        done
     else
         echo "No gateway binary at $GATEWAY_BIN — skipping (dev mode)"
     fi

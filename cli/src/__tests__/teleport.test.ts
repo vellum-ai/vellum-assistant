@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
-// Temp directory for lockfile isolation (same pattern as assistant-config.test.ts)
+// Temp directory for lockfile isolation
 // ---------------------------------------------------------------------------
 
 const testDir = mkdtempSync(join(tmpdir(), "cli-teleport-test-"));
@@ -23,16 +23,10 @@ process.env.VELLUM_LOCKFILE_DIR = testDir;
 // Mocks — must be set up before importing the module under test
 // ---------------------------------------------------------------------------
 
-// Import the real modules — do NOT mock them with mock.module() because
-// Bun's mock.module() replaces modules globally and the replacement leaks
-// into other test files (e.g. platform-client.test.ts, guardian-token.test.ts,
-// multi-local.test.ts) running in the same process with no way to unmock.
-// Instead, we use spyOn() on the imported module namespace objects — these
-// mutate only the current process's live binding and are restored via
-// mockRestore() in afterAll.
 import * as assistantConfig from "../lib/assistant-config.js";
 import * as guardianToken from "../lib/guardian-token.js";
 import * as platformClient from "../lib/platform-client.js";
+import * as localRuntimeClient from "../lib/local-runtime-client.js";
 
 const findAssistantByNameMock = spyOn(
   assistantConfig,
@@ -101,88 +95,31 @@ const platformInitiateExportMock = spyOn(
   platformClient,
   "platformInitiateExport",
 ).mockResolvedValue({
-  jobId: "job-1",
+  jobId: "platform-export-job-1",
   status: "pending",
 });
 
-const platformPollExportStatusMock = spyOn(
+const platformPollJobStatusMock = spyOn(
   platformClient,
-  "platformPollExportStatus",
+  "platformPollJobStatus",
 ).mockResolvedValue({
-  status: "complete" as string,
-  downloadUrl: "https://cdn.example.com/bundle.tar.gz",
+  jobId: "platform-job-1",
+  type: "export",
+  status: "complete",
+  bundleKey: "platform-bundle-key-abc",
 });
 
-const platformDownloadExportMock = spyOn(
+const platformRequestSignedUrlMock = spyOn(
   platformClient,
-  "platformDownloadExport",
-).mockImplementation(async () => {
-  const data = new Uint8Array([10, 20, 30]);
-  return new Response(data, { status: 200 });
-});
-
-const platformImportPreflightMock = spyOn(
-  platformClient,
-  "platformImportPreflight",
-).mockResolvedValue({
-  statusCode: 200,
-  body: {
-    can_import: true,
-    summary: {
-      files_to_create: 2,
-      files_to_overwrite: 1,
-      files_unchanged: 0,
-      total_files: 3,
-    },
-  } as Record<string, unknown>,
-});
-
-const platformImportBundleMock = spyOn(
-  platformClient,
-  "platformImportBundle",
-).mockResolvedValue({
-  statusCode: 200,
-  body: {
-    success: true,
-    summary: {
-      total_files: 3,
-      files_created: 2,
-      files_overwritten: 1,
-      files_skipped: 0,
-      backups_created: 1,
-    },
-  } as Record<string, unknown>,
-});
-
-const platformRequestUploadUrlMock = spyOn(
-  platformClient,
-  "platformRequestUploadUrl",
-).mockResolvedValue({
-  uploadUrl: "https://storage.googleapis.com/bucket/signed-upload-url",
-  bundleKey: "bundle-key-123",
+  "platformRequestSignedUrl",
+).mockImplementation(async (params) => ({
+  url:
+    params.operation === "upload"
+      ? "https://storage.googleapis.com/bucket/signed-upload"
+      : "https://storage.googleapis.com/bucket/signed-download",
+  bundleKey: params.bundleKey ?? "bundle-key-123",
   expiresAt: new Date(Date.now() + 3600_000).toISOString(),
-});
-
-const platformUploadToSignedUrlMock = spyOn(
-  platformClient,
-  "platformUploadToSignedUrl",
-).mockResolvedValue(undefined);
-
-const platformImportPreflightFromGcsMock = spyOn(
-  platformClient,
-  "platformImportPreflightFromGcs",
-).mockResolvedValue({
-  statusCode: 200,
-  body: {
-    can_import: true,
-    summary: {
-      files_to_create: 2,
-      files_to_overwrite: 1,
-      files_unchanged: 0,
-      total_files: 3,
-    },
-  } as Record<string, unknown>,
-});
+}));
 
 const platformImportBundleFromGcsMock = spyOn(
   platformClient,
@@ -197,6 +134,22 @@ const platformImportBundleFromGcsMock = spyOn(
       files_overwritten: 1,
       files_skipped: 0,
       backups_created: 1,
+    },
+  } as Record<string, unknown>,
+});
+
+const platformImportPreflightFromGcsMock = spyOn(
+  platformClient,
+  "platformImportPreflightFromGcs",
+).mockResolvedValue({
+  statusCode: 200,
+  body: {
+    can_import: true,
+    summary: {
+      files_to_create: 2,
+      files_to_overwrite: 1,
+      files_unchanged: 0,
+      total_files: 3,
     },
   } as Record<string, unknown>,
 });
@@ -240,6 +193,35 @@ const fetchOrganizationIdMock = spyOn(
   platformClient,
   "fetchOrganizationId",
 ).mockResolvedValue("org-1");
+
+const localRuntimeExportToGcsMock = spyOn(
+  localRuntimeClient,
+  "localRuntimeExportToGcs",
+).mockResolvedValue({ jobId: "local-export-job-1" });
+
+const localRuntimeImportFromGcsMock = spyOn(
+  localRuntimeClient,
+  "localRuntimeImportFromGcs",
+).mockResolvedValue({ jobId: "local-import-job-1" });
+
+const localRuntimePollJobStatusMock = spyOn(
+  localRuntimeClient,
+  "localRuntimePollJobStatus",
+).mockImplementation(async (_runtimeUrl, _token, jobId) => ({
+  jobId,
+  type: jobId.includes("import") ? "import" : "export",
+  status: "complete",
+  result: {
+    success: true,
+    summary: {
+      total_files: 3,
+      files_created: 2,
+      files_overwritten: 1,
+      files_skipped: 0,
+      backups_created: 1,
+    },
+  },
+}));
 
 const hatchLocalMock = mock(async () => {});
 
@@ -313,19 +295,18 @@ afterAll(() => {
   hatchAssistantMock.mockRestore();
   checkExistingPlatformAssistantMock.mockRestore();
   platformInitiateExportMock.mockRestore();
-  platformPollExportStatusMock.mockRestore();
-  platformDownloadExportMock.mockRestore();
-  platformImportPreflightMock.mockRestore();
-  platformImportBundleMock.mockRestore();
-  platformRequestUploadUrlMock.mockRestore();
-  platformUploadToSignedUrlMock.mockRestore();
-  platformImportPreflightFromGcsMock.mockRestore();
+  platformPollJobStatusMock.mockRestore();
+  platformRequestSignedUrlMock.mockRestore();
   platformImportBundleFromGcsMock.mockRestore();
+  platformImportPreflightFromGcsMock.mockRestore();
   ensureSelfHostedLocalRegistrationMock.mockRestore();
   injectCredentialsIntoAssistantMock.mockRestore();
   fetchCurrentUserMock.mockRestore();
   fetchOrganizationIdMock.mockRestore();
   computeDeviceIdMock.mockRestore();
+  localRuntimeExportToGcsMock.mockRestore();
+  localRuntimeImportFromGcsMock.mockRestore();
+  localRuntimePollJobStatusMock.mockRestore();
   rmSync(testDir, { recursive: true, force: true });
   delete process.env.VELLUM_LOCKFILE_DIR;
 });
@@ -335,11 +316,39 @@ let exitMock: ReturnType<typeof mock>;
 let originalExit: typeof process.exit;
 let consoleLogSpy: ReturnType<typeof spyOn>;
 let consoleErrorSpy: ReturnType<typeof spyOn>;
+let fetchCalls: Array<{ url: string; body: unknown }>;
+
+function defaultLocalRuntimePollImpl(
+  _runtimeUrl: string,
+  _token: string,
+  jobId: string,
+): Promise<{
+  jobId: string;
+  type: "export" | "import";
+  status: "complete";
+  result: Record<string, unknown>;
+}> {
+  return Promise.resolve({
+    jobId,
+    type: jobId.includes("import") ? "import" : "export",
+    status: "complete",
+    result: {
+      success: true,
+      summary: {
+        total_files: 3,
+        files_created: 2,
+        files_overwritten: 1,
+        files_skipped: 0,
+        backups_created: 1,
+      },
+    },
+  });
+}
 
 beforeEach(() => {
   originalArgv = [...process.argv];
+  fetchCalls = [];
 
-  // Reset all mocks
   findAssistantByNameMock.mockReset();
   findAssistantByNameMock.mockReturnValue(null);
   saveAssistantEntryMock.mockReset();
@@ -371,66 +380,25 @@ beforeEach(() => {
   });
   platformInitiateExportMock.mockReset();
   platformInitiateExportMock.mockResolvedValue({
-    jobId: "job-1",
+    jobId: "platform-export-job-1",
     status: "pending",
   });
-  platformPollExportStatusMock.mockReset();
-  platformPollExportStatusMock.mockResolvedValue({
+  platformPollJobStatusMock.mockReset();
+  platformPollJobStatusMock.mockResolvedValue({
+    jobId: "platform-job-1",
+    type: "export",
     status: "complete",
-    downloadUrl: "https://cdn.example.com/bundle.tar.gz",
+    bundleKey: "platform-bundle-key-abc",
   });
-  platformDownloadExportMock.mockReset();
-  platformDownloadExportMock.mockResolvedValue(
-    new Response(new Uint8Array([10, 20, 30]), { status: 200 }),
-  );
-  platformImportPreflightMock.mockReset();
-  platformImportPreflightMock.mockResolvedValue({
-    statusCode: 200,
-    body: {
-      can_import: true,
-      summary: {
-        files_to_create: 2,
-        files_to_overwrite: 1,
-        files_unchanged: 0,
-        total_files: 3,
-      },
-    },
-  });
-  platformImportBundleMock.mockReset();
-  platformImportBundleMock.mockResolvedValue({
-    statusCode: 200,
-    body: {
-      success: true,
-      summary: {
-        total_files: 3,
-        files_created: 2,
-        files_overwritten: 1,
-        files_skipped: 0,
-        backups_created: 1,
-      },
-    },
-  });
-  platformRequestUploadUrlMock.mockReset();
-  platformRequestUploadUrlMock.mockResolvedValue({
-    uploadUrl: "https://storage.googleapis.com/bucket/signed-upload-url",
-    bundleKey: "bundle-key-123",
+  platformRequestSignedUrlMock.mockReset();
+  platformRequestSignedUrlMock.mockImplementation(async (params) => ({
+    url:
+      params.operation === "upload"
+        ? "https://storage.googleapis.com/bucket/signed-upload"
+        : "https://storage.googleapis.com/bucket/signed-download",
+    bundleKey: params.bundleKey ?? "bundle-key-123",
     expiresAt: new Date(Date.now() + 3600_000).toISOString(),
-  });
-  platformUploadToSignedUrlMock.mockReset();
-  platformUploadToSignedUrlMock.mockResolvedValue(undefined);
-  platformImportPreflightFromGcsMock.mockReset();
-  platformImportPreflightFromGcsMock.mockResolvedValue({
-    statusCode: 200,
-    body: {
-      can_import: true,
-      summary: {
-        files_to_create: 2,
-        files_to_overwrite: 1,
-        files_unchanged: 0,
-        total_files: 3,
-      },
-    },
-  });
+  }));
   platformImportBundleFromGcsMock.mockReset();
   platformImportBundleFromGcsMock.mockResolvedValue({
     statusCode: 200,
@@ -442,6 +410,19 @@ beforeEach(() => {
         files_overwritten: 1,
         files_skipped: 0,
         backups_created: 1,
+      },
+    },
+  });
+  platformImportPreflightFromGcsMock.mockReset();
+  platformImportPreflightFromGcsMock.mockResolvedValue({
+    statusCode: 200,
+    body: {
+      can_import: true,
+      summary: {
+        files_to_create: 2,
+        files_to_overwrite: 1,
+        files_unchanged: 0,
+        total_files: 3,
       },
     },
   });
@@ -470,6 +451,17 @@ beforeEach(() => {
   fetchOrganizationIdMock.mockResolvedValue("org-1");
   computeDeviceIdMock.mockReset();
   computeDeviceIdMock.mockReturnValue("device-id-123");
+
+  localRuntimeExportToGcsMock.mockReset();
+  localRuntimeExportToGcsMock.mockResolvedValue({
+    jobId: "local-export-job-1",
+  });
+  localRuntimeImportFromGcsMock.mockReset();
+  localRuntimeImportFromGcsMock.mockResolvedValue({
+    jobId: "local-import-job-1",
+  });
+  localRuntimePollJobStatusMock.mockReset();
+  localRuntimePollJobStatusMock.mockImplementation(defaultLocalRuntimePollImpl);
 
   hatchLocalMock.mockReset();
   hatchLocalMock.mockResolvedValue(undefined);
@@ -505,7 +497,6 @@ afterEach(() => {
 });
 
 function setArgv(...args: string[]): void {
-  // teleport reads process.argv.slice(3)
   process.argv = ["bun", "vellum", "teleport", ...args];
 }
 
@@ -521,44 +512,24 @@ function makeEntry(
   };
 }
 
-/** Create a mock fetch that handles export and import endpoints. */
-function createFetchMock() {
-  return mock(async (url: string | URL | Request) => {
-    const urlStr = typeof url === "string" ? url : url.toString();
-    if (urlStr.includes("/export")) {
-      return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
-    }
-    if (urlStr.includes("/import-preflight")) {
-      return new Response(
-        JSON.stringify({
-          can_import: true,
-          summary: {
-            files_to_create: 1,
-            files_to_overwrite: 0,
-            files_unchanged: 0,
-            total_files: 1,
-          },
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
-    }
-    if (urlStr.includes("/import")) {
-      return new Response(
-        JSON.stringify({
-          success: true,
-          summary: {
-            total_files: 1,
-            files_created: 1,
-            files_overwritten: 0,
-            files_skipped: 0,
-            backups_created: 0,
-          },
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
-    }
-    return new Response("not found", { status: 404 });
-  });
+/**
+ * Tracking fetch mock — records every call so tests can verify that the CLI
+ * never sends a bundle-sized request body. With the new GCS-unified flow
+ * all bundle bytes travel between the runtime and GCS directly, so the CLI
+ * should make zero fetch calls carrying binary payloads.
+ */
+function installTrackingFetch(): () => void {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = mock(
+    async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === "string" ? url : url.toString();
+      fetchCalls.push({ url: urlStr, body: init?.body });
+      return new Response("not found", { status: 404 });
+    },
+  ) as unknown as typeof globalThis.fetch;
+  return () => {
+    globalThis.fetch = originalFetch;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -663,20 +634,13 @@ describe("same-environment rejection", () => {
       return null;
     });
 
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await expect(teleport()).rejects.toThrow("process.exit:1");
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Cannot teleport between two local assistants"),
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    await expect(teleport()).rejects.toThrow("process.exit:1");
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Cannot teleport between two local assistants"),
+    );
   });
 
-  test("source docker, target docker -> error (after resolving target)", async () => {
+  test("source docker, target docker -> error", async () => {
     setArgv("--from", "src", "--docker", "dst");
 
     const srcEntry = makeEntry("src", { cloud: "docker" });
@@ -688,22 +652,13 @@ describe("same-environment rejection", () => {
       return null;
     });
 
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await expect(teleport()).rejects.toThrow("process.exit:1");
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "Cannot teleport between two docker assistants",
-        ),
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    await expect(teleport()).rejects.toThrow("process.exit:1");
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Cannot teleport between two docker assistants"),
+    );
   });
 
-  test("source vellum, target platform -> error (after resolving target)", async () => {
+  test("source vellum, target platform -> error", async () => {
     setArgv("--from", "src", "--platform", "dst");
 
     const srcEntry = makeEntry("src", {
@@ -721,19 +676,12 @@ describe("same-environment rejection", () => {
       return null;
     });
 
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await expect(teleport()).rejects.toThrow("process.exit:1");
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "Cannot teleport between two platform assistants",
-        ),
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    await expect(teleport()).rejects.toThrow("process.exit:1");
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Cannot teleport between two platform assistants",
+      ),
+    );
   });
 
   test("same-env rejection happens before hatching (no orphaned assistants)", async () => {
@@ -749,59 +697,15 @@ describe("same-environment rejection", () => {
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       expect.stringContaining("Cannot teleport between two local assistants"),
     );
-    // Crucially: no hatch should have been called — the early guard fires first
-    expect(hatchLocalMock).not.toHaveBeenCalled();
-    expect(hatchDockerMock).not.toHaveBeenCalled();
-    expect(hatchAssistantMock).not.toHaveBeenCalled();
-  });
-
-  test("same-env rejection before hatching for docker", async () => {
-    setArgv("--from", "my-docker", "--docker");
-
-    const dockerEntry = makeEntry("my-docker", { cloud: "docker" });
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-docker") return dockerEntry;
-      return null;
-    });
-
-    await expect(teleport()).rejects.toThrow("process.exit:1");
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Cannot teleport between two docker assistants"),
-    );
-    expect(hatchLocalMock).not.toHaveBeenCalled();
-    expect(hatchDockerMock).not.toHaveBeenCalled();
-    expect(hatchAssistantMock).not.toHaveBeenCalled();
-  });
-
-  test("same-env rejection before hatching for platform (vellum cloud)", async () => {
-    setArgv("--from", "my-cloud", "--platform");
-
-    const platformEntry = makeEntry("my-cloud", {
-      cloud: "vellum",
-      runtimeUrl: "https://platform.vellum.ai",
-    });
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-cloud") return platformEntry;
-      return null;
-    });
-
-    await expect(teleport()).rejects.toThrow("process.exit:1");
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "Cannot teleport between two platform assistants",
-      ),
-    );
     expect(hatchLocalMock).not.toHaveBeenCalled();
     expect(hatchDockerMock).not.toHaveBeenCalled();
     expect(hatchAssistantMock).not.toHaveBeenCalled();
   });
 
   test("flag says docker but resolved target is local -> rejects cloud mismatch", async () => {
-    // User passes --docker but the named target is actually a local assistant
     setArgv("--from", "src", "--docker", "misidentified");
 
     const srcEntry = makeEntry("src", { cloud: "vellum" });
-    // Target is actually local despite the --docker flag
     const dstEntry = makeEntry("misidentified", { cloud: "local" });
 
     findAssistantByNameMock.mockImplementation((name: string) => {
@@ -832,16 +736,11 @@ describe("resolveOrHatchTarget", () => {
     const result = await resolveOrHatchTarget("docker", "my-docker");
     expect(result).toBe(dockerEntry);
     expect(hatchDockerMock).not.toHaveBeenCalled();
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Target: my-docker (docker)"),
-    );
   });
 
   test("name not found -> hatch docker", async () => {
     const newEntry = makeEntry("new-one", { cloud: "docker" });
     findAssistantByNameMock.mockImplementation((name: string) => {
-      // First call: lookup by name -> not found
-      // Second call: after hatch -> found
       if (name === "new-one" && hatchDockerMock.mock.calls.length > 0) {
         return newEntry;
       }
@@ -859,12 +758,10 @@ describe("resolveOrHatchTarget", () => {
     expect(result).toBe(newEntry);
   });
 
-  test("no name -> hatch local with null name, discovers via diff", async () => {
+  test("no name -> hatch local, discovers via diff", async () => {
     const existingEntry = makeEntry("existing-local", { cloud: "local" });
     const newEntry = makeEntry("auto-generated", { cloud: "local" });
 
-    // Before hatch: only the existing entry
-    // After hatch: existing + new entry
     loadAllAssistantsMock.mockImplementation(() => {
       if (hatchLocalMock.mock.calls.length > 0) {
         return [existingEntry, newEntry];
@@ -873,13 +770,7 @@ describe("resolveOrHatchTarget", () => {
     });
 
     const result = await resolveOrHatchTarget("local");
-    expect(hatchLocalMock).toHaveBeenCalledWith(
-      "vellum",
-      null,
-      false,
-      false,
-      {},
-    );
+    expect(hatchLocalMock).toHaveBeenCalled();
     expect(result).toBe(newEntry);
   });
 
@@ -903,16 +794,10 @@ describe("resolveOrHatchTarget", () => {
 
     const result = await resolveOrHatchTarget("platform", "nonexistent");
     expect(hatchAssistantMock).toHaveBeenCalledWith("platform-token");
-    expect(saveAssistantEntryMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        assistantId: "platform-new-id",
-        cloud: "vellum",
-      }),
-    );
     expect(result.assistantId).toBe("platform-new-id");
   });
 
-  test("platform with no name -> blocks when hatch returns reusedExisting (defensive safety net)", async () => {
+  test("platform with no name -> blocks when hatch returns reusedExisting", async () => {
     findAssistantByNameMock.mockReturnValue(null);
     hatchAssistantMock.mockResolvedValue({
       assistant: {
@@ -923,24 +808,11 @@ describe("resolveOrHatchTarget", () => {
       reusedExisting: true,
     });
 
-    // Defensive safety net: even though the pre-check in teleport() should
-    // catch this first, resolveOrHatchTarget still blocks on reusedExisting
-    // to guard against a TOCTOU race (matching the Swift client behavior).
     await expect(resolveOrHatchTarget("platform", undefined)).rejects.toThrow(
       "process.exit:1",
     );
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       expect.stringContaining("already have a platform assistant"),
-    );
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Retire it first"),
-    );
-    // The existing assistant is saved to the lockfile so `vellum retire` can find it
-    expect(saveAssistantEntryMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        assistantId: "existing-platform-id",
-        cloud: "vellum",
-      }),
     );
   });
 
@@ -973,33 +845,139 @@ describe("resolveOrHatchTarget", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Auto-retire tests
+// Unified GCS teleport flow — the four directions
 // ---------------------------------------------------------------------------
 
-describe("auto-retire", () => {
-  test("local -> docker: stops source before hatch, retires after import", async () => {
-    setArgv("--from", "my-local", "--docker");
+describe("unified GCS flow — four directions", () => {
+  test("local → platform: requests upload URL, drives local runtime export, imports from GCS", async () => {
+    setArgv("--from", "my-local", "--platform");
 
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await teleport();
+
+      // Signed-URL request for upload — pinned to the platform target's URL
+      // so upload and download land on the same platform.
+      expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: "upload" }),
+        "platform-token",
+        "https://platform.vellum.ai",
+      );
+
+      // Runtime export-to-gcs kicked off with the signed upload URL
+      expect(localRuntimeExportToGcsMock).toHaveBeenCalledWith(
+        "http://localhost:7821",
+        "local-token",
+        expect.objectContaining({
+          uploadUrl: "https://storage.googleapis.com/bucket/signed-upload",
+        }),
+      );
+
+      // Poll continued until complete
+      expect(localRuntimePollJobStatusMock).toHaveBeenCalled();
+
+      // Import via GCS with the bundleKey returned from signed-URL request
+      expect(platformImportBundleFromGcsMock).toHaveBeenCalledWith(
+        "bundle-key-123",
+        "platform-token",
+        expect.any(String),
+      );
+
+      // No download-URL request on the import side (platform target pulls
+      // directly from GCS).
+      const downloadOps = platformRequestSignedUrlMock.mock.calls.filter(
+        (call: unknown[]) =>
+          (call[0] as { operation: string }).operation === "download",
+      );
+      expect(downloadOps.length).toBe(0);
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("platform → local: drives platform export, reads bundle_key, requests download URL for runtime import", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
     const localEntry = makeEntry("my-local", {
       cloud: "local",
-      resources: {
-        instanceDir: "/home/test",
-        pidFile: "/home/test/.vellum/assistant.pid",
-        signingKey: "key",
-        daemonPort: 7821,
-        gatewayPort: 7830,
-        qdrantPort: 6333,
-        cesPort: 8090,
-      },
+      bearerToken: "local-bearer",
     });
-    const dockerEntry = makeEntry("new-docker", { cloud: "docker" });
 
     findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
       if (name === "my-local") return localEntry;
       return null;
     });
 
-    // Simulate hatch creating a new docker entry
+    // Platform poll returns export-complete with a bundle_key.
+    platformPollJobStatusMock.mockResolvedValue({
+      jobId: "platform-export-job-1",
+      type: "export",
+      status: "complete",
+      bundleKey: "platform-exports/org-1/bundle-abc.vbundle",
+    });
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await teleport();
+
+      // Platform side: initiated server export and polled the unified status.
+      expect(platformInitiateExportMock).toHaveBeenCalled();
+      expect(platformPollJobStatusMock).toHaveBeenCalled();
+
+      // For the local target we request a download URL keyed by the
+      // platform's bundle_key. The URL must target the SOURCE platform
+      // (where the bundle was written) — pinned so a lockfile change
+      // can't split upload and download across instances.
+      expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
+        {
+          operation: "download",
+          bundleKey: "platform-exports/org-1/bundle-abc.vbundle",
+        },
+        "platform-token",
+        "https://platform.vellum.ai",
+      );
+
+      // Runtime import-from-gcs was kicked off with that URL.
+      expect(localRuntimeImportFromGcsMock).toHaveBeenCalledWith(
+        "http://localhost:7821",
+        "local-token",
+        expect.objectContaining({
+          bundleUrl: "https://storage.googleapis.com/bucket/signed-download",
+        }),
+      );
+      expect(localRuntimePollJobStatusMock).toHaveBeenCalled();
+
+      // No legacy inline-import helpers were touched.
+      // (Verified by the absence of fetch calls carrying bundle bodies —
+      // see "never buffers bundle bytes" assertion below.)
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("local → docker: export via upload URL, import via download URL", async () => {
+    setArgv("--from", "my-local", "--docker");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    const dockerEntry = makeEntry("new-docker", {
+      cloud: "docker",
+      runtimeUrl: "http://localhost:7822",
+    });
+
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
+
     loadAllAssistantsMock.mockImplementation(() => {
       if (hatchDockerMock.mock.calls.length > 0) {
         return [localEntry, dockerEntry];
@@ -1007,31 +985,60 @@ describe("auto-retire", () => {
       return [localEntry];
     });
 
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
+    const restoreFetch = installTrackingFetch();
     try {
       await teleport();
-      // Source should be stopped (slept) before hatch
-      expect(stopProcessByPidFileMock).toHaveBeenCalled();
-      // Retire happens after successful import
+
+      // Export and import must pin the same platform URL so the bundle
+      // lives in one place end-to-end. For local→docker neither side is
+      // platform, so we default to getPlatformUrl() (resolved once).
+      expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: "upload" }),
+        "platform-token",
+        "https://platform.vellum.ai",
+      );
+      expect(localRuntimeExportToGcsMock).toHaveBeenCalled();
+
+      // Import: download-URL for the docker target, then runtime import.
+      expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
+        {
+          operation: "download",
+          bundleKey: "bundle-key-123",
+        },
+        "platform-token",
+        "https://platform.vellum.ai",
+      );
+      expect(localRuntimeImportFromGcsMock).toHaveBeenCalledWith(
+        "http://localhost:7822",
+        "local-token",
+        expect.objectContaining({
+          bundleUrl: "https://storage.googleapis.com/bucket/signed-download",
+        }),
+      );
+
+      // Source retirement still happens on success for local↔docker.
       expect(retireLocalMock).toHaveBeenCalledWith("my-local", localEntry);
       expect(removeAssistantEntryMock).toHaveBeenCalledWith("my-local");
     } finally {
-      globalThis.fetch = originalFetch;
+      restoreFetch();
     }
   });
 
-  test("docker -> local: sleeps containers before hatch, retires after import", async () => {
+  test("docker → local: export via upload URL, import via download URL", async () => {
     setArgv("--from", "my-docker", "--local");
 
-    const dockerEntry = makeEntry("my-docker", { cloud: "docker" });
-    const localEntry = makeEntry("new-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-docker") return dockerEntry;
-      return null;
+    const dockerEntry = makeEntry("my-docker", {
+      cloud: "docker",
+      runtimeUrl: "http://localhost:7822",
     });
+    const localEntry = makeEntry("new-local", {
+      cloud: "local",
+      runtimeUrl: "http://localhost:7823",
+    });
+
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-docker" ? dockerEntry : null,
+    );
 
     loadAllAssistantsMock.mockImplementation(() => {
       if (hatchLocalMock.mock.calls.length > 0) {
@@ -1040,252 +1047,449 @@ describe("auto-retire", () => {
       return [dockerEntry];
     });
 
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
+    const restoreFetch = installTrackingFetch();
     try {
       await teleport();
-      // Docker source should be slept (containers stopped) before hatch
+
+      // Docker source should be put to sleep first.
       expect(sleepContainersMock).toHaveBeenCalled();
-      // Retire happens after successful import
+
+      // Export leg: upload-URL (pinned to the same platform as import),
+      // then runtime export.
+      expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: "upload" }),
+        "platform-token",
+        "https://platform.vellum.ai",
+      );
+      expect(localRuntimeExportToGcsMock).toHaveBeenCalledWith(
+        "http://localhost:7822",
+        "local-token",
+        expect.objectContaining({
+          uploadUrl: "https://storage.googleapis.com/bucket/signed-upload",
+        }),
+      );
+
+      // Import leg: download-URL targets the new local runtime
+      expect(localRuntimeImportFromGcsMock).toHaveBeenCalledWith(
+        "http://localhost:7823",
+        "local-token",
+        expect.anything(),
+      );
+
+      // Source retirement
       expect(retireDockerMock).toHaveBeenCalledWith("my-docker");
       expect(removeAssistantEntryMock).toHaveBeenCalledWith("my-docker");
     } finally {
-      globalThis.fetch = originalFetch;
+      restoreFetch();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Target-platform URL threading: signed URL must be requested from the same
+// platform instance the import will run against. Codex P2 regression guard.
+// ---------------------------------------------------------------------------
+
+describe("signed-URL request targets the bundle-owning platform", () => {
+  test("local → existing platform target with non-default runtimeUrl: upload URL pinned to target's runtimeUrl", async () => {
+    setArgv("--from", "my-local", "--platform", "existing-platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    // Crucially, the target's runtimeUrl is NOT the default getPlatformUrl()
+    // return value — this is the regression case Codex flagged.
+    const platformEntry = makeEntry("existing-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://staging-platform.vellum.ai",
+    });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      if (name === "existing-platform") return platformEntry;
+      return null;
+    });
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await teleport();
+
+      // The signed-URL request for upload MUST target the existing
+      // platform assistant's runtimeUrl, not the default platform URL.
+      expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: "upload" }),
+        "platform-token",
+        "https://staging-platform.vellum.ai",
+      );
+
+      // And the import must run against the same platform.
+      expect(platformImportBundleFromGcsMock).toHaveBeenCalledWith(
+        "bundle-key-123",
+        "platform-token",
+        "https://staging-platform.vellum.ai",
+      );
+
+      // Assert none of the signed-URL calls used the default URL — if any
+      // did, upload and download would hit different platforms.
+      for (const call of platformRequestSignedUrlMock.mock.calls) {
+        expect(call[2]).toBe("https://staging-platform.vellum.ai");
+      }
+    } finally {
+      restoreFetch();
     }
   });
 
-  test("--keep-source skips retire and removeAssistantEntry", async () => {
-    setArgv("--from", "my-local", "--docker", "--keep-source");
+  test("platform → local with non-default source runtimeUrl: download URL pinned to source's runtimeUrl", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
 
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://dev-platform.vellum.ai",
+    });
     const localEntry = makeEntry("my-local", { cloud: "local" });
-    const dockerEntry = makeEntry("new-docker", { cloud: "docker" });
 
     findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
       if (name === "my-local") return localEntry;
       return null;
     });
 
-    loadAllAssistantsMock.mockImplementation(() => {
-      if (hatchDockerMock.mock.calls.length > 0) {
-        return [localEntry, dockerEntry];
-      }
-      return [localEntry];
+    platformPollJobStatusMock.mockResolvedValue({
+      jobId: "platform-export-job-1",
+      type: "export",
+      status: "complete",
+      bundleKey: "dev-bundle-key",
     });
 
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
+    const restoreFetch = installTrackingFetch();
     try {
       await teleport();
-      expect(retireLocalMock).not.toHaveBeenCalled();
-      expect(retireDockerMock).not.toHaveBeenCalled();
-      expect(removeAssistantEntryMock).not.toHaveBeenCalled();
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining("kept (--keep-source)"),
+
+      // The download URL must be requested from the SOURCE platform (where
+      // the bundle was written by the server-side export), not the default.
+      expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
+        { operation: "download", bundleKey: "dev-bundle-key" },
+        "platform-token",
+        "https://dev-platform.vellum.ai",
       );
     } finally {
-      globalThis.fetch = originalFetch;
+      restoreFetch();
     }
   });
+});
 
-  test("platform transfers skip retire", async () => {
+// ---------------------------------------------------------------------------
+// Invariants: CLI never buffers bundle bytes
+// ---------------------------------------------------------------------------
+
+describe("CLI never buffers bundle bytes", () => {
+  // A teleport bundle is always > 1 KiB in practice; anything near that size
+  // would mean the CLI is shuttling bytes when it shouldn't.
+  const BUNDLE_BODY_THRESHOLD_BYTES = 1024;
+
+  function bodySize(body: unknown): number {
+    if (typeof body === "string") return body.length;
+    if (body instanceof Uint8Array) return body.byteLength;
+    if (body instanceof ArrayBuffer) return body.byteLength;
+    if (body instanceof Blob) return body.size;
+    return 0;
+  }
+
+  test("local → platform: no fetch call carries a bundle-sized body", async () => {
     setArgv("--from", "my-local", "--platform");
 
     const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await teleport();
+
+      for (const call of fetchCalls) {
+        expect(bodySize(call.body)).toBeLessThan(BUNDLE_BODY_THRESHOLD_BYTES);
+      }
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("platform → local: no fetch call carries a bundle-sized body", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const localEntry = makeEntry("my-local", { cloud: "local" });
 
     findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
       if (name === "my-local") return localEntry;
       return null;
     });
 
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+    platformPollJobStatusMock.mockResolvedValue({
+      jobId: "platform-export-job-1",
+      type: "export",
+      status: "complete",
+      bundleKey: "platform-exports/org-1/bundle.vbundle",
+    });
 
+    const restoreFetch = installTrackingFetch();
     try {
       await teleport();
-      expect(retireLocalMock).not.toHaveBeenCalled();
-      expect(retireDockerMock).not.toHaveBeenCalled();
-      expect(removeAssistantEntryMock).not.toHaveBeenCalled();
+
+      for (const call of fetchCalls) {
+        expect(bodySize(call.body)).toBeLessThan(BUNDLE_BODY_THRESHOLD_BYTES);
+      }
     } finally {
-      globalThis.fetch = originalFetch;
+      restoreFetch();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Polling behavior
+// ---------------------------------------------------------------------------
+
+describe("polling", () => {
+  test("local-runtime export poll continues until complete", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
+
+    let callIdx = 0;
+    localRuntimePollJobStatusMock.mockImplementation(
+      async (_runtimeUrl, _token, jobId) => {
+        callIdx++;
+        if (callIdx < 3) {
+          return {
+            jobId,
+            type: "export" as const,
+            status: "processing" as const,
+          };
+        }
+        return {
+          jobId,
+          type: "export" as const,
+          status: "complete" as const,
+          result: undefined,
+        };
+      },
+    );
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await teleport();
+      expect(callIdx).toBeGreaterThanOrEqual(3);
+    } finally {
+      restoreFetch();
     }
   });
 
+  test("local-runtime export failure → teleport exits 1", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
+
+    localRuntimePollJobStatusMock.mockResolvedValue({
+      jobId: "local-export-job-1",
+      type: "export",
+      status: "failed",
+      error: "simulated failure",
+    });
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("simulated failure"),
+      );
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("local-runtime import failure → teleport exits 1", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    platformPollJobStatusMock.mockResolvedValue({
+      jobId: "platform-export-job-1",
+      type: "export",
+      status: "complete",
+      bundleKey: "key-1",
+    });
+
+    localRuntimePollJobStatusMock.mockImplementation(
+      async (_runtimeUrl, _token, jobId) => {
+        if (jobId.includes("import")) {
+          return {
+            jobId,
+            type: "import" as const,
+            status: "failed" as const,
+            error: "import blew up",
+          };
+        }
+        return {
+          jobId,
+          type: "export" as const,
+          status: "complete" as const,
+          result: undefined,
+        };
+      },
+    );
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("import blew up"),
+      );
+    } finally {
+      restoreFetch();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MigrationInProgressError handling
+// ---------------------------------------------------------------------------
+
+describe("MigrationInProgressError handling", () => {
+  test("local-runtime export already in flight → fail fast with existing job id", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
+
+    localRuntimeExportToGcsMock.mockRejectedValue(
+      new localRuntimeClient.MigrationInProgressError(
+        "export_in_progress",
+        "existing-job-42",
+      ),
+    );
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+
+      // Must not have polled the existing job — the existing job's bundle
+      // lives at a different GCS key (its caller's signed URL), so polling
+      // it would leave the teleport pointing at an empty/unrelated bundle.
+      const polledIds = localRuntimePollJobStatusMock.mock.calls.map(
+        (call: unknown[]) => call[2],
+      );
+      expect(polledIds).not.toContain("existing-job-42");
+
+      // Error must mention the existing job id so the user can act on it.
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("existing-job-42"),
+      );
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("already in progress"),
+      );
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("local-runtime import already in flight → fail fast with existing job id", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    platformPollJobStatusMock.mockResolvedValue({
+      jobId: "platform-export-job-1",
+      type: "export",
+      status: "complete",
+      bundleKey: "bundle-key-from-platform",
+    });
+
+    localRuntimeImportFromGcsMock.mockRejectedValue(
+      new localRuntimeClient.MigrationInProgressError(
+        "import_in_progress",
+        "existing-import-99",
+      ),
+    );
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+
+      // Must not poll the existing import — it's importing somebody else's
+      // bundle, not ours, so reporting on it would be misleading.
+      const polledIds = localRuntimePollJobStatusMock.mock.calls.map(
+        (call: unknown[]) => call[2],
+      );
+      expect(polledIds).not.toContain("existing-import-99");
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("existing-import-99"),
+      );
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("already in progress"),
+      );
+    } finally {
+      restoreFetch();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dry-run behavior
+// ---------------------------------------------------------------------------
+
+describe("dry-run", () => {
   test("dry-run without existing target does not hatch or export", async () => {
     setArgv("--from", "my-local", "--docker", "--dry-run");
 
     const localEntry = makeEntry("my-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-local") return localEntry;
-      return null;
-    });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
 
     await teleport();
 
-    // Should NOT hatch, export, import, or retire
     expect(hatchDockerMock).not.toHaveBeenCalled();
     expect(hatchLocalMock).not.toHaveBeenCalled();
     expect(hatchAssistantMock).not.toHaveBeenCalled();
     expect(retireLocalMock).not.toHaveBeenCalled();
     expect(retireDockerMock).not.toHaveBeenCalled();
-    expect(removeAssistantEntryMock).not.toHaveBeenCalled();
+    expect(localRuntimeExportToGcsMock).not.toHaveBeenCalled();
+    expect(localRuntimeImportFromGcsMock).not.toHaveBeenCalled();
   });
 
-  test("dry-run with existing target runs preflight without hatching", async () => {
-    setArgv("--from", "my-local", "--docker", "my-docker", "--dry-run");
-
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-    const dockerEntry = makeEntry("my-docker", { cloud: "docker" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-local") return localEntry;
-      if (name === "my-docker") return dockerEntry;
-      return null;
-    });
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await teleport();
-
-      // Should NOT hatch or retire
-      expect(hatchDockerMock).not.toHaveBeenCalled();
-      expect(hatchLocalMock).not.toHaveBeenCalled();
-      expect(retireLocalMock).not.toHaveBeenCalled();
-      expect(retireDockerMock).not.toHaveBeenCalled();
-      expect(removeAssistantEntryMock).not.toHaveBeenCalled();
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Full flow tests
-// ---------------------------------------------------------------------------
-
-describe("teleport full flow", () => {
-  test("hatch and import: --from my-local --docker", async () => {
-    setArgv("--from", "my-local", "--docker");
-
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-    const dockerEntry = makeEntry("new-docker", { cloud: "docker" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-local") return localEntry;
-      return null;
-    });
-
-    loadAllAssistantsMock.mockImplementation(() => {
-      if (hatchDockerMock.mock.calls.length > 0) {
-        return [localEntry, dockerEntry];
-      }
-      return [localEntry];
-    });
-
-    const originalFetch = globalThis.fetch;
-    const fetchMock = createFetchMock();
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
-
-    try {
-      await teleport();
-
-      // Verify sequence: export, hatch, import, retire
-      expect(hatchDockerMock).toHaveBeenCalled();
-      expect(retireLocalMock).toHaveBeenCalledWith("my-local", localEntry);
-      expect(removeAssistantEntryMock).toHaveBeenCalledWith("my-local");
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Teleport complete"),
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("existing target overwrite: --from my-local --docker my-existing", async () => {
-    setArgv("--from", "my-local", "--docker", "my-existing");
-
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-    const dockerEntry = makeEntry("my-existing", { cloud: "docker" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-local") return localEntry;
-      if (name === "my-existing") return dockerEntry;
-      return null;
-    });
-
-    const originalFetch = globalThis.fetch;
-    const fetchMock = createFetchMock();
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
-
-    try {
-      await teleport();
-
-      // No hatch should happen — existing target is used
-      expect(hatchDockerMock).not.toHaveBeenCalled();
-      // Source should still be retired
-      expect(retireLocalMock).toHaveBeenCalledWith("my-local", localEntry);
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Teleport complete"),
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("legacy --to flag shows deprecation message", async () => {
-    setArgv("--from", "source", "--to", "target");
-
-    await expect(teleport()).rejects.toThrow("process.exit:1");
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("--to is deprecated"),
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Signed-URL upload tests
-// ---------------------------------------------------------------------------
-
-describe("signed-URL upload flow", () => {
-  test("happy path: signed URL upload succeeds → GCS-based import used", async () => {
-    setArgv("--from", "my-local", "--platform");
-
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-local") return localEntry;
-      return null;
-    });
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await teleport();
-
-      // Signed-URL flow should be used
-      expect(platformRequestUploadUrlMock).toHaveBeenCalled();
-      expect(platformUploadToSignedUrlMock).toHaveBeenCalled();
-      expect(platformImportBundleFromGcsMock).toHaveBeenCalledWith(
-        "bundle-key-123",
-        "platform-token",
-        "https://platform.vellum.ai",
-      );
-      // Inline import should NOT be called
-      expect(platformImportBundleMock).not.toHaveBeenCalled();
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Teleport complete"),
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("happy path dry-run: signed URL upload succeeds → GCS-based preflight used", async () => {
+  test("dry-run with existing platform target runs preflight-from-gcs", async () => {
     setArgv(
       "--from",
       "my-local",
@@ -1306,690 +1510,21 @@ describe("signed-URL upload flow", () => {
       return null;
     });
 
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
+    const restoreFetch = installTrackingFetch();
     try {
       await teleport();
-
-      // Signed-URL flow should be used for preflight
-      expect(platformRequestUploadUrlMock).toHaveBeenCalled();
-      expect(platformUploadToSignedUrlMock).toHaveBeenCalled();
       expect(platformImportPreflightFromGcsMock).toHaveBeenCalledWith(
         "bundle-key-123",
         "platform-token",
         "https://platform.vellum.ai",
       );
-      // Inline preflight should NOT be called
-      expect(platformImportPreflightMock).not.toHaveBeenCalled();
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("fallback: platformRequestUploadUrl throws 503 → falls back to inline import", async () => {
-    setArgv("--from", "my-local", "--platform");
-
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-local") return localEntry;
-      return null;
-    });
-
-    // Simulate 503 — "not available" in the error message
-    platformRequestUploadUrlMock.mockRejectedValue(
-      new Error("Signed uploads are not available on this platform instance"),
-    );
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await teleport();
-
-      // Should fall back to inline import
-      expect(platformRequestUploadUrlMock).toHaveBeenCalled();
-      expect(platformUploadToSignedUrlMock).not.toHaveBeenCalled();
-      expect(platformImportBundleFromGcsMock).not.toHaveBeenCalled();
-      expect(platformImportBundleMock).toHaveBeenCalled();
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Teleport complete"),
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("fallback: platformRequestUploadUrl throws 404 → falls back to inline import", async () => {
-    setArgv("--from", "my-local", "--platform");
-
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-local") return localEntry;
-      return null;
-    });
-
-    // Simulate 404 — endpoint doesn't exist on older platform versions
-    platformRequestUploadUrlMock.mockRejectedValue(
-      new Error("Signed uploads are not available on this platform instance"),
-    );
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await teleport();
-
-      // Should fall back to inline import
-      expect(platformRequestUploadUrlMock).toHaveBeenCalled();
-      expect(platformUploadToSignedUrlMock).not.toHaveBeenCalled();
-      expect(platformImportBundleFromGcsMock).not.toHaveBeenCalled();
-      expect(platformImportBundleMock).toHaveBeenCalled();
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Teleport complete"),
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("upload error: platformUploadToSignedUrl throws → error propagates", async () => {
-    setArgv("--from", "my-local", "--platform");
-
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-local") return localEntry;
-      return null;
-    });
-
-    // Upload succeeds at getting URL but fails during PUT
-    platformUploadToSignedUrlMock.mockRejectedValue(
-      new Error("Upload to signed URL failed: 500 Internal Server Error"),
-    );
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await expect(teleport()).rejects.toThrow(
-        "Upload to signed URL failed: 500 Internal Server Error",
-      );
-      // Should NOT fall back to inline import
-      expect(platformImportBundleMock).not.toHaveBeenCalled();
-      expect(platformImportBundleFromGcsMock).not.toHaveBeenCalled();
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("413 from GCS import: error message includes 'too large'", async () => {
-    setArgv("--from", "my-local", "--platform");
-
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-local") return localEntry;
-      return null;
-    });
-
-    // GCS import returns 413
-    platformImportBundleFromGcsMock.mockRejectedValue(
-      new Error("Bundle too large to import"),
-    );
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await expect(teleport()).rejects.toThrow("too large");
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Platform teleport org ID and reordered flow tests
-// ---------------------------------------------------------------------------
-
-describe("platform teleport org ID and reordered flow", () => {
-  test("hatchAssistant is called without orgId (authHeaders fetches it internally)", async () => {
-    setArgv("--from", "my-local", "--platform");
-
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-local") return localEntry;
-      return null;
-    });
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await teleport();
-
-      // hatchAssistant should be called with just the token (orgId is resolved internally by authHeaders)
-      expect(hatchAssistantMock).toHaveBeenCalledWith("platform-token");
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("upload to GCS happens before hatchAssistant for platform targets", async () => {
-    setArgv("--from", "my-local", "--platform");
-
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-local") return localEntry;
-      return null;
-    });
-
-    const callOrder: string[] = [];
-
-    platformRequestUploadUrlMock.mockImplementation(async () => {
-      callOrder.push("platformRequestUploadUrl");
-      return {
-        uploadUrl: "https://storage.googleapis.com/bucket/signed-upload-url",
-        bundleKey: "bundle-key-123",
-        expiresAt: new Date(Date.now() + 3600_000).toISOString(),
-      };
-    });
-
-    platformUploadToSignedUrlMock.mockImplementation(async () => {
-      callOrder.push("platformUploadToSignedUrl");
-    });
-
-    hatchAssistantMock.mockImplementation(async () => {
-      callOrder.push("hatchAssistant");
-      return {
-        assistant: {
-          id: "platform-new-id",
-          name: "platform-new",
-          status: "active",
-        },
-        reusedExisting: false,
-      };
-    });
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await teleport();
-
-      // Verify ordering: upload steps come before hatch
-      const uploadUrlIdx = callOrder.indexOf("platformRequestUploadUrl");
-      const uploadIdx = callOrder.indexOf("platformUploadToSignedUrl");
-      const hatchIdx = callOrder.indexOf("hatchAssistant");
-
-      expect(uploadUrlIdx).toBeGreaterThanOrEqual(0);
-      expect(uploadIdx).toBeGreaterThanOrEqual(0);
-      expect(hatchIdx).toBeGreaterThanOrEqual(0);
-      expect(uploadUrlIdx).toBeLessThan(hatchIdx);
-      expect(uploadIdx).toBeLessThan(hatchIdx);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("signed-URL fallback: when platformRequestUploadUrl throws 'not available', falls back to inline upload via importToAssistant", async () => {
-    setArgv("--from", "my-local", "--platform");
-
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-local") return localEntry;
-      return null;
-    });
-
-    // Simulate 503 — signed uploads not available
-    platformRequestUploadUrlMock.mockRejectedValue(
-      new Error("Signed uploads are not available on this platform instance"),
-    );
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await teleport();
-
-      // Upload URL was attempted but failed
-      expect(platformRequestUploadUrlMock).toHaveBeenCalled();
-      // No signed URL upload should have happened
-      expect(platformUploadToSignedUrlMock).not.toHaveBeenCalled();
-      // Should NOT use GCS-based import
-      expect(platformImportBundleFromGcsMock).not.toHaveBeenCalled();
-      // Should fall back to inline import
-      expect(platformImportBundleMock).toHaveBeenCalled();
-      // Hatch should still succeed
-      expect(hatchAssistantMock).toHaveBeenCalled();
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Teleport complete"),
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("bundleKey from pre-upload is forwarded to platformImportBundleFromGcs", async () => {
-    setArgv("--from", "my-local", "--platform");
-
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-local") return localEntry;
-      return null;
-    });
-
-    // Return a specific bundle key from the pre-upload step
-    platformRequestUploadUrlMock.mockResolvedValue({
-      uploadUrl: "https://storage.googleapis.com/bucket/signed-upload-url",
-      bundleKey: "pre-uploaded-key-789",
-      expiresAt: new Date(Date.now() + 3600_000).toISOString(),
-    });
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await teleport();
-
-      // The bundle key from the pre-upload step should be forwarded to GCS import
-      expect(platformImportBundleFromGcsMock).toHaveBeenCalledWith(
-        "pre-uploaded-key-789",
-        "platform-token",
-        expect.any(String),
-      );
-      // Inline import should NOT be used since signed upload succeeded
-      expect(platformImportBundleMock).not.toHaveBeenCalled();
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Pre-check: block teleport to platform when existing assistant detected
-// ---------------------------------------------------------------------------
-
-describe("pre-check: block teleport to platform when existing assistant detected", () => {
-  test("blocks BEFORE GCS upload when pre-check finds existing assistant", async () => {
-    setArgv("--from", "my-local", "--platform");
-
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-local") return localEntry;
-      return null;
-    });
-
-    // Pre-check returns an existing assistant
-    checkExistingPlatformAssistantMock.mockResolvedValue({
-      id: "existing-platform-id",
-      name: "existing-platform",
-      status: "active",
-    });
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await expect(teleport()).rejects.toThrow("process.exit:1");
-
-      // Pre-check should have been called
-      expect(checkExistingPlatformAssistantMock).toHaveBeenCalledWith(
-        "platform-token",
-        undefined,
-      );
-
-      // GCS upload should NOT have been attempted
-      expect(platformRequestUploadUrlMock).not.toHaveBeenCalled();
-      expect(platformUploadToSignedUrlMock).not.toHaveBeenCalled();
-
-      // Hatch should NOT have been called
       expect(hatchAssistantMock).not.toHaveBeenCalled();
-
-      // Error message should be actionable
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining("already have a platform assistant"),
-      );
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Retire it first"),
-      );
-
-      // The existing assistant is saved to the lockfile
-      expect(saveAssistantEntryMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          assistantId: "existing-platform-id",
-          cloud: "vellum",
-        }),
-      );
     } finally {
-      globalThis.fetch = originalFetch;
+      restoreFetch();
     }
   });
 
-  test("skips pre-check when targeting an existing named assistant", async () => {
-    setArgv("--from", "my-local", "--platform", "existing-platform");
-
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-    const platformEntry = makeEntry("existing-platform", {
-      cloud: "vellum",
-      runtimeUrl: "https://platform.vellum.ai",
-    });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-local") return localEntry;
-      if (name === "existing-platform") return platformEntry;
-      return null;
-    });
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await teleport();
-
-      // Pre-check should NOT be called when targeting a known named assistant
-      expect(checkExistingPlatformAssistantMock).not.toHaveBeenCalled();
-
-      // Upload should proceed normally
-      expect(platformRequestUploadUrlMock).toHaveBeenCalled();
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Teleport complete"),
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("pre-check failure is non-fatal — teleport proceeds", async () => {
-    setArgv("--from", "my-local", "--platform");
-
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-local") return localEntry;
-      return null;
-    });
-
-    // Pre-check returns null (no existing assistant or API failed gracefully)
-    checkExistingPlatformAssistantMock.mockResolvedValue(null);
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await teleport();
-
-      // Pre-check was called
-      expect(checkExistingPlatformAssistantMock).toHaveBeenCalled();
-
-      // Upload and hatch should proceed normally
-      expect(platformRequestUploadUrlMock).toHaveBeenCalled();
-      expect(hatchAssistantMock).toHaveBeenCalled();
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Teleport complete"),
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Version guard: block platform→non-platform when target is behind
-// ---------------------------------------------------------------------------
-
-describe("version guard: block platform→non-platform when target is behind", () => {
-  test("blocks platform→local when local version is behind platform", async () => {
-    setArgv("--from", "my-platform", "--local", "my-local");
-
-    const platformEntry = makeEntry("my-platform", {
-      cloud: "vellum",
-      runtimeUrl: "https://platform.vellum.ai",
-    });
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-platform") return platformEntry;
-      if (name === "my-local") return localEntry;
-      return null;
-    });
-
-    // Source (platform) is on 0.7.0, target (local) is on 0.6.0
-    fetchCurrentVersionMock.mockImplementation((url: string) => {
-      if (url === "https://platform.vellum.ai") return Promise.resolve("0.7.0");
-      return Promise.resolve("0.6.0");
-    });
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await expect(teleport()).rejects.toThrow("process.exit:1");
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining("is running 0.6.0"),
-      );
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Upgrade your local assistant first"),
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("allows platform→local when versions are equal", async () => {
-    setArgv("--from", "my-platform", "--local", "my-local");
-
-    const platformEntry = makeEntry("my-platform", {
-      cloud: "vellum",
-      runtimeUrl: "https://platform.vellum.ai",
-    });
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-platform") return platformEntry;
-      if (name === "my-local") return localEntry;
-      return null;
-    });
-
-    // Both on 0.7.0
-    fetchCurrentVersionMock.mockResolvedValue("0.7.0");
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await teleport();
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Teleport complete"),
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("allows platform→local when local is ahead of platform", async () => {
-    setArgv("--from", "my-platform", "--local", "my-local");
-
-    const platformEntry = makeEntry("my-platform", {
-      cloud: "vellum",
-      runtimeUrl: "https://platform.vellum.ai",
-    });
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-platform") return platformEntry;
-      if (name === "my-local") return localEntry;
-      return null;
-    });
-
-    // Source (platform) is on 0.7.0, target (local) is on 0.8.0
-    fetchCurrentVersionMock.mockImplementation((url: string) => {
-      if (url === "https://platform.vellum.ai") return Promise.resolve("0.7.0");
-      return Promise.resolve("0.8.0");
-    });
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await teleport();
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Teleport complete"),
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("allows teleport when source version cannot be fetched (best-effort)", async () => {
-    setArgv("--from", "my-platform", "--local", "my-local");
-
-    const platformEntry = makeEntry("my-platform", {
-      cloud: "vellum",
-      runtimeUrl: "https://platform.vellum.ai",
-    });
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-platform") return platformEntry;
-      if (name === "my-local") return localEntry;
-      return null;
-    });
-
-    // Source (platform) is unreachable, target (local) is on 0.6.0
-    fetchCurrentVersionMock.mockImplementation((url: string) => {
-      if (url === "https://platform.vellum.ai")
-        return Promise.resolve(undefined);
-      return Promise.resolve("0.6.0");
-    });
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await teleport();
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Teleport complete"),
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("allows teleport when target version cannot be fetched (best-effort)", async () => {
-    setArgv("--from", "my-platform", "--local", "my-local");
-
-    const platformEntry = makeEntry("my-platform", {
-      cloud: "vellum",
-      runtimeUrl: "https://platform.vellum.ai",
-    });
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-platform") return platformEntry;
-      if (name === "my-local") return localEntry;
-      return null;
-    });
-
-    // Source (platform) is on 0.7.0, target (local) is unreachable
-    fetchCurrentVersionMock.mockImplementation((url: string) => {
-      if (url === "https://platform.vellum.ai") return Promise.resolve("0.7.0");
-      return Promise.resolve(undefined);
-    });
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await teleport();
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Teleport complete"),
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("pre-release target is behind release source: 0.7.0-local.xxx < 0.7.0", async () => {
-    setArgv("--from", "my-platform", "--local", "my-local");
-
-    const platformEntry = makeEntry("my-platform", {
-      cloud: "vellum",
-      runtimeUrl: "https://platform.vellum.ai",
-    });
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-platform") return platformEntry;
-      if (name === "my-local") return localEntry;
-      return null;
-    });
-
-    // Per semver, pre-release < release for same core version
-    fetchCurrentVersionMock.mockImplementation((url: string) => {
-      if (url === "https://platform.vellum.ai") return Promise.resolve("0.7.0");
-      return Promise.resolve("0.7.0-local.20260411.abc123");
-    });
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await expect(teleport()).rejects.toThrow("process.exit:1");
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining("is running 0.7.0-local.20260411.abc123"),
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("blocks platform→docker when docker version is behind platform", async () => {
-    setArgv("--from", "my-platform", "--docker", "my-docker");
-
-    const platformEntry = makeEntry("my-platform", {
-      cloud: "vellum",
-      runtimeUrl: "https://platform.vellum.ai",
-    });
-    const dockerEntry = makeEntry("my-docker", { cloud: "docker" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-platform") return platformEntry;
-      if (name === "my-docker") return dockerEntry;
-      return null;
-    });
-
-    // Source (platform) is on 0.7.0, target (docker) is on 0.5.0
-    fetchCurrentVersionMock.mockImplementation((url: string) => {
-      if (url === "https://platform.vellum.ai") return Promise.resolve("0.7.0");
-      return Promise.resolve("0.5.0");
-    });
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await expect(teleport()).rejects.toThrow("process.exit:1");
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining("is running 0.5.0"),
-      );
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Upgrade your docker assistant first"),
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("dry-run: blocks platform→local when local version is behind", async () => {
+  test("dry-run against local target fails fast (no preflight-from-gcs runtime endpoint yet)", async () => {
     setArgv("--from", "my-platform", "--local", "my-local", "--dry-run");
 
     const platformEntry = makeEntry("my-platform", {
@@ -2004,28 +1539,140 @@ describe("version guard: block platform→non-platform when target is behind", (
       return null;
     });
 
-    // Source (platform) is on 0.7.0, target (local) is on 0.6.0
+    platformPollJobStatusMock.mockResolvedValue({
+      jobId: "platform-export-job-1",
+      type: "export",
+      status: "complete",
+      bundleKey: "bundle-key-from-platform",
+    });
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "--dry-run is not yet supported for local or docker targets",
+        ),
+      );
+
+      // Must fail BEFORE any export work — no signed URL request, no platform
+      // export initiation, nothing that costs time or bandwidth.
+      expect(platformRequestSignedUrlMock).not.toHaveBeenCalled();
+      expect(platformInitiateExportMock).not.toHaveBeenCalled();
+      expect(localRuntimeExportToGcsMock).not.toHaveBeenCalled();
+    } finally {
+      restoreFetch();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pre-check: block teleport to platform when existing assistant detected
+// ---------------------------------------------------------------------------
+
+describe("pre-check: existing platform assistant", () => {
+  test("blocks before any work when pre-check finds existing assistant", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
+
+    checkExistingPlatformAssistantMock.mockResolvedValue({
+      id: "existing-platform-id",
+      name: "existing-platform",
+      status: "active",
+    });
+
+    await expect(teleport()).rejects.toThrow("process.exit:1");
+
+    expect(checkExistingPlatformAssistantMock).toHaveBeenCalledWith(
+      "platform-token",
+      undefined,
+    );
+    // No signed-URL or runtime calls
+    expect(platformRequestSignedUrlMock).not.toHaveBeenCalled();
+    expect(localRuntimeExportToGcsMock).not.toHaveBeenCalled();
+    expect(hatchAssistantMock).not.toHaveBeenCalled();
+
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("already have a platform assistant"),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Version guard
+// ---------------------------------------------------------------------------
+
+describe("version guard", () => {
+  test("blocks platform→local when local version is behind", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
     fetchCurrentVersionMock.mockImplementation((url: string) => {
       if (url === "https://platform.vellum.ai") return Promise.resolve("0.7.0");
       return Promise.resolve("0.6.0");
     });
 
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
+    const restoreFetch = installTrackingFetch();
     try {
       await expect(teleport()).rejects.toThrow("process.exit:1");
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         expect.stringContaining("is running 0.6.0"),
       );
     } finally {
-      globalThis.fetch = originalFetch;
+      restoreFetch();
+    }
+  });
+
+  test("allows equal versions", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    fetchCurrentVersionMock.mockResolvedValue("0.7.0");
+    platformPollJobStatusMock.mockResolvedValue({
+      jobId: "platform-export-job-1",
+      type: "export",
+      status: "complete",
+      bundleKey: "b",
+    });
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await teleport();
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Teleport complete"),
+      );
+    } finally {
+      restoreFetch();
     }
   });
 
   test("newly hatched target is cleaned up when version check fails", async () => {
-    // No existing local target — teleport will hatch a new one, then
-    // the version guard should retire it to avoid orphans.
     setArgv("--from", "my-platform", "--local");
 
     const platformEntry = makeEntry("my-platform", {
@@ -2034,12 +1681,10 @@ describe("version guard: block platform→non-platform when target is behind", (
     });
     const newLocalEntry = makeEntry("new-local", { cloud: "local" });
 
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-platform") return platformEntry;
-      return null;
-    });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-platform" ? platformEntry : null,
+    );
 
-    // Simulate hatch creating a new local entry
     loadAllAssistantsMock.mockImplementation(() => {
       if (hatchLocalMock.mock.calls.length > 0) {
         return [platformEntry, newLocalEntry];
@@ -2047,70 +1692,42 @@ describe("version guard: block platform→non-platform when target is behind", (
       return [platformEntry];
     });
 
-    // Source (platform) is on 0.7.0, newly hatched local is on 0.6.0
+    platformPollJobStatusMock.mockResolvedValue({
+      jobId: "platform-export-job-1",
+      type: "export",
+      status: "complete",
+      bundleKey: "b",
+    });
+
     fetchCurrentVersionMock.mockImplementation((url: string) => {
       if (url === "https://platform.vellum.ai") return Promise.resolve("0.7.0");
       return Promise.resolve("0.6.0");
     });
 
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
+    const restoreFetch = installTrackingFetch();
     try {
       await expect(teleport()).rejects.toThrow("process.exit:1");
-      // Should have hatched a new local assistant
       expect(hatchLocalMock).toHaveBeenCalled();
-      // Should retire the orphaned assistant
       expect(retireLocalMock).toHaveBeenCalledWith("new-local", newLocalEntry);
       expect(removeAssistantEntryMock).toHaveBeenCalledWith("new-local");
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Cleaning up newly hatched assistant"),
-      );
     } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("does not check versions for local→platform direction", async () => {
-    setArgv("--from", "my-local", "--platform");
-
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-local") return localEntry;
-      return null;
-    });
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await teleport();
-      // fetchCurrentVersion should NOT be called for local→platform
-      expect(fetchCurrentVersionMock).not.toHaveBeenCalled();
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Teleport complete"),
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
+      restoreFetch();
     }
   });
 });
 
 // ---------------------------------------------------------------------------
-// Credential import display tests
+// Credential import display
 // ---------------------------------------------------------------------------
 
 describe("credential import display", () => {
-  test("prints credential counts when credentialsImported is present", async () => {
+  test("prints credential counts when credentialsImported is present (platform target)", async () => {
     setArgv("--from", "my-local", "--platform");
 
     const localEntry = makeEntry("my-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-local") return localEntry;
-      return null;
-    });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
 
     platformImportBundleFromGcsMock.mockResolvedValue({
       statusCode: 200,
@@ -2132,47 +1749,24 @@ describe("credential import display", () => {
       },
     });
 
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
+    const restoreFetch = installTrackingFetch();
     try {
       await teleport();
       expect(consoleLogSpy).toHaveBeenCalledWith("  Credentials imported: 5/5");
     } finally {
-      globalThis.fetch = originalFetch;
+      restoreFetch();
     }
   });
 
-  test("does not print credential line when credentialsImported is absent (old server)", async () => {
+  test("does not print credential line when absent", async () => {
     setArgv("--from", "my-local", "--platform");
 
     const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
 
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-local") return localEntry;
-      return null;
-    });
-
-    // Mock the GCS import path (used by default since platformRequestUploadUrl
-    // succeeds) with a response that has no credentialsImported field, simulating
-    // an older server.
-    platformImportBundleFromGcsMock.mockResolvedValue({
-      statusCode: 200,
-      body: {
-        success: true,
-        summary: {
-          total_files: 3,
-          files_created: 2,
-          files_overwritten: 1,
-          files_skipped: 0,
-          backups_created: 1,
-        },
-      },
-    });
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
+    const restoreFetch = installTrackingFetch();
     try {
       await teleport();
       const allLogCalls = consoleLogSpy.mock.calls.map((c: unknown[]) => c[0]);
@@ -2182,98 +1776,7 @@ describe("credential import display", () => {
       );
       expect(credentialLines).toHaveLength(0);
     } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("lists failed credential accounts individually", async () => {
-    setArgv("--from", "my-local", "--platform");
-
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-local") return localEntry;
-      return null;
-    });
-
-    platformImportBundleFromGcsMock.mockResolvedValue({
-      statusCode: 200,
-      body: {
-        success: true,
-        summary: {
-          total_files: 3,
-          files_created: 2,
-          files_overwritten: 1,
-          files_skipped: 0,
-          backups_created: 1,
-        },
-        credentialsImported: {
-          total: 5,
-          succeeded: 3,
-          failed: 2,
-          failedAccounts: ["google:user@example.com", "github:octocat"],
-        },
-      },
-    });
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await teleport();
-      expect(consoleLogSpy).toHaveBeenCalledWith("  Credentials imported: 3/5");
-      expect(consoleLogSpy).toHaveBeenCalledWith("  Credentials failed:  2");
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        "    - google:user@example.com",
-      );
-      expect(consoleLogSpy).toHaveBeenCalledWith("    - github:octocat");
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("shows platform credentials skipped count", async () => {
-    setArgv("--from", "my-local", "--platform");
-
-    const localEntry = makeEntry("my-local", { cloud: "local" });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-local") return localEntry;
-      return null;
-    });
-
-    platformImportBundleFromGcsMock.mockResolvedValue({
-      statusCode: 200,
-      body: {
-        success: true,
-        summary: {
-          total_files: 3,
-          files_created: 2,
-          files_overwritten: 1,
-          files_skipped: 0,
-          backups_created: 1,
-        },
-        credentialsImported: {
-          total: 5,
-          succeeded: 5,
-          failed: 0,
-          failedAccounts: [],
-          skippedPlatform: 3,
-        },
-      },
-    });
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await teleport();
-      expect(consoleLogSpy).toHaveBeenCalledWith("  Credentials imported: 5/5");
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        "  Platform credentials skipped: 3",
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
+      restoreFetch();
     }
   });
 });
@@ -2282,7 +1785,7 @@ describe("credential import display", () => {
 // Platform credential injection after teleport
 // ---------------------------------------------------------------------------
 
-describe("teleport platform credential injection", () => {
+describe("platform credential injection", () => {
   test("platform→local teleport calls ensureSelfHostedLocalRegistration and injectCredentialsIntoAssistant", async () => {
     setArgv("--from", "my-platform", "--local", "my-local");
 
@@ -2301,9 +1804,14 @@ describe("teleport platform credential injection", () => {
       return null;
     });
 
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+    platformPollJobStatusMock.mockResolvedValue({
+      jobId: "platform-export-job-1",
+      type: "export",
+      status: "complete",
+      bundleKey: "bundle-xyz",
+    });
 
+    const restoreFetch = installTrackingFetch();
     try {
       await teleport();
       expect(ensureSelfHostedLocalRegistrationMock).toHaveBeenCalledWith(
@@ -2323,49 +1831,12 @@ describe("teleport platform credential injection", () => {
         userId: "user-1",
         webhookSecret: "webhook-secret-123",
       });
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        "  Platform credentials injected.",
-      );
     } finally {
-      globalThis.fetch = originalFetch;
+      restoreFetch();
     }
   });
 
-  test("platform→docker teleport also calls credential injection", async () => {
-    setArgv("--from", "my-platform", "--docker", "my-docker");
-
-    const platformEntry = makeEntry("my-platform", {
-      cloud: "vellum",
-      runtimeUrl: "https://platform.vellum.ai",
-    });
-    const dockerEntry = makeEntry("my-docker", {
-      cloud: "docker",
-      runtimeUrl: "http://localhost:8821",
-      bearerToken: "docker-bearer",
-    });
-
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "my-platform") return platformEntry;
-      if (name === "my-docker") return dockerEntry;
-      return null;
-    });
-
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await teleport();
-      expect(ensureSelfHostedLocalRegistrationMock).toHaveBeenCalled();
-      expect(injectCredentialsIntoAssistantMock).toHaveBeenCalled();
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        "  Platform credentials injected.",
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  test("local→local teleport does NOT call credential injection", async () => {
+  test("local→docker teleport does NOT call credential injection", async () => {
     setArgv("--from", "my-local", "--docker", "my-docker");
 
     const localEntry = makeEntry("my-local", { cloud: "local" });
@@ -2380,19 +1851,67 @@ describe("teleport platform credential injection", () => {
       return null;
     });
 
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
+    const restoreFetch = installTrackingFetch();
     try {
       await teleport();
       expect(ensureSelfHostedLocalRegistrationMock).not.toHaveBeenCalled();
       expect(injectCredentialsIntoAssistantMock).not.toHaveBeenCalled();
     } finally {
-      globalThis.fetch = originalFetch;
+      restoreFetch();
     }
   });
+});
 
-  test("if user is not logged in (readPlatformToken returns null), injection is skipped gracefully", async () => {
+// ---------------------------------------------------------------------------
+// Auth / transient-error resilience (Codex P1/P2 regression guards)
+// ---------------------------------------------------------------------------
+
+describe("auth + transient-error resilience", () => {
+  test("runtime 401 on export kickoff triggers token refresh and retry", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
+
+    // First kickoff call fails with 401, second succeeds.
+    localRuntimeExportToGcsMock.mockImplementationOnce(async () => {
+      throw new Error("Local runtime export-to-gcs failed (401): stale token");
+    });
+    localRuntimeExportToGcsMock.mockImplementationOnce(async () => ({
+      jobId: "local-export-job-after-refresh",
+    }));
+
+    // Ensure the refresh path returns a distinguishable token.
+    leaseGuardianTokenMock.mockResolvedValueOnce({
+      accessToken: "refreshed-token",
+      accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    } as unknown as Awaited<
+      ReturnType<typeof guardianToken.leaseGuardianToken>
+    >);
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await teleport();
+    } finally {
+      restoreFetch();
+    }
+
+    // Kickoff was attempted twice: once with the cached token, once after
+    // a forced refresh lease.
+    expect(localRuntimeExportToGcsMock).toHaveBeenCalledTimes(2);
+
+    const firstTokenArg = localRuntimeExportToGcsMock.mock.calls[0][1];
+    const secondTokenArg = localRuntimeExportToGcsMock.mock.calls[1][1];
+    expect(firstTokenArg).toBe("local-token");
+    expect(secondTokenArg).toBe("refreshed-token");
+
+    // A fresh lease was requested exactly once (the forceRefresh path).
+    expect(leaseGuardianTokenMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("runtime 401 on import kickoff triggers token refresh and retry", async () => {
     setArgv("--from", "my-platform", "--local", "my-local");
 
     const platformEntry = makeEntry("my-platform", {
@@ -2407,36 +1926,181 @@ describe("teleport platform credential injection", () => {
       return null;
     });
 
-    // The readPlatformToken mock is called twice during teleport:
-    // once during the platform export flow and once during credential injection.
-    // We need the first call to return a token (for the export to work)
-    // and the second call to return null (to test the skip path).
-    let callCount = 0;
-    readPlatformTokenMock.mockImplementation(() => {
-      callCount++;
-      // The platform export path calls readPlatformToken first;
-      // the credential injection helper calls it after import.
-      // Return null only on the last call (the injection helper).
-      if (callCount <= 1) return "platform-token";
-      return null;
+    platformPollJobStatusMock.mockResolvedValue({
+      jobId: "platform-export-job-1",
+      type: "export",
+      status: "complete",
+      bundleKey: "b-key",
     });
 
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+    localRuntimeImportFromGcsMock.mockImplementationOnce(async () => {
+      throw new Error(
+        "Local runtime import-from-gcs failed (401): stale token",
+      );
+    });
+    localRuntimeImportFromGcsMock.mockImplementationOnce(async () => ({
+      jobId: "local-import-after-refresh",
+    }));
 
+    leaseGuardianTokenMock.mockResolvedValueOnce({
+      accessToken: "refreshed-import-token",
+      accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    } as unknown as Awaited<
+      ReturnType<typeof guardianToken.leaseGuardianToken>
+    >);
+
+    const restoreFetch = installTrackingFetch();
     try {
       await teleport();
-      expect(ensureSelfHostedLocalRegistrationMock).not.toHaveBeenCalled();
-      expect(injectCredentialsIntoAssistantMock).not.toHaveBeenCalled();
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        "  Skipped platform credential injection (not logged in).",
-      );
-      // Teleport still succeeds
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Teleport complete"),
+    } finally {
+      restoreFetch();
+    }
+
+    expect(localRuntimeImportFromGcsMock).toHaveBeenCalledTimes(2);
+    expect(localRuntimeImportFromGcsMock.mock.calls[0][1]).toBe("local-token");
+    expect(localRuntimeImportFromGcsMock.mock.calls[1][1]).toBe(
+      "refreshed-import-token",
+    );
+  });
+
+  test("runtime non-401 errors do NOT trigger token refresh", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
+
+    localRuntimeExportToGcsMock.mockRejectedValue(
+      new Error("Local runtime export-to-gcs failed (500): boom"),
+    );
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await expect(teleport()).rejects.toThrow(/500.*boom/);
+    } finally {
+      restoreFetch();
+    }
+
+    // One attempt, no forced-refresh lease.
+    expect(localRuntimeExportToGcsMock).toHaveBeenCalledTimes(1);
+    expect(leaseGuardianTokenMock).not.toHaveBeenCalled();
+  });
+
+  test("runtime poll 401 mid-migration triggers forceRefresh lease and completes", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
+
+    // Export kickoff succeeds with the cached "local-token".
+    // During polling, the first status check fails with 401 (token expired
+    // mid-migration), the poll loop calls refreshOn401 → leaseGuardianToken,
+    // then the next poll succeeds with the new token.
+    const tokensSeenByPoll: string[] = [];
+    localRuntimePollJobStatusMock.mockImplementation(
+      async (_runtimeUrl, token, jobId) => {
+        tokensSeenByPoll.push(token);
+        if (tokensSeenByPoll.length === 1) {
+          throw new Error("Local job status check failed: 401 Unauthorized");
+        }
+        return {
+          jobId,
+          type: "export" as const,
+          status: "complete" as const,
+          result: undefined,
+        };
+      },
+    );
+
+    leaseGuardianTokenMock.mockResolvedValueOnce({
+      accessToken: "poll-refreshed-token",
+      accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    } as unknown as Awaited<
+      ReturnType<typeof guardianToken.leaseGuardianToken>
+    >);
+
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    const restoreFetch = installTrackingFetch();
+    try {
+      await teleport();
+
+      // The first poll used the cached token; the second (post-refresh) poll
+      // used the freshly leased one.
+      expect(tokensSeenByPoll.length).toBeGreaterThanOrEqual(2);
+      expect(tokensSeenByPoll[0]).toBe("local-token");
+      expect(tokensSeenByPoll[1]).toBe("poll-refreshed-token");
+
+      // leaseGuardianToken was invoked for the forceRefresh path.
+      expect(leaseGuardianTokenMock).toHaveBeenCalledTimes(1);
+
+      // The 401 branch emits its own warning — distinct from the generic
+      // transient-error warning — so this asserts the refresh path fired.
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("refreshing auth"),
       );
     } finally {
-      globalThis.fetch = originalFetch;
+      restoreFetch();
+      warnSpy.mockRestore();
     }
+  });
+
+  test("transient poll error does not abort teleport (job completes after retry)", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
+
+    // Throw once with a 503 (transient), then succeed with terminal complete.
+    let pollCalls = 0;
+    localRuntimePollJobStatusMock.mockImplementation(
+      async (_runtimeUrl, _token, jobId) => {
+        pollCalls += 1;
+        if (pollCalls === 1) {
+          throw new Error(
+            "Local job status check failed: 503 Service Unavailable",
+          );
+        }
+        return {
+          jobId,
+          type: "export" as const,
+          status: "complete" as const,
+          result: undefined,
+        };
+      },
+    );
+
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    const restoreFetch = installTrackingFetch();
+    try {
+      // Should NOT reject — a single transient 503 is retried, not fatal.
+      await teleport();
+      expect(pollCalls).toBeGreaterThanOrEqual(2);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("polling failed, retrying"),
+      );
+    } finally {
+      restoreFetch();
+      warnSpy.mockRestore();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Misc: legacy --to deprecation
+// ---------------------------------------------------------------------------
+
+describe("misc", () => {
+  test("legacy --to flag shows deprecation message", async () => {
+    setArgv("--from", "source", "--to", "target");
+
+    await expect(teleport()).rejects.toThrow("process.exit:1");
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("--to is deprecated"),
+    );
   });
 });

@@ -3,8 +3,8 @@ import {
   type DangerousPattern,
   parse,
   type ParsedCommand,
-} from "../tools/terminal/parser.js";
-import type { AllowlistOption } from "./types.js";
+} from "./shell-parser.js";
+import type { AllowlistOption } from "./risk-types.js";
 
 export type { ParsedCommand };
 
@@ -294,4 +294,3 @@ export async function buildShellAllowlistOptions(
     return true;
   });
 }
-

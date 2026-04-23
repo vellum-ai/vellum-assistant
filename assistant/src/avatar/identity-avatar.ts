@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { getWorkspaceDir } from "../../../../util/platform.js";
+import { getWorkspaceDir } from "../util/platform.js";
 
 /**
  * Update the `## Avatar` section in IDENTITY.md with a plain-text description.

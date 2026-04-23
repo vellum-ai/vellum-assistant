@@ -7,7 +7,7 @@ function makeClassifier(): ScheduleRiskClassifier {
 }
 
 describe("schedule_create", () => {
-  test("no mode (defaults to execute) → medium", async () => {
+  test("no mode (defaults to execute) -> medium", async () => {
     const result = await makeClassifier().classify({
       toolName: "schedule_create",
     });
@@ -15,7 +15,7 @@ describe("schedule_create", () => {
     expect(result.matchType).toBe("registry");
   });
 
-  test("mode=notify → medium", async () => {
+  test("mode=notify -> medium", async () => {
     const result = await makeClassifier().classify({
       toolName: "schedule_create",
       mode: "notify",
@@ -23,7 +23,7 @@ describe("schedule_create", () => {
     expect(result.riskLevel).toBe("medium");
   });
 
-  test("mode=execute → medium", async () => {
+  test("mode=execute -> medium", async () => {
     const result = await makeClassifier().classify({
       toolName: "schedule_create",
       mode: "execute",
@@ -31,7 +31,7 @@ describe("schedule_create", () => {
     expect(result.riskLevel).toBe("medium");
   });
 
-  test("mode=script → high", async () => {
+  test("mode=script -> high", async () => {
     const result = await makeClassifier().classify({
       toolName: "schedule_create",
       mode: "script",
@@ -41,7 +41,7 @@ describe("schedule_create", () => {
     expect(result.reason).toContain("shell command");
   });
 
-  test("script provided without mode still escalates → high", async () => {
+  test("script provided without mode still escalates -> high", async () => {
     // Defense-in-depth: even if mode is omitted, a non-empty script field
     // means someone is trying to stage arbitrary shell content.
     const result = await makeClassifier().classify({
@@ -69,14 +69,14 @@ describe("schedule_create", () => {
 });
 
 describe("schedule_update", () => {
-  test("only updating name/expression (no mode, no script) → medium", async () => {
+  test("only updating name/expression (no mode, no script) -> medium", async () => {
     const result = await makeClassifier().classify({
       toolName: "schedule_update",
     });
     expect(result.riskLevel).toBe("medium");
   });
 
-  test("mode=script → high", async () => {
+  test("mode=script -> high", async () => {
     const result = await makeClassifier().classify({
       toolName: "schedule_update",
       mode: "script",
@@ -84,7 +84,7 @@ describe("schedule_update", () => {
     expect(result.riskLevel).toBe("high");
   });
 
-  test("updating script content on existing script-mode job → high", async () => {
+  test("updating script content on existing script-mode job -> high", async () => {
     // User supplies a new script but leaves mode unset (implicit: existing
     // job is already script mode). We still treat this as high risk because
     // arbitrary shell content is being written into a job definition.
@@ -95,7 +95,7 @@ describe("schedule_update", () => {
     expect(result.riskLevel).toBe("high");
   });
 
-  test("switching FROM script TO execute → medium", async () => {
+  test("switching FROM script TO execute -> medium", async () => {
     const result = await makeClassifier().classify({
       toolName: "schedule_update",
       mode: "execute",

@@ -83,9 +83,11 @@ const RouteEntrySchema = z.object({
   requestBody: RouteBodySchemaSchema.optional(),
   /** Multi-content-type request body variants (overrides `requestBody` when present). */
   requestBodies: z.array(RouteRequestBodyVariantSchema).optional(),
-  /** JSON Schema for the 200 response body. */
+  /** JSON Schema for the success response body. */
   responseBody: RouteBodySchemaSchema.optional(),
-  /** Extra non-200 responses documented in the spec. */
+  /** HTTP status code for the success response. Defaults to "200". */
+  responseStatus: z.string().optional(),
+  /** Extra response codes documented in the spec. */
   additionalResponses: z
     .record(z.string(), RouteAdditionalResponseSchema)
     .optional(),
@@ -431,14 +433,17 @@ function buildSpec(
           ? [deriveTagFromModule(entry.sourceModule)]
           : undefined;
 
-    // Build the operation
+    // Build the operation. Default success status is 200; async endpoints
+    // that enqueue a job and return immediately set responseStatus: "202"
+    // so the generated spec matches the handler's actual response code.
+    const successStatus = entry.responseStatus ?? "200";
     const operation: OpenApiOperation = {
       operationId,
       ...(entry.summary ? { summary: entry.summary } : {}),
       ...(entry.description ? { description: entry.description } : {}),
       ...(tags ? { tags } : {}),
       responses: {
-        "200": entry.responseBody
+        [successStatus]: entry.responseBody
           ? {
               description: "Successful response",
               content: {

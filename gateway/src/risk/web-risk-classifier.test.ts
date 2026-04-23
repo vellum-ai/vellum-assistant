@@ -2,13 +2,13 @@ import { describe, expect, test } from "bun:test";
 
 import { WebRiskClassifier } from "./web-risk-classifier.js";
 
-// ── Helper ───────────────────────────────────────────────────────────────────
+// -- Helper -------------------------------------------------------------------
 
 function makeClassifier(): WebRiskClassifier {
   return new WebRiskClassifier();
 }
 
-// ── web_search ───────────────────────────────────────────────────────────────
+// -- web_search ---------------------------------------------------------------
 
 describe("web_search", () => {
   test("always classified as low risk", async () => {
@@ -32,7 +32,7 @@ describe("web_search", () => {
   });
 });
 
-// ── web_fetch ────────────────────────────────────────────────────────────────
+// -- web_fetch ----------------------------------------------------------------
 
 describe("web_fetch", () => {
   test("default (no private network) is low risk", async () => {
@@ -89,7 +89,7 @@ describe("web_fetch", () => {
   });
 });
 
-// ── network_request ──────────────────────────────────────────────────────────
+// -- network_request ----------------------------------------------------------
 
 describe("network_request", () => {
   test("always classified as medium risk", async () => {
@@ -123,7 +123,7 @@ describe("network_request", () => {
   });
 });
 
-// ── Allowlist options ────────────────────────────────────────────────────────
+// -- Allowlist options --------------------------------------------------------
 // The web classifier intentionally does NOT produce allowlistOptions.
 // URL normalization for scope options is handled by the canonical
 // urlAllowlistStrategy in checker.ts (avoids circular import + divergent
@@ -157,7 +157,7 @@ describe("allowlistOptions", () => {
   });
 });
 
-// ── Singleton ────────────────────────────────────────────────────────────────
+// -- Singleton ----------------------------------------------------------------
 
 describe("singleton", () => {
   test("webRiskClassifier is exported and functional", async () => {

@@ -1839,8 +1839,6 @@ jobs:
           bun build --compile "${DAEMON_FLAGS[@]}" --target=bun-darwin-x64 \
             "$ASSISTANT_SRC_DIR/src/daemon/main.ts" --outfile daemon-bin/vellum-daemon
           chmod +x daemon-bin/vellum-daemon
-          cp "$ASSISTANT_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" daemon-bin/
-          cp "$ASSISTANT_SRC_DIR/node_modules/tree-sitter-bash/tree-sitter-bash.wasm" daemon-bin/
           rm -rf daemon-bin/node_modules
           rm -rf daemon-bin/bundled-skills
           cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" daemon-bin/bundled-skills
@@ -1869,6 +1867,8 @@ jobs:
           bun build --compile --target=bun-darwin-x64 \
             "$GATEWAY_SRC_DIR/src/index.ts" --outfile gateway-bin/vellum-gateway
           chmod +x gateway-bin/vellum-gateway
+          cp "$GATEWAY_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" gateway-bin/
+          cp "$GATEWAY_SRC_DIR/node_modules/tree-sitter-bash/tree-sitter-bash.wasm" gateway-bin/
 
           # Credential-executor (CES)
           (cd "$CES_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)

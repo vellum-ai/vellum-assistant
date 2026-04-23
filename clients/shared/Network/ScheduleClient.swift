@@ -34,7 +34,7 @@ public struct ScheduleClient: ScheduleClientProtocol {
 
     public func fetchSchedulesList() async throws -> [ScheduleItem] {
         let response = try await GatewayHTTPClient.get(
-            path: "assistants/{assistantId}/schedules?exclude_created_by=defer", timeout: 10
+            path: "assistants/{assistantId}/schedules", timeout: 10
         )
         guard response.isSuccess else {
             log.error("fetchSchedulesList failed (HTTP \(response.statusCode))")

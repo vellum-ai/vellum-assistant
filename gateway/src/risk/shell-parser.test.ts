@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 
-import { parse } from "../tools/terminal/parser.js";
+import { parse } from "./shell-parser.js";
 
 // The parser lazily initializes web-tree-sitter on first call.
 // All tests share the same parser instance.
@@ -189,7 +189,7 @@ describe("Shell Parser", () => {
 
       test("pipe to node -e is not flagged (inline code)", async () => {
         const result = await parse(
-          "cat data.json | node -e \"process.stdin.resume()\"",
+          'cat data.json | node -e "process.stdin.resume()"',
         );
         expect(
           result.dangerousPatterns.some((p) => p.type === "pipe_to_shell"),

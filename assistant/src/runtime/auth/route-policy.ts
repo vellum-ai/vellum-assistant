@@ -443,8 +443,11 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   // Migrations
   { endpoint: "migrations/validate", scopes: ["settings.read"] },
   { endpoint: "migrations/export", scopes: ["settings.write"] },
+  { endpoint: "migrations/export-to-gcs", scopes: ["settings.write"] },
   { endpoint: "migrations/import-preflight", scopes: ["settings.write"] },
   { endpoint: "migrations/import", scopes: ["settings.write"] },
+  { endpoint: "migrations/import-from-gcs", scopes: ["settings.write"] },
+  { endpoint: "migrations/jobs", scopes: ["settings.read"] },
 
   // Backups
   { endpoint: "backups", scopes: ["settings.read"] },

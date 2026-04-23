@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 
 import fc from "fast-check";
 
-import { parse, type ParsedCommand } from "../tools/terminal/parser.js";
+import { parse, type ParsedCommand } from "./shell-parser.js";
 
 // The parser lazily initializes web-tree-sitter on first call.
 // All tests share the same parser instance.

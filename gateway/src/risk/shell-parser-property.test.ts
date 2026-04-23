@@ -2,9 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 
 import fc from "fast-check";
 
-import { classifyRisk } from "../permissions/checker.js";
-import { RiskLevel } from "../permissions/types.js";
-import { parse } from "../tools/terminal/parser.js";
+import { parse } from "./shell-parser.js";
 
 // Helper: build a string arbitrary from a set of characters (fc.stringOf removed in v4)
 function charsToString(
@@ -24,231 +22,9 @@ beforeAll(async () => {
 });
 
 describe("Shell parser property-based tests", () => {
-  // ── 1. Known dangerous commands always classified high-risk ────
+  // ── 1. Pipe to shell programs triggers dangerous pattern ───────
 
-  describe("known dangerous commands are always high-risk", () => {
-    const highRiskPrograms = [
-      "sudo",
-      "su",
-      "doas",
-      "dd",
-      "mkfs",
-      "fdisk",
-      "parted",
-      "mount",
-      "umount",
-      "systemctl",
-      "service",
-      "launchctl",
-      "useradd",
-      "userdel",
-      "usermod",
-      "groupadd",
-      "groupdel",
-      "iptables",
-      "ufw",
-      "firewall-cmd",
-      "reboot",
-      "shutdown",
-      "halt",
-      "poweroff",
-      "kill",
-      "killall",
-      "pkill",
-    ];
-
-    test("high-risk programs with random args are classified high", async () => {
-      await fc.assert(
-        fc.asyncProperty(
-          fc.constantFrom(...highRiskPrograms),
-          fc.array(fc.stringMatching(/^[a-zA-Z0-9_./-]+$/), {
-            minLength: 0,
-            maxLength: 5,
-          }),
-          async (program, args) => {
-            const command = [program, ...args].join(" ");
-            const risk = await classifyRisk("bash", { command });
-            expect(risk.level).toBe(RiskLevel.High);
-          },
-        ),
-        { numRuns: 200, ...FC_OPTS },
-      );
-    });
-
-    test("rm -rf with random targets is high-risk", async () => {
-      await fc.assert(
-        fc.asyncProperty(
-          fc.constantFrom("-rf", "-fr", "-r", "-f"),
-          fc.stringMatching(/^[a-zA-Z0-9_./-]+$/),
-          async (flag, target) => {
-            const command = `rm ${flag} ${target}`;
-            const risk = await classifyRisk("bash", { command });
-            expect(risk.level).toBe(RiskLevel.High);
-          },
-        ),
-        { numRuns: 100, ...FC_OPTS },
-      );
-    });
-
-    test("rm targeting / ~ or $HOME is high-risk", async () => {
-      await fc.assert(
-        fc.asyncProperty(fc.constantFrom("/", "~", "$HOME"), async (target) => {
-          const command = `rm ${target}`;
-          const risk = await classifyRisk("bash", { command });
-          expect(risk.level).toBe(RiskLevel.High);
-        }),
-        { numRuns: 10, ...FC_OPTS },
-      );
-    });
-
-    test("sudo with random commands is always high-risk", async () => {
-      await fc.assert(
-        fc.asyncProperty(
-          fc.stringMatching(/^[a-z][a-zA-Z0-9_-]*$/),
-          fc.array(fc.stringMatching(/^[a-zA-Z0-9_./-]+$/), {
-            minLength: 0,
-            maxLength: 3,
-          }),
-          async (program, args) => {
-            const command = ["sudo", program, ...args].join(" ");
-            const risk = await classifyRisk("bash", { command });
-            expect(risk.level).toBe(RiskLevel.High);
-          },
-        ),
-        { numRuns: 100, ...FC_OPTS },
-      );
-    });
-
-    test("dd with random args is always high-risk", async () => {
-      await fc.assert(
-        fc.asyncProperty(
-          fc.array(
-            fc.tuple(
-              fc.constantFrom("if", "of", "bs", "count"),
-              fc.stringMatching(/^[a-zA-Z0-9/._]+$/),
-            ),
-            { minLength: 0, maxLength: 3 },
-          ),
-          async (kvPairs) => {
-            const args = kvPairs.map(([k, v]) => `${k}=${v}`);
-            const command = ["dd", ...args].join(" ");
-            const risk = await classifyRisk("bash", { command });
-            expect(risk.level).toBe(RiskLevel.High);
-          },
-        ),
-        { numRuns: 50, ...FC_OPTS },
-      );
-    });
-  });
-
-  // ── 2. Simple safe commands are never misclassified ────────────
-
-  describe("simple safe commands are low-risk", () => {
-    const lowRiskPrograms = [
-      "echo",
-      "ls",
-      "pwd",
-      "cat",
-      "head",
-      "tail",
-      "grep",
-      "find",
-      "which",
-      "date",
-      "whoami",
-      "hostname",
-      "uname",
-      "wc",
-      "file",
-      "stat",
-      "realpath",
-      "dirname",
-      "basename",
-      "man",
-      "help",
-      "tree",
-      "du",
-      "df",
-    ];
-    const safeOperand = fc.stringMatching(/^[a-zA-Z0-9_./][a-zA-Z0-9_./-]*$/);
-
-    test("low-risk programs with safe operand args are classified low", async () => {
-      await fc.assert(
-        fc.asyncProperty(
-          fc.constantFrom(...lowRiskPrograms),
-          fc.array(safeOperand, { minLength: 0, maxLength: 4 }),
-          async (program, args) => {
-            const command = [program, ...args].join(" ");
-            const risk = await classifyRisk("bash", { command });
-            expect(risk.level).toBe(RiskLevel.Low);
-          },
-        ),
-        { numRuns: 200, ...FC_OPTS },
-      );
-    });
-
-    test("git read-only subcommands are low-risk", async () => {
-      const readOnlyGit = [
-        "status",
-        "log",
-        "diff",
-        "show",
-        "blame",
-        "shortlog",
-        "describe",
-        "rev-parse",
-        "ls-files",
-        "ls-tree",
-        "cat-file",
-      ];
-
-      await fc.assert(
-        fc.asyncProperty(
-          fc.constantFrom(...readOnlyGit),
-          async (subcommand) => {
-            const command = `git ${subcommand}`;
-            const risk = await classifyRisk("bash", { command });
-            expect(risk.level).toBe(RiskLevel.Low);
-          },
-        ),
-        { numRuns: 100, ...FC_OPTS },
-      );
-    });
-  });
-
-  // ── 3. Pipe chains preserve highest risk ──────────────────────
-
-  describe("pipe chains preserve highest risk", () => {
-    test("piping safe command to high-risk program is high-risk", async () => {
-      await fc.assert(
-        fc.asyncProperty(
-          fc.constantFrom("echo", "cat", "ls", "grep", "find"),
-          fc.constantFrom("sudo", "kill", "reboot", "shutdown", "killall"),
-          async (safe, dangerous) => {
-            const command = `${safe} something | ${dangerous}`;
-            const risk = await classifyRisk("bash", { command });
-            expect(risk.level).toBe(RiskLevel.High);
-          },
-        ),
-        { numRuns: 50, ...FC_OPTS },
-      );
-    });
-
-    test("chaining safe && high-risk is high-risk", async () => {
-      await fc.assert(
-        fc.asyncProperty(
-          fc.constantFrom("echo hello", "ls", "pwd", "date"),
-          fc.constantFrom("sudo rm -rf /", "kill -9 1", "reboot"),
-          async (safe, dangerous) => {
-            const command = `${safe} && ${dangerous}`;
-            const risk = await classifyRisk("bash", { command });
-            expect(risk.level).toBe(RiskLevel.High);
-          },
-        ),
-        { numRuns: 50, ...FC_OPTS },
-      );
-    });
-
+  describe("pipe chains detect dangerous patterns", () => {
     test("pipe to shell programs triggers dangerous pattern", async () => {
       const shells = ["bash", "sh", "zsh", "dash", "ksh", "fish"];
       await fc.assert(
@@ -271,33 +47,9 @@ describe("Shell parser property-based tests", () => {
         { numRuns: 50, ...FC_OPTS },
       );
     });
-
-    test("all-safe pipelines remain low-risk", async () => {
-      await fc.assert(
-        fc.asyncProperty(
-          fc.array(
-            fc.constantFrom(
-              "cat file",
-              "grep pattern",
-              "sort",
-              "uniq",
-              "wc -l",
-              "head",
-            ),
-            { minLength: 2, maxLength: 5 },
-          ),
-          async (commands) => {
-            const command = commands.join(" | ");
-            const risk = await classifyRisk("bash", { command });
-            expect(risk.level).toBe(RiskLevel.Low);
-          },
-        ),
-        { numRuns: 100, ...FC_OPTS },
-      );
-    });
   });
 
-  // ── 4. Random strings don't crash ─────────────────────────────
+  // ── 2. Random strings don't crash ──────────────────────────────
 
   describe("random strings never crash the parser", () => {
     test("arbitrary strings produce a valid ParsedCommand", async () => {
@@ -330,21 +82,6 @@ describe("Shell parser property-based tests", () => {
           },
         ),
         { numRuns: 200, ...FC_OPTS },
-      );
-    });
-
-    test("classifyRisk never throws on arbitrary shell input", async () => {
-      await fc.assert(
-        fc.asyncProperty(
-          fc.string({ minLength: 0, maxLength: 500 }),
-          async (input) => {
-            const risk = await classifyRisk("bash", { command: input });
-            expect([RiskLevel.Low, RiskLevel.Medium, RiskLevel.High]).toContain(
-              risk.level,
-            );
-          },
-        ),
-        { numRuns: 300, ...FC_OPTS },
       );
     });
 
@@ -389,7 +126,7 @@ describe("Shell parser property-based tests", () => {
     });
   });
 
-  // ── 5. Empty/whitespace-only inputs ───────────────────────────
+  // ── 3. Empty/whitespace-only inputs ────────────────────────────
 
   describe("empty and whitespace-only inputs are handled gracefully", () => {
     test("empty string produces no segments and no patterns", async () => {
@@ -414,30 +151,9 @@ describe("Shell parser property-based tests", () => {
         { numRuns: 100, ...FC_OPTS },
       );
     });
-
-    test("empty command classifies as low risk", async () => {
-      const risk = await classifyRisk("bash", { command: "" });
-      expect(risk.level).toBe(RiskLevel.Low);
-    });
-
-    test("whitespace-only commands classify as low risk (trimmed to empty)", async () => {
-      await fc.assert(
-        fc.asyncProperty(
-          charsToString(fc.constantFrom(" ", "\t"), {
-            minLength: 1,
-            maxLength: 20,
-          }),
-          async (ws) => {
-            const risk = await classifyRisk("bash", { command: ws });
-            expect(risk.level).toBe(RiskLevel.Low);
-          },
-        ),
-        { numRuns: 50, ...FC_OPTS },
-      );
-    });
   });
 
-  // ── 6. Structural invariants ──────────────────────────────────
+  // ── 4. Structural invariants ───────────────────────────────────
 
   describe("structural invariants", () => {
     test("segment programs are non-empty strings", async () => {
@@ -551,7 +267,7 @@ describe("Shell parser property-based tests", () => {
     });
   });
 
-  // ── 7. Alias definitions ───────────────────────────────────────
+  // ── 5. Alias definitions ────────────────────────────────────────
 
   describe("alias definitions", () => {
     test("alias with safe commands never crashes and is flagged opaque", async () => {
@@ -699,7 +415,7 @@ describe("Shell parser property-based tests", () => {
     });
   });
 
-  // ── 8. Function definitions ────────────────────────────────────
+  // ── 6. Function definitions ─────────────────────────────────────
 
   describe("function definitions", () => {
     test("function keyword syntax with safe body never crashes", async () => {
