@@ -139,28 +139,30 @@ Use the following heuristics to pick `routing_intent`:
   3. If neither field is present or the interface is `cli`, omit `preferred_channels`.
 
   When a channel is determined, include it as a routing hint:
+
   ```
   routing_hints: { preferred_channels: ["<resolved channel>"] }
   routing_intent: "all_channels"
   ```
+
 - **Never use `single_channel` as a passive default.** If you haven't thought about which channel to use, use `all_channels`.
 
 ### Examples
 
-| Scenario                                                    | routing_intent   | routing_hints                          |
-| ----------------------------------------------------------- | ---------------- | -------------------------------------- |
-| `source_channel: telegram` in turn_context                  | `all_channels`   | `{ preferred_channels: ["telegram"] }` |
-| No `source_channel`, `interface: macos`                     | `all_channels`   | `{ preferred_channels: ["vellum"] }`   |
-| No `source_channel`, `interface: ios`                       | `all_channels`   | `{ preferred_channels: ["vellum"] }`   |
-| User says "remind me on Telegram"                           | `single_channel` | `{ preferred_channels: ["telegram"] }` |
-| No `source_channel`, `interface: cli`                       | `all_channels`   | `{}`                                   |
-| No channel info available                                   | `all_channels`   | `{}`                                   |
+| Scenario                                   | routing_intent   | routing_hints                          |
+| ------------------------------------------ | ---------------- | -------------------------------------- |
+| `source_channel: telegram` in turn_context | `all_channels`   | `{ preferred_channels: ["telegram"] }` |
+| No `source_channel`, `interface: macos`    | `all_channels`   | `{ preferred_channels: ["vellum"] }`   |
+| No `source_channel`, `interface: ios`      | `all_channels`   | `{ preferred_channels: ["vellum"] }`   |
+| User says "remind me on Telegram"          | `single_channel` | `{ preferred_channels: ["telegram"] }` |
+| No `source_channel`, `interface: cli`      | `all_channels`   | `{}`                                   |
+| No channel info available                  | `all_channels`   | `{}`                                   |
 
 ## Tool Summary
 
-| Tool                | Timing                 | Recurrence       | Purpose                                       |
-| ------------------- | ---------------------- | ---------------- | --------------------------------------------- |
-| `reminder_create`   | Future time (one-shot) | No               | Timed notification or timed autonomous action |
-| `schedule_create`   | Recurring pattern      | Yes (cron/RRULE) | Recurring automated jobs                      |
-| `assistant notifications send` | **Immediate only** | No           | Alert the user right now                      |
-| `task_list_add`     | **No time trigger**    | No               | Track work in the task queue                  |
+| Tool                           | Timing                 | Recurrence       | Purpose                                       |
+| ------------------------------ | ---------------------- | ---------------- | --------------------------------------------- |
+| `reminder_create`              | Future time (one-shot) | No               | Timed notification or timed autonomous action |
+| `schedule_create`              | Recurring pattern      | Yes (cron/RRULE) | Recurring automated jobs                      |
+| `assistant notifications send` | **Immediate only**     | No               | Alert the user right now                      |
+| `task_list_add`                | **No time trigger**    | No               | Track work in the task queue                  |
