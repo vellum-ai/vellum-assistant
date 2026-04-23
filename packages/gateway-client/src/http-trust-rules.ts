@@ -357,7 +357,9 @@ export class TrustRulesClient {
     }
 
     if (!responseBody) {
-      return {} as T;
+      throw new Error(
+        `Trust rule sync request: empty response body: ${method} ${path}`,
+      );
     }
 
     try {
