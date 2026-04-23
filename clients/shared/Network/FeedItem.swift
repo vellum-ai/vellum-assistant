@@ -113,7 +113,7 @@ public struct FeedItemDetailPanel: Codable, Sendable {
 
 extension FeedItemDetailPanel: Equatable {
     public static func == (lhs: FeedItemDetailPanel, rhs: FeedItemDetailPanel) -> Bool {
-        lhs.kind == rhs.kind
+        lhs.kind == rhs.kind && lhs.data == rhs.data
     }
 }
 
