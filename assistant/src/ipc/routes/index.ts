@@ -1,5 +1,6 @@
 import type { IpcRoute } from "../cli-server.js";
 import { attachmentRoutes } from "./attachment.js";
+import { avatarNotifyRoute } from "./avatar-notify.js";
 import { browserExecuteRoute } from "./browser.js";
 import { cacheRoutes } from "./cache.js";
 import { getContactRoute } from "./get-contact.js";
@@ -18,6 +19,7 @@ import { watcherRoutes } from "./watcher.js";
 /** All built-in CLI IPC routes. */
 export const cliIpcRoutes: IpcRoute[] = [
   ...attachmentRoutes,
+  avatarNotifyRoute,
   browserExecuteRoute,
   getContactRoute,
   listClientsRoute,

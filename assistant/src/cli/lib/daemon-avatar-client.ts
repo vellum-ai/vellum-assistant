@@ -5,23 +5,13 @@
  * skipped. The avatar files are already written on disk; the client will pick
  * up the change on the next poll or reconnect.
  *
- * Follows the daemon HTTP fetch pattern established in daemon-credential-client.ts
- * (health check, JWT minting, HTTP call).
+ * Uses Unix domain socket IPC (the preferred CLI-to-daemon transport).
  */
 
-import { getRuntimeHttpHost, getRuntimeHttpPort } from "../../config/env.js";
-import { healthCheckHost, isHttpHealthy } from "../../daemon/daemon-control.js";
-import {
-  initAuthSigningKey,
-  loadOrCreateSigningKey,
-  mintDaemonDeliveryToken,
-} from "../../runtime/auth/token-service.js";
+import { cliIpcCall } from "../../ipc/cli-client.js";
 import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("daemon-avatar-client");
-
-/** Hard timeout for daemon HTTP requests to prevent CLI commands from hanging. */
-const DAEMON_FETCH_TIMEOUT_MS = 60_000;
 
 /**
  * Notify the running daemon that the avatar has been updated so it can
@@ -31,26 +21,11 @@ const DAEMON_FETCH_TIMEOUT_MS = 60_000;
  */
 export async function notifyAvatarUpdated(): Promise<void> {
   try {
-    if (!(await isHttpHealthy())) return;
-
-    const port = getRuntimeHttpPort();
-    const host = healthCheckHost(getRuntimeHttpHost());
-    initAuthSigningKey(loadOrCreateSigningKey());
-    const token = mintDaemonDeliveryToken();
-
-    const res = await fetch(`http://${host}:${port}/v1/avatar/notify-updated`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      signal: AbortSignal.timeout(DAEMON_FETCH_TIMEOUT_MS),
-    });
-
-    if (!res.ok) {
+    const result = await cliIpcCall("notify_avatar_updated");
+    if (!result.ok) {
       log.warn(
-        { status: res.status },
-        "Daemon avatar notify-updated returned non-ok status",
+        { error: result.error },
+        "Failed to notify daemon of avatar update",
       );
     }
   } catch (err) {
