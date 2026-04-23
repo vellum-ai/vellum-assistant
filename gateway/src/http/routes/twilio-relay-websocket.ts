@@ -1,3 +1,5 @@
+import { buildWsUpstreamUrl } from "@vellumai/assistant-client";
+
 import {
   validateEdgeToken,
   mintServiceToken,
@@ -119,11 +121,13 @@ export function getRelayWebsocketHandlers() {
       ws.data.pendingMessages = [];
 
       // Build upstream URL to runtime with JWT service token for auth
-      const runtimeBase = assistantRuntimeBaseUrl.replace(/^http/, "ws");
-      const serviceToken = mintServiceToken();
-      const upstreamUrl = `${runtimeBase}/v1/calls/relay?callSessionId=${encodeURIComponent(callSessionId)}&token=${encodeURIComponent(serviceToken)}`;
-
-      const logSafeUpstreamUrl = `${runtimeBase}/v1/calls/relay?callSessionId=${encodeURIComponent(callSessionId)}&token=<redacted>`;
+      const { url: upstreamUrl, logSafeUrl: logSafeUpstreamUrl } =
+        buildWsUpstreamUrl({
+          baseUrl: assistantRuntimeBaseUrl,
+          path: "/v1/calls/relay",
+          serviceToken: mintServiceToken(),
+          extraParams: { callSessionId },
+        });
       log.info(
         { callSessionId, upstreamUrl: logSafeUpstreamUrl },
         "Opening upstream WS to runtime",

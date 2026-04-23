@@ -1,3 +1,5 @@
+import { buildWsUpstreamUrl } from "@vellumai/assistant-client";
+
 import {
   validateEdgeToken,
   mintServiceToken,
@@ -277,29 +279,26 @@ export function getBrowserRelayWebsocketHandlers() {
       // Initialize message buffer for frames arriving before upstream connects
       ws.data.pendingMessages = [];
 
-      const runtimeBase = config.assistantRuntimeBaseUrl.replace(/^http/, "ws");
-      const upstreamToken = mintServiceToken();
-      const query = new URLSearchParams({ token: upstreamToken });
+      // Build upstream URL with service-token auth and optional guardian/
+      // client-instance identifiers. The per-install identifier is forwarded
+      // so the runtime's multi-instance registry can key connections by
+      // (guardianId, clientInstanceId). Without this, cloud reconnects from
+      // the same extension install would each fall through to a fresh
+      // `legacy:<connectionId>` key and fail to supersede the prior socket.
+      const extraParams: Record<string, string> = {};
       if (auth.guardianId) {
-        query.set("guardianId", auth.guardianId);
+        extraParams.guardianId = auth.guardianId;
       }
-      // Forward the per-install identifier so the runtime's
-      // multi-instance registry can key connections by
-      // (guardianId, clientInstanceId). Without this, cloud
-      // reconnects from the same extension install would each fall
-      // through to a fresh `legacy:<connectionId>` key and fail to
-      // supersede the prior socket, leaving stale entries as default
-      // send targets.
       if (auth.clientInstanceId) {
-        query.set("clientInstanceId", auth.clientInstanceId);
+        extraParams.clientInstanceId = auth.clientInstanceId;
       }
-      const upstreamUrl = `${runtimeBase}/v1/browser-relay?${query.toString()}`;
-      const logSafeUpstreamUrl =
-        `${runtimeBase}/v1/browser-relay?token=<redacted>` +
-        (auth.guardianId ? `&guardianId=${auth.guardianId}` : "") +
-        (auth.clientInstanceId
-          ? `&clientInstanceId=${auth.clientInstanceId}`
-          : "");
+      const { url: upstreamUrl, logSafeUrl: logSafeUpstreamUrl } =
+        buildWsUpstreamUrl({
+          baseUrl: config.assistantRuntimeBaseUrl,
+          path: "/v1/browser-relay",
+          serviceToken: mintServiceToken(),
+          extraParams,
+        });
 
       log.info(
         {
