@@ -24,6 +24,7 @@
 import { getConfig } from "../../../config/loader.js";
 import { estimatePromptTokens } from "../../../context/token-estimator.js";
 import type { Conversation } from "../../../daemon/conversation.js";
+import { resolveEffectiveDefaultContextWindowConfig } from "../../../providers/model-context.js";
 import type { RouteDefinition } from "../../http-router.js";
 // Import directly from the source modules (not ./index.js) — index.ts imports
 // this file's `resetCircuitRouteDefinitions`, so pulling its re-exports back
@@ -89,7 +90,7 @@ function buildCompactionState(conversation: Conversation): {
   isCompactionEnabled: boolean;
 } {
   const config = getConfig();
-  const contextWindow = config.llm.default.contextWindow;
+  const contextWindow = resolveEffectiveDefaultContextWindowConfig(config);
   const messages = conversation.getMessages();
   const estimatedInputTokens = estimatePromptTokens(messages);
   const maxInputTokens = contextWindow.maxInputTokens;

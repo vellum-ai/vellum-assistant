@@ -1,3 +1,4 @@
+import type { AssistantConfig, ContextWindowConfig } from "../config/types.js";
 import { PROVIDER_CATALOG } from "./model-catalog.js";
 
 export const DEFAULT_CONFIGURED_MAX_INPUT_TOKENS = 200_000;
@@ -31,4 +32,19 @@ export function resolveEffectiveContextWindowTokens({
   }
 
   return Math.min(catalogContextWindowTokens, configuredMaxInputTokens);
+}
+
+export function resolveEffectiveDefaultContextWindowConfig(
+  config: AssistantConfig,
+): ContextWindowConfig {
+  const defaultLlm = config.llm.default;
+  const contextWindow = defaultLlm.contextWindow;
+  return {
+    ...contextWindow,
+    maxInputTokens: resolveEffectiveContextWindowTokens({
+      provider: defaultLlm.provider,
+      model: defaultLlm.model,
+      configuredMaxInputTokens: contextWindow.maxInputTokens,
+    }),
+  };
 }

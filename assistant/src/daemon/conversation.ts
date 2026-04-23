@@ -60,6 +60,7 @@ import {
 } from "../permissions/v2-consent-policy.js";
 import { resolvePersonaContext } from "../prompts/persona-resolver.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
+import { resolveEffectiveDefaultContextWindowConfig } from "../providers/model-context.js";
 import type { Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
@@ -74,7 +75,6 @@ import { getLogger } from "../util/logger.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
 import {
   applyCompactionResult,
-  resolveEffectiveDefaultContextWindowConfig,
   runAgentLoopImpl,
   trackCompactionOutcome,
 } from "./conversation-agent-loop.js";
