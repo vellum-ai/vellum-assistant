@@ -17,7 +17,7 @@ You are helping the user customize their assistant's avatar. There are three way
 The avatar system supports two representations:
 
 - **Native character** - Defined by `data/avatar/character-traits.json` (body shape, eye style, color). Rendered client-side as an animated character. A static PNG at `data/avatar/avatar-image.png` is auto-generated for use by other clients and the dock icon.
-- **Custom image** - A static PNG at `data/avatar/avatar-image.png`. Used for uploaded or AI-generated avatars. Character traits are preserved so the native character can be restored later via `assistant avatar remove`.
+- **Custom image** - A static PNG at `data/avatar/avatar-image.png`. Used for uploaded or AI-generated avatars. When set via upload (`assistant avatar set`), character traits are preserved so the native character can be restored later via `assistant avatar remove`. When AI-generated (`assistant avatar generate`), character trait files are removed.
 
 ## Mode 1: Native Character Traits
 
