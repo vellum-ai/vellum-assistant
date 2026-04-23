@@ -2,7 +2,7 @@
  * MeetAudioIngest — daemon-side audio ingress for a meet-bot container.
  *
  * Flow:
- *   1. The session manager calls {@link MeetAudioIngest.start} **before** the
+ *   1. The session manager calls {@link MeetAudioIngest.start} before the
  *      bot container is spawned. `start()` opens a Unix-domain-socket server
  *      (the bot connects as the client once it boots) and opens a streaming
  *      STT session via the configured provider (resolved from
@@ -22,16 +22,19 @@
  *     so we do not leave a zombie container running against a dead ingest.
  *
  * Design notes:
- *   - The STT provider is resolved at runtime via
- *     {@link resolveStreamingTranscriber}, which reads
- *     `services.stt.provider` and looks up credentials through the provider
- *     catalog. Meet transcription therefore honors the same provider
- *     selection as the rest of the assistant.
+ *   - The STT provider is resolved at runtime via the `SkillHost` injected
+ *     into {@link createAudioIngest}. That factory reads
+ *     `services.stt.provider` through the host and looks up credentials
+ *     through the provider catalog. Meet transcription therefore honors
+ *     the same provider selection as the rest of the assistant.
  *   - Provider-specific options (e.g. Deepgram's `smartFormatting` /
  *     `interimResults`) are owned by each provider's config schema.
  *   - All external dependencies (transcriber factory, socket listener) are
  *     swapped via constructor-level factories so tests can drive the class
  *     without touching real sockets or a real STT provider account.
+ *   - This file has zero `assistant/` imports — every runtime dependency
+ *     arrives via the {@link SkillHost} contract from
+ *     `@vellumai/skill-host-contracts`.
  */
 
 import { timingSafeEqual } from "node:crypto";
@@ -42,21 +45,11 @@ import {
   type Socket as NetSocket,
 } from "node:net";
 
+import type { Logger, SkillHost } from "@vellumai/skill-host-contracts";
+
 import type { TranscriptChunkEvent } from "../contracts/index.js";
-
-import {
-  listProviderIds,
-  supportsBoundary,
-} from "../../../assistant/src/providers/speech-to-text/provider-catalog.js";
-import { resolveStreamingTranscriber } from "../../../assistant/src/providers/speech-to-text/resolve.js";
-import type {
-  StreamingTranscriber,
-  SttStreamServerEvent,
-} from "../../../assistant/src/stt/types.js";
-import { getLogger } from "../../../assistant/src/util/logger.js";
+import { registerSubModule } from "./modules-registry.js";
 import { getMeetSessionEventRouter } from "./session-event-router.js";
-
-const log = getLogger("meet-audio-ingest");
 
 /**
  * Host the audio-ingest TCP server binds to. Must be all-interfaces
@@ -79,7 +72,7 @@ export const AUDIO_INGEST_BIND_HOST = "0.0.0.0";
  * container.
  *
  * Must be larger than the bot's worst-case prejoin+admission path, not just
- * its connect cost. The bot only opens the audio socket *after* `joinMeet`
+ * its connect cost. The bot only opens the audio socket after `joinMeet`
  * returns, and `joinMeet` may legitimately block for `MEETING_ROOM_TIMEOUT_MS`
  * (90s) while a host admits the bot through the "Ask to join" lobby. Plus
  * cold-start (Chrome launch + Meet page load + modal dismissal) adds another
@@ -137,6 +130,51 @@ export const MAX_HANDSHAKE_BYTES = 256;
  * provider to decode at the wrong rate and produce garbled transcripts.
  */
 const MEET_BOT_SAMPLE_RATE_HZ = 16_000;
+
+// ---------------------------------------------------------------------------
+// Local structural types
+//
+// These mirror a narrow subset of the assistant's STT contract surface so
+// this file does not import from `assistant/` directly. The daemon-side
+// SkillHost implementation narrows the opaque contract types back to their
+// concrete assistant types at its boundary.
+// ---------------------------------------------------------------------------
+
+/**
+ * Streaming transcript event emitted by the STT provider. Mirrors the
+ * narrow set of variants audio ingest actually dispatches (`partial`,
+ * `final`) plus the variants it explicitly ignores (`error`, `closed`).
+ */
+export type SttStreamServerEvent =
+  | {
+      readonly type: "partial";
+      readonly text: string;
+      readonly speakerLabel?: string;
+      readonly confidence?: number;
+    }
+  | {
+      readonly type: "final";
+      readonly text: string;
+      readonly speakerLabel?: string;
+      readonly confidence?: number;
+    }
+  | {
+      readonly type: "error";
+      readonly category: string;
+      readonly message: string;
+    }
+  | { readonly type: "closed" };
+
+/**
+ * Minimal structural view of the streaming transcriber consumed by the
+ * ingest. Any concrete implementation the host returns (`realtime-ws`,
+ * `incremental-batch`) is a structural supertype.
+ */
+export interface StreamingTranscriber {
+  start(onEvent: (event: SttStreamServerEvent) => void): Promise<void>;
+  sendAudio(audio: Buffer, mimeType: string): void;
+  stop(): void;
+}
 
 // ---------------------------------------------------------------------------
 // Error class
@@ -213,8 +251,8 @@ export type AudioIngestListenFn = () => Promise<AudioIngestServer>;
  *
  * Returning a {@link StreamingTranscriber} keeps the audio-ingest code
  * decoupled from any specific provider — production wiring uses the
- * configured provider via {@link resolveStreamingTranscriber}; tests pass
- * an in-memory fake that conforms to the same contract.
+ * configured provider resolved through the injected `SkillHost`; tests
+ * pass an in-memory fake that conforms to the same contract.
  */
 export type StreamingTranscriberFactory = () => Promise<StreamingTranscriber>;
 
@@ -222,8 +260,22 @@ export type StreamingTranscriberFactory = () => Promise<StreamingTranscriber>;
 // MeetAudioIngest
 // ---------------------------------------------------------------------------
 
+/** No-op logger used when deps do not supply one (tests). */
+const NOOP_LOGGER: Logger = {
+  debug: () => {},
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+};
+
 export interface MeetAudioIngestDeps {
-  /** Override for the streaming-transcriber factory (tests). */
+  /**
+   * Streaming-transcriber factory. Required in production wiring; optional
+   * here so session-manager's legacy `new MeetAudioIngest()` call (replaced
+   * in PR 17 by a host-backed builder) continues to type-check during the
+   * transition. An ingest without a factory throws
+   * {@link MeetAudioIngestError} on the first `start()` attempt.
+   */
   createTranscriber?: StreamingTranscriberFactory;
   /** Override for the audio-ingest TCP listener factory (tests). */
   listen?: AudioIngestListenFn;
@@ -237,6 +289,13 @@ export interface MeetAudioIngestDeps {
    * attribution when diarization was not requested. Defaults to `true`.
    */
   diarize?: boolean;
+  /**
+   * Structural logger used for internal warnings / info. Defaults to a
+   * silent no-op so direct instantiation in tests does not require a
+   * logger; production paths pass `host.logger.get("meet-audio-ingest")`
+   * through {@link createAudioIngest}.
+   */
+  logger?: Logger;
 }
 
 /** Callback invoked for each PCM chunk received from the bot. */
@@ -252,6 +311,7 @@ export class MeetAudioIngest {
   private readonly listen: AudioIngestListenFn;
   private readonly botConnectTimeoutMs: number;
   private readonly diarize: boolean;
+  private readonly log: Logger;
 
   private server: AudioIngestServer | null = null;
   private connection: AudioIngestConnection | null = null;
@@ -268,11 +328,19 @@ export class MeetAudioIngest {
   private readonly pcmSubscribers = new Set<PcmSubscriber>();
 
   constructor(deps: MeetAudioIngestDeps = {}) {
-    this.createTranscriber = deps.createTranscriber ?? defaultCreateTranscriber;
-    this.listen = deps.listen ?? defaultListen;
+    this.createTranscriber =
+      deps.createTranscriber ??
+      (() => {
+        throw new MeetAudioIngestError(
+          "MeetAudioIngest: no streaming-transcriber factory configured. " +
+            "Instantiate via createAudioIngest(host) or pass deps.createTranscriber.",
+        );
+      });
+    this.listen = deps.listen ?? defaultListen(deps.logger ?? NOOP_LOGGER);
     this.botConnectTimeoutMs =
       deps.botConnectTimeoutMs ?? BOT_CONNECT_TIMEOUT_MS;
     this.diarize = deps.diarize ?? true;
+    this.log = deps.logger ?? NOOP_LOGGER;
   }
 
   /**
@@ -377,7 +445,9 @@ export class MeetAudioIngest {
       try {
         await server.close();
       } catch (err) {
-        log.warn({ err }, "MeetAudioIngest: server close after stop threw");
+        this.log.warn("MeetAudioIngest: server close after stop threw", {
+          err,
+        });
       }
       return { port: 0, ready: Promise.resolve() };
     }
@@ -385,7 +455,10 @@ export class MeetAudioIngest {
     const boundPort = server.port;
 
     server.onError((err) => {
-      log.error({ err, meetingId }, "MeetAudioIngest: socket server error");
+      this.log.error("MeetAudioIngest: socket server error", {
+        err,
+        meetingId,
+      });
     });
 
     // Wait for the bot to connect AND successfully complete the
@@ -400,10 +473,11 @@ export class MeetAudioIngest {
       const timer = setTimeout(() => {
         if (settled) return;
         settled = true;
-        log.warn(
-          { meetingId, port: boundPort, timeoutMs: this.botConnectTimeoutMs },
-          "MeetAudioIngest: bot did not connect within timeout",
-        );
+        this.log.warn("MeetAudioIngest: bot did not connect within timeout", {
+          meetingId,
+          port: boundPort,
+          timeoutMs: this.botConnectTimeoutMs,
+        });
         reject(
           new Error(
             `MeetAudioIngest: bot did not connect to *:${boundPort} within ${this.botConnectTimeoutMs}ms`,
@@ -446,19 +520,19 @@ export class MeetAudioIngest {
               // silently drop them.
               this.handlePcmChunk(residual, meetingId);
             }
-            log.info(
-              { meetingId, port: boundPort },
-              "MeetAudioIngest: bot connected and authenticated",
-            );
+            this.log.info("MeetAudioIngest: bot connected and authenticated", {
+              meetingId,
+              port: boundPort,
+            });
             resolve();
           },
           onReject: (reason) => {
             // Drop the peer, keep listening for the real bot. We only
             // log a counter-style field so repeated bad handshakes
             // don't flood logs with duplicate messages.
-            log.warn(
-              { meetingId, port: boundPort, reason },
+            this.log.warn(
               "MeetAudioIngest: rejected unauthenticated audio-ingest peer",
+              { meetingId, port: boundPort, reason },
             );
             try {
               conn.destroy();
@@ -566,7 +640,7 @@ export class MeetAudioIngest {
       try {
         conn.destroy();
       } catch (err) {
-        log.warn({ err }, "MeetAudioIngest: connection destroy threw");
+        this.log.warn("MeetAudioIngest: connection destroy threw", { err });
       }
     }
 
@@ -579,7 +653,7 @@ export class MeetAudioIngest {
       try {
         transcriber.stop();
       } catch (err) {
-        log.warn({ err }, "MeetAudioIngest: transcriber stop threw");
+        this.log.warn("MeetAudioIngest: transcriber stop threw", { err });
       }
     }
 
@@ -590,7 +664,7 @@ export class MeetAudioIngest {
       try {
         await server.close();
       } catch (err) {
-        log.warn({ err }, "MeetAudioIngest: server close threw");
+        this.log.warn("MeetAudioIngest: server close threw", { err });
       }
     }
 
@@ -599,7 +673,7 @@ export class MeetAudioIngest {
     // own (e.g. the storage writer on `stop()`) are already gone.
     this.pcmSubscribers.clear();
 
-    log.info({ meetingId: this.meetingId }, "MeetAudioIngest: stopped");
+    this.log.info("MeetAudioIngest: stopped", { meetingId: this.meetingId });
   }
 
   // ── Internals ──────────────────────────────────────────────────────
@@ -613,11 +687,14 @@ export class MeetAudioIngest {
     conn.onData((chunk) => this.handlePcmChunk(chunk, meetingId));
 
     conn.onClose(() => {
-      log.info({ meetingId }, "MeetAudioIngest: bot connection closed");
+      this.log.info("MeetAudioIngest: bot connection closed", { meetingId });
     });
 
     conn.onError((err) => {
-      log.warn({ err, meetingId }, "MeetAudioIngest: bot connection error");
+      this.log.warn("MeetAudioIngest: bot connection error", {
+        err,
+        meetingId,
+      });
     });
   }
 
@@ -636,10 +713,10 @@ export class MeetAudioIngest {
         // informational for provider adapters; pass a sensible default.
         transcriber.sendAudio(chunk, "audio/pcm");
       } catch (err) {
-        log.warn(
-          { err, meetingId },
-          "MeetAudioIngest: transcriber.sendAudio threw",
-        );
+        this.log.warn("MeetAudioIngest: transcriber.sendAudio threw", {
+          err,
+          meetingId,
+        });
       }
     }
     // Fan the raw bytes out to every PCM subscriber. Snapshot the set so
@@ -650,10 +727,10 @@ export class MeetAudioIngest {
         try {
           subscriber(chunk);
         } catch (err) {
-          log.warn(
-            { err, meetingId },
-            "MeetAudioIngest: PCM subscriber threw — removing",
-          );
+          this.log.warn("MeetAudioIngest: PCM subscriber threw — removing", {
+            err,
+            meetingId,
+          });
           this.pcmSubscribers.delete(subscriber);
         }
       }
@@ -726,7 +803,7 @@ function constantTimeTokenEqual(
 }
 
 // ---------------------------------------------------------------------------
-// Defaults — resolve the configured STT provider + real node:net socket
+// Host-backed factory
 // ---------------------------------------------------------------------------
 
 function formatDisjunction(items: readonly string[]): string {
@@ -737,25 +814,37 @@ function formatDisjunction(items: readonly string[]): string {
 }
 
 /**
- * Default streaming-transcriber factory — resolves the provider via the
- * assistant's STT catalog (reads `services.stt.provider` and looks up
- * credentials centrally).
+ * Options accepted by the per-meeting ingest builder returned from
+ * {@link createAudioIngest}. The session manager injects per-meeting
+ * overrides (diarization toggle, bot-connect timeout) while the factory
+ * provides the host-backed defaults (logger, transcriber resolver).
+ */
+export interface CreateAudioIngestInstanceOptions {
+  /** Override the audio-ingest TCP listener (tests only). */
+  listen?: AudioIngestListenFn;
+  /** Override the bot-connect timeout (tests only). */
+  botConnectTimeoutMs?: number;
+  /**
+   * Whether to enable diarization. When `false`, provider speaker labels
+   * are stripped from emitted transcript events.
+   */
+  diarize?: boolean;
+}
+
+/**
+ * Host-backed factory for {@link MeetAudioIngest}. The session manager
+ * retrieves this factory from the sub-module registry (see
+ * {@link registerSubModule} wiring below) and calls the returned builder
+ * once per meeting.
  *
- * Meet audio ingest always requests diarization so {@link MeetSpeakerResolver}
- * can bind opaque ASR speaker labels to real participant identities.
- * Providers without diarization support silently ignore the flag.
- *
- * Passes the meet-bot's capture sample rate through to the resolver so
- * Meet's audio ingest does not depend on any adapter's per-provider default.
- * All three streaming adapters happen to default to 16 kHz today, but being
- * explicit insulates us from a future adapter changing its default out from
- * under ingest.
- *
- * Requests `diarize: "preferred"` so capable providers (Deepgram) emit
- * speaker labels that the downstream speaker resolver can cross-check
- * against Meet's DOM-sourced active-speaker signal. Providers that
- * don't support diarization (Gemini, Whisper) silently no-op — Meet
- * still works, the DOM remains the only speaker source.
+ * The default transcriber factory closes over `host.providers.stt.*`:
+ *   - Verifies a streaming-capable provider is configured.
+ *   - Resolves the provider's credentials and opens a streaming session
+ *     requesting `diarize: "preferred"` so capable providers emit
+ *     speaker labels that {@link MeetSpeakerResolver} can cross-check
+ *     against Meet's DOM-sourced active-speaker signal. Providers that
+ *     do not support diarization silently no-op — Meet still works;
+ *     the DOM remains the only speaker source.
  *
  * Throws {@link MeetAudioIngestError} when the resolver returns `null`.
  * With `"preferred"` that only happens when the configured STT provider
@@ -764,26 +853,42 @@ function formatDisjunction(items: readonly string[]): string {
  * capability. The error message points the user at
  * `services.stt.provider`.
  */
-async function defaultCreateTranscriber(): Promise<StreamingTranscriber> {
-  const transcriber = await resolveStreamingTranscriber({
-    sampleRate: MEET_BOT_SAMPLE_RATE_HZ,
+export function createAudioIngest(
+  host: SkillHost,
+): (opts?: CreateAudioIngestInstanceOptions) => MeetAudioIngest {
+  const logger = host.logger.get("meet-audio-ingest");
+  const stt = host.providers.stt;
+
+  const createTranscriber: StreamingTranscriberFactory = async () => {
     // `"preferred"`: enable diarization when the configured provider can
     // do it, but don't refuse to start on providers that can't — Meet
     // falls back to DOM-based speaker attribution via MeetSpeakerResolver.
-    diarize: "preferred",
-  });
-  if (!transcriber) {
-    const streamingProviders = listProviderIds().filter((id) =>
-      supportsBoundary(id, "daemon-streaming"),
-    );
-    const providerList = formatDisjunction(streamingProviders);
-    throw new MeetAudioIngestError(
-      "The configured STT provider is unusable for Meet transcription. " +
-        `Set services.stt.provider to ${providerList} ` +
-        "and ensure credentials are present.",
-    );
-  }
-  return transcriber;
+    const transcriber = (await stt.resolveStreamingTranscriber({
+      sampleRate: MEET_BOT_SAMPLE_RATE_HZ,
+      diarize: "preferred",
+    })) as StreamingTranscriber | null;
+    if (!transcriber) {
+      const streamingProviders = stt
+        .listProviderIds()
+        .filter((id) => stt.supportsBoundary(id));
+      const providerList = formatDisjunction(streamingProviders);
+      throw new MeetAudioIngestError(
+        "The configured STT provider is unusable for Meet transcription. " +
+          `Set services.stt.provider to ${providerList} ` +
+          "and ensure credentials are present.",
+      );
+    }
+    return transcriber;
+  };
+
+  return (opts: CreateAudioIngestInstanceOptions = {}) =>
+    new MeetAudioIngest({
+      createTranscriber,
+      logger,
+      listen: opts.listen,
+      botConnectTimeoutMs: opts.botConnectTimeoutMs,
+      diarize: opts.diarize,
+    });
 }
 
 /**
@@ -793,78 +898,82 @@ async function defaultCreateTranscriber(): Promise<StreamingTranscriber> {
  * once `listen()` resolves and exposed on the returned
  * {@link AudioIngestServer} so the session manager can thread it through
  * to the bot container as the `DAEMON_AUDIO_PORT` env var.
+ *
+ * Accepts a logger so listener-internal failures route through the same
+ * logger the class uses instead of a module-level singleton.
  */
-function defaultListen(): Promise<AudioIngestServer> {
-  return new Promise<AudioIngestServer>((resolve, reject) => {
-    let settled = false;
-    const connectionListeners: Array<(conn: AudioIngestConnection) => void> =
-      [];
-    const errorListeners: Array<(err: Error) => void> = [];
+function defaultListen(log: Logger): () => Promise<AudioIngestServer> {
+  return () =>
+    new Promise<AudioIngestServer>((resolve, reject) => {
+      let settled = false;
+      const connectionListeners: Array<(conn: AudioIngestConnection) => void> =
+        [];
+      const errorListeners: Array<(err: Error) => void> = [];
 
-    const netServer: NetServer = netCreateServer((socket) => {
-      const conn = adaptNetSocket(socket);
-      for (const listener of connectionListeners) {
-        try {
-          listener(conn);
-        } catch (err) {
-          log.warn({ err }, "MeetAudioIngest: connection listener threw");
+      const netServer: NetServer = netCreateServer((socket) => {
+        const conn = adaptNetSocket(socket);
+        for (const listener of connectionListeners) {
+          try {
+            listener(conn);
+          } catch (err) {
+            log.warn("MeetAudioIngest: connection listener threw", { err });
+          }
         }
-      }
-    });
+      });
 
-    netServer.on("error", (err) => {
-      if (!settled) {
+      netServer.on("error", (err) => {
+        if (!settled) {
+          settled = true;
+          reject(err);
+          return;
+        }
+        for (const listener of errorListeners) {
+          try {
+            listener(err);
+          } catch (cbErr) {
+            log.warn("MeetAudioIngest: error listener threw", { cbErr });
+          }
+        }
+      });
+
+      netServer.listen({ host: AUDIO_INGEST_BIND_HOST, port: 0 }, () => {
+        if (settled) return;
         settled = true;
-        reject(err);
-        return;
-      }
-      for (const listener of errorListeners) {
-        try {
-          listener(err);
-        } catch (cbErr) {
-          log.warn({ cbErr }, "MeetAudioIngest: error listener threw");
+
+        const address = netServer.address();
+        if (!address || typeof address === "string") {
+          // `netServer.address()` returns `null` only if the server is not
+          // listening, and a `string` only for Unix-domain servers — neither
+          // can occur after a successful TCP `listen()`. Guard anyway so a
+          // future refactor that reintroduces Unix-domain listens (tests,
+          // alternate transports) fails loudly instead of silently passing
+          // `0` as the port.
+          netServer.close();
+          reject(
+            new Error(
+              `MeetAudioIngest: unexpected listen address shape: ${JSON.stringify(address)}`,
+            ),
+          );
+          return;
         }
-      }
+        const port = (address as AddressInfo).port;
+
+        const wrapped: AudioIngestServer = {
+          port,
+          onConnection: (listener) => {
+            connectionListeners.push(listener);
+          },
+          onError: (listener) => {
+            errorListeners.push(listener);
+          },
+          close: () =>
+            new Promise<void>((resolveClose) => {
+              netServer.close(() => resolveClose());
+            }),
+        };
+        resolve(wrapped);
+      });
     });
-
-    netServer.listen({ host: AUDIO_INGEST_BIND_HOST, port: 0 }, () => {
-      if (settled) return;
-      settled = true;
-
-      const address = netServer.address();
-      if (!address || typeof address === "string") {
-        // `netServer.address()` returns `null` only if the server is not
-        // listening, and a `string` only for Unix-domain servers — neither
-        // can occur after a successful TCP `listen()`. Guard anyway so a
-        // future refactor that reintroduces Unix-domain listens (tests,
-        // alternate transports) fails loudly instead of silently passing
-        // `0` as the port.
-        netServer.close();
-        reject(
-          new Error(
-            `MeetAudioIngest: unexpected listen address shape: ${JSON.stringify(address)}`,
-          ),
-        );
-        return;
-      }
-      const port = (address as AddressInfo).port;
-
-      const wrapped: AudioIngestServer = {
-        port,
-        onConnection: (listener) => {
-          connectionListeners.push(listener);
-        },
-        onError: (listener) => {
-          errorListeners.push(listener);
-        },
-        close: () =>
-          new Promise<void>((resolveClose) => {
-            netServer.close(() => resolveClose());
-          }),
-      };
-      resolve(wrapped);
-    });
-  });
 }
 
 /**
@@ -879,3 +988,15 @@ function adaptNetSocket(socket: NetSocket): AudioIngestConnection {
     destroy: () => socket.destroy(),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Sub-module registry wiring
+// ---------------------------------------------------------------------------
+
+/**
+ * Registry key for the audio-ingest factory. The session manager looks
+ * this up via {@link getSubModule} to obtain the per-meeting builder.
+ */
+export const AUDIO_INGEST_SUB_MODULE = "audio-ingest";
+
+registerSubModule(AUDIO_INGEST_SUB_MODULE, createAudioIngest);
