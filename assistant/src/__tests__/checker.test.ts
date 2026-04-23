@@ -2247,6 +2247,7 @@ describe("Permission Checker", () => {
           "host_file_read",
           "host_file_write",
           "host_file_edit",
+          "host_file_transfer",
         ]),
       );
     });
