@@ -26,7 +26,7 @@ import {
   verifyHostBrowserCapability,
 } from "../capability-tokens.js";
 import {
-  ALLOWED_EXTENSION_ORIGINS,
+  getAllowedExtensionOrigins,
   handleBrowserExtensionPair,
   NATIVE_HOST_MARKER_HEADER,
   NATIVE_HOST_MARKER_VALUE,
@@ -55,10 +55,10 @@ const lanPeerServer = mockServer("192.168.1.10");
 const publicPeerServer = mockServer("203.0.113.50");
 
 const ALLOWED_ORIGIN = (() => {
-  const first = Array.from(ALLOWED_EXTENSION_ORIGINS)[0];
+  const first = Array.from(getAllowedExtensionOrigins())[0];
   if (!first) {
     throw new Error(
-      "ALLOWED_EXTENSION_ORIGINS must contain at least one extension origin for tests",
+      "getAllowedExtensionOrigins() must contain at least one extension origin for tests",
     );
   }
   return first;

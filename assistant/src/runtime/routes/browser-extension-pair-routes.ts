@@ -17,7 +17,7 @@
  *     with 403.
  *   - **Browser-origin rejection**: if an `Origin` header is present it
  *     must be either empty or explicitly on the
- *     `ALLOWED_EXTENSION_ORIGINS` allowlist. This defends against a
+ *     `getAllowedExtensionOrigins()` allowlist. This defends against a
  *     malicious web page in another tab issuing a cross-origin POST from
  *     the user's browser — such a request would carry the page's origin
  *     and would be rejected here even if it somehow reached loopback.
@@ -194,7 +194,9 @@ function loadAllowedExtensionOrigins(): ReadonlySet<string> {
   // 2. Local override. Silently absent is fine; malformed warns but doesn't
   //    block other sources.
   try {
-    for (const id of readIdsFromFile(LOCAL_OVERRIDE_PATH, { allowEmpty: true })) {
+    for (const id of readIdsFromFile(LOCAL_OVERRIDE_PATH, {
+      allowEmpty: true,
+    })) {
       merged.add(`chrome-extension://${id}/`);
     }
   } catch (err) {
@@ -240,10 +242,27 @@ function loadAllowedExtensionOrigins(): ReadonlySet<string> {
  * token. Merged from the canonical repo config at
  * `meta/browser-extension/chrome-extension-allowlist.json`, an optional
  * local override at `~/.vellum/chrome-extension-allowlist.local.json`, and
- * the `VELLUM_CHROME_EXTENSION_IDS` env var. Cached at module load —
- * allowlist edits require a daemon restart to take effect.
+ * the `VELLUM_CHROME_EXTENSION_IDS` env var. Computed lazily on first
+ * access so that importing this module (e.g. for `--version`) doesn't
+ * trigger filesystem reads. Cached after first call — allowlist edits
+ * require a daemon restart to take effect.
  */
-export const ALLOWED_EXTENSION_ORIGINS = loadAllowedExtensionOrigins();
+let _allowedExtensionOrigins: ReadonlySet<string> | null = null;
+
+export function getAllowedExtensionOrigins(): ReadonlySet<string> {
+  if (!_allowedExtensionOrigins) {
+    _allowedExtensionOrigins = loadAllowedExtensionOrigins();
+  }
+  return _allowedExtensionOrigins;
+}
+
+/**
+ * Test helper: clear the cached allowlist so the next call to
+ * `getAllowedExtensionOrigins()` re-reads from disk/env.
+ */
+export function __resetAllowedExtensionOriginsForTests(): void {
+  _allowedExtensionOrigins = null;
+}
 
 /**
  * Reset the dedicated pair-endpoint rate limiter. Exported for tests
@@ -490,8 +509,8 @@ export async function handleBrowserExtensionPair(
     // and the `/`-suffixed form against the allowlist.
     const withSlash = `${originHeader}/`;
     if (
-      !ALLOWED_EXTENSION_ORIGINS.has(originHeader) &&
-      !ALLOWED_EXTENSION_ORIGINS.has(withSlash)
+      !getAllowedExtensionOrigins().has(originHeader) &&
+      !getAllowedExtensionOrigins().has(withSlash)
     ) {
       auditDeny(req, peerIp, "browser_origin_not_allowlisted", {
         originHeader,
@@ -536,7 +555,7 @@ export async function handleBrowserExtensionPair(
   // check catches the failure mode where a compromised extension id
   // that doesn't match a known Vellum build still manages to reach
   // the endpoint.
-  if (!ALLOWED_EXTENSION_ORIGINS.has(extensionOrigin)) {
+  if (!getAllowedExtensionOrigins().has(extensionOrigin)) {
     auditDeny(req, peerIp, "extension_origin_not_allowlisted", {
       extensionOrigin,
     });
