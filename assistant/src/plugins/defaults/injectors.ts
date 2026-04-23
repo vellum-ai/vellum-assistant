@@ -157,10 +157,10 @@ export const unifiedTurnContextInjector: Injector = {
  * yielding `[...memory, <system_reminder>, <knowledge_base>, ...user text]`.
  *
  * Emitting context and reminder as two separate blocks (rather than a single
- * concatenated text) preserves the pre-migration two-ContentBlock shape that
- * the rehydration path in `conversation-lifecycle.ts` recreates — keeping
- * fresh-injection and rehydrated-history structurally identical so
- * Anthropic's prefix cache matches across reloads.
+ * concatenated text) produces the two-ContentBlock shape that the rehydration
+ * path in `conversation-lifecycle.ts` recreates — keeping fresh-injection and
+ * rehydrated-history structurally identical so Anthropic's prefix cache
+ * matches across reloads.
  *
  * Gating:
  *  - `mode === "full"`.
@@ -189,7 +189,7 @@ export const pkbContextInjector: Injector = {
  * hints) as its own after-memory-prefix splice. Higher `order` than
  * `pkb-context` so the reminder splices second and ends up immediately
  * after the memory prefix, pushing `<knowledge_base>` one slot further
- * down — matching the pre-migration [reminder, context] ordering.
+ * down — producing a [reminder, context] ordering.
  *
  * Gating:
  *  - `mode === "full"`.
@@ -215,9 +215,7 @@ export const pkbReminderInjector: Injector = {
 /**
  * Render the PKB context block — wraps the raw content in
  * `<knowledge_base>...</knowledge_base>` while escaping any closing tags
- * inside the content that would break out of the XML wrapper. Mirrors the
- * body of the pre-migration `injectPkbContext` helper exactly so the emitted
- * bytes match.
+ * inside the content that would break out of the XML wrapper.
  */
 function buildPkbContextBlock(content: string): string {
   const escaped = content.replace(
@@ -367,10 +365,9 @@ export const subagentStatusInjector: Injector = {
  * orchestrator builds the transcript via `loadSlackChronologicalMessages`
  * before the chain runs.
  *
- * The injector preserves the pre-migration memory-block prepending
- * behaviour: `extractMemoryPrefixBlocks` is re-applied to the Slack
- * transcript's tail user message inside `applyRuntimeInjections` when the
- * replacement fires.
+ * Memory-block prepending is preserved across the replacement:
+ * `extractMemoryPrefixBlocks` is re-applied to the Slack transcript's tail
+ * user message inside `applyRuntimeInjections` when the replacement fires.
  *
  * Active in both `full` and `minimal` mode — Slack transcript replacement
  * is not a high-token optional block, it's the canonical view of Slack

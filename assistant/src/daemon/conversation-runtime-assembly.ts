@@ -1723,15 +1723,11 @@ const DEFAULT_PLACEMENT: InjectionPlacement = "append-user-tail";
  * Count leading memory-prefix blocks on a user message's `content`.
  *
  * Delegates to {@link countMemoryPrefixBlocks} from
- * `memory/graph/conversation-graph-memory.js` — the same state-machine the
- * pre-migration PKB-reminder branch used to find its splice point. The
- * pre-migration `injectPkbContext` and `injectNowScratchpad` helpers used
- * slightly simpler rules inline; reusing the canonical counter here
- * collapses the three near-identical splice rules into one source of truth
- * so the ordering of PKB-context / PKB-reminder / NOW blocks relative to
- * any memory prefix is stable and testable. For the common case (just
- * `<memory __injected>` text, no images), the output is byte-identical to
- * the pre-migration helpers.
+ * `memory/graph/conversation-graph-memory.js` — the canonical state-machine
+ * for locating the memory-prefix boundary. Reusing it here keeps the
+ * PKB-context / PKB-reminder / NOW splice rules aligned on a single source
+ * of truth so their ordering relative to any memory prefix is stable and
+ * testable.
  */
 function countMemoryPrefixBlocksOnContent(content: ContentBlock[]): number {
   return countMemoryPrefixBlocks(content);
@@ -1739,19 +1735,15 @@ function countMemoryPrefixBlocksOnContent(content: ContentBlock[]): number {
 
 /**
  * Apply one injector block to a `runMessages` array according to its
- * declared {@link InjectionPlacement}.
- *
- * Preserves the byte-for-byte positional semantics of the pre-migration
- * `inject*` helpers:
+ * declared {@link InjectionPlacement}:
  *  - `"prepend-user-tail"` — prepend to the tail user message's content.
  *  - `"append-user-tail"`  — append to the tail user message's content.
  *  - `"after-memory-prefix"` — splice immediately after any leading memory
- *    prefix blocks (mirrors `injectPkbContext` / `injectNowScratchpad`).
+ *    prefix blocks.
  *  - `"replace-run-messages"` — replace `runMessages` wholesale with
  *    `block.messagesOverride`.
  *
- * Blocks with empty `text` on non-replace placements are no-ops (the
- * pre-migration branches also short-circuited on empty strings).
+ * Blocks with empty `text` on non-replace placements are no-ops.
  */
 function applyInjectionBlock(
   runMessages: Message[],
@@ -2053,9 +2045,7 @@ export async function applyRuntimeInjections(
   //
   // The capture is gated on the tail actually being a user message — if it
   // isn't, `applyInjectionBlock` no-ops the block and no content is actually
-  // injected, so the persisted metadata must be undefined (matches
-  // pre-migration behaviour where the `inject*` helpers short-circuited the
-  // same way).
+  // injected, so the persisted metadata must be undefined.
   let turnContextCaptured: string | undefined;
   let workspaceCaptured: string | undefined;
   let nowScratchpadCaptured: string | undefined;
@@ -2086,10 +2076,8 @@ export async function applyRuntimeInjections(
   }
 
   // Compose the block text into a single informational string for
-  // `injectorChainBlock`. Matches the pre-migration behaviour where the
-  // field captured the composed view of every third-party injector on
-  // the turn. We include default injectors here too so downstream
-  // observers see the full set.
+  // `injectorChainBlock` — a composed view of every injector that fired on
+  // the turn, including defaults, so downstream observers see the full set.
   const injectorChainPieces: string[] = [];
   for (const block of chainBlocks) {
     if (block.text.length > 0) injectorChainPieces.push(block.text);
