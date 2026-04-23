@@ -263,7 +263,11 @@ export class TrustRuleV3Store {
    * Clears userModified and deleted, restores risk to originalRisk.
    * Throws if not found or if origin is not "default".
    */
-  reset(id: string, originalRisk: string): TrustRuleV3 {
+  reset(
+    id: string,
+    originalRisk: string,
+    originalDescription?: string,
+  ): TrustRuleV3 {
     const existing = this.getById(id);
     if (!existing) {
       throw new Error(`Trust rule not found: ${id}`);
@@ -272,14 +276,19 @@ export class TrustRuleV3Store {
       throw new Error(`Cannot reset non-default rule: ${id}`);
     }
 
+    const updates: Record<string, unknown> = {
+      userModified: false,
+      deleted: false,
+      risk: originalRisk,
+      updatedAt: nowISO(),
+    };
+    if (originalDescription !== undefined) {
+      updates.description = originalDescription;
+    }
+
     this.db
       .update(trustRulesV3)
-      .set({
-        userModified: false,
-        deleted: false,
-        risk: originalRisk,
-        updatedAt: nowISO(),
-      })
+      .set(updates)
       .where(eq(trustRulesV3.id, id))
       .run();
 

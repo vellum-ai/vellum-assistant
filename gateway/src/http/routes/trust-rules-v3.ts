@@ -245,13 +245,15 @@ export function createTrustRuleV3sDeleteHandler() {
 // ---------------------------------------------------------------------------
 
 /**
- * Look up the original base risk for a default rule by parsing its pattern
- * against the DEFAULT_COMMAND_REGISTRY.
+ * Look up the original base risk and description for a default rule by parsing
+ * its pattern against the DEFAULT_COMMAND_REGISTRY.
  *
  * For simple commands (e.g. "ls"), looks up `registry.ls.baseRisk`.
  * For subcommands (e.g. "git push"), looks up `registry.git.subcommands.push.baseRisk`.
  */
-function lookupOriginalRisk(pattern: string): string | null {
+function lookupOriginalDefaults(
+  pattern: string,
+): { risk: string; description: string } | null {
   const parts = pattern.split(/\s+/).filter(Boolean);
   if (parts.length === 0) return null;
 
@@ -261,30 +263,34 @@ function lookupOriginalRisk(pattern: string): string | null {
 
   const typed = spec as {
     baseRisk: string;
+    reason?: string;
     subcommands?: Record<
       string,
-      { baseRisk: string; subcommands?: Record<string, { baseRisk: string }> }
+      {
+        baseRisk: string;
+        reason?: string;
+        subcommands?: Record<string, { baseRisk: string; reason?: string }>;
+      }
     >;
   };
 
   // Walk subcommand chain
+  let resolved: { baseRisk: string; reason?: string } = typed;
   if (parts.length > 1 && typed.subcommands) {
-    let current: {
-      baseRisk: string;
-      subcommands?: Record<
-        string,
-        { baseRisk: string; subcommands?: Record<string, { baseRisk: string }> }
-      >;
-    } = typed;
+    let current: typeof typed = typed;
     for (let i = 1; i < parts.length; i++) {
       const sub = current.subcommands?.[parts[i]];
       if (!sub) break;
       current = sub as typeof current;
     }
-    return current.baseRisk;
+    resolved = current;
   }
 
-  return typed.baseRisk;
+  const description = resolved.reason
+    ? `${pattern} \u2014 ${resolved.reason}`
+    : `${pattern} (default)`;
+
+  return { risk: resolved.baseRisk, description };
 }
 
 export function createTrustRuleV3sResetHandler() {
@@ -314,19 +320,23 @@ export function createTrustRuleV3sResetHandler() {
       );
     }
 
-    // Determine original risk from the command registry
-    const originalRisk = lookupOriginalRisk(existing.pattern);
-    if (!originalRisk) {
+    // Determine original risk and description from the command registry
+    const originalDefaults = lookupOriginalDefaults(existing.pattern);
+    if (!originalDefaults) {
       return Response.json(
         {
-          error: `Cannot determine original risk for pattern: ${existing.pattern}`,
+          error: `Cannot determine original values for pattern: ${existing.pattern}`,
         },
         { status: 400 },
       );
     }
 
     try {
-      const rule = store.reset(ruleId, originalRisk);
+      const rule = store.reset(
+        ruleId,
+        originalDefaults.risk,
+        originalDefaults.description,
+      );
       invalidateTrustRuleV3Cache();
       return Response.json({ rule });
     } catch (err) {

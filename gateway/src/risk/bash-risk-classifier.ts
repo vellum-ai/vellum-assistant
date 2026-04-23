@@ -353,7 +353,7 @@ export function classifySegment(
         ? `${programName} ${subcommandChain.join(" ")}`
         : programName;
     const cachedRule = getTrustRuleV3Cache().findBaseRisk(
-      "bash",
+      toolName,
       subcommandPattern,
     );
     if (cachedRule) {
