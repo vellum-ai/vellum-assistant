@@ -87,8 +87,10 @@ jobs:
         if: steps.diff.outputs.changed == 'true'
         id: body
         run: |
+          # Random delimiter prevents GITHUB_OUTPUT injection if scan JSON contains 'EOF' on its own line.
+          delimiter="ghadelim_$(openssl rand -hex 16)"
           {
-            echo 'body<<EOF'
+            echo "body<<${delimiter}"
             echo 'Applied Socket Certified Patches for the week.'
             echo ''
             echo 'Socket is on the Free tier — paid-tier patches are silently skipped.'
@@ -102,7 +104,7 @@ jobs:
             echo 'See [docs/socket.md](docs/socket.md) for the runbook.'
             echo ''
             echo 'Part of ATL-106.'
-            echo EOF
+            echo "${delimiter}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Open PR
