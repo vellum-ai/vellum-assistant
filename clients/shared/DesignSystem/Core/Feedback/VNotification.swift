@@ -37,7 +37,7 @@ public struct VNotification: View {
                 HStack(alignment: .top, spacing: VSpacing.xs) {
                     VIconView(leadingIcon, size: 12)
                         .foregroundStyle(iconColor)
-                        .padding(.top, 3)
+                        .frame(height: 18)
                         .accessibilityHidden(true)
                     Text(message)
                         .font(textFont)
