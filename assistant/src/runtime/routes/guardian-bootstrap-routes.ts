@@ -9,7 +9,7 @@
  * Only the hashed tokens are persisted.
  */
 
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 import { v4 as uuid } from "uuid";
 
@@ -35,6 +35,32 @@ const log = getLogger("guardian-bootstrap");
 /** Hash a device ID for storage (same pattern as approved-devices-store). */
 function hashDeviceId(deviceId: string): string {
   return createHash("sha256").update(deviceId).digest("hex");
+}
+
+/**
+ * Validate the x-bootstrap-secret header against GUARDIAN_BOOTSTRAP_SECRET.
+ *
+ * The env var may be a single secret or a comma-separated list (matching the
+ * gateway's `parseBootstrapSecrets` contract). Returns true iff the header
+ * exactly matches any configured secret under constant-time comparison. An
+ * unset or empty env var returns false so callers can fail closed.
+ */
+function isBootstrapSecretValid(req: Request): boolean {
+  const raw = process.env.GUARDIAN_BOOTSTRAP_SECRET?.trim();
+  if (!raw) return false;
+  const expected = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  const provided = req.headers.get("x-bootstrap-secret") ?? "";
+  if (provided.length === 0) return false;
+  const providedBuf = Buffer.from(provided);
+  for (const candidate of expected) {
+    const candBuf = Buffer.from(candidate);
+    if (candBuf.length !== providedBuf.length) continue;
+    if (timingSafeEqual(candBuf, providedBuf)) return true;
+  }
+  return false;
 }
 
 /**
@@ -90,10 +116,13 @@ export async function handleGuardianBootstrap(
   // In non-containerized (bare-metal) mode, restrict to loopback only —
   // the runtime binds to localhost and LAN peers should not be able to
   // bootstrap even if they somehow reach the endpoint.
-  // In containerized (Docker) mode, accept any private-network peer because
-  // the gateway connects over the Docker bridge (e.g. 172.17.0.1) and the
-  // GUARDIAN_BOOTSTRAP_SECRET enforced at the gateway layer provides the
-  // real authentication.
+  // In containerized (Docker) mode, the runtime HTTP port is published on
+  // the host so sibling Meet-bot containers can reach it via
+  // host.docker.internal. That exposure means the private-peer IP check
+  // alone is insufficient: any host-local process (or a DNS-rebinding web
+  // attack) can reach the endpoint. Defense-in-depth is handled below by
+  // requiring the x-bootstrap-secret header that the gateway injects from
+  // GUARDIAN_BOOTSTRAP_SECRET.
   const peerIp = server.requestIP(req)?.address;
   const containerized = getIsContainerized();
   const peerAllowed = containerized
@@ -101,6 +130,20 @@ export async function handleGuardianBootstrap(
     : isLoopbackAddress(peerIp ?? "");
   if (!peerAllowed && !isHttpAuthDisabled()) {
     return httpError("FORBIDDEN", "Bootstrap endpoint is local-only", 403);
+  }
+
+  // In containerized mode, require a valid bootstrap secret — this closes
+  // the bypass where a host-local client could hit the published runtime
+  // port directly and skip the gateway's gate. Fails closed if the env var
+  // is unset in containerized deployments.
+  if (containerized && !isHttpAuthDisabled()) {
+    if (!isBootstrapSecretValid(req)) {
+      log.warn(
+        { peerIp },
+        "Bootstrap rejected — invalid or missing bootstrap secret",
+      );
+      return httpError("FORBIDDEN", "Invalid bootstrap secret", 403);
+    }
   }
 
   // In non-containerized mode, any x-forwarded-for header means the request

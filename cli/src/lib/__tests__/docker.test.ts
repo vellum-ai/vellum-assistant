@@ -17,13 +17,16 @@ const imageTags: Record<ServiceName, string> = {
   gateway: "vellumai/vellum-gateway:test",
 };
 
-function buildAssistantArgs(): string[] {
+function buildAssistantArgs(
+  overrides: Partial<Parameters<typeof serviceDockerRunArgs>[0]> = {},
+): string[] {
   const res = dockerResourceNames(instanceName);
   const builders = serviceDockerRunArgs({
     gatewayPort: 7830,
     imageTags,
     instanceName,
     res,
+    ...overrides,
   });
   return builders.assistant();
 }
@@ -79,6 +82,18 @@ describe("serviceDockerRunArgs — assistant", () => {
     expect(portIndex).toBeGreaterThan(0);
     expect(args[portIndex - 1]).toBe("-p");
   });
+
+  test("forwards GUARDIAN_BOOTSTRAP_SECRET into the assistant container when provided, so the runtime can validate the gateway's x-bootstrap-secret header and close the published-port bypass", () => {
+    const args = buildAssistantArgs({ bootstrapSecret: "super-secret-abc" });
+    expect(args).toContain("GUARDIAN_BOOTSTRAP_SECRET=super-secret-abc");
+  });
+
+  test("omits GUARDIAN_BOOTSTRAP_SECRET when no bootstrapSecret is provided (bare-metal-style caller should not inherit a stale secret)", () => {
+    const args = buildAssistantArgs();
+    expect(args.some((a) => a.startsWith("GUARDIAN_BOOTSTRAP_SECRET="))).toBe(
+      false,
+    );
+  });
 });
 
 describe("Meet avatar device passthrough (VELLUM_MEET_AVATAR opt-in)", () => {
@@ -106,17 +121,17 @@ describe("Meet avatar device passthrough (VELLUM_MEET_AVATAR opt-in)", () => {
 
   test("resolveMeetAvatarDevicePath treats 0/false/no as disabled", () => {
     for (const value of ["", "0", "false", "FALSE", "no", " NO "]) {
-      expect(resolveMeetAvatarDevicePath({ [MEET_AVATAR_ENV_VAR]: value })).toBe(
-        null,
-      );
+      expect(
+        resolveMeetAvatarDevicePath({ [MEET_AVATAR_ENV_VAR]: value }),
+      ).toBe(null);
     }
   });
 
   test("resolveMeetAvatarDevicePath returns the default device path when enabled with a truthy value", () => {
     for (const value of ["1", "true", "YES"]) {
-      expect(resolveMeetAvatarDevicePath({ [MEET_AVATAR_ENV_VAR]: value })).toBe(
-        DEFAULT_MEET_AVATAR_DEVICE_PATH,
-      );
+      expect(
+        resolveMeetAvatarDevicePath({ [MEET_AVATAR_ENV_VAR]: value }),
+      ).toBe(DEFAULT_MEET_AVATAR_DEVICE_PATH);
     }
   });
 
@@ -132,9 +147,9 @@ describe("Meet avatar device passthrough (VELLUM_MEET_AVATAR opt-in)", () => {
   test("assistant args omit --device and the avatar env vars when VELLUM_MEET_AVATAR is unset", () => {
     const args = buildAssistantArgs();
     expect(args).not.toContain("--device");
-    expect(
-      args.some((a) => a.startsWith(`${MEET_AVATAR_ENV_VAR}=`)),
-    ).toBe(false);
+    expect(args.some((a) => a.startsWith(`${MEET_AVATAR_ENV_VAR}=`))).toBe(
+      false,
+    );
     expect(
       args.some((a) => a.startsWith(`${MEET_AVATAR_DEVICE_ENV_VAR}=`)),
     ).toBe(false);
