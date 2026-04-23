@@ -76,11 +76,11 @@ function nowISO(): string {
 
 function toTrustRuleV3(row: typeof trustRulesV3.$inferSelect): TrustRuleV3 {
   // Belt-and-suspenders: validate the DB risk value. The schema constraint
-  // should prevent invalid values, but default to the raw cast if somehow
-  // one slips through.
+  // should prevent invalid values, but default to "high" as a defensive
+  // fallback if somehow one slips through.
   const risk = VALID_RISK_VALUES.has(row.risk)
     ? (row.risk as TrustRuleV3["risk"])
-    : (row.risk as TrustRuleV3["risk"]);
+    : "high";
 
   return {
     id: row.id,
