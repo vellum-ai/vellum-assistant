@@ -17,15 +17,10 @@ import {
   hatchAssistant,
   checkExistingPlatformAssistant,
   platformInitiateExport,
-  platformPollExportStatus,
-  platformDownloadExport,
-  platformImportPreflight,
-  platformImportBundle,
-  platformRequestUploadUrl,
-  platformUploadToSignedUrl,
-  platformImportPreflightFromGcs,
+  platformPollJobStatus,
   platformImportBundleFromGcs,
-  platformPollImportStatus,
+  platformImportPreflightFromGcs,
+  platformRequestSignedUrl,
   ensureSelfHostedLocalRegistration,
   readGatewayCredential,
   reprovisionAssistantApiKey,
@@ -33,6 +28,13 @@ import {
   fetchCurrentUser,
   fetchOrganizationId,
 } from "../lib/platform-client.js";
+import {
+  localRuntimeExportToGcs,
+  localRuntimeImportFromGcs,
+  localRuntimePollJobStatus,
+  MigrationInProgressError,
+} from "../lib/local-runtime-client.js";
+import { pollJobUntilDone } from "../lib/job-polling.js";
 import {
   hatchDocker,
   retireDocker,
@@ -245,335 +247,7 @@ async function getAccessToken(
 }
 
 // ---------------------------------------------------------------------------
-// HTTP-based export/import helpers (shared by local and docker)
-// ---------------------------------------------------------------------------
-
-async function exportViaHttp(
-  entry: AssistantEntry,
-): Promise<Uint8Array<ArrayBuffer>> {
-  let accessToken = await getAccessToken(
-    entry.runtimeUrl,
-    entry.assistantId,
-    entry.assistantId,
-  );
-
-  let response: Response;
-  try {
-    response = await fetch(`${entry.runtimeUrl}/v1/migrations/export`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ description: "teleport export" }),
-      signal: AbortSignal.timeout(120_000),
-    });
-
-    // Retry once with a fresh token on 401
-    if (response.status === 401) {
-      let refreshedToken: string | null = null;
-      try {
-        const freshToken = await leaseGuardianToken(
-          entry.runtimeUrl,
-          entry.assistantId,
-        );
-        refreshedToken = freshToken.accessToken;
-      } catch {
-        // If token refresh fails, fall through to the error handler below
-      }
-      if (refreshedToken) {
-        accessToken = refreshedToken;
-        response = await fetch(`${entry.runtimeUrl}/v1/migrations/export`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ description: "teleport export" }),
-          signal: AbortSignal.timeout(120_000),
-        });
-      }
-    }
-  } catch (err) {
-    if (err instanceof Error && err.name === "TimeoutError") {
-      console.error("Error: Export request timed out after 2 minutes.");
-      process.exit(1);
-    }
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed")) {
-      console.error(
-        `Error: Could not connect to assistant '${entry.assistantId}'. Is it running?`,
-      );
-      console.error(`Try: vellum wake ${entry.assistantId}`);
-      process.exit(1);
-    }
-    throw err;
-  }
-
-  if (response.status === 401 || response.status === 403) {
-    console.error("Authentication failed.");
-    process.exit(1);
-  }
-
-  if (response.status === 404) {
-    console.error("Assistant not found or not running.");
-    process.exit(1);
-  }
-
-  if (
-    response.status === 502 ||
-    response.status === 503 ||
-    response.status === 504
-  ) {
-    console.error(
-      `Assistant is unreachable. Try 'vellum wake ${entry.assistantId}'.`,
-    );
-    process.exit(1);
-  }
-
-  if (!response.ok) {
-    const body = await response.text();
-    console.error(`Error: Export failed (${response.status}): ${body}`);
-    process.exit(1);
-  }
-
-  const arrayBuffer = await response.arrayBuffer();
-  return new Uint8Array(arrayBuffer);
-}
-
-async function importViaHttp(
-  entry: AssistantEntry,
-  bundleData: Uint8Array<ArrayBuffer>,
-  dryRun: boolean,
-): Promise<void> {
-  let accessToken = await getAccessToken(
-    entry.runtimeUrl,
-    entry.assistantId,
-    entry.assistantId,
-  );
-
-  if (dryRun) {
-    console.log("Running preflight analysis...\n");
-
-    let response: Response;
-    try {
-      response = await fetch(
-        `${entry.runtimeUrl}/v1/migrations/import-preflight`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/octet-stream",
-          },
-          body: new Blob([bundleData]),
-          signal: AbortSignal.timeout(120_000),
-        },
-      );
-
-      // Retry once with a fresh token on 401
-      if (response.status === 401) {
-        let refreshedToken: string | null = null;
-        try {
-          const freshToken = await leaseGuardianToken(
-            entry.runtimeUrl,
-            entry.assistantId,
-          );
-          refreshedToken = freshToken.accessToken;
-        } catch {
-          // If token refresh fails, fall through to the error handler below
-        }
-        if (refreshedToken) {
-          accessToken = refreshedToken;
-          response = await fetch(
-            `${entry.runtimeUrl}/v1/migrations/import-preflight`,
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${accessToken}`,
-                "Content-Type": "application/octet-stream",
-              },
-              body: new Blob([bundleData]),
-              signal: AbortSignal.timeout(120_000),
-            },
-          );
-        }
-      }
-    } catch (err) {
-      if (err instanceof Error && err.name === "TimeoutError") {
-        console.error("Error: Preflight request timed out after 2 minutes.");
-        process.exit(1);
-      }
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed")) {
-        console.error(
-          `Error: Could not connect to assistant '${entry.assistantId}'. Is it running?`,
-        );
-        console.error(`Try: vellum wake ${entry.assistantId}`);
-        process.exit(1);
-      }
-      throw err;
-    }
-
-    handleLocalResponseErrors(response, entry.assistantId);
-
-    const result = (await response.json()) as PreflightResponse;
-    printPreflightSummary(result);
-    return;
-  }
-
-  // Actual import
-  console.log("Importing data...");
-
-  let response: Response;
-  try {
-    response = await fetch(`${entry.runtimeUrl}/v1/migrations/import`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/octet-stream",
-      },
-      body: new Blob([bundleData]),
-      signal: AbortSignal.timeout(300_000),
-    });
-
-    // Retry once with a fresh token on 401
-    if (response.status === 401) {
-      let refreshedToken: string | null = null;
-      try {
-        const freshToken = await leaseGuardianToken(
-          entry.runtimeUrl,
-          entry.assistantId,
-        );
-        refreshedToken = freshToken.accessToken;
-      } catch {
-        // If token refresh fails, fall through to the error handler below
-      }
-      if (refreshedToken) {
-        accessToken = refreshedToken;
-        response = await fetch(`${entry.runtimeUrl}/v1/migrations/import`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/octet-stream",
-          },
-          body: new Blob([bundleData]),
-          signal: AbortSignal.timeout(300_000),
-        });
-      }
-    }
-  } catch (err) {
-    if (err instanceof Error && err.name === "TimeoutError") {
-      console.error("Error: Import request timed out after 5 minutes.");
-      process.exit(1);
-    }
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed")) {
-      console.error(
-        `Error: Could not connect to assistant '${entry.assistantId}'. Is it running?`,
-      );
-      console.error(`Try: vellum wake ${entry.assistantId}`);
-      process.exit(1);
-    }
-    throw err;
-  }
-
-  handleLocalResponseErrors(response, entry.assistantId);
-
-  const result = (await response.json()) as ImportResponse;
-  printImportSummary(result);
-}
-
-// ---------------------------------------------------------------------------
-// Export from source assistant
-// ---------------------------------------------------------------------------
-
-async function exportFromAssistant(
-  entry: AssistantEntry,
-  cloud: string,
-): Promise<Uint8Array<ArrayBuffer>> {
-  if (cloud === "vellum") {
-    // Platform source — use Django async export
-    const token = readPlatformToken();
-    if (!token) {
-      console.error("Not logged in. Run 'vellum login' first.");
-      process.exit(1);
-    }
-
-    // Initiate export job
-    const { jobId } = await platformInitiateExport(
-      token,
-      "teleport export",
-      entry.runtimeUrl,
-    );
-
-    console.log(`Export started (job ${jobId})...`);
-
-    // Poll for completion
-    const POLL_INTERVAL_MS = 2_000;
-    const TIMEOUT_MS = 5 * 60 * 1_000;
-    const deadline = Date.now() + TIMEOUT_MS;
-    let downloadUrl: string | undefined;
-
-    while (Date.now() < deadline) {
-      let status: { status: string; downloadUrl?: string; error?: string };
-      try {
-        status = await platformPollExportStatus(jobId, token, entry.runtimeUrl);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("not found")) {
-          throw err;
-        }
-        // Re-throw permanent 4xx errors (auth, forbidden, etc.)
-        // but retry transient 5xx errors
-        const statusMatch = msg.match(/status check failed: (\d+)/);
-        if (statusMatch) {
-          const statusCode = parseInt(statusMatch[1], 10);
-          if (statusCode >= 400 && statusCode < 500) {
-            throw err;
-          }
-        }
-        // Transient error — retry
-        console.warn(`Polling failed, retrying... (${msg})`);
-        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-        continue;
-      }
-
-      if (status.status === "complete") {
-        downloadUrl = status.downloadUrl;
-        break;
-      }
-
-      if (status.status === "failed") {
-        console.error(`Export failed: ${status.error ?? "unknown error"}`);
-        process.exit(1);
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-    }
-
-    if (!downloadUrl) {
-      console.error("Export timed out after 5 minutes.");
-      process.exit(1);
-    }
-
-    // Download the bundle
-    const response = await platformDownloadExport(downloadUrl);
-    const arrayBuffer = await response.arrayBuffer();
-    return new Uint8Array(arrayBuffer);
-  }
-
-  if (cloud === "local" || cloud === "docker") {
-    return exportViaHttp(entry);
-  }
-
-  console.error(
-    "Teleport only supports local, docker, and platform assistants as source.",
-  );
-  process.exit(1);
-}
-
-// ---------------------------------------------------------------------------
-// Import into target assistant
+// Summary response shapes (reused by the GCS job result payload)
 // ---------------------------------------------------------------------------
 
 interface PreflightFileEntry {
@@ -625,86 +299,156 @@ interface ImportResponse {
   };
 }
 
-async function importToAssistant(
+// ---------------------------------------------------------------------------
+// Export from source — unified GCS flow
+//
+// Every source (local, docker, platform) produces a `bundleKey` referring to
+// a bundle sitting in GCS. The CLI never holds the bundle bytes.
+// ---------------------------------------------------------------------------
+
+async function exportFromAssistant(
   entry: AssistantEntry,
   cloud: string,
-  bundleData: Uint8Array<ArrayBuffer>,
-  dryRun: boolean,
-  preUploadedBundleKey?: string | null,
-): Promise<void> {
-  if (cloud === "vellum") {
-    // Platform target
-    const token = readPlatformToken();
-    if (!token) {
-      console.error("Not logged in. Run 'vellum login' first.");
+): Promise<{ bundleKey: string }> {
+  const platformToken = readPlatformToken();
+  if (!platformToken) {
+    console.error(
+      "Not logged in. Run 'vellum login' first (required for GCS-based teleport).",
+    );
+    process.exit(1);
+  }
+
+  if (cloud === "local" || cloud === "docker") {
+    // Request a signed upload URL from the platform, then hand it to the
+    // local/docker runtime so it can stream the bundle straight into GCS.
+    const { url: uploadUrl, bundleKey } = await platformRequestSignedUrl(
+      { operation: "upload" },
+      platformToken,
+    );
+
+    const accessToken = await getAccessToken(
+      entry.runtimeUrl,
+      entry.assistantId,
+      entry.assistantId,
+    );
+
+    let jobId: string;
+    try {
+      const result = await localRuntimeExportToGcs(
+        entry.runtimeUrl,
+        accessToken,
+        { uploadUrl, description: "teleport export" },
+      );
+      jobId = result.jobId;
+    } catch (err) {
+      if (err instanceof MigrationInProgressError) {
+        console.log(
+          `An export is already in progress on '${entry.assistantId}' (job ${err.existingJobId}); polling it instead.`,
+        );
+        jobId = err.existingJobId;
+      } else {
+        throw err;
+      }
+    }
+
+    console.log(`Export started (job ${jobId})...`);
+
+    const terminal = await pollJobUntilDone({
+      label: "local-runtime export",
+      poll: () =>
+        localRuntimePollJobStatus(entry.runtimeUrl, accessToken, jobId),
+    });
+
+    if (terminal.status === "failed") {
+      console.error(`Export failed: ${terminal.error}`);
       process.exit(1);
     }
 
-    // Use pre-uploaded bundle key if provided (string), skip upload if null
-    // (signals signed URLs were already tried and unavailable), or try
-    // signed-URL upload if undefined (never attempted).
-    let bundleKey: string | undefined =
-      preUploadedBundleKey === null ? undefined : preUploadedBundleKey;
-    if (preUploadedBundleKey === undefined) {
-      try {
-        const { uploadUrl, bundleKey: key } = await platformRequestUploadUrl(
-          token,
-          entry.runtimeUrl,
-        );
-        bundleKey = key;
-        console.log("Uploading bundle...");
-        await platformUploadToSignedUrl(uploadUrl, bundleData);
-      } catch (err) {
-        // If signed uploads unavailable (503), fall back to inline upload
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("not available")) {
-          bundleKey = undefined;
-        } else {
-          throw err;
-        }
-      }
+    return { bundleKey };
+  }
+
+  if (cloud === "vellum") {
+    // Platform source — initiate a server-side export. The platform writes
+    // the bundle to its own `exports/<org>/<id>.vbundle` key; we discover
+    // that key via the unified job-status endpoint's `bundle_key` field.
+    const { jobId } = await platformInitiateExport(
+      platformToken,
+      "teleport export",
+      entry.runtimeUrl,
+    );
+
+    console.log(`Export started (job ${jobId})...`);
+
+    const terminal = await pollJobUntilDone({
+      label: "platform export",
+      poll: () => platformPollJobStatus(jobId, platformToken, entry.runtimeUrl),
+    });
+
+    if (terminal.status === "failed") {
+      console.error(`Export failed: ${terminal.error}`);
+      process.exit(1);
     }
 
+    if (!terminal.bundleKey) {
+      console.error(
+        "Export completed but the platform did not return a bundle_key. Is the platform up to date?",
+      );
+      process.exit(1);
+    }
+
+    return { bundleKey: terminal.bundleKey };
+  }
+
+  console.error(
+    "Teleport only supports local, docker, and platform assistants as source.",
+  );
+  process.exit(1);
+}
+
+// ---------------------------------------------------------------------------
+// Import into target — unified GCS flow
+// ---------------------------------------------------------------------------
+
+async function importToAssistant(
+  entry: AssistantEntry,
+  cloud: string,
+  bundleKey: string,
+  dryRun: boolean,
+): Promise<void> {
+  const platformToken = readPlatformToken();
+  if (!platformToken) {
+    console.error(
+      "Not logged in. Run 'vellum login' first (required for GCS-based teleport).",
+    );
+    process.exit(1);
+  }
+
+  if (cloud === "vellum") {
+    // Platform target — the bundle is already in GCS; kick off preflight or
+    // async import via the unified job-status endpoint.
     if (dryRun) {
       console.log("Running preflight analysis...\n");
 
-      let preflightResult: {
-        statusCode: number;
-        body: Record<string, unknown>;
-      };
-      try {
-        preflightResult = bundleKey
-          ? await platformImportPreflightFromGcs(
-              bundleKey,
-              token,
-              entry.runtimeUrl,
-            )
-          : await platformImportPreflight(bundleData, token, entry.runtimeUrl);
-      } catch (err) {
-        if (err instanceof Error && err.name === "TimeoutError") {
-          console.error("Error: Preflight request timed out after 2 minutes.");
-          process.exit(1);
-        }
-        throw err;
-      }
+      const preflight = await platformImportPreflightFromGcs(
+        bundleKey,
+        platformToken,
+        entry.runtimeUrl,
+      );
 
-      if (
-        preflightResult.statusCode === 401 ||
-        preflightResult.statusCode === 403
-      ) {
+      if (preflight.statusCode === 401 || preflight.statusCode === 403) {
         console.error("Authentication failed. Run 'vellum login' to refresh.");
         process.exit(1);
       }
 
-      if (preflightResult.statusCode === 404) {
+      if (preflight.statusCode === 404) {
         console.error("Assistant not found or not running.");
         process.exit(1);
       }
 
       if (
-        preflightResult.statusCode === 502 ||
-        preflightResult.statusCode === 503 ||
-        preflightResult.statusCode === 504
+        preflight.statusCode === 502 ||
+        preflight.statusCode === 503 ||
+        preflight.statusCode === 504
       ) {
         console.error(
           `Assistant is unreachable. Try 'vellum wake ${entry.assistantId}'.`,
@@ -712,35 +456,53 @@ async function importToAssistant(
         process.exit(1);
       }
 
-      if (preflightResult.statusCode !== 200) {
+      if (preflight.statusCode !== 200) {
         console.error(
-          `Error: Preflight check failed (${preflightResult.statusCode}): ${JSON.stringify(preflightResult.body)}`,
+          `Error: Preflight check failed (${preflight.statusCode}): ${JSON.stringify(preflight.body)}`,
         );
         process.exit(1);
       }
 
-      const result = preflightResult.body as unknown as PreflightResponse;
+      const result = preflight.body as unknown as PreflightResponse;
       printPreflightSummary(result);
       return;
     }
 
-    // Actual import
     console.log("Importing data...");
 
-    let importResult: { statusCode: number; body: Record<string, unknown> };
-    try {
-      importResult = bundleKey
-        ? await platformImportBundleFromGcs(bundleKey, token, entry.runtimeUrl)
-        : await platformImportBundle(bundleData, token, entry.runtimeUrl);
-    } catch (err) {
-      if (err instanceof Error && err.name === "TimeoutError") {
-        console.error("Error: Import request timed out.");
-        process.exit(1);
-      }
-      throw err;
+    const importResult = await platformImportBundleFromGcs(
+      bundleKey,
+      platformToken,
+      entry.runtimeUrl,
+    );
+
+    if (importResult.statusCode === 401 || importResult.statusCode === 403) {
+      console.error("Authentication failed. Run 'vellum login' to refresh.");
+      process.exit(1);
     }
 
-    handleImportStatusErrors(importResult.statusCode, entry.assistantId);
+    if (importResult.statusCode === 404) {
+      console.error("Assistant not found or not running.");
+      process.exit(1);
+    }
+
+    if (
+      importResult.statusCode === 502 ||
+      importResult.statusCode === 503 ||
+      importResult.statusCode === 504
+    ) {
+      console.error(
+        `Assistant is unreachable. Try 'vellum wake ${entry.assistantId}'.`,
+      );
+      process.exit(1);
+    }
+
+    if (importResult.statusCode !== 202 && importResult.statusCode !== 200) {
+      console.error(`Error: Import failed (${importResult.statusCode})`);
+      process.exit(1);
+    }
+
+    let finalBody: Record<string, unknown> = importResult.body;
 
     if (importResult.statusCode === 202) {
       const jobId = (importResult.body as { job_id?: string }).job_id;
@@ -749,74 +511,84 @@ async function importToAssistant(
         process.exit(1);
       }
 
-      const POLL_INTERVAL_MS = 5_000;
-      const TIMEOUT_MS = 10 * 60 * 1_000; // 10 minutes (platform staleness is 930s)
-      const startTime = Date.now();
-      const deadline = startTime + TIMEOUT_MS;
+      const terminal = await pollJobUntilDone({
+        label: "platform import",
+        poll: () =>
+          platformPollJobStatus(jobId, platformToken, entry.runtimeUrl),
+      });
 
-      while (Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-
-        let status: {
-          status: string;
-          result?: Record<string, unknown>;
-          error?: string;
-        };
-        try {
-          status = await platformPollImportStatus(
-            jobId,
-            token,
-            entry.runtimeUrl,
-          );
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          if (msg.includes("not found")) {
-            throw err;
-          }
-          // Re-throw permanent 4xx errors (auth, forbidden, etc.)
-          // but retry transient 5xx errors
-          const statusMatch = msg.match(/status check failed: (\d+)/);
-          if (statusMatch) {
-            const statusCode = parseInt(statusMatch[1], 10);
-            if (statusCode >= 400 && statusCode < 500) {
-              throw err;
-            }
-          }
-          // Transient error — retry
-          console.warn(`Polling failed, retrying... (${msg})`);
-          continue;
-        }
-
-        if (status.status === "complete") {
-          importResult = { statusCode: 200, body: status.result ?? {} };
-          break;
-        }
-
-        if (status.status === "failed") {
-          console.error(`Import failed: ${status.error ?? "unknown error"}`);
-          process.exit(1);
-        }
-
-        const elapsed = Math.round((Date.now() - startTime) / 1000);
-        process.stdout.write(`\rImporting... ${elapsed}s elapsed`);
-      }
-
-      // Clear the progress line
-      process.stdout.write("\r" + " ".repeat(40) + "\r");
-
-      if (importResult.statusCode === 202) {
-        console.error("Import timed out after 10 minutes.");
+      if (terminal.status === "failed") {
+        console.error(`Import failed: ${terminal.error}`);
         process.exit(1);
       }
+
+      finalBody = (terminal.result as Record<string, unknown>) ?? {};
     }
 
-    const result = importResult.body as unknown as ImportResponse;
+    const result = finalBody as unknown as ImportResponse;
     printImportSummary(result);
     return;
   }
 
   if (cloud === "local" || cloud === "docker") {
-    await importViaHttp(entry, bundleData, dryRun);
+    if (dryRun) {
+      // TODO(cli): support dry-run against local targets
+      console.error(
+        "Error: --dry-run is not yet supported for local or docker targets (no preflight-from-gcs endpoint on the runtime).",
+      );
+      process.exit(1);
+    }
+
+    // Ask the platform for a signed download URL and hand it to the local
+    // runtime. The runtime streams the bundle straight out of GCS — the CLI
+    // never touches the bytes.
+    const { url: bundleUrl } = await platformRequestSignedUrl(
+      { operation: "download", bundleKey },
+      platformToken,
+    );
+
+    const accessToken = await getAccessToken(
+      entry.runtimeUrl,
+      entry.assistantId,
+      entry.assistantId,
+    );
+
+    console.log("Importing data...");
+
+    let jobId: string;
+    try {
+      const result = await localRuntimeImportFromGcs(
+        entry.runtimeUrl,
+        accessToken,
+        { bundleUrl },
+      );
+      jobId = result.jobId;
+    } catch (err) {
+      if (err instanceof MigrationInProgressError) {
+        console.log(
+          `An import is already in progress on '${entry.assistantId}' (job ${err.existingJobId}); polling it instead.`,
+        );
+        jobId = err.existingJobId;
+      } else {
+        throw err;
+      }
+    }
+
+    const terminal = await pollJobUntilDone({
+      label: "local-runtime import",
+      poll: () =>
+        localRuntimePollJobStatus(entry.runtimeUrl, accessToken, jobId),
+    });
+
+    if (terminal.status === "failed") {
+      console.error(`Import failed: ${terminal.error}`);
+      process.exit(1);
+    }
+
+    const result =
+      ((terminal.result as Record<string, unknown>) ??
+        {}) as unknown as ImportResponse;
+    printImportSummary(result);
     return;
   }
 
@@ -950,68 +722,6 @@ export async function resolveOrHatchTarget(
 
   console.error(`Error: Unknown target environment '${targetEnv}'.`);
   process.exit(1);
-}
-
-// ---------------------------------------------------------------------------
-// Error handling helpers
-// ---------------------------------------------------------------------------
-
-function handleLocalResponseErrors(
-  response: Response,
-  assistantName: string,
-): void {
-  if (response.status === 401 || response.status === 403) {
-    console.error("Authentication failed.");
-    process.exit(1);
-  }
-
-  if (response.status === 404) {
-    console.error("Assistant not found or not running.");
-    process.exit(1);
-  }
-
-  if (
-    response.status === 502 ||
-    response.status === 503 ||
-    response.status === 504
-  ) {
-    console.error(
-      `Assistant is unreachable. Try 'vellum wake ${assistantName}'.`,
-    );
-    process.exit(1);
-  }
-
-  if (!response.ok) {
-    console.error(`Error: Request failed (${response.status})`);
-    process.exit(1);
-  }
-}
-
-function handleImportStatusErrors(
-  statusCode: number,
-  assistantName: string,
-): void {
-  if (statusCode === 401 || statusCode === 403) {
-    console.error("Authentication failed. Run 'vellum login' to refresh.");
-    process.exit(1);
-  }
-
-  if (statusCode === 404) {
-    console.error("Assistant not found or not running.");
-    process.exit(1);
-  }
-
-  if (statusCode === 502 || statusCode === 503 || statusCode === 504) {
-    console.error(
-      `Assistant is unreachable. Try 'vellum wake ${assistantName}'.`,
-    );
-    process.exit(1);
-  }
-
-  if (statusCode < 200 || statusCode >= 300) {
-    console.error(`Error: Import failed (${statusCode})`);
-    process.exit(1);
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1293,40 +1003,27 @@ export async function teleport(): Promise<void> {
       }
 
       console.log(`Exporting from ${from} (${fromCloud})...`);
-      const bundleData = await exportFromAssistant(fromEntry, fromCloud);
+      const { bundleKey } = await exportFromAssistant(fromEntry, fromCloud);
       console.log(`Importing to ${existingTarget.assistantId} (${toCloud})...`);
-      await importToAssistant(existingTarget, toCloud, bundleData, true);
+      await importToAssistant(existingTarget, toCloud, bundleKey, true);
     } else {
       // No existing target — just describe what would happen
       console.log("Dry run summary:");
       console.log(`  Would export data from: ${from} (${fromCloud})`);
-      if (targetEnv === "platform") {
-        // For platform targets, reflect the reordered flow
-        console.log(`  Would upload bundle via signed URL (if available)`);
-        console.log(
-          `  Would hatch a new ${targetEnv} assistant${targetName ? ` named '${targetName}'` : ""}`,
-        );
-        console.log(`  Would import data into the new assistant`);
-      } else {
-        console.log(
-          `  Would hatch a new ${targetEnv} assistant${targetName ? ` named '${targetName}'` : ""}`,
-        );
-        console.log(`  Would import data into the new assistant`);
-      }
+      console.log(`  Would upload bundle via signed URL`);
+      console.log(
+        `  Would hatch a new ${targetEnv} assistant${targetName ? ` named '${targetName}'` : ""}`,
+      );
+      console.log(`  Would import data into the new assistant`);
     }
 
     console.log(`Dry run complete — no changes were made.`);
     return;
   }
 
-  // Export from source
-  console.log(`Exporting from ${from} (${fromCloud})...`);
-  const bundleData = await exportFromAssistant(fromEntry, fromCloud);
-
   // Platform target: reordered flow — upload to GCS before hatching so that
-  // if upload fails, no empty assistant is left dangling on the platform.
+  // if export/upload fails, no empty assistant is left dangling on the platform.
   if (targetEnv === "platform") {
-    // Step B — Auth
     const token = readPlatformToken();
     if (!token) {
       console.error("Not logged in. Run 'vellum login' first.");
@@ -1334,7 +1031,7 @@ export async function teleport(): Promise<void> {
     }
 
     // If targeting an existing assistant, validate cloud match early — before
-    // uploading — so we don't waste a GCS upload on an invalid command.
+    // exporting — so we don't waste work on an invalid command.
     const existingTarget = targetName ? findAssistantByName(targetName) : null;
     if (existingTarget) {
       const existingCloud = resolveCloud(existingTarget);
@@ -1347,12 +1044,12 @@ export async function teleport(): Promise<void> {
       }
     }
 
-    // Use the existing target's runtimeUrl for all platform calls so upload
-    // and import hit the same instance.
+    // Use the existing target's runtimeUrl for all platform calls so the
+    // export, upload, and import all hit the same instance.
     const targetPlatformUrl = existingTarget?.runtimeUrl;
 
-    // Step B2 — Pre-check: block if the user already has a platform assistant.
-    // This runs BEFORE the expensive GCS upload so we don't waste bandwidth.
+    // Pre-check: block if the user already has a platform assistant. This
+    // runs BEFORE the expensive export so we don't waste the upload.
     if (!existingTarget) {
       const existing = await checkExistingPlatformAssistant(
         token,
@@ -1376,43 +1073,25 @@ export async function teleport(): Promise<void> {
       }
     }
 
-    // Step C — Upload to GCS
-    // bundleKey: string = uploaded successfully, null = tried but unavailable,
-    // undefined would mean "never tried" (not used here).
-    let bundleKey: string | null = null;
-    try {
-      const { uploadUrl, bundleKey: key } = await platformRequestUploadUrl(
-        token,
-        targetPlatformUrl,
-      );
-      bundleKey = key;
-      console.log("Uploading bundle to GCS...");
-      await platformUploadToSignedUrl(uploadUrl, bundleData);
-    } catch (err) {
-      // If signed uploads unavailable (503), fall back to inline upload later
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("not available")) {
-        bundleKey = null;
-      } else {
-        throw err;
-      }
-    }
+    // Export — for local/docker sources this uploads straight into GCS via
+    // the platform's signed URL; for platform sources this runs a server-side
+    // export and we read the resulting bundle_key.
+    console.log(`Exporting from ${from} (${fromCloud})...`);
+    const { bundleKey } = await exportFromAssistant(fromEntry, fromCloud);
 
-    // Step D — Hatch (upload succeeded or fallback to inline — safe to hatch)
+    // Hatch (export succeeded — safe to create the target)
     const toEntry = await resolveOrHatchTarget(targetEnv, targetName);
     const toCloud = resolveCloud(toEntry);
 
-    // Step E — Import from GCS (or inline fallback)
-    // Pass bundleKey (string) or null to signal "already tried, use inline".
+    // Import from GCS
     console.log(`Importing to ${toEntry.assistantId} (${toCloud})...`);
-    await importToAssistant(toEntry, toCloud, bundleData, false, bundleKey);
+    await importToAssistant(toEntry, toCloud, bundleKey, false);
 
-    // Success summary
     console.log(`Teleport complete: ${from} → ${toEntry.assistantId}`);
     return;
   }
 
-  // Non-platform targets (local/docker): existing flow unchanged
+  // Non-platform targets (local/docker)
   // For local<->docker transfers, stop (sleep) the source to free up ports
   // before hatching the target. We do NOT retire yet — if hatch or import
   // fails, the user can recover by running `vellum wake <source>`.
@@ -1447,6 +1126,10 @@ export async function teleport(): Promise<void> {
       versionGuardPassed = true;
     }
   }
+
+  // Export from source (bundle lives in GCS after this returns).
+  console.log(`Exporting from ${from} (${fromCloud})...`);
+  const { bundleKey } = await exportFromAssistant(fromEntry, fromCloud);
 
   if (sourceIsLocalOrDocker && targetIsLocalOrDocker && !keepSource) {
     console.log(`Stopping source assistant '${from}' to free ports...`);
@@ -1513,9 +1196,9 @@ export async function teleport(): Promise<void> {
     }
   }
 
-  // Import to target
+  // Import to target (also GCS-driven)
   console.log(`Importing to ${toEntry.assistantId} (${toCloud})...`);
-  await importToAssistant(toEntry, toCloud, bundleData, false);
+  await importToAssistant(toEntry, toCloud, bundleKey, false);
 
   // After successful import, inject fresh platform credentials if the
   // user is logged in — replaces the source's stale vellum:* credentials
@@ -1540,6 +1223,5 @@ export async function teleport(): Promise<void> {
     }
   }
 
-  // Success summary
   console.log(`Teleport complete: ${from} → ${toEntry.assistantId}`);
 }
