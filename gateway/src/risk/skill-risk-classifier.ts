@@ -18,6 +18,7 @@ import type {
   RiskAssessment,
   RiskClassifier,
 } from "./risk-types.js";
+import { getTrustRuleV3Cache } from "./trust-rule-v3-cache.js";
 
 // -- Input type ---------------------------------------------------------------
 
@@ -167,9 +168,13 @@ export class SkillLoadRiskClassifier implements RiskClassifier<SkillClassifierIn
   async classify(input: SkillClassifierInput): Promise<RiskAssessment> {
     const { toolName, skillSelector, resolvedMetadata } = input;
 
+    // Run normal classification first, then check for user overrides at
+    // the end. This ensures security escalations cannot be bypassed.
+    let assessment: RiskAssessment;
+
     switch (toolName) {
       case "skill_load":
-        return {
+        assessment = {
           riskLevel: "low",
           reason: "Skill load (default)",
           scopeOptions: [],
@@ -179,8 +184,9 @@ export class SkillLoadRiskClassifier implements RiskClassifier<SkillClassifierIn
             resolvedMetadata,
           ),
         };
+        break;
       case "scaffold_managed_skill":
-        return {
+        assessment = {
           riskLevel: "high",
           reason: "Skill scaffold — writes persistent skill source code",
           scopeOptions: [],
@@ -190,8 +196,9 @@ export class SkillLoadRiskClassifier implements RiskClassifier<SkillClassifierIn
             skillSelector,
           ),
         };
+        break;
       case "delete_managed_skill":
-        return {
+        assessment = {
           riskLevel: "high",
           reason: "Skill delete — removes persistent skill source code",
           scopeOptions: [],
@@ -201,7 +208,39 @@ export class SkillLoadRiskClassifier implements RiskClassifier<SkillClassifierIn
             skillSelector,
           ),
         };
+        break;
     }
+
+    // Check risk rule cache for user overrides AFTER normal classification.
+    // Use the same key format as buildSkillLoadAllowlistOptions: resolved
+    // skillId from metadata (when available), and skill_load_dynamic as the
+    // tool key for dynamic skills.
+    try {
+      const ruleCache = getTrustRuleV3Cache();
+      const isDynamic =
+        resolvedMetadata?.isDynamic && resolvedMetadata?.hasInlineExpansions;
+      const overrideTool = isDynamic ? "skill_load_dynamic" : toolName;
+      const overridePattern = resolvedMetadata?.skillId ?? skillSelector ?? "";
+      const override = ruleCache.findToolOverride(
+        overrideTool,
+        overridePattern,
+      );
+      if (
+        override &&
+        (override.userModified || override.origin === "user_defined")
+      ) {
+        return {
+          riskLevel: override.risk,
+          reason: override.description,
+          scopeOptions: [],
+          matchType: "user_rule",
+        };
+      }
+    } catch {
+      // Cache not initialized — no override
+    }
+
+    return assessment!;
   }
 }
 

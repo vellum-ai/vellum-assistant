@@ -32,6 +32,7 @@ import type {
   RiskAssessment,
   RiskClassifier,
 } from "./risk-types.js";
+import { getTrustRuleV3Cache } from "./trust-rule-v3-cache.js";
 
 // -- Context interface --------------------------------------------------------
 
@@ -222,27 +223,35 @@ export class FileRiskClassifier implements RiskClassifier<
       ? buildFileAllowlistOptions(toolName, filePath)
       : [];
 
+    // Run normal classification first (including all security escalations),
+    // then check for user overrides at the end. This ensures security-critical
+    // escalations (actor-token-signing-key, skill source, hooks) cannot be
+    // bypassed by a user override.
+    let assessment: RiskAssessment;
+
     switch (toolName) {
       case "file_read": {
         if (filePath) {
           const resolvedPath = resolve(workingDir, filePath);
           if (isActorTokenSigningKeyPath(resolvedPath, workingDir, context)) {
-            return {
+            assessment = {
               riskLevel: "high",
               reason: "Reads actor token signing key",
               scopeOptions: [],
               matchType: "registry",
               allowlistOptions,
             };
+            break;
           }
         }
-        return {
+        assessment = {
           riskLevel: "low",
           reason: "File read (default)",
           scopeOptions: [],
           matchType: "registry",
           allowlistOptions,
         };
+        break;
       }
 
       case "file_write":
@@ -250,44 +259,48 @@ export class FileRiskClassifier implements RiskClassifier<
         if (filePath) {
           const resolvedPath = resolve(workingDir, filePath);
           if (isSkillSourcePath(resolvedPath, context)) {
-            return {
+            assessment = {
               riskLevel: "high",
               reason: "Writes to skill source code",
               scopeOptions: [],
               matchType: "registry",
               allowlistOptions,
             };
+            break;
           }
           if (isHooksPath(resolvedPath, context)) {
-            return {
+            assessment = {
               riskLevel: "high",
               reason: "Writes to hooks directory",
               scopeOptions: [],
               matchType: "registry",
               allowlistOptions,
             };
+            break;
           }
         }
-        return {
+        assessment = {
           riskLevel: "low",
           reason: `File ${toolName === "file_write" ? "write" : "edit"} (default)`,
           scopeOptions: [],
           matchType: "registry",
           allowlistOptions,
         };
+        break;
       }
 
       case "host_file_read": {
         // host_file_read has no special escalation paths — the tool registry
         // declares it as Medium risk, and classifyRiskFromRegistry falls through
         // to getTool() which returns that default.
-        return {
+        assessment = {
           riskLevel: "medium",
           reason: "Host file read (default)",
           scopeOptions: [],
           matchType: "registry",
           allowlistOptions,
         };
+        break;
       }
 
       case "host_file_write":
@@ -297,34 +310,61 @@ export class FileRiskClassifier implements RiskClassifier<
           // treats the path as absolute or relative to cwd.
           const resolvedPath = resolve(filePath);
           if (isSkillSourcePath(resolvedPath, context)) {
-            return {
+            assessment = {
               riskLevel: "high",
               reason: "Writes to skill source code",
               scopeOptions: [],
               matchType: "registry",
               allowlistOptions,
             };
+            break;
           }
           if (isHooksPath(resolvedPath, context)) {
-            return {
+            assessment = {
               riskLevel: "high",
               reason: "Writes to hooks directory",
               scopeOptions: [],
               matchType: "registry",
               allowlistOptions,
             };
+            break;
           }
         }
         // Fall through to tool registry default (Medium).
-        return {
+        assessment = {
           riskLevel: "medium",
           reason: `Host file ${toolName === "host_file_write" ? "write" : "edit"} (default)`,
           scopeOptions: [],
           matchType: "registry",
           allowlistOptions,
         };
+        break;
       }
     }
+
+    // Check risk rule cache for user overrides AFTER normal classification.
+    // This preserves security escalations — overrides only apply to the
+    // final result, they cannot bypass high-risk checks above.
+    try {
+      const ruleCache = getTrustRuleV3Cache();
+      const override = ruleCache.findToolOverride(toolName, filePath);
+      if (
+        override &&
+        (override.userModified || override.origin === "user_defined")
+      ) {
+        return {
+          riskLevel: override.risk,
+          reason: override.description,
+          scopeOptions: [],
+          matchType: "user_rule",
+          allowlistOptions,
+        };
+      }
+    } catch {
+      // Cache not initialized — no override
+    }
+
+    return assessment!;
   }
 }
 
