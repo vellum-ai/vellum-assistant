@@ -285,6 +285,10 @@ interface BadRequestResponse {
   error: { code: string; message: string };
 }
 
+interface InvalidBundleUrlResponse {
+  error: { code: "invalid_bundle_url"; reason: string };
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -455,6 +459,57 @@ describe("POST /v1/migrations/import-from-gcs", () => {
       if (firstJobId !== undefined) {
         await pollJobUntilDone(firstJobId);
       }
+    }
+  }, 30_000);
+
+  test("invalid bundle_url (disallowed host) returns 400 without consuming the in-flight slot", async () => {
+    // Disallowed host — syntactically a valid URL (passes zod), but
+    // `validateGcsSignedUrl` must reject it synchronously so the single
+    // in-flight import slot is NOT taken. Without the preflight, this
+    // would return 202 + job_id and then only fail inside the async
+    // runner, blocking a correct retry until the doomed job cleared.
+    const badReq = new Request(
+      "http://localhost/v1/migrations/import-from-gcs",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bundle_url: "http://evil.example.com/bundle?X-Goog-Signature=fake",
+        }),
+      },
+    );
+    const badRes = await handleMigrationImportFromGcs(badReq);
+    expect(badRes.status).toBe(400);
+    const badBody = (await badRes.json()) as InvalidBundleUrlResponse;
+    expect(badBody.error.code).toBe("invalid_bundle_url");
+    expect(typeof badBody.error.reason).toBe("string");
+    expect(badBody.error.reason.length).toBeGreaterThan(0);
+
+    // A follow-up valid request must still be able to start a job — proving
+    // the doomed request did not occupy the concurrency slot.
+    const bundlePath = makeSmallValidBundlePath(testParent);
+    const fixture = await startFixtureServer((_req, res) => {
+      res.writeHead(200, { "Content-Type": "application/octet-stream" });
+      createReadStream(bundlePath).pipe(res);
+    });
+    try {
+      const goodReq = new Request(
+        "http://localhost/v1/migrations/import-from-gcs",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bundle_url: makeFakeSignedUrl(fixture.port) }),
+        },
+      );
+      const goodRes = await handleMigrationImportFromGcs(goodReq);
+      expect(goodRes.status).toBe(202);
+      const goodBody = (await goodRes.json()) as AcceptedResponse;
+      expect(goodBody.type).toBe("import");
+
+      // Drain the job so subsequent tests start from a clean registry.
+      await pollJobUntilDone(goodBody.job_id);
+    } finally {
+      await fixture.close();
     }
   }, 30_000);
 

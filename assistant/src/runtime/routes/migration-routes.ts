@@ -1452,6 +1452,29 @@ export async function handleMigrationImportFromGcs(
 
   const { bundle_url } = parsed.data;
 
+  // Synchronously validate the GCS URL before consuming the single
+  // in-flight import slot. Mirrors `handleMigrationExportToGcs`: an
+  // invalid-but-syntactically-valid URL (wrong host/scheme, missing
+  // signature) must be rejected with 400 here so a correct retry isn't
+  // blocked behind a doomed async job that only fails once the runner
+  // re-validates inside `runGcsImport`. Never log the raw URL.
+  const validated = validateGcsSignedUrl(bundle_url, urlValidatorOptions);
+  if (!validated.ok) {
+    log.warn(
+      { reason: validated.reason },
+      "Rejected migration import-from-gcs bundle URL",
+    );
+    return Response.json(
+      {
+        error: {
+          code: "invalid_bundle_url",
+          reason: validated.reason,
+        },
+      },
+      { status: 400 },
+    );
+  }
+
   try {
     const job = migrationJobs.startJob("import", async (jobRecord) =>
       runGcsImport(bundle_url, jobRecord.id),
