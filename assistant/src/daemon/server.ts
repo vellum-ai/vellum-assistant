@@ -292,6 +292,12 @@ function makePendingInteractionRegistrar(
         conversationId,
         kind: "host_cu",
       });
+    } else if (msg.type === "host_transfer_request") {
+      pendingInteractions.register(msg.requestId, {
+        conversation,
+        conversationId,
+        kind: "host_transfer",
+      });
     }
   };
 }
