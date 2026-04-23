@@ -1583,18 +1583,24 @@ export async function runAgentLoopImpl(
         throw err;
       }
     }
-    if (
-      preRunRepair !== null &&
-      (preRunRepair.stats.assistantToolResultsMigrated > 0 ||
+    if (preRunRepair !== null) {
+      // Always adopt the pipeline's output history — a user `historyRepair`
+      // middleware may rewrite `messages` (e.g. provider-specific
+      // normalization) without incrementing any of the built-in repair
+      // counters. Gating the assignment on `stats` would silently discard
+      // those edits and send the un-rewritten history to the provider.
+      runMessages = preRunRepair.messages;
+      if (
+        preRunRepair.stats.assistantToolResultsMigrated > 0 ||
         preRunRepair.stats.missingToolResultsInserted > 0 ||
         preRunRepair.stats.orphanToolResultsDowngraded > 0 ||
-        preRunRepair.stats.consecutiveSameRoleMerged > 0)
-    ) {
-      rlog.warn(
-        { phase: "pre_run", ...preRunRepair.stats },
-        "Repaired runtime history before provider call",
-      );
-      runMessages = preRunRepair.messages;
+        preRunRepair.stats.consecutiveSameRoleMerged > 0
+      ) {
+        rlog.warn(
+          { phase: "pre_run", ...preRunRepair.stats },
+          "Repaired runtime history before provider call",
+        );
+      }
     }
 
     // Replace historical web_search_tool_result blocks with text summaries.
