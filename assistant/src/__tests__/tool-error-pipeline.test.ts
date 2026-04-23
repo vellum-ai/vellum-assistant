@@ -190,11 +190,11 @@ describe("toolError pipeline", () => {
       expect(decision.action).toBe("skip");
     });
 
-    test("terminal still produces the legacy nudge when no plugin is registered", async () => {
-      // No registerPlugin call — the registry is empty for this slot. Since
-      // `agent/loop.ts` now passes `defaultToolErrorTerminal` as the pipeline
-      // terminal (rather than an inline `() => skip`), direct AgentLoop
-      // callers that skip `bootstrapPlugins()` still get the legacy nudge.
+    test("terminal produces the nudge when no plugin is registered", async () => {
+      // No registerPlugin call — the registry is empty for this slot. The
+      // pipeline terminal is `defaultToolErrorTerminal`, so direct AgentLoop
+      // callers that skip `bootstrapPlugins()` still get the nudge even
+      // without any registered middleware.
       const decision = await runToolErrorPipeline({
         hasToolError: true,
         consecutiveErrorTurns: 1,

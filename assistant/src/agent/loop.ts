@@ -1016,8 +1016,7 @@ export class AgentLoop {
           // middleware is a passthrough (so later-registered user plugins
           // aren't shadowed), so this terminal is what actually produces
           // the decision when no user plugin overrides it. Wiring the
-          // decision here — rather than inside the default plugin's
-          // middleware — also preserves the legacy nudge for direct
+          // decision here also ensures the nudge fires for direct
           // AgentLoop callers (tests, benchmarks) that skip
           // `bootstrapPlugins()` and therefore never register the default.
           async (args) => defaultToolErrorTerminal(args),
