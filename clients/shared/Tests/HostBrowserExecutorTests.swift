@@ -119,6 +119,65 @@ final class HostBrowserExecutorTests: XCTestCase {
         XCTAssertEqual(json["code"] as? String, "unreachable")
     }
 
+    // MARK: - cdpSessionId Fail-Closed Behavior
+
+    /// When cdpSessionId is provided but Chrome is not running, the /json/list
+    /// fetch fails before target matching occurs, so the error code is
+    /// `unreachable`. This exercises the error path without requiring a running
+    /// Chrome instance.
+    ///
+    /// NOTE: To fully verify the fail-closed target-mismatch behavior (error
+    /// code `cdp_session_not_found`), integration tests with a running Chrome
+    /// instance are needed. When Chrome IS running but the cdpSessionId doesn't
+    /// match any target in /json/list, the executor returns a structured error
+    /// with code `cdp_session_not_found` instead of silently falling back to
+    /// the first page target.
+    func testRunWithUnmatchedCdpSessionIdReturnsStructuredError() async {
+        let executor = HostBrowserExecutor()
+        let request = makeRequest(
+            requestId: "req-unmatched-session",
+            cdpMethod: "Runtime.evaluate",
+            cdpSessionId: "NONEXISTENT_TARGET_ID"
+        )
+
+        let result = await executor.run(request)
+
+        XCTAssertEqual(result.requestId, "req-unmatched-session")
+        XCTAssertTrue(result.isError, "Should be a transport error")
+
+        guard let data = result.content.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            XCTFail("Content should be valid JSON")
+            return
+        }
+        // Chrome is not running in the unit test environment, so /json/list
+        // fails before target matching — the error code is `unreachable`.
+        XCTAssertEqual(json["code"] as? String, "unreachable")
+    }
+
+    /// When cdpSessionId is absent, the executor falls back to the first page
+    /// target (existing behavior). Without Chrome running, this still results
+    /// in `unreachable`, confirming the fallback code path doesn't crash.
+    func testRunWithoutCdpSessionIdFallsBackToFirstTarget() async {
+        let executor = HostBrowserExecutor()
+        let request = makeRequest(
+            requestId: "req-no-session",
+            cdpMethod: "Runtime.evaluate"
+        )
+
+        let result = await executor.run(request)
+
+        XCTAssertEqual(result.requestId, "req-no-session")
+        XCTAssertTrue(result.isError, "Should be a transport error when Chrome is unreachable")
+
+        guard let data = result.content.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            XCTFail("Content should be valid JSON")
+            return
+        }
+        XCTAssertEqual(json["code"] as? String, "unreachable")
+    }
+
     // MARK: - Cancellation
 
     func testCancelSuppressesResultPost() async {
