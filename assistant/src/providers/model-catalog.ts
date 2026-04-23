@@ -7,6 +7,10 @@ export interface CatalogModel {
   supportsCaching?: boolean;
   supportsVision?: boolean;
   supportsToolUse?: boolean;
+  /**
+   * Local/public cost estimates for assistant-side display or telemetry only.
+   * Hosted platform billing rates remain authoritative in vellum-assistant-platform.
+   */
   pricing?: {
     inputPer1mTokens: number;
     outputPer1mTokens: number;
