@@ -22,6 +22,8 @@ This policy covers the code in this repository, including:
 - The credential execution service (`credential-executor/`)
 - The packages shared between services (`packages/`)
 
+For Socket.dev supply-chain controls and autofix operations, see [docs/socket.md](docs/socket.md).
+
 ## Security Model
 
 For details on Vellum Assistant's security architecture — including sandboxing, credential storage, permission modes, and trust rules — see the [Security Architecture documentation](assistant/docs/architecture/security.md).
