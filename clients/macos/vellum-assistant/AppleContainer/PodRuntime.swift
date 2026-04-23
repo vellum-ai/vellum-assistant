@@ -35,7 +35,7 @@ final class AppleContainersPodRuntime: @unchecked Sendable {
         /// Size declared in ext4 superblock metadata. Must be >= the unpacked
         /// image content. APFS uses sparse files so this doesn't consume real
         /// disk space beyond what's written.
-        var rootfsSizeInBytes: UInt64 = 1024 * 1024 * 1024 // 1 GiB
+        var rootfsSizeInBytes: UInt64 = 10 * 1024 * 1024 * 1024 // 10 GiB
     }
 
     private let kernelStore: KataKernelStore

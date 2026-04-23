@@ -19,7 +19,7 @@ final class PodRuntimeTests: XCTestCase {
         )
         XCTAssertEqual(config.cpus, 4)
         XCTAssertEqual(config.memoryInBytes, 2 * 1024 * 1024 * 1024)
-        XCTAssertEqual(config.rootfsSizeInBytes, 1024 * 1024 * 1024)
+        XCTAssertEqual(config.rootfsSizeInBytes, 10 * 1024 * 1024 * 1024)
         XCTAssertNil(config.bootstrapSecret)
         XCTAssertNil(config.cesServiceToken)
         XCTAssertFalse(config.skipRegistryPull)
