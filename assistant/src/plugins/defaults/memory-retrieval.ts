@@ -121,15 +121,10 @@ export async function runDefaultMemoryRetrieval(
     };
   }
 
-  // `prepareMemory` requires a non-optional signal. In production the agent
-  // loop always threads one via `args.signal`; the fallback `AbortController`
-  // keeps direct callers (e.g. tests that skip the pipeline) working without
-  // forcing every call site to synthesize a dummy signal.
-  const abortSignal = args.signal ?? new AbortController().signal;
   const graphResult = await deps.graphMemory.prepareMemory(
     deps.messages,
     deps.config,
-    abortSignal,
+    args.signal,
     deps.onEvent,
   );
 
