@@ -28,7 +28,10 @@ type ServerWithRequestIP = {
   ): { address: string; family: string; port: number } | null;
 };
 import { isHttpAuthDisabled } from "../../config/env.js";
-import { getIsContainerized } from "../../config/env-registry.js";
+import {
+  getIsContainerized,
+  isDockerCloud,
+} from "../../config/env-registry.js";
 
 const log = getLogger("guardian-bootstrap");
 
@@ -132,11 +135,13 @@ export async function handleGuardianBootstrap(
     return httpError("FORBIDDEN", "Bootstrap endpoint is local-only", 403);
   }
 
-  // In containerized mode, require a valid bootstrap secret — this closes
-  // the bypass where a host-local client could hit the published runtime
-  // port directly and skip the gateway's gate. Fails closed if the env var
-  // is unset in containerized deployments.
-  if (containerized && !isHttpAuthDisabled()) {
+  // In Docker mode specifically, require a valid bootstrap secret — this
+  // closes the bypass where a host-local client could hit the published
+  // runtime port directly and skip the gateway's gate. Fails closed if the
+  // env var is unset. Other containerized topologies (Apple-container pods,
+  // managed platform pods) keep the runtime port inside the pod network and
+  // do not need this additional gate.
+  if (isDockerCloud() && !isHttpAuthDisabled()) {
     if (!isBootstrapSecretValid(req)) {
       log.warn(
         { peerIp },
