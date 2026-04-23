@@ -1,40 +1,8 @@
 import type { Command } from "commander";
 
-import { getDeliverableChannels } from "../../channels/config.js";
-import { emitNotificationSignal } from "../../notifications/emit-signal.js";
-import { listEvents } from "../../notifications/events-store.js";
-import {
-  isNotificationSourceChannel,
-  isNotificationSourceEventName,
-  NOTIFICATION_SOURCE_CHANNELS,
-  NOTIFICATION_SOURCE_EVENT_NAMES,
-} from "../../notifications/signal.js";
-import type { NotificationChannel } from "../../notifications/types.js";
-import {
-  initAuthSigningKey,
-  resolveSigningKey,
-} from "../../runtime/auth/token-service.js";
-import { initializeDb } from "../db.js";
+import { cliIpcCall } from "../../ipc/cli-client.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
-
-// ---------------------------------------------------------------------------
-// Help text builders
-// ---------------------------------------------------------------------------
-
-function buildSourceChannelsHelpBlock(): string {
-  const lines = NOTIFICATION_SOURCE_CHANNELS.map(
-    (c) => `  ${c.id.padEnd(20)} ${c.description}`,
-  );
-  return `\nSource channels:\n${lines.join("\n")}`;
-}
-
-function buildSourceEventNamesHelpBlock(): string {
-  const lines = NOTIFICATION_SOURCE_EVENT_NAMES.map(
-    (e) => `  ${e.id.padEnd(50)} ${e.description}`,
-  );
-  return `\nSource event names:\n${lines.join("\n")}`;
-}
 
 // ---------------------------------------------------------------------------
 // Command registration
@@ -55,8 +23,6 @@ Notifications flow through a unified pipeline: a signal is emitted with a
 source channel, event name, and attention hints. The decision engine evaluates
 whether and where to deliver the notification based on connected channels,
 urgency, and user preferences.
-${buildSourceChannelsHelpBlock()}
-${buildSourceEventNamesHelpBlock()}
 
 Examples:
   $ assistant notifications send --source-channel assistant_tool --source-event-name user.send_notification --message "Build finished"
@@ -169,33 +135,7 @@ Examples:
         cmd: Command,
       ) => {
         try {
-          // Validate --source-channel
-          if (!isNotificationSourceChannel(opts.sourceChannel)) {
-            const validChannels = NOTIFICATION_SOURCE_CHANNELS.map(
-              (c) => c.id,
-            ).join(", ");
-            writeOutput(cmd, {
-              ok: false,
-              error: `Invalid source channel "${opts.sourceChannel}". Valid values: ${validChannels}`,
-            });
-            process.exitCode = 1;
-            return;
-          }
-
-          // Validate --source-event-name
-          if (!isNotificationSourceEventName(opts.sourceEventName)) {
-            const validEvents = NOTIFICATION_SOURCE_EVENT_NAMES.map(
-              (e) => e.id,
-            ).join(", ");
-            writeOutput(cmd, {
-              ok: false,
-              error: `Invalid source event name "${opts.sourceEventName}". Valid values: ${validEvents}`,
-            });
-            process.exitCode = 1;
-            return;
-          }
-
-          // Validate --message
+          // Validate --message (keep basic validation for immediate CLI feedback)
           const message = opts.message.trim();
           if (message.length === 0) {
             writeOutput(cmd, {
@@ -217,7 +157,7 @@ Examples:
             return;
           }
 
-          // Validate --deadline-at
+          // Parse --deadline-at
           let deadlineAt: number | undefined;
           if (opts.deadlineAt != null) {
             const parsed = Number(opts.deadlineAt);
@@ -232,36 +172,25 @@ Examples:
             deadlineAt = parsed;
           }
 
-          // Validate --preferred-channels
-          let preferredChannels: NotificationChannel[] | undefined;
+          // Parse --preferred-channels
+          let preferredChannels: string[] | undefined;
           if (opts.preferredChannels) {
-            const deliverable = getDeliverableChannels();
-            const requested = opts.preferredChannels
+            preferredChannels = opts.preferredChannels
               .split(",")
               .map((ch) => ch.trim())
               .filter((ch) => ch.length > 0);
-
-            for (const ch of requested) {
-              if (!deliverable.includes(ch as NotificationChannel)) {
-                writeOutput(cmd, {
-                  ok: false,
-                  error: `Invalid preferred channel "${ch}". Valid deliverable channels: ${deliverable.join(", ")}`,
-                });
-                process.exitCode = 1;
-                return;
-              }
-            }
-            preferredChannels = requested as NotificationChannel[];
           }
-
-          initializeDb();
-          initAuthSigningKey(resolveSigningKey());
 
           const sourceContextId = opts.sessionId ?? `cli-${Date.now()}`;
 
-          const result = await emitNotificationSignal({
-            sourceEventName: opts.sourceEventName,
+          const result = await cliIpcCall<{
+            signalId: string;
+            dispatched: boolean;
+            deduplicated: boolean;
+            reason: string;
+          }>("emit_notification_signal", {
             sourceChannel: opts.sourceChannel,
+            sourceEventName: opts.sourceEventName,
             sourceContextId,
             attentionHints: {
               requiresAction: opts.requiresAction ?? true,
@@ -280,19 +209,27 @@ Examples:
             throwOnError: true,
           });
 
+          if (!result.ok) {
+            writeOutput(cmd, { ok: false, error: result.error });
+            process.exitCode = 1;
+            return;
+          }
+
+          const signal = result.result!;
+
           writeOutput(cmd, {
             ok: true,
-            signalId: result.signalId,
-            dispatched: result.dispatched,
-            reason: result.reason,
+            signalId: signal.signalId,
+            dispatched: signal.dispatched,
+            reason: signal.reason,
           });
 
           if (!shouldOutputJson(cmd)) {
             log.info(
-              `Signal ${result.signalId} emitted (dispatched: ${result.dispatched})`,
+              `Signal ${signal.signalId} emitted (dispatched: ${signal.dispatched})`,
             );
-            if (result.reason) {
-              log.info(`  Reason: ${result.reason}`);
+            if (signal.reason) {
+              log.info(`  Reason: ${signal.reason}`);
             }
           }
         } catch (err) {
@@ -318,7 +255,6 @@ Examples:
 Reads from the local notification events store, ordered by creation time
 (newest first). Each event represents a signal that was emitted through the
 notification pipeline.
-${buildSourceEventNamesHelpBlock()}
 
 Examples:
   $ assistant notifications list
@@ -327,7 +263,7 @@ Examples:
   $ assistant notifications list --source-event-name schedule.notify --limit 10 --json`,
     )
     .action(
-      (
+      async (
         opts: {
           limit?: string;
           sourceEventName?: string;
@@ -368,23 +304,28 @@ Examples:
             limit = parsed;
           }
 
-          initializeDb();
-
-          const rows = listEvents({
+          const result = await cliIpcCall<
+            Array<{
+              id: string;
+              sourceEventName: string;
+              sourceChannel: string;
+              sourceContextId: string;
+              urgency: string;
+              dedupeKey: string | null;
+              createdAt: string;
+            }>
+          >("list_notification_events", {
             limit,
             sourceEventName: opts.sourceEventName,
           });
 
-          const events = rows.map((row) => ({
-            id: row.id,
-            sourceEventName: row.sourceEventName,
-            sourceChannel: row.sourceChannel,
-            sourceContextId: row.sourceContextId,
-            urgency: (JSON.parse(row.attentionHintsJson) as { urgency: string })
-              .urgency,
-            dedupeKey: row.dedupeKey,
-            createdAt: new Date(row.createdAt).toISOString(),
-          }));
+          if (!result.ok) {
+            writeOutput(cmd, { ok: false, error: result.error });
+            process.exitCode = 1;
+            return;
+          }
+
+          const events = result.result!;
 
           writeOutput(cmd, { ok: true, events });
 
