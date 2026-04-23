@@ -742,15 +742,14 @@ export async function handleMigrationImportPreflight(
  * 5. Verifies post-write integrity (SHA-256 check)
  * 6. Returns a detailed report of what was imported
  *
- * The bundle can be supplied in any of three ways:
+ * The bundle can be supplied in either of two ways:
  * - Raw binary body with Content-Type: application/octet-stream
  * - Multipart form data with a "file" field
- * - JSON body `{ "url": "<signed-gcs-url>" }` (Content-Type:
- *   application/json). The daemon fetches and streams the archive
- *   through `streamCommitImport`, so peak memory stays bounded by a
- *   single tar entry rather than bundle size.
  *
- * Returns (all three paths):
+ * For signed-URL-based imports, use `POST /v1/migrations/import-from-gcs`
+ * which kicks off an async job backed by `runGcsImport`.
+ *
+ * Returns:
  *   200: {
  *     success: true,
  *     summary: { total_files, files_created, files_overwritten, files_skipped, backups_created },
@@ -759,25 +758,12 @@ export async function handleMigrationImportPreflight(
  *     warnings: [...]
  *   }
  *   200: { success: false, reason: "validation_failed", errors: [...] }
- *   400: Standard error envelope for missing/empty body or malformed URL
+ *   400: Standard error envelope for missing/empty body
  *   500: Standard error envelope for unexpected failures
- *   502: { success: false, reason: "fetch_failed", upstream_status?: number }
- *        (URL path only — upstream GCS fetch failed)
  *
  * Auth: Requires settings.write scope. Allowed for actor, svc_gateway, svc_daemon, local.
  */
 export async function handleMigrationImport(req: Request): Promise<Response> {
-  // JSON body means the caller is asking us to fetch the bundle from a
-  // signed URL and stream it through the importer. This keeps the daemon's
-  // peak memory bounded by one tar entry instead of bundle size, which is
-  // the whole point of supporting URL-based imports for large bundles.
-  //
-  // Raw-bytes path (octet-stream / multipart) is untouched below.
-  const contentType = req.headers.get("content-type") ?? "";
-  if (contentType.includes("application/json")) {
-    return handleMigrationImportFromUrl(req);
-  }
-
   const extracted = await extractFileData(req);
   if ("error" in extracted) {
     return extracted.error;
@@ -869,14 +855,11 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
 }
 
 // ---------------------------------------------------------------------------
-// GCS URL import pipeline — shared by the URL-body branch of
-// POST /v1/migrations/import and POST /v1/migrations/import-from-gcs.
+// GCS URL import pipeline — backs POST /v1/migrations/import-from-gcs.
 // ---------------------------------------------------------------------------
 
 /** 60 minutes — matches the gateway's upstream fetch deadline. */
 const URL_FETCH_TIMEOUT_MS = 60 * 60 * 1000;
-
-const MigrationImportUrlBody = z.object({ url: z.string().min(1) });
 
 const MigrationImportFromGcsBody = z.object({ bundle_url: z.string().url() });
 
@@ -1317,108 +1300,6 @@ export async function runGcsImport(
 }
 
 /**
- * Handle a JSON `{ "url": "..." }` body on POST /v1/migrations/import.
- *
- * Thin wrapper around `runGcsImport` that preserves the legacy synchronous
- * Response shapes. `handleMigrationImportFromGcs` below uses the same helper
- * asynchronously via the migration-job registry.
- */
-async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
-  // ── 1. Parse JSON body ────────────────────────────────────────────────
-  let rawBody: unknown;
-  try {
-    rawBody = await req.json();
-  } catch (err) {
-    log.warn(
-      { err: err instanceof Error ? err.message : String(err) },
-      "Failed to parse JSON body on migration import URL request",
-    );
-    return httpError("BAD_REQUEST", "Invalid JSON body", 400);
-  }
-
-  const parsed = MigrationImportUrlBody.safeParse(rawBody);
-  if (!parsed.success) {
-    return httpError(
-      "BAD_REQUEST",
-      "Request body must be { url: string } with a non-empty url",
-      400,
-    );
-  }
-
-  try {
-    const summary = await runGcsImport(parsed.data.url);
-    return importCommitSuccessResponse(
-      summary.report,
-      summary.credentialsImported,
-    );
-  } catch (err) {
-    return gcsImportErrorToUrlBodyResponse(err);
-  }
-}
-
-/**
- * Map a `runGcsImport` error (or any other thrown value) back to the
- * legacy URL-body Response shapes. Kept here so both the URL-body handler
- * and any future callers of `runGcsImport` that want the same wire shape
- * can reuse the mapping.
- */
-function gcsImportErrorToUrlBodyResponse(err: unknown): Response {
-  if (err instanceof GcsImportError) {
-    if (err.code === "invalid_url") {
-      return httpError("BAD_REQUEST", err.message, 400);
-    }
-    if (err.code === "fetch_failed") {
-      const body: {
-        success: false;
-        reason: "fetch_failed";
-        upstream_status?: number;
-      } = {
-        success: false,
-        reason: "fetch_failed",
-      };
-      if (err.upstreamStatus !== undefined) {
-        body.upstream_status = err.upstreamStatus;
-      }
-      return Response.json(body, { status: 502 });
-    }
-    if (err.code === "validation_failed") {
-      return Response.json({
-        success: false,
-        reason: "validation_failed",
-        errors: err.errors ?? [],
-      });
-    }
-    if (err.code === "extraction_failed") {
-      return Response.json(
-        {
-          success: false,
-          reason: "extraction_failed",
-          message: err.message,
-        },
-        { status: 500 },
-      );
-    }
-    // write_failed
-    return Response.json(
-      {
-        success: false,
-        reason: "write_failed",
-        message: err.message,
-        ...(err.partial_report ? { partial_report: err.partial_report } : {}),
-      },
-      { status: 500 },
-    );
-  }
-
-  log.error({ err }, "Unexpected error from runGcsImport");
-  return httpError(
-    "INTERNAL_ERROR",
-    err instanceof Error ? err.message : "Unexpected import error",
-    500,
-  );
-}
-
-/**
  * POST /v1/migrations/import-from-gcs
  *
  * Kick off an async bundle import from a signed GCS URL. Returns 202 with a
@@ -1776,7 +1657,7 @@ export function migrationRouteDefinitions(): RouteDefinition[] {
       method: "POST",
       summary: "Import a .vbundle archive",
       description:
-        "Commit a .vbundle archive import to disk — destructive. Accepts the bundle as raw bytes (application/octet-stream), multipart/form-data, or a JSON body carrying a signed URL the daemon fetches and streams through the importer.",
+        "Commit a .vbundle archive import to disk — destructive. Accepts the bundle as raw bytes (application/octet-stream) or multipart/form-data. For signed-URL imports, use POST /v1/migrations/import-from-gcs.",
       tags: ["migrations"],
       requestBodies: [
         {
@@ -1801,37 +1682,7 @@ export function migrationRouteDefinitions(): RouteDefinition[] {
             required: ["file"],
           },
         },
-        {
-          contentType: "application/json",
-          schema: {
-            type: "object",
-            properties: {
-              url: {
-                type: "string",
-                format: "uri",
-                description:
-                  "A signed GCS URL pointing to the .vbundle archive. The daemon fetches the URL and streams the body through the importer.",
-              },
-            },
-            required: ["url"],
-          },
-        },
       ],
-      additionalResponses: {
-        "502": {
-          description:
-            "Upstream fetch failed (URL body only). Body shape: { success: false, reason: 'fetch_failed', upstream_status?: number }.",
-          schema: {
-            type: "object",
-            properties: {
-              success: { type: "boolean" },
-              reason: { type: "string", enum: ["fetch_failed"] },
-              upstream_status: { type: "integer" },
-            },
-            required: ["success", "reason"],
-          },
-        },
-      },
       responseBody: z.object({
         success: z.boolean(),
         summary: z.object({}).passthrough(),

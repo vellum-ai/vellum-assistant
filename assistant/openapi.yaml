@@ -5687,8 +5687,8 @@ paths:
       summary: Import a .vbundle archive
       description:
         Commit a .vbundle archive import to disk — destructive. Accepts the bundle as raw bytes
-        (application/octet-stream), multipart/form-data, or a JSON body carrying a signed URL the daemon fetches and
-        streams through the importer.
+        (application/octet-stream) or multipart/form-data. For signed-URL imports, use POST
+        /v1/migrations/import-from-gcs.
       tags:
         - migrations
       responses:
@@ -5722,26 +5722,6 @@ paths:
                   - manifest
                   - warnings
                 additionalProperties: false
-        "502":
-          description:
-            "Upstream fetch failed (URL body only). Body shape: { success: false, reason: 'fetch_failed',
-            upstream_status?: number }."
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  reason:
-                    type: string
-                    enum:
-                      - fetch_failed
-                  upstream_status:
-                    type: integer
-                required:
-                  - success
-                  - reason
       requestBody:
         required: true
         content:
@@ -5760,18 +5740,6 @@ paths:
                   description: The .vbundle archive uploaded as a file field.
               required:
                 - file
-          application/json:
-            schema:
-              type: object
-              properties:
-                url:
-                  type: string
-                  format: uri
-                  description:
-                    A signed GCS URL pointing to the .vbundle archive. The daemon fetches the URL and streams the body through
-                    the importer.
-              required:
-                - url
   /v1/migrations/import-from-gcs:
     post:
       operationId: migrations_importfromgcs_post
