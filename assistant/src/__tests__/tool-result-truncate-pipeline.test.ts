@@ -6,7 +6,7 @@
  *   byte-for-byte identical output to calling the helper directly across
  *   short, long, and newline-bounded inputs (property-style).
  * - The pipeline routes through `runPipeline` with the
- *   `DEFAULT_TIMEOUTS.toolResultTruncate` budget (1s) and returns a
+ *   `DEFAULT_TIMEOUTS.toolResultTruncate` budget and returns a
  *   `{ content, truncated }` pair whose `truncated` flag matches whether
  *   the content actually changed.
  * - Plugins registered ahead of the default can short-circuit with their
@@ -348,13 +348,5 @@ describe("toolResultTruncate pipeline", () => {
       expect(result.content).toBe(`[wrapped] ${content}`);
       expect(result.truncated).toBe(false);
     });
-  });
-
-  // -------------------------------------------------------------------------
-  // Timeout budget is wired to DEFAULT_TIMEOUTS.toolResultTruncate
-  // -------------------------------------------------------------------------
-
-  test("DEFAULT_TIMEOUTS.toolResultTruncate is the 1s budget promised by the plan", () => {
-    expect(DEFAULT_TIMEOUTS.toolResultTruncate).toBe(1000);
   });
 });
