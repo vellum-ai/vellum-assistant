@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // ---------------------------------------------------------------------------
 
 let mockProviderKey: string | undefined;
-let mockManagedBaseUrl: string | undefined;
+let mockPlatformBaseUrl = "";
 let mockAssistantApiKey = "";
 
 mock.module("../security/secure-keys.js", () => ({
@@ -13,10 +13,9 @@ mock.module("../security/secure-keys.js", () => ({
 }));
 
 mock.module("../providers/managed-proxy/context.js", () => ({
-  buildManagedBaseUrl: async (_provider: string) => mockManagedBaseUrl,
   resolveManagedProxyContext: async () => ({
-    enabled: !!mockManagedBaseUrl,
-    platformBaseUrl: mockManagedBaseUrl ? "https://platform.example.com" : "",
+    enabled: !!mockPlatformBaseUrl && !!mockAssistantApiKey,
+    platformBaseUrl: mockPlatformBaseUrl,
     assistantApiKey: mockAssistantApiKey,
   }),
 }));
@@ -27,13 +26,13 @@ import { resolveImageGenCredentials } from "../media/image-credentials.js";
 describe("resolveImageGenCredentials", () => {
   beforeEach(() => {
     mockProviderKey = undefined;
-    mockManagedBaseUrl = undefined;
+    mockPlatformBaseUrl = "";
     mockAssistantApiKey = "";
   });
 
   describe("managed mode", () => {
-    test("returns managed-proxy credentials when buildManagedBaseUrl resolves", async () => {
-      mockManagedBaseUrl = "https://platform.example.com/proxy/gemini";
+    test("returns managed-proxy credentials when context is enabled", async () => {
+      mockPlatformBaseUrl = "https://platform.example.com";
       mockAssistantApiKey = "sk-assistant-key";
 
       const result = await resolveImageGenCredentials({
@@ -45,12 +44,27 @@ describe("resolveImageGenCredentials", () => {
       expect(result.credentials).toEqual({
         type: "managed-proxy",
         assistantApiKey: "sk-assistant-key",
-        baseUrl: "https://platform.example.com/proxy/gemini",
+        baseUrl: "https://platform.example.com/v1/runtime-proxy/gemini",
       });
     });
 
-    test("returns errorHint mentioning 'log in to Vellum' when managed base URL is unavailable", async () => {
-      mockManagedBaseUrl = undefined;
+    test("returns errorHint mentioning 'log in to Vellum' when platform URL is missing", async () => {
+      mockPlatformBaseUrl = "";
+      mockAssistantApiKey = "sk-assistant-key";
+
+      const result = await resolveImageGenCredentials({
+        provider: "gemini",
+        mode: "managed",
+      });
+
+      expect(result.credentials).toBeUndefined();
+      expect(result.errorHint).toBeDefined();
+      expect(result.errorHint).toContain("log in to Vellum");
+    });
+
+    test("returns errorHint when assistant API key is empty (TOCTOU-safe)", async () => {
+      mockPlatformBaseUrl = "https://platform.example.com";
+      mockAssistantApiKey = "";
 
       const result = await resolveImageGenCredentials({
         provider: "gemini",
