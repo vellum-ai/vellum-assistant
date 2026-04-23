@@ -1368,13 +1368,11 @@ if [ -d "$XCASSETS" ]; then
     if [ -d "$APP_ICON" ]; then
         ACTOOL_INPUTS+=("$APP_ICON")
     fi
-    # Capture actool output; a non-zero exit is only a real failure if
-    # Assets.car was not produced. On GitHub-hosted macOS runners actool's
-    # AssetCatalogAgent-AssetRuntime subprocess occasionally crashes (dyld
-    # symbol mismatches against AVFCore / CoreMedia, IBPlatformToolFailure-
-    # Exception). Sometimes Assets.car is written before the crash and we
-    # can continue; sometimes the crash happens early and no output is
-    # produced. Retry a few times to absorb the flaky early-crash case.
+    # Compile the asset catalog. Retry on transient actool crashes
+    # (AssetCatalogAgent-AssetRuntime can segfault on some runner images).
+    # If the .icon bundle causes persistent failures, fall back to
+    # compiling the .xcassets alone — the .icns generation below handles
+    # Finder/DMG icons independently.
     ACTOOL_MAX_ATTEMPTS=3
     ACTOOL_SUCCESS=0
     for attempt in $(seq 1 $ACTOOL_MAX_ATTEMPTS); do
@@ -1396,8 +1394,24 @@ if [ -d "$XCASSETS" ]; then
         fi
         echo "actool attempt $attempt/$ACTOOL_MAX_ATTEMPTS failed without producing Assets.car; retrying."
     done
+    if [ "$ACTOOL_SUCCESS" != "1" ] && [ "${#ACTOOL_INPUTS[@]}" -gt 1 ]; then
+        echo "actool failed with .icon bundle; retrying with .xcassets only."
+        rm -f "$RESOURCES_DIR/Assets.car"
+        if xcrun actool "$XCASSETS" \
+            --compile "$RESOURCES_DIR" \
+            --platform macosx \
+            --minimum-deployment-target 14.0 \
+            --app-icon AppIcon \
+            --output-partial-info-plist /dev/null \
+            2>&1; then
+            ACTOOL_SUCCESS=1
+        elif [ -f "$RESOURCES_DIR/Assets.car" ]; then
+            echo "actool (.xcassets-only) exited non-zero but Assets.car was produced; continuing."
+            ACTOOL_SUCCESS=1
+        fi
+    fi
     if [ "$ACTOOL_SUCCESS" != "1" ]; then
-        echo "actool failed to produce Assets.car after $ACTOOL_MAX_ATTEMPTS attempts:"
+        echo "actool failed to produce Assets.car after all attempts:"
         echo "$ACTOOL_OUTPUT"
         exit 1
     fi
