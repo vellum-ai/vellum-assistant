@@ -374,7 +374,7 @@ export function deriveHealthStatusDisplay(
       return {
         dotClass: 'disconnected',
         text: detail?.lastErrorMessage
-          ? `Action required: ${detail.lastErrorMessage}`
+          ? `Action required: ${cleanErrorMessage(detail.lastErrorMessage, 'sign in or re-pair to continue')}`
           : 'Action required \u2014 sign in or re-pair to continue',
       };
     case 'error': {

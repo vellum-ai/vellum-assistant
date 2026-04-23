@@ -733,7 +733,7 @@ btnCloudSignIn.addEventListener('click', async () => {
     setCloudStatus('Sign-in failed', false);
     showErrorTextWithDebug(
       `Sign-in failed: ${cleanErrorMessage(rawError, 'Unknown error')}`,
-      response.debugDetails,
+      response.debugDetails ?? rawError,
     );
   }
   btnCloudSignIn.disabled = false;
