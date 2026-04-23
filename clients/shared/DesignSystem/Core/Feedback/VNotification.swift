@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Compact notification bar with optional action and dismiss. Wraps long messages to multiple lines; short messages render as a 32pt single-line bar. See FeedbackGallerySection for variants.
+/// Compact notification bar with optional action and dismiss. Wraps long messages to multiple lines; short messages render as a single-line compact bar. See FeedbackGallerySection for variants.
 public struct VNotification: View {
     public enum Tone { case positive, negative, warning, neutral }
     public enum Style { case weak, strong }
