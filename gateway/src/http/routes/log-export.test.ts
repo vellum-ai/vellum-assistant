@@ -66,6 +66,24 @@ mock.module("../../logger.js", () => {
   };
 });
 
+/**
+ * Mock the shared CES log export client. The `fetchCesLogExport` function
+ * is intercepted so tests can control CES export responses without
+ * needing to mock global `fetch`.
+ */
+const fetchCesLogExportMock = mock(
+  async (
+    _config: { baseUrl: string; serviceToken: string },
+    _options?: { startTime?: number; endTime?: number; timeoutMs?: number },
+  ): Promise<
+    { ok: true; data: ArrayBuffer } | { ok: false; error: string }
+  > => ({ ok: false, error: "mock: not configured" }),
+);
+
+mock.module("@vellumai/ces-client/http-log-export", () => ({
+  fetchCesLogExport: fetchCesLogExportMock,
+}));
+
 // Import after mocks
 const { createLogExportHandler } = await import("./log-export.js");
 
@@ -191,6 +209,7 @@ const getClientIp = () => "127.0.0.1";
 beforeEach(() => {
   tmpLogDir = mkdtempSync(join(tmpdir(), "gw-log-export-test-"));
   fetchMock.mockClear();
+  fetchCesLogExportMock.mockClear();
   mintServiceTokenMock.mockClear();
 });
 
@@ -214,7 +233,7 @@ describe("gateway log export handler", () => {
     process.env["CES_CREDENTIAL_URL"] = "http://localhost:9090";
     process.env["CES_SERVICE_TOKEN"] = "test-ces-token";
 
-    // Mock daemon and CES responses
+    // Mock daemon response via fetchImpl
     const daemonTarGz = createMiniTarGz("daemon-data.json", '{"daemon":true}');
     const cesTarGz = createMiniTarGz("ces-data.json", '{"ces":true}');
 
@@ -225,15 +244,6 @@ describe("gateway log export handler", () => {
           : input instanceof URL
             ? input.toString()
             : input.url;
-      if (url.includes("/v1/logs/export")) {
-        // CES export — check before /v1/export since that's a substring match
-        return Promise.resolve(
-          new Response(toArrayBuffer(cesTarGz), {
-            status: 200,
-            headers: { "Content-Type": "application/gzip" },
-          }),
-        );
-      }
       if (url.includes("/v1/export")) {
         // Daemon export
         return Promise.resolve(
@@ -244,6 +254,12 @@ describe("gateway log export handler", () => {
         );
       }
       return Promise.resolve(new Response("", { status: 404 }));
+    });
+
+    // Mock CES log export via the shared package mock
+    fetchCesLogExportMock.mockResolvedValue({
+      ok: true as const,
+      data: toArrayBuffer(cesTarGz),
     });
 
     const config = configWithLogDir(tmpLogDir);
@@ -348,29 +364,26 @@ describe("gateway log export handler", () => {
     expect(parsed.conversationId).toBe("conv-123");
   });
 
-  it("forwards startTime/endTime as query params to CES export", async () => {
+  it("forwards startTime/endTime as options to CES log export client", async () => {
     process.env["CES_CREDENTIAL_URL"] = "http://localhost:9090";
     process.env["CES_SERVICE_TOKEN"] = "test-token";
 
     const tarGz = createMiniTarGz("data.json", "{}");
-    let capturedCesUrl: string | undefined;
 
-    fetchMock.mockImplementation((input: string | URL | Request) => {
-      const url =
-        typeof input === "string"
-          ? input
-          : input instanceof URL
-            ? input.toString()
-            : input.url;
-      if (url.includes("/v1/logs/export")) {
-        capturedCesUrl = url;
-      }
-      return Promise.resolve(
+    // Daemon export mock
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(
         new Response(toArrayBuffer(tarGz), {
           status: 200,
           headers: { "Content-Type": "application/gzip" },
         }),
-      );
+      ),
+    );
+
+    // CES log export mock
+    fetchCesLogExportMock.mockResolvedValue({
+      ok: true as const,
+      data: toArrayBuffer(tarGz),
     });
 
     const config = configWithLogDir(tmpLogDir);
@@ -381,10 +394,15 @@ describe("gateway log export handler", () => {
       getClientIp,
     );
 
-    expect(capturedCesUrl).toBeDefined();
-    const cesUrl = new URL(capturedCesUrl!);
-    expect(cesUrl.searchParams.get("startTime")).toBe("1000");
-    expect(cesUrl.searchParams.get("endTime")).toBe("2000");
+    // Verify the shared CES log export client was called with the right config/options
+    expect(fetchCesLogExportMock).toHaveBeenCalledTimes(1);
+    const [config_, options_] = fetchCesLogExportMock.mock.calls[0];
+    expect(config_).toEqual({
+      baseUrl: "http://localhost:9090",
+      serviceToken: "test-token",
+    });
+    expect(options_?.startTime).toBe(1000);
+    expect(options_?.endTime).toBe(2000);
   });
 
   it("returns partial export when daemon is unreachable", async () => {
@@ -420,6 +438,7 @@ describe("gateway log export handler", () => {
 
     const daemonTarGz = createMiniTarGz("data.json", "{}");
 
+    // Daemon export succeeds via fetchImpl
     fetchMock.mockImplementation((input: string | URL | Request) => {
       const url =
         typeof input === "string"
@@ -427,12 +446,7 @@ describe("gateway log export handler", () => {
           : input instanceof URL
             ? input.toString()
             : input.url;
-      if (url.includes("/v1/logs/export")) {
-        // CES fails
-        return Promise.reject(new Error("ECONNREFUSED"));
-      }
       if (url.includes("/v1/export")) {
-        // Daemon succeeds
         return Promise.resolve(
           new Response(toArrayBuffer(daemonTarGz), {
             status: 200,
@@ -441,6 +455,12 @@ describe("gateway log export handler", () => {
         );
       }
       return Promise.reject(new Error("unexpected URL: " + url));
+    });
+
+    // CES log export fails via the shared package mock
+    fetchCesLogExportMock.mockResolvedValue({
+      ok: false as const,
+      error: "CES log export connection failed: ECONNREFUSED",
     });
 
     const config = configWithLogDir(tmpLogDir);
@@ -486,17 +506,8 @@ describe("gateway log export handler", () => {
     // CES should be skipped, not errored — no error file
     expect(entries).not.toContain("ces-export-error.log");
 
-    // Verify no fetch calls were made to CES
-    const cesCallCount = fetchMock.mock.calls.filter((call) => {
-      const url =
-        typeof call[0] === "string"
-          ? call[0]
-          : call[0] instanceof URL
-            ? call[0].toString()
-            : (call[0] as Request).url;
-      return url.includes("/v1/logs/export");
-    }).length;
-    expect(cesCallCount).toBe(0);
+    // Verify the CES log export client was not called
+    expect(fetchCesLogExportMock).not.toHaveBeenCalled();
   });
 
   it("returns 401 without valid edge JWT via router auth", async () => {
