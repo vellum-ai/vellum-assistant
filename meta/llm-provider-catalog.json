@@ -8,13 +8,11 @@
       "setupMode": "api-key",
       "setupHint": "Enter your Anthropic API key to enable Claude.",
       "envVar": "ANTHROPIC_API_KEY",
-      "apiKeyPlaceholder": "sk-ant-api03-...",
       "credentialsGuide": {
         "description": "Sign in to the Anthropic Console, navigate to API Keys, and create a new key.",
         "url": "https://console.anthropic.com/settings/keys",
         "linkLabel": "Open Anthropic Console"
       },
-      "defaultModel": "claude-sonnet-4-6",
       "models": [
         {
           "id": "claude-opus-4-7",
@@ -80,7 +78,10 @@
             "cacheReadPer1mTokens": 0.1
           }
         }
-      ]
+      ],
+      "defaultModel": "claude-sonnet-4-6",
+      "apiKeyUrl": "https://console.anthropic.com/settings/keys",
+      "apiKeyPlaceholder": "sk-ant-api03-..."
     },
     {
       "id": "openai",
@@ -89,13 +90,11 @@
       "setupMode": "api-key",
       "setupHint": "Enter your OpenAI API key to enable GPT.",
       "envVar": "OPENAI_API_KEY",
-      "apiKeyPlaceholder": "sk-proj-...",
       "credentialsGuide": {
         "description": "Log in to the OpenAI platform, go to API Keys, and generate a new secret key.",
         "url": "https://platform.openai.com/api-keys",
         "linkLabel": "Open OpenAI Platform"
       },
-      "defaultModel": "gpt-5.4",
       "models": [
         {
           "id": "gpt-5.4",
@@ -108,7 +107,7 @@
           "supportsToolUse": true,
           "pricing": {
             "inputPer1mTokens": 2.5,
-            "outputPer1mTokens": 15.0,
+            "outputPer1mTokens": 15,
             "cacheReadPer1mTokens": 0.25
           }
         },
@@ -123,7 +122,7 @@
           "supportsToolUse": true,
           "pricing": {
             "inputPer1mTokens": 1.75,
-            "outputPer1mTokens": 14.0,
+            "outputPer1mTokens": 14,
             "cacheReadPer1mTokens": 0.3
           }
         },
@@ -138,7 +137,7 @@
           "supportsToolUse": true,
           "pricing": {
             "inputPer1mTokens": 0.5,
-            "outputPer1mTokens": 3.0,
+            "outputPer1mTokens": 3,
             "cacheReadPer1mTokens": 0.05
           }
         },
@@ -157,7 +156,10 @@
             "cacheReadPer1mTokens": 0.01
           }
         }
-      ]
+      ],
+      "defaultModel": "gpt-5.4",
+      "apiKeyUrl": "https://platform.openai.com/api-keys",
+      "apiKeyPlaceholder": "sk-proj-..."
     },
     {
       "id": "gemini",
@@ -166,13 +168,11 @@
       "setupMode": "api-key",
       "setupHint": "Enter your Gemini API key to enable Google models.",
       "envVar": "GEMINI_API_KEY",
-      "apiKeyPlaceholder": "AIza...",
       "credentialsGuide": {
         "description": "Visit Google AI Studio, sign in with your Google account, and create an API key.",
         "url": "https://aistudio.google.com/apikey",
         "linkLabel": "Open Google AI Studio"
       },
-      "defaultModel": "gemini-2.5-flash",
       "models": [
         {
           "id": "gemini-2.5-flash",
@@ -215,24 +215,18 @@
           "supportsToolUse": true,
           "pricing": {
             "inputPer1mTokens": 1.25,
-            "outputPer1mTokens": 10.0,
+            "outputPer1mTokens": 10,
             "cacheReadPer1mTokens": 0.3125
           }
         }
-      ]
+      ],
+      "defaultModel": "gemini-2.5-flash",
+      "apiKeyUrl": "https://aistudio.google.com/apikey",
+      "apiKeyPlaceholder": "AIza..."
     },
     {
       "id": "ollama",
       "displayName": "Ollama",
-      "subtitle": "Run local models via Ollama. No API key required.",
-      "setupMode": "keyless",
-      "setupHint": "Install Ollama locally and pull the models you want to use.",
-      "credentialsGuide": {
-        "description": "Download and install Ollama, then pull models via `ollama pull <model>`.",
-        "url": "https://ollama.com/download",
-        "linkLabel": "Download Ollama"
-      },
-      "defaultModel": "llama3.2",
       "models": [
         {
           "id": "llama3.2",
@@ -254,7 +248,16 @@
           "supportsVision": false,
           "supportsToolUse": true
         }
-      ]
+      ],
+      "defaultModel": "llama3.2",
+      "subtitle": "Run local models via Ollama. No API key required.",
+      "setupMode": "keyless",
+      "setupHint": "Install Ollama locally and pull the models you want to use.",
+      "credentialsGuide": {
+        "description": "Download and install Ollama, then pull models via `ollama pull <model>`.",
+        "url": "https://ollama.com/download",
+        "linkLabel": "Download Ollama"
+      }
     },
     {
       "id": "fireworks",
@@ -263,13 +266,11 @@
       "setupMode": "api-key",
       "setupHint": "Enter your Fireworks API key to enable open-source models.",
       "envVar": "FIREWORKS_API_KEY",
-      "apiKeyPlaceholder": "fw_...",
       "credentialsGuide": {
         "description": "Sign in to the Fireworks dashboard and create an API key.",
         "url": "https://fireworks.ai/account/api-keys",
         "linkLabel": "Open Fireworks Dashboard"
       },
-      "defaultModel": "accounts/fireworks/models/kimi-k2p5",
       "models": [
         {
           "id": "accounts/fireworks/models/kimi-k2p5",
@@ -285,7 +286,10 @@
             "outputPer1mTokens": 2.5
           }
         }
-      ]
+      ],
+      "defaultModel": "accounts/fireworks/models/kimi-k2p5",
+      "apiKeyUrl": "https://fireworks.ai/account/api-keys",
+      "apiKeyPlaceholder": "fw_..."
     },
     {
       "id": "openrouter",
@@ -294,13 +298,11 @@
       "setupMode": "api-key",
       "setupHint": "Enter your OpenRouter API key to access multiple models.",
       "envVar": "OPENROUTER_API_KEY",
-      "apiKeyPlaceholder": "sk-or-v1-...",
       "credentialsGuide": {
         "description": "Sign in to OpenRouter and create an API key.",
         "url": "https://openrouter.ai/keys",
         "linkLabel": "Open OpenRouter"
       },
-      "defaultModel": "x-ai/grok-4.20-beta",
       "models": [
         {
           "id": "anthropic/claude-opus-4.7",
@@ -517,7 +519,7 @@
           "supportsToolUse": true,
           "pricing": {
             "inputPer1mTokens": 0.4,
-            "outputPer1mTokens": 2.0
+            "outputPer1mTokens": 2
           }
         },
         {
@@ -590,7 +592,10 @@
             "outputPer1mTokens": 3.2
           }
         }
-      ]
+      ],
+      "defaultModel": "x-ai/grok-4.20-beta",
+      "apiKeyUrl": "https://openrouter.ai/keys",
+      "apiKeyPlaceholder": "sk-or-v1-..."
     }
   ]
 }

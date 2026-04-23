@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
+import { serializeLlmProviderCatalog } from "../../../scripts/generate-llm-provider-catalog.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 
 /**
@@ -57,6 +58,7 @@ interface ClientCatalogEntry {
   setupMode?: string;
   setupHint?: string;
   envVar?: string;
+  apiKeyUrl?: string;
   apiKeyPlaceholder?: string;
   credentialsGuide?: ClientCatalogCredentialsGuide;
   defaultModel: string;
@@ -72,6 +74,11 @@ function loadClientCatalog(): ClientCatalog {
   const catalogPath = join(getRepoRoot(), "meta", "llm-provider-catalog.json");
   const raw = readFileSync(catalogPath, "utf-8");
   return JSON.parse(raw);
+}
+
+function loadClientCatalogRaw(): string {
+  const catalogPath = join(getRepoRoot(), "meta", "llm-provider-catalog.json");
+  return readFileSync(catalogPath, "utf-8");
 }
 
 // ---------------------------------------------------------------------------
@@ -93,6 +100,10 @@ describe("LLM catalog parity: daemon vs client", () => {
     expect(json.providers.length).toBe(PROVIDER_CATALOG.length);
   });
 
+  test("client catalog JSON matches the deterministic generator output", () => {
+    expect(loadClientCatalogRaw()).toBe(serializeLlmProviderCatalog());
+  });
+
   // -----------------------------------------------------------------------
   // Provider-level field parity
   // -----------------------------------------------------------------------
@@ -110,6 +121,7 @@ describe("LLM catalog parity: daemon vs client", () => {
       expect(clientEntry.setupMode).toBe(daemonEntry.setupMode);
       expect(clientEntry.setupHint).toBe(daemonEntry.setupHint);
       expect(clientEntry.envVar).toBe(daemonEntry.envVar);
+      expect(clientEntry.apiKeyUrl).toBe(daemonEntry.apiKeyUrl);
       expect(clientEntry.apiKeyPlaceholder).toBe(daemonEntry.apiKeyPlaceholder);
       expect(clientEntry.credentialsGuide).toEqual(
         daemonEntry.credentialsGuide,
