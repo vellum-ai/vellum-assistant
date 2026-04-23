@@ -309,6 +309,7 @@ interface ImportResponse {
 async function exportFromAssistant(
   entry: AssistantEntry,
   cloud: string,
+  bundlePlatformUrl?: string,
 ): Promise<{ bundleKey: string }> {
   const platformToken = readPlatformToken();
   if (!platformToken) {
@@ -319,11 +320,15 @@ async function exportFromAssistant(
   }
 
   if (cloud === "local" || cloud === "docker") {
-    // Request a signed upload URL from the platform, then hand it to the
-    // local/docker runtime so it can stream the bundle straight into GCS.
+    // Request a signed upload URL from the platform instance that will
+    // eventually own the bundle (i.e. the one the importer will read from).
+    // Passing the target's runtime URL here keeps upload and download on
+    // the same platform — otherwise a non-default/stale platform URL would
+    // cause the import to look at an empty object.
     const { url: uploadUrl, bundleKey } = await platformRequestSignedUrl(
       { operation: "upload" },
       platformToken,
+      bundlePlatformUrl,
     );
 
     const accessToken = await getAccessToken(
@@ -417,6 +422,7 @@ async function importToAssistant(
   cloud: string,
   bundleKey: string,
   dryRun: boolean,
+  bundlePlatformUrl?: string,
 ): Promise<void> {
   const platformToken = readPlatformToken();
   if (!platformToken) {
@@ -544,10 +550,13 @@ async function importToAssistant(
 
     // Ask the platform for a signed download URL and hand it to the local
     // runtime. The runtime streams the bundle straight out of GCS — the CLI
-    // never touches the bytes.
+    // never touches the bytes. The URL must target the same platform the
+    // bundle was uploaded to; otherwise the object won't exist on this
+    // platform's GCS bucket.
     const { url: bundleUrl } = await platformRequestSignedUrl(
       { operation: "download", bundleKey },
       platformToken,
+      bundlePlatformUrl,
     );
 
     const accessToken = await getAccessToken(
@@ -1019,10 +1028,31 @@ export async function teleport(): Promise<void> {
         }
       }
 
+      // Pin both upload and download to the same platform instance. For
+      // platform targets the bundle is owned by the target platform; for
+      // platform sources it's owned by the source platform. Only one of
+      // these branches applies at a time (same-env was rejected earlier).
+      const bundlePlatformUrl =
+        toCloud === "vellum"
+          ? existingTarget.runtimeUrl
+          : fromCloud === "vellum"
+            ? fromEntry.runtimeUrl
+            : undefined;
+
       console.log(`Exporting from ${from} (${fromCloud})...`);
-      const { bundleKey } = await exportFromAssistant(fromEntry, fromCloud);
+      const { bundleKey } = await exportFromAssistant(
+        fromEntry,
+        fromCloud,
+        bundlePlatformUrl,
+      );
       console.log(`Importing to ${existingTarget.assistantId} (${toCloud})...`);
-      await importToAssistant(existingTarget, toCloud, bundleKey, true);
+      await importToAssistant(
+        existingTarget,
+        toCloud,
+        bundleKey,
+        true,
+        bundlePlatformUrl,
+      );
     } else {
       // No existing target — just describe what would happen
       console.log("Dry run summary:");
@@ -1093,8 +1123,17 @@ export async function teleport(): Promise<void> {
     // Export — for local/docker sources this uploads straight into GCS via
     // the platform's signed URL; for platform sources this runs a server-side
     // export and we read the resulting bundle_key.
+    // The signed upload URL must be requested from the same platform instance
+    // where the import will run. For existing targets that's the lockfile's
+    // runtimeUrl; for fresh hatches it's getPlatformUrl() (which is what
+    // resolveOrHatchTarget writes to the new entry).
     console.log(`Exporting from ${from} (${fromCloud})...`);
-    const { bundleKey } = await exportFromAssistant(fromEntry, fromCloud);
+    const bundlePlatformUrl = targetPlatformUrl ?? getPlatformUrl();
+    const { bundleKey } = await exportFromAssistant(
+      fromEntry,
+      fromCloud,
+      bundlePlatformUrl,
+    );
 
     // Hatch (export succeeded — safe to create the target)
     const toEntry = await resolveOrHatchTarget(targetEnv, targetName);
@@ -1102,7 +1141,13 @@ export async function teleport(): Promise<void> {
 
     // Import from GCS
     console.log(`Importing to ${toEntry.assistantId} (${toCloud})...`);
-    await importToAssistant(toEntry, toCloud, bundleKey, false);
+    await importToAssistant(
+      toEntry,
+      toCloud,
+      bundleKey,
+      false,
+      bundlePlatformUrl,
+    );
 
     console.log(`Teleport complete: ${from} → ${toEntry.assistantId}`);
     return;
@@ -1144,9 +1189,21 @@ export async function teleport(): Promise<void> {
     }
   }
 
+  // Pin the bundle's platform instance so upload and download land on the
+  // same GCS bucket. For platform sources the bundle is owned by the source
+  // platform. For local/docker→local/docker the bundle lives on whatever
+  // platform getPlatformUrl() currently resolves to — we resolve it once
+  // here so a lockfile change mid-teleport can't split export and import.
+  const bundlePlatformUrl =
+    fromCloud === "vellum" ? fromEntry.runtimeUrl : getPlatformUrl();
+
   // Export from source (bundle lives in GCS after this returns).
   console.log(`Exporting from ${from} (${fromCloud})...`);
-  const { bundleKey } = await exportFromAssistant(fromEntry, fromCloud);
+  const { bundleKey } = await exportFromAssistant(
+    fromEntry,
+    fromCloud,
+    bundlePlatformUrl,
+  );
 
   if (sourceIsLocalOrDocker && targetIsLocalOrDocker && !keepSource) {
     console.log(`Stopping source assistant '${from}' to free ports...`);
@@ -1215,7 +1272,13 @@ export async function teleport(): Promise<void> {
 
   // Import to target (also GCS-driven)
   console.log(`Importing to ${toEntry.assistantId} (${toCloud})...`);
-  await importToAssistant(toEntry, toCloud, bundleKey, false);
+  await importToAssistant(
+    toEntry,
+    toCloud,
+    bundleKey,
+    false,
+    bundlePlatformUrl,
+  );
 
   // After successful import, inject fresh platform credentials if the
   // user is logged in — replaces the source's stale vellum:* credentials

@@ -861,10 +861,12 @@ describe("unified GCS flow — four directions", () => {
     try {
       await teleport();
 
-      // Signed-URL request for upload
+      // Signed-URL request for upload — pinned to the platform target's URL
+      // so upload and download land on the same platform.
       expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
         expect.objectContaining({ operation: "upload" }),
         "platform-token",
+        "https://platform.vellum.ai",
       );
 
       // Runtime export-to-gcs kicked off with the signed upload URL
@@ -933,13 +935,16 @@ describe("unified GCS flow — four directions", () => {
       expect(platformPollJobStatusMock).toHaveBeenCalled();
 
       // For the local target we request a download URL keyed by the
-      // platform's bundle_key.
+      // platform's bundle_key. The URL must target the SOURCE platform
+      // (where the bundle was written) — pinned so a lockfile change
+      // can't split upload and download across instances.
       expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
         {
           operation: "download",
           bundleKey: "platform-exports/org-1/bundle-abc.vbundle",
         },
         "platform-token",
+        "https://platform.vellum.ai",
       );
 
       // Runtime import-from-gcs was kicked off with that URL.
@@ -984,10 +989,13 @@ describe("unified GCS flow — four directions", () => {
     try {
       await teleport();
 
-      // Export: upload-URL, then local runtime drives the upload.
+      // Export and import must pin the same platform URL so the bundle
+      // lives in one place end-to-end. For local→docker neither side is
+      // platform, so we default to getPlatformUrl() (resolved once).
       expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
         expect.objectContaining({ operation: "upload" }),
         "platform-token",
+        "https://platform.vellum.ai",
       );
       expect(localRuntimeExportToGcsMock).toHaveBeenCalled();
 
@@ -998,6 +1006,7 @@ describe("unified GCS flow — four directions", () => {
           bundleKey: "bundle-key-123",
         },
         "platform-token",
+        "https://platform.vellum.ai",
       );
       expect(localRuntimeImportFromGcsMock).toHaveBeenCalledWith(
         "http://localhost:7822",
@@ -1045,10 +1054,12 @@ describe("unified GCS flow — four directions", () => {
       // Docker source should be put to sleep first.
       expect(sleepContainersMock).toHaveBeenCalled();
 
-      // Export leg: upload-URL, then runtime export
+      // Export leg: upload-URL (pinned to the same platform as import),
+      // then runtime export.
       expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
         expect.objectContaining({ operation: "upload" }),
         "platform-token",
+        "https://platform.vellum.ai",
       );
       expect(localRuntimeExportToGcsMock).toHaveBeenCalledWith(
         "http://localhost:7822",
@@ -1068,6 +1079,97 @@ describe("unified GCS flow — four directions", () => {
       // Source retirement
       expect(retireDockerMock).toHaveBeenCalledWith("my-docker");
       expect(removeAssistantEntryMock).toHaveBeenCalledWith("my-docker");
+    } finally {
+      restoreFetch();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Target-platform URL threading: signed URL must be requested from the same
+// platform instance the import will run against. Codex P2 regression guard.
+// ---------------------------------------------------------------------------
+
+describe("signed-URL request targets the bundle-owning platform", () => {
+  test("local → existing platform target with non-default runtimeUrl: upload URL pinned to target's runtimeUrl", async () => {
+    setArgv("--from", "my-local", "--platform", "existing-platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    // Crucially, the target's runtimeUrl is NOT the default getPlatformUrl()
+    // return value — this is the regression case Codex flagged.
+    const platformEntry = makeEntry("existing-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://staging-platform.vellum.ai",
+    });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      if (name === "existing-platform") return platformEntry;
+      return null;
+    });
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await teleport();
+
+      // The signed-URL request for upload MUST target the existing
+      // platform assistant's runtimeUrl, not the default platform URL.
+      expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: "upload" }),
+        "platform-token",
+        "https://staging-platform.vellum.ai",
+      );
+
+      // And the import must run against the same platform.
+      expect(platformImportBundleFromGcsMock).toHaveBeenCalledWith(
+        "bundle-key-123",
+        "platform-token",
+        "https://staging-platform.vellum.ai",
+      );
+
+      // Assert none of the signed-URL calls used the default URL — if any
+      // did, upload and download would hit different platforms.
+      for (const call of platformRequestSignedUrlMock.mock.calls) {
+        expect(call[2]).toBe("https://staging-platform.vellum.ai");
+      }
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("platform → local with non-default source runtimeUrl: download URL pinned to source's runtimeUrl", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://dev-platform.vellum.ai",
+    });
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    platformPollJobStatusMock.mockResolvedValue({
+      jobId: "platform-export-job-1",
+      type: "export",
+      status: "complete",
+      bundleKey: "dev-bundle-key",
+    });
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await teleport();
+
+      // The download URL must be requested from the SOURCE platform (where
+      // the bundle was written by the server-side export), not the default.
+      expect(platformRequestSignedUrlMock).toHaveBeenCalledWith(
+        { operation: "download", bundleKey: "dev-bundle-key" },
+        "platform-token",
+        "https://dev-platform.vellum.ai",
+      );
     } finally {
       restoreFetch();
     }
