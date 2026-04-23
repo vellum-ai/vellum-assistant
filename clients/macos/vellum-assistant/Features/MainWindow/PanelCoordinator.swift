@@ -227,7 +227,8 @@ extension MainWindowView {
                 }
             },
             onDetailPanelSelected: { item in
-                activeHomeDetailPanel = HomeDetailPanelKind.resolve(for: item)
+                let resolved = HomeDetailPanelKind.resolve(for: item)
+                activeHomeDetailPanel = resolved
             },
             isDetailPanelVisible: activeHomeDetailPanel != nil,
             detailPanel: {
@@ -325,6 +326,27 @@ extension MainWindowView {
                         onDismiss: { activeHomeDetailPanel = nil }
                     ) {
                         HomeUpdatesListDetailCard(item: item)
+                    }
+                case .generic(let item):
+                    HomeDetailPanel(
+                        icon: iconForFeedItem(item),
+                        title: item.title,
+                        iconForeground: iconForegroundForFeedItem(item),
+                        iconBackground: iconBackgroundForFeedItem(item),
+                        onGoToThread: item.conversationId.flatMap { id in
+                            UUID(uuidString: id).map { uuid in
+                                {
+                                    activeHomeDetailPanel = nil
+                                    windowState.selection = .conversation(uuid)
+                                }
+                            }
+                        },
+                        onDismiss: { activeHomeDetailPanel = nil }
+                    ) {
+                        Text(item.summary)
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentSecondary)
+                            .padding(VSpacing.lg)
                     }
                 case nil:
                     EmptyView()
@@ -844,6 +866,35 @@ extension MainWindowView {
                 onMicrophoneToggle: onMicrophoneToggle
             )
         }
+    }
+}
+
+// MARK: - Feed Item Icon Helpers
+
+private func iconForFeedItem(_ item: FeedItem) -> VIcon {
+    switch item.type {
+    case .nudge:   return .heart
+    case .action:  return .arrowLeft
+    case .digest:  return .bell
+    case .thread:  return .calendar
+    }
+}
+
+private func iconForegroundForFeedItem(_ item: FeedItem) -> Color {
+    switch item.type {
+    case .nudge:   return VColor.feedNudgeStrong
+    case .action:  return VColor.systemInfoStrong
+    case .digest:  return VColor.feedDigestStrong
+    case .thread:  return VColor.feedThreadStrong
+    }
+}
+
+private func iconBackgroundForFeedItem(_ item: FeedItem) -> Color {
+    switch item.type {
+    case .nudge:   return VColor.feedNudgeWeak
+    case .action:  return VColor.systemInfoWeak
+    case .digest:  return VColor.feedDigestWeak
+    case .thread:  return VColor.feedThreadWeak
     }
 }
 

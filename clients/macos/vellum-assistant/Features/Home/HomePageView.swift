@@ -291,15 +291,11 @@ struct HomePageView<DetailPanel: View>: View {
 
     // MARK: - Recap row styling
 
-    /// Icon glyph for a feed item, driven by type + source. Mapping
-    /// follows the Figma spec:
-    ///   nudge + assistant   → heart
-    ///   action              → arrow-left (inbound intent)
-    ///   digest              → bell
-    ///   thread              → calendar (aligned with the Schedule
-    ///                                    filter chip so row icons
-    ///                                    and chips share one visual
-    ///                                    language)
+    /// Icon glyph for a feed item, driven by type:
+    ///   nudge  → heart     (Heartbeat)
+    ///   action → arrowLeft (Needs attention)
+    ///   digest → bell      (Just so you know)
+    ///   thread → calendar  (Scheduled)
     private func icon(for item: FeedItem) -> VIcon {
         switch item.type {
         case .nudge:
@@ -342,35 +338,10 @@ struct HomePageView<DetailPanel: View>: View {
 
     // MARK: - Actions
 
-    /// Opens the feed item. Items that resolve to a detail panel via
-    /// ``HomeDetailPanelKind.resolve(for:)`` route to
-    /// `onDetailPanelSelected`; every other item (including non-calendar
-    /// `.thread` items such as rollup-producer general-purpose threads)
-    /// keeps the existing "trigger the `open` action and navigate into
-    /// the resulting conversation" flow. The daemon interprets any
-    /// unknown action id as an "open" intent and seeds the new
-    /// conversation with the first available action's prompt (or the
-    /// item summary if there are no actions).
-    ///
-    /// Exposed as `internal` (not `private`) so routing tests can drive it
-    /// directly without needing to render the full view tree.
+    /// Opens the detail panel for the tapped feed item. Every item
+    /// resolves to a panel kind via ``HomeDetailPanelKind.resolve(for:)``.
     func openItem(_ item: FeedItem) {
-        if HomeDetailPanelKind.resolve(for: item) != nil {
-            onDetailPanelSelected(item)
-            return
-        }
-        if let conversationId = item.conversationId {
-            onFeedConversationOpened(conversationId)
-            return
-        }
-        Task {
-            if let conversationId = await feedStore.triggerAction(
-                itemId: item.id,
-                actionId: "open"
-            ) {
-                onFeedConversationOpened(conversationId)
-            }
-        }
+        onDetailPanelSelected(item)
     }
 
     /// Dismisses the feed item — store optimistically removes it from

@@ -18,12 +18,12 @@ enum HomeDetailPanelKind: Equatable {
     case paymentAuth(FeedItem)
     case toolPermission(FeedItem)
     case updatesList(FeedItem)
+    case generic(FeedItem)
 
     /// Resolves from the wire-contract `detailPanel` field when present,
-    /// otherwise falls back to legacy type+source heuristics so
-    /// scheduled/nudge panels remain reachable for items that don't yet
-    /// carry a `detailPanel`.
-    static func resolve(for item: FeedItem) -> HomeDetailPanelKind? {
+    /// otherwise falls back to type+source heuristics, and finally to a
+    /// generic panel so every feed item opens a detail view on tap.
+    static func resolve(for item: FeedItem) -> HomeDetailPanelKind {
         if let panel = item.detailPanel {
             switch panel.kind {
             case .emailDraft: return .emailDraft(item)
@@ -35,15 +35,13 @@ enum HomeDetailPanelKind: Equatable {
             }
         }
 
-        // Legacy heuristic fallbacks — kept until the daemon populates
-        // `detailPanel` for every item type.
         switch item.type {
         case .thread where item.source == .calendar:
             return .scheduled(item)
         case .nudge:
             return .nudge(item)
         default:
-            return nil
+            return .generic(item)
         }
     }
 }

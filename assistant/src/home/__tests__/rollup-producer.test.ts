@@ -104,7 +104,7 @@ function toolUseContent(input: unknown): ContentBlock {
 const oneAction: FeedItem[] = [
   makeAction({
     id: "a1",
-    source: "gmail",
+    source: "assistant",
     title: "Replied to Alice",
     summary: "Sent a reply to alice@example.com.",
     createdAt: "2026-04-14T11:30:00.000Z",
@@ -117,6 +117,22 @@ beforeEach(() => {
 
 describe("runRollupProducer", () => {
   test("writes each digest/thread returned in the tool call", async () => {
+    const actions: FeedItem[] = [
+      makeAction({
+        id: "a1",
+        source: "gmail",
+        title: "Replied to Alice",
+        summary: "Sent a reply.",
+        createdAt: "2026-04-14T11:30:00.000Z",
+      }),
+      makeAction({
+        id: "a2",
+        source: "assistant",
+        title: "Outreach step 1",
+        summary: "Sent emails.",
+        createdAt: "2026-04-14T11:45:00.000Z",
+      }),
+    ];
     const provider = scriptedProvider([
       toolUseContent({
         items: [
@@ -141,7 +157,7 @@ describe("runRollupProducer", () => {
     const result = await runRollupProducer(new Date(), {
       writeItem,
       loadRelationshipState: stubRelationshipState,
-      loadRecentActions: stubLoadRecentActions(oneAction),
+      loadRecentActions: stubLoadRecentActions(actions),
       resolveProvider: () => provider,
     });
 
@@ -219,6 +235,7 @@ describe("runRollupProducer", () => {
     expect(capturedPrompt).toContain("Posted in #general");
     expect(capturedPrompt).toContain("[gmail]");
     expect(capturedPrompt).toContain("[slack]");
+    expect(capturedPrompt).toContain("Sources present in the activity log:");
   });
 
   test("returns empty_items when the model emits an empty items array", async () => {
@@ -406,6 +423,54 @@ describe("runRollupProducer", () => {
     release!([toolUseContent({ items: [] })]);
     const firstResult = await first;
     expect(firstResult.skippedReason).toBe("empty_items");
+  });
+
+  test("rejects rollup items whose source is not present in the input actions", async () => {
+    const actions: FeedItem[] = [
+      makeAction({
+        id: "a1",
+        source: "assistant",
+        title: "Did a thing",
+        summary: "Background task completed.",
+      }),
+    ];
+    const provider = scriptedProvider([
+      toolUseContent({
+        items: [
+          {
+            type: "digest",
+            source: "slack",
+            title: "Inbox and slack activity",
+            summary: "Hallucinated slack summary.",
+          },
+          {
+            type: "digest",
+            source: "gmail",
+            title: "Inbox activity overnight",
+            summary: "Hallucinated gmail summary.",
+          },
+          {
+            type: "digest",
+            source: "assistant",
+            title: "Background tasks completed",
+            summary: "Valid assistant digest.",
+          },
+        ],
+      }),
+    ]);
+
+    const result = await runRollupProducer(new Date(), {
+      writeItem,
+      loadRelationshipState: stubRelationshipState,
+      loadRecentActions: stubLoadRecentActions(actions),
+      resolveProvider: () => provider,
+    });
+
+    expect(result.wroteCount).toBe(1);
+    expect(writeItem).toHaveBeenCalledTimes(1);
+    expect(writeItem.mock.calls[0]![0].title).toBe(
+      "Background tasks completed",
+    );
   });
 
   test("clamps priority to the valid [0, 100] window", async () => {

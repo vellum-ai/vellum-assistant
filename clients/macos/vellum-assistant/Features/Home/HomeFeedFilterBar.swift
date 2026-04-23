@@ -2,33 +2,22 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Horizontal filter bar rendered between the suggestion pills and the
-/// time-grouped Home feed. Figma: `3596:79557` (New App).
+/// time-grouped Home feed.
 ///
-/// Layout: a 12pt "Filter:" caption + a row of four 26pt icon-circle
-/// chips — Heartbeat (`.nudge`), Input (`.action`), Notification
-/// (`.digest`), and Schedule (`.thread`). Chips are single-select:
+/// Layout: "Filter:" caption + four icon-circle chips + an animated
+/// label that appears when a chip is selected. Chips are single-select:
 /// tapping a chip makes it the active filter; tapping the active chip
-/// again clears the filter. A nil ``selected`` means "show everything" —
-/// the parent view is responsible for applying the filter to its feed.
-///
-/// The chip shape + tint mapping is intentionally aligned with
-/// ``HomeRecapRow``'s leading icon, so the filter chips and the row
-/// icons read as a single visual language.
+/// again clears the filter. A nil ``selected`` means "show everything".
 struct HomeFeedFilterBar: View {
     let selected: FeedItemType?
     let onToggle: (FeedItemType) -> Void
 
-    /// Order matches the Figma mock (Heartbeat, Input, Notification,
-    /// Schedule). Kept as a static list so the iteration order is
-    /// deterministic across renders.
+    /// Kept as a static list so the iteration order is deterministic.
     private static let chipOrder: [FeedItemType] = [.nudge, .action, .digest, .thread]
 
     var body: some View {
         HStack(alignment: .center, spacing: VSpacing.sm) {
             Text("Filter:")
-                // Figma label: 12pt Inter Semibold, #5A6672 →
-                // `bodySmallEmphasised` (DM Sans 500-weight 12pt, our
-                // closest equivalent) + `contentSecondary` token.
                 .font(VFont.bodySmallEmphasised)
                 .foregroundStyle(VColor.contentSecondary)
 
@@ -39,7 +28,15 @@ struct HomeFeedFilterBar: View {
                     onToggle: { onToggle(type) }
                 )
             }
+
+            if let selected {
+                Text(HomeFeedFilterChip.label(for: selected))
+                    .font(VFont.bodySmallEmphasised)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .transition(.opacity)
+            }
         }
+        .animation(VAnimation.standard, value: selected)
     }
 }
 
@@ -116,13 +113,18 @@ private struct HomeFeedFilterChip: View {
         }
     }
 
-    /// Human-readable name used in the VoiceOver label.
-    private var accessibilityName: String {
+    /// Human-readable label for VoiceOver and the visible selected-state
+    /// caption in the filter bar.
+    static func label(for type: FeedItemType) -> String {
         switch type {
         case .nudge:   return "Heartbeat"
-        case .action:  return "Input"
-        case .digest:  return "Notification"
-        case .thread:  return "Schedule"
+        case .action:  return "Needs attention"
+        case .digest:  return "Just so you know"
+        case .thread:  return "Scheduled"
         }
+    }
+
+    private var accessibilityName: String {
+        Self.label(for: type)
     }
 }

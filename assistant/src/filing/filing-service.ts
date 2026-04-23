@@ -196,12 +196,12 @@ export class FilingService {
         source: "filing",
         groupId: "system:background",
         origin: "filing",
-        systemHint: "Filing",
+        systemHint: "Knowledge base filing",
       });
 
       this.deps.onConversationCreated?.({
         conversationId: conversation.id,
-        title: "Filing",
+        title: "Knowledge base filing",
       });
 
       await this.deps.processMessage(conversation.id, FILING_PROMPT_TEMPLATE, {

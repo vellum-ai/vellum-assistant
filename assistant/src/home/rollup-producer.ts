@@ -259,10 +259,12 @@ async function runRollupProducerInner(
     return { wroteCount: 0, skippedReason: "empty_items" };
   }
 
+  const validSources = new Set(actions.map((a) => a.source).filter(Boolean));
+
   const capped = rawItems.slice(0, MAX_ITEMS_PER_ROLLUP);
   const accepted: WriteAssistantFeedItemParams[] = [];
   for (const raw of capped) {
-    const params = coerceRollupItem(raw);
+    const params = coerceRollupItem(raw, validSources);
     if (params) accepted.push(params);
   }
 
@@ -356,6 +358,9 @@ function buildUserPrompt(
     "Known facts about the user (for context only — do NOT invent roll-ups from these):",
     factLines.length > 0 ? factLines : "  (none yet)",
     "",
+    `Sources present in the activity log: ${[...new Set(actions.map((a) => a.source).filter(Boolean))].join(", ") || "(none)"}`,
+    "IMPORTANT: Only use sources that appear in the list above. Do NOT reference services (Gmail, Slack, etc.) that have no activity log entries.",
+    "",
     "Consolidate the activity log above into a small set of `digest` or `thread` roll-up items. Remember: prefer 0 items over filler, and only roll up when several related actions cluster into a coherent story. Use the `write_feed_items` tool.",
   ].join("\n");
 }
@@ -368,7 +373,10 @@ function buildUserPrompt(
  * the `type` narrowing to digest/thread (actions and nudges are
  * rejected here even if the model ignores the tool schema).
  */
-function coerceRollupItem(raw: unknown): WriteAssistantFeedItemParams | null {
+function coerceRollupItem(
+  raw: unknown,
+  validSources: Set<string | undefined>,
+): WriteAssistantFeedItemParams | null {
   if (!raw || typeof raw !== "object") return null;
   const obj = raw as Record<string, unknown>;
 
@@ -389,6 +397,7 @@ function coerceRollupItem(raw: unknown): WriteAssistantFeedItemParams | null {
     source === "calendar" ||
     source === "assistant"
   ) {
+    if (!validSources.has(source)) return null;
     coercedSource = source;
   }
 
