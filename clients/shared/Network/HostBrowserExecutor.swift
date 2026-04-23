@@ -403,7 +403,20 @@ public final class HostBrowserExecutor {
                 state.session = session
                 state.wsTask = wsTask
                 state.timeoutWork = timeoutTask
+                let tornDownDuringGap = state.resumed
                 state.lock.unlock()
+
+                // If teardown() fired between the first `alreadyResumed`
+                // check and storing the resources above, it called cancel/
+                // invalidate on nil values and left these just-created
+                // resources dangling. Clean them up now and bail out —
+                // teardown() already resumed the continuation.
+                if tornDownDuringGap {
+                    wsTask.cancel(with: .goingAway, reason: nil)
+                    session.invalidateAndCancel()
+                    timeoutTask.cancel()
+                    return
+                }
 
                 wsTask.resume()
 
