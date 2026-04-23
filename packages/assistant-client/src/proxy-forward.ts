@@ -103,14 +103,14 @@ export async function proxyForward(
     if (isTimeoutError(err)) {
       return {
         status: 504,
-        headers: new Headers(),
+        headers: new Headers({ "content-type": "application/json" }),
         body: JSON.stringify({ error: "Gateway Timeout" }),
         gatewayError: true,
       };
     }
     return {
       status: 502,
-      headers: new Headers(),
+      headers: new Headers({ "content-type": "application/json" }),
       body: JSON.stringify({ error: "Bad Gateway" }),
       gatewayError: true,
     };
