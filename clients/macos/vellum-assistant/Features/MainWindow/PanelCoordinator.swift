@@ -344,15 +344,26 @@ extension MainWindowView {
                         onClose: { activeHomeDetailPanel = nil }
                     )
                 case .permissionChat(let item):
-                    HomeDetailPanel(
-                        icon: nil,
-                        title: item.title,
-                        onDismiss: { activeHomeDetailPanel = nil }
-                    ) {
-                        Text(item.summary)
-                            .font(VFont.bodyMediumDefault)
-                            .foregroundStyle(VColor.contentSecondary)
-                            .padding(VSpacing.lg)
+                    if PermissionChatPanelData.from(item.detailPanel?.data) != nil ||
+                       ToolPermissionPanelData.from(item.detailPanel?.data) != nil {
+                        HomeDetailPanel(
+                            icon: nil,
+                            title: item.title,
+                            onDismiss: { activeHomeDetailPanel = nil }
+                        ) {
+                            HomePermissionDetailCard(item: item)
+                        }
+                    } else {
+                        HomeDetailPanel(
+                            icon: nil,
+                            title: item.title,
+                            onDismiss: { activeHomeDetailPanel = nil }
+                        ) {
+                            Text(item.summary)
+                                .font(VFont.bodyMediumDefault)
+                                .foregroundStyle(VColor.contentSecondary)
+                                .padding(VSpacing.lg)
+                        }
                     }
                 case .paymentAuth(let item):
                     HomePaymentAuthPanel(
