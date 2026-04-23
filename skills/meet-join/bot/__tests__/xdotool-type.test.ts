@@ -89,13 +89,14 @@ describe("xdotoolType", () => {
     expect(fake.calls[0]!.options.env?.DISPLAY).toBe(":99");
   });
 
-  test("forces LANG=C.UTF-8 so xdotool can type non-ASCII characters", async () => {
+  test("forces a UTF-8 locale so xdotool can type non-ASCII characters", async () => {
     // Without an explicit UTF-8 locale, xdotool runs in POSIX/C and aborts
     // a chat message on the first multi-byte byte (em-dash, curly
     // apostrophe, emoji) with "Invalid multi-byte sequence encountered",
-    // leaving a partial string in the composer. Pin the env so that
-    // failure mode can't return if the bot is invoked outside the
-    // container (e.g. local dev) where the host locale may not be UTF-8.
+    // leaving a partial string in the composer. glibc's locale precedence
+    // is LC_ALL > LC_CTYPE > LANG, so all three must be pinned — hosts
+    // that export LC_ALL=C (common in CI and some dev shells) would
+    // otherwise defeat a LANG-only override.
     const child = makeFakeChild();
     const fake = makeFakeSpawn(child);
 
@@ -108,6 +109,8 @@ describe("xdotoolType", () => {
     await pending;
 
     expect(fake.calls[0]!.options.env?.LANG).toBe("C.UTF-8");
+    expect(fake.calls[0]!.options.env?.LC_CTYPE).toBe("C.UTF-8");
+    expect(fake.calls[0]!.options.env?.LC_ALL).toBe("C.UTF-8");
   });
 
   test("passes text starting with '-' safely via the '--' end-of-options marker", async () => {

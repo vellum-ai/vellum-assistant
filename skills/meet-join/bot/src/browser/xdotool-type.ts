@@ -116,18 +116,21 @@ export async function xdotoolType(opts: XdotoolTypeOptions): Promise<void> {
       else resolve();
     };
 
-    // Force `LANG=C.UTF-8` for the xdotool process. xdotool's text-typing
+    // Force a UTF-8 locale for the xdotool process. xdotool's text-typing
     // path uses the inherited locale to decode the argv string, and in the
     // POSIX/C locale it rejects any non-ASCII byte with `Invalid multi-byte
-    // sequence encountered`, aborting partway through the message. The bot
-    // container's Dockerfile already sets `LANG=C.UTF-8`, but pinning it
-    // here keeps non-container callers (tests, local dev) from re-breaking
-    // the typing path if their host locale drifts.
+    // sequence encountered`, aborting partway through the message. glibc's
+    // locale precedence is `LC_ALL > LC_CTYPE > LANG`, so overriding only
+    // `LANG` still loses on hosts that export `LC_ALL=C` (common in CI and
+    // some dev shells). Set all three so the override is authoritative
+    // regardless of the inherited environment.
     const child = spawnFn(binary, args, {
       env: {
         ...process.env,
         DISPLAY: opts.display,
         LANG: "C.UTF-8",
+        LC_CTYPE: "C.UTF-8",
+        LC_ALL: "C.UTF-8",
       },
     });
 
