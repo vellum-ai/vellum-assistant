@@ -998,12 +998,12 @@ export interface Injector {
 
 /**
  * Tool registration contributed by a plugin. Uses the canonical {@link Tool}
- * interface from the tool registry — the bootstrap stamps `origin: "skill"`
- * and `ownerSkillId: <plugin.name>` before handing the batch to
- * `registerSkillTools` so plugin-scoped ref-counting and conflict detection
- * reuse the skill-tool machinery. Plugin authors supply the functional fields
- * (`name`, `description`, `getDefinition`, `execute`, etc.) and leave the
- * ownership metadata to the bootstrap to set authoritatively.
+ * interface from the tool registry — the bootstrap stamps `origin: "plugin"`
+ * and `ownerPluginId: <plugin.name>` before handing the batch to
+ * `registerPluginTools`, which keeps plugin ref-counts and conflict detection
+ * in a namespace disjoint from real skills. Plugin authors supply the
+ * functional fields (`name`, `description`, `getDefinition`, `execute`, etc.)
+ * and leave the ownership metadata to the bootstrap to set authoritatively.
  */
 export type PluginToolRegistration = Tool;
 /**
