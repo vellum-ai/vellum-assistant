@@ -369,11 +369,16 @@ export class MeetChatOpportunityDetector {
         this.onParticipantChange(event);
         return;
       }
-      if (!this.config.enabled) return;
+      // Transcript chunks must reach `onTranscriptChunk` regardless of
+      // `config.enabled` so the 1:1 voice-mode EOU path can fire when
+      // proactive chat is off. The Tier 1 + Tier 2 branch inside is
+      // gated on `config.enabled` separately.
       if (event.type === "transcript.chunk") {
         this.onTranscriptChunk(event);
         return;
       }
+      // Inbound chat is purely a proactive-chat input; skip when off.
+      if (!this.config.enabled) return;
       if (event.type === "chat.inbound") {
         this.onInboundChat(event);
         return;
@@ -423,6 +428,10 @@ export class MeetChatOpportunityDetector {
       this.scheduleVoiceEouWake(raw);
       return;
     }
+
+    // Tier 1 + Tier 2 only run when proactive chat is enabled. Voice
+    // mode above is independently gated and reaches here on its own.
+    if (!this.config.enabled) return;
 
     const reason = this.tier1Match(raw);
     if (reason !== null) {

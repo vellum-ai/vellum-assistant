@@ -1631,22 +1631,18 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
   function overrideProactiveChatConfig(
     workspace: string,
     enabled: boolean,
+    voiceModeEnabled?: boolean,
   ): void {
     const configDir = join(workspace, "config");
     mkdirSync(configDir, { recursive: true });
     const meetConfigPath = join(configDir, "meet.json");
-    writeFileSync(
-      meetConfigPath,
-      JSON.stringify(
-        {
-          proactiveChat: {
-            enabled,
-          },
-        },
-        null,
-        2,
-      ),
-    );
+    const overrides: Record<string, unknown> = {
+      proactiveChat: { enabled },
+    };
+    if (voiceModeEnabled !== undefined) {
+      overrides.voiceMode = { enabled: voiceModeEnabled };
+    }
+    writeFileSync(meetConfigPath, JSON.stringify(overrides, null, 2));
   }
 
   afterEach(() => {
@@ -1776,8 +1772,11 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
     await manager.leave("m-voice-kind", "cleanup");
   });
 
-  test("proactiveChat.enabled=false skips detector construction entirely", async () => {
-    overrideProactiveChatConfig(preloadWorkspace, false);
+  test("proactiveChat and voiceMode both disabled skips detector construction entirely", async () => {
+    // The detector hosts both the proactive-chat (Tier 1+2) path and the
+    // 1:1 voice-mode EOU path. It is constructed whenever EITHER is on,
+    // so to verify "skipped construction" we must disable both.
+    overrideProactiveChatConfig(preloadWorkspace, false, false);
 
     const runner = makeMockRunner();
     const audioIngestFactory = makeFakeAudioIngestFactory();
@@ -1809,6 +1808,36 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
     await manager.leave("m-proactive-off", "cleanup");
   });
 
+  test("voiceMode-only enabled (proactiveChat off) still constructs the detector", async () => {
+    // Regression: voice mode must remain alive even if a user disables
+    // proactive chat — the two features are independently gated.
+    overrideProactiveChatConfig(preloadWorkspace, false, true);
+
+    const detectorFactory = makeFakeDetectorFactory();
+    const manager = _createMeetSessionManagerForTests({
+      dockerRunnerFactory: () => makeMockRunner(),
+      getProviderKey: async () => "k",
+      getWorkspaceDir: () => workspaceDir,
+      botLeaveFetch: async () => {},
+      audioIngestFactory: makeFakeAudioIngestFactory().factory,
+      chatOpportunityDetectorFactory: detectorFactory.factory,
+      wakeAgent: async () => {},
+    });
+
+    await manager.join({
+      url: "u",
+      meetingId: "m-voice-only",
+      conversationId: "c",
+    });
+
+    const args = detectorFactory.lastArgs();
+    expect(args).not.toBeNull();
+    expect(args!.config.enabled).toBe(false);
+    expect(args!.voiceConfig.enabled).toBe(true);
+
+    await manager.leave("m-voice-only", "cleanup");
+  });
+
   test("leave disposes the detector and leave still works when detector is null", async () => {
     // First case — detector present, dispose on leave.
     overrideProactiveChatConfig(preloadWorkspace, true);
@@ -1830,9 +1859,10 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
     await managerOn.leave("m-dispose-on", "cleanup");
     expect(detectorFactoryOn.lastDetector()!.dispose).toHaveBeenCalledTimes(1);
 
-    // Second case — detector absent (enabled=false), leave must not throw
-    // on the `detector?.dispose()` / `detector?.getStats()` paths.
-    overrideProactiveChatConfig(preloadWorkspace, false);
+    // Second case — detector absent (both proactiveChat and voiceMode
+    // disabled), leave must not throw on the `detector?.dispose()` /
+    // `detector?.getStats()` paths.
+    overrideProactiveChatConfig(preloadWorkspace, false, false);
     const detectorFactoryOff = makeFakeDetectorFactory();
     const managerOff = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => makeMockRunner(),

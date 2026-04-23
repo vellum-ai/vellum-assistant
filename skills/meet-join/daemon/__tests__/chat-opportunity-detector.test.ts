@@ -1042,6 +1042,74 @@ describe("MeetChatOpportunityDetector — 1:1 voice mode", () => {
     detector.dispose();
   });
 
+  test("voice mode fires even when proactive chat is disabled", async () => {
+    const dispatcher = makeFakeDispatcher();
+    const clock = makeClock(1_000);
+    const timers = makeManualTimers();
+    const llm = mock(
+      async (_prompt: string): Promise<ChatOpportunityDecision> => ({
+        shouldRespond: true,
+        reason: "LLM should never be consulted",
+      }),
+    );
+    const onOpportunity = mock((_event: ChatOpportunityEvent) => {});
+
+    const detector = new MeetChatOpportunityDetector({
+      meetingId: "m1",
+      assistantDisplayName: "Aria",
+      // Proactive chat disabled, voice mode enabled — voice mode is
+      // independently gated and must still wake on EOU.
+      config: defaultConfig({ enabled: false }),
+      voiceConfig: defaultVoiceConfig(),
+      callDetectorLLM: llm,
+      onOpportunity,
+      subscribe: dispatcher.subscribe,
+      now: clock.now,
+      setTimer: timers.setTimer,
+      clearTimer: timers.clearTimer,
+    });
+    detector.start();
+
+    // Seed a 1:1 meeting: bot + one human.
+    dispatcher.dispatch(
+      "m1",
+      participantChange("m1", "2024-01-01T00:00:00.000Z", [
+        { id: "bot", name: "Aria", isSelf: true },
+        { id: "alice", name: "Alice" },
+      ]),
+    );
+
+    // A plain (non-keyword) utterance — Tier 1 would not match this,
+    // so a fired opportunity here can only be the voice-mode path.
+    dispatcher.dispatch(
+      "m1",
+      transcriptChunk(
+        "m1",
+        "2024-01-01T00:00:01.000Z",
+        "so what's on our agenda this week",
+      ),
+    );
+    await flushPromises();
+
+    // Voice EOU timer scheduled, no LLM call yet.
+    expect(timers.pendingCount()).toBe(1);
+    expect(llm).toHaveBeenCalledTimes(0);
+    expect(onOpportunity).toHaveBeenCalledTimes(0);
+
+    // Fire the EOU silence debounce.
+    timers.fireAll();
+    await flushPromises();
+
+    expect(llm).toHaveBeenCalledTimes(0);
+    expect(onOpportunity).toHaveBeenCalledTimes(1);
+    const [event] = onOpportunity.mock.calls[0] as unknown as [
+      ChatOpportunityEvent,
+    ];
+    expect(event.kind).toBe("voice");
+
+    detector.dispose();
+  });
+
   test("voice mode disabled falls back to Tier 1 + Tier 2 even in 1:1", async () => {
     const dispatcher = makeFakeDispatcher();
     const clock = makeClock(1_000);
