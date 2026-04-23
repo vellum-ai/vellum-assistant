@@ -1358,7 +1358,7 @@ jobs:
   # for its sibling TestFlight publish.
   build-macos-arm64:
     needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 45
     defaults:
       run:
@@ -1733,7 +1733,7 @@ jobs:
   # Runs in parallel with build-macos-arm64 and does NOT block the release job.
   build-macos-x64:
     needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 45
     continue-on-error: true
     defaults:
