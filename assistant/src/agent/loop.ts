@@ -151,7 +151,7 @@ const MAX_EMPTY_RESPONSE_RETRIES = 1;
  * {@link AgentLoop.run}); this helper is the fallback used only by unit
  * tests that construct `AgentLoop` directly without an orchestrator.
  *
- * When the orchestrator-supplied context is present, {@link cloneWithTurnIndex}
+ * When the orchestrator-supplied context is present, {@link resolveLoopTurnContext}
  * is used instead of this helper so the pipeline sees the real
  * `conversationId`, trust, and `contextWindowManager`. In the fallback path
  * the returned context is still useful for pipeline logging: `requestId`
