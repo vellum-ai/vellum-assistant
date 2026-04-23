@@ -6,6 +6,7 @@ on:
     paths:
       - 'assistant/**'
       - 'credential-executor/**'
+      - 'gateway/**'
       - 'packages/**'
       - 'skills/meet-join/contracts/**'
       - 'scripts/skills/**'
@@ -48,6 +49,7 @@ jobs:
         run: |
           cd ../packages/ces-contracts && bun install --frozen-lockfile
           cd ../../skills/meet-join && bun install --frozen-lockfile
+          cd ../../gateway && bun install --frozen-lockfile
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -89,6 +91,7 @@ jobs:
         run: |
           cd ../packages/ces-contracts && bun install --frozen-lockfile
           cd ../../skills/meet-join && bun install --frozen-lockfile
+          cd ../../gateway && bun install --frozen-lockfile
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -127,6 +130,7 @@ jobs:
         run: |
           cd ../packages/ces-contracts && bun install --frozen-lockfile
           cd ../../skills/meet-join && bun install --frozen-lockfile
+          cd ../../gateway && bun install --frozen-lockfile
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -217,6 +221,7 @@ jobs:
         run: |
           cd ../packages/ces-contracts && bun install --frozen-lockfile
           cd ../../skills/meet-join && bun install --frozen-lockfile
+          cd ../../gateway && bun install --frozen-lockfile
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
