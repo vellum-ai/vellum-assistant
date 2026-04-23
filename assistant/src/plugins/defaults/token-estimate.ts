@@ -17,9 +17,8 @@
  * {@link import("../../context/token-estimator.js").estimatePromptTokens estimatePromptTokens},
  * which applies the EWMA calibration correction recorded from past provider
  * responses. Preflight + mid-loop checks must use the calibrated estimate —
- * before this pipeline existed, both call sites invoked `estimatePromptTokens`
- * directly, and the calibrated estimate is what keeps the overflow gate
- * consistent with the convergence path in the reducer. The pre-send
+ * the calibrated value keeps the overflow gate consistent with the
+ * convergence path in the reducer. The pre-send
  * calibration capture in `agent/loop.ts` still uses `estimatePromptTokensRaw`
  * on purpose — the calibrator must learn against the raw estimate so the EWMA
  * converges against provider ground truth rather than chasing its own
