@@ -110,7 +110,6 @@ function makeDeps(
     messages: [],
     graphMemory: memory,
     config: {} as AssistantConfig,
-    abortSignal: new AbortController().signal,
     onEvent: () => {},
     isTrustedActor: true,
     ...overrides,
@@ -327,6 +326,59 @@ describe("memoryRetrieval pipeline — default vs custom plugin", () => {
     // timer fires. The default pipeline doesn't bind a plugin name, so
     // the attribution is undefined — still fail the turn cleanly.
     expect(timeoutErr.message).toContain("memoryRetrieval");
+  });
+
+  test("pipeline timeout aborts the signal threaded into prepareMemory", async () => {
+    // Regression for the cancellation gap: before `MemoryArgs.signal` was
+    // swapped by the pipeline's abort-linker, a pipeline timeout rejected
+    // the race but left `prepareMemory` running — mutating graph state
+    // after the turn had already errored. This test wires a long-running
+    // `prepareMemory` fake, arms a tight budget, and asserts the signal
+    // the terminal actually received reports `aborted === true` once the
+    // timer fires.
+    let capturedSignal: AbortSignal | undefined;
+    const hangingPrepare = mock(
+      (
+        _msgs: Message[],
+        _cfg: AssistantConfig,
+        signal: AbortSignal,
+        _onEvent: (msg: ServerMessage) => void,
+      ) => {
+        capturedSignal = signal;
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new Error("aborted")));
+        });
+      },
+    );
+    const graphMemory = {
+      prepareMemory: hangingPrepare,
+    } as unknown as ConversationGraphMemory;
+    const deps = makeDeps({ graphMemory });
+    const outerController = new AbortController();
+    const args = makeMemoryArgs({ signal: outerController.signal });
+
+    let caught: unknown;
+    try {
+      await runPipeline(
+        "memoryRetrieval",
+        getMiddlewaresFor("memoryRetrieval"),
+        (innerArgs: MemoryArgs) => runDefaultMemoryRetrieval(innerArgs, deps),
+        args,
+        makeTurnCtx(),
+        30,
+      );
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(PluginTimeoutError);
+    expect(capturedSignal).toBeDefined();
+    // The signal the terminal observed must be the pipeline's linked
+    // signal (not the caller's bare signal), and it must be aborted so
+    // `prepareMemory` stops work instead of running to completion after
+    // the race has already rejected.
+    expect(capturedSignal).not.toBe(outerController.signal);
+    expect(capturedSignal!.aborted).toBe(true);
   });
 
   test("onEvent is invoked by the default retriever's terminal path", async () => {

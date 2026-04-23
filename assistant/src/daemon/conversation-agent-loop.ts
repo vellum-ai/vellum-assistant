@@ -872,12 +872,18 @@ export async function runAgentLoopImpl(
       conversationId: ctx.conversationId,
       trustContext: ctx.trustContext,
       turnIndex: ctx.turnCount,
+      // Pass the abort signal via `args` (not `deps`) so the pipeline
+      // runner's `linkAbortSignal` can swap it for a signal linked to the
+      // pipeline's internal controller — on a plugin-set timeout or
+      // external cancel, the linked signal aborts and `prepareMemory`
+      // stops mutating graph state / emitting events after the pipeline
+      // has already errored.
+      signal: abortController.signal,
     };
     const memoryDeps: DefaultMemoryRetrievalDeps = {
       messages: ctx.messages,
       graphMemory: ctx.graphMemory,
       config: getConfig(),
-      abortSignal: abortController.signal,
       onEvent,
       isTrustedActor,
     };
