@@ -21,11 +21,7 @@ jobs:
     if: github.repository == 'vellum-ai/vellum-assistant'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # This is a multi-workspace Bun monorepo with NO root-level package.json.
-    # Socket's `fix` needs a resolved dependency tree (node_modules) per
-    # workspace, so we matrix over the runtime-relevant workspaces that each
-    # have their own bun.lock. `meta` and `scripts` (dev tooling) are skipped
-    # to conserve scan quota (~1,000 scans/month on Socket Free).
+    # Multi-workspace monorepo (no root package.json). See docs/socket.md.
     strategy:
       fail-fast: false
       matrix:
@@ -56,14 +52,10 @@ jobs:
         with:
           bun-version: '1.3.11'
 
-      # --ignore-scripts: Socket only needs the resolved dep tree; skipping
-      # postinstall hooks avoids cross-workspace mutations polluting diffs.
+      # See docs/socket.md for rationale (cross-workspace postinstall side-effects).
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
 
-      # --pr-limit 3: cap per matrix leg (12 × 3 = 36 PRs/week ceiling).
-      # --minimum-release-age 1w: skip versions <7 days old — defense against
-      # malware-via-update (compromised maintainer poisoned patch release).
       - name: Run socket fix
         run: bunx @socketsecurity/cli fix --autopilot --pr-limit 3 --minimum-release-age 1w
         env:
