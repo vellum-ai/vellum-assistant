@@ -222,8 +222,15 @@ async function handleClassifyRisk(
         }
       }
 
+      // Proxied bash risk cap: when running through the credential proxy,
+      // cap High → Medium so proxied commands don't trigger unnecessary prompts.
+      let finalRisk = assessment.riskLevel;
+      if (params.networkMode === "proxied" && finalRisk === "high") {
+        finalRisk = "medium";
+      }
+
       return {
-        risk: assessment.riskLevel,
+        risk: finalRisk,
         reason: assessment.reason,
         scopeOptions: assessment.scopeOptions,
         allowlistOptions: assessment.allowlistOptions,

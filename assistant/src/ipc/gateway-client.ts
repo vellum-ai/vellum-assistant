@@ -415,8 +415,8 @@ export async function ipcGetFeatureFlags(): Promise<Record<string, boolean>> {
  * persistent connection avoids per-call connect overhead.
  *
  * Returns `undefined` when the gateway is unreachable, the response is
- * malformed, or the call fails for any reason — callers should fall back
- * to local classification.
+ * malformed, or the call fails for any reason — callers should throw
+ * since there is no local fallback (gateway is a hard dependency).
  */
 export async function ipcClassifyRisk(
   params: ClassifyRiskParams,
