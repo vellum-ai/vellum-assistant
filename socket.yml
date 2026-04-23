@@ -14,7 +14,7 @@
 #
 # Alert names below verified against https://docs.socket.dev/docs/socket-yml
 # and https://socket.dev/alerts in 2026-04; re-verify on next edit.
-# Runbook: docs/socket.md (lands in PR 3 of the same plan — ATL-106).
+# Runbook: docs/socket.md
 
 version: 2
 
@@ -50,6 +50,6 @@ issueRules:
   # to gate on them later. Package-specific exceptions go here with a
   # rationale comment (why, who, date, expiry).
   criticalCVE: true
-  highCVE: true
+  cve: true
   mediumCVE: false
-  lowCVE: false
+  mildCVE: false
