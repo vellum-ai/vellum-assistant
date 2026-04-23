@@ -152,21 +152,35 @@ struct SubagentDetailPanel: View {
 
     /// The "Completed N events" section shown when the subagent is terminal.
     /// Mirrors the `AssistantProgressView.swift` main-thread pattern.
+    ///
+    /// Each group tracks its own expansion state via a per-group key — the
+    /// first pair's `id` — so when text/error events split a run of tool
+    /// calls into multiple `.completedToolCalls` groups, expanding one does
+    /// not toggle the others. If `pairs.first?.id` is unexpectedly `nil`
+    /// (empty group — should not happen), the section short-circuits.
     @ViewBuilder
     private func completedToolCallsSection(_ pairs: [SubagentToolCallPair]) -> some View {
-        let groupBinding = Binding<Bool>(
-            get: { state?.completedGroupExpanded ?? false },
-            set: { state?.completedGroupExpanded = $0 }
-        )
-        SubagentCompletedStepsHeader(
-            count: pairs.count,
-            totalDuration: SubagentEventGrouping.duration(across: pairs),
-            isExpanded: groupBinding
-        )
-        if groupBinding.wrappedValue {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(pairs, id: \.id) { pair in
-                    SubagentToolCallRow(pair: pair, isExpanded: expansionBinding(for: pair.id))
+        if let groupKey = pairs.first?.id {
+            let groupBinding = Binding<Bool>(
+                get: { state?.completedGroupExpandedIds.contains(groupKey) ?? false },
+                set: { newValue in
+                    if newValue {
+                        state?.completedGroupExpandedIds.insert(groupKey)
+                    } else {
+                        state?.completedGroupExpandedIds.remove(groupKey)
+                    }
+                }
+            )
+            SubagentCompletedStepsHeader(
+                count: pairs.count,
+                totalDuration: SubagentEventGrouping.duration(across: pairs),
+                isExpanded: groupBinding
+            )
+            if groupBinding.wrappedValue {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(pairs, id: \.id) { pair in
+                        SubagentToolCallRow(pair: pair, isExpanded: expansionBinding(for: pair.id))
+                    }
                 }
             }
         }

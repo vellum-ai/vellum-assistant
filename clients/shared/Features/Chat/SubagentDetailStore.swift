@@ -67,10 +67,13 @@ public final class SubagentState {
     /// expansion survives `LazyVStack` view recycling.
     public var expandedEventIds: Set<UUID> = []
 
-    /// Whether the "Completed N events" group is expanded. Only consulted once
-    /// the subagent reaches a terminal status; defaults to collapsed so long
-    /// runs do not wall off the panel.
-    public var completedGroupExpanded: Bool = false
+    /// Per-group expansion state for "Completed N events" headers. Keyed by
+    /// the first tool-call pair's `id` in each group so multiple groups (when
+    /// text/error events split a run of tool calls) track expansion
+    /// independently. Only consulted once the subagent reaches a terminal
+    /// status; a missing key means collapsed so long runs do not wall off the
+    /// panel.
+    public var completedGroupExpandedIds: Set<UUID> = []
 
     public init() {}
 
