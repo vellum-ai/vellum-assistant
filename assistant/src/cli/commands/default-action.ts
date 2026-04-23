@@ -2,7 +2,7 @@ import type { Command } from "commander";
 
 import { startCli } from "../../cli.js";
 import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
-import { ensureDaemonRunning } from "../../daemon/lifecycle.js";
+import { ensureDaemonRunning } from "../../daemon/daemon-control.js";
 
 export function registerDefaultAction(program: Command): void {
   program.action(async (_options: unknown, cmd: Command) => {
