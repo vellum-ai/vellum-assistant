@@ -405,6 +405,20 @@ export class HeartbeatService {
         summary: "Heartbeat check completed.",
         dedupKey: `heartbeat:ok:${today}`,
         priority: 30,
+        detailPanel: {
+          kind: "nudge",
+          data: {
+            description: "Heartbeat check completed successfully.",
+            cards: [
+              {
+                id: `heartbeat-summary:${today}`,
+                title: "Heartbeat Summary",
+                description:
+                  "Periodic heartbeat check ran and completed. All checklist items were reviewed.",
+              },
+            ],
+          },
+        },
       }).catch((err) => {
         log.warn(
           { err, conversationId: conversation.id },
