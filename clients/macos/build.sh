@@ -1339,12 +1339,30 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 </plist>
 PLIST
 
+# Resolve per-environment icon source. Falls back to production if no
+# environment-specific override exists.
+ICONS_DIR="$SCRIPT_DIR/vellum-assistant/Resources/icons"
+if [ -d "$ICONS_DIR/$VELLUM_ENVIRONMENT" ]; then
+    ICON_SOURCE_DIR="$ICONS_DIR/$VELLUM_ENVIRONMENT"
+elif [ -d "$ICONS_DIR/production" ]; then
+    ICON_SOURCE_DIR="$ICONS_DIR/production"
+else
+    ICON_SOURCE_DIR=""
+fi
+
 # Always compile asset catalog (fast, ensures AppIcon changes are picked up)
 # AppIcon.icon is a Xcode-26 Icon Composer bundle — actool reads it alongside
 # the xcassets and emits both the layered Liquid Glass iconstack for macOS Tahoe
 # and backward-compatible raster fallbacks for macOS 15 into Assets.car.
 XCASSETS="$SCRIPT_DIR/vellum-assistant/Resources/Assets.xcassets"
 APP_ICON="$SCRIPT_DIR/vellum-assistant/Resources/AppIcon.icon"
+
+# Overlay environment-specific icon into the .icon bundle so both actool
+# (Assets.car / Liquid Glass) and the .icns generation use the correct source.
+if [ -n "$ICON_SOURCE_DIR" ]; then
+    cp "$ICON_SOURCE_DIR/icon.json" "$APP_ICON/icon.json"
+    cp -R "$ICON_SOURCE_DIR/Assets/" "$APP_ICON/Assets/"
+fi
 if [ -d "$XCASSETS" ]; then
     ACTOOL_INPUTS=("$XCASSETS")
     if [ -d "$APP_ICON" ]; then
@@ -1372,7 +1390,9 @@ fi
 # actool with .icon bundles only emits into Assets.car — it does not produce a
 # standalone .icns.  Finder and create-dmg rely on CFBundleIconFile → .icns,
 # so we render one from the same SVG source that Icon Composer uses.
-if [ ! -f "$RESOURCES_DIR/AppIcon.icns" ] && [ -d "$APP_ICON" ]; then
+# Always regenerate when an icon source directory is resolved — the Swift
+# script is fast and this avoids stale icns after environment switches.
+if [ -d "$APP_ICON" ] && [ -n "$ICON_SOURCE_DIR" ]; then
     echo "Generating AppIcon.icns from SVG..."
 
     ICONSET_DIR=$(mktemp -d)/AppIcon.iconset
