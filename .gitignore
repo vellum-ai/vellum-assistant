@@ -58,6 +58,7 @@ worktrees/
 # Repo-local commands now live in .claude/skills/<name>/ as local skill directories.
 .claude/commands/*.md
 .claude/phases/
+.plans/
 .private/
 temp.sh
 context.md
