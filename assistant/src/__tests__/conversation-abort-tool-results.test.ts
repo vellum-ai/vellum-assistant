@@ -93,6 +93,16 @@ mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
+mock.module("../workspace/turn-commit.js", () => ({
+  commitTurnChanges: async () => {},
+}));
+
+mock.module("../workspace/git-service.js", () => ({
+  getWorkspaceGitService: () => ({
+    ensureInitialized: async () => {},
+  }),
+}));
+
 // Track all messages persisted to DB
 let persistedMessages: Array<{ role: string; content: string }> = [];
 
