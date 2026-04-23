@@ -201,6 +201,7 @@ struct ImageGenerationServiceCard: View {
                 // re-query so the displayed state reflects the now-visible provider.
                 if provider == currentProvider {
                     imageGenHasKey = true
+                    keyTextBinding.wrappedValue = ""
                 } else {
                     hasKeyTask?.cancel()
                     let targetProvider = currentProvider
@@ -208,7 +209,6 @@ struct ImageGenerationServiceCard: View {
                         await refreshHasKey(for: targetProvider)
                     }
                 }
-                keyTextBinding.wrappedValue = ""
                 showToast("\(provider == "openai" ? "OpenAI" : "Gemini") API key saved", .success)
             })
         }
