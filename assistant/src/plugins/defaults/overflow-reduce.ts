@@ -12,11 +12,15 @@
  * callbacks carried on {@link OverflowReduceArgs}; the plugin itself has no
  * access to the agent-loop context object.
  *
- * Internal calls to `ContextWindowManager` remain direct — pipeline layering
- * ends at the top of the reducer, not within the forced-compaction tier.
- * The supplied `compactFn` delegates straight into the context window
- * manager, so only the tier-loop orchestration goes through the pipeline
- * runner.
+ * The forced-compaction tier runs through the orchestrator-supplied
+ * `compactFn`, which routes into the `compaction` plugin pipeline so
+ * registered compaction middleware observes reducer-initiated invocations
+ * alongside the orchestrator-owned call sites. Non-compaction tiers
+ * (tool-result truncation, media stubbing, injection downgrade) remain
+ * in-process: they mutate message arrays directly without crossing a
+ * pipeline boundary. The reducer itself runs under the `overflowReduce`
+ * pipeline, so the full layering is `overflowReduce` → reducer tier loop
+ * → (for the forced-compaction tier only) nested `compaction` pipeline.
  */
 
 import type { ContextWindowCompactOptions } from "../../context/window-manager.js";
