@@ -20,6 +20,13 @@ struct SubagentDetailPanel: View {
     private var events: [SubagentEventItem] { state?.events ?? [] }
     private var isRunning: Bool { subagentInfo?.status == .running || subagentInfo?.status == .pending }
 
+    /// Observed width of the event-list container, forwarded to
+    /// `MarkdownSegmentView.maxContentWidth` so long markdown wraps to the
+    /// panel instead of `VSpacing.chatBubbleMaxWidth` (wider than the panel).
+    /// Safe to observe here — the container's width is driven by the enclosing
+    /// ScrollView, not by child content, so there is no feedback loop.
+    @State private var panelContentWidth: CGFloat = 0
+
     var body: some View {
         VSidePanel(title: subagentInfo?.label ?? "Subagent", titleFont: VFont.titleSmall, onClose: onClose, pinnedContent: {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -56,7 +63,6 @@ struct SubagentDetailPanel: View {
                         Text(objective)
                             .font(VFont.labelDefault)
                             .foregroundStyle(VColor.contentSecondary)
-                            .lineLimit(4)
                     }
                 }
 
@@ -104,9 +110,15 @@ struct SubagentDetailPanel: View {
                             event: event,
                             showInspectButton: showInspectButton,
                             onInspectMessage: onInspectMessage,
-                            typographyGeneration: typographyObserver.generation
+                            typographyGeneration: typographyObserver.generation,
+                            contentWidth: panelContentWidth
                         )
                     }
+                }
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.width
+                } action: { newWidth in
+                    panelContentWidth = newWidth
                 }
             }
         }
@@ -203,6 +215,10 @@ private struct SubagentEventRowView: View {
     let showInspectButton: Bool
     var onInspectMessage: ((String) -> Void)?
     let typographyGeneration: Int
+    /// Panel width from the parent's `onGeometryChange`. Zero on first layout
+    /// pass, in which case we pass `nil` downstream so `MarkdownSegmentView`
+    /// applies its default cap.
+    let contentWidth: CGFloat
 
     @State private var isHovered = false
     @State private var showCopyConfirmation = false
@@ -321,35 +337,43 @@ private struct SubagentEventRowView: View {
     private func eventContent(_ event: SubagentEventItem) -> some View {
         switch event.kind {
         case .text:
-            MarkdownSegmentView(
-                segments: parseMarkdownSegments(event.content),
-                typographyGeneration: typographyGeneration,
-                maxContentWidth: nil
-            )
+            // Subtract the card's horizontal padding so markdown fits inside
+            // the rounded background.
+            let markdownWidth: CGFloat? = contentWidth > 0
+                ? max(contentWidth - 2 * VSpacing.sm, 0)
+                : nil
+            HStack(spacing: 0) {
+                MarkdownSegmentView(
+                    segments: parseMarkdownSegments(event.content),
+                    typographyGeneration: typographyGeneration,
+                    maxContentWidth: markdownWidth
+                )
                 .equatable()
                 .textSelection(.enabled)
-                .padding(VSpacing.sm)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(VColor.surfaceBase.opacity(0.4))
-                )
-
-        case .toolUse(let name):
-            HStack(spacing: VSpacing.xs) {
-                Text(name)
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.systemPositiveStrong)
-                if !event.content.isEmpty {
-                    Text(event.content)
-                        .font(VFont.bodySmallDefault)
-                        .foregroundStyle(VColor.contentTertiary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
+                Spacer(minLength: 0)
             }
             .padding(VSpacing.sm)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(VColor.surfaceBase.opacity(0.4))
+            )
+
+        case .toolUse(let name):
+            // Name on top row, args wrap beneath so long URLs don't mid-truncate.
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                    Text(name)
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.systemPositiveStrong)
+                    if !event.content.isEmpty {
+                        Text(event.content)
+                            .font(VFont.bodySmallDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(VSpacing.sm)
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .fill(VColor.primaryActive.opacity(0.08))
@@ -363,7 +387,6 @@ private struct SubagentEventRowView: View {
             Text(event.content)
                 .font(VFont.bodySmallDefault)
                 .foregroundStyle(VColor.contentSecondary)
-                .lineLimit(6)
                 .textSelection(.enabled)
                 .padding(VSpacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
