@@ -522,9 +522,9 @@ export function buildSubagentStatusBlock(
   return lines.join("\n");
 }
 
-// `injectSubagentStatus` was removed in G2.1 — the subagent-status default
-// injector (`plugins/defaults/injectors.ts`) now emits the block as an
-// `append-user-tail` placement. Use {@link applyRuntimeInjections} with
+// The `<active_subagents>` block is emitted by the `subagent-status` default
+// injector (`plugins/defaults/injectors.ts`) as an `append-user-tail`
+// placement. Use {@link applyRuntimeInjections} with
 // `options.subagentStatusBlock` set, or drive the injector chain directly
 // via `collectInjectorBlocks`.
 
@@ -570,10 +570,9 @@ export function readNowScratchpad(): string | null {
 }
 
 /**
- * `injectNowScratchpad` was removed in G2.1 — the now-md default injector
- * (`plugins/defaults/injectors.ts`) now emits the `<NOW.md>` block as an
- * `after-memory-prefix` placement. Use {@link applyRuntimeInjections} with
- * `options.nowScratchpad` set.
+ * The `<NOW.md>` block is emitted by the `now-md` default injector
+ * (`plugins/defaults/injectors.ts`) as an `after-memory-prefix` placement.
+ * Use {@link applyRuntimeInjections} with `options.nowScratchpad` set.
  */
 
 /** Strip `<NOW.md>` blocks injected by `injectNowScratchpad`. */
@@ -682,9 +681,9 @@ export function readPkbContext(): string | null {
   return parts.length > 0 ? parts.join("\n\n") : null;
 }
 
-// `injectPkbContext` was removed in G2.1 — the pkb default injector
-// (`plugins/defaults/injectors.ts`) now emits the `<knowledge_base>`
-// block as an `after-memory-prefix` placement on the same splice site.
+// The `<knowledge_base>` block is emitted by the `pkb-context` default
+// injector (`plugins/defaults/injectors.ts`) as an `after-memory-prefix`
+// placement, splicing immediately after any leading memory-prefix blocks.
 // Use {@link applyRuntimeInjections} with `options.pkbContext` set.
 
 /** Strip `<knowledge_base>` blocks injected by `injectPkbContext`. */
@@ -1061,11 +1060,10 @@ export function stripChannelCapabilityContext(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, ["<channel_capabilities>"]);
 }
 
-// `injectWorkspaceTopLevelContext` was removed in G2.1 — the
-// workspace-context default injector (`plugins/defaults/injectors.ts`)
-// now emits the workspace block as a `prepend-user-tail` placement.
-// Use {@link applyRuntimeInjections} with
-// `options.workspaceTopLevelContext` set.
+// The workspace top-level context block is emitted by the
+// `workspace-context` default injector (`plugins/defaults/injectors.ts`)
+// as a `prepend-user-tail` placement. Use {@link applyRuntimeInjections}
+// with `options.workspaceTopLevelContext` set.
 
 /**
  * Strip `<active_workspace>` (and legacy `<active_dynamic_page>`) blocks
@@ -1979,18 +1977,27 @@ function synthesizeFallbackTurnContext(
  *  3. Drive the default + third-party {@link Injector} chain via
  *     {@link collectInjectorBlocks}.
  *  4. Apply the chain's `"replace-run-messages"` block (Slack chronological
- *     transcript) first so subsequent hardcoded branches operate on the
- *     replaced tail. When replacement fires, re-prepend any memory-prefix
- *     blocks that `graphMemory.prepareMemory` had attached to the original
- *     tail — the Slack transcript is rendered fresh from persisted rows and
+ *     transcript) first so subsequent branches operate on the replaced
+ *     tail. When replacement fires, re-prepend any memory-prefix blocks
+ *     that `graphMemory.prepareMemory` had attached to the original tail —
+ *     the Slack transcript is rendered fresh from persisted rows and
  *     carries no memory prefix of its own.
- *  5. Run the remaining hardcoded branches (`isNonInteractive`,
+ *  5. Apply the chain's `"after-memory-prefix"` blocks in ascending
+ *     `order`. This runs BEFORE step 6's hardcoded prepends so the
+ *     memory-prefix counter sees only the memory blocks on the tail —
+ *     any `<channel_capabilities>` / `<channel_command_context>` /
+ *     `<transport_hints>` prepended first would push the count to zero
+ *     and force PKB / NOW to splice at the top of the tail. Within the
+ *     after-memory block, each successive splice lands at the memory
+ *     boundary, pushing earlier splices further from memory — so
+ *     higher-`order` blocks end up closer to the memory prefix.
+ *  6. Run the remaining hardcoded branches (`isNonInteractive`,
  *     `voiceCallControlPrompt`, `activeSurface`, `channelCapabilities`,
  *     `channelCommandContext`, `transportHints`) in their historical order.
- *  6. Finally, apply the chain's remaining blocks by placement:
- *     `"after-memory-prefix"` in ascending `order`, `"append-user-tail"` in
- *     ascending `order`, `"prepend-user-tail"` in descending `order` so the
- *     lowest-`order` prepend lands topmost in the user tail content.
+ *  7. Finally, apply the chain's remaining blocks by placement:
+ *     `"append-user-tail"` in ascending `order`, then `"prepend-user-tail"`
+ *     in descending `order` so the lowest-`order` prepend lands topmost in
+ *     the user tail content.
  *
  * Returns the final message array plus a `blocks` object holding the exact
  * injected text for each captured block — callers persist those bytes to
@@ -2068,25 +2075,11 @@ export async function applyRuntimeInjections(
         case "now-md":
           nowScratchpadCaptured = block.text;
           break;
-        case "pkb":
-          // The pkb injector concatenates reminder + context into a single
-          // after-memory-prefix block. Recover each half from their known
-          // tag prefixes so the persisted metadata matches pre-migration
-          // bytes: `pkbSystemReminderBlock` is the raw reminder text (no
-          // `<system_reminder>` wrapper — `buildPkbReminder` supplies it)
-          // and `pkbContextBlock` is the `<knowledge_base>` block.
-          {
-            const text = block.text;
-            const kbStart = text.indexOf("<knowledge_base>");
-            if (kbStart >= 0) {
-              const reminder = text.slice(0, kbStart).replace(/\n+$/, "");
-              if (reminder.length > 0) pkbSystemReminderCaptured = reminder;
-              pkbContextCaptured = text.slice(kbStart);
-            } else if (text.length > 0) {
-              // Reminder-only (no PKB context).
-              pkbSystemReminderCaptured = text;
-            }
-          }
+        case "pkb-context":
+          pkbContextCaptured = block.text;
+          break;
+        case "pkb-reminder":
+          pkbSystemReminderCaptured = block.text;
           break;
       }
     }
@@ -2131,7 +2124,22 @@ export async function applyRuntimeInjections(
     }
   }
 
-  // ── Step 2: hardcoded branches that stayed outside the injector chain ──
+  // ── Step 2: after-memory-prefix chain blocks ──
+  // These splice relative to the memory-prefix count on the tail content,
+  // so they must run BEFORE the hardcoded prepends in step 3. Otherwise
+  // any prepended `<channel_capabilities>` / `<channel_command_context>` /
+  // `<transport_hints>` (none of which are memory-prefix blocks) would
+  // drop the count to 0 and PKB / NOW would splice at the very top of
+  // the tail instead of immediately after memory.
+  //
+  // Ascending `order`: each splice lands at the memory-prefix boundary,
+  // pushing any previously-spliced block one slot further from memory.
+  // So higher-`order` blocks end up closer to the memory prefix.
+  for (const block of afterMemory) {
+    result = applyInjectionBlock(result, block);
+  }
+
+  // ── Step 3: hardcoded branches that stayed outside the injector chain ──
   // These run in the same historical order as before G2.1 so their
   // interleaving with any prior tail content stays stable.
 
@@ -2217,13 +2225,7 @@ export async function applyRuntimeInjections(
     }
   }
 
-  // ── Step 3: apply remaining chain blocks by placement ──
-  // after-memory-prefix: ascending `order` so lower-order blocks end up
-  // closer to the memory prefix (later splices push earlier ones down).
-  for (const block of afterMemory) {
-    result = applyInjectionBlock(result, block);
-  }
-
+  // ── Step 4: apply remaining chain blocks by placement ──
   // append-user-tail: ascending `order` so lower-order blocks come first
   // in the append sequence.
   for (const block of appends) {

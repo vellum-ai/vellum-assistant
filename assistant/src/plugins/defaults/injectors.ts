@@ -3,7 +3,7 @@
  * drives the per-turn injection sequence consumed by
  * `applyRuntimeInjections`.
  *
- * Each of the seven default injectors reads its per-turn inputs from
+ * Each of the eight default injectors reads its per-turn inputs from
  * `ctx.injectionInputs` (see {@link TurnInjectionInputs}), runs its gating
  * conditions (injection mode, feature flags, channel type, null-input
  * short-circuits), and returns an {@link InjectionBlock} with a
@@ -14,17 +14,20 @@
  * | ------------------------ | ----- | ----------------------- |
  * | `workspace-context`      | 10    | prepend-user-tail       |
  * | `unified-turn-context`   | 20    | prepend-user-tail       |
- * | `pkb`                    | 30    | after-memory-prefix     |
+ * | `pkb-context`            | 30    | after-memory-prefix     |
+ * | `pkb-reminder`           | 35    | after-memory-prefix     |
  * | `now-md`                 | 40    | after-memory-prefix     |
  * | `subagent-status`        | 50    | append-user-tail        |
  * | `slack-messages`         | 60    | replace-run-messages    |
  * | `thread-focus`           | 70    | append-user-tail        |
  *
  * `order` matches the intended final-content ordering: lower `order` ends
- * up closer to the top of the user message's content (for prepends), closer
- * to the memory prefix (for after-memory-prefix), or earlier in the tail
- * append sequence (for appends). The runtime-injection applier sorts and
- * applies blocks declaratively so this invariant holds even when
+ * up closer to the top of the user message's content (for prepends), and
+ * within `after-memory-prefix` each successive splice lands at the memory
+ * boundary — so higher-`order` blocks push earlier splices away and end up
+ * closer to the memory prefix themselves. For appends, ascending `order` is
+ * the natural left-to-right append sequence. The runtime-injection applier
+ * sorts and applies blocks declaratively so this invariant holds even when
  * third-party injectors slot additional blocks at fractional order values.
  *
  * Third-party plugins may register additional {@link Injector}s at any
@@ -79,7 +82,8 @@ const PKB_HINT_ARCHIVE_THRESHOLD = 0.7;
 export const DEFAULT_INJECTOR_ORDER = {
   workspaceContext: 10,
   unifiedTurnContext: 20,
-  pkb: 30,
+  pkbContext: 30,
+  pkbReminder: 35,
   nowMd: 40,
   subagentStatus: 50,
   slackMessages: 60,
@@ -145,60 +149,64 @@ export const unifiedTurnContextInjector: Injector = {
 };
 
 /**
- * `pkb` injector — order 30, after-memory-prefix.
+ * `pkb-context` injector — order 30, after-memory-prefix.
  *
- * Combines the `<system_reminder>` (PKB behavioural nudge + hybrid-search
- * hints) and the `<knowledge_base>` block (auto-injected PKB content) into
- * a single block spliced immediately after any leading memory-prefix blocks
- * so the final tail shape reads
- * `[...memory prefix, <system_reminder>, <knowledge_base>, ...user text]`.
+ * Emits the `<knowledge_base>` block (auto-injected PKB content) as its own
+ * after-memory-prefix splice. Lower `order` than `pkb-reminder` so when both
+ * fire, the reminder splices second and lands closer to the memory prefix,
+ * yielding `[...memory, <system_reminder>, <knowledge_base>, ...user text]`.
  *
- * Emitting both as one block preserves the ordering of the pre-migration
- * two-branch implementation (context splice first, reminder splice second)
- * without requiring two after-memory-prefix splice passes through the
- * message array. Third-party injectors that want to separate the two can
- * do so by omitting the `<system_reminder>` half when overriding.
+ * Emitting context and reminder as two separate blocks (rather than a single
+ * concatenated text) preserves the pre-migration two-ContentBlock shape that
+ * the rehydration path in `conversation-lifecycle.ts` recreates — keeping
+ * fresh-injection and rehydrated-history structurally identical so
+ * Anthropic's prefix cache matches across reloads.
  *
  * Gating:
- *  - `mode === "full"` for both halves.
- *  - `<knowledge_base>` — non-null `pkbContext`.
- *  - `<system_reminder>` — `pkbActive === true`.
- *  - Returns `null` when neither applies.
+ *  - `mode === "full"`.
+ *  - Non-null, non-empty `pkbContext`.
  */
-export const pkbInjector: Injector = {
-  name: "pkb",
-  order: DEFAULT_INJECTOR_ORDER.pkb,
+export const pkbContextInjector: Injector = {
+  name: "pkb-context",
+  order: DEFAULT_INJECTOR_ORDER.pkbContext,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
     const inputs = readInjectionInputs(ctx);
     const mode = inputs.mode ?? "full";
     if (mode !== "full") return null;
-
-    const hasContext = !!inputs.pkbContext;
-    const hasReminder = !!inputs.pkbActive;
-    if (!hasContext && !hasReminder) return null;
-
-    const parts: string[] = [];
-
-    // Reminder appears first in the spliced block (matches pre-migration
-    // behaviour where the reminder was inserted second, pushing the
-    // previously-inserted context down).
-    if (hasReminder) {
-      const reminder = await buildPkbReminderWithHints(inputs);
-      parts.push(reminder);
-    }
-
-    if (hasContext) {
-      const contextBlock = buildPkbContextBlock(inputs.pkbContext!);
-      parts.push(contextBlock);
-    }
-
-    // Join reminder + context with a blank-line separator so the
-    // combined block renders as two logical sections — matches the
-    // pre-migration behaviour where they were two separate content
-    // blocks separated by the tokenizer's default inter-block newline.
+    if (!inputs.pkbContext) return null;
     return {
-      id: "pkb",
-      text: parts.join("\n\n"),
+      id: "pkb-context",
+      text: buildPkbContextBlock(inputs.pkbContext),
+      placement: "after-memory-prefix",
+    };
+  },
+};
+
+/**
+ * `pkb-reminder` injector — order 35, after-memory-prefix.
+ *
+ * Emits the PKB `<system_reminder>` (behavioural nudge + hybrid-search
+ * hints) as its own after-memory-prefix splice. Higher `order` than
+ * `pkb-context` so the reminder splices second and ends up immediately
+ * after the memory prefix, pushing `<knowledge_base>` one slot further
+ * down — matching the pre-migration [reminder, context] ordering.
+ *
+ * Gating:
+ *  - `mode === "full"`.
+ *  - `pkbActive === true`.
+ */
+export const pkbReminderInjector: Injector = {
+  name: "pkb-reminder",
+  order: DEFAULT_INJECTOR_ORDER.pkbReminder,
+  async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+    const inputs = readInjectionInputs(ctx);
+    const mode = inputs.mode ?? "full";
+    if (mode !== "full") return null;
+    if (!inputs.pkbActive) return null;
+    const reminder = await buildPkbReminderWithHints(inputs);
+    return {
+      id: "pkb-reminder",
+      text: reminder,
       placement: "after-memory-prefix",
     };
   },
@@ -451,7 +459,8 @@ export const defaultInjectorsPlugin: Plugin = {
   injectors: [
     workspaceContextInjector,
     unifiedTurnContextInjector,
-    pkbInjector,
+    pkbContextInjector,
+    pkbReminderInjector,
     nowMdInjector,
     subagentStatusInjector,
     slackMessagesInjector,

@@ -4,10 +4,10 @@
  *
  * Covers:
  *
- * 1. The seven default injectors registered by `defaultInjectorsPlugin` come
+ * 1. The eight default injectors registered by `defaultInjectorsPlugin` come
  *    back from `getInjectors()` in the documented order (workspace-context →
- *    unified-turn-context → pkb → now-md → subagent-status → slack-messages
- *    → thread-focus).
+ *    unified-turn-context → pkb-context → pkb-reminder → now-md →
+ *    subagent-status → slack-messages → thread-focus).
  * 2. A third-party-registered injector at `order: 25` slots between
  *    `unified-turn-context` (order 20) and `pkb` (order 30), proving the
  *    extensibility contract.
@@ -76,14 +76,15 @@ describe("injector chain", () => {
     resetPluginRegistryForTests();
   });
 
-  test("defaultInjectorsPlugin registers the seven defaults in the documented order", () => {
+  test("defaultInjectorsPlugin registers the eight defaults in the documented order", () => {
     registerPlugin(defaultInjectorsPlugin);
 
     const names = getInjectors().map((i) => i.name);
     expect(names).toEqual([
       "workspace-context",
       "unified-turn-context",
-      "pkb",
+      "pkb-context",
+      "pkb-reminder",
       "now-md",
       "subagent-status",
       "slack-messages",
@@ -101,7 +102,8 @@ describe("injector chain", () => {
     expect(byName.get("unified-turn-context")).toBe(
       DEFAULT_INJECTOR_ORDER.unifiedTurnContext,
     );
-    expect(byName.get("pkb")).toBe(DEFAULT_INJECTOR_ORDER.pkb);
+    expect(byName.get("pkb-context")).toBe(DEFAULT_INJECTOR_ORDER.pkbContext);
+    expect(byName.get("pkb-reminder")).toBe(DEFAULT_INJECTOR_ORDER.pkbReminder);
     expect(byName.get("now-md")).toBe(DEFAULT_INJECTOR_ORDER.nowMd);
     expect(byName.get("subagent-status")).toBe(
       DEFAULT_INJECTOR_ORDER.subagentStatus,
@@ -112,7 +114,7 @@ describe("injector chain", () => {
     expect(byName.get("thread-focus")).toBe(DEFAULT_INJECTOR_ORDER.threadFocus);
   });
 
-  test("a third-party injector at order 25 slots between unified-turn-context (20) and pkb (30)", () => {
+  test("a third-party injector at order 25 slots between unified-turn-context (20) and pkb-context (30)", () => {
     registerPlugin(defaultInjectorsPlugin);
 
     const middleInjector: Injector = {
@@ -129,7 +131,8 @@ describe("injector chain", () => {
       "workspace-context", // 10
       "unified-turn-context", // 20
       "plugin-25", // 25 — slots in
-      "pkb", // 30
+      "pkb-context", // 30
+      "pkb-reminder", // 35
       "now-md", // 40
       "subagent-status", // 50
       "slack-messages", // 60
@@ -298,8 +301,9 @@ describe("injector chain", () => {
     //
     //   [workspace]            ← prepend order 10 (topmost)
     //   [unified-turn]         ← prepend order 20
-    //   [pkb (reminder+context)] ← after-memory-prefix order 30
-    //   [now-md]               ← after-memory-prefix order 40
+    //   [now-md]               ← after-memory-prefix order 40 (highest order, closest to memory)
+    //   [pkb-reminder]         ← after-memory-prefix order 35 (skipped when pkbActive=false)
+    //   [pkb-context]          ← after-memory-prefix order 30
     //   [user text]
     //   [subagent]             ← append order 50
     //
@@ -362,7 +366,7 @@ describe("injector chain", () => {
     );
   });
 
-  test("third-party injector at order 25 lands between unified-turn-context (20) and pkb (30) in the final message", async () => {
+  test("third-party injector at order 25 lands between unified-turn-context (20) and pkb-context (30) in the final message", async () => {
     // Proves the extensibility contract end-to-end: a plugin-registered
     // injector at `order: 25` with `placement: "prepend-user-tail"` slots
     // between the unified-turn prepend (order 20, executes just before
