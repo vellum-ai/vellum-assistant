@@ -27,7 +27,7 @@ This skill manages **persistent terminal sessions** via tmux. Two modes:
 |---|---|---|
 | **Where tmux runs** | In the assistant's sandbox | On the user's host machine |
 | **How user connects** | `vellum terminal attach <session-name>` | User opens their own terminal |
-| **Assistant access** | Direct (`Bash` tool) | Via `host_bash` |
+| **Assistant access** | Direct (`bash` tool) | Via `host_bash` |
 | **Best for** | Claude Code orchestration, always-on tasks | Work needing host access (e.g. SwiftUI builds, host-local services) |
 
 **Default:** Use **Sandbox Mode** unless the task specifically requires host access. Details: [sandbox-sessions.md](references/sandbox-sessions.md) · [host-sessions.md](references/host-sessions.md) · [tmux-best-practices.md](references/tmux-best-practices.md)

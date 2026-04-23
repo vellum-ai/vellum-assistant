@@ -12,14 +12,13 @@ Use this mode when the work requires host access that the sandbox can't provide.
 
 1. The user starts a tmux session on their machine (manually or via the `tt` helper — see [User-Facing Scripts](#user-facing-scripts) below).
 2. The assistant reads and writes to those sessions through `host_bash`.
-3. Sessions are independent of the sandbox — they persist even after the conversation ends.
+3. Sessions are independent of the sandbox — they persist even if the assistant is not running.
 
 ## When to Use Host Mode
 
 - **SwiftUI / Xcode builds:** Xcode and the iOS simulator only run on macOS and need the real host filesystem and GPU.
 - **Host-local services:** Databases, emulators, or daemons that are bound to `localhost` on the user's machine.
 - **User's existing workflows:** The user already has named sessions running and wants the assistant to observe or interact with them.
-- **Work that outlives the conversation:** Sessions the user wants to keep after the assistant turn ends.
 
 ## Tools
 
