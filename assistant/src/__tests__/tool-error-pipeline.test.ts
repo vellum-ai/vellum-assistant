@@ -19,6 +19,7 @@ import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
 import {
   DEFAULT_TOOL_ERROR_NUDGE_TEXT,
   defaultToolErrorPlugin,
+  defaultToolErrorTerminal,
 } from "../plugins/defaults/tool-error.js";
 import { runPipeline } from "../plugins/pipeline.js";
 import {
@@ -51,10 +52,14 @@ function makeCtx(): TurnContext {
 async function runToolErrorPipeline(
   args: ToolErrorArgs,
 ): Promise<ToolErrorDecision> {
+  // Mirror the production call site in `agent/loop.ts`: the pipeline terminal
+  // is `defaultToolErrorTerminal`, not a no-op. The default plugin's
+  // middleware is a passthrough that calls `next(args)`, so the decision
+  // logic lives in the terminal.
   return runPipeline<ToolErrorArgs, ToolErrorDecision>(
     "toolError",
     getMiddlewaresFor("toolError"),
-    async () => ({ action: "skip" }),
+    async (pipelineArgs) => defaultToolErrorTerminal(pipelineArgs),
     args,
     makeCtx(),
     500,
@@ -185,16 +190,55 @@ describe("toolError pipeline", () => {
       expect(decision.action).toBe("skip");
     });
 
-    test("terminal fallback runs when no plugin is registered", async () => {
-      // No registerPlugin call — the registry is empty for this slot. The
-      // terminal we pass to runPipeline returns `skip`, which is what the
-      // caller receives.
+    test("terminal still produces the legacy nudge when no plugin is registered", async () => {
+      // No registerPlugin call — the registry is empty for this slot. Since
+      // `agent/loop.ts` now passes `defaultToolErrorTerminal` as the pipeline
+      // terminal (rather than an inline `() => skip`), direct AgentLoop
+      // callers that skip `bootstrapPlugins()` still get the legacy nudge.
       const decision = await runToolErrorPipeline({
         hasToolError: true,
         consecutiveErrorTurns: 1,
         maxConsecutiveErrorNudges: 3,
       });
-      expect(decision.action).toBe("skip");
+      expect(decision.action).toBe("nudge");
+      if (decision.action === "nudge") {
+        expect(decision.nudgeText).toBe(DEFAULT_TOOL_ERROR_NUDGE_TEXT);
+      }
+    });
+
+    test("user plugin registered AFTER the default still runs (no shadowing)", async () => {
+      // Production registration order: defaults load first via the side-effect
+      // imports in `defaults/index.ts`, then user plugins register on top via
+      // `bootstrapPlugins()`. The user's middleware ends up at a deeper onion
+      // layer than the default. If the default's middleware were to bypass
+      // `next` and call the decision logic directly, the user middleware
+      // would never run — this test guards against that regression.
+      registerPlugin(defaultToolErrorPlugin);
+
+      let userMiddlewareRan = false;
+      const userMiddleware: Middleware<
+        ToolErrorArgs,
+        ToolErrorDecision
+      > = async (args, next) => {
+        userMiddlewareRan = true;
+        return next(args);
+      };
+      registerPlugin({
+        manifest: {
+          name: "late-user-plugin",
+          version: "0.0.1",
+          requires: { pluginRuntime: "v1", toolErrorApi: "v1" },
+        },
+        middleware: { toolError: userMiddleware },
+      });
+
+      await runToolErrorPipeline({
+        hasToolError: true,
+        consecutiveErrorTurns: 1,
+        maxConsecutiveErrorNudges: 3,
+      });
+
+      expect(userMiddlewareRan).toBe(true);
     });
   });
 });

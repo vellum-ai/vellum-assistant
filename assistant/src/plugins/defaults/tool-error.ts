@@ -1,14 +1,24 @@
 /**
- * Default `toolError` pipeline plugin.
+ * Default `toolError` plugin.
  *
- * Replicates the inline tool-error-nudge logic that previously lived in
- * `agent/loop.ts`: when the current turn produced at least one failed tool
- * result, append a system-notice block to the tool results that coaches the
- * LLM to either retry with corrected parameters (for recoverable errors) or
- * report the failure to the user (for unrecoverable ones). After the
- * consecutive-error-turn counter exceeds the cap the caller supplies, this
- * default stops nudging — the error is likely not something the LLM can fix
- * on its own and continuing to nudge only burns tokens.
+ * The plugin's middleware is a passthrough — it calls `next(args)` and returns
+ * the result unchanged. The actual nudge-decision logic lives in
+ * {@link defaultToolErrorTerminal}, which is wired in as the pipeline's
+ * `terminal` argument by the `runPipeline` call site in `agent/loop.ts`. This
+ * separation matters: the default plugin is registered before any user plugin
+ * (defaults load first via module-side-effect imports / `registerDefaultPlugins`),
+ * which puts it at the OUTERMOST position of the onion chain. If the default
+ * middleware invoked the decision logic directly without calling `next`, it
+ * would shadow every later-registered plugin. Routing through `next(args)`
+ * lets user middleware participate normally.
+ *
+ * The canonical nudge decision: when the current turn produced at least one
+ * failed tool result, append a system-notice block to the tool results that
+ * coaches the LLM to either retry with corrected parameters (for recoverable
+ * errors) or report the failure to the user (for unrecoverable ones). Once
+ * the consecutive-error-turn counter exceeds the caller-supplied cap, the
+ * nudge is skipped — the error is likely not something the LLM can fix on
+ * its own and continuing to nudge only burns tokens.
  *
  * Design doc: `.private/plans/agent-plugin-system.md` (PR 19).
  */
@@ -30,14 +40,17 @@ export const DEFAULT_TOOL_ERROR_NUDGE_TEXT =
   "<system_notice>One or more tool calls returned an error. If the error looks recoverable (e.g. missing or invalid parameters), fix the parameters and retry. If the error is clearly unrecoverable (e.g. a service is down, a resource does not exist, or a permission is permanently denied), report it to the user.</system_notice>";
 
 /**
- * Terminal handler for the `toolError` pipeline. Mirrors the pre-plugin
- * behavior: nudge iff the current turn had an error AND the consecutive-error
- * counter is within the cap. Once the cap is breached the caller should stop
- * appending the nudge (the error is likely unrecoverable and the LLM already
- * had multiple attempts to correct it).
+ * Terminal handler for the `toolError` pipeline. Nudge iff the current turn
+ * had an error AND the consecutive-error counter is within the cap. Once the
+ * cap is breached the caller should stop appending the nudge (the error is
+ * likely unrecoverable and the LLM already had multiple attempts to correct
+ * it).
  *
- * Exported so callers (and tests) can reuse the decision logic directly
- * without going through the pipeline runner.
+ * Exported so `agent/loop.ts` can pass it as the `terminal` argument to
+ * `runPipeline` (ensuring the nudge decision fires even when no plugin is
+ * registered — e.g. direct AgentLoop callers that skip `bootstrapPlugins()`)
+ * and so tests can verify the decision logic directly without going through
+ * the pipeline runner.
  */
 export const defaultToolErrorTerminal = async (
   args: ToolErrorArgs,
@@ -55,16 +68,17 @@ export const defaultToolErrorTerminal = async (
 };
 
 /**
- * Default middleware for the `toolError` slot. Acts as the terminal — it
- * returns a decision directly instead of calling `next`, so the pre-plugin
- * behavior fires even when no user plugin contributes its own middleware.
+ * Default middleware for the `toolError` slot. Passthrough — calls `next(args)`
+ * so later-registered user plugins still participate in the onion chain. The
+ * actual decision logic lives in {@link defaultToolErrorTerminal}, wired in
+ * at the `runPipeline` call site in `agent/loop.ts`.
  *
  * Named explicitly so the pipeline's structured log record carries
  * `"defaultToolErrorMiddleware"` in `chain` instead of an anonymous entry.
  */
 const defaultToolErrorMiddleware: Middleware<ToolErrorArgs, ToolErrorDecision> =
-  async function defaultToolErrorMiddleware(args, _next) {
-    return defaultToolErrorTerminal(args);
+  async function defaultToolErrorMiddleware(args, next) {
+    return next(args);
   };
 
 /**
