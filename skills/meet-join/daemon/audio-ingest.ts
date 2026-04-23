@@ -513,12 +513,12 @@ export class MeetAudioIngest {
       if (settled) return;
       buffer = Buffer.concat([buffer, chunk]);
       const newline = buffer.indexOf(0x0a);
-      if (newline === -1) {
-        if (buffer.length > MAX_HANDSHAKE_BYTES) {
-          finish(() => callbacks.onReject("handshake-too-long"));
-        }
+      const handshakeLen = newline === -1 ? buffer.length : newline;
+      if (handshakeLen > MAX_HANDSHAKE_BYTES) {
+        finish(() => callbacks.onReject("handshake-too-long"));
         return;
       }
+      if (newline === -1) return;
       const line = buffer.subarray(0, newline).toString("utf8");
       const residual =
         newline + 1 < buffer.length ? buffer.subarray(newline + 1) : null;
