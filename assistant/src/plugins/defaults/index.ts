@@ -1,10 +1,11 @@
 /**
- * Aggregate export of the canonical first-party default plugins.
+ * Aggregate export of the first-party default plugins.
  *
  * Each default wraps one of the assistant's built-in pipelines with a
  * passthrough implementation so the pipeline shape is always explicit at boot
- * and at test time, even when no third-party plugins are loaded. The list is
- * the single source of truth consumed by:
+ * and at test time, even when no third-party plugins are loaded.
+ *
+ * Consumers:
  *
  * - `daemon/external-plugins-bootstrap.ts` — production/registry boot path;
  *   calls {@link registerDefaultPlugins} inside `bootstrapPlugins()`.
@@ -12,20 +13,15 @@
  *   production-parity state (e.g. `conversation-agent-loop.test.ts`); those
  *   call {@link resetPluginRegistryAndRegisterDefaults}.
  *
- * Keeping the list here — rather than inline in the bootstrap — avoids a
- * circular import between `plugins/registry.ts` and the bootstrap module and
- * keeps the defaults colocated with the other plugin-layer exports.
- *
- * Each `defaults/<name>.ts` module self-registers at module load via a
- * local side effect. That keeps registrations attached to the already-
- * initialized per-file plugin identifier, so the TDZ trap that bit the
- * previous top-level `registerDefaultPlugins()` call in this file cannot
- * recur when `defaults/index.ts` is loaded mid-cycle through the
+ * Each `defaults/<name>.ts` module self-registers at module load via a local
+ * side effect. Importing this aggregator (or any individual default file)
+ * populates the registry — the self-registration is idempotent, and so are
+ * {@link registerDefaultPlugins} and {@link resetPluginRegistryAndRegisterDefaults}.
+ * Per-file self-registration is what keeps registration attached to each
+ * file's own already-initialized plugin identifier, so importing
+ * `defaults/index.ts` mid-cycle (e.g. through the
  * `memory-retrieval.ts` → … → `pipeline.ts` → `defaults/index.ts`
- * cycle. The per-file side effects are idempotent — duplicate-name
- * registrations are swallowed — so {@link registerDefaultPlugins} and
- * {@link resetPluginRegistryAndRegisterDefaults} remain safe to call
- * after a registry reset.
+ * chain) does not trip a TDZ.
  */
 
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
@@ -46,21 +42,15 @@ import { defaultToolExecutePlugin } from "./tool-execute.js";
 import { defaultToolResultTruncatePlugin } from "./tool-result-truncate.js";
 
 /**
- * Canonical list of first-party default plugins, in the order they should be
- * registered at boot. Registration order drives middleware composition order
- * in the pipeline runner, so additions should be appended — not inserted —
- * unless the plan explicitly requires a different position.
+ * Full set of first-party default plugins. Used by
+ * {@link registerDefaultPlugins} to drive the idempotent re-registration
+ * loop; actual registration-order in the registry is determined by the
+ * module-load side effects in each per-file default (whichever loader
+ * evaluates a file first wins, later attempts are swallowed as duplicates).
  *
- * Implemented as a function (rather than a top-level `const` array) to avoid
- * a TDZ hazard: `memory-retrieval.ts` transitively imports
- * `plugins/pipeline.ts` (via `daemon/conversation-runtime-assembly.ts` →
- * … → `agent/loop.ts`), and `pipeline.ts` side-effect-imports this file.
- * When the first loader of `defaults/index.ts` is anything in that cycle,
- * `defaults/index.ts` starts evaluating BEFORE `memory-retrieval.ts`
- * finishes — so a top-level `ALL_DEFAULT_PLUGINS = [...memoryRetrievalPlugin...]`
- * declaration trips the live-binding TDZ. A function body defers the
- * reads until call time, by which point every imported plugin identifier
- * is guaranteed initialized.
+ * Returned by a function rather than a top-level `const` so the array
+ * contents are read at call time, after every imported plugin identifier is
+ * guaranteed initialized.
  */
 export function getAllDefaultPlugins(): readonly Plugin[] {
   return [
@@ -87,6 +77,11 @@ export function getAllDefaultPlugins(): readonly Plugin[] {
  * an "already registered" message) are swallowed so repeat bootstrap or test
  * setup calls do not throw. Every other error (shape failure, version
  * mismatch) re-throws.
+ *
+ * In practice every call after the first is a no-op: each default's
+ * module-load side effect registers itself the first time its file is
+ * imported, which for production happens via `pipeline.ts`'s side-effect
+ * import of this aggregator.
  */
 export function registerDefaultPlugins(): void {
   for (const plugin of getAllDefaultPlugins()) {
@@ -119,23 +114,3 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
   resetPluginRegistryForTests();
   registerDefaultPlugins();
 }
-
-// Module-load registration is now performed by each `defaults/<name>.ts`
-// file via its own local side effect. The old `registerDefaultPlugins()`
-// call that used to live at the end of this module walked the plugin
-// array at the module's top level — which TDZ-crashed whenever
-// `defaults/index.ts` was loaded mid-cycle (e.g. through
-// `memory-retrieval.ts` → `conversation-runtime-assembly.ts` →
-// … → `agent/loop.ts` → `plugins/pipeline.ts` → `defaults/index.ts`):
-// the array referenced `defaultMemoryRetrievalPlugin` before its
-// declaration line had evaluated. Moving registration into each
-// per-file module avoids that hazard because each file's local side
-// effect only references its own `defaultXyzPlugin` identifier, which
-// is initialized by the time its side-effect block runs. Registration
-// order is preserved because `defaults/index.ts` imports each default
-// in the canonical order returned by {@link getAllDefaultPlugins}.
-//
-// {@link registerDefaultPlugins} and
-// {@link resetPluginRegistryAndRegisterDefaults} remain exported as
-// belt-and-braces helpers for tests that clear the registry mid-run.
-// ci-kick: re-trigger pr-assistant workflow after feature branch advanced past initial run
