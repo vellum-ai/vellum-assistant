@@ -8,13 +8,14 @@
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { proxyForwardToResponse } from "@vellumai/assistant-client";
+
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { getGatewaySecurityDir } from "../../paths.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
 import { isLoopbackAddress } from "../../util/is-loopback-address.js";
-import { stripHopByHop } from "../../util/strip-hop-by-hop.js";
 
 const log = getLogger("channel-verification-session-proxy");
 
@@ -41,6 +42,31 @@ function parseBootstrapSecrets(): string[] {
     .filter((s) => s.length > 0);
 }
 
+/**
+ * Build a request with the correct `x-forwarded-for` header for upstream
+ * forwarding. The runtime uses this header to enforce loopback-only checks
+ * in bare-metal mode and rejects it outright when a bootstrap secret is
+ * present (Docker mode).
+ *
+ * - If `clientIp` is provided and is not loopback, set the header.
+ * - Otherwise, strip any client-supplied value to prevent spoofing.
+ */
+function withForwardedFor(req: Request, clientIp?: string): Request {
+  const headers = new Headers(req.headers);
+  if (clientIp && !isLoopbackAddress(clientIp)) {
+    headers.set("x-forwarded-for", clientIp);
+  } else {
+    headers.delete("x-forwarded-for");
+  }
+  return new Request(req.url, {
+    method: req.method,
+    headers,
+    body: req.body,
+    // @ts-expect-error -- Bun supports duplex on Request but the types lag
+    duplex: "half",
+  });
+}
+
 export function createChannelVerificationSessionProxyHandler(
   config: GatewayConfig,
 ) {
@@ -54,93 +80,36 @@ export function createChannelVerificationSessionProxyHandler(
     upstreamSearch: string,
     clientIp?: string,
   ): Promise<Response> {
+    const prepared = withForwardedFor(req, clientIp);
     const start = performance.now();
-    const upstream = `${config.assistantRuntimeBaseUrl}${upstreamPath}${upstreamSearch}`;
-
-    const reqHeaders = stripHopByHop(new Headers(req.headers));
-    reqHeaders.delete("host");
-    reqHeaders.delete("authorization");
-
-    // Inject the real client IP so the runtime can enforce loopback-only
-    // checks, overwriting any client-supplied value to prevent spoofing.
-    // Strip the header for loopback peers: the runtime rejects any request
-    // with x-forwarded-for in bare-metal mode, and forwarding 127.0.0.1
-    // conveys no useful information.
-    if (clientIp && !isLoopbackAddress(clientIp)) {
-      reqHeaders.set("x-forwarded-for", clientIp);
-    } else {
-      reqHeaders.delete("x-forwarded-for");
-    }
-
-    // Mint a short-lived service token for gateway->runtime auth.
-    // The token itself proves gateway origin (aud=vellum-daemon).
-    reqHeaders.set("authorization", `Bearer ${mintServiceToken()}`);
-
-    const hasBody = req.method !== "GET" && req.method !== "HEAD";
-    const bodyBuffer = hasBody ? await req.arrayBuffer() : null;
-    if (bodyBuffer !== null) {
-      reqHeaders.set("content-length", String(bodyBuffer.byteLength));
-    }
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => {
-      controller.abort(
-        new DOMException(
-          "The operation was aborted due to timeout",
-          "TimeoutError",
-        ),
-      );
-    }, config.runtimeTimeoutMs);
-
-    let response: Response;
-    try {
-      response = await fetchImpl(upstream, {
-        method: req.method,
-        headers: reqHeaders,
-        body: bodyBuffer,
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-    } catch (err) {
-      clearTimeout(timeoutId);
-      const duration = Math.round(performance.now() - start);
-      if (err instanceof DOMException && err.name === "TimeoutError") {
-        log.error(
-          { path: upstreamPath, duration },
-          "Channel verification session proxy upstream timed out",
-        );
-        return Response.json({ error: "Gateway Timeout" }, { status: 504 });
-      }
-      log.error(
-        { err, path: upstreamPath, duration },
-        "Channel verification session proxy upstream connection failed",
-      );
-      return Response.json({ error: "Bad Gateway" }, { status: 502 });
-    }
-
-    const resHeaders = stripHopByHop(new Headers(response.headers));
+    const response = await proxyForwardToResponse(prepared, {
+      baseUrl: config.assistantRuntimeBaseUrl,
+      path: upstreamPath,
+      search: upstreamSearch || undefined,
+      serviceToken: mintServiceToken(),
+      timeoutMs: config.runtimeTimeoutMs,
+      fetchImpl,
+    });
     const duration = Math.round(performance.now() - start);
 
-    if (response.status >= 400) {
-      const body = await response.text();
+    if (response.status >= 500) {
+      log.error(
+        { path: upstreamPath, status: response.status, duration },
+        "Channel verification session proxy upstream error",
+      );
+    } else if (response.status >= 400) {
       log.warn(
         { path: upstreamPath, status: response.status, duration },
         "Channel verification session proxy upstream error",
       );
-      return new Response(body, {
-        status: response.status,
-        headers: resHeaders,
-      });
+    } else {
+      log.info(
+        { path: upstreamPath, status: response.status, duration },
+        "Channel verification session proxy completed",
+      );
     }
 
-    log.info(
-      { path: upstreamPath, status: response.status, duration },
-      "Channel verification session proxy completed",
-    );
-    return new Response(response.body, {
-      status: response.status,
-      headers: resHeaders,
-    });
+    return response;
   }
 
   return {
