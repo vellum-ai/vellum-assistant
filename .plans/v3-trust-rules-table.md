@@ -3,9 +3,9 @@
 ## Overview
 Phase 2 of the V3 Trust Rules project. Adds a persistent SQLite `trust_rules` table seeded from the existing `DEFAULT_COMMAND_REGISTRY`, exposes HTTP CRUD endpoints for the macOS client (behind `permission-controls-v3` feature flag), and refactors the gateway classifiers to read base risk from the table instead of the in-code registry. User-modified and soft-deleted rules survive gateway restarts. The registry upsert on startup respects three guards (origin=default, user_modified=0, deleted=0) so user customizations are never overwritten.
 
-**Naming convention:** The v3 trust rules table is named `trust_rules` in SQLite. The HTTP routes live at `/v1/assistants/{assistantId}/trust-rules-v3/` to avoid collision with the existing v1 trust rule endpoints at `/v1/trust-rules`. Once v1 is deprecated, the v3 routes can be aliased to the shorter path.
+**Naming convention:** The v3 trust rules table is named `trust_rules` in SQLite. The HTTP routes live at `/v1/trust-rules-v3/` to avoid collision with the existing v1 trust rule endpoints at `/v1/trust-rules`. Once v1 is deprecated, the v3 routes can be aliased to the shorter path.
 
-**API path:** `/v1/assistants/{assistantId}/trust-rules-v3` (not `/v1/trust-rules`, which is already in use for the allow/deny trust rule CRUD).
+**API path:** `/v1/trust-rules-v3` (not `/v1/trust-rules`, which is already in use for the allow/deny trust rule CRUD).
 
 ## PR 1: Add trust_rules Drizzle table schema
 ### Depends on
@@ -264,7 +264,7 @@ feat(gateway): add HTTP CRUD routes for risk rules
      }
      ```
 
-   - `createTrustRuleV3sListHandler()`: Returns handler for `GET /v1/assistants/{assistantId}/trust-rules-v3`.
+   - `createTrustRuleV3sListHandler()`: Returns handler for `GET /v1/trust-rules-v3`.
      - Parse query params: `origin`, `tool`, `include_deleted`.
      - Default: excludes soft-deleted rules AND defaults (only returns user_defined + user_modified defaults).
      - With `?origin=default`: includes all defaults.
@@ -272,14 +272,14 @@ feat(gateway): add HTTP CRUD routes for risk rules
      - Always available (no feature flag gate on reads).
      - Returns `{ rules: TrustRuleV3[] }`.
 
-   - `createTrustRuleV3sCreateHandler()`: Returns handler for `POST /v1/assistants/{assistantId}/trust-rules-v3`.
+   - `createTrustRuleV3sCreateHandler()`: Returns handler for `POST /v1/trust-rules-v3`.
      - Gated behind `permission-controls-v3` flag.
      - Body: `{ tool, pattern, risk, description }`.
      - Validates all fields are non-empty strings, risk is one of low/medium/high.
      - Calls `store.create()`, then `invalidateTrustRuleV3Cache()`.
      - Returns `{ rule: TrustRuleV3 }` with status 201.
 
-   - `createTrustRuleV3sUpdateHandler()`: Returns handler for `PATCH /v1/assistants/{assistantId}/trust-rules-v3/:id`.
+   - `createTrustRuleV3sUpdateHandler()`: Returns handler for `PATCH /v1/trust-rules-v3/:id`.
      - Gated behind `permission-controls-v3` flag.
      - Body: `{ risk?, description? }`. At least one must be provided.
      - Validates risk is one of low/medium/high if provided.
@@ -287,13 +287,13 @@ feat(gateway): add HTTP CRUD routes for risk rules
      - Returns `{ rule: TrustRuleV3 }`.
      - Returns 404 if not found.
 
-   - `createTrustRuleV3sDeleteHandler()`: Returns handler for `DELETE /v1/assistants/{assistantId}/trust-rules-v3/:id`.
+   - `createTrustRuleV3sDeleteHandler()`: Returns handler for `DELETE /v1/trust-rules-v3/:id`.
      - Gated behind `permission-controls-v3` flag.
      - Calls `store.remove()`, then `invalidateTrustRuleV3Cache()`.
      - Returns `{ success: true }`.
      - Returns 404 if not found.
 
-   - `createTrustRuleV3sResetHandler()`: Returns handler for `POST /v1/assistants/{assistantId}/trust-rules-v3/:id/reset`.
+   - `createTrustRuleV3sResetHandler()`: Returns handler for `POST /v1/trust-rules-v3/:id/reset`.
      - Gated behind `permission-controls-v3` flag.
      - Only for `origin="default"` rules.
      - Looks up the original risk from `DEFAULT_COMMAND_REGISTRY` using the rule's pattern.
@@ -339,13 +339,13 @@ feat(gateway): add HTTP CRUD routes for risk rules
        handler: (req, params) => handleTrustRuleV3sReset(req, params[0]),
      },
      {
-       path: "/v1/assistants/{assistantId}/trust-rules-v3",
+       path: "/v1/trust-rules-v3",
        method: "GET",
        auth: "edge",
        handler: (req) => handleTrustRuleV3sList(req),
      },
      {
-       path: "/v1/assistants/{assistantId}/trust-rules-v3",
+       path: "/v1/trust-rules-v3",
        method: "POST",
        auth: "edge",
        handler: (req) => handleTrustRuleV3sCreate(req),
