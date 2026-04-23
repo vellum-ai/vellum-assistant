@@ -198,13 +198,12 @@ describe("llmCall pipeline", () => {
   });
 
   test("default registered first does not shadow later-registered user middleware", async () => {
-    // Regression for a shadowing bug where `defaultLlmCallPlugin` called
-    // `provider.sendMessage` directly instead of `next(args)`. Because the
-    // default registers at module load (before `bootstrapPlugins()` loads
-    // user plugins), it sat at the outermost layer in production — any
-    // user-registered `llmCall` middleware would have been silently skipped.
-    // This test locks in the fix by registering the default FIRST (matching
-    // production ordering) and asserting a user-registered spy still runs.
+    // The default plugin registers at module load (before `bootstrapPlugins()`
+    // loads user plugins), so it sits at the outermost layer in the onion.
+    // This test registers the default FIRST (matching production ordering)
+    // and asserts that a user-registered spy still runs — confirming that
+    // the outermost middleware forwards via `next(args)` rather than
+    // short-circuiting the chain.
     const observed: LLMCallArgs[] = [];
     const spyPlugin: Plugin = {
       manifest: {

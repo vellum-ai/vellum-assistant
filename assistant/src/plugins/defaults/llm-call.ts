@@ -1,6 +1,6 @@
 /**
- * Default `llmCall` plugin — a true passthrough that declares the pipeline
- * surface and always yields to downstream middleware.
+ * Default `llmCall` plugin — a passthrough that declares the pipeline
+ * surface and yields to downstream middleware.
  *
  * The plugin system wraps every LLM request in the `llmCall` pipeline. The
  * actual call to {@link Provider.sendMessage} lives in the `runPipeline`
@@ -8,13 +8,10 @@
  * contribute the manifest (`provides.llmCall: "v1"`) so other plugins can
  * negotiate against the pipeline surface.
  *
- * Because this plugin is registered at module load — BEFORE user plugins are
- * loaded by `bootstrapPlugins()` — it sits at the outermost layer in
- * `composeMiddleware`'s onion ordering. If its middleware called
- * `provider.sendMessage` directly (instead of `next(args)`) it would
- * short-circuit the chain and silently disable every user-registered
- * `llmCall` middleware in production. The middleware therefore just forwards
- * to `next(args)`.
+ * This plugin registers at module load — before user plugins are loaded by
+ * `bootstrapPlugins()` — so it sits at the outermost layer in
+ * `composeMiddleware`'s onion ordering. To keep user-registered middleware
+ * reachable, the middleware forwards unconditionally via `next(args)`.
  *
  * Registered from `daemon/external-plugins-bootstrap.ts` via a side-effect
  * import so the plugin is present in the registry before
