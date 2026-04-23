@@ -6,12 +6,12 @@
  *
  * Two signals feed into the resolver:
  *
- *   1. **Provider labels** — opaque strings that are stable *within* a
+ *   1. Provider labels — opaque strings that are stable within a
  *      session but carry no real-world identity. They ride in
  *      `TranscriptChunkEvent.speakerLabel` (and occasionally `speakerId`).
- *   2. **DOM active-speaker events** — real participant ids + names scraped
+ *   2. DOM active-speaker events — real participant ids + names scraped
  *      from the Meet UI, delivered as `SpeakerChangeEvent`s. These are
- *      authoritative for *who* is on camera but arrive independently of
+ *      authoritative for who is on camera but arrive independently of
  *      the audio stream, so they are only useful when correlated with a
  *      transcript's timestamp.
  *
@@ -25,28 +25,28 @@
  * Resolution precedence for a given transcript (all conditional on the
  * provider label being present, unless noted):
  *
- *   - **DOM active-speaker in window (±{@link DOM_CORRELATION_WINDOW_MS}):**
+ *   - DOM active-speaker in window (±{@link DOM_CORRELATION_WINDOW_MS}):
  *     DOM is authoritative — returned with `confidence: "dom-authoritative"`.
  *     Mapping is created on first sight, incremented on agreement, or —
- *     after 3 consecutive disagreements — *replaced* with the new DOM
+ *     after 3 consecutive disagreements — replaced with the new DOM
  *     speaker. A single disagreement is treated as transient DOM flicker:
  *     the mapping is preserved and the resolver returns the mapped identity
  *     with `confidence: "provider-via-mapping"` (a structured
  *     `speaker.mapping_conflict` log captures the divergence for review).
  *
- *   - **No DOM in window, stable mapping exists (`agreementCount >= 3`):**
+ *   - No DOM in window, stable mapping exists (`agreementCount >= 3`):
  *     Use the learned mapping — `confidence: "provider-via-mapping"`.
  *
- *   - **No DOM in window, no stable mapping, but a last-known DOM speaker
- *     exists:** fall back to the last-known DOM speaker with
+ *   - No DOM in window, no stable mapping, but a last-known DOM speaker
+ *     exists: fall back to the last-known DOM speaker with
  *     `confidence: "dom-fallback"`. This handles brief DOM gaps before the
  *     mapping has had a chance to harden.
  *
- *   - **No DOM in window AND no last-known DOM speaker:** the resolver has
+ *   - No DOM in window AND no last-known DOM speaker: the resolver has
  *     no basis for attribution — `confidence: "unknown"` with the default
  *     name.
  *
- * When the provider label is *absent* (non-diarizing provider, or
+ * When the provider label is absent (non-diarizing provider, or
  * diarization disabled), the DOM is the sole source: DOM in window →
  * `dom-authoritative`, else `unknown`.
  *
@@ -54,27 +54,62 @@
  * single structured log line summarizing the learned mappings and the
  * conflict count for post-hoc accuracy review.
  *
- * The resolver **wraps** (not replaces) the shared {@link SpeakerIdentityTracker}
- * from the calls module: each resolved identity is forwarded via
- * `tracker.identifySpeaker` so the cross-surface speaker profile list stays
- * coherent across calls and meetings.
+ * The resolver wraps (not replaces) a shared speaker-identity tracker
+ * provided via `host.speakers.createTracker()`: each resolved identity is
+ * forwarded via `tracker.identifySpeaker` so the cross-surface speaker
+ * profile list stays coherent across calls and meetings.
+ *
+ * This file has zero `assistant/` imports — every runtime dependency
+ * arrives via the {@link SkillHost} contract from
+ * `@vellumai/skill-host-contracts`.
  */
+
+import type { Logger, SkillHost } from "@vellumai/skill-host-contracts";
 
 import type {
   SpeakerChangeEvent,
   TranscriptChunkEvent,
 } from "../contracts/index.js";
 
-import type { PromptSpeakerMetadata } from "../../../assistant/src/calls/speaker-identification.js";
-import { SpeakerIdentityTracker } from "../../../assistant/src/calls/speaker-identification.js";
-import { getLogger } from "../../../assistant/src/util/logger.js";
 import {
   type MeetEventSubscriber,
   type MeetEventUnsubscribe,
   subscribeToMeetingEvents,
 } from "./event-publisher.js";
+import { registerSubModule } from "./modules-registry.js";
 
-const log = getLogger("meet-speaker-resolver");
+// ---------------------------------------------------------------------------
+// Local structural types
+//
+// These mirror the narrow surface of `SpeakerIdentityTracker` and its
+// metadata payload that the resolver actually exercises. Defining them here
+// avoids reaching into `assistant/` directly; the daemon-side SkillHost
+// narrows its concrete tracker type to these structural supertypes at the
+// boundary.
+// ---------------------------------------------------------------------------
+
+/**
+ * Payload passed to {@link SpeakerIdentityTrackerShape.identifySpeaker}.
+ * The resolver only populates `speakerId` + `speakerName`; the tracker
+ * implementation is responsible for merging the remaining fields from
+ * other ingest sites (calls, telephony, etc.).
+ */
+interface PromptSpeakerMetadata {
+  speakerId?: string;
+  speakerLabel?: string;
+  speakerName?: string;
+  speakerConfidence?: number;
+  participantId?: string;
+}
+
+/**
+ * Minimal tracker surface consumed by the resolver. The full
+ * `SpeakerIdentityTracker` exported from `assistant/` is a structural
+ * supertype — passing it here compiles cleanly without a cast.
+ */
+export interface SpeakerIdentityTrackerShape {
+  identifySpeaker(metadata: PromptSpeakerMetadata): unknown;
+}
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -106,6 +141,23 @@ export const STABLE_MAPPING_THRESHOLD = 3;
 
 /** Returned as `speakerName` when neither signal produced a binding. */
 export const UNKNOWN_SPEAKER_NAME = "Unknown speaker";
+
+/** No-op logger used when deps do not supply one (tests). */
+const NOOP_LOGGER: Logger = {
+  debug: () => {},
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+};
+
+/**
+ * No-op tracker used when deps do not supply one. Keeps the class safely
+ * instantiable outside the host-backed factory (test scenarios that don't
+ * care about cross-surface speaker accounting).
+ */
+const NOOP_TRACKER: SpeakerIdentityTrackerShape = {
+  identifySpeaker: () => undefined,
+};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -157,11 +209,12 @@ export interface MeetSpeakerResolverDeps {
   /** Meeting id — used to subscribe to the matching event stream. */
   meetingId: string;
   /**
-   * Optional shared {@link SpeakerIdentityTracker}. Defaults to a fresh
-   * per-resolver instance; callers who want the Meet stream to feed the
-   * same tracker used by calls should pass theirs here.
+   * Optional shared speaker-identity tracker. Defaults to a no-op;
+   * callers who want the Meet stream to feed the same tracker used by
+   * calls should pass one here (the host-backed factory threads
+   * `host.speakers.createTracker()` through for production wiring).
    */
-  tracker?: SpeakerIdentityTracker;
+  tracker?: SpeakerIdentityTrackerShape;
   /**
    * Optional correlation-window override (milliseconds). Defaults to
    * {@link DOM_CORRELATION_WINDOW_MS}. Tests set this to 0 to make the
@@ -177,6 +230,12 @@ export interface MeetSpeakerResolverDeps {
     meetingId: string,
     cb: MeetEventSubscriber,
   ) => MeetEventUnsubscribe;
+  /**
+   * Structural logger for internal warnings. Defaults to a silent no-op
+   * so direct instantiation in tests does not require a logger; the
+   * host-backed factory passes `host.logger.get("meet-speaker-resolver")`.
+   */
+  logger?: Logger;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,7 +256,7 @@ interface ActiveSpeakerSnapshot {
  * conflict; crossing {@link MAPPING_REPLACE_THRESHOLD} replaces the mapping.
  *
  * `lastDisagreeSpeakerId` tracks which DOM speaker drove the current
- * disagreement streak. If a *different* DOM speaker disagrees, the counter
+ * disagreement streak. If a different DOM speaker disagrees, the counter
  * resets to 1 with the new challenger — random flicker from multiple
  * speakers should not accumulate toward a mapping replacement.
  */
@@ -215,9 +274,10 @@ interface LabelMapping {
 
 export class MeetSpeakerResolver {
   private readonly meetingId: string;
-  private readonly tracker: SpeakerIdentityTracker;
+  private readonly tracker: SpeakerIdentityTrackerShape;
   private readonly correlationWindowMs: number;
   private readonly unsubscribeFn: MeetEventUnsubscribe;
+  private readonly log: Logger;
 
   /** Most-recent DOM active speaker — updated on every `speaker.change`. */
   private activeSpeaker: ActiveSpeakerSnapshot | null = null;
@@ -238,9 +298,10 @@ export class MeetSpeakerResolver {
 
   constructor(deps: MeetSpeakerResolverDeps) {
     this.meetingId = deps.meetingId;
-    this.tracker = deps.tracker ?? new SpeakerIdentityTracker();
+    this.tracker = deps.tracker ?? NOOP_TRACKER;
     this.correlationWindowMs =
       deps.correlationWindowMs ?? DOM_CORRELATION_WINDOW_MS;
+    this.log = deps.logger ?? NOOP_LOGGER;
 
     const subscribe = deps.subscribe ?? subscribeToMeetingEvents;
     this.unsubscribeFn = subscribe(this.meetingId, (event) => {
@@ -309,7 +370,7 @@ export class MeetSpeakerResolver {
 
     if (!this.summaryFlushed) {
       this.summaryFlushed = true;
-      log.info(summary, "Meet speaker resolver: meeting summary");
+      this.log.info("Meet speaker resolver: meeting summary", summary);
     }
     return summary;
   }
@@ -323,10 +384,10 @@ export class MeetSpeakerResolver {
     try {
       this.unsubscribeFn();
     } catch (err) {
-      log.warn(
-        { err, meetingId: this.meetingId },
-        "MeetSpeakerResolver: unsubscribe threw",
-      );
+      this.log.warn("MeetSpeakerResolver: unsubscribe threw", {
+        err,
+        meetingId: this.meetingId,
+      });
     }
     this.flushSummary();
   }
@@ -394,7 +455,8 @@ export class MeetSpeakerResolver {
       : 1;
 
     this.conflictCount += 1;
-    log.warn(
+    this.log.warn(
+      "Meet speaker resolver: provider-label mapping disagrees with DOM",
       {
         event: "speaker.mapping_conflict",
         meetingId: this.meetingId,
@@ -410,7 +472,6 @@ export class MeetSpeakerResolver {
         },
         consecutiveDisagreements: newDisagreements,
       },
-      "Meet speaker resolver: provider-label mapping disagrees with DOM",
     );
 
     existing.consecutiveDisagreements = newDisagreements;
@@ -496,9 +557,9 @@ export class MeetSpeakerResolver {
   }
 
   /**
-   * Forward the resolved identity to the shared
-   * {@link SpeakerIdentityTracker} so cross-surface profile accounting
-   * (calls + meetings) stays coherent, then return it.
+   * Forward the resolved identity to the shared speaker-identity tracker
+   * so cross-surface profile accounting (calls + meetings) stays
+   * coherent, then return it.
    */
   private emit(resolved: ResolvedSpeaker): ResolvedSpeaker {
     if (resolved.confidence !== "unknown" && resolved.speakerId) {
@@ -509,13 +570,13 @@ export class MeetSpeakerResolver {
       try {
         this.tracker.identifySpeaker(metadata);
       } catch (err) {
-        // SpeakerIdentityTracker is in-memory only, but defend against a
-        // future implementation change — a tracker failure must never
-        // break transcript attribution.
-        log.warn(
-          { err, meetingId: this.meetingId },
-          "MeetSpeakerResolver: tracker.identifySpeaker threw",
-        );
+        // Tracker is typically in-memory, but defend against a future
+        // implementation change — a tracker failure must never break
+        // transcript attribution.
+        this.log.warn("MeetSpeakerResolver: tracker.identifySpeaker threw", {
+          err,
+          meetingId: this.meetingId,
+        });
       }
     }
     return resolved;
@@ -534,3 +595,68 @@ export class MeetSpeakerResolver {
 function parseTimestamp(iso: string): number {
   return Date.parse(iso);
 }
+
+// ---------------------------------------------------------------------------
+// Host-backed factory
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-meeting overrides accepted by the builder returned from
+ * {@link createSpeakerResolver}. The session manager supplies the
+ * meeting id and (optionally) a per-meeting correlation window; the
+ * factory wires in the host-provided logger and tracker.
+ */
+export interface CreateSpeakerResolverInstanceOptions {
+  meetingId: string;
+  /** Override the correlation window (tests only). */
+  correlationWindowMs?: number;
+  /** Override the event-stream subscribe function (tests only). */
+  subscribe?: (
+    meetingId: string,
+    cb: MeetEventSubscriber,
+  ) => MeetEventUnsubscribe;
+  /**
+   * Supply a pre-constructed tracker instead of the host-default. The
+   * host-backed factory calls `host.speakers.createTracker()` once per
+   * builder call; callers that want to share a tracker across surfaces
+   * (e.g. calls + Meet) can pass their own.
+   */
+  tracker?: SpeakerIdentityTrackerShape;
+}
+
+/**
+ * Host-backed factory for {@link MeetSpeakerResolver}. The session
+ * manager retrieves this factory from the sub-module registry and calls
+ * the returned builder once per meeting.
+ *
+ * The builder consults `host.speakers.createTracker()` for the default
+ * tracker and routes internal warnings through
+ * `host.logger.get("meet-speaker-resolver")`.
+ */
+export function createSpeakerResolver(
+  host: SkillHost,
+): (opts: CreateSpeakerResolverInstanceOptions) => MeetSpeakerResolver {
+  const logger = host.logger.get("meet-speaker-resolver");
+  return (opts) =>
+    new MeetSpeakerResolver({
+      meetingId: opts.meetingId,
+      tracker:
+        opts.tracker ??
+        (host.speakers.createTracker() as SpeakerIdentityTrackerShape),
+      logger,
+      correlationWindowMs: opts.correlationWindowMs,
+      subscribe: opts.subscribe,
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Sub-module registry wiring
+// ---------------------------------------------------------------------------
+
+/**
+ * Registry key for the speaker-resolver factory. The session manager
+ * looks this up via {@link getSubModule} to obtain the per-meeting builder.
+ */
+export const SPEAKER_RESOLVER_SUB_MODULE = "speaker-resolver";
+
+registerSubModule(SPEAKER_RESOLVER_SUB_MODULE, createSpeakerResolver);

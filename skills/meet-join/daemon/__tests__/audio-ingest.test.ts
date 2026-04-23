@@ -6,28 +6,10 @@
  * network or filesystem socket is opened.
  */
 
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-// `resolveStreamingTranscriber` is imported at file scope (before any mock
-// is installed) so the "default transcriber factory" describe below can
-// restore the real export in its `afterAll`. Bun's `mock.module` is
-// process-global and persists until re-mocked; installing it at file
-// scope bleeds into sibling test files that share a Bun process (e.g.
-// `providers/speech-to-text/__tests__/resolve.test.ts`).
-import { resolveStreamingTranscriber as realResolveStreamingTranscriberImport } from "../../../../assistant/src/providers/speech-to-text/resolve.js";
-import type {
-  StreamingTranscriber,
-  SttStreamServerEvent,
-} from "../../../../assistant/src/stt/types.js";
+import type { SkillHost } from "@vellumai/skill-host-contracts";
+
 import {
   AUDIO_INGEST_AUTH_PREFIX,
   BOT_CONNECT_TIMEOUT_MS,
@@ -35,8 +17,11 @@ import {
   MAX_HANDSHAKE_BYTES,
   MeetAudioIngest,
   MeetAudioIngestError,
+  createAudioIngest,
   type AudioIngestConnection,
   type AudioIngestServer,
+  type StreamingTranscriber,
+  type SttStreamServerEvent,
 } from "../audio-ingest.js";
 
 /**
@@ -49,20 +34,6 @@ import {
   __resetMeetSessionEventRouterForTests,
   getMeetSessionEventRouter,
 } from "../session-event-router.js";
-
-// Copy the imported function reference out of its live binding so it can
-// be used as the restoration target in `afterAll`. ES module named imports
-// are live bindings that `mock.module` rebinds in place, so passing
-// `realResolveStreamingTranscriberImport` directly into the `afterAll`
-// re-mock factory would just hand back the stub. Saving the current
-// callable value breaks that live link.
-const realResolveStreamingTranscriberFn = realResolveStreamingTranscriberImport;
-
-// Shared state for the default-transcriber-factory describe below. Declared
-// here so both the `mock.module` factory (installed in that describe's
-// `beforeAll`) and the tests themselves have access.
-let mockResolveCalls: Array<Record<string, unknown> | undefined> = [];
-let mockResolveResult: StreamingTranscriber | null = null;
 
 // ---------------------------------------------------------------------------
 // In-memory fakes
@@ -273,8 +244,6 @@ function newIngestSetup(): {
 
 beforeEach(() => {
   __resetMeetSessionEventRouterForTests();
-  mockResolveCalls = [];
-  mockResolveResult = null;
 });
 
 afterEach(() => {
@@ -949,84 +918,131 @@ describe("MeetAudioIngest — auth handshake", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Default transcriber factory — diarization wiring
+// Host-backed factory — diarization wiring
+//
+// The default transcriber resolution path lives inside
+// `createAudioIngest(host)` after the PR 10 migration: it reads the
+// configured STT provider via `host.providers.stt.*` instead of importing
+// the assistant-side resolver directly. These tests exercise the host
+// factory's default path by supplying a stubbed `SkillHost`.
 // ---------------------------------------------------------------------------
 
-describe("MeetAudioIngest — default transcriber factory", () => {
-  // Install the module mock only for this describe so it doesn't leak
-  // into sibling test files that share a Bun process (Bun's `mock.module`
-  // is process-global). Restore in `afterAll` by re-mocking with the real
-  // function reference captured at file load time — Bun's `mock.restore()`
-  // doesn't undo `mock.module`, so we have to re-point it at the original
-  // export ourselves.
-  beforeAll(() => {
-    mock.module(
-      "../../../../assistant/src/providers/speech-to-text/resolve.js",
-      () => ({
-        resolveStreamingTranscriber: async (
-          options?: Record<string, unknown>,
-        ) => {
-          mockResolveCalls.push(options);
-          return mockResolveResult;
+describe("createAudioIngest — default transcriber factory", () => {
+  function buildStubHost(options: {
+    resolver: (
+      spec?: Record<string, unknown>,
+    ) => StreamingTranscriber | null | Promise<StreamingTranscriber | null>;
+    providerIds?: string[];
+  }): SkillHost {
+    const noop = () => {};
+    const logger = { debug: noop, info: noop, warn: noop, error: noop };
+    return {
+      logger: { get: () => logger },
+      config: {
+        isFeatureFlagEnabled: () => false,
+        getSection: () => undefined,
+      },
+      identity: {
+        getAssistantName: () => undefined,
+        internalAssistantId: "self",
+      },
+      platform: {
+        workspaceDir: () => "",
+        vellumRoot: () => "",
+        runtimeMode: () => "baremetal" as never,
+      },
+      providers: {
+        llm: {
+          getConfigured: () => undefined,
+          userMessage: () => undefined,
+          extractToolUse: () => null,
+          createTimeout: () => new AbortController(),
         },
-      }),
-    );
-  });
+        stt: {
+          listProviderIds: () => options.providerIds ?? ["deepgram"],
+          supportsBoundary: () => true,
+          resolveStreamingTranscriber: ((spec?: Record<string, unknown>) =>
+            options.resolver(spec)) as never,
+        },
+        tts: {
+          get: () => undefined,
+          resolveConfig: () => undefined,
+        },
+        secureKeys: {
+          getProviderKey: async () => null,
+        },
+      },
+      memory: {
+        addMessage: (async () => undefined) as never,
+        wakeAgentForOpportunity: async () => undefined,
+      },
+      events: {
+        publish: async () => undefined,
+        subscribe: () => ({ dispose: noop, active: true }),
+        buildEvent: () => ({}) as never,
+      },
+      registries: {
+        registerTools: noop,
+        registerSkillRoute: () => ({}) as never,
+        registerShutdownHook: noop,
+      },
+      speakers: {
+        createTracker: () => ({}),
+      },
+    };
+  }
 
-  afterAll(() => {
-    mock.module(
-      "../../../../assistant/src/providers/speech-to-text/resolve.js",
-      () => ({
-        resolveStreamingTranscriber: realResolveStreamingTranscriberFn,
-      }),
-    );
-  });
-
-  test("requests diarize: preferred from the resolver", async () => {
-    // The fake resolver returns a minimal StreamingTranscriber so the
-    // ingest has something to drive. We don't exercise the streaming path
-    // here — we just need start() to reach the resolver call.
+  test("requests diarize: preferred and the meet-bot sample rate", async () => {
+    const resolverCalls: Array<Record<string, unknown> | undefined> = [];
     const fakeSession = new FakeStreamingTranscriber();
-    mockResolveResult = fakeSession;
+    const host = buildStubHost({
+      resolver: (spec) => {
+        resolverCalls.push(spec);
+        return fakeSession;
+      },
+    });
 
-    // No createTranscriber override — exercises the default factory path.
-    const ingest = new MeetAudioIngest({
+    const ingest = createAudioIngest(host)({
       listen: async () => new FakeAudioIngestServer(),
       botConnectTimeoutMs: 1_000,
     });
 
-    // Kick off start(); we don't need it to resolve, just to call the
-    // resolver. Attach a noop rejection handler so the bot-connect timeout
-    // doesn't surface as an unhandled rejection when the test finishes.
+    // Kick off start(); we don't need it to resolve, just to reach the
+    // resolver call. Attach a noop rejection handler so the bot-connect
+    // timeout (never satisfied here) doesn't surface as an unhandled
+    // rejection when the test finishes.
     const { ready } = await ingest.start("m-diarize", TEST_BOT_TOKEN);
-    // Attach a noop rejection handler so the bot-connect timeout (which we
-    // never satisfy in this test) doesn't surface as an unhandled rejection.
     ready.catch(() => {});
     await flushMicrotasks();
 
-    expect(mockResolveCalls).toHaveLength(1);
-    const opts = mockResolveCalls[0];
+    expect(resolverCalls).toHaveLength(1);
+    const opts = resolverCalls[0];
     expect(opts).toBeDefined();
     expect((opts as { diarize?: string }).diarize).toBe("preferred");
-    // Sanity check that the sample rate is still forwarded.
     expect((opts as { sampleRate?: number }).sampleRate).toBeGreaterThan(0);
 
     await ingest.stop();
   });
 
   test("throws MeetAudioIngestError when the resolver returns null", async () => {
-    // Unusable provider configuration — resolver returns null.
-    mockResolveResult = null;
-
-    const ingest = new MeetAudioIngest({
-      listen: async () => new FakeAudioIngestServer(),
+    const host = buildStubHost({
+      resolver: () => null,
+      providerIds: ["deepgram", "google-gemini"],
     });
 
-    await expect(ingest.start("m-null", TEST_BOT_TOKEN)).rejects.toThrow(
-      MeetAudioIngestError,
-    );
-    await expect(ingest.start("m-null2", TEST_BOT_TOKEN)).rejects.toThrow(
-      /configured STT provider is unusable/i,
-    );
+    const make = createAudioIngest(host);
+
+    await expect(
+      make({ listen: async () => new FakeAudioIngestServer() }).start(
+        "m-null",
+        TEST_BOT_TOKEN,
+      ),
+    ).rejects.toBeInstanceOf(MeetAudioIngestError);
+    await expect(
+      make({ listen: async () => new FakeAudioIngestServer() }).start(
+        "m-null2",
+        TEST_BOT_TOKEN,
+      ),
+    ).rejects.toThrow(/configured STT provider is unusable/i);
   });
 });
