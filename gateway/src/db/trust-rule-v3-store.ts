@@ -1,0 +1,282 @@
+import { and, eq, sql } from "drizzle-orm";
+import { type GatewayDb, getGatewayDb } from "./connection.js";
+import { trustRulesV3 } from "./schema.js";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface TrustRuleV3 {
+  id: string;
+  tool: string;
+  pattern: string;
+  risk: "low" | "medium" | "high";
+  description: string;
+  origin: "default" | "user_defined";
+  userModified: boolean;
+  deleted: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ListFilters {
+  origin?: string;
+  tool?: string;
+  includeDeleted?: boolean;
+}
+
+export interface CreateInput {
+  tool: string;
+  pattern: string;
+  risk: string;
+  description: string;
+}
+
+export interface UpdateInput {
+  risk?: string;
+  description?: string;
+}
+
+export interface UpsertDefaultInput {
+  id: string;
+  tool: string;
+  pattern: string;
+  risk: string;
+  description: string;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function nowISO(): string {
+  return new Date().toISOString();
+}
+
+function toTrustRuleV3(row: typeof trustRulesV3.$inferSelect): TrustRuleV3 {
+  return {
+    id: row.id,
+    tool: row.tool,
+    pattern: row.pattern,
+    risk: row.risk as TrustRuleV3["risk"],
+    description: row.description,
+    origin: row.origin as TrustRuleV3["origin"],
+    userModified: row.userModified,
+    deleted: row.deleted,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Store
+// ---------------------------------------------------------------------------
+
+export class TrustRuleV3Store {
+  private injectedDb?: GatewayDb;
+
+  constructor(db?: GatewayDb) {
+    this.injectedDb = db;
+  }
+
+  private get db(): GatewayDb {
+    return this.injectedDb ?? getGatewayDb();
+  }
+
+  /**
+   * List trust rules with optional filters.
+   * By default excludes soft-deleted rules.
+   */
+  list(filters?: ListFilters): TrustRuleV3[] {
+    const conditions = [];
+
+    if (!filters?.includeDeleted) {
+      conditions.push(eq(trustRulesV3.deleted, false));
+    }
+    if (filters?.origin !== undefined) {
+      conditions.push(eq(trustRulesV3.origin, filters.origin));
+    }
+    if (filters?.tool !== undefined) {
+      conditions.push(eq(trustRulesV3.tool, filters.tool));
+    }
+
+    const query = this.db.select().from(trustRulesV3);
+    const rows =
+      conditions.length > 0
+        ? query.where(and(...conditions)).all()
+        : query.all();
+
+    return rows.map(toTrustRuleV3);
+  }
+
+  /**
+   * Fetch a single rule by ID. Returns null if not found.
+   */
+  getById(id: string): TrustRuleV3 | null {
+    const row = this.db
+      .select()
+      .from(trustRulesV3)
+      .where(eq(trustRulesV3.id, id))
+      .get();
+    return row ? toTrustRuleV3(row) : null;
+  }
+
+  /**
+   * Create a user-defined trust rule. Generates a UUIDv4 id.
+   */
+  create(input: CreateInput): TrustRuleV3 {
+    const now = nowISO();
+    const id = crypto.randomUUID();
+
+    this.db
+      .insert(trustRulesV3)
+      .values({
+        id,
+        tool: input.tool,
+        pattern: input.pattern,
+        risk: input.risk,
+        description: input.description,
+        origin: "user_defined",
+        userModified: false,
+        deleted: false,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    return this.getById(id)!;
+  }
+
+  /**
+   * Update an existing rule's risk and/or description.
+   * If the rule has origin="default", sets userModified=true.
+   * Throws if not found.
+   */
+  update(id: string, updates: UpdateInput): TrustRuleV3 {
+    const existing = this.getById(id);
+    if (!existing) {
+      throw new Error(`Trust rule not found: ${id}`);
+    }
+
+    const setValues: Record<string, unknown> = {
+      updatedAt: nowISO(),
+    };
+
+    if (updates.risk !== undefined) {
+      setValues.risk = updates.risk;
+    }
+    if (updates.description !== undefined) {
+      setValues.description = updates.description;
+    }
+
+    // If this is a default rule, mark as user-modified
+    if (existing.origin === "default") {
+      setValues.userModified = true;
+    }
+
+    this.db
+      .update(trustRulesV3)
+      .set(setValues)
+      .where(eq(trustRulesV3.id, id))
+      .run();
+
+    return this.getById(id)!;
+  }
+
+  /**
+   * Remove a trust rule.
+   * - user_defined rules: hard-delete (DELETE FROM)
+   * - default rules: soft-delete (set deleted=true)
+   * Throws if not found.
+   */
+  remove(id: string): boolean {
+    const existing = this.getById(id);
+    if (!existing) {
+      throw new Error(`Trust rule not found: ${id}`);
+    }
+
+    if (existing.origin === "user_defined") {
+      // Hard-delete
+      this.db.delete(trustRulesV3).where(eq(trustRulesV3.id, id)).run();
+    } else {
+      // Soft-delete for default rules
+      this.db
+        .update(trustRulesV3)
+        .set({ deleted: true, updatedAt: nowISO() })
+        .where(eq(trustRulesV3.id, id))
+        .run();
+    }
+
+    return true;
+  }
+
+  /**
+   * Reset a default rule to its original state.
+   * Clears userModified and deleted, restores risk to originalRisk.
+   * Throws if not found or if origin is not "default".
+   */
+  reset(id: string, originalRisk: string): TrustRuleV3 {
+    const existing = this.getById(id);
+    if (!existing) {
+      throw new Error(`Trust rule not found: ${id}`);
+    }
+    if (existing.origin !== "default") {
+      throw new Error(`Cannot reset non-default rule: ${id}`);
+    }
+
+    this.db
+      .update(trustRulesV3)
+      .set({
+        userModified: false,
+        deleted: false,
+        risk: originalRisk,
+        updatedAt: nowISO(),
+      })
+      .where(eq(trustRulesV3.id, id))
+      .run();
+
+    return this.getById(id)!;
+  }
+
+  /**
+   * Insert or update a default rule. On conflict (tool, pattern), updates
+   * risk and description ONLY IF origin='default' AND user_modified=0 AND
+   * deleted=0. This implements the three-guard upsert.
+   *
+   * Uses raw SQL because Drizzle ORM doesn't support conditional ON CONFLICT
+   * updates natively.
+   */
+  upsertDefault(input: UpsertDefaultInput): void {
+    const now = nowISO();
+
+    this.db.run(sql`
+      INSERT INTO trust_rules (id, tool, pattern, risk, description, origin, user_modified, deleted, created_at, updated_at)
+      VALUES (${input.id}, ${input.tool}, ${input.pattern}, ${input.risk}, ${input.description}, 'default', 0, 0, ${now}, ${now})
+      ON CONFLICT (tool, pattern) DO UPDATE SET
+        risk = excluded.risk,
+        description = excluded.description,
+        updated_at = excluded.updated_at
+      WHERE origin = 'default' AND user_modified = 0 AND deleted = 0
+    `);
+  }
+
+  /**
+   * Return all active (non-deleted) rules, optionally filtered by tool.
+   * This is the query the cache will use.
+   */
+  listActive(tool?: string): TrustRuleV3[] {
+    const conditions = [eq(trustRulesV3.deleted, false)];
+
+    if (tool !== undefined) {
+      conditions.push(eq(trustRulesV3.tool, tool));
+    }
+
+    const rows = this.db
+      .select()
+      .from(trustRulesV3)
+      .where(and(...conditions))
+      .all();
+
+    return rows.map(toTrustRuleV3);
+  }
+}
