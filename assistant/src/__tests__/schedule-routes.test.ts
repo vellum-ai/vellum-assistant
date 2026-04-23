@@ -405,17 +405,6 @@ function getPatchHandler() {
   return route.handler;
 }
 
-function getListHandler() {
-  const route = scheduleRouteDefinitions({
-    sendMessageDeps: {} as never,
-  }).find(
-    (candidate) =>
-      candidate.endpoint === "schedules" && candidate.method === "GET",
-  );
-  if (!route) throw new Error("GET schedules route not found");
-  return route.handler;
-}
-
 describe("wake mode in schedule routes", () => {
   beforeEach(() => {
     clearTables();
