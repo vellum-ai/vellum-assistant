@@ -1,8 +1,14 @@
+import { existsSync, unlinkSync } from "fs";
+import { join } from "path";
+
 import {
   findAssistantByName,
+  loadAllAssistants,
   removeAssistantEntry,
 } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
+import { getConfigDir } from "../lib/environments/paths";
+import { getCurrentEnvironment } from "../lib/environments/resolve";
 import {
   authHeaders,
   getPlatformUrl,
@@ -246,4 +252,21 @@ async function retireInner(): Promise<void> {
 
   removeAssistantEntry(name);
   console.log(`Removed ${name} from config.`);
+
+  // When no assistants remain, remove the dock-display-name sentinel so
+  // the next build.sh run falls back to "Vellum" instead of using the
+  // retired assistant's name.
+  if (loadAllAssistants().length === 0) {
+    const dockLabelFile = join(
+      getConfigDir(getCurrentEnvironment()),
+      "dock-display-name",
+    );
+    if (existsSync(dockLabelFile)) {
+      try {
+        unlinkSync(dockLabelFile);
+      } catch {
+        // Best-effort — the macOS app will also reset this on next launch.
+      }
+    }
+  }
 }
