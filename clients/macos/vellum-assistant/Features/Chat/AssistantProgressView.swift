@@ -604,7 +604,7 @@ struct AssistantProgressView: View {
             let effectiveEnd = thinkingAfterToolsEndDate ?? cardCompletedAt ?? model.latestCompletedAt
             if let end = effectiveEnd {
                 let seconds = end.timeIntervalSince(start)
-                Text(formatStepDuration(seconds))
+                Text(VCollapsibleStepRowDurationFormatter.format(seconds))
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
             }
@@ -615,7 +615,8 @@ struct AssistantProgressView: View {
 
     /// Derives a `Binding<Bool>` for a single step's expansion state from the
     /// shared `ProgressCardUIState`. The binding is scoped to one tool call ID
-    /// so StepDetailRow can use it as a drop-in replacement for `@State`.
+    /// so the shared `VCollapsibleStepRow` can use it as a drop-in replacement
+    /// for `@State`.
     private func isStepExpanded(_ id: UUID) -> Binding<Bool> {
         Binding(
             get: { progressUIState.isStepExpanded(id) },
@@ -629,7 +630,7 @@ struct AssistantProgressView: View {
     private func expandedContent(model: ProgressCardPresentationModel, phase: ProgressCardPhase) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(toolCalls) { toolCall in
-                StepDetailRow(
+                ToolCallStepDetailRow(
                     toolCall: toolCall,
                     phase: phase,
                     isDetailExpanded: isStepExpanded(toolCall.id),
@@ -714,7 +715,7 @@ struct AssistantProgressView: View {
 
 }
 
-// MARK: - Step Detail Row
+// MARK: - Tool Call Step Detail Row
 
 private final class StepDetailAttributedStringCacheEntry: NSObject {
     let value: AttributedString
@@ -724,9 +725,13 @@ private final class StepDetailAttributedStringCacheEntry: NSObject {
     }
 }
 
-/// Unified row for tool call steps — handles completed, running, and blocked states.
-/// Completed rows are expandable to show technical details, screenshots, and output.
-private struct StepDetailRow: View {
+/// Chat-side adapter that wraps the shared `VCollapsibleStepRow` with the
+/// chat-domain concerns that live on every tool call: risk badges, permission
+/// chips, and the rule-editor modal sheet. The shared row handles the header
+/// chrome; this wrapper builds the title string, resolves the visual state,
+/// and renders the expanded "Technical details / Output" body specific to
+/// `ToolCallData`.
+private struct ToolCallStepDetailRow: View {
     @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore
 
     let toolCall: ToolCallData
@@ -742,8 +747,8 @@ private struct StepDetailRow: View {
     /// when the user taps a risk badge in the expanded view.
     @State private var ruleEditorToolCall: ToolCallData?
 
-    /// Shared across all StepDetailRow instances — TrustRuleClient is a stateless
-    /// HTTP client, so a single static instance avoids re-creation on every view rebuild.
+    /// Shared across all rows — `TrustRuleClient` is a stateless HTTP client,
+    /// so a single static instance avoids re-creation on every view rebuild.
     private static let trustRuleClient: TrustRuleClientProtocol = TrustRuleClient()
 
     private static let coloredOutputCache: NSCache<NSString, StepDetailAttributedStringCacheEntry> = {
@@ -804,98 +809,32 @@ private struct StepDetailRow: View {
         return phase == .denied ? "Blocked — " + friendlyLabel : friendlyLabel
     }
 
-    private var stepTitleColor: Color {
+    /// Maps the tool call + progress phase into the neutral row state the
+    /// shared `VCollapsibleStepRow` consumes. Running rows that completed with
+    /// an error resolve to `.failed` so the icon and title color both flip.
+    private var rowState: VCollapsibleStepRowState {
         if toolCall.isComplete {
-            return toolCall.isError ? VColor.systemNegativeStrong : VColor.contentDefault
+            return toolCall.isError ? .failed : .succeeded
         }
         if phase == .denied {
-            return VColor.contentTertiary
+            return .denied
         }
-        return VColor.contentDefault
+        return .running
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Row header
-            Button {
-                guard hasDetails else { return }
-                withAnimation(VAnimation.fast) { isDetailExpanded.toggle() }
-            } label: {
-                HStack(spacing: VSpacing.sm) {
-                    // Status icon
-                    if toolCall.isComplete {
-                        VIconView(toolCall.isError ? .circleAlert : .circleCheck, size: 12)
-                            .foregroundStyle(toolCall.isError ? VColor.systemNegativeStrong : VColor.primaryBase)
-                            .frame(width: 16)
-                    } else if phase == .denied {
-                        VIconView(.circleAlert, size: 12)
-                            .foregroundStyle(VColor.contentTertiary)
-                            .frame(width: 16)
-                    } else {
-                        VBusyIndicator(size: 6)
-                            .frame(width: 16)
-                    }
-
-                    // Title (reason-first, then skillLabel for skill_execute, then fallback)
-                    Text(ToolCallData.displaySafe(stepTitle))
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(stepTitleColor)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-
-                    // Risk badge (expanded view only, gated on permission-controls-v3)
-                    if let risk = toolCall.riskLevel,
-                       assistantFeatureFlagStore.isEnabled("permission-controls-v3") {
-                        RiskBadgeView(riskLevel: risk) {
-                            ruleEditorToolCall = toolCall
-                        }
-                    }
-
-                    Spacer()
-
-                    // Permission badge + duration + chevron (completed only)
-                    HStack(spacing: VSpacing.xs) {
-                        if let decision = toolCall.confirmationDecision {
-                            CompactPermissionChip(
-                                state: decision,
-                                label: toolCall.confirmationLabel ?? toolCall.friendlyName
-                            )
-                            .padding(.trailing, VSpacing.xs)
-                        }
-
-                        if let start = toolCall.startedAt, let end = toolCall.completedAt, toolCall.isComplete {
-                            Text(formatStepDuration(end.timeIntervalSince(start)))
-                                .font(VFont.labelSmall)
-                                .foregroundStyle(VColor.contentTertiary)
-                        }
-
-                        if hasDetails {
-                            VIconView(.chevronRight, size: 9)
-                                .foregroundStyle(VColor.contentTertiary)
-                                .rotationEffect(.degrees(isDetailExpanded ? 90 : 0))
-                        }
-                    }
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .environment(\.isEnabled, true)
-            .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.xs))
-            .padding(EdgeInsets(top: 0, leading: VSpacing.sm, bottom: 0, trailing: VSpacing.xs))
-
-            // Expanded detail section (completed only)
-            if isDetailExpanded {
-                stepDetailContent
-                    .transition(.opacity)
-            }
-        }
-        .animation(VAnimation.fast, value: isDetailExpanded)
-        .onChange(of: isDetailExpanded) { _, newValue in
-            guard newValue else { return }
-            DispatchQueue.main.async {
-                onRehydrate?()
-            }
-        }
+        VCollapsibleStepRow(
+            title: ToolCallData.displaySafe(stepTitle),
+            state: rowState,
+            startedAt: toolCall.startedAt,
+            completedAt: toolCall.isComplete ? toolCall.completedAt : nil,
+            hasDetails: hasDetails,
+            isExpanded: $isDetailExpanded,
+            onExpand: { onRehydrate?() },
+            leadingAccessory: { leadingAccessory },
+            trailingAccessory: { trailingAccessory },
+            detailContent: { stepDetailContent }
+        )
         .sheet(item: $ruleEditorToolCall) { tc in
             if assistantFeatureFlagStore.isEnabled("permission-controls-v3") {
                 V3RuleEditorModal(
@@ -941,6 +880,36 @@ private struct StepDetailRow: View {
                     onDismiss: { ruleEditorToolCall = nil }
                 )
             }
+        }
+    }
+
+    // MARK: - Accessories
+
+    /// Risk badge rendered immediately after the title (gated on
+    /// permission-controls-v3). Chat-specific, so it stays at this caller
+    /// level rather than in the shared row.
+    @ViewBuilder
+    private var leadingAccessory: some View {
+        if let risk = toolCall.riskLevel,
+           assistantFeatureFlagStore.isEnabled("permission-controls-v3") {
+            RiskBadgeView(riskLevel: risk) {
+                ruleEditorToolCall = toolCall
+            }
+        }
+    }
+
+    /// Permission chip rendered before the duration label on the right side.
+    /// The original layout left an extra `xs` of trailing padding between the
+    /// chip and the duration — preserved via `.padding(.trailing, xs)` so the
+    /// pixel-level spacing is identical.
+    @ViewBuilder
+    private var trailingAccessory: some View {
+        if let decision = toolCall.confirmationDecision {
+            CompactPermissionChip(
+                state: decision,
+                label: toolCall.confirmationLabel ?? toolCall.friendlyName
+            )
+            .padding(.trailing, VSpacing.xs)
         }
     }
 
@@ -1193,16 +1162,6 @@ private struct StepDetailRow: View {
 
 }
 
-// MARK: - Format Duration (shared)
-
-/// Formats a time interval as a human-readable duration string.
-/// Shared between StepDetailRow and ThinkingStepRow.
-private func formatStepDuration(_ seconds: TimeInterval) -> String {
-    seconds < 60
-        ? String(format: "%.1fs", seconds)
-        : "\(Int(seconds) / 60)m \(Int(seconds) % 60)s"
-}
-
 // MARK: - Thinking Step Row
 
 /// Synthetic sub-activity row shown when all tool calls in a progress card have
@@ -1253,7 +1212,7 @@ private struct ThinkingStepRow: View {
                     if isActive {
                         ElapsedTimeLabel(startDate: startDate)
                     } else if let end = completedAt {
-                        Text(formatStepDuration(end.timeIntervalSince(startDate)))
+                        Text(VCollapsibleStepRowDurationFormatter.format(end.timeIntervalSince(startDate)))
                             .font(VFont.labelSmall)
                             .foregroundStyle(VColor.contentTertiary)
                     }
