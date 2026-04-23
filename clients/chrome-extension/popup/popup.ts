@@ -689,7 +689,10 @@ async function refreshCloudStatus(): Promise<void> {
       const debugDets = typeof (authErr as { debugDetails?: unknown }).debugDetails === 'string'
         ? (authErr as { debugDetails: string }).debugDetails
         : undefined;
-      showErrorTextWithDebug(cleanErrorMessage(rawMsg, 'Connection error'), debugDets ?? rawMsg);
+      // Fall back to rawMsg only when it contains a trace ID — otherwise
+      // passing it as debugText would duplicate the message in Debug Details.
+      const debugFallback = /\[trace=/.test(rawMsg) ? rawMsg : undefined;
+      showErrorTextWithDebug(cleanErrorMessage(rawMsg, 'Connection error'), debugDets ?? debugFallback);
     }
   } catch (err) {
     setCloudStatus(`Error: ${err instanceof Error ? err.message : String(err)}`, false);
@@ -731,9 +734,13 @@ btnCloudSignIn.addEventListener('click', async () => {
   } else {
     const rawError = response.error ?? 'Unknown error';
     setCloudStatus('Sign-in failed', false);
+    // Fall back to rawError only when it contains a trace ID — otherwise
+    // passing it as debugText would duplicate the error message in the
+    // Debug Details panel.
+    const debugFallback = /\[trace=/.test(rawError) ? rawError : undefined;
     showErrorTextWithDebug(
       `Sign-in failed: ${cleanErrorMessage(rawError, 'Unknown error')}`,
-      response.debugDetails ?? rawError,
+      response.debugDetails ?? debugFallback,
     );
   }
   btnCloudSignIn.disabled = false;
