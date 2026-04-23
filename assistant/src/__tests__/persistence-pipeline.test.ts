@@ -28,7 +28,10 @@ import {
   updateMessageMetadata,
 } from "../memory/conversation-crud.js";
 import { getDb, initializeDb } from "../memory/db.js";
-import { defaultPersistencePlugin } from "../plugins/defaults/persistence.js";
+import {
+  defaultPersistencePlugin,
+  defaultPersistenceTerminal,
+} from "../plugins/defaults/persistence.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,
@@ -74,16 +77,6 @@ function makeCtx(overrides: Partial<TurnContext> = {}): TurnContext {
   };
 }
 
-// The terminal passed into `runPipeline` is a no-op that asserts the chain
-// resolved without reaching here — the default plugin always handles the
-// operation itself, and custom short-circuit plugins in these tests also
-// never call `next`.
-const noopTerminal = (_args: PersistArgs): Promise<PersistResult> => {
-  throw new Error(
-    "persistence terminal reached: the default plugin should handle every op",
-  );
-};
-
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe("persistence pipeline", () => {
@@ -118,7 +111,7 @@ describe("persistence pipeline", () => {
     const result = (await runPipeline<PersistArgs, PersistResult>(
       "persistence",
       getMiddlewaresFor("persistence"),
-      noopTerminal,
+      defaultPersistenceTerminal,
       {
         op: "add",
         conversationId: conv.id,
@@ -161,7 +154,7 @@ describe("persistence pipeline", () => {
     const result = await runPipeline<PersistArgs, PersistResult>(
       "persistence",
       getMiddlewaresFor("persistence"),
-      noopTerminal,
+      defaultPersistenceTerminal,
       {
         op: "update",
         messageId: msg.id,
@@ -206,7 +199,7 @@ describe("persistence pipeline", () => {
     const result = (await runPipeline<PersistArgs, PersistResult>(
       "persistence",
       getMiddlewaresFor("persistence"),
-      noopTerminal,
+      defaultPersistenceTerminal,
       { op: "delete", messageId: msg.id },
       makeCtx({ conversationId: conv.id }),
       DEFAULT_TIMEOUTS.persistence,
@@ -290,7 +283,7 @@ describe("persistence pipeline", () => {
     const addResult = (await runPipeline<PersistArgs, PersistResult>(
       "persistence",
       getMiddlewaresFor("persistence"),
-      noopTerminal,
+      defaultPersistenceTerminal,
       {
         op: "add",
         conversationId: conv.id,
@@ -308,7 +301,7 @@ describe("persistence pipeline", () => {
     await runPipeline<PersistArgs, PersistResult>(
       "persistence",
       getMiddlewaresFor("persistence"),
-      noopTerminal,
+      defaultPersistenceTerminal,
       {
         op: "update",
         messageId: "mock-1",
@@ -325,7 +318,7 @@ describe("persistence pipeline", () => {
     const delResult = (await runPipeline<PersistArgs, PersistResult>(
       "persistence",
       getMiddlewaresFor("persistence"),
-      noopTerminal,
+      defaultPersistenceTerminal,
       { op: "delete", messageId: "mock-1" },
       makeCtx({ conversationId: conv.id }),
       DEFAULT_TIMEOUTS.persistence,
@@ -335,5 +328,50 @@ describe("persistence pipeline", () => {
 
     // The real DB must not have been touched by any of the three ops.
     expect(getMessages(conv.id)).toHaveLength(dbRowsBefore);
+  });
+
+  test("user plugin registered AFTER the default still runs (no shadowing)", async () => {
+    // Production registration order: defaults load first via the side-effect
+    // imports in `defaults/index.ts`, then user plugins register on top via
+    // `bootstrapPlugins()`. The user's middleware ends up at a deeper onion
+    // layer than the default. If the default's middleware were to bypass
+    // `next` and call the terminal directly, the user middleware would never
+    // run — this test guards against that regression.
+    registerPlugin(defaultPersistencePlugin);
+
+    let userMiddlewareRan = false;
+    const userMiddleware: Middleware<PersistArgs, PersistResult> = async (
+      args,
+      next,
+    ) => {
+      userMiddlewareRan = true;
+      return next(args);
+    };
+    registerPlugin({
+      manifest: {
+        name: "late-user-plugin",
+        version: "0.0.1",
+        requires: { pluginRuntime: "v1" },
+      },
+      middleware: { persistence: userMiddleware },
+    });
+
+    const conv = createConversation();
+    await runPipeline<PersistArgs, PersistResult>(
+      "persistence",
+      getMiddlewaresFor("persistence"),
+      defaultPersistenceTerminal,
+      {
+        op: "add",
+        conversationId: conv.id,
+        role: "user",
+        content: "shadow-check",
+        addOptions: { skipIndexing: true },
+      },
+      makeCtx({ conversationId: conv.id }),
+      DEFAULT_TIMEOUTS.persistence,
+    );
+
+    expect(userMiddlewareRan).toBe(true);
   });
 });

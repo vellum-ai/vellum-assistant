@@ -1,14 +1,30 @@
 /**
- * Default `persistence` plugin — the passthrough terminal that delegates to
- * the message-CRUD functions in `memory/conversation-crud.ts` and (for `add`
- * ops with `syncToDisk: true`) the disk-view projector in
- * `memory/conversation-disk-view.ts`.
+ * Default `persistence` plugin.
  *
- * The plugin system wraps every message-persistence operation in the
- * `persistence` pipeline. This default ensures the pipeline always has a
- * terminal to fall through to when no other plugin short-circuits or
- * overrides it: it dispatches on the discriminated `op` field and calls the
- * matching underlying function with identical arguments.
+ * The plugin's middleware is a passthrough — it calls `next(args)` and returns
+ * the result unchanged. The actual dispatch lives in
+ * {@link defaultPersistenceTerminal}, which is wired in as the pipeline's
+ * `terminal` argument by `runPipeline` call sites in
+ * `daemon/conversation-agent-loop.ts` and
+ * `daemon/conversation-agent-loop-handlers.ts`. This separation matters: the
+ * default plugin is registered before any user plugin (defaults load first in
+ * `bootstrapPlugins()`), which puts it at the OUTERMOST position of the onion
+ * chain. If the default middleware were to invoke the terminal directly
+ * without calling `next`, it would shadow every later-registered plugin.
+ * Routing through `next(args)` lets user middleware participate normally.
+ *
+ * The terminal dispatches on the discriminated {@link PersistArgs.op} field:
+ *
+ * - `add`    → {@link addMessage}, optionally followed by
+ *              {@link syncMessageToDisk} when `args.syncToDisk` is true.
+ * - `update` → {@link updateMessageMetadata} (returns `void`, wrapped as
+ *              `{ op: "update" }`).
+ * - `delete` → {@link deleteMessageById} (returns the segment/summary IDs
+ *              the caller must clean up out-of-band).
+ *
+ * Manifest declares `provides.persistence: "v1"` so other plugins can
+ * negotiate against the pipeline surface and `requires.pluginRuntime: "v1"`
+ * to satisfy the registry's mandatory capability check.
  *
  * Registered from `daemon/external-plugins-bootstrap.ts` via a side-effect
  * import so the plugin is present in the registry before
@@ -25,6 +41,7 @@ import {
 import { syncMessageToDisk } from "../../memory/conversation-disk-view.js";
 import { registerPlugin } from "../registry.js";
 import {
+  type Middleware,
   type PersistArgs,
   type PersistResult,
   type Plugin,
@@ -32,20 +49,51 @@ import {
 } from "../types.js";
 
 /**
- * The default persistence plugin. Its sole contribution is the `persistence`
- * middleware, which narrows on {@link PersistArgs.op} and dispatches:
- *
- * - `add`    → {@link addMessage}, optionally followed by
- *              {@link syncMessageToDisk} when `args.syncToDisk` is true.
- * - `update` → {@link updateMessageMetadata} (returns `void`, wrapped as
- *              `{ op: "update" }`).
- * - `delete` → {@link deleteMessageById} (returns the segment/summary IDs
- *              the caller must clean up out-of-band).
- *
- * Manifest declares `provides.persistence: "v1"` so other plugins can
- * negotiate against the pipeline surface and `requires.pluginRuntime: "v1"`
- * to satisfy the registry's mandatory capability check.
+ * Terminal handler for the `persistence` pipeline. Exported so tests can
+ * verify default behavior directly without going through `runPipeline`, and
+ * so the `daemon/conversation-agent-loop*.ts` call sites can pass it as the
+ * `terminal` argument to `runPipeline`.
  */
+export async function defaultPersistenceTerminal(
+  args: PersistArgs,
+): Promise<PersistResult> {
+  switch (args.op) {
+    case "add": {
+      const message = await addMessage(
+        args.conversationId,
+        args.role,
+        args.content,
+        args.metadata,
+        args.addOptions,
+      );
+      // Sync the just-persisted row to the JSONL disk view when the caller
+      // opted in. The handler that emits tool-result rows sets
+      // `syncToDisk: true` so the disk view stays in lockstep with the DB.
+      if (args.syncToDisk && args.createdAtMs !== undefined) {
+        syncMessageToDisk(args.conversationId, message.id, args.createdAtMs);
+      }
+      return { op: "add", message };
+    }
+    case "update": {
+      updateMessageMetadata(args.messageId, args.updates);
+      return { op: "update" };
+    }
+    case "delete": {
+      const deleted = deleteMessageById(args.messageId);
+      return {
+        op: "delete",
+        segmentIds: deleted.segmentIds,
+        deletedSummaryIds: deleted.deletedSummaryIds,
+      };
+    }
+  }
+}
+
+const passthrough: Middleware<PersistArgs, PersistResult> = async (
+  args,
+  next,
+) => next(args);
+
 export const defaultPersistencePlugin: Plugin = {
   manifest: {
     name: "default-persistence",
@@ -54,47 +102,7 @@ export const defaultPersistencePlugin: Plugin = {
     requires: { pluginRuntime: "v1" },
   },
   middleware: {
-    persistence: async function defaultPersistence(
-      args: PersistArgs,
-      _next,
-      _ctx,
-    ): Promise<PersistResult> {
-      switch (args.op) {
-        case "add": {
-          const message = await addMessage(
-            args.conversationId,
-            args.role,
-            args.content,
-            args.metadata,
-            args.addOptions,
-          );
-          // Sync the just-persisted row to the JSONL disk view when the
-          // caller opted in. Mirrors the pattern in the pre-pipeline call
-          // sites (handler emits tool-result rows, then syncs them) so the
-          // default plugin preserves observable behavior.
-          if (args.syncToDisk && args.createdAtMs !== undefined) {
-            syncMessageToDisk(
-              args.conversationId,
-              message.id,
-              args.createdAtMs,
-            );
-          }
-          return { op: "add", message };
-        }
-        case "update": {
-          updateMessageMetadata(args.messageId, args.updates);
-          return { op: "update" };
-        }
-        case "delete": {
-          const deleted = deleteMessageById(args.messageId);
-          return {
-            op: "delete",
-            segmentIds: deleted.segmentIds,
-            deletedSummaryIds: deleted.deletedSummaryIds,
-          };
-        }
-      }
-    },
+    persistence: passthrough,
   },
 };
 
