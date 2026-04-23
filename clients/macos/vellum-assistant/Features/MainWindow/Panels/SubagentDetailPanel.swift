@@ -104,22 +104,12 @@ struct SubagentDetailPanel: View {
                     icon: "waveform.path"
                 )
             } else {
-                LazyVStack(alignment: .leading, spacing: VSpacing.lg) {
-                    ForEach(events) { event in
-                        SubagentEventRowView(
-                            event: event,
-                            showInspectButton: showInspectButton,
-                            onInspectMessage: onInspectMessage,
-                            typographyGeneration: typographyObserver.generation,
-                            contentWidth: panelContentWidth
-                        )
+                eventList
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.width
+                    } action: { newWidth in
+                        panelContentWidth = newWidth
                     }
-                }
-                .onGeometryChange(for: CGFloat.self) { proxy in
-                    proxy.size.width
-                } action: { newWidth in
-                    panelContentWidth = newWidth
-                }
             }
         }
         .onAppear {
@@ -128,6 +118,136 @@ struct SubagentDetailPanel: View {
                 onRequestDetail?()
             }
         }
+    }
+
+    // MARK: - Event List
+
+    /// Groups consecutive tool-call events into a single visual group when the
+    /// subagent is terminal. Text / error events render inline in either mode.
+    @ViewBuilder
+    private var eventList: some View {
+        let groups = isRunning
+            ? SubagentEventGrouping.build(events: events)
+            : SubagentEventGrouping.buildCompleted(events: events)
+        LazyVStack(alignment: .leading, spacing: VSpacing.md) {
+            ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+                renderGroup(group)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func renderGroup(_ group: SubagentEventGrouping.Group) -> some View {
+        switch group {
+        case .text(let event):
+            textCell(event)
+        case .error(let event):
+            errorCell(event)
+        case .toolCall(let pair):
+            SubagentToolCallRow(pair: pair, isExpanded: expansionBinding(for: pair.id))
+        case .orphanToolResult(let event):
+            SubagentOrphanToolResultRow(event: event, isExpanded: expansionBinding(for: event.id))
+        case .completedToolCalls(let pairs):
+            completedToolCallsSection(pairs)
+        }
+    }
+
+    /// The "Completed N events" section shown when the subagent is terminal.
+    /// Mirrors the `AssistantProgressView.swift` main-thread pattern.
+    ///
+    /// Each group tracks its own expansion state via a per-group key — the
+    /// first pair's `id` — so when text/error events split a run of tool
+    /// calls into multiple `.completedToolCalls` groups, expanding one does
+    /// not toggle the others. If `pairs.first?.id` is unexpectedly `nil`
+    /// (empty group — should not happen), the section short-circuits.
+    @ViewBuilder
+    private func completedToolCallsSection(_ pairs: [SubagentToolCallPair]) -> some View {
+        if let groupKey = pairs.first?.id {
+            let groupBinding = Binding<Bool>(
+                get: { state?.completedGroupExpandedIds.contains(groupKey) ?? false },
+                set: { newValue in
+                    if newValue {
+                        state?.completedGroupExpandedIds.insert(groupKey)
+                    } else {
+                        state?.completedGroupExpandedIds.remove(groupKey)
+                    }
+                }
+            )
+            SubagentCompletedStepsHeader(
+                count: pairs.count,
+                totalDuration: SubagentEventGrouping.duration(across: pairs),
+                isExpanded: groupBinding
+            )
+            if groupBinding.wrappedValue {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(pairs, id: \.id) { pair in
+                        SubagentToolCallRow(pair: pair, isExpanded: expansionBinding(for: pair.id))
+                    }
+                }
+            }
+        }
+    }
+
+    private func expansionBinding(for id: UUID) -> Binding<Bool> {
+        Binding(
+            get: { state?.isEventExpanded(id) ?? false },
+            set: { state?.setEventExpanded(id, expanded: $0) }
+        )
+    }
+
+    // MARK: - Text & Error Cells
+
+    @ViewBuilder
+    private func textCell(_ event: SubagentEventItem) -> some View {
+        // Subtract horizontal padding so markdown fits inside the rounded card.
+        let markdownWidth: CGFloat? = panelContentWidth > 0
+            ? max(panelContentWidth - 2 * VSpacing.sm, 0)
+            : nil
+        ZStack(alignment: .topTrailing) {
+            HStack(spacing: 0) {
+                MarkdownSegmentView(
+                    segments: parseMarkdownSegments(event.content),
+                    typographyGeneration: typographyObserver.generation,
+                    maxContentWidth: markdownWidth
+                )
+                .equatable()
+                .textSelection(.enabled)
+                Spacer(minLength: 0)
+            }
+            .padding(VSpacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(VColor.surfaceBase.opacity(0.4))
+            )
+
+            SubagentTextActionOverlay(
+                event: event,
+                showInspectButton: showInspectButton,
+                onInspectMessage: onInspectMessage
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func errorCell(_ event: SubagentEventItem) -> some View {
+        HStack(alignment: .top, spacing: VSpacing.xs) {
+            VIconView(.triangleAlert, size: 11)
+                .foregroundStyle(VColor.systemNegativeStrong)
+            Text(event.content)
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.systemNegativeStrong)
+                .textSelection(.enabled)
+        }
+        .padding(VSpacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .fill(VColor.systemNegativeStrong.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .strokeBorder(VColor.systemNegativeStrong.opacity(0.15), lineWidth: 1)
+                )
+        )
     }
 
     // MARK: - Status Badge
@@ -206,97 +326,366 @@ struct SubagentDetailPanel: View {
     }
 }
 
-// MARK: - Event Row View
+// MARK: - Event Grouping
 
-/// Each event row needs its own hover/copy-confirmation state, so it must be a
-/// separate view struct (SwiftUI scopes @State per view identity in ForEach).
-private struct SubagentEventRowView: View {
+/// Pure mapping from a flat `[SubagentEventItem]` stream into the visual
+/// groups rendered by the panel. The grouping logic is deliberately isolated
+/// from view code so it can be reasoned about on its own terms.
+struct SubagentEventGrouping {
+    enum Group {
+        case text(SubagentEventItem)
+        case error(SubagentEventItem)
+        case toolCall(SubagentToolCallPair)
+        /// A `.toolResult` event whose matching `.toolUse` is no longer in the
+        /// retained window — `SubagentDetailStore.trimStagedEvents` drops the
+        /// oldest events when the retention cap is hit, so on a long-running
+        /// subagent the paired call may be gone while the result lingers. We
+        /// still want the result (and any error payload) inspectable.
+        case orphanToolResult(SubagentEventItem)
+        case completedToolCalls([SubagentToolCallPair])
+    }
+
+    /// Build the visual groups for the running state (tool calls inline). Each
+    /// `.toolUse` consumes an immediately-following `.toolResult` and renders
+    /// as a single `.toolCall` pair. A `.toolResult` with no preceding
+    /// `.toolUse` in the retained window is surfaced as an `.orphanToolResult`
+    /// so retention-trimmed error output remains inspectable rather than
+    /// disappearing from the UI.
+    static func build(events: [SubagentEventItem]) -> [Group] {
+        var groups: [Group] = []
+        var i = 0
+        while i < events.count {
+            let event = events[i]
+            switch event.kind {
+            case .text:
+                groups.append(.text(event))
+                i += 1
+            case .error:
+                groups.append(.error(event))
+                i += 1
+            case .toolUse(let name):
+                var result: SubagentEventItem?
+                if i + 1 < events.count, case .toolResult = events[i + 1].kind {
+                    result = events[i + 1]
+                    i += 2
+                } else {
+                    i += 1
+                }
+                groups.append(.toolCall(SubagentToolCallPair(
+                    callEvent: event,
+                    resultEvent: result,
+                    toolName: name
+                )))
+            case .toolResult:
+                // Orphan — the paired `.toolUse` has been trimmed. Render the
+                // result as a standalone row so error output stays visible.
+                groups.append(.orphanToolResult(event))
+                i += 1
+            }
+        }
+        return groups
+    }
+
+    /// Build groups for the completed state: consecutive tool-call pairs get
+    /// folded into a single `.completedToolCalls` group rendered under a
+    /// collapsible header. Text/error groups break the run.
+    static func buildCompleted(events: [SubagentEventItem]) -> [Group] {
+        let raw = build(events: events)
+        var groups: [Group] = []
+        var pending: [SubagentToolCallPair] = []
+        for group in raw {
+            if case .toolCall(let pair) = group {
+                pending.append(pair)
+                continue
+            }
+            if !pending.isEmpty {
+                groups.append(.completedToolCalls(pending))
+                pending = []
+            }
+            groups.append(group)
+        }
+        if !pending.isEmpty {
+            groups.append(.completedToolCalls(pending))
+        }
+        return groups
+    }
+
+    /// Total elapsed time spanning a contiguous run of tool calls. Uses the
+    /// first pair's `startedAt` and the last pair's `completedAt` (falling
+    /// back to its `startedAt` when the pair has no result).
+    static func duration(across pairs: [SubagentToolCallPair]) -> TimeInterval? {
+        guard let firstPair = pairs.first,
+              let lastPair = pairs.last else {
+            return nil
+        }
+        let first = firstPair.startedAt
+        let last = lastPair.completedAt ?? lastPair.startedAt
+        let delta = last.timeIntervalSince(first)
+        return delta > 0 ? delta : nil
+    }
+
+}
+
+/// A `.toolUse` event optionally paired with its subsequent `.toolResult`.
+/// Carries the full data the collapsible row needs.
+struct SubagentToolCallPair {
+    let callEvent: SubagentEventItem
+    let resultEvent: SubagentEventItem?
+    let toolName: String
+
+    var id: UUID { callEvent.id }
+    var startedAt: Date { callEvent.timestamp }
+    var completedAt: Date? { resultEvent?.timestamp }
+
+    var resultIsError: Bool {
+        guard let resultEvent, case .toolResult(let isError) = resultEvent.kind else { return false }
+        return isError
+    }
+
+    var state: VCollapsibleStepRowState {
+        guard resultEvent != nil else { return .running }
+        return resultIsError ? .failed : .succeeded
+    }
+
+    var inputSummary: String { callEvent.content }
+    var resultContent: String? { resultEvent?.content }
+
+    var hasDetails: Bool {
+        !inputSummary.isEmpty || (resultContent?.isEmpty == false)
+    }
+}
+
+// MARK: - Tool Call Row
+
+private struct SubagentToolCallRow: View {
+    let pair: SubagentToolCallPair
+    @Binding var isExpanded: Bool
+
+    @State private var isHovered = false
+
+    var body: some View {
+        VCollapsibleStepRow(
+            title: pair.toolName,
+            state: pair.state,
+            startedAt: pair.startedAt,
+            completedAt: pair.completedAt,
+            hasDetails: pair.hasDetails,
+            isExpanded: $isExpanded,
+            trailingAccessory: { trailingAccessory },
+            detailContent: { detailContent }
+        )
+        .onHover { isHovered = $0 }
+    }
+
+    @ViewBuilder
+    private var trailingAccessory: some View {
+        if isHovered, !copyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            SubagentCopyButton(text: copyText)
+                .transition(.opacity)
+        }
+    }
+
+    private var copyText: String {
+        [pair.inputSummary, pair.resultContent]
+            .compactMap { $0 }
+            .joined(separator: "\n\n")
+    }
+
+    @ViewBuilder
+    private var detailContent: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Divider().padding(.horizontal, VSpacing.lg)
+
+            if !pair.inputSummary.isEmpty {
+                detailBlock(label: "INPUT", content: pair.inputSummary, isError: false)
+            }
+            if let result = pair.resultContent, !result.isEmpty {
+                detailBlock(
+                    label: pair.resultIsError ? "ERROR" : "OUTPUT",
+                    content: result,
+                    isError: pair.resultIsError
+                )
+            }
+        }
+        .padding(.bottom, VSpacing.sm)
+    }
+
+    @ViewBuilder
+    private func detailBlock(label: String, content: String, isError: Bool) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Text(label)
+                .font(VFont.labelSmall)
+                .foregroundStyle(VColor.contentTertiary)
+            Text(content)
+                .font(VFont.bodySmallDefault)
+                .foregroundStyle(isError ? VColor.systemNegativeStrong : VColor.contentSecondary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, VSpacing.lg)
+    }
+}
+
+// MARK: - Orphan Tool Result Row
+
+/// Renders a `.toolResult` event whose matching `.toolUse` has been trimmed
+/// out of the retained event window. Mirrors the visual shape of
+/// `SubagentToolCallRow` (collapsible, same expansion-state binding) so the
+/// result content — especially error payloads — stays inspectable.
+private struct SubagentOrphanToolResultRow: View {
+    let event: SubagentEventItem
+    @Binding var isExpanded: Bool
+
+    @State private var isHovered = false
+
+    private var isError: Bool {
+        if case .toolResult(let err) = event.kind { return err }
+        return false
+    }
+
+    private var title: String {
+        isError ? "Tool error" : "Tool result"
+    }
+
+    private var state: VCollapsibleStepRowState {
+        isError ? .failed : .succeeded
+    }
+
+    private var hasDetails: Bool {
+        !event.content.isEmpty
+    }
+
+    var body: some View {
+        VCollapsibleStepRow(
+            title: title,
+            state: state,
+            startedAt: event.timestamp,
+            completedAt: event.timestamp,
+            hasDetails: hasDetails,
+            isExpanded: $isExpanded,
+            trailingAccessory: { trailingAccessory },
+            detailContent: { detailContent }
+        )
+        .onHover { isHovered = $0 }
+    }
+
+    @ViewBuilder
+    private var trailingAccessory: some View {
+        if isHovered, !event.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            SubagentCopyButton(text: event.content)
+                .transition(.opacity)
+        }
+    }
+
+    @ViewBuilder
+    private var detailContent: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Divider().padding(.horizontal, VSpacing.lg)
+
+            if !event.content.isEmpty {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text(isError ? "ERROR" : "OUTPUT")
+                        .font(VFont.labelSmall)
+                        .foregroundStyle(VColor.contentTertiary)
+                    Text(event.content)
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(isError ? VColor.systemNegativeStrong : VColor.contentSecondary)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, VSpacing.lg)
+            }
+        }
+        .padding(.bottom, VSpacing.sm)
+    }
+}
+
+// MARK: - Text Event Action Overlay
+
+/// Hover-revealed Copy / Inspect buttons for a `.text` event cell. Kept as a
+/// distinct view so each row gets its own hover state.
+private struct SubagentTextActionOverlay: View {
     let event: SubagentEventItem
     let showInspectButton: Bool
     var onInspectMessage: ((String) -> Void)?
-    let typographyGeneration: Int
-    /// Panel width from the parent's `onGeometryChange`. Zero on first layout
-    /// pass, in which case we pass `nil` downstream so `MarkdownSegmentView`
-    /// applies its default cap.
-    let contentWidth: CGFloat
 
     @State private var isHovered = false
-    @State private var showCopyConfirmation = false
-    @State private var copyConfirmationTimer: DispatchWorkItem?
+
+    private var canInspect: Bool {
+        showInspectButton && event.daemonMessageId != nil
+    }
 
     private var hasCopyableContent: Bool {
         !event.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private var canInspect: Bool {
-        showInspectButton && event.daemonMessageId != nil && {
-            if case .text = event.kind { return true }
-            return false
-        }()
-    }
-
     private var showActions: Bool {
-        (hasCopyableContent || canInspect) && (isHovered || showCopyConfirmation)
+        isHovered && (hasCopyableContent || canInspect)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
-            eventLabel(for: event.kind)
-
-            ZStack(alignment: .topTrailing) {
-                eventContent(event)
-
-                if showActions {
-                    actionButtons
-                        .transition(.opacity)
-                }
-            }
+        // Transparent hover catcher so the entire cell area participates while
+        // the action buttons stay pinned to top-trailing.
+        Color.clear
+            .contentShape(Rectangle())
             .onHover { isHovered = $0 }
+            .overlay(alignment: .topTrailing) {
+                if showActions {
+                    HStack(spacing: 2) {
+                        if hasCopyableContent {
+                            SubagentCopyButton(text: event.content)
+                        }
+                        if canInspect, let daemonMessageId = event.daemonMessageId {
+                            ChatEquatableButton(
+                                label: "Inspect LLM context",
+                                iconOnly: VIcon.fileCode.rawValue
+                            ) {
+                                onInspectMessage?(daemonMessageId)
+                            }
+                            .equatable()
+                            .vTooltip("Inspect", edge: .bottom)
+                        }
+                    }
+                    .padding(VSpacing.xxs)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.sm)
+                            .fill(VColor.surfaceOverlay.opacity(0.9))
+                    )
+                    .textSelection(.disabled)
+                    .transition(.opacity)
+                }
+            }
             .animation(VAnimation.fast, value: showActions)
+    }
+}
+
+// MARK: - Copy Button
+
+/// Copy-to-pasteboard button with a 1.5s "Copied" confirmation state. Extracted
+/// so both the tool-call row and text overlay share the same confirmation
+/// animation and timer-cleanup logic.
+private struct SubagentCopyButton: View {
+    let text: String
+
+    @State private var showCopyConfirmation = false
+    @State private var copyConfirmationTimer: DispatchWorkItem?
+
+    var body: some View {
+        ChatEquatableButton(
+            label: showCopyConfirmation ? "Copied" : "Copy",
+            iconOnly: (showCopyConfirmation ? VIcon.check : VIcon.copy).rawValue,
+            iconColorRole: showCopyConfirmation ? .systemPositiveStrong : .contentTertiary
+        ) {
+            copy()
         }
+        .equatable()
+        .vTooltip(showCopyConfirmation ? "Copied" : "Copy", edge: .bottom)
+        .animation(VAnimation.fast, value: showCopyConfirmation)
     }
 
-    // MARK: - Action Buttons
-
-    private var actionButtons: some View {
-        HStack(spacing: 2) {
-            if hasCopyableContent {
-                ChatEquatableButton(
-                    label: showCopyConfirmation ? "Copied" : "Copy",
-                    iconOnly: (showCopyConfirmation ? VIcon.check : VIcon.copy).rawValue,
-                    iconColorRole: showCopyConfirmation ? .systemPositiveStrong : .contentTertiary
-                ) {
-                    copyContent()
-                }
-                .equatable()
-                .vTooltip(showCopyConfirmation ? "Copied" : "Copy", edge: .bottom)
-                .animation(VAnimation.fast, value: showCopyConfirmation)
-            }
-            if canInspect, let daemonMessageId = event.daemonMessageId {
-                ChatEquatableButton(
-                    label: "Inspect LLM context",
-                    iconOnly: VIcon.fileCode.rawValue
-                ) {
-                    onInspectMessage?(daemonMessageId)
-                }
-                .equatable()
-                .vTooltip("Inspect", edge: .bottom)
-            }
-        }
-        .padding(VSpacing.xxs)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.sm)
-                .fill(VColor.surfaceOverlay.opacity(0.9))
-        )
-        .textSelection(.disabled)
-    }
-
-    // MARK: - Copy
-
-    private func copyContent() {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(event.content, forType: .string)
+    private func copy() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
 
         copyConfirmationTimer?.cancel()
         showCopyConfirmation = true
@@ -304,112 +693,43 @@ private struct SubagentEventRowView: View {
         copyConfirmationTimer = timer
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
     }
+}
 
-    // MARK: - Event Label
+// MARK: - Completed Steps Header
 
-    @ViewBuilder
-    private func eventLabel(for kind: SubagentEventItem.Kind) -> some View {
-        switch kind {
-        case .text:
-            label(icon: "text.bubble.fill", text: "RESPONSE", color: VColor.systemPositiveStrong)
-        case .toolUse:
-            label(icon: "wrench.fill", text: "TOOL CALL", color: VColor.systemPositiveStrong)
-        case .toolResult(let isError):
-            label(icon: isError ? "xmark.circle.fill" : "checkmark.circle.fill", text: isError ? "TOOL ERROR" : "TOOL RESULT", color: isError ? VColor.systemNegativeStrong : VColor.systemPositiveStrong)
-        case .error:
-            label(icon: "exclamationmark.triangle.fill", text: "ERROR", color: VColor.systemNegativeStrong)
-        }
-    }
+/// Collapsible "Completed N events" header for terminal subagents. Mirrors
+/// the main-thread pattern from `AssistantProgressView.swift`.
+private struct SubagentCompletedStepsHeader: View {
+    let count: Int
+    let totalDuration: TimeInterval?
+    @Binding var isExpanded: Bool
 
-    @ViewBuilder
-    private func label(icon: String, text: String, color: Color) -> some View {
-        HStack(spacing: VSpacing.xxs) {
-            VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 8)
-            Text(text)
-                .font(VFont.labelSmall)
-        }
-        .foregroundStyle(color)
-    }
-
-    // MARK: - Event Content
-
-    @ViewBuilder
-    private func eventContent(_ event: SubagentEventItem) -> some View {
-        switch event.kind {
-        case .text:
-            // Subtract the card's horizontal padding so markdown fits inside
-            // the rounded background.
-            let markdownWidth: CGFloat? = contentWidth > 0
-                ? max(contentWidth - 2 * VSpacing.sm, 0)
-                : nil
-            HStack(spacing: 0) {
-                MarkdownSegmentView(
-                    segments: parseMarkdownSegments(event.content),
-                    typographyGeneration: typographyGeneration,
-                    maxContentWidth: markdownWidth
-                )
-                .equatable()
-                .textSelection(.enabled)
-                Spacer(minLength: 0)
-            }
-            .padding(VSpacing.sm)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.surfaceBase.opacity(0.4))
-            )
-
-        case .toolUse(let name):
-            // Name on top row, args wrap beneath so long URLs don't mid-truncate.
-            HStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                    Text(name)
+    var body: some View {
+        Button {
+            withAnimation(VAnimation.fast) { isExpanded.toggle() }
+        } label: {
+            HStack(spacing: VSpacing.sm) {
+                VIconView(.circleCheck, size: 12)
+                    .foregroundStyle(VColor.primaryBase)
+                    .frame(width: 16)
+                Text("Completed \(count) event\(count == 1 ? "" : "s")")
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundStyle(VColor.contentDefault)
+                    .lineLimit(1)
+                Spacer()
+                if let totalDuration {
+                    Text(VCollapsibleStepRowDurationFormatter.format(totalDuration))
                         .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.systemPositiveStrong)
-                    if !event.content.isEmpty {
-                        Text(event.content)
-                            .font(VFont.bodySmallDefault)
-                            .foregroundStyle(VColor.contentTertiary)
-                    }
+                        .foregroundStyle(VColor.contentTertiary)
                 }
-                Spacer(minLength: 0)
+                VIconView(isExpanded ? .chevronUp : .chevronDown, size: 9)
+                    .foregroundStyle(VColor.contentTertiary)
             }
-            .padding(VSpacing.sm)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.primaryActive.opacity(0.08))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .strokeBorder(VColor.primaryActive.opacity(0.16), lineWidth: 1)
-                    )
-            )
-
-        case .toolResult:
-            Text(event.content)
-                .font(VFont.bodySmallDefault)
-                .foregroundStyle(VColor.contentSecondary)
-                .textSelection(.enabled)
-                .padding(VSpacing.sm)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(VColor.surfaceActive.opacity(0.3))
-                )
-
-        case .error:
-            Text(event.content)
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.systemNegativeStrong)
-                .textSelection(.enabled)
-                .padding(VSpacing.sm)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(VColor.systemNegativeStrong.opacity(0.08))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .strokeBorder(VColor.systemNegativeStrong.opacity(0.15), lineWidth: 1)
-                        )
-                )
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.sm, bottom: VSpacing.xs, trailing: VSpacing.sm))
+        .background(VColor.surfaceOverlay)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
     }
 }
