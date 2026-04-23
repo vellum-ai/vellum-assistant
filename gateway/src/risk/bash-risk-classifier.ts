@@ -616,6 +616,7 @@ export function classifySegment(
       RM_SAFE_BARE_FILES.has(positionalArgs[0])
     ) {
       risk = "medium";
+      effectiveMatchType = "registry";
       reason = `rm of known safe file: ${positionalArgs[0]}`;
     }
   }
