@@ -129,7 +129,7 @@ public final class HostBrowserExecutor {
         // `sendCDPCommand` — `timeoutSeconds` is decoded from JSON without range
         // validation, so negatives, NaN, or ±infinity can reach this path.
         let rawTimeout = request.timeoutSeconds ?? Self.defaultTimeoutSeconds
-        let timeout: TimeInterval = (rawTimeout.isFinite && rawTimeout >= 0)
+        let timeout: TimeInterval = (rawTimeout.isFinite && rawTimeout >= 0 && rawTimeout <= 18_000_000_000)
             ? rawTimeout
             : Self.defaultTimeoutSeconds
 
