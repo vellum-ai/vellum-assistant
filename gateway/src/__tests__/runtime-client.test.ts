@@ -27,6 +27,8 @@ const {
   forwardTwilioVoiceWebhook,
   forwardTwilioStatusWebhook,
   forwardTwilioConnectActionWebhook,
+  CircuitBreakerOpenError,
+  resetCircuitBreaker,
 } = await import("../runtime/client.js");
 
 function makeConfig(overrides: Partial<GatewayConfig> = {}): GatewayConfig {
@@ -92,6 +94,7 @@ const successBody = {
 describe("forwardToRuntime", () => {
   afterEach(() => {
     fetchMock = mock(async () => new Response());
+    resetCircuitBreaker();
   });
 
   test("successful forward returns runtime response", async () => {
@@ -104,6 +107,20 @@ describe("forwardToRuntime", () => {
     expect(result.accepted).toBe(true);
     expect(result.eventId).toBe("evt-1");
     expect(result.assistantMessage?.content).toBe("Hi there!");
+  });
+
+  test("builds correct upstream URL via buildUpstreamUrl", async () => {
+    fetchMock = mock(
+      async () => new Response(JSON.stringify(successBody), { status: 200 }),
+    );
+
+    const config = makeConfig({
+      assistantRuntimeBaseUrl: "http://localhost:9999",
+    });
+    await forwardToRuntime(config, payload);
+
+    const calledUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
+    expect(calledUrl).toBe("http://localhost:9999/v1/channels/inbound");
   });
 
   test("4xx error throws immediately without retry", async () => {
@@ -184,11 +201,94 @@ describe("forwardToRuntime", () => {
     const headers = calledInit.headers as Record<string, string>;
     expect(headers["Authorization"]).toMatch(/^Bearer ey/);
   });
+
+  test("passes abort signal from createTimeoutController", async () => {
+    fetchMock = mock(
+      async () => new Response(JSON.stringify(successBody), { status: 200 }),
+    );
+
+    const config = makeConfig({});
+    await forwardToRuntime(config, payload);
+
+    const calledInit = (fetchMock.mock.calls[0] as unknown[])[1] as RequestInit;
+    expect(calledInit.signal).toBeInstanceOf(AbortSignal);
+  });
+});
+
+describe("circuit breaker state transitions", () => {
+  afterEach(() => {
+    fetchMock = mock(async () => new Response());
+    resetCircuitBreaker();
+  });
+
+  test("4xx errors do not trip the circuit breaker", async () => {
+    fetchMock = mock(async () => new Response("Bad request", { status: 400 }));
+    const config = makeConfig({ runtimeMaxRetries: 0 });
+
+    // Fire multiple 4xx errors — should never trip the breaker
+    for (let i = 0; i < 10; i++) {
+      await forwardToRuntime(config, payload).catch(() => {});
+    }
+
+    // Next call should still go through (not throw CircuitBreakerOpenError)
+    fetchMock = mock(
+      async () => new Response(JSON.stringify(successBody), { status: 200 }),
+    );
+    const result = await forwardToRuntime(config, payload);
+    expect(result.accepted).toBe(true);
+  });
+
+  test("consecutive 5xx errors trip the breaker after threshold", async () => {
+    fetchMock = mock(async () => new Response("Server error", { status: 500 }));
+    const config = makeConfig({ runtimeMaxRetries: 0 });
+
+    // Each call that exhausts retries with 5xx increments the failure counter.
+    // With runtimeMaxRetries=0, each call = 1 failure + cbOnFailure.
+    // Threshold is 5, so after 5 failed calls the breaker opens.
+    for (let i = 0; i < 5; i++) {
+      await forwardToRuntime(config, payload).catch(() => {});
+    }
+
+    // The 6th call should throw CircuitBreakerOpenError
+    await expect(forwardToRuntime(config, payload)).rejects.toBeInstanceOf(
+      CircuitBreakerOpenError,
+    );
+  });
+
+  test("successful call after failures resets the breaker", async () => {
+    const config = makeConfig({ runtimeMaxRetries: 0 });
+
+    // Accumulate some failures (but below threshold)
+    fetchMock = mock(async () => new Response("Server error", { status: 500 }));
+    for (let i = 0; i < 3; i++) {
+      await forwardToRuntime(config, payload).catch(() => {});
+    }
+
+    // Successful call resets the counter
+    fetchMock = mock(
+      async () => new Response(JSON.stringify(successBody), { status: 200 }),
+    );
+    await forwardToRuntime(config, payload);
+
+    // Now we should be able to tolerate another round of failures without tripping
+    fetchMock = mock(async () => new Response("Server error", { status: 500 }));
+    for (let i = 0; i < 4; i++) {
+      await forwardToRuntime(config, payload).catch(() => {});
+    }
+
+    // Still below threshold (4 < 5), so the next call should proceed
+    fetchMock = mock(
+      async () => new Response(JSON.stringify(successBody), { status: 200 }),
+    );
+    const result = await forwardToRuntime(config, payload);
+    expect(result.accepted).toBe(true);
+  });
 });
 
 describe("downloadAttachment", () => {
   afterEach(() => {
     fetchMock = mock(async () => new Response());
+    resetCircuitBreaker();
   });
 
   test("downloads attachment payload with base64 data", async () => {
@@ -271,6 +371,7 @@ describe("downloadAttachment", () => {
 describe("forwardTwilioVoiceWebhook", () => {
   afterEach(() => {
     fetchMock = mock(async () => new Response());
+    resetCircuitBreaker();
   });
 
   test("sends params and originalUrl to runtime internal endpoint", async () => {
@@ -311,6 +412,7 @@ describe("forwardTwilioVoiceWebhook", () => {
 describe("forwardTwilioStatusWebhook", () => {
   afterEach(() => {
     fetchMock = mock(async () => new Response());
+    resetCircuitBreaker();
   });
 
   test("sends params to runtime internal status endpoint", async () => {
@@ -334,6 +436,7 @@ describe("forwardTwilioStatusWebhook", () => {
 describe("forwardTwilioConnectActionWebhook", () => {
   afterEach(() => {
     fetchMock = mock(async () => new Response());
+    resetCircuitBreaker();
   });
 
   test("sends params to runtime internal connect-action endpoint", async () => {

@@ -10,6 +10,7 @@ import { createDecipheriv, pbkdf2Sync } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { hostname, userInfo } from "node:os";
 import { join } from "node:path";
+import { createCesHttpCredentialClient } from "@vellumai/ces-client/http-credentials";
 import { credentialKey } from "./credential-key.js";
 import { getLogger } from "./logger.js";
 import { getGatewaySecurityDir, getWorkspaceDir } from "./paths.js";
@@ -181,11 +182,10 @@ function readEncryptedCredential(account: string): string | undefined {
 // CES HTTP credential reader (containerized mode)
 // ---------------------------------------------------------------------------
 
-const CES_HTTP_TIMEOUT_MS = 5_000;
-
 /**
  * Try to read a credential from the CES managed service over HTTP.
  *
+ * Delegates to `@vellumai/ces-client/http-credentials` for the transport.
  * Activated when `CES_CREDENTIAL_URL` is set (e.g. `http://ces-host:8090`).
  * Requires `CES_SERVICE_TOKEN` for bearer auth.
  *
@@ -202,42 +202,9 @@ async function readCesCredential(account: string): Promise<string | undefined> {
     return undefined;
   }
 
-  const url = `${baseUrl}/v1/credentials/${encodeURIComponent(account)}`;
-
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), CES_HTTP_TIMEOUT_MS);
-
-    const resp = await fetch(url, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${serviceToken}`,
-        Accept: "application/json",
-      },
-      signal: controller.signal,
-    });
-
-    clearTimeout(timer);
-
-    if (resp.status === 404) return undefined;
-
-    if (!resp.ok) {
-      log.warn(
-        { account, status: resp.status },
-        "CES credential read returned non-OK status",
-      );
-      return undefined;
-    }
-
-    const body = (await resp.json()) as { account?: string; value?: string };
-    if (typeof body.value === "string") return body.value;
-
-    log.debug({ account }, "CES credential response missing 'value' field");
-    return undefined;
-  } catch (err) {
-    log.debug({ err, account }, "Failed to read credential from CES");
-    return undefined;
-  }
+  const client = createCesHttpCredentialClient({ baseUrl, serviceToken }, log);
+  const result = await client.get(account);
+  return result.value;
 }
 
 // ---------------------------------------------------------------------------

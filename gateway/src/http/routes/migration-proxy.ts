@@ -28,11 +28,19 @@
 
 import { randomUUID } from "node:crypto";
 
+import {
+  proxyForwardToResponse,
+  prepareUpstreamHeaders,
+  buildUpstreamUrl,
+  createTimeoutController,
+  isTimeoutError,
+  stripHopByHop,
+} from "@vellumai/assistant-client";
+
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
-import { stripHopByHop } from "../../util/strip-hop-by-hop.js";
 
 const log = getLogger("migration-proxy");
 
@@ -56,73 +64,30 @@ const JOB_PRUNE_INTERVAL_MS = 60 * 1000;
 export function createMigrationExportProxyHandler(config: GatewayConfig) {
   return async function handleMigrationExport(req: Request): Promise<Response> {
     const start = performance.now();
-    const bodyBuffer = await req.arrayBuffer();
 
-    const upstream = `${config.assistantRuntimeBaseUrl}/v1/migrations/export`;
+    const response = await proxyForwardToResponse(req, {
+      baseUrl: config.assistantRuntimeBaseUrl,
+      path: "/v1/migrations/export",
+      serviceToken: mintServiceToken(),
+      timeoutMs: MIGRATION_TIMEOUT_MS,
+      fetchImpl,
+    });
 
-    const reqHeaders = stripHopByHop(new Headers(req.headers));
-    reqHeaders.delete("host");
-    reqHeaders.delete("authorization");
-
-    reqHeaders.set("authorization", `Bearer ${mintServiceToken()}`);
-    reqHeaders.set("content-length", String(bodyBuffer.byteLength));
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => {
-      controller.abort(
-        new DOMException(
-          "The operation was aborted due to timeout",
-          "TimeoutError",
-        ),
-      );
-    }, MIGRATION_TIMEOUT_MS);
-
-    let response: Response;
-    try {
-      response = await fetchImpl(upstream, {
-        method: "POST",
-        headers: reqHeaders,
-        body: bodyBuffer,
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-    } catch (err) {
-      clearTimeout(timeoutId);
-      const duration = Math.round(performance.now() - start);
-      if (err instanceof DOMException && err.name === "TimeoutError") {
-        log.error({ duration }, "Migration export proxy upstream timed out");
-        return Response.json({ error: "Gateway Timeout" }, { status: 504 });
-      }
-      log.error(
-        { err, duration },
-        "Migration export proxy upstream connection failed",
-      );
-      return Response.json({ error: "Bad Gateway" }, { status: 502 });
-    }
-
-    const resHeaders = stripHopByHop(new Headers(response.headers));
     const duration = Math.round(performance.now() - start);
 
     if (response.status >= 400) {
-      const body = await response.text();
       log.warn(
         { status: response.status, duration },
         "Migration export proxy upstream error",
       );
-      return new Response(body, {
-        status: response.status,
-        headers: resHeaders,
-      });
+    } else {
+      log.info(
+        { status: response.status, duration },
+        "Migration export proxy completed",
+      );
     }
 
-    log.info(
-      { status: response.status, duration },
-      "Migration export proxy completed",
-    );
-    return new Response(response.body, {
-      status: response.status,
-      headers: resHeaders,
-    });
+    return response;
   };
 }
 
@@ -254,14 +219,17 @@ async function handleAsyncJsonImport(
   };
   jobs.set(jobId, job);
 
-  const reqHeaders = stripHopByHop(new Headers(req.headers));
-  reqHeaders.delete("host");
-  reqHeaders.delete("authorization");
-  reqHeaders.set("authorization", `Bearer ${mintServiceToken()}`);
+  const reqHeaders = prepareUpstreamHeaders(
+    new Headers(req.headers),
+    mintServiceToken(),
+  );
   reqHeaders.set("content-type", "application/json");
   reqHeaders.set("content-length", String(Buffer.byteLength(bodyText)));
 
-  const upstream = `${config.assistantRuntimeBaseUrl}/v1/migrations/import`;
+  const upstream = buildUpstreamUrl(
+    config.assistantRuntimeBaseUrl,
+    "/v1/migrations/import",
+  );
 
   log.info(
     { jobId, previewHost },
@@ -296,15 +264,7 @@ async function runUpstreamImport(args: {
   const job = jobs.get(jobId);
   if (job) job.status = "processing";
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => {
-    controller.abort(
-      new DOMException(
-        "The operation was aborted due to timeout",
-        "TimeoutError",
-      ),
-    );
-  }, MIGRATION_TIMEOUT_MS);
+  const { controller, clear } = createTimeoutController(MIGRATION_TIMEOUT_MS);
 
   try {
     // NOTE: `fetch` resolves on headers, not on full body delivery. Keep
@@ -379,18 +339,16 @@ async function runUpstreamImport(args: {
     );
   } catch (err) {
     const duration = Math.round(performance.now() - start);
-    const isTimeout =
-      err instanceof DOMException && err.name === "TimeoutError";
-    const message = isTimeout
-      ? `Gateway → assistant request timed out after ${MIGRATION_TIMEOUT_MS}ms`
-      : `Gateway → assistant request failed: ${errMessage(err)}`;
+    const message = isTimeoutError(err)
+      ? `Gateway \u2192 assistant request timed out after ${MIGRATION_TIMEOUT_MS}ms`
+      : `Gateway \u2192 assistant request failed: ${errMessage(err)}`;
     markJobFailed(jobId, undefined, message);
     log.error(
       { jobId, duration, err },
       "Migration import async: upstream connection failed",
     );
   } finally {
-    clearTimeout(timeoutId);
+    clear();
   }
 }
 
@@ -459,73 +417,30 @@ async function handleSyncBytesImport(
   config: GatewayConfig,
 ): Promise<Response> {
   const start = performance.now();
-  const bodyBuffer = await req.arrayBuffer();
 
-  const upstream = `${config.assistantRuntimeBaseUrl}/v1/migrations/import`;
+  const response = await proxyForwardToResponse(req, {
+    baseUrl: config.assistantRuntimeBaseUrl,
+    path: "/v1/migrations/import",
+    serviceToken: mintServiceToken(),
+    timeoutMs: MIGRATION_TIMEOUT_MS,
+    fetchImpl,
+  });
 
-  const reqHeaders = stripHopByHop(new Headers(req.headers));
-  reqHeaders.delete("host");
-  reqHeaders.delete("authorization");
-
-  reqHeaders.set("authorization", `Bearer ${mintServiceToken()}`);
-  reqHeaders.set("content-length", String(bodyBuffer.byteLength));
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => {
-    controller.abort(
-      new DOMException(
-        "The operation was aborted due to timeout",
-        "TimeoutError",
-      ),
-    );
-  }, MIGRATION_TIMEOUT_MS);
-
-  let response: Response;
-  try {
-    response = await fetchImpl(upstream, {
-      method: "POST",
-      headers: reqHeaders,
-      body: bodyBuffer,
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-  } catch (err) {
-    clearTimeout(timeoutId);
-    const duration = Math.round(performance.now() - start);
-    if (err instanceof DOMException && err.name === "TimeoutError") {
-      log.error({ duration }, "Migration import proxy upstream timed out");
-      return Response.json({ error: "Gateway Timeout" }, { status: 504 });
-    }
-    log.error(
-      { err, duration },
-      "Migration import proxy upstream connection failed",
-    );
-    return Response.json({ error: "Bad Gateway" }, { status: 502 });
-  }
-
-  const resHeaders = stripHopByHop(new Headers(response.headers));
   const duration = Math.round(performance.now() - start);
 
   if (response.status >= 400) {
-    const body = await response.text();
     log.warn(
       { status: response.status, duration },
       "Migration import proxy upstream error",
     );
-    return new Response(body, {
-      status: response.status,
-      headers: resHeaders,
-    });
+  } else {
+    log.info(
+      { status: response.status, duration },
+      "Migration import proxy completed",
+    );
   }
 
-  log.info(
-    { status: response.status, duration },
-    "Migration import proxy completed",
-  );
-  return new Response(response.body, {
-    status: response.status,
-    headers: resHeaders,
-  });
+  return response;
 }
 
 // ---------------------------------------------------------------------------
