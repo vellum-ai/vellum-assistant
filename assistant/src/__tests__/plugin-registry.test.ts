@@ -82,6 +82,38 @@ describe("plugin registry", () => {
     expect(() => registerPlugin(bad)).toThrow(/manifest\.name is required/);
   });
 
+  test("throws on non-kebab-case plugin names (path-traversal guard)", () => {
+    // Plugin names flow into filesystem paths (`plugins-data/<name>/`), so the
+    // registry must reject anything that could escape the storage directory
+    // or otherwise deviate from the kebab-case contract.
+    const cases = [
+      "../evil",
+      "../../etc",
+      "evil/with/slashes",
+      "has space",
+      "Has-Uppercase",
+      "-leading-hyphen",
+      "trailing-hyphen-",
+      "double--hyphen",
+      ".",
+      "",
+    ];
+    for (const name of cases) {
+      const plugin = buildPlugin(name || "x");
+      // Override the name post-build so the empty-string case exercises the
+      // same code path as the others (buildPlugin uses the literal value).
+      (plugin.manifest as { name: string }).name = name;
+      expect(() => registerPlugin(plugin)).toThrow(PluginExecutionError);
+    }
+  });
+
+  test("accepts valid kebab-case plugin names", () => {
+    for (const name of ["a", "abc", "a-b", "a1-b2", "foo-bar-baz"]) {
+      resetPluginRegistryForTests();
+      expect(() => registerPlugin(buildPlugin(name))).not.toThrow();
+    }
+  });
+
   test("throws when manifest.version is missing", () => {
     const bad = {
       manifest: {

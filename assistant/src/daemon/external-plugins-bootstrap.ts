@@ -187,10 +187,9 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
 
   const plugins = getRegisteredPlugins();
   if (plugins.length === 0) {
-    // No-op fast path — the registry is empty. After this PR the default
-    // injectors are always present, but this branch stays defensive for
-    // tests that call `resetPluginRegistryForTests()` and stub the
-    // default registration.
+    // No-op fast path. The default injectors normally populate the registry,
+    // so this branch is primarily for tests that call
+    // `resetPluginRegistryForTests()` and stub the default registration.
     log.debug("bootstrapPlugins: registry empty — skipping");
     return;
   }
@@ -202,6 +201,17 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
   // are omitted from this list so the shutdown hook below never tears down
   // capabilities that were never wired up in the first place.
   const activePlugins: Plugin[] = [];
+
+  // If one plugin's init or contribution phase throws, tear down any plugins
+  // that already fully initialized (in reverse registration order) before
+  // re-throwing. Without this, a mid-loop failure would leave earlier plugins
+  // with live tools/routes/skills and no `onShutdown()` call — the shutdown
+  // hook is only registered once the loop completes successfully.
+  async function teardownPartialInit(): Promise<void> {
+    for (let i = activePlugins.length - 1; i >= 0; i--) {
+      await teardownPlugin(activePlugins[i]!, "bootstrap-failed");
+    }
+  }
 
   for (const plugin of plugins) {
     const name = plugin.manifest.name;
@@ -226,105 +236,115 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
       continue;
     }
 
-    // Credential resolution — gather every entry in `requiresCredential`
-    // before calling `init()` so the plugin receives a fully-populated map.
-    const credentials: Record<string, string> = {};
-    const required = plugin.manifest.requiresCredential ?? [];
-    for (const key of required) {
-      credentials[key] = await resolveCredentialOrThrow(name, key);
-    }
-
-    // Per-plugin config block, validated against the manifest's parser-like
-    // validator when one is declared.
-    const rawConfig = getPluginConfigRaw(ctx.config, name);
-    const config = validatePluginConfig(
-      name,
-      plugin.manifest.config,
-      rawConfig,
-    );
-
-    // Per-plugin writable data directory. Created lazily during bootstrap
-    // rather than at registration time so the side effect is isolated to
-    // the boot path.
-    const pluginStorageDir = ensurePluginStorageDir(name);
-
-    const initContext: PluginInitContext = {
-      config,
-      credentials,
-      logger: log.child({ plugin: name }),
-      pluginStorageDir,
-      assistantVersion: ctx.assistantVersion,
-      apiVersions: ASSISTANT_API_VERSIONS,
-    };
-
-    if (plugin.init) {
-      try {
-        await plugin.init(initContext);
-      } catch (err) {
-        throw new PluginExecutionError(
-          `plugin ${name} init() failed: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-          name,
-          { cause: err },
-        );
+    try {
+      // Credential resolution — gather every entry in `requiresCredential`
+      // before calling `init()` so the plugin receives a fully-populated map.
+      const credentials: Record<string, string> = {};
+      const required = plugin.manifest.requiresCredential ?? [];
+      for (const key of required) {
+        credentials[key] = await resolveCredentialOrThrow(name, key);
       }
-    }
 
-    // After init succeeds, wire in the plugin's model-visible capabilities.
-    // Tool contributions (PR 31) register only after `init()` succeeds so a
-    // plugin that fails mid-init never leaves partially-wired tools behind.
-    // Tool registration failures throw up the stack to abort bootstrap,
-    // matching the strict-fail semantics of `init()` errors.
-    if (plugin.tools && plugin.tools.length > 0) {
-      const accepted = registerPluginTools(name, plugin.tools);
-      log.info(
-        { plugin: name, count: accepted.length },
-        "plugin tools registered",
+      // Per-plugin config block, validated against the manifest's parser-like
+      // validator when one is declared.
+      const rawConfig = getPluginConfigRaw(ctx.config, name);
+      const config = validatePluginConfig(
+        name,
+        plugin.manifest.config,
+        rawConfig,
       );
-    }
 
-    // Route contributions (PR 32) — registered after init() succeeds so a
-    // plugin that fails to initialize never exposes a half-wired HTTP
-    // surface. Mirrors the skill-route registry shape; see
-    // {@link PluginRouteRegistration}.
-    if (plugin.routes && plugin.routes.length > 0) {
-      for (const route of plugin.routes) {
-        registerSkillRoute(route);
+      // Per-plugin writable data directory. Created lazily during bootstrap
+      // rather than at registration time so the side effect is isolated to
+      // the boot path.
+      const pluginStorageDir = ensurePluginStorageDir(name);
+
+      const initContext: PluginInitContext = {
+        config,
+        credentials,
+        logger: log.child({ plugin: name }),
+        pluginStorageDir,
+        assistantVersion: ctx.assistantVersion,
+        apiVersions: ASSISTANT_API_VERSIONS,
+      };
+
+      if (plugin.init) {
+        try {
+          await plugin.init(initContext);
+        } catch (err) {
+          throw new PluginExecutionError(
+            `plugin ${name} init() failed: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+            name,
+            { cause: err },
+          );
+        }
       }
-      log.info(
-        { plugin: name, count: plugin.routes.length },
-        "plugin routes registered",
-      );
-    }
 
-    // Skills (PR 33) register into the in-memory plugin-skill catalog so
-    // `skill_load` / `skill_execute` can resolve them alongside filesystem
-    // skills. A registration failure aborts bootstrap with the plugin named
-    // — same strict-fail posture as init() throws.
-    if (plugin.skills && plugin.skills.length > 0) {
-      try {
-        // `plugin.skills` is typed as `PluginSkillRegistration[]` at the
-        // Plugin interface — the type assertion here is a narrowing from
-        // that generic slot into the concrete shape the registry expects.
-        registerPluginSkills(
-          name,
-          plugin.skills as readonly PluginSkillRegistration[],
-        );
-      } catch (err) {
-        throw new PluginExecutionError(
-          `plugin ${name} skill registration failed: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-          name,
-          { cause: err },
+      // After init succeeds, wire in the plugin's model-visible capabilities.
+      // Tool contributions (PR 31) register only after `init()` succeeds so a
+      // plugin that fails mid-init never leaves partially-wired tools behind.
+      // Tool registration failures throw up the stack to abort bootstrap,
+      // matching the strict-fail semantics of `init()` errors.
+      if (plugin.tools && plugin.tools.length > 0) {
+        const accepted = registerPluginTools(name, plugin.tools);
+        log.info(
+          { plugin: name, count: accepted.length },
+          "plugin tools registered",
         );
       }
+
+      // Route contributions (PR 32) — registered after init() succeeds so a
+      // plugin that fails to initialize never exposes a half-wired HTTP
+      // surface. Mirrors the skill-route registry shape; see
+      // {@link PluginRouteRegistration}.
+      if (plugin.routes && plugin.routes.length > 0) {
+        for (const route of plugin.routes) {
+          registerSkillRoute(route);
+        }
+        log.info(
+          { plugin: name, count: plugin.routes.length },
+          "plugin routes registered",
+        );
+      }
+
+      // Skills register into the in-memory plugin-skill catalog so
+      // `skill_load` / `skill_execute` can resolve them alongside filesystem
+      // skills. A registration failure aborts bootstrap with the plugin named
+      // — same strict-fail posture as init() throws.
+      if (plugin.skills && plugin.skills.length > 0) {
+        try {
+          // `plugin.skills` is typed as `PluginSkillRegistration[]` at the
+          // Plugin interface — the type assertion here is a narrowing from
+          // that generic slot into the concrete shape the registry expects.
+          registerPluginSkills(
+            name,
+            plugin.skills as readonly PluginSkillRegistration[],
+          );
+        } catch (err) {
+          throw new PluginExecutionError(
+            `plugin ${name} skill registration failed: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+            name,
+            { cause: err },
+          );
+        }
+      }
+
+      activePlugins.push(plugin);
+
+      log.info({ plugin: name }, "plugin initialized");
+    } catch (err) {
+      // Tear down every plugin that already made it through its full init +
+      // contribution phase, in reverse order, before propagating the error.
+      // Without this, the caller would see a partially-wired registry (tools,
+      // routes, skills all live) with no shutdown hook to clean them up, since
+      // `registerShutdownHook` is only called after the loop completes.
+      await teardownPartialInit();
+      throw err;
     }
-
-    activePlugins.push(plugin);
-
-    log.info({ plugin: name }, "plugin initialized");
   }
 
   // Shutdown hook — walks plugins in REVERSE registration order. We snapshot
@@ -350,61 +370,73 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
   const shutdownSnapshot: Plugin[] = [...activePlugins];
   registerShutdownHook("plugins", async (reason) => {
     for (let i = shutdownSnapshot.length - 1; i >= 0; i--) {
-      const plugin = shutdownSnapshot[i]!;
-      const name = plugin.manifest.name;
-
-      // Unregister model-visible surfaces before invoking `onShutdown()` so
-      // the plugin's onShutdown hook observes a registry state where its
-      // tools and routes are already gone. Plugin authors can safely tear
-      // down whatever those surfaces depended on inside onShutdown.
-      // `unregisterPluginTools` is a no-op when the plugin never
-      // contributed tools, so we don't need to guard on `plugin.tools` here.
-      if (plugin.routes && plugin.routes.length > 0) {
-        for (const route of plugin.routes) {
-          try {
-            unregisterSkillRoute(route.pattern);
-          } catch (err) {
-            log.warn(
-              { err, plugin: name, pattern: route.pattern.source },
-              "plugin route unregister failed (continuing)",
-            );
-          }
-        }
-      }
-
-      try {
-        unregisterPluginTools(name);
-      } catch (err) {
-        log.warn(
-          { err, plugin: name, reason },
-          "plugin tool unregister failed (continuing with remaining plugins)",
-        );
-      }
-
-      if (plugin.onShutdown) {
-        try {
-          await plugin.onShutdown();
-        } catch (err) {
-          // Swallow — we want every plugin's onShutdown to get a chance to
-          // run even when an earlier one throws. The outer runShutdownHooks
-          // already logs at hook level, but the plugin-name attribution here
-          // is what operators read first.
-          log.warn(
-            { err, plugin: name, reason },
-            "plugin onShutdown failed (continuing with remaining plugins)",
-          );
-        }
-      }
-      if (plugin.skills && plugin.skills.length > 0) {
-        try {
-          unregisterPluginSkills(name);
-        } catch (err) {
-          log.warn(
-            { err, plugin: name, reason },
-            "plugin skill unregistration failed (continuing with remaining plugins)",
-          );
-        }
-      }
+      await teardownPlugin(shutdownSnapshot[i]!, reason);
     }
   });
+}
+
+/**
+ * Tear down a single fully-initialized plugin: unregister routes, unregister
+ * tools, invoke `onShutdown()` if present, then unregister skills. Every step
+ * swallows errors and logs with plugin attribution so one bad plugin can't
+ * block teardown of the rest.
+ *
+ * Shared between the normal shutdown hook and the bootstrap error path; both
+ * consume plugins that already cleared every contribution step.
+ */
+async function teardownPlugin(plugin: Plugin, reason: string): Promise<void> {
+  const name = plugin.manifest.name;
+
+  // Unregister model-visible surfaces before invoking `onShutdown()` so the
+  // plugin's onShutdown hook observes a registry state where its tools and
+  // routes are already gone. `unregisterPluginTools` is a no-op when the
+  // plugin never contributed tools, so we don't need to guard on
+  // `plugin.tools` here.
+  if (plugin.routes && plugin.routes.length > 0) {
+    for (const route of plugin.routes) {
+      try {
+        unregisterSkillRoute(route.pattern);
+      } catch (err) {
+        log.warn(
+          { err, plugin: name, pattern: route.pattern.source },
+          "plugin route unregister failed (continuing)",
+        );
+      }
+    }
+  }
+
+  try {
+    unregisterPluginTools(name);
+  } catch (err) {
+    log.warn(
+      { err, plugin: name, reason },
+      "plugin tool unregister failed (continuing with remaining plugins)",
+    );
+  }
+
+  if (plugin.onShutdown) {
+    try {
+      await plugin.onShutdown();
+    } catch (err) {
+      // Swallow — we want every plugin's onShutdown to get a chance to run
+      // even when an earlier one throws. The outer runShutdownHooks already
+      // logs at hook level, but the plugin-name attribution here is what
+      // operators read first.
+      log.warn(
+        { err, plugin: name, reason },
+        "plugin onShutdown failed (continuing with remaining plugins)",
+      );
+    }
+  }
+
+  if (plugin.skills && plugin.skills.length > 0) {
+    try {
+      unregisterPluginSkills(name);
+    } catch (err) {
+      log.warn(
+        { err, plugin: name, reason },
+        "plugin skill unregistration failed (continuing with remaining plugins)",
+      );
+    }
+  }
 }

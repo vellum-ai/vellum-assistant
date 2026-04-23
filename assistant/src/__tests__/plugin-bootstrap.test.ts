@@ -229,6 +229,55 @@ describe("plugin bootstrap", () => {
     expect(msg).toContain("kaboom");
   });
 
+  test("partial-init failure: earlier plugins' onShutdown runs in reverse before the error propagates", async () => {
+    // If plugin N throws during init, every plugin 1..N-1 that already made
+    // it through its full init+contribution phase must have onShutdown()
+    // invoked in reverse registration order before bootstrap re-throws.
+    // Without this, earlier plugins leak live tools/routes/skills because
+    // the shutdown hook is only registered once the entire loop completes.
+    const callOrder: string[] = [];
+    registerPlugin(
+      buildPlugin("survivor-a", {
+        async init() {},
+        async onShutdown() {
+          callOrder.push("survivor-a");
+        },
+      }),
+    );
+    registerPlugin(
+      buildPlugin("survivor-b", {
+        async init() {},
+        async onShutdown() {
+          callOrder.push("survivor-b");
+        },
+      }),
+    );
+    registerPlugin(
+      buildPlugin("failing", {
+        async init() {
+          throw new Error("mid-bootstrap failure");
+        },
+        async onShutdown() {
+          // Never called — this plugin never completes init, so it was never
+          // added to the active list that teardown walks.
+          callOrder.push("failing");
+        },
+      }),
+    );
+
+    let caught: unknown;
+    try {
+      await bootstrapPlugins(fakeCtx);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(PluginExecutionError);
+
+    // Reverse order: survivor-b registered after survivor-a, so it tears
+    // down first; "failing" never entered the active list.
+    expect(callOrder).toEqual(["survivor-b", "survivor-a"]);
+  });
+
   test("shutdown order: onShutdown fires in reverse registration order", async () => {
     const callOrder: string[] = [];
     registerPlugin(
