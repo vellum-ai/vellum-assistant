@@ -121,7 +121,13 @@ public final class HostBrowserExecutor {
             )
         }
 
-        let timeout = request.timeoutSeconds ?? Self.defaultTimeoutSeconds
+        // Guard against values that would trap `UInt64(timeout * 1e9)` in
+        // `sendCDPCommand` — `timeoutSeconds` is decoded from JSON without range
+        // validation, so negatives, NaN, or ±infinity can reach this path.
+        let rawTimeout = request.timeoutSeconds ?? Self.defaultTimeoutSeconds
+        let timeout: TimeInterval = (rawTimeout.isFinite && rawTimeout >= 0)
+            ? rawTimeout
+            : Self.defaultTimeoutSeconds
 
         // Step 1: Discover available targets via /json/list
         let targetsURL = URL(string: "http://\(host):\(port)/json/list")!
