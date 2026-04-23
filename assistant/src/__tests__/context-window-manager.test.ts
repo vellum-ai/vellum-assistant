@@ -15,6 +15,7 @@ import type {
   Message,
   Provider,
   ProviderResponse,
+  SendMessageOptions,
 } from "../providers/types.js";
 
 function makeConfig(
@@ -1669,6 +1670,53 @@ describe("ContextWindowManager", () => {
     expect(result.compacted).toBe(true);
     expect(result.compactedMessages).toBe(3);
     expect(result.messages).toHaveLength(1);
+  });
+
+  test("summary provider call includes callSite: conversationSummarization", async () => {
+    // Regression guard for JARVIS-587: without the callSite, the summary
+    // call fell through to `llm.default` (opus + effort=max + thinking
+    // enabled) and exceeded the 30s plugin pipeline budget on ~150k-token
+    // transcripts. The fix is to route the summary call through the
+    // dedicated `conversationSummarization` call-site config.
+    const capturedOptions: (SendMessageOptions | undefined)[] = [];
+    const provider: Provider = {
+      name: "mock",
+      async sendMessage(
+        _messages: Message[],
+        _tools: unknown,
+        _systemPrompt: unknown,
+        options?: SendMessageOptions,
+      ): Promise<ProviderResponse> {
+        capturedOptions.push(options);
+        return {
+          content: [{ type: "text", text: "## Goals\n- summary" }],
+          model: "mock-model",
+          usage: { inputTokens: 50, outputTokens: 10 },
+          stopReason: "end_turn",
+        };
+      },
+    };
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "system prompt",
+      config: makeConfig({ maxInputTokens: 600 }),
+    });
+    const long = "x".repeat(240);
+    const history: Message[] = [
+      message("user", `u1 ${long}`),
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+      message("assistant", `a2 ${long}`),
+      message("user", `u3 ${long}`),
+      message("assistant", `a3 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+    expect(result.compacted).toBe(true);
+    expect(capturedOptions.length).toBeGreaterThan(0);
+    for (const options of capturedOptions) {
+      expect(options?.config?.callSite).toBe("conversationSummarization");
+    }
   });
 });
 

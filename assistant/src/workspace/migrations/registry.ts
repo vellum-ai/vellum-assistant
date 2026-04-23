@@ -48,6 +48,7 @@ import { removeWatchCallsitesMigration } from "./047-remove-watch-callsites.js";
 import { removeWorkspaceHooksMigration } from "./048-remove-workspace-hooks.js";
 import { releaseNotesDefaultSonnetMigration } from "./049-release-notes-default-sonnet.js";
 import { seedMainAgentOpusCallsiteMigration } from "./050-seed-main-agent-opus-callsite.js";
+import { seedConversationSummarizationCallsiteMigration } from "./051-seed-conversation-summarization-callsite.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -107,4 +108,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   removeWorkspaceHooksMigration,
   releaseNotesDefaultSonnetMigration,
   seedMainAgentOpusCallsiteMigration,
+  seedConversationSummarizationCallsiteMigration,
 ];
