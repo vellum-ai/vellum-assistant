@@ -278,6 +278,7 @@ extension MainWindowView {
                             feedStore: feedStore,
                             onDismiss: { activeHomeDetailPanel = nil }
                         )
+                        .id(item.id)
                     } else {
                         HomeDetailPanel(
                             icon: nil,
@@ -1154,15 +1155,11 @@ struct HomeEmailDraftDetailView: View {
                 attachments: [],
                 onAttachmentTap: { _ in },
                 onSend: {
-                    Task {
-                        _ = await feedStore.triggerAction(itemId: item.id, actionId: "send")
-                    }
+                    // Action wiring is a follow-up — just dismiss for now.
                     onDismiss()
                 },
                 onDiscard: {
-                    Task {
-                        _ = await feedStore.triggerAction(itemId: item.id, actionId: "discard")
-                    }
+                    // Action wiring is a follow-up — just dismiss for now.
                     onDismiss()
                 }
             )
