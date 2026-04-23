@@ -17,6 +17,7 @@ import {
   type CesRpcContract,
   CesRpcMethod,
   CesRpcSchemas,
+  RpcErrorSchema,
   type HandshakeAck,
   type RpcEnvelope,
   type RpcError,
@@ -149,6 +150,8 @@ export function createCesRpcClient(
   const sessionId = randomUUID();
   let requestCounter = 0;
   let ready = false;
+  let inflightHandshake: Promise<{ accepted: boolean; reason?: string }> | null =
+    null;
 
   const pending = new Map<string, PendingRequest>();
 
@@ -179,11 +182,27 @@ export function createCesRpcClient(
 
     // RPC response envelope
     if (msg.kind === "response" && typeof msg.id === "string") {
-      const envelope = parsed as RpcEnvelope;
+      const envelope = parsed as RpcEnvelope & { error?: unknown };
       const entry = pending.get(envelope.id);
       if (entry) {
         clearTimeout(entry.timer);
         pending.delete(envelope.id);
+
+        // Check for an RPC-level error on the envelope
+        if (envelope.error != null) {
+          const errorParse = RpcErrorSchema.safeParse(envelope.error);
+          if (errorParse.success) {
+            entry.reject(new CesRpcError(errorParse.data));
+          } else {
+            entry.reject(
+              new CesClientError(
+                `CES RPC error (malformed): ${JSON.stringify(envelope.error)}`,
+              ),
+            );
+          }
+          return;
+        }
+
         entry.resolve(envelope.payload);
       }
       return;
@@ -286,49 +305,66 @@ export function createCesRpcClient(
     ): Promise<{ accepted: boolean; reason?: string }> {
       if (ready) return { accepted: true };
 
-      const ackPromise = new Promise<HandshakeAck>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          pending.delete("handshake");
-          reject(
-            new CesHandshakeError(
-              `CES handshake timed out after ${handshakeTimeoutMs}ms`,
-            ),
-          );
-        }, handshakeTimeoutMs);
+      // Reuse an in-flight handshake promise so concurrent callers don't
+      // race each other — CES sends a single ack, so only one pending
+      // entry should exist at a time.
+      if (inflightHandshake) return inflightHandshake;
 
-        pending.set("handshake", {
-          resolve: resolve as (payload: unknown) => void,
-          reject,
-          timer,
+      const attempt = (async () => {
+        const ackPromise = new Promise<HandshakeAck>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            pending.delete("handshake");
+            reject(
+              new CesHandshakeError(
+                `CES handshake timed out after ${handshakeTimeoutMs}ms`,
+              ),
+            );
+          }, handshakeTimeoutMs);
+
+          pending.set("handshake", {
+            resolve: resolve as (payload: unknown) => void,
+            reject,
+            timer,
+          });
         });
-      });
+
+        try {
+          sendLine({
+            type: "handshake_request",
+            protocolVersion: CES_PROTOCOL_VERSION,
+            sessionId,
+            ...(options?.assistantApiKey
+              ? { assistantApiKey: options.assistantApiKey }
+              : {}),
+            ...(options?.assistantId
+              ? { assistantId: options.assistantId }
+              : {}),
+          });
+        } catch (err) {
+          const entry = pending.get("handshake");
+          if (entry) {
+            clearTimeout(entry.timer);
+            pending.delete("handshake");
+          }
+          throw err;
+        }
+
+        const ack = await ackPromise;
+
+        if (ack.accepted) {
+          ready = true;
+        }
+
+        return { accepted: ack.accepted, reason: ack.reason };
+      })();
+
+      inflightHandshake = attempt;
 
       try {
-        sendLine({
-          type: "handshake_request",
-          protocolVersion: CES_PROTOCOL_VERSION,
-          sessionId,
-          ...(options?.assistantApiKey
-            ? { assistantApiKey: options.assistantApiKey }
-            : {}),
-          ...(options?.assistantId ? { assistantId: options.assistantId } : {}),
-        });
-      } catch (err) {
-        const entry = pending.get("handshake");
-        if (entry) {
-          clearTimeout(entry.timer);
-          pending.delete("handshake");
-        }
-        throw err;
+        return await attempt;
+      } finally {
+        inflightHandshake = null;
       }
-
-      const ack = await ackPromise;
-
-      if (ack.accepted) {
-        ready = true;
-      }
-
-      return { accepted: ack.accepted, reason: ack.reason };
     },
 
     call,
