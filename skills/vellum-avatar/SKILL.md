@@ -10,8 +10,6 @@ metadata:
 
 You are helping the user customize their assistant's avatar. There are three ways to set an avatar: building a native character from traits, uploading a custom image, or generating one with AI. When the user says they want to change their avatar, present all three options and ask which they prefer.
 
-**All commands in this skill use the `bash` tool.** `$VELLUM_WORKSPACE_DIR` and `$INTERNAL_GATEWAY_BASE_URL` are available in the sandbox environment — do not use `host_bash`.
-
 ## Avatar Modes
 
 The avatar system supports two representations:
@@ -83,9 +81,7 @@ Use the CLI command to set it:
 assistant avatar set --image "<user-provided-path>"
 ```
 
-The path can be absolute or relative to the workspace (e.g. `conversations/<id>/attachments/Dropped Image.png`). The command copies the image to the canonical avatar location, clears the IDENTITY.md avatar description, and notifies connected clients. Character traits are preserved so the native character can be restored later via `assistant avatar remove`.
-
-**Do NOT use raw `cp`/`rm` commands** — always use `assistant avatar set` so the app is properly notified and IDENTITY.md is updated.
+The path can be absolute or relative to the workspace (e.g. `conversations/<id>/attachments/Dropped Image.png`).
 
 ## Mode 3: AI-Generated Image
 
@@ -100,7 +96,7 @@ The user describes what they want their avatar to look like. Use the `bash` tool
 }
 ```
 
-This generates an image using AI, saves it to `data/avatar/avatar-image.png`, removes any native character files, updates IDENTITY.md, and notifies connected clients automatically.
+This generates an image using AI and saves it to `data/avatar/avatar-image.png`.
 
 ## Removing the Avatar
 
@@ -110,7 +106,7 @@ When the user wants to remove their custom avatar and go back to the default:
 assistant avatar remove
 ```
 
-This removes the custom image. If a native character was previously configured, it is automatically restored (the character traits are preserved). The command also regenerates the character PNG, updates IDENTITY.md, and notifies connected clients.
+This removes the custom image. If a native character was previously configured, it is automatically restored (the character traits are preserved).
 
 ## Viewing the Avatar
 
@@ -120,7 +116,7 @@ When the user asks to see their current avatar, get the path and then read it:
 assistant avatar get
 ```
 
-This prints the absolute path to the avatar image (regenerating from character traits if needed). Then use `file_read` on the returned path to display the image inline. Only do this once per request.
+This prints the absolute path to the avatar image (regenerating from character traits if needed). Then use `file_read` on the returned path to display the image inline.
 
 To get the avatar as base64 data instead:
 
