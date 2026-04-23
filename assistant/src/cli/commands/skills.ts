@@ -369,7 +369,10 @@ Examples:
           log.info(`Bundled & installed skills (${bundledMatches.length}):\n`);
           for (const s of bundledMatches) {
             const emoji = s.emoji ? `${s.emoji} ` : "";
-            const tag = s.source === "bundled" ? " [bundled]" : " [installed]";
+            const tag =
+              s.source === "bundled" || s.source === "plugin"
+                ? " [bundled]"
+                : " [installed]";
             log.info(`  ${emoji}${s.displayName}${tag}`);
             if (s.displayName !== s.id) {
               log.info(`    ID: ${s.id}`);
