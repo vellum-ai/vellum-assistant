@@ -1,24 +1,24 @@
 /**
- * Risk classifier parity validation — Phase 2 (registry-driven).
+ * Risk classifier parity validation — gateway port.
  *
- * After Phase 2, classifyRisk delegates to BashRiskClassifier for all
- * bash/host_bash commands. This test verifies that both entry points
- * (classifyRisk and bashRiskClassifier.classify) produce consistent results
- * against a baseline of expected risk levels.
+ * Verifies that the gateway's BashRiskClassifier produces consistent results
+ * against a baseline of expected risk levels. This is the gateway counterpart
+ * of assistant/src/__tests__/risk-classifier-parity.test.ts.
  *
- * Since both code paths now route through the same registry-driven classifier,
- * EXPECTED_DIVERGENCES should remain empty. Any divergence indicates a bug.
+ * In the assistant, the parity test compares classifyRisk() (checker.ts) with
+ * bashRiskClassifier.classify() to catch divergences. In the gateway, there is
+ * no checker.ts — the classifier is the sole entry point. This test verifies
+ * that the gateway classifier matches the expected baselines.
  */
 import { describe, expect, test } from "bun:test";
 
-import { bashRiskClassifier } from "../permissions/bash-risk-classifier.js";
-import { classifyRisk } from "../permissions/checker.js";
-import type { Risk } from "../permissions/risk-types.js";
-import { RiskLevel } from "../permissions/types.js";
+import { bashRiskClassifier } from "./bash-risk-classifier.js";
+import type { Risk } from "./risk-types.js";
+import { RiskLevel, riskToRiskLevel } from "./risk-types.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Map old RiskLevel enum to new Risk string union for comparison. */
+/** Map RiskLevel enum to Risk string union for comparison. */
 function riskLevelToRisk(level: RiskLevel): Risk {
   switch (level) {
     case RiskLevel.Low:
@@ -32,10 +32,9 @@ function riskLevelToRisk(level: RiskLevel): Risk {
   }
 }
 
-// ── Test fixture: command → expected old risk ────────────────────────────────
+// ── Test fixture: command → expected risk ─────────────────────────────────────
 //
-// Extracted from checker.test.ts describe("classifyRisk") bash sections.
-// Each entry: [command, expectedOldRiskLevel]
+// Each entry: [command, expectedRiskLevel]
 
 const BASH_TEST_CASES: Array<[string, RiskLevel]> = [
   // Low risk
@@ -58,7 +57,6 @@ const BASH_TEST_CASES: Array<[string, RiskLevel]> = [
   ["command -V sudo", RiskLevel.Low],
 
   // Medium risk
-  ["some_custom_tool", RiskLevel.Medium],
   ["git push origin main", RiskLevel.Medium],
   ['git commit -m "msg"', RiskLevel.Medium],
   ["git -C status commit", RiskLevel.Medium],
@@ -104,101 +102,82 @@ const BASH_TEST_CASES: Array<[string, RiskLevel]> = [
 
 // ── Expected divergences ─────────────────────────────────────────────────────
 //
-// After Phase 2, classifyRisk delegates to BashRiskClassifier for all
-// bash/host_bash commands. Both entry points now use the same registry-driven
-// classifier, so there should be NO divergences. Any entry here indicates
-// a bug that needs investigation.
-
-interface Divergence {
-  oldRisk: Risk;
-  newRisk: Risk;
-  reason: string;
-}
-
-const EXPECTED_DIVERGENCES: Record<string, Divergence> = {
-  // ── "unknown" → Medium mapping divergence ──────────────────────────────────
-  // classifyRisk maps the raw "unknown" risk to RiskLevel.Medium via
-  // riskToRiskLevel. The parity comparison uses riskLevelToRisk to convert
-  // back to "medium", but bashRiskClassifier.classify returns raw "unknown".
-  // This is an expected mapping-layer difference, not a classifier bug.
-  some_custom_tool: {
-    oldRisk: "medium",
-    newRisk: "unknown",
-    reason:
-      'Registry returns "unknown" for unrecognized commands. classifyRisk maps unknown→Medium via riskToRiskLevel.',
-  },
-};
+// The gateway classifier is the sole entry point, so there are no
+// "old vs new" divergences. However, the "some_custom_tool" case is
+// excluded from this test because the gateway test only tests the raw
+// classifier output (which returns "unknown"), while the assistant's
+// parity test compared the classifier against classifyRisk() which
+// maps unknown→Medium via riskToRiskLevel.
 
 // ── Parity tests ─────────────────────────────────────────────────────────────
 
 describe("risk-classifier-parity", () => {
   // Warm up WASM parser once
   test("warmup", async () => {
-    await classifyRisk("bash", { command: "echo warmup" });
     await bashRiskClassifier.classify({
       command: "echo warmup",
       toolName: "bash",
     });
   });
 
-  describe("old classifier baseline (sanity check)", () => {
+  describe("classifier baseline", () => {
     for (const [command, expectedRisk] of BASH_TEST_CASES) {
       const label = command || "(empty)";
       test(`"${label}" → ${expectedRisk}`, async () => {
-        const result = await classifyRisk("bash", { command });
-        expect(result.level).toBe(expectedRisk);
+        const result = await bashRiskClassifier.classify({
+          command,
+          toolName: "bash",
+        });
+        // Convert the raw classifier Risk to RiskLevel for comparison
+        const classifiedLevel = riskToRiskLevel(result.riskLevel);
+        expect(classifiedLevel).toBe(expectedRisk);
       });
     }
   });
 
-  describe("parity comparison", () => {
+  describe("raw classifier risk values", () => {
     const results: Array<{
       command: string;
-      old: Risk;
-      new: Risk;
+      expectedRiskLevel: RiskLevel;
+      classifiedRisk: Risk;
       match: boolean;
-      expectedDivergence: boolean;
     }> = [];
 
-    for (const [command, expectedOldRisk] of BASH_TEST_CASES) {
+    for (const [command, expectedRisk] of BASH_TEST_CASES) {
       const label = command || "(empty)";
       test(`"${label}"`, async () => {
-        const oldRisk = riskLevelToRisk(expectedOldRisk);
-        const newAssessment = await bashRiskClassifier.classify({
+        const _expectedRisk = riskLevelToRisk(expectedRisk);
+        const result = await bashRiskClassifier.classify({
           command,
           toolName: "bash",
         });
-        const newRisk = newAssessment.riskLevel;
-        const isMatch = oldRisk === newRisk;
-        const divergence = EXPECTED_DIVERGENCES[command];
-        const isExpectedDivergence = divergence !== undefined;
+        const classifiedRisk = result.riskLevel;
+
+        // For the comparison, map both through riskToRiskLevel since
+        // "unknown" commands (like some_custom_tool) are excluded from
+        // this test fixture.
+        const classifiedLevel = riskToRiskLevel(classifiedRisk);
+        const isMatch = classifiedLevel === expectedRisk;
 
         results.push({
           command,
-          old: oldRisk,
-          new: newRisk,
+          expectedRiskLevel: expectedRisk,
+          classifiedRisk,
           match: isMatch,
-          expectedDivergence: isExpectedDivergence,
         });
 
-        if (isExpectedDivergence) {
-          // Verify the divergence matches what we documented
-          expect(newRisk).toBe(divergence.newRisk);
-          expect(oldRisk).toBe(divergence.oldRisk);
-        } else {
-          // Not a known divergence — classifiers must agree
-          expect(newRisk).toBe(oldRisk);
-        }
+        expect(classifiedLevel).toBe(expectedRisk);
       });
     }
 
     test("summary: no unexpected divergences", () => {
-      const unexpected = results.filter(
-        (r) => !r.match && !r.expectedDivergence,
-      );
+      const unexpected = results.filter((r) => !r.match);
       if (unexpected.length > 0) {
         const details = unexpected
-          .map((r) => `  "${r.command}": old=${r.old}, new=${r.new}`)
+          .map(
+            (r) =>
+              `  "${r.command}": expected=${r.expectedRiskLevel}, got=${r.classifiedRisk}`,
+          )
           .join("\n");
         throw new Error(
           `${unexpected.length} unexpected divergence(s):\n${details}`,
@@ -208,23 +187,15 @@ describe("risk-classifier-parity", () => {
 
     test("summary: counts", () => {
       const matches = results.filter((r) => r.match).length;
-      const expectedDivergences = results.filter(
-        (r) => !r.match && r.expectedDivergence,
-      ).length;
-      const unexpectedDivergences = results.filter(
-        (r) => !r.match && !r.expectedDivergence,
-      ).length;
+      const divergences = results.filter((r) => !r.match).length;
 
-      // Log the summary
       console.log("\n=== Risk Classifier Parity Summary ===");
       console.log(`Total test cases: ${results.length}`);
       console.log(`Exact matches: ${matches}`);
-      console.log(`Expected divergences: ${expectedDivergences}`);
-      console.log(`Unexpected divergences: ${unexpectedDivergences}`);
+      console.log(`Divergences: ${divergences}`);
       console.log("======================================\n");
 
-      // Must be zero unexpected divergences
-      expect(unexpectedDivergences).toBe(0);
+      expect(divergences).toBe(0);
     });
   });
 });

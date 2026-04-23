@@ -11,26 +11,51 @@
  * - host_file_read: Medium (tool registry default; no special escalation).
  * - host_file_write / host_file_edit: Medium by default, High if targeting
  *   skill source code or the workspace hooks directory.
+ *
+ * Gateway adaptation: accepts a FileClassificationContext parameter instead
+ * of importing assistant platform utilities directly. The assistant is
+ * responsible for constructing the context from its config/platform modules
+ * before calling the classifier.
  */
 
+// NOTE: homedir() is a legacy fallback for actor-token-signing-key path
+// detection and allowlist option directory traversal. In Docker mode the
+// gateway's HOME may differ from the assistant's, so the explicit context
+// paths (protectedDir, deprecatedDir) are the reliable escalation check.
+// homedir() is only used as a best-effort additional check and for allowlist
+// option cosmetics (trimming ~/… prefixes).
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
-import { getConfig } from "../config/loader.js";
-import {
-  isSkillSourcePath,
-  normalizeDirPath,
-  normalizeFilePath,
-} from "../skills/path-classifier.js";
-import {
-  getDeprecatedDir,
-  getProtectedDir,
-  getWorkspaceHooksDir,
-} from "../util/platform.js";
-import type { RiskAssessment, RiskClassifier } from "./risk-types.js";
-import type { AllowlistOption } from "./types.js";
+import type {
+  AllowlistOption,
+  RiskAssessment,
+  RiskClassifier,
+} from "./risk-types.js";
 
-// ── Input type ───────────────────────────────────────────────────────────────
+// -- Context interface --------------------------------------------------------
+
+/**
+ * Context provided by the caller (assistant) that replaces the assistant-
+ * specific imports (getProtectedDir, getWorkspaceHooksDir, isSkillSourcePath,
+ * getDeprecatedDir, getConfig, etc.).
+ */
+export interface FileClassificationContext {
+  /** Absolute path to the per-instance protected directory. */
+  protectedDir: string;
+  /** Absolute path to the deprecated directory (legacy signing key location). */
+  deprecatedDir: string;
+  /** Absolute path to the workspace hooks directory. */
+  hooksDir: string;
+  /**
+   * Absolute paths of all skill source root directories (managed, bundled,
+   * and any extra dirs from config). The classifier checks whether a file
+   * path falls under any of these roots.
+   */
+  skillSourceDirs: string[];
+}
+
+// -- Input type ---------------------------------------------------------------
 
 /** Input to the file risk classifier. */
 export interface FileClassifierInput {
@@ -45,22 +70,31 @@ export interface FileClassifierInput {
   workingDir: string;
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// -- Helpers ------------------------------------------------------------------
+
+/**
+ * Normalize a directory path: ensure it ends with `/` for prefix matching.
+ */
+function normalizeDirPath(dirPath: string): string {
+  return dirPath.endsWith("/") ? dirPath : dirPath + "/";
+}
 
 /**
  * Check whether a resolved absolute path targets the actor token signing key.
- * Covers both the per-instance protected dir, the legacy global path, and
- * a relative "deprecated/actor-token-signing-key" resolved against workingDir.
+ * Covers the per-instance protected dir, the legacy global path, the
+ * deprecated dir, and a relative "deprecated/actor-token-signing-key"
+ * resolved against workingDir.
  */
 function isActorTokenSigningKeyPath(
   resolvedPath: string,
   workingDir: string,
+  context: FileClassificationContext,
 ): boolean {
   const signingKeyPaths = Array.from(
     new Set([
       join(homedir(), ".vellum", "protected", "actor-token-signing-key"),
-      join(getProtectedDir(), "actor-token-signing-key"),
-      join(getDeprecatedDir(), "actor-token-signing-key"),
+      join(context.protectedDir, "actor-token-signing-key"),
+      join(context.deprecatedDir, "actor-token-signing-key"),
       resolve(workingDir, "deprecated", "actor-token-signing-key"),
     ]),
   );
@@ -71,17 +105,36 @@ function isActorTokenSigningKeyPath(
  * Check whether a resolved absolute path falls inside the workspace hooks
  * directory (or IS the hooks directory itself).
  */
-function isHooksPath(resolvedPath: string): boolean {
-  const normalizedHooksDir = normalizeDirPath(getWorkspaceHooksDir());
-  const normalizedPath = normalizeFilePath(resolvedPath);
+function isHooksPath(
+  resolvedPath: string,
+  context: FileClassificationContext,
+): boolean {
+  const normalizedHooksDir = normalizeDirPath(context.hooksDir);
   const hooksDirNoTrailingSlash = normalizedHooksDir.slice(0, -1);
   return (
-    normalizedPath === hooksDirNoTrailingSlash ||
-    normalizedPath.startsWith(normalizedHooksDir)
+    resolvedPath === hooksDirNoTrailingSlash ||
+    resolvedPath.startsWith(normalizedHooksDir)
   );
 }
 
-// ── Allowlist option helpers ──────────────────────────────────────────────────
+/**
+ * Check whether a resolved absolute path falls under any skill source
+ * directory.
+ */
+function isSkillSourcePath(
+  resolvedPath: string,
+  context: FileClassificationContext,
+): boolean {
+  for (const dir of context.skillSourceDirs) {
+    const normalizedDir = normalizeDirPath(dir);
+    if (resolvedPath.startsWith(normalizedDir)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// -- Allowlist option helpers -------------------------------------------------
 
 const FILE_TOOL_DISPLAY_NAMES: Record<string, string> = {
   file_read: "file reads",
@@ -98,9 +151,8 @@ function friendlyBasename(filePath: string): string {
 }
 
 /**
- * Build allowlist options for a file tool invocation, mirroring the logic
- * in checker.ts `fileAllowlistStrategy()`. Options go from most specific
- * (exact file) to broadest (all operations of this tool type).
+ * Build allowlist options for a file tool invocation. Options go from most
+ * specific (exact file) to broadest (all operations of this tool type).
  */
 function buildFileAllowlistOptions(
   toolName: string,
@@ -145,16 +197,26 @@ function buildFileAllowlistOptions(
   return options;
 }
 
-// ── Classifier ───────────────────────────────────────────────────────────────
+// -- Classifier ---------------------------------------------------------------
 
 /**
  * File risk classifier implementation.
  *
  * Classifies all six file tool types by risk level, with escalation paths
  * for skill source code, workspace hooks, and the actor token signing key.
+ *
+ * Unlike the assistant version, this classifier accepts a
+ * FileClassificationContext parameter on classify() instead of importing
+ * assistant-specific platform utilities.
  */
-export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
-  async classify(input: FileClassifierInput): Promise<RiskAssessment> {
+export class FileRiskClassifier implements RiskClassifier<
+  FileClassifierInput,
+  [FileClassificationContext]
+> {
+  async classify(
+    input: FileClassifierInput,
+    context: FileClassificationContext,
+  ): Promise<RiskAssessment> {
     const { toolName, filePath, workingDir } = input;
     const allowlistOptions = filePath
       ? buildFileAllowlistOptions(toolName, filePath)
@@ -164,7 +226,7 @@ export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
       case "file_read": {
         if (filePath) {
           const resolvedPath = resolve(workingDir, filePath);
-          if (isActorTokenSigningKeyPath(resolvedPath, workingDir)) {
+          if (isActorTokenSigningKeyPath(resolvedPath, workingDir, context)) {
             return {
               riskLevel: "high",
               reason: "Reads actor token signing key",
@@ -187,9 +249,7 @@ export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
       case "file_edit": {
         if (filePath) {
           const resolvedPath = resolve(workingDir, filePath);
-          if (
-            isSkillSourcePath(resolvedPath, getConfig().skills.load.extraDirs)
-          ) {
+          if (isSkillSourcePath(resolvedPath, context)) {
             return {
               riskLevel: "high",
               reason: "Writes to skill source code",
@@ -198,7 +258,7 @@ export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
               allowlistOptions,
             };
           }
-          if (isHooksPath(resolvedPath)) {
+          if (isHooksPath(resolvedPath, context)) {
             return {
               riskLevel: "high",
               reason: "Writes to hooks directory",
@@ -236,9 +296,7 @@ export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
           // Host file tools resolve paths without workingDir — resolve(filePath)
           // treats the path as absolute or relative to cwd.
           const resolvedPath = resolve(filePath);
-          if (
-            isSkillSourcePath(resolvedPath, getConfig().skills.load.extraDirs)
-          ) {
+          if (isSkillSourcePath(resolvedPath, context)) {
             return {
               riskLevel: "high",
               reason: "Writes to skill source code",
@@ -247,7 +305,7 @@ export class FileRiskClassifier implements RiskClassifier<FileClassifierInput> {
               allowlistOptions,
             };
           }
-          if (isHooksPath(resolvedPath)) {
+          if (isHooksPath(resolvedPath, context)) {
             return {
               riskLevel: "high",
               reason: "Writes to hooks directory",

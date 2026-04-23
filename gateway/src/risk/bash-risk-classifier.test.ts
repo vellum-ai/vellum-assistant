@@ -1,15 +1,4 @@
-import { describe, expect, mock, test } from "bun:test";
-
-// Mock the logger before importing classifier
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy(
-      {},
-      {
-        get: () => () => {},
-      },
-    ),
-}));
+import { describe, expect, test } from "bun:test";
 
 import {
   BashRiskClassifier,
@@ -23,9 +12,8 @@ import {
 } from "./bash-risk-classifier.js";
 import { DEFAULT_COMMAND_REGISTRY } from "./command-registry.js";
 import type { ArgRule, CommandRiskSpec } from "./risk-types.js";
-import { riskToRiskLevel } from "./risk-types.js";
+import { riskToRiskLevel, RiskLevel } from "./risk-types.js";
 import { cachedParse } from "./shell-identity.js";
-import { RiskLevel } from "./types.js";
 
 // ── Helper ───────────────────────────────────────────────────────────────────
 
@@ -1402,13 +1390,6 @@ describe("generateScopeOptions with parseArgs", () => {
     // Exact match
     expect(labels[0]).toBe("git push origin main --force");
 
-    // The scope ladder should produce (narrowest to broadest):
-    // 1. exact: git push origin main --force
-    // 2. wildcard last positional: git push --force origin * (subcommand before flags)
-    // 3. drop flags: git push *
-    // 4. subcommand wildcard: git push * (deduped)
-    // 5. command wildcard: git *
-
     // Verify subcommand "push" is after "git" and before flags in intermediate labels
     const wildcardLabels = labels.filter(
       (l) => l.includes("*") && l.includes("push"),
@@ -1458,10 +1439,6 @@ describe("generateScopeOptions with parseArgs", () => {
     expect(labels[0]).toBe("curl -X POST https://api.stripe.com/v1/charges");
 
     // Known limitation: POST is treated as a positional because curl lacks argSchema.
-    // When curl gains argSchema.valueFlags with -X, POST will be grouped with -X
-    // as a flag value instead. This test documents the current (imperfect) behavior.
-    // With naive split: flags = ["-X"], positionals = ["POST", "https://..."]
-    // The intermediate labels will include POST as a kept positional.
     expect(labels.some((l) => l.includes("POST"))).toBe(true);
 
     // Should end with command-level wildcard
@@ -1517,11 +1494,10 @@ describe("scopeOptionsToAllowlistOptions", () => {
     // Patterns are glob-compatible (not regex) for trust rule matching:
     // - First option: raw command string (exact match)
     // - Last option: action:<program> format
-    // - Intermediate: label-based glob patterns
     expect(allowlistOptions[0].pattern).toBe("git push origin main");
-    expect(
-      allowlistOptions[allowlistOptions.length - 1].pattern,
-    ).toBe("action:git");
+    expect(allowlistOptions[allowlistOptions.length - 1].pattern).toBe(
+      "action:git",
+    );
   });
 
   test("intermediate options get 'Commands matching this pattern' description", async () => {

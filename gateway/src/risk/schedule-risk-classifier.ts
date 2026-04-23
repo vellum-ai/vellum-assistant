@@ -3,26 +3,23 @@
  * High when the schedule runs in `script` mode.
  *
  * Background:
- * `script` mode (PR #27252, ATL-215) executes a raw shell command directly
- * via `Bun.spawn(["sh", "-c", command])` in `schedule/run-script.ts` without
- * going through the bash risk classifier or command registry. Tools
- * `schedule_create` / `schedule_update` are `medium` risk by default, which
- * means background guardian sessions (scheduled scans, periodic digests,
- * heartbeats) auto-approve them. A prompt-injection payload flowing into
- * such a session could therefore land a script-mode schedule that, once it
- * fires, runs arbitrary shell on the host.
+ * `script` mode executes a raw shell command directly via
+ * `Bun.spawn(["sh", "-c", command])` without going through the bash risk
+ * classifier or command registry. Tools `schedule_create` / `schedule_update`
+ * are `medium` risk by default, which means background guardian sessions
+ * (scheduled scans, periodic digests, heartbeats) auto-approve them. A
+ * prompt-injection payload flowing into such a session could therefore land
+ * a script-mode schedule that, once it fires, runs arbitrary shell on the host.
  *
  * Classification:
- *  - `mode === "script"` (explicit script mode request)        → High
- *  - `script` field provided with a non-empty value            → High
- *  - otherwise (notify / execute / unspecified)                → Medium
- *
- * See ATL-218 for the full threat model and Codex finding 2f90085c.
+ *  - `mode === "script"` (explicit script mode request)        -> High
+ *  - `script` field provided with a non-empty value            -> High
+ *  - otherwise (notify / execute / unspecified)                -> Medium
  */
 
 import type { RiskAssessment, RiskClassifier } from "./risk-types.js";
 
-// ── Input type ───────────────────────────────────────────────────────────────
+// -- Input type ---------------------------------------------------------------
 
 /** Input to the schedule risk classifier. */
 export interface ScheduleClassifierInput {
@@ -34,7 +31,7 @@ export interface ScheduleClassifierInput {
   script?: string;
 }
 
-// ── Classifier ───────────────────────────────────────────────────────────────
+// -- Classifier ---------------------------------------------------------------
 
 const SCRIPT_MODE_REASON =
   "Schedule in script mode runs an arbitrary shell command on the host " +
@@ -47,9 +44,7 @@ const SCRIPT_MODE_REASON =
  * schedule tools (`schedule_list`, `schedule_delete`) keep their static
  * registry risk (low / high respectively).
  */
-export class ScheduleRiskClassifier
-  implements RiskClassifier<ScheduleClassifierInput>
-{
+export class ScheduleRiskClassifier implements RiskClassifier<ScheduleClassifierInput> {
   async classify(input: ScheduleClassifierInput): Promise<RiskAssessment> {
     const { toolName, mode, script } = input;
 

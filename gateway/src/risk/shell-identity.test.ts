@@ -3,8 +3,8 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import {
   analyzeShellCommand,
   deriveShellActionKeys,
-} from "../permissions/shell-identity.js";
-import { parse } from "../tools/terminal/parser.js";
+} from "./shell-identity.js";
+import { parse } from "./shell-parser.js";
 
 describe("analyzeShellCommand", () => {
   beforeAll(async () => {
@@ -233,4 +233,3 @@ describe("deriveShellActionKeys", () => {
     ]);
   });
 });
-

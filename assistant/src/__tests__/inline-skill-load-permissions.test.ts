@@ -57,6 +57,9 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
+import { createGatewayClientMock } from "./helpers/gateway-classify-mock.js";
+mock.module("../ipc/gateway-client.js", () => createGatewayClientMock());
+
 // ── Imports (after mocks) ─────────────────────────────────────────────────
 
 import { check, generateAllowlistOptions } from "../permissions/checker.js";

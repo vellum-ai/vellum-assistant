@@ -3,60 +3,36 @@
  *
  * Implements RiskClassifier<BashClassifierInput> using the default command
  * registry and user rules. This is the primary classifier for bash/host_bash
- * tools — checker.ts delegates to `bashRiskClassifier.classify()` and maps
- * the result to the permission system's RiskLevel enum.
+ * tools — the permission layer delegates to `bashRiskClassifier.classify()`
+ * and maps the result to the permission system's RiskLevel enum.
  *
- * @see /docs/bash-risk-classifier-design.md
+ * Ported from assistant/src/permissions/bash-risk-classifier.ts with
+ * assistant-specific imports replaced for gateway self-containment.
  */
 
-import type {
-  CommandSegment,
-  ParsedCommand,
-} from "../tools/terminal/parser.js";
-import { getLogger } from "../util/logger.js";
+import type { CommandSegment, ParsedCommand } from "./shell-parser.js";
 import { parseArgs } from "./arg-parser.js";
 import { DEFAULT_COMMAND_REGISTRY } from "./command-registry.js";
-import type {
-  ArgRule,
-  ArgSchema,
-  BashClassifierInput,
-  CommandRiskSpec,
-  Risk,
-  RiskAssessment,
-  RiskClassifier,
-  ScopeOption,
-  UserRule,
+import {
+  maxRisk,
+  riskOrd,
+  type ArgRule,
+  type ArgSchema,
+  type AllowlistOption,
+  type BashClassifierInput,
+  type CommandRiskSpec,
+  type Risk,
+  type RiskAssessment,
+  type RiskClassifier,
+  type ScopeOption,
+  type UserRule,
 } from "./risk-types.js";
 import { cachedParse } from "./shell-identity.js";
-import type { AllowlistOption } from "./types.js";
-
-const log = getLogger("bash-risk-classifier");
 
 // ── Risk ordering helpers ────────────────────────────────────────────────────
 
-const RISK_ORD: Record<Risk, number> = {
-  low: 0,
-  medium: 1,
-  unknown: 2,
-  high: 3,
-};
-
-/**
- * Numeric ordering for risk comparison.
- *
- * `high` outranks `unknown`: if any segment is definitively high-risk, the
- * overall command is high — the known-dangerous signal dominates. `unknown`
- * sits between medium and high: an unrecognized command is riskier than a
- * known-medium one, but not as definitive as a known-high one.
- */
-export function riskOrd(risk: Risk): number {
-  return RISK_ORD[risk];
-}
-
-/** Return the higher of two risk levels. */
-export function maxRisk(a: Risk, b: Risk): Risk {
-  return riskOrd(a) >= riskOrd(b) ? a : b;
-}
+// riskOrd and maxRisk are imported from risk-types.ts. Only escalateOne is
+// defined locally since it is specific to the classifier.
 
 /** Escalate a risk level by one step: low→medium, medium→high, high→high. */
 export function escalateOne(risk: Risk): Risk {
@@ -71,6 +47,9 @@ export function escalateOne(risk: Risk): Risk {
       return "unknown";
   }
 }
+
+// Re-export riskOrd and maxRisk for tests and consumers that import from here.
+export { riskOrd, maxRisk };
 
 // ── Compiled regex cache ─────────────────────────────────────────────────────
 // The registry is static, so we can compile and cache RegExp instances for
@@ -831,9 +810,9 @@ export function scopeOptionsToAllowlistOptions(
 /**
  * Bash risk classifier implementation.
  *
- * Primary classifier for bash/host_bash tools. checker.ts delegates to
- * the singleton `bashRiskClassifier` instance for all bash command
- * risk classification.
+ * Primary classifier for bash/host_bash tools. The permission layer
+ * delegates to the singleton `bashRiskClassifier` instance for all
+ * bash command risk classification.
  */
 export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
   private readonly registry: Record<string, CommandRiskSpec>;
@@ -928,19 +907,6 @@ export class BashRiskClassifier implements RiskClassifier<BashClassifierInput> {
       matchType,
       allowlistOptions,
     };
-
-    // Risk assessment analytics
-    const primaryProgram = parsed.segments[0]?.program ?? "(none)";
-    log.info(
-      {
-        command,
-        program: primaryProgram,
-        riskLevel: assessment.riskLevel,
-        reason: assessment.reason,
-        matchType: assessment.matchType,
-      },
-      "Risk assessment",
-    );
 
     return assessment;
   }

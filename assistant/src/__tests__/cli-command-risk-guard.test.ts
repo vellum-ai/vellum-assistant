@@ -31,6 +31,9 @@ mock.module("../config/loader.js", () => ({
   setNestedValue: () => {},
 }));
 
+import { createGatewayClientMock } from "./helpers/gateway-classify-mock.js";
+mock.module("../ipc/gateway-client.js", () => createGatewayClientMock());
+
 import { buildCliProgram } from "../cli/program.js";
 import type { RiskClassification } from "../permissions/checker.js";
 import { classifyRisk } from "../permissions/checker.js";

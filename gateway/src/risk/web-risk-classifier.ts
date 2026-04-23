@@ -11,7 +11,7 @@
 
 import type { RiskAssessment, RiskClassifier } from "./risk-types.js";
 
-// ── Input type ───────────────────────────────────────────────────────────────
+// -- Input type ---------------------------------------------------------------
 
 /** Input to the web risk classifier. */
 export interface WebClassifierInput {
@@ -23,7 +23,7 @@ export interface WebClassifierInput {
   allowPrivateNetwork?: boolean;
 }
 
-// ── Classifier ───────────────────────────────────────────────────────────────
+// -- Classifier ---------------------------------------------------------------
 
 /**
  * Web risk classifier implementation.

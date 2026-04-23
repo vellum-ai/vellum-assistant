@@ -1,18 +1,16 @@
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
-// ── Mocks ────────────────────────────────────────────────────────────────────
+import type { FileClassificationContext } from "./file-risk-classifier.js";
+import {
+  type FileClassifierInput,
+  FileRiskClassifier,
+  fileRiskClassifier,
+} from "./file-risk-classifier.js";
 
-// Mock the config loader — skill extraDirs is empty by default.
-const mockExtraDirs: string[] = [];
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    skills: { load: { extraDirs: mockExtraDirs } },
-  }),
-}));
+// -- Test context -------------------------------------------------------------
 
-// Mock platform paths to deterministic values for test isolation.
 const MOCK_PROTECTED_DIR = join(homedir(), ".vellum", "protected");
 const MOCK_DEPRECATED_DIR = join(
   homedir(),
@@ -22,31 +20,19 @@ const MOCK_DEPRECATED_DIR = join(
 );
 const MOCK_HOOKS_DIR = join(homedir(), ".vellum", "workspace", "hooks");
 
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => MOCK_PROTECTED_DIR,
-  getDeprecatedDir: () => MOCK_DEPRECATED_DIR,
-  getWorkspaceHooksDir: () => MOCK_HOOKS_DIR,
-}));
+/** Skill source paths managed per-test via the context's skillSourceDirs. */
+let testSkillSourceDirs: string[] = [];
 
-// Mock path-classifier to avoid filesystem-dependent behavior in tests.
-// isSkillSourcePath checks whether a path falls under skill directories.
-// We control it via a test-local set of "skill paths".
-const skillSourcePaths = new Set<string>();
-mock.module("../skills/path-classifier.js", () => ({
-  isSkillSourcePath: (absPath: string, _extraRoots?: string[]) =>
-    skillSourcePaths.has(absPath),
-  normalizeDirPath: (dirPath: string) =>
-    dirPath.endsWith("/") ? dirPath : dirPath + "/",
-  normalizeFilePath: (filePath: string) => filePath,
-}));
+function makeContext(): FileClassificationContext {
+  return {
+    protectedDir: MOCK_PROTECTED_DIR,
+    deprecatedDir: MOCK_DEPRECATED_DIR,
+    hooksDir: MOCK_HOOKS_DIR,
+    skillSourceDirs: testSkillSourceDirs,
+  };
+}
 
-import {
-  type FileClassifierInput,
-  FileRiskClassifier,
-  fileRiskClassifier,
-} from "./file-risk-classifier.js";
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// -- Helpers ------------------------------------------------------------------
 
 function makeClassifier(): FileRiskClassifier {
   return new FileRiskClassifier();
@@ -57,20 +43,24 @@ const WORKING_DIR = "/home/user/project";
 function classifyInput(
   input: Partial<FileClassifierInput> & Pick<FileClassifierInput, "toolName">,
 ) {
-  return makeClassifier().classify({
-    filePath: input.filePath ?? "",
-    workingDir: input.workingDir ?? WORKING_DIR,
-    toolName: input.toolName,
-  });
+  return makeClassifier().classify(
+    {
+      filePath: input.filePath ?? "",
+      workingDir: input.workingDir ?? WORKING_DIR,
+      toolName: input.toolName,
+    },
+    makeContext(),
+  );
 }
 
-// ── Tests ────────────────────────────────────────────────────────────────────
+// -- Tests --------------------------------------------------------------------
 
 describe("FileRiskClassifier", () => {
-  // ── file_read ────────────────────────────────────────────────────────────
+  // -- file_read --------------------------------------------------------------
 
   describe("file_read", () => {
     test("default risk is low", async () => {
+      testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "file_read",
         filePath: "src/index.ts",
@@ -82,6 +72,7 @@ describe("FileRiskClassifier", () => {
     });
 
     test("empty filePath is low", async () => {
+      testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "file_read",
         filePath: "",
@@ -90,12 +81,11 @@ describe("FileRiskClassifier", () => {
     });
 
     test("actor token signing key in protected dir is high", async () => {
+      testSkillSourceDirs = [];
       const signingKeyPath = join(
         MOCK_PROTECTED_DIR,
         "actor-token-signing-key",
       );
-      // file_read resolves relative to workingDir, so provide the absolute
-      // path as filePath with a workingDir that makes resolve() produce it.
       const result = await classifyInput({
         toolName: "file_read",
         filePath: signingKeyPath,
@@ -106,6 +96,7 @@ describe("FileRiskClassifier", () => {
     });
 
     test("actor token signing key in legacy home dir is high", async () => {
+      testSkillSourceDirs = [];
       const legacyPath = join(
         homedir(),
         ".vellum",
@@ -121,6 +112,7 @@ describe("FileRiskClassifier", () => {
     });
 
     test("actor token signing key in deprecated dir is high", async () => {
+      testSkillSourceDirs = [];
       const deprecatedPath = join(
         MOCK_DEPRECATED_DIR,
         "actor-token-signing-key",
@@ -134,6 +126,7 @@ describe("FileRiskClassifier", () => {
     });
 
     test("relative deprecated/actor-token-signing-key resolved against workingDir is high", async () => {
+      testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "file_read",
         filePath: "deprecated/actor-token-signing-key",
@@ -145,6 +138,7 @@ describe("FileRiskClassifier", () => {
     });
 
     test("other protected dir files are low", async () => {
+      testSkillSourceDirs = [];
       const otherPath = join(MOCK_PROTECTED_DIR, "some-other-key");
       const result = await classifyInput({
         toolName: "file_read",
@@ -155,10 +149,11 @@ describe("FileRiskClassifier", () => {
     });
   });
 
-  // ── file_write ───────────────────────────────────────────────────────────
+  // -- file_write -------------------------------------------------------------
 
   describe("file_write", () => {
     test("default risk is low", async () => {
+      testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "file_write",
         filePath: "src/index.ts",
@@ -169,6 +164,7 @@ describe("FileRiskClassifier", () => {
     });
 
     test("empty filePath is low", async () => {
+      testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "file_write",
         filePath: "",
@@ -177,21 +173,19 @@ describe("FileRiskClassifier", () => {
     });
 
     test("skill source path is high", async () => {
-      const skillPath = resolve(WORKING_DIR, "skills/my-skill/SKILL.md");
-      skillSourcePaths.add(skillPath);
-      try {
-        const result = await classifyInput({
-          toolName: "file_write",
-          filePath: "skills/my-skill/SKILL.md",
-        });
-        expect(result.riskLevel).toBe("high");
-        expect(result.reason).toBe("Writes to skill source code");
-      } finally {
-        skillSourcePaths.delete(skillPath);
-      }
+      const skillDir = resolve(WORKING_DIR, "skills/my-skill");
+      testSkillSourceDirs = [skillDir];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: "skills/my-skill/SKILL.md",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to skill source code");
+      testSkillSourceDirs = [];
     });
 
     test("hooks directory itself is high", async () => {
+      testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "file_write",
         filePath: MOCK_HOOKS_DIR,
@@ -202,6 +196,7 @@ describe("FileRiskClassifier", () => {
     });
 
     test("file inside hooks directory is high", async () => {
+      testSkillSourceDirs = [];
       const hookFile = join(MOCK_HOOKS_DIR, "pre-tool-use.sh");
       const result = await classifyInput({
         toolName: "file_write",
@@ -213,6 +208,7 @@ describe("FileRiskClassifier", () => {
     });
 
     test("non-skill, non-hooks path is low", async () => {
+      testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "file_write",
         filePath: "/tmp/output.txt",
@@ -222,10 +218,11 @@ describe("FileRiskClassifier", () => {
     });
   });
 
-  // ── file_edit ────────────────────────────────────────────────────────────
+  // -- file_edit --------------------------------------------------------------
 
   describe("file_edit", () => {
     test("default risk is low", async () => {
+      testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "file_edit",
         filePath: "src/index.ts",
@@ -235,21 +232,19 @@ describe("FileRiskClassifier", () => {
     });
 
     test("skill source path is high", async () => {
-      const skillPath = resolve(WORKING_DIR, "skills/my-skill/index.ts");
-      skillSourcePaths.add(skillPath);
-      try {
-        const result = await classifyInput({
-          toolName: "file_edit",
-          filePath: "skills/my-skill/index.ts",
-        });
-        expect(result.riskLevel).toBe("high");
-        expect(result.reason).toBe("Writes to skill source code");
-      } finally {
-        skillSourcePaths.delete(skillPath);
-      }
+      const skillDir = resolve(WORKING_DIR, "skills/my-skill");
+      testSkillSourceDirs = [skillDir];
+      const result = await classifyInput({
+        toolName: "file_edit",
+        filePath: "skills/my-skill/index.ts",
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to skill source code");
+      testSkillSourceDirs = [];
     });
 
     test("hooks directory path is high", async () => {
+      testSkillSourceDirs = [];
       const hookFile = join(MOCK_HOOKS_DIR, "post-tool-use.sh");
       const result = await classifyInput({
         toolName: "file_edit",
@@ -261,10 +256,11 @@ describe("FileRiskClassifier", () => {
     });
   });
 
-  // ── host_file_read ───────────────────────────────────────────────────────
+  // -- host_file_read ---------------------------------------------------------
 
   describe("host_file_read", () => {
     test("always medium (tool registry default)", async () => {
+      testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "host_file_read",
         filePath: "/etc/passwd",
@@ -275,6 +271,7 @@ describe("FileRiskClassifier", () => {
     });
 
     test("medium even for empty path", async () => {
+      testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "host_file_read",
         filePath: "",
@@ -283,6 +280,7 @@ describe("FileRiskClassifier", () => {
     });
 
     test("medium even for actor token signing key path", async () => {
+      testSkillSourceDirs = [];
       // host_file_read has no escalation paths — it's always medium.
       const signingKeyPath = join(
         MOCK_PROTECTED_DIR,
@@ -296,10 +294,11 @@ describe("FileRiskClassifier", () => {
     });
   });
 
-  // ── host_file_write ──────────────────────────────────────────────────────
+  // -- host_file_write --------------------------------------------------------
 
   describe("host_file_write", () => {
     test("default risk is medium", async () => {
+      testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "host_file_write",
         filePath: "/tmp/output.txt",
@@ -310,6 +309,7 @@ describe("FileRiskClassifier", () => {
     });
 
     test("empty filePath is medium", async () => {
+      testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "host_file_write",
         filePath: "",
@@ -320,20 +320,19 @@ describe("FileRiskClassifier", () => {
     test("skill source path is high", async () => {
       // Host tools resolve with resolve(filePath) — no workingDir prefix.
       const absSkillPath = "/home/user/skills/evil-skill/SKILL.md";
-      skillSourcePaths.add(resolve(absSkillPath));
-      try {
-        const result = await classifyInput({
-          toolName: "host_file_write",
-          filePath: absSkillPath,
-        });
-        expect(result.riskLevel).toBe("high");
-        expect(result.reason).toBe("Writes to skill source code");
-      } finally {
-        skillSourcePaths.delete(resolve(absSkillPath));
-      }
+      const skillDir = "/home/user/skills/evil-skill";
+      testSkillSourceDirs = [skillDir];
+      const result = await classifyInput({
+        toolName: "host_file_write",
+        filePath: absSkillPath,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to skill source code");
+      testSkillSourceDirs = [];
     });
 
     test("hooks directory is high", async () => {
+      testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "host_file_write",
         filePath: MOCK_HOOKS_DIR,
@@ -343,6 +342,7 @@ describe("FileRiskClassifier", () => {
     });
 
     test("file inside hooks directory is high", async () => {
+      testSkillSourceDirs = [];
       const hookFile = join(MOCK_HOOKS_DIR, "pre-tool-use.sh");
       const result = await classifyInput({
         toolName: "host_file_write",
@@ -353,10 +353,11 @@ describe("FileRiskClassifier", () => {
     });
   });
 
-  // ── host_file_edit ───────────────────────────────────────────────────────
+  // -- host_file_edit ---------------------------------------------------------
 
   describe("host_file_edit", () => {
     test("default risk is medium", async () => {
+      testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "host_file_edit",
         filePath: "/tmp/output.txt",
@@ -367,20 +368,19 @@ describe("FileRiskClassifier", () => {
 
     test("skill source path is high", async () => {
       const absSkillPath = "/home/user/skills/evil-skill/index.ts";
-      skillSourcePaths.add(resolve(absSkillPath));
-      try {
-        const result = await classifyInput({
-          toolName: "host_file_edit",
-          filePath: absSkillPath,
-        });
-        expect(result.riskLevel).toBe("high");
-        expect(result.reason).toBe("Writes to skill source code");
-      } finally {
-        skillSourcePaths.delete(resolve(absSkillPath));
-      }
+      const skillDir = "/home/user/skills/evil-skill";
+      testSkillSourceDirs = [skillDir];
+      const result = await classifyInput({
+        toolName: "host_file_edit",
+        filePath: absSkillPath,
+      });
+      expect(result.riskLevel).toBe("high");
+      expect(result.reason).toBe("Writes to skill source code");
+      testSkillSourceDirs = [];
     });
 
     test("hooks directory path is high", async () => {
+      testSkillSourceDirs = [];
       const hookFile = join(MOCK_HOOKS_DIR, "post-tool-use.sh");
       const result = await classifyInput({
         toolName: "host_file_edit",
@@ -391,7 +391,7 @@ describe("FileRiskClassifier", () => {
     });
   });
 
-  // ── Singleton export ─────────────────────────────────────────────────────
+  // -- Singleton export -------------------------------------------------------
 
   describe("singleton", () => {
     test("fileRiskClassifier is an instance of FileRiskClassifier", () => {
@@ -399,62 +399,66 @@ describe("FileRiskClassifier", () => {
     });
 
     test("singleton produces same results as new instance", async () => {
-      const singletonResult = await fileRiskClassifier.classify({
-        toolName: "file_read",
-        filePath: "src/index.ts",
-        workingDir: WORKING_DIR,
-      });
-      const freshResult = await makeClassifier().classify({
-        toolName: "file_read",
-        filePath: "src/index.ts",
-        workingDir: WORKING_DIR,
-      });
+      testSkillSourceDirs = [];
+      const ctx = makeContext();
+      const singletonResult = await fileRiskClassifier.classify(
+        {
+          toolName: "file_read",
+          filePath: "src/index.ts",
+          workingDir: WORKING_DIR,
+        },
+        ctx,
+      );
+      const freshResult = await makeClassifier().classify(
+        {
+          toolName: "file_read",
+          filePath: "src/index.ts",
+          workingDir: WORKING_DIR,
+        },
+        ctx,
+      );
       expect(singletonResult).toEqual(freshResult);
     });
   });
 
-  // ── Path resolution behavior ─────────────────────────────────────────────
+  // -- Path resolution behavior -----------------------------------------------
 
   describe("path resolution", () => {
     test("sandbox tools resolve paths relative to workingDir", async () => {
       // file_write with a relative skill path resolved against workingDir
       const relPath = "my-skills/test-skill/SKILL.md";
-      const resolvedPath = resolve(WORKING_DIR, relPath);
-      skillSourcePaths.add(resolvedPath);
-      try {
-        const result = await classifyInput({
-          toolName: "file_write",
-          filePath: relPath,
-          workingDir: WORKING_DIR,
-        });
-        expect(result.riskLevel).toBe("high");
-      } finally {
-        skillSourcePaths.delete(resolvedPath);
-      }
+      const skillDir = resolve(WORKING_DIR, "my-skills/test-skill");
+      testSkillSourceDirs = [skillDir];
+      const result = await classifyInput({
+        toolName: "file_write",
+        filePath: relPath,
+        workingDir: WORKING_DIR,
+      });
+      expect(result.riskLevel).toBe("high");
+      testSkillSourceDirs = [];
     });
 
     test("host tools resolve paths without workingDir", async () => {
       // host_file_write resolves with resolve(filePath) — workingDir is ignored.
       const absPath = "/absolute/skill-path/SKILL.md";
-      skillSourcePaths.add(resolve(absPath));
-      try {
-        const result = await classifyInput({
-          toolName: "host_file_write",
-          filePath: absPath,
-          // Even though workingDir is set, host tools ignore it
-          workingDir: "/some/other/dir",
-        });
-        expect(result.riskLevel).toBe("high");
-      } finally {
-        skillSourcePaths.delete(resolve(absPath));
-      }
+      const skillDir = "/absolute/skill-path";
+      testSkillSourceDirs = [skillDir];
+      const result = await classifyInput({
+        toolName: "host_file_write",
+        filePath: absPath,
+        // Even though workingDir is set, host tools ignore it
+        workingDir: "/some/other/dir",
+      });
+      expect(result.riskLevel).toBe("high");
+      testSkillSourceDirs = [];
     });
   });
 
-  // ── Allowlist options ─────────────────────────────────────────────────────
+  // -- Allowlist options ------------------------------------------------------
 
   describe("allowlistOptions", () => {
     test("file_read produces exact file + ancestor dirs + wildcard", async () => {
+      testSkillSourceDirs = [];
       const filePath = "/home/user/project/src/index.ts";
       const result = await classifyInput({
         toolName: "file_read",
@@ -500,6 +504,7 @@ describe("FileRiskClassifier", () => {
     });
 
     test("file_write produces options for the given path", async () => {
+      testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "file_write",
         filePath: "/tmp/output.txt",
@@ -513,6 +518,7 @@ describe("FileRiskClassifier", () => {
     });
 
     test("host_file_read produces options", async () => {
+      testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "host_file_read",
         filePath: "/etc/config.json",
@@ -525,6 +531,7 @@ describe("FileRiskClassifier", () => {
     });
 
     test("empty filePath produces empty allowlistOptions", async () => {
+      testSkillSourceDirs = [];
       const result = await classifyInput({
         toolName: "file_read",
         filePath: "",

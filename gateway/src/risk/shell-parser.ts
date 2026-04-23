@@ -4,25 +4,44 @@ import { dirname, join } from "node:path";
 
 import { Language, type Node as TSNode, Parser } from "web-tree-sitter";
 
-import { IntegrityError } from "../../util/errors.js";
-import { getLogger } from "../../util/logger.js";
-import { PromiseGuard } from "../../util/promise-guard.js";
+import { getLogger } from "../logger.js";
+
+import type { DangerousPattern, DangerousPatternType } from "./risk-types.js";
 
 const log = getLogger("shell-parser");
 
-export type DangerousPatternType =
-  | "pipe_to_shell"
-  | "base64_execute"
-  | "process_substitution"
-  | "sensitive_redirect"
-  | "dangerous_substitution"
-  | "env_injection";
+// ── Inline helpers (self-contained, no assistant imports) ────────────────────
 
-export interface DangerousPattern {
-  type: DangerousPatternType;
-  description: string;
-  text: string;
+class IntegrityError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "IntegrityError";
+  }
 }
+
+/**
+ * Guards against concurrent execution of an async factory.
+ * Multiple concurrent callers share the same in-flight promise.
+ * On failure, the guard resets so subsequent calls can retry.
+ */
+class PromiseGuard<T> {
+  private promise: Promise<T> | null = null;
+
+  run(factory: () => Promise<T>, onError?: (err: unknown) => void): Promise<T> {
+    if (this.promise) return this.promise;
+
+    this.promise = factory();
+    this.promise.catch((err) => {
+      this.promise = null;
+      onError?.(err);
+    });
+    return this.promise;
+  }
+}
+
+// ── Re-export types for consumers ────────────────────────────────────────────
+
+export type { DangerousPattern, DangerousPatternType };
 
 export interface CommandSegment {
   command: string;
@@ -145,13 +164,9 @@ const initGuard = new PromiseGuard<void>();
 /**
  * Locate a WASM file from a dependency package.
  *
- * In development / `bunx` the file lives under `node_modules/` relative
- * to the source tree.  In compiled Bun binaries `import.meta.dirname`
- * points into the virtual `/$bunfs/` filesystem where binary assets
- * don't exist - fall back to:
- *   1. `../Resources/<file>` (macOS .app bundle layout)
- *   2. Next to the compiled binary (process.execPath)
- * This matches the pattern used for compiled Bun binary asset resolution.
+ * In the gateway dev environment the file lives under `node_modules/`
+ * relative to the source tree. `require.resolve()` is the primary
+ * resolution strategy, with manual fallbacks for hoisted layouts.
  */
 function findWasmPath(
   pkg: string,
@@ -161,7 +176,7 @@ function findWasmPath(
   const dir = import.meta.dirname ?? __dirname;
 
   // In compiled Bun binaries, import.meta.dirname points into the virtual
-  // /$bunfs/ filesystem.  Prefer bundled WASM assets shipped alongside the
+  // /$bunfs/ filesystem. Prefer bundled WASM assets shipped alongside the
   // executable before falling back to process.cwd(), so we never accidentally
   // pick up a mismatched version from the working directory.
   if (dir.startsWith("/$bunfs/")) {
@@ -172,7 +187,7 @@ function findWasmPath(
     // Next to the binary itself (non-app-bundle deployments)
     const execDirPath = join(execDir, file);
     if (existsSync(execDirPath)) return execDirPath;
-    // Last resort: resolve from process.cwd() (the assistant/ directory)
+    // Last resort: resolve from process.cwd()
     const cwdPath = join(process.cwd(), "node_modules", pkg, file);
     if (existsSync(cwdPath)) return cwdPath;
     return execDirPath;
@@ -185,9 +200,7 @@ function findWasmPath(
     if (existsSync(resolvedPath)) return resolvedPath;
   }
 
-  // Fallback: dynamic module resolution. This handles hoisted dependencies
-  // (e.g. global bun installs where web-tree-sitter is at the top-level
-  // node_modules rather than nested under @vellumai/assistant).
+  // Dynamic module resolution handles hoisted dependencies.
   try {
     const resolved = require.resolve(`${pkg}/package.json`);
     const pkgDir = dirname(resolved);
@@ -200,18 +213,18 @@ function findWasmPath(
     );
   }
 
-  const sourcePath = join(dir, "..", "..", "..", "node_modules", pkg, file);
+  const sourcePath = join(dir, "..", "..", "node_modules", pkg, file);
 
   if (existsSync(sourcePath)) return sourcePath;
 
-  // Fallback: resolve from process.cwd() (the assistant/ directory).
+  // Fallback: resolve from process.cwd().
   const cwdPath = join(process.cwd(), "node_modules", pkg, file);
   if (existsSync(cwdPath)) return cwdPath;
 
   return sourcePath;
 }
 
-async function ensureParser(): Promise<Parser> {
+export async function ensureParser(): Promise<Parser> {
   if (parserInstance) return parserInstance;
 
   await initGuard.run(async () => {
@@ -619,5 +632,3 @@ export async function parse(command: string): Promise<ParsedCommand> {
 
   return { segments, dangerousPatterns, hasOpaqueConstructs };
 }
-
-export { ensureParser };
