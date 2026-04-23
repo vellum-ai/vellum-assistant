@@ -1227,6 +1227,14 @@ function registerHostProxyPendingInteraction(
     });
     return msg.requestId;
   }
+  if (msg.type === "host_transfer_request") {
+    pendingInteractions.register(msg.requestId, {
+      conversation,
+      conversationId,
+      kind: "host_transfer",
+    });
+    return msg.requestId;
+  }
   return undefined;
 }
 
