@@ -398,8 +398,8 @@ export function createProxyApprovalCallback(
     }
     input.reason =
       decision.kind === "ask_missing_credential"
-        ? "No credential in this session matches this host. Approving will send the request without authentication."
-        : "This host isn't covered by any known credential template. Approving will send the request as-is.";
+        ? "A known credential template matches this host, but no credential is bound to this session. Approving will forward the request as-is — the assistant won't inject a credential, but any caller-supplied auth headers will still be sent."
+        : "This host isn't covered by any known credential template. Approving will forward the request as-is, including any caller-supplied auth headers.";
     if (decision.kind === "ask_missing_credential") {
       input.known_credential_patterns = decision.matchingPatterns;
     }
