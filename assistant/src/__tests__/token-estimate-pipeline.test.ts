@@ -4,12 +4,14 @@
  *
  * Covers:
  * - The default plugin's terminal middleware matches
- *   {@link estimatePromptTokensRaw} output exactly across a set of golden
+ *   {@link estimatePromptTokens} output exactly across a set of golden
  *   inputs (empty history, text-only, tools, provider-specific image sizing).
  * - Running the pipeline end-to-end with the default registered produces
- *   the same numeric result as calling `estimatePromptTokensRaw` directly.
+ *   the same numeric result as calling `estimatePromptTokens` directly.
  * - A custom plugin that short-circuits the chain can override the default,
  *   proving the extension point works.
+ * - When a non-1.0 EWMA calibration sample has been recorded, the terminal's
+ *   output reflects that correction rather than the raw estimate.
  *
  * These tests exercise the registry + runner directly. They do not touch
  * `bootstrapPlugins` — the default registration path is covered by the
@@ -19,6 +21,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
+  recordEstimate,
+  resetCalibrations,
+} from "../context/estimator-calibration.js";
+import {
+  estimatePromptTokens,
   estimatePromptTokensRaw,
   estimateToolsTokens,
 } from "../context/token-estimator.js";
@@ -126,6 +133,19 @@ function registerDefault(): void {
   registerPlugin(defaultTokenEstimatePlugin);
 }
 
+function calibratedEstimate(
+  args: Pick<EstimateArgs, "history" | "systemPrompt" | "providerName"> & {
+    tools: ToolDefinition[];
+  },
+): number {
+  const toolTokenBudget =
+    args.tools.length > 0 ? estimateToolsTokens(args.tools) : 0;
+  return estimatePromptTokens(args.history, args.systemPrompt, {
+    providerName: args.providerName,
+    toolTokenBudget,
+  });
+}
+
 function rawEstimate(
   args: Pick<EstimateArgs, "history" | "systemPrompt" | "providerName"> & {
     tools: ToolDefinition[];
@@ -158,14 +178,16 @@ async function runViaPipeline(args: EstimateArgs): Promise<EstimateResult> {
 
 beforeEach(() => {
   resetPluginRegistryForTests();
+  resetCalibrations();
 });
 
 afterEach(() => {
   resetPluginRegistryForTests();
+  resetCalibrations();
 });
 
 describe("tokenEstimate pipeline — default plugin parity", () => {
-  test("default matches estimatePromptTokensRaw on empty history", async () => {
+  test("default matches estimatePromptTokens on empty history", async () => {
     registerDefault();
     const args: EstimateArgs = {
       history: EMPTY_HISTORY,
@@ -174,10 +196,10 @@ describe("tokenEstimate pipeline — default plugin parity", () => {
       providerName: undefined,
     };
     const pipelineResult = await runViaPipeline(args);
-    expect(pipelineResult).toBe(rawEstimate(args));
+    expect(pipelineResult).toBe(calibratedEstimate(args));
   });
 
-  test("default matches estimatePromptTokensRaw on text-only history", async () => {
+  test("default matches estimatePromptTokens on text-only history", async () => {
     registerDefault();
     const args: EstimateArgs = {
       history: TEXT_HISTORY,
@@ -186,11 +208,11 @@ describe("tokenEstimate pipeline — default plugin parity", () => {
       providerName: "anthropic",
     };
     const pipelineResult = await runViaPipeline(args);
-    expect(pipelineResult).toBe(rawEstimate(args));
+    expect(pipelineResult).toBe(calibratedEstimate(args));
     // Sanity: the system prompt adds real token cost, so the number is
     // strictly larger than the bare-history estimate.
     expect(pipelineResult).toBeGreaterThan(
-      rawEstimate({
+      calibratedEstimate({
         history: TEXT_HISTORY,
         systemPrompt: undefined,
         tools: [],
@@ -199,7 +221,7 @@ describe("tokenEstimate pipeline — default plugin parity", () => {
     );
   });
 
-  test("default matches estimatePromptTokensRaw with tool_use/tool_result blocks", async () => {
+  test("default matches estimatePromptTokens with tool_use/tool_result blocks", async () => {
     registerDefault();
     const args: EstimateArgs = {
       history: TOOL_USE_HISTORY,
@@ -208,7 +230,7 @@ describe("tokenEstimate pipeline — default plugin parity", () => {
       providerName: "anthropic",
     };
     const pipelineResult = await runViaPipeline(args);
-    expect(pipelineResult).toBe(rawEstimate(args));
+    expect(pipelineResult).toBe(calibratedEstimate(args));
   });
 
   test("default folds tool definition tokens into the result", async () => {
@@ -265,8 +287,39 @@ describe("tokenEstimate pipeline — default plugin parity", () => {
     };
     const anthropicResult = await runViaPipeline(anthropicArgs);
     const openaiResult = await runViaPipeline(openaiArgs);
-    expect(anthropicResult).toBe(rawEstimate(anthropicArgs));
-    expect(openaiResult).toBe(rawEstimate(openaiArgs));
+    expect(anthropicResult).toBe(calibratedEstimate(anthropicArgs));
+    expect(openaiResult).toBe(calibratedEstimate(openaiArgs));
+  });
+});
+
+describe("tokenEstimate pipeline — calibration correction", () => {
+  // Large-ish synthetic history so the raw estimate clears the
+  // MIN_SAMPLE_MAGNITUDE (500) guard in the calibrator — otherwise
+  // `recordEstimate` drops the sample as noise and the correction stays 1.0.
+  const LARGE_TEXT = "lorem ipsum dolor sit amet ".repeat(500);
+  const LARGE_HISTORY: Message[] = [
+    { role: "user", content: [{ type: "text", text: LARGE_TEXT }] },
+  ];
+
+  test("seeded EWMA sample shifts the terminal's output off the raw estimate", async () => {
+    registerDefault();
+    const args: EstimateArgs = {
+      history: LARGE_HISTORY,
+      systemPrompt: SYSTEM_PROMPT,
+      tools: [],
+      providerName: "anthropic",
+    };
+    const raw = rawEstimate(args);
+    // Provider reports ~30% more tokens than we estimated — a plausible
+    // under-count bias. Seed the aggregate (provider, "") key that the
+    // terminal consults.
+    const actual = Math.round(raw * 1.3);
+    recordEstimate("anthropic", "", raw, actual);
+
+    const pipelineResult = await runViaPipeline(args);
+    expect(pipelineResult).toBe(calibratedEstimate(args));
+    expect(pipelineResult).not.toBe(raw);
+    expect(pipelineResult).toBeGreaterThan(raw);
   });
 });
 
@@ -303,8 +356,8 @@ describe("tokenEstimate pipeline — custom override", () => {
     };
     const pipelineResult = await runViaPipeline(args);
     expect(pipelineResult).toBe(FIXED);
-    // And for contrast: the default alone would have given the raw value.
-    expect(pipelineResult).not.toBe(rawEstimate(args));
+    // And for contrast: the default alone would have given the calibrated value.
+    expect(pipelineResult).not.toBe(calibratedEstimate(args));
   });
 
   test("wrapper middleware that scales the downstream result composes with the default", async () => {
@@ -338,7 +391,7 @@ describe("tokenEstimate pipeline — custom override", () => {
       providerName: "anthropic",
     };
     const pipelineResult = await runViaPipeline(args);
-    expect(pipelineResult).toBe(rawEstimate(args) * 2);
+    expect(pipelineResult).toBe(calibratedEstimate(args) * 2);
   });
 });
 
