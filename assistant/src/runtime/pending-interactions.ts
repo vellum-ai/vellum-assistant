@@ -129,6 +129,21 @@ export function removeByConversation(conversation: Conversation): void {
   }
 }
 
+/**
+ * Return all pending interactions of a given kind.
+ */
+export function getByKind(
+  kind: PendingInteraction["kind"],
+): Array<{ requestId: string } & PendingInteraction> {
+  const results: Array<{ requestId: string } & PendingInteraction> = [];
+  for (const [requestId, interaction] of pending) {
+    if (interaction.kind === kind) {
+      results.push({ requestId, ...interaction });
+    }
+  }
+  return results;
+}
+
 /** Clear all pending interactions. Useful for testing. */
 export function clear(): void {
   pending.clear();
