@@ -7,7 +7,13 @@
  */
 
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 // ---------------------------------------------------------------------------
 // Slack
@@ -109,4 +115,29 @@ export const conversationThresholdOverrides = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
+);
+
+// ---------------------------------------------------------------------------
+// Trust rules (v3)
+// ---------------------------------------------------------------------------
+
+export const trustRulesV3 = sqliteTable(
+  "trust_rules",
+  {
+    id: text("id").primaryKey(),
+    tool: text("tool").notNull(),
+    pattern: text("pattern").notNull(),
+    risk: text("risk").notNull(), // "low" | "medium" | "high"
+    description: text("description").notNull(),
+    origin: text("origin").notNull(), // "default" | "user_defined"
+    userModified: integer("user_modified", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    deleted: integer("deleted", { mode: "boolean" }).notNull().default(false),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_trust_rules_tool_pattern").on(table.tool, table.pattern),
+  ],
 );
