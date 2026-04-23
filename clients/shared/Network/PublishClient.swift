@@ -3,11 +3,10 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "PublishClient")
 
-/// Focused client for page publishing and link-open operations routed through the gateway.
+/// Focused client for page publishing operations routed through the gateway.
 public protocol PublishClientProtocol {
     func publishPage(html: String, title: String?, appId: String?) async throws -> PublishPageResponseMessage?
     func unpublishPage(deploymentId: String) async -> Bool
-    func openLink(url: String, metadata: [String: AnyCodable]?) async throws -> Bool
 }
 
 /// Gateway-backed implementation of ``PublishClientProtocol``.
@@ -45,22 +44,6 @@ public struct PublishClient: PublishClientProtocol {
             log.error("unpublishPage error: \(error.localizedDescription)")
             return false
         }
-    }
-
-    public func openLink(url: String, metadata: [String: AnyCodable]? = nil) async throws -> Bool {
-        var body: [String: Any] = ["type": "link_open_request", "url": url]
-        if let metadata {
-            body["metadata"] = metadata.mapValues { $0.value }
-        }
-
-        let response = try await GatewayHTTPClient.post(
-            path: "assistants/{assistantId}/link/open", json: body, timeout: 10
-        )
-        guard response.isSuccess else {
-            log.error("openLink failed (HTTP \(response.statusCode))")
-            return false
-        }
-        return true
     }
 
     // MARK: - Helpers
