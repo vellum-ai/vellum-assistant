@@ -89,7 +89,15 @@ import type {
   TtsProvidersFacet,
   UserMessage,
 } from "@vellumai/skill-host-contracts";
+import { buildAssistantEvent } from "@vellumai/skill-host-contracts";
 import { mock } from "bun:test";
+
+/**
+ * Internal assistant id used by the in-memory event hub below. Mirrors the
+ * daemon's `DAEMON_INTERNAL_ASSISTANT_ID` literal so tests that filter on
+ * that id keep working without reaching into `assistant/`.
+ */
+export const TEST_INTERNAL_ASSISTANT_ID = "self";
 
 /**
  * Silent default logger. Every severity method is a `mock()` spy so
@@ -267,3 +275,88 @@ export function buildTestHost(overrides: Partial<SkillHost> = {}): SkillHost {
 // Other host-contract types remain importable directly from
 // `@vellumai/skill-host-contracts` if a test needs one.
 export type { SkillHost };
+
+// ---------------------------------------------------------------------------
+// In-memory event hub — minimal real fan-out for integration tests
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal in-memory fan-out hub suitable for integration tests that need
+ * to round-trip events through `host.events.publish` / `subscribe`. Mirrors
+ * the production `AssistantEventHub`'s filtering rules (assistantId match,
+ * optional conversationId narrowing) and offers a `facet()` helper that
+ * returns an `EventsFacet` ready to drop into `buildTestHost({ events })`.
+ *
+ * Not a full reimplementation — no subscriber caps, no eviction, no
+ * AggregateError semantics — just enough to drive tests that observe the
+ * wire-level event flow. Tests that need finer-grained control (e.g.
+ * asserting on `mock.calls`) should keep using `buildTestHost()`'s default
+ * `mock`-backed `events` facet instead.
+ */
+export class InMemoryEventHub {
+  private readonly subscribers = new Set<{
+    filter: Filter;
+    cb: AssistantEventCallback;
+    active: boolean;
+  }>();
+
+  /** Number of currently active subscribers. */
+  subscriberCount(): number {
+    return this.subscribers.size;
+  }
+
+  async publish(event: AssistantEvent): Promise<void> {
+    // Snapshot so a subscriber that self-unsubscribes mid-dispatch doesn't
+    // mutate the Set we're iterating.
+    for (const entry of Array.from(this.subscribers)) {
+      if (entry.filter.assistantId !== event.assistantId) continue;
+      if (
+        event.conversationId != null &&
+        entry.filter.conversationId != null &&
+        entry.filter.conversationId !== event.conversationId
+      ) {
+        continue;
+      }
+      try {
+        await entry.cb(event);
+      } catch {
+        // Test-only hub: swallow subscriber errors so one bad listener
+        // cannot break fan-out for the others. Tests that need error
+        // reporting should assert via their own spies.
+      }
+    }
+  }
+
+  subscribe(filter: Filter, cb: AssistantEventCallback): Subscription {
+    const entry = { filter, cb };
+    this.subscribers.add(entry);
+    let active = true;
+    return {
+      dispose: () => {
+        if (active) {
+          active = false;
+          this.subscribers.delete(entry);
+        }
+      },
+      get active() {
+        return active;
+      },
+    };
+  }
+
+  /**
+   * Build an `EventsFacet` backed by this hub. `assistantId` defaults to
+   * {@link TEST_INTERNAL_ASSISTANT_ID} — production code always constructs
+   * events under the daemon-internal scope, so matching that here keeps
+   * subscribers that filter on the internal id working without passing
+   * the id through at every call site.
+   */
+  facet(assistantId: string = TEST_INTERNAL_ASSISTANT_ID): EventsFacet {
+    return {
+      publish: (event) => this.publish(event),
+      subscribe: (filter, cb) => this.subscribe(filter, cb),
+      buildEvent: (message: ServerMessage, conversationId?: string) =>
+        buildAssistantEvent(assistantId, message, conversationId),
+    };
+  }
+}

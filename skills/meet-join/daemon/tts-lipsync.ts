@@ -219,7 +219,7 @@ export type TtsLipsyncStarter = (args: StartTtsLipsyncArgs) => TtsLipsyncHandle;
  * forwarder itself has no host-specific state beyond the logger, so the
  * factory's job is limited to logger injection and module-registry wiring.
  *
- * Session-manager integration (PR 17) pulls this factory out of
+ * Session-manager integration pulls this factory out of
  * {@link registerSubModule}'s map rather than importing it directly.
  */
 export function createTtsLipsync(host: SkillHost): TtsLipsyncStarter {
@@ -228,5 +228,5 @@ export function createTtsLipsync(host: SkillHost): TtsLipsyncStarter {
 }
 
 // Register with the in-skill module registry so the session manager
-// (PR 17) can retrieve this factory by name via `getSubModule("tts-lipsync")`.
+// can retrieve this factory by name via `getSubModule("tts-lipsync")`.
 registerSubModule("tts-lipsync", createTtsLipsync);

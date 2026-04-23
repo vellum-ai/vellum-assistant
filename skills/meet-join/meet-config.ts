@@ -1,25 +1,29 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { getWorkspaceDir } from "../../assistant/src/util/platform.js";
 import { MeetServiceSchema } from "./config-schema.js";
 import type { MeetService } from "./config-schema.js";
 
 /**
  * Path to the meet-specific config file relative to the workspace root.
- * The file is expected at `$VELLUM_WORKSPACE_DIR/config/meet.json`.
+ * The file is expected at `<workspaceDir>/config/meet.json`.
  */
 const MEET_CONFIG_RELATIVE = "config/meet.json";
 
 /**
  * Read and validate the meet config from
- * `$VELLUM_WORKSPACE_DIR/config/meet.json`. When the file is missing or
+ * `<workspaceDir>/config/meet.json`. When the file is missing or
  * unparseable, schema defaults are returned so the skill always has a
  * valid config object. This decouples the meet skill's configuration
  * from the assistant's global `config.json` → `services.meet` path.
+ *
+ * Callers pass the workspace directory they obtained from the host
+ * (`host.platform.workspaceDir()`) or, in the session manager, from
+ * `deps.getWorkspaceDir()`. Keeping the path input explicit avoids any
+ * dependency from this file into `assistant/src/util/platform.js`.
  */
-export function getMeetConfig(): MeetService {
-  const configPath = join(getWorkspaceDir(), MEET_CONFIG_RELATIVE);
+export function getMeetConfig(workspaceDir: string): MeetService {
+  const configPath = join(workspaceDir, MEET_CONFIG_RELATIVE);
 
   if (!existsSync(configPath)) {
     return MeetServiceSchema.parse({});

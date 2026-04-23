@@ -1234,10 +1234,9 @@ export async function reapOrphanedMeetBots(opts: {
 
 /**
  * Name under which {@link createDockerRunner} is registered in
- * `modules-registry.ts`. Consumers (notably `session-manager.ts` once
- * PR 17 migrates it) look up the factory via this name so the hard-coded
- * `new DockerRunner(...)` constructor call no longer couples the session
- * manager to the runner's implementation module.
+ * `modules-registry.ts`. Consumers (notably `session-manager.ts`) look
+ * up the factory via this name so they don't have to take a direct
+ * static import on this file.
  */
 export const DOCKER_RUNNER_MODULE = "docker-runner";
 

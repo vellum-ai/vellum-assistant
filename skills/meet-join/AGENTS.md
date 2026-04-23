@@ -36,16 +36,17 @@ instead of direct imports from `assistant/`:
 - **Routes**: `host.registries.registerSkillRoute({ pattern, methods, handler })`
 - **Shutdown**: `host.registries.registerShutdownHook(name, hook)`
 
-Waves 6+ of the skill-isolation plan migrate each sub-module
-(`audio-ingest`, `speaker-resolver`, `tts-bridge`, …) onto the same
-host contract. Those PRs register their factory into
-`daemon/modules-registry.ts` rather than touching `register.ts`, so
-`register.ts` is not a merge-conflict hotspot across the parallel
-PRs.
+Sub-modules (`audio-ingest`, `speaker-resolver`, `tts-bridge`, …)
+expose host-accepting factories and register them into
+`daemon/modules-registry.ts`. The session manager resolves those
+factories by name through `getSubModule`, so adding a new sub-module
+does not require editing `register.ts`.
 
 The meet skill owns its config schema (`config-schema.ts`) and reads its
-configuration from `$VELLUM_WORKSPACE_DIR/config/meet.json` via `meet-config.ts`.
-The assistant's global `config.json` does not contain meet configuration.
+configuration from `<workspace>/config/meet.json` via `meet-config.ts`. The
+workspace directory is supplied by the caller (`host.platform.workspaceDir()`
+in production). The assistant's global `config.json` does not contain meet
+configuration.
 
 ## When you need a new external reference
 

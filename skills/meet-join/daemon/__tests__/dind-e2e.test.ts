@@ -53,7 +53,10 @@ import {
   meetEventDispatcher,
 } from "../event-publisher.js";
 import { __resetMeetSessionEventRouterForTests } from "../session-event-router.js";
-import { installSessionManagerTestHost } from "./test-host.js";
+import {
+  buildTestHost,
+  InMemoryEventHub,
+} from "../../__tests__/build-test-host.js";
 import {
   _createMeetSessionManagerForTests,
   MEET_BOT_INTERNAL_PORT,
@@ -210,12 +213,14 @@ function findPingRequests(captured: CapturedRequest[]): CapturedRequest[] {
 
 let workspaceDir: string;
 let engine: DockerEngineMock | null;
+let testHub: InMemoryEventHub;
 
 beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "dind-e2e-ws-"));
   __resetMeetSessionEventRouterForTests();
   _resetEventPublisherForTests();
-  createEventPublisher(installSessionManagerTestHost());
+  testHub = new InMemoryEventHub();
+  createEventPublisher(buildTestHost({ events: testHub.facet() }));
   meetEventDispatcher._resetForTests();
   // The `/_ping` cache is module-scoped; tempdir sockets are unique so
   // cross-test pollution shouldn't happen, but reset defensively.

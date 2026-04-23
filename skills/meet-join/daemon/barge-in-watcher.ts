@@ -448,7 +448,7 @@ export class MeetBargeInWatcher {
  * manager at construction time.
  *
  * Registered under the sub-module slot `"barge-in-watcher"` in
- * {@link registerSubModule} at module import time; PR 17's session
+ * {@link registerSubModule} at module import time; the session
  * manager consumes the registration via `getSubModule`.
  */
 export function createBargeInWatcher(

@@ -7,13 +7,13 @@
  * to this router, which fans the event out to the registered handler for
  * that `meetingId`.
  *
- * Later PRs in the meet-phase-1 plan register handlers here:
- *   - Conversation bridge (PR 17) — relays transcript/chat to the
- *     assistant conversation.
- *   - Storage writer (PR 18) — persists events for audit + replay.
- *   - Lifecycle listener (PR 19) — reacts to join/leave transitions.
- *   - Speaker resolver (PR 21) — attributes utterances to participants.
- *   - Consent monitor (PR 22) — enforces recording consent invariants.
+ * Subscribers that register handlers through this router include:
+ *   - Conversation bridge — relays transcript/chat to the assistant
+ *     conversation.
+ *   - Storage writer — persists events for audit + replay.
+ *   - Lifecycle listener — reacts to join/leave transitions.
+ *   - Speaker resolver — attributes utterances to participants.
+ *   - Consent monitor — enforces recording consent invariants.
  *
  * The router is intentionally simple: one handler per meeting, synchronous
  * fanout, no buffering. Fan-out *within* a meeting is expected to happen
@@ -51,9 +51,9 @@ export type MeetSessionEventHandler = (event: MeetBotEvent) => void;
  * Resolver that returns the bot API token for a given `meetingId`, or
  * `null` when no active session exists for that id.
  *
- * The default resolver rejects all requests (returns `null`). PR 10 wires
- * the real resolver from the session manager so only live meetings can
- * accept bot events.
+ * The default resolver rejects all requests (returns `null`). The
+ * session manager installs the real resolver at construction time so
+ * only live meetings can accept bot events.
  */
 export type BotApiTokenResolver = (meetingId: string) => string | null;
 
@@ -147,8 +147,8 @@ export class MeetSessionEventRouter {
   }
 
   /**
-   * Install the resolver used by {@link resolveBotApiToken}. Called once
-   * at daemon boot by the session manager (PR 10). The default resolver
+   * Install the resolver used by {@link resolveBotApiToken}. Called
+   * once at daemon boot by the session manager. The default resolver
    * rejects every request.
    */
   setBotApiTokenResolver(resolver: BotApiTokenResolver): void {
@@ -203,10 +203,10 @@ export function getMeetSessionEventRouter(): MeetSessionEventRouter {
 }
 
 /**
- * Install the bot API token resolver on the module singleton. Shortcut for
- * `getMeetSessionEventRouter().setBotApiTokenResolver(resolver)`; exported
- * so PR 10's session manager can wire the resolver without importing the
- * router class directly.
+ * Install the bot API token resolver on the module singleton. Shortcut
+ * for `getMeetSessionEventRouter().setBotApiTokenResolver(resolver)`;
+ * exported so the session manager can wire the resolver without
+ * importing the router class directly.
  */
 export function setBotApiTokenResolver(resolver: BotApiTokenResolver): void {
   getMeetSessionEventRouter().setBotApiTokenResolver(resolver);
@@ -230,7 +230,7 @@ export function __resetMeetSessionEventRouterForTests(): void {
  * error and drop telemetry carries the host's log scope.
  *
  * Registered under the sub-module slot `"session-event-router"` in
- * {@link registerSubModule} at module import time; PR 17's session
+ * {@link registerSubModule} at module import time; the session
  * manager consumes the registration via `getSubModule`.
  */
 export function createSessionEventRouter(

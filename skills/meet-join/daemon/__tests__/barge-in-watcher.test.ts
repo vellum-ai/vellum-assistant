@@ -21,20 +21,18 @@
  *   - `stop()` clears the pending cancel and unsubscribes.
  */
 
+import type {
+  AssistantEvent,
+  AssistantEventCallback,
+  ServerMessage,
+  Subscription as AssistantEventSubscription,
+} from "@vellumai/skill-host-contracts";
+import { buildAssistantEvent } from "@vellumai/skill-host-contracts";
 import { describe, expect, mock, test } from "bun:test";
 
+import { TEST_INTERNAL_ASSISTANT_ID } from "../../__tests__/build-test-host.js";
 import type { MeetBotEvent } from "../../contracts/index.js";
 
-import type {
-  AssistantEventCallback,
-  AssistantEventSubscription,
-} from "../../../../assistant/src/runtime/assistant-event-hub.js";
-import type { ServerMessage } from "../../../../assistant/src/daemon/message-protocol.js";
-import {
-  buildAssistantEvent,
-  type AssistantEvent,
-} from "../../../../assistant/src/runtime/assistant-event.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../../assistant/src/runtime/assistant-scope.js";
 import {
   BARGE_IN_DEBOUNCE_MS,
   type BargeInCanceller,
@@ -107,7 +105,7 @@ function makeFakeAssistantEventHub(): {
     },
     publish(message) {
       const event: AssistantEvent = buildAssistantEvent(
-        DAEMON_INTERNAL_ASSISTANT_ID,
+        TEST_INTERNAL_ASSISTANT_ID,
         message,
       );
       for (const cb of Array.from(subs)) {

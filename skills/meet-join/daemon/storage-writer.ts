@@ -25,9 +25,9 @@
  * installed and can run against a tempdir workspace.
  *
  * Subscribes via {@link subscribeToMeetingEvents} on the meet event
- * dispatcher (PR 19) — this lets the writer coexist with the conversation
- * bridge (PR 17), event-hub publisher (PR 19), and consent monitor (PR 22)
- * as peer subscribers on the same per-meeting event stream. Callers are
+ * dispatcher — this lets the writer coexist with the conversation
+ * bridge, event-hub publisher, and consent monitor as peer subscribers
+ * on the same per-meeting event stream. Callers are
  * responsible for driving `startAudio` (when a PCM source is available)
  * and `stop` on session teardown — the writer itself tears down its
  * dispatcher subscription and the ffmpeg child when `stop` is invoked, and
@@ -624,7 +624,7 @@ export class MeetStorageWriter {
  * and workspace-path resolution.
  *
  * Registered under the sub-module slot `"storage-writer"` in
- * {@link registerSubModule} at module import time; PR 17's session
+ * {@link registerSubModule} at module import time; the session
  * manager consumes the registration via `getSubModule`.
  */
 export function createStorageWriter(

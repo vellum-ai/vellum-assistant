@@ -11,13 +11,19 @@
  *   - Fallbacks when the DOM is absent in the correlation window: stable
  *     mapping → `provider-via-mapping`; otherwise last-known DOM →
  *     `dom-fallback`.
- *   - Forwarding resolved identities to the shared
- *     {@link SpeakerIdentityTracker} so cross-surface speaker profiling
- *     keeps working.
+ *   - Forwarding resolved identities to the shared speaker-identity tracker
+ *     so cross-surface speaker profiling keeps working.
  *   - Emitting a structured summary log on teardown.
  *
  * Tests inject a local subscribe shim so they never touch the process
  * dispatcher singleton.
+ *
+ * Tracker integration is exercised via a minimal `RecordingTracker` that
+ * satisfies {@link SpeakerIdentityTrackerShape}. The resolver only reads
+ * `identifySpeaker` from its tracker dep, so a thin in-test recorder is
+ * sufficient to assert that resolved identities do (and do not) reach the
+ * tracker. The production wiring threads `host.speakers.createTracker()`
+ * into the resolver and is covered end-to-end by `e2e-smoke.test.ts`.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -27,15 +33,57 @@ import type {
   TranscriptChunkEvent,
 } from "../../contracts/index.js";
 
-import { SpeakerIdentityTracker } from "../../../../assistant/src/calls/speaker-identification.js";
 import type {
   MeetEventSubscriber,
   MeetEventUnsubscribe,
 } from "../event-publisher.js";
 import {
   MeetSpeakerResolver,
+  type SpeakerIdentityTrackerShape,
   UNKNOWN_SPEAKER_NAME,
 } from "../speaker-resolver.js";
+
+/**
+ * Minimal {@link SpeakerIdentityTrackerShape} implementation that records
+ * each `identifySpeaker` call. Mirrors the single-writer behavior of the
+ * production `SpeakerIdentityTracker` closely enough for the two
+ * integration assertions in this file (`source: "provider"` profile
+ * appears; unknown labels do not pollute) without reaching into
+ * `assistant/src/calls/speaker-identification.ts`.
+ */
+interface RecordedProfile {
+  speakerId: string;
+  speakerLabel: string;
+  source: "provider";
+}
+
+class RecordingTracker implements SpeakerIdentityTrackerShape {
+  private readonly profiles = new Map<string, RecordedProfile>();
+
+  identifySpeaker(metadata: {
+    speakerId?: string;
+    speakerLabel?: string;
+    speakerName?: string;
+  }): void {
+    const speakerId = metadata.speakerId;
+    if (!speakerId) {
+      // Unknown provider speaker-id → resolver must NOT forward these; we
+      // still mirror the guard on the tracker side so a regression where
+      // the resolver starts forwarding empty metadata gets caught.
+      return;
+    }
+    if (this.profiles.has(speakerId)) return;
+    this.profiles.set(speakerId, {
+      speakerId,
+      speakerLabel: metadata.speakerName ?? metadata.speakerLabel ?? speakerId,
+      source: "provider",
+    });
+  }
+
+  listProfiles(): RecordedProfile[] {
+    return Array.from(this.profiles.values());
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -530,7 +578,7 @@ describe("MeetSpeakerResolver — true unknown", () => {
 
 describe("MeetSpeakerResolver — forwards to SpeakerIdentityTracker", () => {
   test("resolved identities are observed by the shared tracker", () => {
-    const tracker = new SpeakerIdentityTracker();
+    const tracker = new RecordingTracker();
     const { subscribe, dispatch } = makeDispatcher();
     const resolver = new MeetSpeakerResolver({
       meetingId: MEETING_ID,
@@ -565,7 +613,7 @@ describe("MeetSpeakerResolver — forwards to SpeakerIdentityTracker", () => {
   });
 
   test("unknown resolutions do NOT pollute the tracker", () => {
-    const tracker = new SpeakerIdentityTracker();
+    const tracker = new RecordingTracker();
     const { subscribe } = makeDispatcher();
     const resolver = new MeetSpeakerResolver({
       meetingId: MEETING_ID,

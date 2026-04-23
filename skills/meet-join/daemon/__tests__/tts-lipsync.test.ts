@@ -21,13 +21,13 @@ import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type {
-  TtsAlignmentEvent,
-  TtsProvider,
-  TtsSynthesisRequest,
-  TtsSynthesisResult,
-} from "../../../../assistant/src/tts/types.js";
-import { MeetTtsBridge } from "../tts-bridge.js";
+import {
+  MeetTtsBridge,
+  type TtsAlignmentEvent,
+  type TtsProvider,
+  type TtsSynthesisRequest,
+  type TtsSynthesisResult,
+} from "../tts-bridge.js";
 import type { VisemeEvent } from "../tts-bridge.js";
 import {
   DEFAULT_LIPSYNC_REQUEST_TIMEOUT_MS,

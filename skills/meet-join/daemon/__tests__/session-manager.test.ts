@@ -18,9 +18,13 @@ import {
   test,
 } from "bun:test";
 
-import type { AssistantEvent } from "../../../../assistant/src/runtime/assistant-event.js";
-import { assistantEventHub } from "../../../../assistant/src/runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../../assistant/src/runtime/assistant-scope.js";
+import type { AssistantEvent } from "@vellumai/skill-host-contracts";
+
+import {
+  buildTestHost,
+  InMemoryEventHub,
+  TEST_INTERNAL_ASSISTANT_ID,
+} from "../../__tests__/build-test-host.js";
 import type {
   ChatOpportunityDecision,
   ChatOpportunityDetectorStats,
@@ -34,7 +38,6 @@ import {
   __resetMeetSessionEventRouterForTests,
   getMeetSessionEventRouter,
 } from "../session-event-router.js";
-import { installSessionManagerTestHost } from "./test-host.js";
 import {
   _createMeetSessionManagerForTests,
   BOT_LEAVE_HTTP_TIMEOUT_MS,
@@ -187,16 +190,22 @@ function makeFakeAudioIngestFactory(): {
 }
 
 let workspaceDir: string;
+/**
+ * Test-local in-memory event hub. Plays the role of the production
+ * `assistantEventHub` for this test file: the event publisher fans
+ * `meet.*` events out through it via `buildTestHost({ events: hub.facet() })`,
+ * and the per-test `captureHub()` helper subscribes through the same
+ * instance. Recreated per test in `beforeEach` so cross-test subscribers
+ * cannot leak.
+ */
+let testHub: InMemoryEventHub;
 
 beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "session-manager-test-"));
   __resetMeetSessionEventRouterForTests();
   _resetEventPublisherForTests();
-  // Wire the module-level event publisher to the real `assistantEventHub`
-  // so the existing `captureHub` subscriptions in these tests still receive
-  // events. A follow-up PR introduces a shared `buildTestHost()` helper —
-  // for now the per-test-suite shim lives next to the test file.
-  createEventPublisher(installSessionManagerTestHost());
+  testHub = new InMemoryEventHub();
+  createEventPublisher(buildTestHost({ events: testHub.facet() }));
   meetEventDispatcher._resetForTests();
 });
 
@@ -716,8 +725,8 @@ describe("MeetSessionManager max-minutes timeout", () => {
 describe("MeetSessionManager container-exit watcher", () => {
   function captureHub() {
     const received: AssistantEvent[] = [];
-    const sub = assistantEventHub.subscribe(
-      { assistantId: DAEMON_INTERNAL_ASSISTANT_ID },
+    const sub = testHub.subscribe(
+      { assistantId: TEST_INTERNAL_ASSISTANT_ID },
       (event) => {
         received.push(event);
       },
@@ -1070,8 +1079,8 @@ describe("MeetSessionManager audio ingest wiring", () => {
 describe("MeetSessionManager event-hub lifecycle publication", () => {
   function captureHub() {
     const received: AssistantEvent[] = [];
-    const sub = assistantEventHub.subscribe(
-      { assistantId: DAEMON_INTERNAL_ASSISTANT_ID },
+    const sub = testHub.subscribe(
+      { assistantId: TEST_INTERNAL_ASSISTANT_ID },
       (event) => {
         received.push(event);
       },
@@ -1601,42 +1610,20 @@ describe("MeetSessionManager bridge + writer wiring", () => {
 // ---------------------------------------------------------------------------
 
 describe("MeetSessionManager proactive chat-opportunity detector wiring", () => {
-  // When this file is run from `assistant/` the bun test preload
-  // (`assistant/src/__tests__/test-preload.ts`, wired via
-  // `assistant/bunfig.toml`) sets `VELLUM_WORKSPACE_DIR` to a tmp
-  // workspace that `getConfig()` reads from. When the file is run
-  // from `skills/meet-join/` there is no preload and the env var is
-  // unset — fall back to a locally-managed tmp dir so the tests are
-  // runnable from either directory (CLAUDE.md expects scoped tests
-  // to work from their containing package).
-  //
-  // The fallback is wired via `beforeAll` (rather than describe-body
-  // scope) so the env-var override is set only while this block is
-  // executing — Bun evaluates describe bodies synchronously at module
-  // load, so a body-scoped `process.env` mutation would leak into
-  // every other describe in this file. `afterAll` tears it back down
-  // so the next file (or a later block, if any are added below) sees
-  // the original environment.
+  // Tests in this block write `config/meet.json` into a fixture workspace
+  // and thread the same directory through `getWorkspaceDir`, so
+  // `getMeetConfig(workspaceDir)` reads the override. The fixture is
+  // created once per block and torn down in `afterAll`.
   let preloadWorkspace: string;
-  let createdLocalWorkspace: boolean;
 
   beforeAll(() => {
-    createdLocalWorkspace = !process.env.VELLUM_WORKSPACE_DIR;
-    preloadWorkspace =
-      process.env.VELLUM_WORKSPACE_DIR ??
-      mkdtempSync(join(tmpdir(), "meet-session-manager-pchat-"));
-    if (createdLocalWorkspace) {
-      // `getConfig()` resolves its workspace from the env var, so point
-      // it at the tmp dir we just created.
-      process.env.VELLUM_WORKSPACE_DIR = preloadWorkspace;
-    }
+    preloadWorkspace = mkdtempSync(
+      join(tmpdir(), "meet-session-manager-pchat-"),
+    );
   });
 
   afterAll(() => {
-    if (createdLocalWorkspace) {
-      delete process.env.VELLUM_WORKSPACE_DIR;
-      rmSync(preloadWorkspace, { recursive: true, force: true });
-    }
+    rmSync(preloadWorkspace, { recursive: true, force: true });
   });
 
   /**
@@ -1725,12 +1712,10 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
   });
 
   test("join constructs detector with effectiveJoinName, proactiveChat config, and wake callback", async () => {
-    // Point config writes at the preload workspace (which
-    // `getMeetConfig()` reads via `VELLUM_WORKSPACE_DIR`) while the
-    // manager uses `workspaceDir` for its per-meeting directory
-    // staging. The two don't have to match — session manager reads
-    // meet config via `getMeetConfig()` (preload dir) and uses
-    // `deps.getWorkspaceDir` for disk layout (test-local override).
+    // Point config writes and the session manager's workspace at the
+    // same preload workspace so `getMeetConfig(workspaceDir)` reads the
+    // `config/meet.json` the helper just wrote. Each test in this block
+    // wires `getWorkspaceDir: () => preloadWorkspace`.
     overrideProactiveChatConfig(preloadWorkspace, true);
 
     const runner = makeMockRunner();
@@ -1741,7 +1726,7 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async () => "k",
-      getWorkspaceDir: () => workspaceDir,
+      getWorkspaceDir: () => preloadWorkspace,
       botLeaveFetch: async () => {},
       audioIngestFactory: audioIngestFactory.factory,
       chatOpportunityDetectorFactory: detectorFactory.factory,
@@ -1805,7 +1790,7 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async () => "k",
-      getWorkspaceDir: () => workspaceDir,
+      getWorkspaceDir: () => preloadWorkspace,
       botLeaveFetch: async () => {},
       audioIngestFactory: audioIngestFactory.factory,
       chatOpportunityDetectorFactory: detectorFactory.factory,
@@ -1857,7 +1842,7 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async () => "k",
-      getWorkspaceDir: () => workspaceDir,
+      getWorkspaceDir: () => preloadWorkspace,
       botLeaveFetch: async () => {},
       audioIngestFactory: audioIngestFactory.factory,
       chatOpportunityDetectorFactory: detectorFactory.factory,
@@ -1888,7 +1873,7 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => makeMockRunner(),
       getProviderKey: async () => "k",
-      getWorkspaceDir: () => workspaceDir,
+      getWorkspaceDir: () => preloadWorkspace,
       botLeaveFetch: async () => {},
       audioIngestFactory: makeFakeAudioIngestFactory().factory,
       chatOpportunityDetectorFactory: detectorFactory.factory,
@@ -1916,7 +1901,7 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
     const managerOn = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => makeMockRunner(),
       getProviderKey: async () => "k",
-      getWorkspaceDir: () => workspaceDir,
+      getWorkspaceDir: () => preloadWorkspace,
       botLeaveFetch: async () => {},
       audioIngestFactory: makeFakeAudioIngestFactory().factory,
       chatOpportunityDetectorFactory: detectorFactoryOn.factory,
@@ -1938,7 +1923,7 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
     const managerOff = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => makeMockRunner(),
       getProviderKey: async () => "k",
-      getWorkspaceDir: () => workspaceDir,
+      getWorkspaceDir: () => preloadWorkspace,
       botLeaveFetch: async () => {},
       audioIngestFactory: makeFakeAudioIngestFactory().factory,
       chatOpportunityDetectorFactory: detectorFactoryOff.factory,
@@ -1965,7 +1950,7 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => makeMockRunner(),
       getProviderKey: async () => "k",
-      getWorkspaceDir: () => workspaceDir,
+      getWorkspaceDir: () => preloadWorkspace,
       botLeaveFetch: async () => {},
       audioIngestFactory: makeFakeAudioIngestFactory().factory,
       chatOpportunityDetectorFactory: detectorFactory.factory,
@@ -2007,7 +1992,7 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => makeMockRunner(),
       getProviderKey: async () => "k",
-      getWorkspaceDir: () => workspaceDir,
+      getWorkspaceDir: () => preloadWorkspace,
       botLeaveFetch: async () => {},
       audioIngestFactory: makeFakeAudioIngestFactory().factory,
       chatOpportunityDetectorFactory: detectorFactory.factory,
@@ -2038,7 +2023,7 @@ describe("MeetSessionManager proactive chat-opportunity detector wiring", () => 
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => makeMockRunner(),
       getProviderKey: async () => "k",
-      getWorkspaceDir: () => workspaceDir,
+      getWorkspaceDir: () => preloadWorkspace,
       botLeaveFetch: async () => {},
       audioIngestFactory: makeFakeAudioIngestFactory().factory,
       chatOpportunityDetectorFactory: detectorFactory.factory,
@@ -2287,30 +2272,26 @@ describe("MeetSessionManager TTS lip-sync forwarder wiring", () => {
  * time with a pointer at the env-var.
  *
  * The block writes `config/meet.json` overrides under its own tmp
- * workspace via `VELLUM_WORKSPACE_DIR` so `getMeetConfig()` picks up the
- * avatar-enabled fixture. It tears the override down in `afterEach` and
- * restores the original env in `afterAll` so other blocks see schema
- * defaults.
+ * workspace (the same dir it threads through `getWorkspaceDir` so
+ * `getMeetConfig(workspaceDir)` picks up the avatar-enabled fixture). It
+ * tears the override down in `afterEach` and restores the original env
+ * in `afterAll` so other blocks see schema defaults.
  */
 describe("MeetSessionManager Docker-mode avatar-device preflight", () => {
+  // The preflight reads `avatar.{enabled,devicePath}` off the meet config.
+  // Each test writes the fixture into `preloadWorkspace` and threads the
+  // same directory through `getWorkspaceDir`, so
+  // `getMeetConfig(workspaceDir)` picks it up.
   let preloadWorkspace: string;
-  let createdLocalWorkspace: boolean;
 
   beforeAll(() => {
-    createdLocalWorkspace = !process.env.VELLUM_WORKSPACE_DIR;
-    preloadWorkspace =
-      process.env.VELLUM_WORKSPACE_DIR ??
-      mkdtempSync(join(tmpdir(), "meet-session-manager-avatar-"));
-    if (createdLocalWorkspace) {
-      process.env.VELLUM_WORKSPACE_DIR = preloadWorkspace;
-    }
+    preloadWorkspace = mkdtempSync(
+      join(tmpdir(), "meet-session-manager-avatar-"),
+    );
   });
 
   afterAll(() => {
-    if (createdLocalWorkspace) {
-      delete process.env.VELLUM_WORKSPACE_DIR;
-      rmSync(preloadWorkspace, { recursive: true, force: true });
-    }
+    rmSync(preloadWorkspace, { recursive: true, force: true });
   });
 
   function writeAvatarConfig(enabled: boolean, devicePath?: string): void {
@@ -2347,7 +2328,10 @@ describe("MeetSessionManager Docker-mode avatar-device preflight", () => {
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async () => "k",
-      getWorkspaceDir: () => workspaceDir,
+      // Point the session manager at the fixture workspace so
+      // `getMeetConfig(workspaceDir)` reads the `config/meet.json` this
+      // block writes under `preloadWorkspace`.
+      getWorkspaceDir: () => preloadWorkspace,
       botLeaveFetch: async () => {},
       audioIngestFactory: audioIngestFactory.factory,
       resolveRuntimeMode: () => "docker",
@@ -2381,7 +2365,7 @@ describe("MeetSessionManager Docker-mode avatar-device preflight", () => {
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async () => "k",
-      getWorkspaceDir: () => workspaceDir,
+      getWorkspaceDir: () => preloadWorkspace,
       botLeaveFetch: async () => {},
       audioIngestFactory: audioIngestFactory.factory,
       resolveRuntimeMode: () => "docker",
@@ -2414,7 +2398,7 @@ describe("MeetSessionManager Docker-mode avatar-device preflight", () => {
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async () => "k",
-      getWorkspaceDir: () => workspaceDir,
+      getWorkspaceDir: () => preloadWorkspace,
       botLeaveFetch: async () => {},
       audioIngestFactory: audioIngestFactory.factory,
       resolveRuntimeMode: () => "bare-metal",
@@ -2447,7 +2431,7 @@ describe("MeetSessionManager Docker-mode avatar-device preflight", () => {
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async () => "k",
-      getWorkspaceDir: () => workspaceDir,
+      getWorkspaceDir: () => preloadWorkspace,
       botLeaveFetch: async () => {},
       audioIngestFactory: audioIngestFactory.factory,
       resolveRuntimeMode: () => "docker",
@@ -2476,7 +2460,7 @@ describe("MeetSessionManager Docker-mode avatar-device preflight", () => {
     const manager = _createMeetSessionManagerForTests({
       dockerRunnerFactory: () => runner,
       getProviderKey: async () => "k",
-      getWorkspaceDir: () => workspaceDir,
+      getWorkspaceDir: () => preloadWorkspace,
       botLeaveFetch: async () => {},
       audioIngestFactory: audioIngestFactory.factory,
       resolveRuntimeMode: () => "docker",

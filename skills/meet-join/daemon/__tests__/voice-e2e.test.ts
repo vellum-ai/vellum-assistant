@@ -4,8 +4,8 @@
  * Wires the real {@link MeetTtsBridge} and the real {@link MeetBargeInWatcher}
  * against a throwaway `Bun.serve` HTTP server playing the role of the
  * meet-bot's `/play_audio` + `DELETE /play_audio/:streamId` endpoints. The
- * watcher subscribes to the real {@link assistantEventHub} singleton (the
- * production wiring) so `meet.speaking_*` lifecycle events flow exactly the
+ * watcher subscribes to a test-local in-memory event hub that models the
+ * production wiring so `meet.speaking_*` lifecycle events flow exactly the
  * way they would in production. The bot-event stream is supplied via an
  * in-memory dispatcher injected through {@link MeetBargeInWatcher}'s
  * `subscribe` hook.
@@ -41,19 +41,22 @@ import type {
   SpeakerChangeEvent,
 } from "../../contracts/index.js";
 
-import type { ServerMessage } from "../../../../assistant/src/daemon/message-protocol.js";
-import { assistantEventHub } from "../../../../assistant/src/runtime/assistant-event-hub.js";
-import { buildAssistantEvent } from "../../../../assistant/src/runtime/assistant-event.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../../assistant/src/runtime/assistant-scope.js";
-import type {
-  TtsProvider,
-  TtsSynthesisRequest,
-  TtsSynthesisResult,
-} from "../../../../assistant/src/tts/types.js";
+import type { ServerMessage } from "@vellumai/skill-host-contracts";
+import { buildAssistantEvent } from "@vellumai/skill-host-contracts";
+
+import {
+  InMemoryEventHub,
+  TEST_INTERNAL_ASSISTANT_ID,
+} from "../../__tests__/build-test-host.js";
 import {
   BARGE_IN_DEBOUNCE_MS,
   MeetBargeInWatcher,
 } from "../barge-in-watcher.js";
+import type {
+  TtsProvider,
+  TtsSynthesisRequest,
+  TtsSynthesisResult,
+} from "../tts-bridge.js";
 import type {
   MeetEventSubscriber,
   MeetEventUnsubscribe,
@@ -317,15 +320,25 @@ function makeFakeDispatcher(): {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers — publish meet.speaking_* through the real assistantEventHub the
+// Helpers — publish meet.speaking_* through the test-local event hub the
 // way `MeetSessionManager.speak` does in production, and subscribe so the
 // test can collect the lifecycle events that flow back through the same
 // hub.
 // ---------------------------------------------------------------------------
 
+/**
+ * Module-scoped in-memory hub shared across all tests in this file. Mirrors
+ * the production singleton's subscribe/publish semantics for
+ * `DAEMON_INTERNAL_ASSISTANT_ID`-scoped events without reaching into
+ * `assistant/`. Each test's `captureHub()` subscribes independently and
+ * disposes on completion, so cross-test leakage is bounded to the shared
+ * hub's empty-subscribers steady state.
+ */
+const testHub = new InMemoryEventHub();
+
 function publishToHub(message: ServerMessage): Promise<void> {
-  return assistantEventHub.publish(
-    buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, message),
+  return testHub.publish(
+    buildAssistantEvent(TEST_INTERNAL_ASSISTANT_ID, message),
   );
 }
 
@@ -363,8 +376,8 @@ function captureHub(): CapturedHub {
     predicate: (m: ServerMessage) => boolean;
     resolve: (m: ServerMessage) => void;
   }> = [];
-  const sub = assistantEventHub.subscribe(
-    { assistantId: DAEMON_INTERNAL_ASSISTANT_ID },
+  const sub = testHub.subscribe(
+    { assistantId: TEST_INTERNAL_ASSISTANT_ID },
     (event) => {
       events.push(event.message);
       // Snapshot so a resolver removing itself mid-iteration doesn't
@@ -549,7 +562,8 @@ describe("Meet voice E2E (bridge + watcher + real assistant-event-hub)", () => {
       meetingId: MEETING_ID,
       sessionManager: session,
       subscribe: dispatcher.subscribe,
-      // assistant-event-hub stays as the real production singleton
+      subscribeAssistantEvents: (cb) =>
+        testHub.subscribe({ assistantId: TEST_INTERNAL_ASSISTANT_ID }, cb),
     });
     watcher.start();
 
@@ -653,6 +667,8 @@ describe("Meet voice E2E (bridge + watcher + real assistant-event-hub)", () => {
       meetingId: MEETING_ID,
       sessionManager: session,
       subscribe: dispatcher.subscribe,
+      subscribeAssistantEvents: (cb) =>
+        testHub.subscribe({ assistantId: TEST_INTERNAL_ASSISTANT_ID }, cb),
     });
     watcher.start();
 
@@ -764,6 +780,8 @@ describe("Meet voice E2E (bridge + watcher + real assistant-event-hub)", () => {
       meetingId: MEETING_ID,
       sessionManager: session,
       subscribe: dispatcher.subscribe,
+      subscribeAssistantEvents: (cb) =>
+        testHub.subscribe({ assistantId: TEST_INTERNAL_ASSISTANT_ID }, cb),
     });
     watcher.start();
 

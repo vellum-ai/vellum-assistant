@@ -43,16 +43,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AssistantEvent } from "../../../../assistant/src/runtime/assistant-event.js";
-import { assistantEventHub } from "../../../../assistant/src/runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../../assistant/src/runtime/assistant-scope.js";
+import type { AssistantEvent } from "@vellumai/skill-host-contracts";
+
+import {
+  buildTestHost,
+  InMemoryEventHub,
+  TEST_INTERNAL_ASSISTANT_ID,
+} from "../../__tests__/build-test-host.js";
 import {
   _resetEventPublisherForTests,
   createEventPublisher,
   meetEventDispatcher,
 } from "../event-publisher.js";
 import { __resetMeetSessionEventRouterForTests } from "../session-event-router.js";
-import { installSessionManagerTestHost } from "./test-host.js";
 import {
   _createMeetSessionManagerForTests,
   MEET_BOT_INTERNAL_PORT,
@@ -150,8 +153,8 @@ function captureHub(): {
   dispose: () => void;
 } {
   const received: AssistantEvent[] = [];
-  const sub = assistantEventHub.subscribe(
-    { assistantId: DAEMON_INTERNAL_ASSISTANT_ID },
+  const sub = testHub.subscribe(
+    { assistantId: TEST_INTERNAL_ASSISTANT_ID },
     (event) => {
       received.push(event);
     },
@@ -194,17 +197,29 @@ function makeMockRunnerPointingAt(fakeBot: FakeBotServer) {
     remove: mock(async () => {}),
     inspect: mock(async () => ({ Id: runResult.containerId })),
     logs: mock(async () => ""),
+    // `session-manager.ts` registers a container-exit watcher via
+    // `runner.wait(containerId)` as part of `join()`. The watcher is
+    // fire-and-forget for this test's HTTP-focused scenarios, so a
+    // pending-forever promise keeps the manager happy without the
+    // test ever needing to resolve it.
+    wait: mock(() => new Promise<{ StatusCode: number }>(() => {})),
   };
 }
 
 let workspaceDir: string;
 let fakeBot: FakeBotServer;
+/**
+ * Test-local in-memory event hub mirroring the production `assistantEventHub`.
+ * Recreated per test so subscribers never leak across cases.
+ */
+let testHub: InMemoryEventHub;
 
 beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "chat-send-e2e-"));
   __resetMeetSessionEventRouterForTests();
   _resetEventPublisherForTests();
-  createEventPublisher(installSessionManagerTestHost());
+  testHub = new InMemoryEventHub();
+  createEventPublisher(buildTestHost({ events: testHub.facet() }));
   meetEventDispatcher._resetForTests();
   fakeBot = startFakeBot();
 });
@@ -272,7 +287,7 @@ describe("MeetSessionManager.sendChat end-to-end (real HTTP + real event hub)", 
       };
       expect(message.meetingId).toBe("m-chat-e2e");
       expect(message.text).toBe(text);
-      expect(chatSent[0]!.assistantId).toBe(DAEMON_INTERNAL_ASSISTANT_ID);
+      expect(chatSent[0]!.assistantId).toBe(TEST_INTERNAL_ASSISTANT_ID);
 
       await manager.leave("m-chat-e2e", "cleanup");
     } finally {

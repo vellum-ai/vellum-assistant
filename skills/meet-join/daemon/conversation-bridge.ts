@@ -497,7 +497,7 @@ function sanitizeParticipantName(raw: string): string {
 // ---------------------------------------------------------------------------
 //
 // The factory slot here is `createConversationBridge` — consumers (the
-// session manager in PR 17) pull the builder via `getSubModule` instead
+// session manager) pull the builder via `getSubModule` instead
 // of taking a static import on this file.
 
 registerSubModule("conversation-bridge", createConversationBridge);

@@ -13,8 +13,8 @@
  *     right env/workspaceMounts/port mappings.
  *   - Register the per-meeting handler with `MeetSessionEventRouter` via
  *     the shared `meetEventDispatcher` so multiple subscribers (this
- *     manager, PR 17's conversation bridge, PR 18's storage writer,
- *     PR 22's consent monitor) can observe the same live event stream.
+ *     manager, the conversation bridge, the storage writer, the consent
+ *     monitor) can observe the same live event stream.
  *   - Publish `meet.joining` / `meet.joined` / `meet.left` / `meet.error`
  *     lifecycle events on the assistant event hub so SSE-connected clients
  *     can render live meeting state.
@@ -1149,7 +1149,8 @@ class MeetSessionManagerImpl {
     let botApiToken: string;
     let ttsKey: string;
     try {
-      meet = getMeetConfig();
+      workspaceDir = this.deps.getWorkspaceDir();
+      meet = getMeetConfig(workspaceDir);
 
       // Preflight: in Docker mode, avatar config + CLI env-var opt-in are
       // two orthogonal controls (see `cli/src/lib/docker.ts`'s
@@ -1160,7 +1161,6 @@ class MeetSessionManagerImpl {
         this.assertAvatarDeviceAvailable(meet.avatar.devicePath);
       }
 
-      workspaceDir = this.deps.getWorkspaceDir();
       meetingDir = join(workspaceDir, "meets", meetingId);
       outDir = join(meetingDir, "out");
       mkdirSync(outDir, { recursive: true });
@@ -2504,7 +2504,7 @@ class MeetSessionManagerImpl {
  * The tool modules currently import the singleton directly so they can
  * call `MeetSessionManager.join(...)` without threading the session
  * manager through every call site. Until that pattern is replaced with
- * an explicit dependency injection path (out of scope for PR 17), the
+ * an explicit dependency injection path (out of scope here), the
  * installed instance stands in via a Proxy that delegates to whichever
  * manager the skill's `register(host)` entry point created.
  */
@@ -2710,8 +2710,8 @@ const CHAT_OPPORTUNITY_TOOL: ToolDefinitionShape = {
 /**
  * Resolve a sub-module factory by name, throwing a clear error when the
  * registry entry is missing. The session manager depends on every
- * sub-module converted in Wave 6 — a missing slot is a hard wiring bug,
- * not a recoverable condition.
+ * registered sub-module — a missing slot is a hard wiring bug, not a
+ * recoverable condition.
  */
 function resolveSubModuleFactory<F extends SubModuleFactory>(name: string): F {
   const factory = getSubModule<unknown>(name);

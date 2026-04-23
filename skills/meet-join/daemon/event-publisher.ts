@@ -25,17 +25,13 @@
  *
  * ## Host-based factory
  *
- * The module previously imported `assistantEventHub`, `buildAssistantEvent`,
- * and `getLogger` directly from `assistant/`. The skill-isolation plan
- * replaces those with the runtime-injected `SkillHost` supplied by the
- * assistant's bootstrap. {@link createEventPublisher} captures the host
- * and wires the module-level singletons that existing consumers (e.g.
- * the session manager, until PR 17) keep importing. Calling the factory
- * before those consumers run is a startup ordering requirement — the
- * module-level thunks throw a clear error if invoked before the host is
- * installed.
+ * {@link createEventPublisher} captures a {@link SkillHost} and wires
+ * the module-level singletons that the session manager and other
+ * consumers import. Calling the factory before those consumers run is a
+ * startup ordering requirement — the module-level thunks throw a clear
+ * error if invoked before the host is installed.
  *
- * Future PRs that want to read the stream should call
+ * Consumers that want to read the stream should call
  * `subscribeToMeetingEvents(meetingId, cb)` rather than calling
  * `MeetSessionEventRouter.register` directly. That way adding a new
  * consumer never steps on an existing one.
@@ -172,9 +168,10 @@ export interface EventPublisher {
 
 /**
  * Build the Meet event publisher against a {@link SkillHost}. Called
- * once by `register(host)` at daemon startup; also stashes the resulting
- * bundle on a module-level singleton so the legacy module-scoped exports
- * (imported by `session-manager.ts` pending PR 17) keep working.
+ * once by `register(host)` at daemon startup; also stashes the
+ * resulting bundle on a module-level singleton so the module-scoped
+ * exports (`publishMeetEvent`, `meetEventDispatcher`, …) that the
+ * session manager imports keep working.
  */
 export function createEventPublisher(host: SkillHost): EventPublisher {
   const log = host.logger.get("meet-event-publisher");
@@ -285,12 +282,12 @@ export function createEventPublisher(host: SkillHost): EventPublisher {
 }
 
 // ---------------------------------------------------------------------------
-// Module-scoped thunks for legacy consumers
+// Module-scoped thunks
 // ---------------------------------------------------------------------------
 //
-// Session-manager (pending PR 17) still imports these names directly. They
-// delegate to the singleton that `createEventPublisher(host)` installed at
-// startup. Calling before installation throws a loud error so wiring bugs
+// Session-manager imports these names directly. They delegate to the
+// singleton that `createEventPublisher(host)` installed at startup.
+// Calling before installation throws a loud error so wiring bugs
 // surface early rather than silently dispatching into the void.
 
 let installedPublisher: EventPublisher | null = null;
@@ -299,8 +296,8 @@ function requirePublisher(): EventPublisher {
   if (!installedPublisher) {
     throw new Error(
       "meet-join event-publisher: createEventPublisher(host) was not invoked " +
-        "before a legacy export was accessed. Ensure the skill's register(host) " +
-        "entry point ran during daemon bootstrap.",
+        "before a module-scoped export was accessed. Ensure the skill's " +
+        "register(host) entry point ran during daemon bootstrap.",
     );
   }
   return installedPublisher;
@@ -412,11 +409,10 @@ export function _resetEventPublisherForTests(): void {
 // Sub-module registration
 // ---------------------------------------------------------------------------
 //
-// Wave 6+ of the skill-isolation plan wires sub-module factories into a
-// per-skill registry so the session manager can pull them by name without
-// taking a static import on each file (see `modules-registry.ts`). The
-// factory is registered as a side effect of importing this module so any
-// static import from `register.ts` / the session manager is enough to
-// populate the slot.
+// The session manager pulls sub-module factories from the in-skill
+// registry (see `modules-registry.ts`) by name, so a static import of
+// this file from `register.ts` / the session manager is enough to
+// populate the slot without the session manager taking a direct import
+// on this module.
 
 registerSubModule("event-publisher", createEventPublisher);

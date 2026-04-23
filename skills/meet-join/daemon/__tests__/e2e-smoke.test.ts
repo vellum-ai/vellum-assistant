@@ -58,9 +58,13 @@ import type {
   TranscriptChunkEvent,
 } from "../../contracts/index.js";
 
-import type { AssistantEvent } from "../../../../assistant/src/runtime/assistant-event.js";
-import { assistantEventHub } from "../../../../assistant/src/runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../../assistant/src/runtime/assistant-scope.js";
+import type { AssistantEvent } from "@vellumai/skill-host-contracts";
+
+import {
+  buildTestHost,
+  InMemoryEventHub,
+  TEST_INTERNAL_ASSISTANT_ID,
+} from "../../__tests__/build-test-host.js";
 import { MeetConsentMonitor } from "../consent-monitor.js";
 import {
   type InsertMessageFn,
@@ -83,7 +87,6 @@ import {
   type MeetAudioIngestLike,
 } from "../session-manager.js";
 import { MeetStorageWriter } from "../storage-writer.js";
-import { installSessionManagerTestHost } from "./test-host.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -168,6 +171,11 @@ function makeMockRunner() {
     remove: mock(async () => {}),
     inspect: mock(async () => ({ Id: "container-e2e-1" })),
     logs: mock(async () => ""),
+    // Container-exit watcher — fire-and-forget for this test. The smoke
+    // suite exits sessions via `leave()` / `shutdownAll()` before the
+    // watcher's promise would resolve, so a pending-forever promise is
+    // a safe no-op.
+    wait: mock(() => new Promise<{ StatusCode: number }>(() => {})),
   };
 }
 
@@ -233,7 +241,7 @@ function captureHub(assistantId: string): {
   dispose: () => void;
 } {
   const received: AssistantEvent[] = [];
-  const sub = assistantEventHub.subscribe({ assistantId }, (event) => {
+  const sub = testHub.subscribe({ assistantId }, (event) => {
     received.push(event);
   });
   return { received, dispose: () => sub.dispose() };
@@ -338,12 +346,18 @@ function readJsonlLines(path: string): Array<Record<string, unknown>> {
 // ---------------------------------------------------------------------------
 
 let workspaceDir: string;
+/**
+ * Test-local in-memory event hub. Tests subscribe to observe `meet.*`
+ * events published via `createEventPublisher(buildTestHost({ events }))`.
+ */
+let testHub: InMemoryEventHub;
 
 beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "meet-e2e-"));
   __resetMeetSessionEventRouterForTests();
   _resetEventPublisherForTests();
-  createEventPublisher(installSessionManagerTestHost());
+  testHub = new InMemoryEventHub();
+  createEventPublisher(buildTestHost({ events: testHub.facet() }));
   meetEventDispatcher._resetForTests();
 });
 
@@ -412,6 +426,8 @@ describe("Meet pipeline end-to-end", () => {
           meetingId,
           conversationId,
           insertMessage: insert.fn,
+          assistantEventHub: { publish: (e) => testHub.publish(e) },
+          assistantId: TEST_INTERNAL_ASSISTANT_ID,
         }),
       storageWriterFactory: ({ meetingId }) =>
         new MeetStorageWriter(meetingId, {
@@ -422,7 +438,7 @@ describe("Meet pipeline end-to-end", () => {
 
     // Capture every `meet.*` event emitted by the pipeline on the daemon
     // assistant id — that's what the session manager publishes to.
-    const hub = captureHub(DAEMON_INTERNAL_ASSISTANT_ID);
+    const hub = captureHub(TEST_INTERNAL_ASSISTANT_ID);
 
     try {
       // ── 1/2: `join()` publishes `meet.joining`. Then, once we dispatch
@@ -754,7 +770,7 @@ describe("MeetSessionManager.shutdownAll", () => {
     });
     expect(manager.activeSessions()).toHaveLength(2);
 
-    const hub = captureHub(DAEMON_INTERNAL_ASSISTANT_ID);
+    const hub = captureHub(TEST_INTERNAL_ASSISTANT_ID);
     try {
       await manager.shutdownAll("daemon-shutdown");
       expect(manager.activeSessions()).toHaveLength(0);

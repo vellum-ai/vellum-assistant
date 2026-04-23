@@ -1138,10 +1138,10 @@ export type TtsBridgeBuilder = (args: MeetTtsBridgeArgs) => MeetTtsBridge;
  * changes propagate on the next synthesis without the session manager
  * needing to rebuild the bridge.
  *
- * Session-manager integration (PR 17) pulls this factory out of
- * {@link registerSubModule}'s map rather than importing it directly —
- * that's what keeps `register.ts` out of the merge-conflict hotspot while
- * sub-module PRs land in parallel.
+ * Session-manager integration pulls this factory out of
+ * {@link registerSubModule}'s map rather than importing it directly,
+ * so the session manager does not take a direct static dependency on
+ * this file.
  */
 export function createTtsBridge(host: SkillHost): TtsBridgeBuilder {
   log = host.logger.get("meet-tts-bridge");
@@ -1161,5 +1161,5 @@ export function createTtsBridge(host: SkillHost): TtsBridgeBuilder {
 }
 
 // Register with the in-skill module registry so the session manager
-// (PR 17) can retrieve this factory by name via `getSubModule("tts-bridge")`.
+// can retrieve this factory by name via `getSubModule("tts-bridge")`.
 registerSubModule("tts-bridge", createTtsBridge);

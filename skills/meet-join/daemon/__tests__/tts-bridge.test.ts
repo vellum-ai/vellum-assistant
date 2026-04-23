@@ -35,16 +35,14 @@ import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type {
-  TtsProvider,
-  TtsSynthesisRequest,
-  TtsSynthesisResult,
-} from "../../../../assistant/src/tts/types.js";
 import {
   BOT_AUDIO_SAMPLE_RATE_HZ,
   MeetTtsBridge,
   MeetTtsCancelledError,
   MeetTtsError,
+  type TtsProvider,
+  type TtsSynthesisRequest,
+  type TtsSynthesisResult,
 } from "../tts-bridge.js";
 
 // ---------------------------------------------------------------------------

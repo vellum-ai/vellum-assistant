@@ -137,7 +137,7 @@ export function createMeetJoinTool(host: SkillHost): Tool {
       //    manager — keeping the substitution in the tool lets the config
       //    value remain a template (stable across renames) while the bot
       //    sees a human-readable greeting.
-      const meetConfig = getMeetConfig();
+      const meetConfig = getMeetConfig(host.platform.workspaceDir());
       const rawTemplate = meetConfig.consentMessage;
       const assistantName =
         host.identity.getAssistantName() ?? DEFAULT_ASSISTANT_NAME;

@@ -270,10 +270,9 @@ const NOOP_LOGGER: Logger = {
 
 export interface MeetAudioIngestDeps {
   /**
-   * Streaming-transcriber factory. Required in production wiring; optional
-   * here so session-manager's legacy `new MeetAudioIngest()` call (replaced
-   * in PR 17 by a host-backed builder) continues to type-check during the
-   * transition. An ingest without a factory throws
+   * Streaming-transcriber factory. Required in production wiring;
+   * optional here so direct-construction call sites (unit tests) still
+   * type-check. An ingest constructed without a factory throws
    * {@link MeetAudioIngestError} on the first `start()` attempt.
    */
   createTranscriber?: StreamingTranscriberFactory;

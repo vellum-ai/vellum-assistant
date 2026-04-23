@@ -67,7 +67,10 @@ import {
   MEET_BOT_INTERNAL_PORT,
   type MeetAudioIngestLike,
 } from "../session-manager.js";
-import { installSessionManagerTestHost } from "./test-host.js";
+import {
+  buildTestHost,
+  InMemoryEventHub,
+} from "../../__tests__/build-test-host.js";
 
 // ---------------------------------------------------------------------------
 // Shared fixtures — the "fake bot" stands up a real `createHttpServer`
@@ -358,12 +361,14 @@ function makeLazyRunner(fakeBotRef: { current: FakeBotServer | null }) {
 
 let workspaceDir: string;
 const fakeBotRef: { current: FakeBotServer | null } = { current: null };
+let testHub: InMemoryEventHub;
 
 beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "avatar-e2e-"));
   __resetMeetSessionEventRouterForTests();
   _resetEventPublisherForTests();
-  createEventPublisher(installSessionManagerTestHost());
+  testHub = new InMemoryEventHub();
+  createEventPublisher(buildTestHost({ events: testHub.facet() }));
   meetEventDispatcher._resetForTests();
   // Wipe the registry so tests can't leak factories across each other.
   // The `"fake"` id is re-registered inside the lazy runner below, once

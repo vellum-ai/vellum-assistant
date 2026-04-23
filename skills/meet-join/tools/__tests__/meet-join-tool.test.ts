@@ -103,7 +103,11 @@ function makeHost(): SkillHost {
       getAssistantName: () => assistantNameValue,
       internalAssistantId: "self",
     },
-    platform: throwingProxy("platform") as SkillHost["platform"],
+    platform: {
+      workspaceDir: () => "/tmp/meet-join-tool-test-workspace",
+      vellumRoot: () => "/tmp/meet-join-tool-test-vellum",
+      runtimeMode: () => "bare-metal" as never,
+    },
     providers: throwingProxy("providers") as SkillHost["providers"],
     memory: throwingProxy("memory") as SkillHost["memory"],
     events: throwingProxy("events") as SkillHost["events"],

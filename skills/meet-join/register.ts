@@ -7,24 +7,14 @@
  * registries so the LLM can invoke the tools and the bot can POST
  * events back to the daemon.
  *
- * ## Why a `register(host)` signature
+ * ## Isolation
  *
- * Historically this file side-effect-imported from `assistant/` for
- * feature-flag reads, logger access, and registry hooks. The
- * skill-isolation plan (`.private/plans/skill-isolation.md`) replaces
- * those imports with a runtime-injected `SkillHost` — a neutral
- * contract from `@vellumai/skill-host-contracts` that the assistant
- * implements via `DaemonSkillHost`. This file no longer reaches into
- * `assistant/` at all; the only cross-directory edge remaining is the
- * single sanctioned named import in
- * `assistant/src/daemon/external-skills-bootstrap.ts`.
- *
- * Tool modules under `./tools/` now expose `create<Name>Tool(host)`
- * factories that take the same `SkillHost` and return a neutral-typed
- * `Tool`. Route modules follow once PR 15 migrates `meet-internal.ts`.
- * The remaining `assistant/` imports under this skill will disappear
- * as the later Wave-6 PRs migrate the daemon-side sub-modules onto
- * the same contract.
+ * This file and every module it imports takes a runtime-injected
+ * `SkillHost` from `@vellumai/skill-host-contracts` for feature-flag
+ * reads, logger access, event publication, and registry hooks. No file
+ * under `skills/meet-join/` reaches into `assistant/src/...` directly;
+ * the only cross-directory edge is the sanctioned named import of this
+ * module from `assistant/src/daemon/external-skills-bootstrap.ts`.
  *
  * ## Feature-flag semantics
  *

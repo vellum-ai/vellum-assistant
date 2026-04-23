@@ -8,8 +8,13 @@
  *      action item…?").
  *   2. Mocked Tier 2 LLM (`ChatOpportunityLLMAsk`). Scripted per-scenario
  *      to return either `shouldRespond: true` or `false`.
- *   3. Real {@link wakeAgentForOpportunity}. Resolves the wake target via
- *      the `resolveTarget` dep injected per test.
+ *   3. Mocked wake helper ({@link invokeMockWake}). Production wires the
+ *      detector's `onOpportunity` to `host.memory.wakeAgentForOpportunity`,
+ *      which resolves a daemon-owned `WakeTarget` and runs the agent loop.
+ *      This file stubs that layer with a test-local wake that invokes the
+ *      supplied agent loop directly against a neutral message history and
+ *      records persisted tail messages on an in-memory array — enough to
+ *      exercise the pipeline without reaching into `assistant/`.
  *   4. Mocked main agent loop. Either emits a `tool_use` block for
  *      `meet_send_chat` (happy path) or produces no tool calls (decline).
  *      The `tool_use` path synchronously invokes the real
@@ -22,14 +27,15 @@
  *      pattern.
  *
  * What it does NOT touch: Docker, real Meet, real LLM provider, real
- * conversation DB (each test's `WakeTarget.persistTailMessage` records
- * to an in-memory array instead).
+ * conversation DB, or the daemon's wake machinery. Assertions focus on
+ * the observable wire-level flow (detector stats, HTTP requests, the
+ * persisted tail array).
  *
- * Wiring choice: **Option B** from the plan — detector + wake + session
- * manager wired directly, bypassing `MeetSessionManager.join()`'s heavy
- * lifting (container spawn, audio ingest, storage writer) because none of
- * that is on the proactive-chat critical path. The happy-path goal of
- * `<100ms` is easy to hit when we don't stand up a full session.
+ * Wiring choice: detector + mocked wake + session manager wired directly,
+ * bypassing `MeetSessionManager.join()`'s heavy lifting (container spawn,
+ * audio ingest, storage writer) because none of that is on the
+ * proactive-chat critical path. The happy-path goal of `<100ms` is easy
+ * to hit when we don't stand up a full session.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -39,40 +45,10 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { MeetBotEvent } from "../../contracts/index.js";
 
-import type { AgentEvent } from "../../../../assistant/src/agent/loop.js";
-import type { Message } from "../../../../assistant/src/providers/types.js";
-
-// `agent-wake.ts` delegates persistence to `WakeTarget.persistTailMessage`
-// (see Gap 2 in the round-2 fixes). The daemon adapter is responsible for
-// building channel/interface metadata and calling `addMessage` —
-// out-of-scope for this integration test. We supply a `persistTailMessage`
-// implementation in each test's `WakeTarget` that records the call so we
-// can assert wake-tail persistence happened, without booting a real DB.
-const persistedMessages: Array<{
-  conversationId: string;
-  role: string;
-  content: string;
-}> = [];
-
-function recordPersistedMessage(
-  conversationId: string,
-): (
-  msg: import("../../../../assistant/src/providers/types.js").Message,
-) => Promise<void> {
-  return async (msg) => {
-    persistedMessages.push({
-      conversationId,
-      role: msg.role,
-      content: JSON.stringify(msg.content),
-    });
-  };
-}
-
 import {
-  __resetWakeChainForTests,
-  wakeAgentForOpportunity,
-  type WakeTarget,
-} from "../../../../assistant/src/runtime/agent-wake.js";
+  buildTestHost,
+  InMemoryEventHub,
+} from "../../__tests__/build-test-host.js";
 import {
   type ChatOpportunityDecision,
   type ChatOpportunityEvent,
@@ -90,12 +66,130 @@ import {
   meetEventDispatcher,
 } from "../event-publisher.js";
 import { __resetMeetSessionEventRouterForTests } from "../session-event-router.js";
-import { installSessionManagerTestHost } from "./test-host.js";
 import {
   _createMeetSessionManagerForTests,
   MEET_BOT_INTERNAL_PORT,
   type MeetAudioIngestLike,
 } from "../session-manager.js";
+
+// ---------------------------------------------------------------------------
+// Neutral agent/message shapes
+//
+// The production wake path in `assistant/src/runtime/agent-wake.ts` threads
+// the daemon's `AgentEvent` / `Message` / `WakeTarget` types through the
+// agent loop. Those types are daemon-internal; mirroring the narrow subset
+// this test exercises keeps the file clear of `assistant/` imports while
+// preserving the same flow (detector → opportunity → agent.run → tool →
+// HTTP → bot). See `assistant/src/agent/loop.ts` for the authoritative
+// definitions.
+// ---------------------------------------------------------------------------
+
+interface NeutralMessage {
+  role: "user" | "assistant" | "system";
+  content: unknown;
+}
+
+type NeutralAgentEvent =
+  | { type: "message_complete"; message: NeutralMessage }
+  | { type: "text_delta"; text: string }
+  | {
+      type: "tool_use";
+      id: string;
+      name: string;
+      input: Record<string, unknown>;
+    };
+
+interface NeutralAgentLoop {
+  run(
+    input: NeutralMessage[],
+    onEvent: (event: NeutralAgentEvent) => void | Promise<void>,
+    signal?: AbortSignal,
+    requestId?: string,
+  ): Promise<NeutralMessage[]>;
+}
+
+/**
+ * Records assistant messages persisted by the mock wake path below. The
+ * real `WakeTarget.persistTailMessage` hook is daemon-owned; the test
+ * captures the same signal via a push onto this array from the mocked
+ * wake invocation.
+ */
+const persistedMessages: Array<{
+  conversationId: string;
+  role: string;
+  content: string;
+}> = [];
+
+function recordPersistedMessage(
+  conversationId: string,
+): (msg: NeutralMessage) => Promise<void> {
+  return async (msg) => {
+    persistedMessages.push({
+      conversationId,
+      role: msg.role,
+      content: JSON.stringify(msg.content),
+    });
+  };
+}
+
+/**
+ * Mock-only stand-in for `wakeAgentForOpportunity`. The production
+ * function resolves the conversation's `WakeTarget`, runs the agent loop
+ * with a non-persisted internal hint, and returns `{ invoked,
+ * producedToolCalls }`. This test shim invokes the supplied agent loop
+ * directly and persists any visible tail assistant message via the
+ * caller-provided hook — enough to exercise the detector → agent-loop →
+ * tool → HTTP pipeline without reaching into daemon runtime code.
+ */
+interface WakeResult {
+  invoked: true;
+  producedToolCalls: boolean;
+}
+
+async function invokeMockWake(opts: {
+  hint: string;
+  agentLoop: NeutralAgentLoop;
+  persistTailMessage: (msg: NeutralMessage) => Promise<void>;
+}): Promise<WakeResult> {
+  let producedToolCalls = false;
+  let hasVisibleText = false;
+  const tail: NeutralMessage[] = [];
+  const hintMessage: NeutralMessage = {
+    role: "user",
+    content: `[opportunity:meet-chat-opportunity] ${opts.hint}`,
+  };
+  await opts.agentLoop.run([hintMessage], async (event) => {
+    if (event.type !== "message_complete") return;
+    tail.push(event.message);
+    if (!Array.isArray(event.message.content)) return;
+    for (const block of event.message.content as Array<
+      Record<string, unknown>
+    >) {
+      if (!block || typeof block !== "object") continue;
+      if (block.type === "tool_use") {
+        producedToolCalls = true;
+      } else if (
+        block.type === "text" &&
+        typeof block.text === "string" &&
+        block.text.trim().length > 0
+      ) {
+        hasVisibleText = true;
+      }
+    }
+  });
+  // Mirror `wakeAgentForOpportunity`'s silent-no-op semantics: when the
+  // agent produced no tool calls AND no visible text, nothing is
+  // persisted. This keeps the `agent declines` scenario's assertion on
+  // an empty `persistedMessages` array stable.
+  if (producedToolCalls || hasVisibleText) {
+    for (const msg of tail) {
+      if (msg.role === "assistant") {
+        await opts.persistTailMessage(msg);
+      }
+    }
+  }
+  return { invoked: true, producedToolCalls };
+}
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -181,6 +275,10 @@ function makeMockRunnerPointingAt(fakeBot: FakeBotServer) {
     remove: mock(async () => {}),
     inspect: mock(async () => ({ Id: runResult.containerId })),
     logs: mock(async () => ""),
+    // Container-exit watcher is registered from `join()` via
+    // `runner.wait(...)`; these tests don't exercise unexpected container
+    // exits, so a never-resolving promise is fine.
+    wait: mock(() => new Promise<{ StatusCode: number }>(() => {})),
   };
 }
 
@@ -298,13 +396,14 @@ async function flushPipeline(): Promise<void> {
 
 let workspaceDir: string;
 let fakeBot: FakeBotServer;
+let testHub: InMemoryEventHub;
 
 beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "proactive-chat-e2e-"));
   __resetMeetSessionEventRouterForTests();
-  __resetWakeChainForTests();
   _resetEventPublisherForTests();
-  createEventPublisher(installSessionManagerTestHost());
+  testHub = new InMemoryEventHub();
+  createEventPublisher(buildTestHost({ events: testHub.facet() }));
   meetEventDispatcher._resetForTests();
   persistedMessages.length = 0;
   fakeBot = startFakeBot();
@@ -343,19 +442,14 @@ function makeMockAgentLoop(options: {
     name: string;
     input: Record<string, unknown>;
   }) => Promise<void> | void;
-}): { runCalls: number; loop: WakeTarget["agentLoop"] } {
+}): { runCalls: number; loop: NeutralAgentLoop } {
   let runCalls = 0;
-  const loop: WakeTarget["agentLoop"] = {
-    run: async (
-      input: Message[],
-      onEvent: (event: AgentEvent) => void | Promise<void>,
-      _signal?: AbortSignal,
-      _requestId?: string,
-    ) => {
+  const loop: NeutralAgentLoop = {
+    run: async (input, onEvent) => {
       runCalls++;
       const next = [...input];
       if (options.toolUse) {
-        const assistant: Message = {
+        const assistant: NeutralMessage = {
           role: "assistant",
           content: [
             {
@@ -374,7 +468,7 @@ function makeMockAgentLoop(options: {
         return next;
       }
       // Decline — no tool calls, no visible text.
-      const empty: Message = {
+      const empty: NeutralMessage = {
         role: "assistant",
         content: [{ type: "text", text: "" }],
       };
@@ -466,11 +560,9 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
         }),
       );
 
-      // Wake target: real conversation surface. The mocked agent loop
-      // emits a `meet_send_chat` tool_use block AND runs the side-effect
-      // synchronously (as a real tool executor would) against the live
-      // session manager.
-      const history: Message[] = [];
+      // The mocked agent loop emits a `meet_send_chat` tool_use block AND
+      // runs the side-effect synchronously (as a real tool executor would)
+      // against the live session manager.
       const mockAgent = makeMockAgentLoop({
         toolUse: {
           id: "tu-send-chat-1",
@@ -487,18 +579,9 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
           await manager.sendChat(input.meetingId, input.text);
         },
       });
-      const target: WakeTarget = {
-        conversationId,
-        agentLoop: mockAgent.loop,
-        getMessages: () => history,
-        pushMessage: (msg) => history.push(msg),
-        emitAgentEvent: () => {},
-        isProcessing: () => false,
-        markProcessing: () => {},
-        persistTailMessage: recordPersistedMessage(conversationId),
-      };
+      const persistTail = recordPersistedMessage(conversationId);
 
-      // Opportunity callback → real agent wake. We await the wake
+      // Opportunity callback → mock wake → agent loop. We await the
       // promise so the HTTP fetch completes before we assert below.
       const wakePromises: Array<Promise<void>> = [];
       const detector = new MeetChatOpportunityDetector({
@@ -509,14 +592,11 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
         callDetectorLLM: tier2Llm,
         onOpportunity: ({ reason }: ChatOpportunityEvent) => {
           wakePromises.push(
-            wakeAgentForOpportunity(
-              {
-                conversationId,
-                hint: reason,
-                source: "meet-chat-opportunity",
-              },
-              { resolveTarget: async () => target },
-            ).then(() => {}),
+            invokeMockWake({
+              hint: reason,
+              agentLoop: mockAgent.loop,
+              persistTailMessage: persistTail,
+            }).then(() => {}),
           );
         },
         subscribe: dispatcher.subscribe,
@@ -601,28 +681,15 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
         }),
       );
 
-      const history: Message[] = [];
       const mockAgent = makeMockAgentLoop({ toolUse: null });
-      const target: WakeTarget = {
-        conversationId,
-        agentLoop: mockAgent.loop,
-        getMessages: () => history,
-        pushMessage: (msg) => history.push(msg),
-        emitAgentEvent: () => {},
-        isProcessing: () => false,
-        markProcessing: () => {},
-        persistTailMessage: recordPersistedMessage(conversationId),
-      };
+      const persistTail = recordPersistedMessage(conversationId);
 
       const wakeSpy = mock(async () => {
-        await wakeAgentForOpportunity(
-          {
-            conversationId,
-            hint: "should not fire",
-            source: "meet-chat-opportunity",
-          },
-          { resolveTarget: async () => target },
-        );
+        await invokeMockWake({
+          hint: "should not fire",
+          agentLoop: mockAgent.loop,
+          persistTailMessage: persistTail,
+        });
       });
 
       const detector = new MeetChatOpportunityDetector({
@@ -684,18 +751,8 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
       );
 
       // Mocked agent produces no tool calls — the wake returns silently.
-      const history: Message[] = [];
       const mockAgent = makeMockAgentLoop({ toolUse: null });
-      const target: WakeTarget = {
-        conversationId,
-        agentLoop: mockAgent.loop,
-        getMessages: () => history,
-        pushMessage: (msg) => history.push(msg),
-        emitAgentEvent: () => {},
-        isProcessing: () => false,
-        markProcessing: () => {},
-        persistTailMessage: recordPersistedMessage(conversationId),
-      };
+      const persistTail = recordPersistedMessage(conversationId);
 
       const wakePromises: Array<
         Promise<{ invoked: boolean; producedToolCalls: boolean }>
@@ -708,10 +765,11 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
         callDetectorLLM: tier2Llm,
         onOpportunity: ({ reason }: ChatOpportunityEvent) => {
           wakePromises.push(
-            wakeAgentForOpportunity(
-              { conversationId, hint: reason, source: "meet-chat-opportunity" },
-              { resolveTarget: async () => target },
-            ),
+            invokeMockWake({
+              hint: reason,
+              agentLoop: mockAgent.loop,
+              persistTailMessage: persistTail,
+            }),
           );
         },
         subscribe: dispatcher.subscribe,
@@ -764,7 +822,6 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
         }),
       );
 
-      const history: Message[] = [];
       let sendChatCallNumber = 0;
       const mockAgent = makeMockAgentLoop({
         toolUse: {
@@ -782,16 +839,7 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
         },
       });
 
-      const target: WakeTarget = {
-        conversationId,
-        agentLoop: mockAgent.loop,
-        getMessages: () => history,
-        pushMessage: (msg) => history.push(msg),
-        emitAgentEvent: () => {},
-        isProcessing: () => false,
-        markProcessing: () => {},
-        persistTailMessage: recordPersistedMessage(conversationId),
-      };
+      const persistTail = recordPersistedMessage(conversationId);
 
       const wakePromises: Array<Promise<void>> = [];
       const detector = new MeetChatOpportunityDetector({
@@ -807,10 +855,11 @@ describe("proactive-chat E2E — Tier 1 hit → Tier 2 confirms → agent wake �
         callDetectorLLM: tier2Llm,
         onOpportunity: ({ reason }: ChatOpportunityEvent) => {
           wakePromises.push(
-            wakeAgentForOpportunity(
-              { conversationId, hint: reason, source: "meet-chat-opportunity" },
-              { resolveTarget: async () => target },
-            ).then(() => {}),
+            invokeMockWake({
+              hint: reason,
+              agentLoop: mockAgent.loop,
+              persistTailMessage: persistTail,
+            }).then(() => {}),
           );
         },
         subscribe: dispatcher.subscribe,

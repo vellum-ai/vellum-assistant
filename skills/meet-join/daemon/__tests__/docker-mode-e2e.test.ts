@@ -59,7 +59,10 @@ import {
   type MeetConversationBridgeLike,
   type MeetStorageWriterLike,
 } from "../session-manager.js";
-import { installSessionManagerTestHost } from "./test-host.js";
+import {
+  buildTestHost,
+  InMemoryEventHub,
+} from "../../__tests__/build-test-host.js";
 
 // ---------------------------------------------------------------------------
 // Mock Docker Engine — a real HTTP server bound to a tempdir unix socket.
@@ -240,12 +243,14 @@ function findCreateRequest(
 
 let workspaceDir: string;
 let engine: DockerEngineMock | null;
+let testHub: InMemoryEventHub;
 
 beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "docker-mode-e2e-ws-"));
   __resetMeetSessionEventRouterForTests();
   _resetEventPublisherForTests();
-  createEventPublisher(installSessionManagerTestHost());
+  testHub = new InMemoryEventHub();
+  createEventPublisher(buildTestHost({ events: testHub.facet() }));
   meetEventDispatcher._resetForTests();
   // The `/_ping` reachability cache is module-scoped so it survives
   // per-test teardown; tempdir socket paths are unique so cross-test

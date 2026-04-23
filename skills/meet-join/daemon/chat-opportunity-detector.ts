@@ -775,7 +775,7 @@ export class MeetChatOpportunityDetector {
  * are supplied by the session manager at construction time.
  *
  * Registered under the sub-module slot `"chat-opportunity-detector"` in
- * {@link registerSubModule} at module import time; PR 17's session
+ * {@link registerSubModule} at module import time; the session
  * manager consumes the registration via `getSubModule`.
  */
 export function createChatOpportunityDetector(
