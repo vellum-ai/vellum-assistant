@@ -957,7 +957,9 @@ interface RawUnifiedJobStatus {
  * discriminated union. Shared between platform and local-runtime helpers
  * since both endpoints return the same shape.
  */
-export function parseUnifiedJobStatus(raw: RawUnifiedJobStatus): UnifiedJobStatus {
+export function parseUnifiedJobStatus(
+  raw: RawUnifiedJobStatus,
+): UnifiedJobStatus {
   if (raw.status === "processing") {
     return { jobId: raw.job_id, type: raw.type, status: "processing" };
   }
@@ -1025,7 +1027,10 @@ export async function platformRequestSignedUrl(
 
   if (response.status === 401) {
     // Invalidate the cached org-ID (if any) and retry once with a fresh
-    // lookup — mirrors the retry semantics used by other signed helpers.
+    // lookup. For session-token callers, a 401 frequently means the
+    // cached org ID is stale — calling doRequest() again without clearing
+    // the cache would just send the same stale header and fail again.
+    orgIdCache.delete(`${token}::${platformUrl ?? ""}`);
     response = await doRequest();
   }
 
@@ -1069,12 +1074,9 @@ export async function platformPollJobStatus(
   platformUrl?: string,
 ): Promise<UnifiedJobStatus> {
   const resolvedUrl = platformUrl || getPlatformUrl();
-  const response = await fetch(
-    `${resolvedUrl}/v1/migrations/jobs/${jobId}/`,
-    {
-      headers: await authHeaders(token, platformUrl),
-    },
-  );
+  const response = await fetch(`${resolvedUrl}/v1/migrations/jobs/${jobId}/`, {
+    headers: await authHeaders(token, platformUrl),
+  });
 
   if (response.status === 404) {
     throw new Error("Migration job not found");
