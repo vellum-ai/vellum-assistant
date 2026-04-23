@@ -74,6 +74,7 @@ import {
   type GraphMemoryPayload,
   runDefaultMemoryRetrieval,
 } from "../plugins/defaults/memory-retrieval.js";
+import { defaultPersistenceTerminal } from "../plugins/defaults/persistence.js";
 import { defaultTitleGenerateTerminal } from "../plugins/defaults/title-generate.js";
 import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
@@ -173,17 +174,6 @@ import type { TraceEmitter } from "./trace-emitter.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");
-
-/**
- * Terminal fed into the `persistence` pipeline. The default plugin (registered
- * at daemon bootstrap) always handles each op, so reaching the terminal
- * signals a configuration bug.
- */
-function persistenceTerminal(_args: PersistArgs): Promise<PersistResult> {
-  throw new Error(
-    "persistence terminal reached: the default plugin should handle every op",
-  );
-}
 
 /** Title-cased friendly labels for tool names, used in confirmation chips. */
 const TOOL_FRIENDLY_LABEL: Record<string, string> = {
@@ -936,7 +926,7 @@ export async function runAgentLoopImpl(
           await runPipeline<PersistArgs, PersistResult>(
             "persistence",
             getMiddlewaresFor("persistence"),
-            persistenceTerminal,
+            defaultPersistenceTerminal,
             {
               op: "update",
               messageId: userMessageId,
@@ -1279,7 +1269,7 @@ export async function runAgentLoopImpl(
         await runPipeline<PersistArgs, PersistResult>(
           "persistence",
           getMiddlewaresFor("persistence"),
-          persistenceTerminal,
+          defaultPersistenceTerminal,
           {
             op: "update",
             messageId: userMessageId,
@@ -2255,7 +2245,7 @@ export async function runAgentLoopImpl(
       await runPipeline<PersistArgs, PersistResult>(
         "persistence",
         getMiddlewaresFor("persistence"),
-        persistenceTerminal,
+        defaultPersistenceTerminal,
         {
           op: "add",
           conversationId: ctx.conversationId,
@@ -2301,7 +2291,7 @@ export async function runAgentLoopImpl(
       await runPipeline<PersistArgs, PersistResult>(
         "persistence",
         getMiddlewaresFor("persistence"),
-        persistenceTerminal,
+        defaultPersistenceTerminal,
         {
           op: "add",
           conversationId: ctx.conversationId,
