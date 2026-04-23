@@ -183,12 +183,15 @@ export function startChatReader(opts: ChatReaderOptions): ChatReader {
   // Dedup across extract() calls. DOM-node identity is the primary key —
   // a `role="listitem"` is not reinstantiated once the panel is open, so
   // a WeakSet on the node is sufficient for the common case. A secondary
-  // content-hash set covers re-mounts (panel close → reopen): the node
-  // identity is new, but the rendered sender+text+time triple is stable
-  // enough to suppress a duplicate fire. `data-message-id` is preferred
-  // when Meet exposes it, but it's not present on the live DOM today.
+  // per-message key covers re-mounts (panel close → reopen): the node
+  // identity is new, but the rendered message has a stable identifier.
+  // Prefer `data-message-id` when Meet exposes it (strongest signal, robust
+  // against timestamp-granularity collisions); fall back to a
+  // sender+timestamp+text content hash only when the attribute is absent
+  // (live Meet today, and the fixture path that carries data-message-id
+  // exercises the preferred branch).
   const seenNodes = new WeakSet<Element>();
-  const seenContentHashes = new Set<string>();
+  const seenMessageKeys = new Set<string>();
 
   let emittedCount = 0;
   let diagnosticEmitted = false;
@@ -344,11 +347,19 @@ export function startChatReader(opts: ChatReaderOptions): ChatReader {
         fromName === opts.selfName;
       if (isSelf) continue;
 
-      // Content hash covers panel close → reopen remounts where the DOM
-      // node identity changes but the rendered message is the same.
-      const contentHash = `${fromName}\u0001${timestamp}\u0001${text}`;
-      if (seenContentHashes.has(contentHash)) continue;
-      seenContentHashes.add(contentHash);
+      // Remount dedup (panel close → reopen): the DOM node identity
+      // changes but the rendered message is the same. Prefer Meet's own
+      // `data-message-id` when present — it's the strongest signal and
+      // distinguishes two messages that happen to share a timestamp
+      // second. Fall back to the sender+timestamp+text content hash only
+      // when the attribute is absent (live Meet today).
+      const messageId = msg.getAttribute("data-message-id");
+      const dedupKey =
+        messageId && messageId.length > 0
+          ? `id\u0001${messageId}`
+          : `hash\u0001${fromName}\u0001${timestamp}\u0001${text}`;
+      if (seenMessageKeys.has(dedupKey)) continue;
+      seenMessageKeys.add(dedupKey);
 
       // Sender-side id when Meet exposes one; otherwise fall back to the
       // display name (stable enough within a meeting).
