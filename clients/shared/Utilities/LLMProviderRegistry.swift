@@ -237,7 +237,7 @@ private let fallbackCatalog = LLMProviderCatalog(
                 url: "https://console.anthropic.com/settings/keys",
                 linkLabel: "Open Anthropic Console"
             ),
-            defaultModel: "claude-opus-4-7",
+            defaultModel: "claude-sonnet-4-6",
             models: [
                 LLMModelEntry(id: "claude-opus-4-7", displayName: "Claude Opus 4.7"),
                 LLMModelEntry(id: "claude-opus-4-6", displayName: "Claude Opus 4.6"),

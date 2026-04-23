@@ -9,6 +9,14 @@ struct DisplayGallerySection: View {
     @State private var basicSectionExpanded: Bool = true
     @State private var subtitleSectionExpanded: Bool = false
 
+    // VCollapsibleStepRow gallery state — one binding per scenario so each demo
+    // row can be independently expanded.
+    @State private var stepRowIdleExpanded: Bool = false
+    @State private var stepRowRunningExpanded: Bool = false
+    @State private var stepRowErrorExpanded: Bool = true
+    @State private var stepRowDeniedExpanded: Bool = false
+    @State private var stepRowExpandedExpanded: Bool = true
+
     // VFileBrowser gallery state — independent per-scenario bindings so each
     // demo behaves on its own.
     #if os(macOS)
@@ -237,6 +245,89 @@ struct DisplayGallerySection: View {
                 }
                 .padding(VSpacing.lg)
                 .vCard()
+
+            }
+
+            if filter == nil || filter == "vCollapsibleStepRow" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VCollapsibleStepRow
+                GallerySectionHeader(
+                    title: "VCollapsibleStepRow",
+                    description: "Collapsible row for one step inside a progress container. Icon + title + leading/trailing accessory slots + duration + chevron header, with a caller-provided detail body. State-driven chrome: running, succeeded, failed, denied."
+                )
+
+                VCard(padding: 0) {
+                    VStack(spacing: 0) {
+                        VCollapsibleStepRow(
+                            title: "Succeeded, collapsed (no details)",
+                            state: .succeeded,
+                            startedAt: Self.stepRowSampleStart,
+                            completedAt: Self.stepRowSampleStart.addingTimeInterval(0.8),
+                            hasDetails: false,
+                            isExpanded: $stepRowIdleExpanded
+                        ) {
+                            EmptyView()
+                        }
+
+                        Divider().background(VColor.borderBase)
+
+                        VCollapsibleStepRow(
+                            title: "Running — working on it",
+                            state: .running,
+                            hasDetails: false,
+                            isExpanded: $stepRowRunningExpanded
+                        ) {
+                            EmptyView()
+                        }
+
+                        Divider().background(VColor.borderBase)
+
+                        VCollapsibleStepRow(
+                            title: "Failed — error details available",
+                            state: .failed,
+                            startedAt: Self.stepRowSampleStart,
+                            completedAt: Self.stepRowSampleStart.addingTimeInterval(1.5),
+                            hasDetails: true,
+                            isExpanded: $stepRowErrorExpanded
+                        ) {
+                            stepRowSampleDetail(
+                                text: "Command exited with code 1: permission denied",
+                                isError: true
+                            )
+                        }
+
+                        Divider().background(VColor.borderBase)
+
+                        VCollapsibleStepRow(
+                            title: "Blocked — Denied permission",
+                            state: .denied,
+                            startedAt: Self.stepRowSampleStart,
+                            completedAt: Self.stepRowSampleStart.addingTimeInterval(0.2),
+                            hasDetails: false,
+                            isExpanded: $stepRowDeniedExpanded
+                        ) {
+                            EmptyView()
+                        }
+
+                        Divider().background(VColor.borderBase)
+
+                        VCollapsibleStepRow(
+                            title: "Succeeded, expanded with output",
+                            state: .succeeded,
+                            startedAt: Self.stepRowSampleStart,
+                            completedAt: Self.stepRowSampleStart.addingTimeInterval(3.2),
+                            hasDetails: true,
+                            isExpanded: $stepRowExpandedExpanded
+                        ) {
+                            stepRowSampleDetail(
+                                text: "total 24\n-rw-r--r--  1 user staff  1234 Apr 22 10:01 README.md\n-rw-r--r--  1 user staff   567 Apr 22 10:01 main.swift",
+                                isError: false
+                            )
+                        }
+                    }
+                }
 
             }
 
@@ -717,6 +808,39 @@ struct DisplayGallerySection: View {
     ]
     #endif
 
+    // MARK: - VCollapsibleStepRow Helpers
+
+    private static let stepRowSampleStart = Date(timeIntervalSinceReferenceDate: 0)
+
+    @ViewBuilder
+    private func stepRowSampleDetail(text: String, isError: Bool) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Text("Output")
+                .font(VFont.labelSmall)
+                .foregroundStyle(VColor.contentTertiary)
+                .textCase(.uppercase)
+
+            HStack(spacing: 0) {
+                Text(text)
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(isError ? VColor.systemNegativeStrong : VColor.contentSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .padding(VSpacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .fill(VColor.surfaceOverlay.opacity(0.6))
+            )
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+            .overlay(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .stroke(VColor.borderBase, lineWidth: 0.5)
+            )
+        }
+        .padding(EdgeInsets(top: VSpacing.xs, leading: VSpacing.lg, bottom: VSpacing.sm, trailing: VSpacing.lg))
+    }
+
     // MARK: - Sample Data
 
     private static let sampleDiff = """
@@ -744,6 +868,7 @@ extension DisplayGallerySection {
         case "vEmptyState": DisplayGallerySection(filter: "vEmptyState")
         case "vDisclosureSection": DisplayGallerySection(filter: "vDisclosureSection")
         case "vListRow": DisplayGallerySection(filter: "vListRow")
+        case "vCollapsibleStepRow": DisplayGallerySection(filter: "vCollapsibleStepRow")
         case "vAvatarImage": DisplayGallerySection(filter: "vAvatarImage")
         case "vCachedRemoteImage": DisplayGallerySection(filter: "vCachedRemoteImage")
         case "vCodeView": DisplayGallerySection(filter: "vCodeView")
