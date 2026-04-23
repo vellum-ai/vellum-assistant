@@ -66,6 +66,7 @@ function makeMemoryArgs(overrides: Partial<MemoryArgs> = {}): MemoryArgs {
     conversationId: "conv-test",
     trustContext: trust,
     turnIndex: 0,
+    signal: new AbortController().signal,
     ...overrides,
   };
 }
@@ -329,13 +330,10 @@ describe("memoryRetrieval pipeline — default vs custom plugin", () => {
   });
 
   test("pipeline timeout aborts the signal threaded into prepareMemory", async () => {
-    // Regression for the cancellation gap: before `MemoryArgs.signal` was
-    // swapped by the pipeline's abort-linker, a pipeline timeout rejected
-    // the race but left `prepareMemory` running — mutating graph state
-    // after the turn had already errored. This test wires a long-running
-    // `prepareMemory` fake, arms a tight budget, and asserts the signal
-    // the terminal actually received reports `aborted === true` once the
-    // timer fires.
+    // Verifies that the pipeline's abort-linker swaps `MemoryArgs.signal`
+    // for a linked signal so a pipeline timeout aborts `prepareMemory`
+    // and prevents graph-state mutation / event emission after the
+    // pipeline has already errored.
     let capturedSignal: AbortSignal | undefined;
     const hangingPrepare = mock(
       (

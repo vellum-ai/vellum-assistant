@@ -236,7 +236,7 @@ export interface MemoryArgs {
   readonly conversationId: string;
   readonly trustContext: TrustContext | undefined;
   readonly turnIndex: number;
-  readonly signal?: AbortSignal;
+  readonly signal: AbortSignal;
 }
 
 /**
