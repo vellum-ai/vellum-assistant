@@ -12,7 +12,6 @@
 import { connect, type Socket } from "node:net";
 
 import { getLogger } from "../util/logger.js";
-import { getWorkspaceDir } from "../util/platform.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
 
 const log = getLogger("gateway-ipc-client");
@@ -177,7 +176,5 @@ export async function ipcGetFeatureFlags(): Promise<Record<string, boolean>> {
 // ---------------------------------------------------------------------------
 
 function getGatewaySocketPath(): string {
-  // The gateway server binds its socket under the workspace directory,
-  // so the client must resolve with getWorkspaceDir() to match.
-  return resolveIpcSocketPath("gateway.sock", getWorkspaceDir()).path;
+  return resolveIpcSocketPath("gateway.sock").path;
 }
