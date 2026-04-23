@@ -56,6 +56,7 @@ function makeRequest(headers: Record<string, string> = {}): Request {
 
 const ENV_KEYS = [
   "IS_CONTAINERIZED",
+  "VELLUM_CLOUD",
   "GUARDIAN_BOOTSTRAP_SECRET",
   "DISABLE_HTTP_AUTH",
   "VELLUM_UNSAFE_AUTH_BYPASS",
@@ -76,9 +77,10 @@ afterEach(() => {
   }
 });
 
-describe("handleGuardianBootstrap — containerized mode secret enforcement", () => {
+describe("handleGuardianBootstrap — Docker mode secret enforcement", () => {
   beforeEach(() => {
     process.env.IS_CONTAINERIZED = "true";
+    process.env.VELLUM_CLOUD = "docker";
   });
 
   test("rejects with 403 when GUARDIAN_BOOTSTRAP_SECRET env is unset (fail-closed)", async () => {
@@ -145,6 +147,31 @@ describe("handleGuardianBootstrap — containerized mode secret enforcement", ()
     const res = await handleGuardianBootstrap(
       makeRequest(),
       makeServer("192.168.1.10"),
+    );
+    expect(res.status).toBe(200);
+  });
+});
+
+describe("handleGuardianBootstrap — non-Docker containerized modes", () => {
+  // Apple-container pods and managed platform pods set IS_CONTAINERIZED=true
+  // but keep the runtime port inside the pod network. They do not need (or
+  // set) GUARDIAN_BOOTSTRAP_SECRET, so the gate must not fire for them.
+
+  test("Apple-container pod accepts loopback peer without a bootstrap secret", async () => {
+    process.env.IS_CONTAINERIZED = "true";
+    process.env.VELLUM_CLOUD = "apple-container";
+    const res = await handleGuardianBootstrap(
+      makeRequest(),
+      makeServer("127.0.0.1"),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  test("containerized without VELLUM_CLOUD accepts a private-network peer without a secret", async () => {
+    process.env.IS_CONTAINERIZED = "true";
+    const res = await handleGuardianBootstrap(
+      makeRequest(),
+      makeServer("172.17.0.1"),
     );
     expect(res.status).toBe(200);
   });
