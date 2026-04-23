@@ -109,11 +109,11 @@ mock.module("../config/env.js", () => ({
 // Imports (after mocks so module-level code picks up the stubs)
 // ---------------------------------------------------------------------------
 
-import { buildVBundle } from "../runtime/migrations/vbundle-builder.js";
 import {
-  migrationJobs,
   type MigrationJob,
+  migrationJobs,
 } from "../runtime/migrations/job-registry.js";
+import { buildVBundle } from "../runtime/migrations/vbundle-builder.js";
 import {
   _setUrlImportValidatorOptionsForTests,
   handleMigrationImportFromGcs,
@@ -459,14 +459,11 @@ describe("POST /v1/migrations/import-from-gcs", () => {
   }, 30_000);
 
   test("malformed body (missing bundle_url) returns 400", async () => {
-    const req = new Request(
-      "http://localhost/v1/migrations/import-from-gcs",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      },
-    );
+    const req = new Request("http://localhost/v1/migrations/import-from-gcs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
     const res = await handleMigrationImportFromGcs(req);
     expect(res.status).toBe(400);
     const body = (await res.json()) as BadRequestResponse;

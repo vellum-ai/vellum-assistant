@@ -5724,6 +5724,73 @@ paths:
                     the importer.
               required:
                 - url
+  /v1/migrations/import-from-gcs:
+    post:
+      operationId: migrations_importfromgcs_post
+      summary: Start an async .vbundle import from a signed GCS URL
+      description:
+        Schedule a background import job that fetches the bundle at `bundle_url` and streams it through the
+        importer. Returns 202 with a `job_id`; poll `GET /v1/migrations/jobs/{job_id}` for status. 409 if another import
+        is already in flight.
+      tags:
+        - migrations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+                  status:
+                    type: string
+                    const: pending
+                  type:
+                    type: string
+                    const: import
+                required:
+                  - job_id
+                  - status
+                  - type
+                additionalProperties: false
+        "409":
+          description:
+            "Another import job is already pending or running. Body shape: { error: { code: 'import_in_progress',
+            job_id: string } }."
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        enum:
+                          - import_in_progress
+                      job_id:
+                        type: string
+                    required:
+                      - code
+                      - job_id
+                required:
+                  - error
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bundle_url:
+                  type: string
+                  format: uri
+              required:
+                - bundle_url
+              additionalProperties: false
   /v1/migrations/import-preflight:
     post:
       operationId: migrations_importpreflight_post

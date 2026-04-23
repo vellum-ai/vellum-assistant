@@ -44,13 +44,13 @@ import {
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import {
-  JobAlreadyInProgressError,
-  migrationJobs,
-} from "../migrations/job-registry.js";
-import {
   validateGcsSignedUrl,
   type ValidateGcsSignedUrlOptions,
 } from "../migrations/gcs-signed-url.js";
+import {
+  JobAlreadyInProgressError,
+  migrationJobs,
+} from "../migrations/job-registry.js";
 import { streamExportVBundle } from "../migrations/vbundle-builder.js";
 import {
   analyzeImport,
@@ -1083,7 +1083,11 @@ function gcsImportErrorToUrlBodyResponse(err: unknown): Response {
       return httpError("BAD_REQUEST", err.message, 400);
     }
     if (err.code === "fetch_failed") {
-      const body: { success: false; reason: "fetch_failed"; upstream_status?: number } = {
+      const body: {
+        success: false;
+        reason: "fetch_failed";
+        upstream_status?: number;
+      } = {
         success: false,
         reason: "fetch_failed",
       };
