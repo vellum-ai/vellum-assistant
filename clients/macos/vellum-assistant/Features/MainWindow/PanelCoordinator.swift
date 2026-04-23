@@ -234,15 +234,29 @@ extension MainWindowView {
             detailPanel: {
                 switch activeHomeDetailPanel {
                 case .scheduled(let item):
-                    let details = HomeScheduledDetails.placeholder
-                    // Surface the tapped item's title so distinct scheduled
-                    // rows render distinct panel headers while the rest of
-                    // the schedule metadata still uses placeholder data
-                    // (Devin feedback on PR #27475).
-                    // TODO: replace placeholder data with real schedule
-                    // metadata when the daemon surfaces scheduled-item
-                    // fields on FeedItem (see .private/plans/home-feed-groups.md
-                    // follow-up).
+                    let details: HomeScheduledDetails = {
+                        guard let panelData = ScheduledPanelData.from(item.detailPanel?.data) else {
+                            return HomeScheduledDetails.placeholder
+                        }
+                        let nextRunDate: Date = {
+                            guard let iso = panelData.nextRun else { return Date() }
+                            let formatter = ISO8601DateFormatter()
+                            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                            return formatter.date(from: iso)
+                                ?? ISO8601DateFormatter().date(from: iso)
+                                ?? Date()
+                        }()
+                        return HomeScheduledDetails(
+                            name: panelData.jobName,
+                            syntax: panelData.syntax,
+                            mode: panelData.mode,
+                            schedule: panelData.schedule ?? "—",
+                            enabled: panelData.enabled,
+                            nextRun: nextRunDate,
+                            nextRunTimeZone: .current,
+                            description: panelData.description ?? item.summary
+                        )
+                    }()
                     HomeScheduledDetailPanel(
                         title: item.title,
                         description: details.description,

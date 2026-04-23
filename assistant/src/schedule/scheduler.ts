@@ -20,6 +20,7 @@ import {
   failOneShot,
   getLastScheduleConversationId,
   type RoutingIntent,
+  type ScheduleJob,
 } from "./schedule-store.js";
 
 const log = getLogger("scheduler");
@@ -149,6 +150,7 @@ async function runScheduleOnce(
             title: job.name,
             summary: "Reminder fired.",
             dedupKey: `schedule-notify-oneshot:${job.id}`,
+            job,
           });
         } else {
           // Track recurring notify-mode success so lastStatus resets to ok
@@ -159,6 +161,7 @@ async function runScheduleOnce(
             title: job.name,
             summary: "Scheduled notification fired.",
             dedupKey: `schedule-run:${runId}`,
+            job,
           });
         }
       } catch (err) {
@@ -208,6 +211,7 @@ async function runScheduleOnce(
               title: job.name,
               summary: "Script ran.",
               dedupKey: `schedule-run:${runId}`,
+              job,
             });
           }
           if (isOneShot) completeOneShot(job.id);
@@ -287,6 +291,7 @@ async function runScheduleOnce(
               title: job.name,
               summary: "Scheduled task ran.",
               dedupKey: `schedule-run:${runId}`,
+              job,
             });
           }
           if (isOneShot) completeOneShot(job.id);
@@ -385,6 +390,7 @@ async function runScheduleOnce(
           title: job.name,
           summary: isOneShot ? "One-shot reminder ran." : "Scheduled job ran.",
           dedupKey: `schedule-run:${runId}`,
+          job,
         });
       }
       if (isOneShot) completeOneShot(job.id);
@@ -464,17 +470,36 @@ async function runScheduleOnce(
  * record is created) so each run lands as its own entry in the
  * activity log — the writer's per-source cap keeps total volume
  * bounded.
+ *
+ * When a {@link ScheduleJob} is provided, the emitted feed item
+ * includes a `detailPanel` with real schedule metadata so the macOS
+ * client can render the scheduled detail panel without placeholders.
  */
 function emitScheduleFeedEvent(params: {
   title: string;
   summary: string;
   dedupKey: string;
+  job?: ScheduleJob;
 }): void {
   void emitFeedEvent({
     source: "assistant",
     title: params.title,
     summary: params.summary,
     dedupKey: params.dedupKey,
+    detailPanel: params.job
+      ? {
+          kind: "scheduled",
+          data: {
+            jobName: params.job.name,
+            syntax: params.job.syntax,
+            mode: params.job.mode,
+            schedule: params.job.expression ?? undefined,
+            enabled: params.job.enabled,
+            nextRun: new Date(params.job.nextRunAt).toISOString(),
+            description: params.job.message.slice(0, 200),
+          },
+        }
+      : undefined,
   }).catch((err) => {
     log.warn(
       { err, dedupKey: params.dedupKey },
