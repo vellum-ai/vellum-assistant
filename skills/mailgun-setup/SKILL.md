@@ -47,13 +47,33 @@ The response contains an `items` array of domain objects with `name` and `state`
 
 Use `hi@<domain>` as the default sender address (consistent with Vellum's native email convention). Remember the domain for future sends.
 
-### Webhook Signing Key (for receiving)
+### Webhook Setup (for receiving)
 
-If the user also wants to **receive** emails via Mailgun, they need to set up a Mailgun inbound route with a `forward()` action pointing to:
+If the user also wants to **receive** emails via Mailgun, you need to:
 
-- **URL:** `https://<assistant-ingress>/webhooks/mailgun`
+1. **Register a platform callback route** to get a stable webhook URL:
 
-Then store the webhook signing key:
+```bash
+assistant platform callback-routes register --path webhooks/mailgun --type mailgun --json
+```
+
+This returns JSON with a `callbackUrl` field — that's the URL Mailgun should forward inbound emails to.
+
+2. **Create an inbound route in Mailgun via their API** using the callback URL from step 1:
+
+```bash
+curl -s --user "api:$MAILGUN_API_KEY" \
+  https://api.mailgun.net/v3/routes \
+  -F priority=0 \
+  -F description="Forward inbound email to assistant" \
+  -F expression="match_recipient('.*@DOMAIN')" \
+  -F action="forward('<callbackUrl from step 1>')" \
+  -F action="stop()"
+```
+
+Replace `DOMAIN` with the user's Mailgun receiving domain. Retrieve the API key from the vault at runtime (do not hardcode it).
+
+3. **Store the webhook signing key** so the gateway can verify inbound webhooks:
 
 ```
 credential_store:
@@ -64,6 +84,10 @@ credential_store:
   placeholder: "key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
   description: "Webhook signing key from your Mailgun dashboard (for verifying inbound emails)"
 ```
+
+The signing key is found in Mailgun dashboard → Settings → API Security → Webhook signing key (distinct from the API key).
+
+**Do NOT use `assistant routes`** for webhooks — those are authenticated routes under `/x/*` and cannot receive unauthenticated provider callbacks. Always use `assistant platform callback-routes register`.
 
 ## Sending Email
 

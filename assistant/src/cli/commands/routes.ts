@@ -157,7 +157,9 @@ function formatMethods(methods: HttpMethod[]): string {
 export function registerRoutesCommand(program: Command): void {
   const routes = program
     .command("routes")
-    .description("Manage user-defined HTTP route handlers under /x/*");
+    .description(
+      "Manage user-defined authenticated HTTP route handlers under /x/*",
+    );
 
   routes.addHelpText(
     "after",
@@ -165,6 +167,13 @@ export function registerRoutesCommand(program: Command): void {
 User-defined routes let you expose custom HTTP endpoints by dropping handler
 files into /workspace/routes/. Each file exports named HTTP method functions
 (GET, POST, etc.) and becomes reachable at /x/<path>.
+
+These routes require edge authentication — they are intended for
+assistant-internal or user-facing endpoints, not for unauthenticated provider
+webhooks (e.g. Resend, Mailgun, Twilio, Telegram). Provider webhooks are
+registered via 'assistant platform callback-routes register' which returns a
+stable callback URL that the platform's gateway proxy forwards to the
+assistant's built-in webhook handlers.
 
 Routes are managed by creating and deleting files — no add/remove commands
 needed.

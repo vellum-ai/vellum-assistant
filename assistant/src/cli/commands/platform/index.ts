@@ -221,6 +221,9 @@ Known callback path/type combinations:
   --path webhooks/telegram          --type telegram
   --path webhooks/twilio/voice      --type twilio_voice
   --path webhooks/twilio/status     --type twilio_status
+  --path webhooks/resend            --type resend
+  --path webhooks/mailgun           --type mailgun
+  --path webhooks/email             --type email
   --path oauth/callback             --type oauth
 
 Works for both platform-managed and self-hosted assistants. Requires
