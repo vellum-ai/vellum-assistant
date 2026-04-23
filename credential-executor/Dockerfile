@@ -22,9 +22,6 @@ COPY packages/egress-proxy ./packages/egress-proxy
 COPY credential-executor/package.json credential-executor/bun.lock* ./credential-executor/
 RUN cd /app/credential-executor && bun install --frozen-lockfile
 
-# Copy credential-executor source
-COPY credential-executor ./credential-executor
-
 # Runtime stage
 FROM debian:trixie-slim@sha256:1d3c811171a08a5adaa4a163fbafd96b61b87aa871bbc7aa15431ac275d3d430 AS runner
 
@@ -42,8 +39,11 @@ RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 RUN groupadd --system --gid 1001 ces && \
     useradd --system --uid 1001 --gid ces --create-home ces
 
-# Copy built app from builder
+# Copy installed deps + shared packages from builder.
 COPY --from=builder --chown=ces:ces /app /app
+
+# Copy source separately to avoid invalidating builder layer.
+COPY --chown=ces:ces credential-executor ./
 
 # Pre-create /ces-data so the non-root ces user can write to it
 # when no PVC volume is mounted (e.g., direct docker run)
