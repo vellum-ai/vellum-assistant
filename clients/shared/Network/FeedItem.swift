@@ -101,13 +101,25 @@ public enum FeedItemDetailPanelKind: String, Codable, Sendable, Hashable {
 ///
 /// `data` is an untyped dictionary on the wire — kind-specific parsing
 /// happens at the consumer via the per-kind data structs below.
-public struct FeedItemDetailPanel: Codable, Sendable, Hashable {
+public struct FeedItemDetailPanel: Codable, Sendable {
     public let kind: FeedItemDetailPanelKind
     public let data: [String: AnyCodable]?
 
     public init(kind: FeedItemDetailPanelKind, data: [String: AnyCodable]? = nil) {
         self.kind = kind
         self.data = data
+    }
+}
+
+extension FeedItemDetailPanel: Equatable {
+    public static func == (lhs: FeedItemDetailPanel, rhs: FeedItemDetailPanel) -> Bool {
+        lhs.kind == rhs.kind
+    }
+}
+
+extension FeedItemDetailPanel: Hashable {
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(kind)
     }
 }
 
