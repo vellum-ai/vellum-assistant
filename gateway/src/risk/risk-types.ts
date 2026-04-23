@@ -81,9 +81,14 @@ export interface RiskAssessment {
 /**
  * Generic risk classifier interface. Each tool type (bash, file_write, etc.)
  * implements this with a tool-specific input type.
+ *
+ * The optional `TExtraArgs` tuple allows classifiers that need additional
+ * context (e.g. FileRiskClassifier's FileClassificationContext) to declare
+ * extra parameters on `classify()` without breaking classifiers that only
+ * need the input.
  */
-export interface RiskClassifier<TInput> {
-  classify(input: TInput): Promise<RiskAssessment>;
+export interface RiskClassifier<TInput, TExtraArgs extends unknown[] = []> {
+  classify(input: TInput, ...args: TExtraArgs): Promise<RiskAssessment>;
 }
 
 // ── Bash classifier input ────────────────────────────────────────────────────

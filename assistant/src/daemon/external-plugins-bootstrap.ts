@@ -14,8 +14,11 @@
  * 3. For each plugin, consults `manifest.requiresFlag` against
  *    {@link isAssistantFeatureFlagEnabled}. If any listed flag is disabled,
  *    the plugin is skipped wholesale — no `init()`, no tool/route/skill
- *    contributions, and no entry in the shutdown hook. This is the primary
- *    mechanism for shipping experimental plugins behind a feature flag.
+ *    contributions, no entry in the shutdown hook, and the plugin is also
+ *    dropped from the registry via {@link unregisterPlugin} so its middleware
+ *    and injectors stop participating in pipeline runs and system-prompt
+ *    assembly. This is the primary mechanism for shipping experimental
+ *    plugins behind a feature flag.
  * 4. Resolves the plugin's `manifest.requiresCredential` entries via the
  *    credential store helper ({@link getSecureKeyAsync}). In Docker mode
  *    that helper goes through the CES HTTP API transparently; in local mode
@@ -251,6 +254,12 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
         { plugin: name, flag: disabledFlag },
         `skipping plugin ${name}: feature flag ${disabledFlag} is disabled`,
       );
+      // Drop the plugin from the registry too. `registerPlugin()` added it at
+      // import time, and `getMiddlewaresFor()` / `getInjectors()` iterate over
+      // every registered entry — without this call, the gated plugin's
+      // middleware and injectors would still participate in every pipeline
+      // run and system-prompt assembly despite `init()` never firing.
+      unregisterPlugin(name);
       continue;
     }
 
