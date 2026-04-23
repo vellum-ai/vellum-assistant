@@ -164,7 +164,7 @@ Socket Free has ~1,000 scans/month. Consumption sources in this repo:
 
 Check monthly usage at the Socket dashboard. If usage hits **70% (~700 scans) for two consecutive months**, revisit by either:
 
-- lowering `Socket Autofix` cadence to biweekly (`cron: '0 9 */14 * 1'` or equivalent), or
+- lowering `Socket Autofix` cadence. Note: POSIX cron has no true biweekly expression — when both day-of-month and day-of-week are constrained, cron ORs them, so `'0 9 */14 * 1'` fires *more* often than weekly, not less. Options: (a) switch to monthly with `cron: '0 9 1 * *'` (runs 09:00 UTC on the 1st of every month); (b) keep the weekly cron and gate the run with a workflow-level `if: (github.run_number % 2) == 0` so only every other run executes; or (c) drive from an external scheduler via `workflow_dispatch`.
 - upgrading to Team tier.
 
 File a Linear ticket the first time the threshold is reached.
