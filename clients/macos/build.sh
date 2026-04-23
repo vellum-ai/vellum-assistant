@@ -1372,22 +1372,35 @@ if [ -d "$XCASSETS" ]; then
     # Assets.car was not produced. On GitHub-hosted macOS runners actool's
     # AssetCatalogAgent-AssetRuntime subprocess occasionally crashes (dyld
     # symbol mismatches against AVFCore / CoreMedia, IBPlatformToolFailure-
-    # Exception) after successfully writing Assets.car, so fall back to an
-    # output-file existence check before failing the build.
-    ACTOOL_OUTPUT=$(xcrun actool "${ACTOOL_INPUTS[@]}" \
-        --compile "$RESOURCES_DIR" \
-        --platform macosx \
-        --minimum-deployment-target 14.0 \
-        --app-icon AppIcon \
-        --output-partial-info-plist /dev/null \
-        2>&1) || {
-        if [ ! -f "$RESOURCES_DIR/Assets.car" ]; then
-            echo "actool failed to produce Assets.car:"
-            echo "$ACTOOL_OUTPUT"
-            exit 1
+    # Exception). Sometimes Assets.car is written before the crash and we
+    # can continue; sometimes the crash happens early and no output is
+    # produced. Retry a few times to absorb the flaky early-crash case.
+    ACTOOL_MAX_ATTEMPTS=3
+    ACTOOL_SUCCESS=0
+    for attempt in $(seq 1 $ACTOOL_MAX_ATTEMPTS); do
+        rm -f "$RESOURCES_DIR/Assets.car"
+        if ACTOOL_OUTPUT=$(xcrun actool "${ACTOOL_INPUTS[@]}" \
+            --compile "$RESOURCES_DIR" \
+            --platform macosx \
+            --minimum-deployment-target 14.0 \
+            --app-icon AppIcon \
+            --output-partial-info-plist /dev/null \
+            2>&1); then
+            ACTOOL_SUCCESS=1
+            break
         fi
-        echo "actool exited non-zero but Assets.car was produced; continuing."
-    }
+        if [ -f "$RESOURCES_DIR/Assets.car" ]; then
+            echo "actool exited non-zero but Assets.car was produced on attempt $attempt; continuing."
+            ACTOOL_SUCCESS=1
+            break
+        fi
+        echo "actool attempt $attempt/$ACTOOL_MAX_ATTEMPTS failed without producing Assets.car; retrying."
+    done
+    if [ "$ACTOOL_SUCCESS" != "1" ]; then
+        echo "actool failed to produce Assets.car after $ACTOOL_MAX_ATTEMPTS attempts:"
+        echo "$ACTOOL_OUTPUT"
+        exit 1
+    fi
 fi
 
 # Generate AppIcon.icns from SVG source for Finder/DMG icon display.
