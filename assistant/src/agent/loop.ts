@@ -493,11 +493,15 @@ export class AgentLoop {
 
         // Wrap the provider call in the `llmCall` pipeline so middleware
         // contributed by plugins may observe, rewrite, short-circuit, or
-        // post-process every LLM request. The default plugin registered at
-        // bootstrap (`defaultLlmCallPlugin`) acts as the passthrough terminal
-        // and simply delegates back to `provider.sendMessage(...)`. Timeout
-        // is `null` (`DEFAULT_TIMEOUTS.llmCall`) — the provider layer already
-        // enforces its own HTTP-level budgets.
+        // post-process every LLM request. The terminal below is the real
+        // `provider.sendMessage(...)` call; middleware that call `next(args)`
+        // eventually reach it. The default `defaultLlmCallPlugin` contributes
+        // only a passthrough middleware that forwards to `next(args)` —
+        // registered at module load, it sits at the outermost layer in the
+        // onion, so short-circuiting there would silently disable every
+        // user-registered `llmCall` middleware. Timeout is `null`
+        // (`DEFAULT_TIMEOUTS.llmCall`) — the provider layer already enforces
+        // its own HTTP-level budgets.
         //
         // The `onEvent` wrapping is kept inside `args.options` so substitution
         // and streaming behavior exactly match the pre-pipeline call site.
