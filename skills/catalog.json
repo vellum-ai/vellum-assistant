@@ -566,13 +566,13 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "terminal-sessions",
-      "name": "terminal-sessions",
+      "id": "vellum-terminal-sessions",
+      "name": "vellum-terminal-sessions",
       "description": "Manage persistent terminal sessions via tmux. Create, read, write to, list, and close named shell sessions. Use when the user asks about running terminal processes, wants help orchestrating CLI tasks, or asks you to monitor or interact with long-running commands. Also use when the user mentions tmux sessions.",
       "metadata": {
         "emoji": "🖥️",
         "author": "vellum-ai",
-        "version": "0.1",
+        "version": "0.2",
         "vellum": {
           "display-name": "Terminal Sessions",
           "activation-hints": [
@@ -588,7 +588,7 @@
           ]
         }
       },
-      "compatibility": "Requires tmux installed on the host machine. Works on macOS and Linux."
+      "compatibility": "Sandbox mode works without any host dependencies. Host mode requires tmux installed on the user's machine. Works on macOS and Linux."
     },
     {
       "id": "time-based-actions",
