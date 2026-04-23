@@ -16,7 +16,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { ALLOWED_EXTENSION_ORIGINS } from "../runtime/routes/browser-extension-pair-routes.js";
+import { getAllowedExtensionOrigins } from "../runtime/routes/browser-extension-pair-routes.js";
 
 const repoRoot = resolve(__dirname, "..", "..", "..");
 const CANONICAL_CONFIG_REL_PATH =
@@ -176,7 +176,7 @@ describe("Chrome extension allowlist guard", () => {
     const config = parseCanonicalConfig();
     for (const id of config.allowedExtensionIds) {
       const origin = `chrome-extension://${id}/`;
-      expect(ALLOWED_EXTENSION_ORIGINS.has(origin)).toBe(true);
+      expect(getAllowedExtensionOrigins().has(origin)).toBe(true);
     }
   });
 
@@ -198,7 +198,7 @@ describe("Chrome extension allowlist guard", () => {
     const expectedOrigins = new Set(
       config.allowedExtensionIds.map((id) => `chrome-extension://${id}/`),
     );
-    expect(new Set(ALLOWED_EXTENSION_ORIGINS)).toEqual(expectedOrigins);
+    expect(new Set(getAllowedExtensionOrigins())).toEqual(expectedOrigins);
   });
 
   test("concrete extension IDs appear only in canonical config or CWS URLs", () => {

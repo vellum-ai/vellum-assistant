@@ -46,7 +46,7 @@ import {
   verifyHostBrowserCapability,
 } from "../runtime/capability-tokens.js";
 import {
-  ALLOWED_EXTENSION_ORIGINS,
+  getAllowedExtensionOrigins,
   handleBrowserExtensionPair,
 } from "../runtime/routes/browser-extension-pair-routes.js";
 
@@ -81,10 +81,10 @@ const HELPER_BINARY = resolveHelperBinary();
 const HELPER_EXISTS = existsSync(HELPER_BINARY);
 
 const ALLOWED_ORIGIN = (() => {
-  const first = Array.from(ALLOWED_EXTENSION_ORIGINS)[0];
+  const first = Array.from(getAllowedExtensionOrigins())[0];
   if (!first) {
     throw new Error(
-      "ALLOWED_EXTENSION_ORIGINS must contain at least one extension origin for tests",
+      "getAllowedExtensionOrigins() must contain at least one extension origin for tests",
     );
   }
   return first;
