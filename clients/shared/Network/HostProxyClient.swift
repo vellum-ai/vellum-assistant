@@ -135,14 +135,12 @@ public struct HostProxyClient: HostProxyClientProtocol {
     public func pushTransferContent(transferId: String, data: Data, sha256: String, sourcePath: String) async throws -> Bool {
         // Scale timeout by data size: ~5s per MB with a 30s minimum.
         let timeout: TimeInterval = max(30, TimeInterval(data.count) / (1024 * 1024) * 5 + 30)
-        // Encode SHA-256 and source path as query parameters since the PUT
-        // method does not support custom headers directly.
-        let encodedSha = sha256.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sha256
-        let encodedPath = sourcePath.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sourcePath
-        let path = "assistants/{assistantId}/transfers/\(transferId)/content?sha256=\(encodedSha)&sourcePath=\(encodedPath)"
         let response = try await GatewayHTTPClient.put(
-            path: path,
+            path: "assistants/{assistantId}/transfers/\(transferId)/content",
             body: data,
+            params: ["sourcePath": sourcePath],
+            contentType: "application/octet-stream",
+            extraHeaders: ["X-Transfer-SHA256": sha256],
             timeout: timeout
         )
         guard response.isSuccess else {
