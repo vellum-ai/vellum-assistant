@@ -6,7 +6,9 @@ import {
 } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import { dockerResourceNames } from "../lib/docker";
+import { getPlatformUrl, readPlatformToken } from "../lib/platform-client";
 import { sshAppleContainer } from "../lib/ssh-apple-container";
+import { interactiveSession } from "./terminal";
 
 const SSH_OPTS = [
   "-o",
@@ -121,8 +123,19 @@ export async function ssh(): Promise<void> {
       { stdio: "inherit" },
     );
   } else if (cloud === "vellum") {
-    console.error("SSH to Vellum-managed instances is not yet supported.");
-    process.exit(1);
+    const token = readPlatformToken();
+    if (!token) {
+      console.error(
+        "Not logged in. Run `vellum login` first to authenticate with the platform.",
+      );
+      process.exit(1);
+    }
+    await interactiveSession({
+      assistantId: entry.assistantId,
+      token,
+      platformUrl: getPlatformUrl(),
+    });
+    return;
   } else if (cloud === "custom") {
     const host = extractHostFromUrl(entry.runtimeUrl);
     const sshUser = entry.sshUser ?? "root";
