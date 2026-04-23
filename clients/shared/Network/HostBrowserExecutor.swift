@@ -299,9 +299,9 @@ public final class HostBrowserExecutor {
             let wsTask = session.webSocketTask(with: endpoint)
 
             // Guard against double-resuming the continuation. The timeout
-            // fires on DispatchQueue.global() while WebSocket callbacks
-            // run on URLSession's delegate queue, so `resumed` is accessed
-            // from multiple threads and must be synchronized.
+            // fires on a detached Task while WebSocket callbacks run on
+            // URLSession's delegate queue, so `resumed` is accessed from
+            // multiple threads and must be synchronized.
             let lock = NSLock()
             var resumed = false
             let resumeOnce: (Result<String, Error>) -> Void = { result in
@@ -315,18 +315,20 @@ public final class HostBrowserExecutor {
                 continuation.resume(with: result)
             }
 
-            // Timeout
-            let timeoutWork = DispatchWorkItem {
+            // Timeout. Task is Sendable; DispatchWorkItem is not, so
+            // capturing it in @Sendable URLSession callbacks warns.
+            let timeoutTask = Task {
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                guard !Task.isCancelled else { return }
                 resumeOnce(.failure(CDPError.timeout))
             }
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutWork)
 
             wsTask.resume()
 
             // Send the command
             wsTask.send(.string(messageString)) { error in
                 if let error {
-                    timeoutWork.cancel()
+                    timeoutTask.cancel()
                     resumeOnce(.failure(CDPError.connectionFailed("WebSocket send failed: \(error.localizedDescription)")))
                     return
                 }
@@ -343,7 +345,7 @@ public final class HostBrowserExecutor {
                                    let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                                    let responseId = json["id"] as? Int,
                                    responseId == commandId {
-                                    timeoutWork.cancel()
+                                    timeoutTask.cancel()
 
                                     // Check for CDP protocol error
                                     if let errorObj = json["error"] as? [String: Any] {
@@ -375,7 +377,7 @@ public final class HostBrowserExecutor {
                                 receiveNext()
                             }
                         case .failure(let error):
-                            timeoutWork.cancel()
+                            timeoutTask.cancel()
                             resumeOnce(.failure(CDPError.connectionFailed("WebSocket receive failed: \(error.localizedDescription)")))
                         }
                     }
