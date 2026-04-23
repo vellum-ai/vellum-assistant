@@ -1506,7 +1506,9 @@ func parseSVGPath(_ d: String) -> CGPath {
         case "Z", "z":
             path.closeSubpath()
         default:
-            break
+            // Skip unknown commands by advancing past their numeric arguments
+            // to avoid an infinite loop on unsupported SVG path commands (C, H, V, etc.)
+            while i < chars.count && !chars[i].isLetter { i += 1 }
         }
     }
     return path
