@@ -71,7 +71,8 @@
   "bundledDependencies": [
     "@vellumai/ces-contracts",
     "@vellumai/credential-storage",
-    "@vellumai/egress-proxy"
+    "@vellumai/egress-proxy",
+    "@vellumai/skill-host-contracts"
   ],
   "overrides": {
     "lodash": "4.18.1",

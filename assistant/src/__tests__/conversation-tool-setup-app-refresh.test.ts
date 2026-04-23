@@ -44,7 +44,9 @@ mock.module("../tools/browser/browser-screencast.js", () => ({
   registerConversationSender: mock(() => {}),
 }));
 
-// Mock app-store functions used by handleAppChange in tool-side-effects
+// Stub app-store functions used by other modules (e.g. app-source-watcher,
+// conversation-surfaces) so tool-side-effects' hooks can run without touching
+// the real app store during tests.
 mock.module("../memory/app-store.js", () => ({
   getApp: mock(() => null),
   getAppDirPath: mock(() => "/tmp/test-apps/dummy"),
@@ -286,6 +288,44 @@ describe("session-tool-setup app refresh side effects", () => {
 
       expect(broadcastSpy).not.toHaveBeenCalled();
     });
+
+    test("fires notify side effects regardless of compile outcome reported in payload", async () => {
+      // The hook observes the tool result but does not branch on compile
+      // status fields inside it. Whether the executor reports a successful
+      // compile or returns compile_errors, the hook still refreshes
+      // surfaces and broadcasts — compile retries are the LLM's
+      // responsibility via a follow-up tool call, not the hook's.
+      const ctx = makeCtx();
+      const executor = makeFakeExecutor({
+        content: JSON.stringify({
+          id: "new-app-err",
+          name: "Busted",
+          compiled: false,
+          compile_errors: [{ text: "syntax error" }],
+        }),
+        isError: false,
+      });
+      const broadcastSpy = mock(() => {});
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor,
+        noopPrompter,
+        noopSecretPrompter,
+        ctx,
+        noopLifecycleHandler,
+        broadcastSpy,
+      );
+
+      await toolFn("app_create", { name: "Busted", html: "" });
+
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+      expect(broadcastSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
+      expect((broadcastSpy.mock.calls as unknown[][])[0][0]).toEqual({
+        type: "app_files_changed",
+        appId: "new-app-err",
+      });
+      expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
+    });
   });
 
   // ── app_delete side effects ────────────────────────────────────────
@@ -435,5 +475,4 @@ describe("session-tool-setup app refresh side effects", () => {
       expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
     });
   });
-
 });
