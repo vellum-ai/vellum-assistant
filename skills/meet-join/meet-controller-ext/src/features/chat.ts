@@ -129,6 +129,26 @@ function describeComposerSearch(): string {
 const ENSURE_PANEL_OPEN_TIMEOUT_MS = 2000;
 
 /**
+ * How long after {@link startChatReader} the `MutationObserver` treats
+ * freshly-added message nodes as backfill instead of live chat. `startChatReader`
+ * does not await {@link ensurePanelOpen}, so when the panel is closed at
+ * reader-start the chat list mounts tens of ms to ~2s later and Meet populates
+ * it with pre-existing history in the same task. Those history messages would
+ * otherwise flow into the detector as live events and burn the Tier 2
+ * debounce slot before any real live chat arrives.
+ *
+ * Sized to match {@link ENSURE_PANEL_OPEN_TIMEOUT_MS} — the same upper bound on
+ * how long the panel can take to mount. After this window, the observer
+ * switches to tagging messages as live. The tradeoff: a genuine live chat
+ * posted in the bot's first ~2 seconds after join also gets tagged as backfill
+ * and skips its Tier 2 check, but still populates the chat buffer (so the
+ * agent sees it on the next real trigger). That's strictly better than the
+ * previous behavior, where the same live chat would be silently dropped after
+ * history consumed the debounce slot.
+ */
+const INITIAL_BACKFILL_WINDOW_MS = ENSURE_PANEL_OPEN_TIMEOUT_MS;
+
+/**
  * Meet's chat composer enforces a 2000-character cap server-side. We mirror
  * that cap here so callers get a fast, local error instead of a silent drop
  * or a panel toast. Must stay in sync with `MEET_CHAT_MAX_LENGTH` in
@@ -396,6 +416,14 @@ export function startChatReader(opts: ChatReaderOptions): ChatReader {
   // on them; a pre-existing history entry consuming the debounce slot
   // would silently drop the first real live message that lands inside
   // the debounce window.
+  //
+  // The synchronous probe below only covers history that's already mounted
+  // at reader-start. In production, `startChatReader` does NOT await
+  // `ensurePanelOpen`, so on a fresh join the chat list mounts tens of ms
+  // to ~2s later and its pre-existing history arrives via the
+  // `MutationObserver` below. Those messages are also history, not live —
+  // we extend the backfill tag to anything the observer sees inside the
+  // initial-attach window (see `INITIAL_BACKFILL_WINDOW_MS`).
   maybeEmitReaderDiagnostic();
   for (const existing of document.querySelectorAll(
     chatSelectors.MESSAGE_NODE,
@@ -403,15 +431,24 @@ export function startChatReader(opts: ChatReaderOptions): ChatReader {
     extract(existing, true);
   }
 
+  const readerStartedAt = Date.now();
   const observer = new MutationObserver((mutations) => {
     // Re-probe the diagnostic on each mutation batch until it fires — the
     // chat list mounts asynchronously after `ensurePanelOpen()` clicks the
     // toggle, and the backfill probe above often runs before the list is
     // in the DOM.
     maybeEmitReaderDiagnostic();
+    // Async-attach history: if the panel wasn't mounted at reader-start,
+    // the pre-existing history lands here in the first mutation batches.
+    // Tag anything inside the initial-attach window as backfill too — the
+    // detector already drops backfill events before Tier 2, so worst case
+    // a genuine live message posted in the bot's first second after join
+    // skips its Tier 2 check but still populates the chat buffer.
+    const withinBackfillWindow =
+      Date.now() - readerStartedAt < INITIAL_BACKFILL_WINDOW_MS;
     for (const m of mutations) {
       for (const node of m.addedNodes) {
-        if (node.nodeType === 1) extract(node as Element);
+        if (node.nodeType === 1) extract(node as Element, withinBackfillWindow);
       }
     }
   });
