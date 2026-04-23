@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { resolveIpcSocketPath } from "../socket-path.js";
 
 const LONG_BASE_DIR =
-  "/Users/alice/.local/share/vellum-dev/assistants/vellum-safe-dace-8hrt6e/.vellum/workspace";
+  "/Users/alice-johnson/.local/share/vellum-dev/assistants/vellum-safe-dace-8hrt6e/.vellum/workspace";
 
 describe("resolveIpcSocketPath", () => {
   test("uses protected dir path when it is within the platform limit", () => {

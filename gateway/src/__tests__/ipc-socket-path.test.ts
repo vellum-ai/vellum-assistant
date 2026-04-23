@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { resolveIpcSocketPath } from "../ipc/socket-path.js";
 
 const LONG_WORKSPACE_DIR =
-  "/Users/alice/.local/share/vellum-dev/assistants/vellum-safe-dace-8hrt6e/.vellum/workspace";
+  "/Users/alice-johnson/.local/share/vellum-dev/assistants/vellum-safe-dace-8hrt6e/.vellum/workspace";
 
 describe("resolveIpcSocketPath", () => {
   test("uses workspace path when it is within the platform limit", () => {
