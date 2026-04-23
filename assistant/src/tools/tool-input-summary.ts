@@ -49,15 +49,18 @@ export function summarizeToolInput(
     case "file_edit":
     case "host_file_read":
     case "host_file_write":
-    case "host_file_edit":
+    case "host_file_edit": {
+      const path = extractString(input, "file_path", "path");
+      return path ? path.trim() : "";
+    }
     case "host_file_transfer": {
-      const path = extractString(
-        input,
-        "file_path",
-        "path",
-        "dest_path",
-        "source_path",
-      );
+      // Display the host-side path: source_path for to_sandbox (reading from
+      // host), dest_path for to_host (writing to host).
+      const direction = extractString(input, "direction") ?? "";
+      const path =
+        direction === "to_sandbox"
+          ? extractString(input, "source_path")
+          : extractString(input, "dest_path");
       return path ? path.trim() : "";
     }
     case "web_fetch":

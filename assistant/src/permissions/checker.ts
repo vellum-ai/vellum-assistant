@@ -326,12 +326,26 @@ function buildClassifyRiskParams(
       "host_file_read",
       "host_file_write",
       "host_file_edit",
+      "host_file_transfer",
     ].includes(toolName)
   ) {
     const isHostTool = toolName.startsWith("host_");
+    let filePath: string;
+    if (toolName === "host_file_transfer") {
+      // For host_file_transfer the security-sensitive path is the host-side
+      // path: source_path when reading from the host (to_sandbox), dest_path
+      // when writing to the host (to_host).
+      const direction = getStringField(input, "direction");
+      filePath =
+        direction === "to_sandbox"
+          ? getStringField(input, "source_path")
+          : getStringField(input, "dest_path");
+    } else {
+      filePath = getStringField(input, "path", "file_path");
+    }
     return {
       tool: toolName,
-      path: getStringField(input, "path", "file_path"),
+      path: filePath,
       workingDir: isHostTool ? "/" : (workingDir ?? process.cwd()),
       fileContext: buildFileContext(),
     };
@@ -497,13 +511,25 @@ async function buildCommandCandidates(
     return [...new Set(candidates)];
   }
 
-  const fileTarget = getStringField(
-    input,
-    "path",
-    "file_path",
-    "dest_path",
-    "source_path",
-  );
+  let fileTarget: string;
+  if (toolName === "host_file_transfer") {
+    // For host_file_transfer the security-sensitive path is always the
+    // host-side path: source_path when reading from the host (to_sandbox),
+    // dest_path when writing to the host (to_host).
+    const direction = getStringField(input, "direction");
+    fileTarget =
+      direction === "to_sandbox"
+        ? getStringField(input, "source_path")
+        : getStringField(input, "dest_path");
+  } else {
+    fileTarget = getStringField(
+      input,
+      "path",
+      "file_path",
+      "dest_path",
+      "source_path",
+    );
+  }
   if (
     toolName === "host_file_read" ||
     toolName === "host_file_write" ||
@@ -773,12 +799,22 @@ function fileAllowlistStrategy(
   toolName: string,
   input: Record<string, unknown>,
 ): AllowlistOption[] {
-  const filePath =
-    (input.path as string) ??
-    (input.file_path as string) ??
-    (input.dest_path as string) ??
-    (input.source_path as string) ??
-    "";
+  let filePath: string;
+  if (toolName === "host_file_transfer") {
+    // Use the host-side path: source_path for to_sandbox, dest_path for to_host.
+    const direction = (input.direction as string) ?? "";
+    filePath =
+      direction === "to_sandbox"
+        ? ((input.source_path as string) ?? "")
+        : ((input.dest_path as string) ?? "");
+  } else {
+    filePath =
+      (input.path as string) ??
+      (input.file_path as string) ??
+      (input.dest_path as string) ??
+      (input.source_path as string) ??
+      "";
+  }
   const toolLabel = TOOL_DISPLAY_NAMES[toolName] ?? toolName;
   const options: AllowlistOption[] = [];
 
