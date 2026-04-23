@@ -441,6 +441,7 @@ extension ChatViewModel {
             messages[msgIndex].toolCalls[tcIndex].imageDataList = decoded.isEmpty ? msg.imageDataList : nil
             messages[msgIndex].toolCalls[tcIndex].riskLevel = msg.riskLevel
             messages[msgIndex].toolCalls[tcIndex].riskReason = msg.riskReason
+            if let containerized = msg.isContainerized { messages[msgIndex].toolCalls[tcIndex].isContainerized = containerized }
             messages[msgIndex].toolCalls[tcIndex].riskScopeOptions = msg.riskScopeOptions
             if let status = msg.status, !status.isEmpty {
                 messages[msgIndex].toolCalls[tcIndex].buildingStatus = status

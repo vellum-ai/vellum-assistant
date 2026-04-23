@@ -105,8 +105,8 @@ Arguments:
   provider   Provider name (e.g. google, slack, notion).
              Run 'assistant oauth providers list' to see available providers.
 
-In managed mode, --scopes must be in the provider's allowed set (use full
-scope URLs). In BYO mode, --scopes are appended to the provider's defaults.
+When --scopes is provided, the specified scopes replace the provider's
+defaults entirely (use full scope URLs).
 By default, the browser opens automatically and the command waits for
 completion. Use --no-browser to print the URL instead (useful for headless
 or SSH sessions).

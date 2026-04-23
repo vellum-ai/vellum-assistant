@@ -54,10 +54,12 @@ import type {
   NonHostProxyTransportMetadata,
 } from "../../daemon/message-types/conversations.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
+import { emitFeedEvent } from "../../home/emit-feed-event.js";
 import {
   writeOnboardingSidecar,
   writeRelationshipState,
 } from "../../home/relationship-state-writer.js";
+import { rewriteCommandPreview } from "../../home/rewrite-command-preview.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
@@ -94,6 +96,7 @@ import { buildAssistantEvent } from "../assistant-event.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { AuthContext } from "../auth/types.js";
 import { getChromeExtensionRegistry } from "../chrome-extension-registry.js";
+import { getClientRegistry } from "../client-registry.js";
 import { bridgeConfirmationRequestToGuardian } from "../confirmation-request-guardian-bridge.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
@@ -1004,6 +1007,54 @@ function makeHubPublisher(
         },
       });
 
+      const inputRecord = msg.input as Record<string, unknown>;
+      const commandPreview =
+        redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) ||
+        undefined;
+      const technicalTitle = commandPreview
+        ? `Requesting permission: ${commandPreview}`
+        : `Requesting approval to use ${msg.toolName}.`;
+      const dedupKey = `tool-approval:${msg.requestId}`;
+
+      // Emit immediately with the technical preview.
+      void emitFeedEvent({
+        source: "assistant",
+        title: technicalTitle,
+        summary: technicalTitle,
+        dedupKey,
+        urgency: msg.riskLevel === "high" ? "high" : "medium",
+        conversationId,
+      }).catch((err) => {
+        log.warn(
+          { err, requestId: msg.requestId },
+          "Failed to emit tool approval request feed event",
+        );
+      });
+
+      // Background: rewrite into prose and update the feed item.
+      if (commandPreview) {
+        void rewriteCommandPreview(msg.toolName, commandPreview)
+          .then((prose) => {
+            if (prose) {
+              const proseTitle = `Requesting permission: ${prose}`;
+              return emitFeedEvent({
+                source: "assistant",
+                title: proseTitle,
+                summary: proseTitle,
+                dedupKey,
+                urgency: msg.riskLevel === "high" ? "high" : "medium",
+                conversationId,
+              });
+            }
+          })
+          .catch((err) => {
+            log.warn(
+              { err, requestId: msg.requestId },
+              "Failed to update feed event with prose rewrite",
+            );
+          });
+      }
+
       // Create a canonical guardian request so HTTP handlers can find it
       // via applyCanonicalGuardianDecision.
       try {
@@ -1363,6 +1414,7 @@ export async function handleSendMessage(
     bypassSecretCheck?: boolean;
     hostHomeDir?: string;
     hostUsername?: string;
+    clientId?: string;
     clientMessageId?: string;
     onboarding?: {
       tools: string[];
@@ -1518,6 +1570,22 @@ export async function handleSendMessage(
         channelId: sourceChannel,
         interfaceId: sourceInterface,
       } satisfies NonHostProxyTransportMetadata);
+
+  // Register/refresh the client in the unified client registry so
+  // `assistant clients list` can discover all connected interfaces.
+  // Uses the client-supplied clientId when available (stable per-install
+  // UUID), falling back to a synthetic key derived from interfaceId so
+  // older clients that don't send clientId still appear in the registry.
+  const effectiveClientId =
+    typeof body.clientId === "string" && body.clientId.length > 0
+      ? body.clientId
+      : `synthetic:${sourceInterface}`;
+  getClientRegistry().register({
+    clientId: effectiveClientId,
+    interfaceId: sourceInterface,
+    hostHomeDir: body.hostHomeDir,
+    hostUsername: body.hostUsername,
+  });
 
   const conversation = await smDeps.getOrCreateConversation(
     mapping.conversationId,

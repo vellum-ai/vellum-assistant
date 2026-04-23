@@ -3,7 +3,6 @@ import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { generateAvatar } from "../../media/avatar-router.js";
-import { mapGeminiError } from "../../media/gemini-image-service.js";
 import { getLogger } from "../../util/logger.js";
 import { getAvatarImagePath } from "../../util/platform.js";
 
@@ -69,7 +68,12 @@ export async function generateAndSaveAvatar(
       isError: false,
     };
   } catch (error) {
-    const message = mapGeminiError(error);
+    // avatar-router already throws with a provider-aware, user-friendly
+    // message — just surface error.message directly.
+    const message =
+      error instanceof Error
+        ? error.message
+        : "An unexpected error occurred during image generation.";
     log.error({ error: message }, "Avatar generation failed");
     return {
       content: `Avatar generation failed: ${message}`,

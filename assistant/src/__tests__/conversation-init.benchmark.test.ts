@@ -285,13 +285,6 @@ mock.module("../calls/call-store.js", () => ({
   finalizeCallbackClaim: () => true,
 }));
 
-mock.module("../daemon/watch-handler.js", () => ({
-  lastCommentaryByConversation: new Map(),
-  lastSummaryByConversation: new Map(),
-  handleWatchObservation: () => Promise.resolve(),
-  generateSummary: () => Promise.resolve(),
-}));
-
 mock.module("../tools/browser/browser-screencast.js", () => ({
   registerConversationSender: () => {},
   unregisterConversationSender: () => {},

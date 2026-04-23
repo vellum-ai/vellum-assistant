@@ -132,12 +132,14 @@ private struct AspectFitImageView: View {
 private struct InlineToolCallImageView: View {
     let image: NSImage
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.bubbleMaxWidth) private var bubbleMaxWidth
     @State private var sharingServices: [NSSharingService] = []
     @State private var displayImage: NSImage?
 
     @available(macOS, deprecated: 13.0)
     var body: some View {
-        AspectFitImageView(image: displayImage ?? image, maxDimension: VSpacing.chatBubbleMaxWidth)
+        let displayMax: CGFloat = bubbleMaxWidth > 0 ? bubbleMaxWidth : VSpacing.chatBubbleMaxWidth
+        AspectFitImageView(image: displayImage ?? image, maxDimension: displayMax)
             .onTapGesture {
                 // Open lightbox with the original full-resolution image.
                 AppDelegate.shared?.mainWindow?.windowState.showImageLightbox(
@@ -204,6 +206,7 @@ private struct AttachmentImageGrid<Fallback: View>: View {
     /// gray-placeholder state.
     @State private var failedIds: Set<String> = []
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.bubbleMaxWidth) private var bubbleMaxWidth
 
     /// Single images render at full width; multiple images use a compact grid.
     private var isSingleImage: Bool { imageAttachments.count == 1 }
@@ -277,10 +280,13 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                         fallback(attachment)
                     } else {
                         // Placeholder shown while the image is being decoded off the main thread.
+                        let placeholderSingleWidth: CGFloat = bubbleMaxWidth > 0
+                            ? bubbleMaxWidth
+                            : VSpacing.chatBubbleMaxWidth
                         Rectangle()
                             .fill(VColor.surfaceActive)
                             .frame(
-                                width: isSingleImage ? VSpacing.chatBubbleMaxWidth : 160,
+                                width: isSingleImage ? placeholderSingleWidth : 160,
                                 height: isSingleImage ? 200 : 120
                             )
                             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
@@ -293,6 +299,8 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                 .task(id: "\(attachment.id)-\(displayScale)") {
                     let scale = displayScale
                     if isSingleImage {
+                        // Decode target is intentionally the static cap, not the env width:
+                        // keying the task on a resize-varying value would re-decode every frame.
                         let targetSize = CGSize(width: VSpacing.chatBubbleMaxWidth, height: VSpacing.chatBubbleMaxWidth)
                         // Single images: prefer full-resolution data so the frame
                         // sizing (which uses native pixel dimensions) is accurate.
@@ -395,7 +403,8 @@ private struct AttachmentImageGrid<Fallback: View>: View {
 
     /// Full-width rendering for a single image attachment, matching tool-generated image sizing.
     private func singleImageContent(_ nsImage: NSImage) -> some View {
-        AspectFitImageView(image: nsImage, maxDimension: VSpacing.chatBubbleMaxWidth)
+        let displayMax: CGFloat = bubbleMaxWidth > 0 ? bubbleMaxWidth : VSpacing.chatBubbleMaxWidth
+        return AspectFitImageView(image: nsImage, maxDimension: displayMax)
     }
 
     /// Compact grid cell for multiple image attachments.

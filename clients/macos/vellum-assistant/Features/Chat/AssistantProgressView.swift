@@ -897,27 +897,50 @@ private struct StepDetailRow: View {
             }
         }
         .sheet(item: $ruleEditorToolCall) { tc in
-            RuleEditorModal(
-                toolName: tc.toolName,
-                displayName: tc.friendlyName,
-                command: tc.inputSummary,
-                currentRiskLevel: tc.riskLevel ?? "medium",
-                riskReason: tc.riskReason ?? "",
-                scopeOptions: Self.scopeOptions(from: tc),
-                workingDir: Self.workingDir(from: tc),
-                onSave: { rule in
-                    Task {
-                        try? await Self.trustRuleClient.addTrustRule(
-                            toolName: rule.toolName,
-                            pattern: rule.pattern,
-                            scope: rule.scope,
-                            decision: "allow",
-                            executionTarget: nil
-                        )
-                    }
-                },
-                onDismiss: { ruleEditorToolCall = nil }
-            )
+            if assistantFeatureFlagStore.isEnabled("permission-controls-v3") {
+                V3RuleEditorModal(
+                    toolName: tc.toolName,
+                    riskLevel: tc.riskLevel ?? "medium",
+                    scopeOptions: Self.v3ScopeOptions(from: tc),
+                    onSave: { rule in
+                        Task {
+                            try? await Self.trustRuleClient.addTrustRule(
+                                toolName: rule.toolName,
+                                pattern: rule.pattern,
+                                scope: rule.scope,
+                                decision: "allow",
+                                executionTarget: nil,
+                                riskLevel: rule.riskLevel
+                            )
+                        }
+                    },
+                    onDismiss: { ruleEditorToolCall = nil }
+                )
+            } else {
+                RuleEditorModal(
+                    toolName: tc.toolName,
+                    displayName: tc.friendlyName,
+                    command: tc.inputSummary,
+                    currentRiskLevel: tc.riskLevel ?? "medium",
+                    riskReason: tc.riskReason ?? "",
+                    scopeOptions: Self.scopeOptions(from: tc),
+                    workingDir: Self.workingDir(from: tc),
+                    isContainerized: tc.isContainerized,
+                    onSave: { rule in
+                        Task {
+                            try? await Self.trustRuleClient.addTrustRule(
+                                toolName: rule.toolName,
+                                pattern: rule.pattern,
+                                scope: rule.scope,
+                                decision: "allow",
+                                executionTarget: nil,
+                                riskLevel: rule.riskLevel
+                            )
+                        }
+                    },
+                    onDismiss: { ruleEditorToolCall = nil }
+                )
+            }
         }
     }
 
@@ -930,7 +953,6 @@ private struct StepDetailRow: View {
             return [
                 ScopeOptionItem(
                     label: toolCall.inputSummary,
-                    description: "This exact command",
                     pattern: toolCall.inputSummary
                 )
             ]
@@ -938,7 +960,25 @@ private struct StepDetailRow: View {
         return options.map { option in
             ScopeOptionItem(
                 label: option.label,
-                description: option.pattern,
+                pattern: option.pattern
+            )
+        }
+    }
+
+    /// Constructs the V3 scope option items from the tool call's risk scope options.
+    /// Falls back to a single exact command option when none are provided.
+    private static func v3ScopeOptions(from toolCall: ToolCallData) -> [V3ScopeOptionItem] {
+        guard let options = toolCall.riskScopeOptions, !options.isEmpty else {
+            return [
+                V3ScopeOptionItem(
+                    label: toolCall.inputSummary,
+                    pattern: toolCall.inputSummary
+                )
+            ]
+        }
+        return options.map { option in
+            V3ScopeOptionItem(
+                label: option.label,
                 pattern: option.pattern
             )
         }

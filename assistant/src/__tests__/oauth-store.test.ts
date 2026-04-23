@@ -61,7 +61,6 @@ function seedTestProvider(provider = "github"): void {
       authorizeUrl: `https://${provider}.example.com/authorize`,
       tokenExchangeUrl: `https://${provider}.example.com/token`,
       defaultScopes: ["read"],
-      scopePolicy: {},
     },
   ]);
 }
@@ -99,14 +98,13 @@ describe("provider operations", () => {
           authorizeUrl: "https://github.com/login/oauth/authorize",
           tokenExchangeUrl: "https://github.com/login/oauth/access_token",
           defaultScopes: ["repo", "user"],
-          scopePolicy: { required: ["repo"] },
         },
         {
           provider: "google",
           authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
           tokenExchangeUrl: "https://oauth2.googleapis.com/token",
           defaultScopes: ["openid", "email"],
-          scopePolicy: {},
+
           authorizeParams: { access_type: "offline" },
         },
       ]);
@@ -119,7 +117,6 @@ describe("provider operations", () => {
         "https://github.com/login/oauth/access_token",
       );
       expect(JSON.parse(gh!.defaultScopes)).toEqual(["repo", "user"]);
-      expect(JSON.parse(gh!.scopePolicy)).toEqual({ required: ["repo"] });
 
       const goog = getProvider("google");
       expect(goog).toBeDefined();
@@ -136,7 +133,7 @@ describe("provider operations", () => {
           authorizeUrl: "https://github.com/login/oauth/authorize",
           tokenExchangeUrl: "https://github.com/login/oauth/access_token",
           defaultScopes: ["repo"],
-          scopePolicy: {},
+
           baseUrl: "https://api.github.com",
         },
       ]);
@@ -153,7 +150,6 @@ describe("provider operations", () => {
           authorizeUrl: "https://github.com/login/oauth/authorize-v2",
           tokenExchangeUrl: "https://github.com/login/oauth/access_token-v2",
           defaultScopes: ["repo", "user"],
-          scopePolicy: { required: ["repo"] },
           baseUrl: "https://api.github.com/v2",
         },
       ]);
@@ -167,10 +163,9 @@ describe("provider operations", () => {
       expect(row!.tokenExchangeUrl).toBe(
         "https://github.com/login/oauth/access_token-v2",
       );
-      // User-customizable fields (baseUrl, scopePolicy) are preserved from
+      // User-customizable fields (baseUrl) are preserved from
       // the original insert — not overwritten on re-seed.
       expect(row!.baseUrl).toBe("https://api.github.com");
-      expect(JSON.parse(row!.scopePolicy)).toEqual({});
       // defaultScopes ARE overwritten on re-seed so upstream scope additions
       // propagate to existing installations.
       expect(JSON.parse(row!.defaultScopes)).toEqual(["repo", "user"]);
@@ -185,7 +180,7 @@ describe("provider operations", () => {
           authorizeUrl: "https://github.com/authorize",
           tokenExchangeUrl: "https://github.com/token",
           defaultScopes: ["repo"],
-          scopePolicy: {},
+
           pingUrl: "https://api.github.com/user",
         },
       ]);
@@ -200,7 +195,6 @@ describe("provider operations", () => {
           authorizeUrl: "https://github.com/authorize",
           tokenExchangeUrl: "https://github.com/token",
           defaultScopes: ["repo"],
-          scopePolicy: {},
         },
       ]);
       const row = getProvider("github");
@@ -216,7 +210,8 @@ describe("provider operations", () => {
           tokenExchangeUrl: "https://github.com/token",
           tokenEndpointAuthMethod: "client_secret_post",
           defaultScopes: ["repo"],
-          scopePolicy: { required: ["repo"] },
+          availableScopes:
+            "https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps",
           userinfoUrl: "https://api.github.com/user",
           baseUrl: "https://api.github.com",
           authorizeParams: { prompt: "consent" },
@@ -230,10 +225,6 @@ describe("provider operations", () => {
       db.update(oauthProviders)
         .set({
           defaultScopes: JSON.stringify(["repo", "user", "gist"]),
-          scopePolicy: JSON.stringify({
-            required: ["repo"],
-            allowAdditionalScopes: true,
-          }),
           baseUrl: "https://custom.github.com/api",
         })
         .where(eq(oauthProviders.provider, "github"))
@@ -256,7 +247,9 @@ describe("provider operations", () => {
           tokenExchangeUrl: "https://github.com/token-v2",
           tokenEndpointAuthMethod: "client_secret_basic",
           defaultScopes: ["repo-only"],
-          scopePolicy: {},
+          availableScopes:
+            "https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps-v2",
+
           userinfoUrl: "https://api.github.com/user-v2",
           baseUrl: "https://api.github.com/v2",
           authorizeParams: { prompt: "login" },
@@ -268,13 +261,12 @@ describe("provider operations", () => {
       const row = getProvider("github");
       expect(row).toBeDefined();
 
-      // defaultScopes are overwritten by the seed data (not user-customizable)
+      // defaultScopes are overwritten by the seed data
       expect(JSON.parse(row!.defaultScopes)).toEqual(["repo-only"]);
-      // scopePolicy is user-customizable and should retain manual values
-      expect(JSON.parse(row!.scopePolicy)).toEqual({
-        required: ["repo"],
-        allowAdditionalScopes: true,
-      });
+      // availableScopes is overwritten on re-seed
+      expect(JSON.parse(row!.availableScopes!)).toBe(
+        "https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps-v2",
+      );
       expect(row!.baseUrl).toBe("https://custom.github.com/api");
 
       // Implementation fields should be overwritten from the seed data
@@ -293,7 +285,7 @@ describe("provider operations", () => {
           authorizeUrl: "https://example.com/authorize",
           tokenExchangeUrl: "https://example.com/token",
           defaultScopes: ["read", "write"],
-          scopePolicy: {},
+
           scopeSeparator: ",",
         },
       ]);
@@ -310,7 +302,6 @@ describe("provider operations", () => {
           authorizeUrl: "https://github.com/authorize",
           tokenExchangeUrl: "https://github.com/token",
           defaultScopes: ["repo"],
-          scopePolicy: {},
         },
       ]);
 
@@ -326,7 +317,7 @@ describe("provider operations", () => {
           authorizeUrl: "https://linear.app/oauth/authorize",
           tokenExchangeUrl: "https://api.linear.app/oauth/token",
           defaultScopes: ["read"],
-          scopePolicy: {},
+
           scopeSeparator: " ",
         },
       ]);
@@ -342,7 +333,7 @@ describe("provider operations", () => {
           authorizeUrl: "https://linear.app/oauth/authorize",
           tokenExchangeUrl: "https://api.linear.app/oauth/token",
           defaultScopes: ["read"],
-          scopePolicy: {},
+
           scopeSeparator: ",",
         },
       ]);
@@ -359,7 +350,6 @@ describe("provider operations", () => {
           tokenExchangeUrl: "https://example.com/token",
           refreshUrl: "https://refresh.example.com/token",
           defaultScopes: ["read"],
-          scopePolicy: {},
         },
       ]);
 
@@ -375,7 +365,6 @@ describe("provider operations", () => {
           authorizeUrl: "https://example.com/authorize",
           tokenExchangeUrl: "https://example.com/token",
           defaultScopes: ["read"],
-          scopePolicy: {},
         },
       ]);
 
@@ -392,7 +381,6 @@ describe("provider operations", () => {
           tokenExchangeUrl: "https://example.com/token",
           refreshUrl: "https://refresh.example.com/token",
           defaultScopes: ["read"],
-          scopePolicy: {},
         },
       ]);
 
@@ -401,7 +389,7 @@ describe("provider operations", () => {
 
       // Re-seed with a different refreshUrl — it should be overwritten,
       // proving refreshUrl is in the onConflictDoUpdate set clause (not
-      // preserved like scopePolicy).
+      // preserved like baseUrl).
       seedProviders([
         {
           provider: "test-provider",
@@ -409,7 +397,6 @@ describe("provider operations", () => {
           tokenExchangeUrl: "https://example.com/token",
           refreshUrl: "https://refresh-v2.example.com/token",
           defaultScopes: ["read"],
-          scopePolicy: {},
         },
       ]);
 
@@ -426,7 +413,6 @@ describe("provider operations", () => {
           revokeUrl: "https://revoke.example.com",
           revokeBodyTemplate: { token: "{access_token}" },
           defaultScopes: ["read"],
-          scopePolicy: {},
         },
       ]);
 
@@ -445,7 +431,6 @@ describe("provider operations", () => {
           authorizeUrl: "https://example.com/authorize",
           tokenExchangeUrl: "https://example.com/token",
           defaultScopes: ["read"],
-          scopePolicy: {},
         },
       ]);
 
@@ -462,7 +447,7 @@ describe("provider operations", () => {
           authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
           tokenExchangeUrl: "https://oauth2.googleapis.com/token",
           defaultScopes: ["openid"],
-          scopePolicy: {},
+
           logoUrl: "https://cdn.simpleicons.org/google",
         },
       ]);
@@ -479,7 +464,7 @@ describe("provider operations", () => {
           authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
           tokenExchangeUrl: "https://oauth2.googleapis.com/token",
           defaultScopes: ["openid"],
-          scopePolicy: {},
+
           logoUrl: "https://cdn.simpleicons.org/google",
         },
       ]);
@@ -497,7 +482,7 @@ describe("provider operations", () => {
           authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
           tokenExchangeUrl: "https://oauth2.googleapis.com/token",
           defaultScopes: ["openid"],
-          scopePolicy: {},
+
           logoUrl: "https://cdn.simpleicons.org/google-v2",
         },
       ]);
@@ -514,7 +499,6 @@ describe("provider operations", () => {
           tokenExchangeUrl: "https://example.com/token",
           revokeUrl: "https://revoke.example.com",
           defaultScopes: ["read"],
-          scopePolicy: {},
         },
       ]);
 
@@ -523,7 +507,7 @@ describe("provider operations", () => {
 
       // Re-seed with a different revokeUrl — it should be overwritten,
       // proving revokeUrl is in the onConflictDoUpdate set clause (not
-      // preserved like scopePolicy).
+      // preserved like baseUrl).
       seedProviders([
         {
           provider: "test-provider",
@@ -531,7 +515,6 @@ describe("provider operations", () => {
           tokenExchangeUrl: "https://example.com/token",
           revokeUrl: "https://revoke-v2.example.com",
           defaultScopes: ["read"],
-          scopePolicy: {},
         },
       ]);
 
@@ -586,7 +569,7 @@ describe("provider operations", () => {
           authorizeUrl: "https://example.com/authorize",
           tokenExchangeUrl: "https://example.com/token",
           defaultScopes: [],
-          scopePolicy: {},
+
           // Note: tokenEndpointAuthMethod intentionally omitted
         },
       ]);
@@ -602,7 +585,7 @@ describe("provider operations", () => {
           authorizeUrl: "https://example.com/authorize",
           tokenExchangeUrl: "https://example.com/token",
           defaultScopes: [],
-          scopePolicy: {},
+
           // Note: tokenExchangeBodyFormat intentionally omitted
         },
       ]);
@@ -618,7 +601,7 @@ describe("provider operations", () => {
           authorizeUrl: "https://example.com/authorize",
           tokenExchangeUrl: "https://example.com/token",
           defaultScopes: [],
-          scopePolicy: {},
+
           tokenExchangeBodyFormat: "json",
         },
       ]);
@@ -635,8 +618,8 @@ describe("provider operations", () => {
       raw.exec(`
         INSERT INTO oauth_providers (
           provider_key, auth_url, token_url, token_endpoint_auth_method,
-          default_scopes, scope_policy, scope_separator, requires_client_secret,
-          created_at, updated_at
+          default_scopes, scope_policy, available_scopes, scope_separator,
+          requires_client_secret, created_at, updated_at
         ) VALUES (
           'legacy-null-provider',
           'https://example.com/authorize',
@@ -644,6 +627,7 @@ describe("provider operations", () => {
           NULL,
           '[]',
           '{}',
+          NULL,
           ' ',
           1,
           ${Date.now()},
@@ -671,7 +655,6 @@ describe("provider operations", () => {
           tokenExchangeUrl: "https://example.com/token",
           tokenEndpointAuthMethod: "client_secret_basic",
           defaultScopes: [],
-          scopePolicy: {},
         },
       ]);
 
@@ -692,7 +675,6 @@ describe("provider operations", () => {
           authorizeUrl: "https://github.com/authorize",
           tokenExchangeUrl: "https://github.com/token",
           defaultScopes: ["repo"],
-          scopePolicy: {},
         },
       ]);
 
@@ -713,7 +695,6 @@ describe("provider operations", () => {
         authorizeUrl: "https://linear.app/oauth/authorize",
         tokenExchangeUrl: "https://api.linear.app/oauth/token",
         defaultScopes: ["read"],
-        scopePolicy: {},
       });
 
       expect(row.provider).toBe("linear");
@@ -730,7 +711,6 @@ describe("provider operations", () => {
         authorizeUrl: "https://linear.app/oauth/authorize",
         tokenExchangeUrl: "https://api.linear.app/oauth/token",
         defaultScopes: ["read"],
-        scopePolicy: {},
       });
 
       expect(() =>
@@ -739,7 +719,6 @@ describe("provider operations", () => {
           authorizeUrl: "https://linear.app/oauth/authorize",
           tokenExchangeUrl: "https://api.linear.app/oauth/token",
           defaultScopes: ["read"],
-          scopePolicy: {},
         }),
       ).toThrow(/already exists.*linear/);
     });
@@ -750,7 +729,7 @@ describe("provider operations", () => {
         authorizeUrl: "https://linear.app/oauth/authorize",
         tokenExchangeUrl: "https://api.linear.app/oauth/token",
         defaultScopes: ["read"],
-        scopePolicy: {},
+
         scopeSeparator: ";",
       });
 
@@ -765,7 +744,6 @@ describe("provider operations", () => {
         authorizeUrl: "https://linear.app/oauth/authorize",
         tokenExchangeUrl: "https://api.linear.app/oauth/token",
         defaultScopes: ["read"],
-        scopePolicy: {},
       });
 
       const fetched = getProvider("linear");
@@ -780,7 +758,6 @@ describe("provider operations", () => {
         tokenExchangeUrl: "https://api.linear.app/oauth/token",
         refreshUrl: "https://api.linear.app/oauth/refresh",
         defaultScopes: ["read"],
-        scopePolicy: {},
       });
 
       const fetched = getProvider("linear");
@@ -794,7 +771,6 @@ describe("provider operations", () => {
         authorizeUrl: "https://linear.app/oauth/authorize",
         tokenExchangeUrl: "https://api.linear.app/oauth/token",
         defaultScopes: ["read"],
-        scopePolicy: {},
       });
 
       const fetched = getProvider("linear");
@@ -810,7 +786,6 @@ describe("provider operations", () => {
         revokeUrl: "https://api.linear.app/oauth/revoke",
         revokeBodyTemplate: { token: "{access_token}" },
         defaultScopes: ["read"],
-        scopePolicy: {},
       });
 
       const fetched = getProvider("linear");
@@ -827,7 +802,7 @@ describe("provider operations", () => {
         authorizeUrl: "https://example.com/authorize",
         tokenExchangeUrl: "https://example.com/token",
         defaultScopes: [],
-        scopePolicy: {},
+
         // Note: tokenEndpointAuthMethod intentionally omitted
       });
       expect(row.tokenEndpointAuthMethod).toBe("client_secret_post");
@@ -842,7 +817,7 @@ describe("provider operations", () => {
         authorizeUrl: "https://example.com/authorize",
         tokenExchangeUrl: "https://example.com/token",
         defaultScopes: [],
-        scopePolicy: {},
+
         tokenEndpointAuthMethod: "client_secret_basic",
       });
       expect(row.tokenEndpointAuthMethod).toBe("client_secret_basic");
@@ -854,7 +829,7 @@ describe("provider operations", () => {
         authorizeUrl: "https://example.com/authorize",
         tokenExchangeUrl: "https://example.com/token",
         defaultScopes: [],
-        scopePolicy: {},
+
         // Note: tokenExchangeBodyFormat intentionally omitted
       });
       expect(row.tokenExchangeBodyFormat).toBe("form");
@@ -869,7 +844,7 @@ describe("provider operations", () => {
         authorizeUrl: "https://example.com/authorize",
         tokenExchangeUrl: "https://example.com/token",
         defaultScopes: [],
-        scopePolicy: {},
+
         tokenExchangeBodyFormat: "json",
       });
       expect(row.tokenExchangeBodyFormat).toBe("json");
@@ -881,7 +856,7 @@ describe("provider operations", () => {
         authorizeUrl: "https://api.notion.com/v1/oauth/authorize",
         tokenExchangeUrl: "https://api.notion.com/v1/oauth/token",
         defaultScopes: ["read"],
-        scopePolicy: {},
+
         logoUrl: "https://cdn.simpleicons.org/notion",
       });
 
@@ -896,7 +871,6 @@ describe("provider operations", () => {
         authorizeUrl: "https://linear.app/oauth/authorize",
         tokenExchangeUrl: "https://api.linear.app/oauth/token",
         defaultScopes: ["read"],
-        scopePolicy: {},
       });
 
       const fetched = getProvider("linear");
@@ -913,7 +887,6 @@ describe("provider operations", () => {
           authorizeUrl: "https://github.com/authorize",
           tokenExchangeUrl: "https://github.com/token",
           defaultScopes: ["repo"],
-          scopePolicy: {},
         },
       ]);
 
@@ -938,7 +911,7 @@ describe("provider operations", () => {
           authorizeUrl: "https://github.com/authorize",
           tokenExchangeUrl: "https://github.com/token",
           defaultScopes: ["repo"],
-          scopePolicy: {},
+
           scopeSeparator: ",",
         },
       ]);
@@ -958,7 +931,6 @@ describe("provider operations", () => {
           authorizeUrl: "https://github.com/authorize",
           tokenExchangeUrl: "https://github.com/token",
           defaultScopes: ["repo"],
-          scopePolicy: {},
         },
       ]);
 
@@ -987,7 +959,6 @@ describe("provider operations", () => {
           tokenExchangeUrl: "https://github.com/token",
           refreshUrl: "https://github.com/login/oauth/refresh",
           defaultScopes: ["repo"],
-          scopePolicy: {},
         },
       ]);
 
@@ -1013,7 +984,6 @@ describe("provider operations", () => {
           authorizeUrl: "https://github.com/authorize",
           tokenExchangeUrl: "https://github.com/token",
           defaultScopes: ["repo"],
-          scopePolicy: {},
         },
       ]);
 
@@ -1037,7 +1007,6 @@ describe("provider operations", () => {
           authorizeUrl: "https://github.com/authorize",
           tokenExchangeUrl: "https://github.com/token",
           defaultScopes: ["repo"],
-          scopePolicy: {},
         },
       ]);
 
@@ -1072,7 +1041,6 @@ describe("provider operations", () => {
           revokeUrl: "https://github.com/login/oauth/revoke",
           revokeBodyTemplate: { token: "{access_token}" },
           defaultScopes: ["repo"],
-          scopePolicy: {},
         },
       ]);
 
@@ -1103,7 +1071,6 @@ describe("provider operations", () => {
           tokenExchangeUrl: "https://example.com/token",
           tokenEndpointAuthMethod: "client_secret_basic",
           defaultScopes: [],
-          scopePolicy: {},
         },
       ]);
 
@@ -1129,7 +1096,6 @@ describe("provider operations", () => {
           tokenExchangeUrl: "https://example.com/token",
           tokenExchangeBodyFormat: "json",
           defaultScopes: [],
-          scopePolicy: {},
         },
       ]);
 
@@ -1153,7 +1119,6 @@ describe("provider operations", () => {
         authorizeUrl: "https://linear.app/oauth/authorize",
         tokenExchangeUrl: "https://api.linear.app/oauth/token",
         defaultScopes: ["read"],
-        scopePolicy: {},
       });
 
       expect(getProvider("linear")!.logoUrl).toBeNull();
@@ -1174,7 +1139,7 @@ describe("provider operations", () => {
         authorizeUrl: "https://api.notion.com/v1/oauth/authorize",
         tokenExchangeUrl: "https://api.notion.com/v1/oauth/token",
         defaultScopes: ["read"],
-        scopePolicy: {},
+
         logoUrl: "https://cdn.simpleicons.org/notion",
       });
 
@@ -1195,7 +1160,7 @@ describe("provider operations", () => {
         authorizeUrl: "https://api.notion.com/v1/oauth/authorize",
         tokenExchangeUrl: "https://api.notion.com/v1/oauth/token",
         defaultScopes: ["read"],
-        scopePolicy: {},
+
         logoUrl: "https://cdn.simpleicons.org/notion",
       });
 
@@ -1221,7 +1186,7 @@ describe("provider operations", () => {
           authorizeUrl: "https://linear.app/oauth/authorize",
           tokenExchangeUrl: "https://api.linear.app/oauth/token",
           defaultScopes: ["read"],
-          scopePolicy: {},
+
           scopeSeparator: "",
         },
       ]);
@@ -1236,7 +1201,7 @@ describe("provider operations", () => {
         authorizeUrl: "https://linear.app/oauth/authorize",
         tokenExchangeUrl: "https://api.linear.app/oauth/token",
         defaultScopes: ["read"],
-        scopePolicy: {},
+
         scopeSeparator: "",
       });
 
@@ -2048,7 +2013,7 @@ describe("disconnectOAuthProvider", () => {
         authorizeUrl: `https://${provider}.example.com/authorize`,
         tokenExchangeUrl: `https://${provider}.example.com/token`,
         defaultScopes: ["read"],
-        scopePolicy: {},
+
         ...(revokeUrl ? { revokeUrl } : {}),
         ...(revokeBodyTemplate ? { revokeBodyTemplate } : {}),
       },
@@ -2342,7 +2307,7 @@ describe("disconnectOAuthProvider", () => {
         authorizeUrl: "https://google.example.com/authorize",
         tokenExchangeUrl: "https://google.example.com/token",
         defaultScopes: ["email"],
-        scopePolicy: {},
+
         revokeUrl: "https://oauth2.googleapis.com/revoke",
         revokeBodyTemplate: {
           token: "{access_token}",

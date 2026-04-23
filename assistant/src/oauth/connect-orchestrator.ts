@@ -13,7 +13,6 @@
  *
  * The orchestrator handles:
  * - Provider config resolution (from DB)
- * - Scope policy enforcement
  * - Building the OAuth2Config
  * - Running the interactive or deferred flow
  * - Storing tokens on completion
@@ -23,10 +22,9 @@
 import type { TokenEndpointAuthMethod } from "../security/oauth2.js";
 import { prepareOAuth2Flow, startOAuth2Flow } from "../security/oauth2.js";
 import { getLogger } from "../util/logger.js";
-import type { OAuthConnectResult, OAuthScopePolicy } from "./connect-types.js";
+import type { OAuthConnectResult } from "./connect-types.js";
 import { verifyIdentity } from "./identity-verifier.js";
 import { getProvider } from "./oauth-store.js";
-import { resolveScopes } from "./scope-policy.js";
 import { storeOAuth2Tokens } from "./token-persistence.js";
 
 const log = getLogger("oauth-connect-orchestrator");
@@ -52,7 +50,7 @@ function safeJsonParse<T>(value: string | null | undefined, fallback: T): T {
 export interface OAuthConnectOptions {
   /** Canonical service name (e.g. "google", "slack"). */
   service: string;
-  /** Scopes to request beyond the provider's defaults. */
+  /** Scopes to request. When provided, used instead of the provider's default scopes. */
   requestedScopes?: string[];
   /** OAuth2 client ID (required). */
   clientId: string;
@@ -122,18 +120,6 @@ export async function orchestrateOAuthConnect(
   }
 
   // Deserialize JSON fields from the DB row
-  const dbDefaultScopes = safeJsonParse<string[]>(
-    providerRow.defaultScopes,
-    [],
-  );
-  const dbScopePolicy = safeJsonParse<OAuthScopePolicy>(
-    providerRow.scopePolicy,
-    {
-      allowAdditionalScopes: false,
-      allowedOptionalScopes: [],
-      forbiddenScopes: [],
-    },
-  );
   const dbAuthorizeParams = safeJsonParse<Record<string, string> | undefined>(
     providerRow.authorizeParams,
     undefined,
@@ -151,24 +137,12 @@ export async function orchestrateOAuthConnect(
     options.callbackTransport ?? "loopback";
   const loopbackPort = providerRow.loopbackPort ?? undefined;
 
-  // Resolve scopes via the scope policy engine
-  const scopeProfile = {
-    service: options.service,
-    defaultScopes: dbDefaultScopes,
-    scopePolicy: dbScopePolicy,
-  };
-  const scopeResult = resolveScopes(scopeProfile, options.requestedScopes);
-  if (!scopeResult.ok) {
-    const guidance = scopeResult.allowedScopes
-      ? ` Allowed scopes: ${scopeResult.allowedScopes.join(", ")}`
-      : "";
-    return {
-      success: false,
-      error: `${scopeResult.error}${guidance}`,
-      safeError: true,
-    };
-  }
-  const finalScopes = scopeResult.scopes;
+  // Resolve scopes: use requested scopes when provided, otherwise fall back
+  // to the provider's default scopes. No validation layer — the OAuth
+  // provider itself rejects invalid scopes.
+  const finalScopes = options.requestedScopes?.length
+    ? options.requestedScopes
+    : safeJsonParse<string[]>(providerRow.defaultScopes, []);
 
   if (!authorizeUrl) {
     return {

@@ -142,25 +142,70 @@ public struct CompactionPlaygroundClient: CompactionPlaygroundClientProtocol {
 
     /// Maps non-success responses to ``CompactionPlaygroundError``.
     ///
-    /// 404 on a path without a `/conversations/` segment indicates the
-    /// playground feature flag is disabled on the daemon — the daemon's
-    /// `/v1/assistants/{id}/playground/*` routes aren't mounted when the flag
-    /// is off. 404 on a conversation-scoped path indicates the conversation
-    /// doesn't exist.
+    /// On a 404, the daemon now distinguishes the two cases via a
+    /// machine-readable `code` field in the JSON body: `playground_disabled`
+    /// (the `compaction-playground` feature flag is off, surfaced as
+    /// ``CompactionPlaygroundError/notAvailable``) and
+    /// `conversation_not_found` (the requested conversation doesn't exist,
+    /// surfaced as ``CompactionPlaygroundError/notFound``). The body-based
+    /// classifier is required for conversation-scoped routes
+    /// (`forceCompact`, `injectFailures`, `resetCircuit`, `getState`)
+    /// because the daemon's `assertPlaygroundEnabled` guard runs *before*
+    /// the conversation lookup — a flag-off 404 and a missing-conversation
+    /// 404 hit the same URL, so a URL-path heuristic alone misclassifies
+    /// flag-off as `.notFound`.
+    ///
+    /// A URL-path fallback remains for deploy-time version skew: an updated
+    /// client may briefly talk to an old daemon that returns the legacy
+    /// generic `NOT_FOUND` body (or no parseable body at all). The fallback
+    /// preserves the previous classification heuristic so the UX doesn't
+    /// regress during the rollout window.
     private func throwIfUnsuccessful(_ response: GatewayHTTPClient.Response, path: String) throws {
         guard !response.isSuccess else { return }
 
         if response.statusCode == 404 {
+            if let code = parseErrorCode(from: response.data) {
+                switch code {
+                case "playground_disabled":
+                    log.error("compaction playground 404 (flag off) for path \(path, privacy: .public)")
+                    throw CompactionPlaygroundError.notAvailable
+                case "conversation_not_found":
+                    log.error("compaction playground 404 (conversation not found) for path \(path, privacy: .public)")
+                    throw CompactionPlaygroundError.notFound
+                default:
+                    // Unknown body code — fall through to the path heuristic
+                    // rather than swallowing as a generic HTTP 404.
+                    break
+                }
+            }
+
+            // Path-based fallback for old daemons that don't include the
+            // distinguishing `code` field. Conversation-scoped routes 404 if
+            // the conversation is missing; flat `/playground/*` routes 404
+            // if the flag is off. This matches the pre-fix behavior.
             if path.contains("/conversations/") {
-                log.error("compaction playground 404 (not found) for path \(path, privacy: .public)")
+                log.error("compaction playground 404 (not found, fallback) for path \(path, privacy: .public)")
                 throw CompactionPlaygroundError.notFound
             } else {
-                log.error("compaction playground 404 (flag off) for path \(path, privacy: .public)")
+                log.error("compaction playground 404 (flag off, fallback) for path \(path, privacy: .public)")
                 throw CompactionPlaygroundError.notAvailable
             }
         }
 
         log.error("compaction playground HTTP \(response.statusCode, privacy: .public) for path \(path, privacy: .public)")
         throw CompactionPlaygroundError.http(statusCode: response.statusCode)
+    }
+
+    /// Best-effort parse of `{ "error": { "code": "<string>" } }` from the
+    /// response body. Returns `nil` on any structural mismatch so the caller
+    /// can fall back to a URL-path heuristic rather than throwing on
+    /// malformed bodies.
+    private func parseErrorCode(from data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let errorObj = json["error"] as? [String: Any],
+              let code = errorObj["code"] as? String else {
+            return nil
+        }
+        return code
     }
 }

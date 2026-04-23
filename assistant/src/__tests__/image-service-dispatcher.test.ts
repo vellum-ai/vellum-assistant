@@ -62,7 +62,11 @@ mock.module("../media/openai-image-service.js", () => ({
 }));
 
 // Import after mocking
-import { generateImage, mapImageGenError } from "../media/image-service.js";
+import {
+  generateImage,
+  mapImageGenError,
+  providerForModel,
+} from "../media/image-service.js";
 
 // ---------------------------------------------------------------------------
 // Shared fixtures
@@ -134,5 +138,38 @@ describe("image-service dispatcher", () => {
     expect(openaiErrorCalls).toEqual([err]);
     expect(geminiErrorCalls).toEqual([]);
     expect(mapped).toBe("openai-mapped");
+  });
+});
+
+describe("providerForModel", () => {
+  test("returns fallback when model is undefined", () => {
+    expect(providerForModel(undefined, "gemini")).toBe("gemini");
+    expect(providerForModel(undefined, "openai")).toBe("openai");
+  });
+
+  test("routes gpt-* models to openai regardless of fallback", () => {
+    expect(providerForModel("gpt-image-2", "gemini")).toBe("openai");
+    expect(providerForModel("gpt-image-2", "openai")).toBe("openai");
+    expect(providerForModel("gpt-4o-image", "gemini")).toBe("openai");
+  });
+
+  test("routes dall-e-* models to openai regardless of fallback", () => {
+    expect(providerForModel("dall-e-3", "gemini")).toBe("openai");
+    expect(providerForModel("dall-e-2", "gemini")).toBe("openai");
+  });
+
+  test("routes gemini-* models to gemini regardless of fallback", () => {
+    expect(providerForModel("gemini-3.1-flash-image-preview", "openai")).toBe(
+      "gemini",
+    );
+    expect(providerForModel("gemini-3-pro-image-preview", "openai")).toBe(
+      "gemini",
+    );
+  });
+
+  test("returns fallback for unrecognized model prefixes", () => {
+    expect(providerForModel("unknown-model", "gemini")).toBe("gemini");
+    expect(providerForModel("unknown-model", "openai")).toBe("openai");
+    expect(providerForModel("", "gemini")).toBe("gemini");
   });
 });

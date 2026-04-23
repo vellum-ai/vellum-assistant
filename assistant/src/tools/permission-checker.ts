@@ -1,4 +1,5 @@
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { resolveThreshold } from "../permissions/approval-policy.js";
 import {
@@ -8,6 +9,7 @@ import {
   generateScopeOptions,
   getCachedAssessment,
 } from "../permissions/checker.js";
+import { getAutoApproveThreshold } from "../permissions/gateway-threshold-reader.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { addRule } from "../permissions/trust-store.js";
 import { RiskLevel } from "../permissions/types.js";
@@ -40,6 +42,7 @@ export type PermissionDecision =
         riskLevel: string;
         riskReason: string;
         riskScopeOptions: Array<{ pattern: string; label: string }>;
+        isContainerized?: boolean;
       };
     }
   | {
@@ -52,6 +55,7 @@ export type PermissionDecision =
         riskLevel: string;
         riskReason: string;
         riskScopeOptions: Array<{ pattern: string; label: string }>;
+        isContainerized?: boolean;
       };
     };
 
@@ -133,6 +137,7 @@ export class PermissionChecker {
           riskLevel: cachedAssessment.riskLevel,
           riskReason: cachedAssessment.reason,
           riskScopeOptions: cachedAssessment.scopeOptions,
+          isContainerized: getIsContainerized(),
         }
       : undefined;
 
@@ -249,41 +254,50 @@ export class PermissionChecker {
         const isDynamicSkillLoad =
           result.matchedRule?.pattern.startsWith("skill_load_dynamic:") ===
           true;
-        const bgThreshold = resolveThreshold(
-          cfg.permissions.autoApproveUpTo,
-          "background",
-        );
-        const thresholdOrdinal: Record<string, number> = {
-          none: -1,
-          low: 0,
-          medium: 1,
-          high: 2,
-        };
-        const riskOrdinal: Record<string, number> = {
-          [RiskLevel.Low]: 0,
-          [RiskLevel.Medium]: 1,
-          [RiskLevel.High]: 2,
-        };
-        const withinThreshold =
-          (riskOrdinal[riskLevel] ?? 2) <= (thresholdOrdinal[bgThreshold] ?? 0);
         if (
           context.isInteractive === false &&
           context.trustClass === "guardian" &&
           !context.requireFreshApproval &&
           !isDynamicSkillLoad &&
-          !v2ForcePrompt &&
-          withinThreshold
+          !v2ForcePrompt
         ) {
-          log.info(
-            { toolName: name, riskLevel },
-            "Auto-approving for non-interactive guardian session",
+          // Use gateway threshold when v3 is enabled, falling back to config.
+          // getAutoApproveThreshold returns from cache (populated by check() above).
+          // Deferred inside the non-interactive branch so interactive prompts
+          // don't pay the gateway I/O cost.
+          const gatewayBgThreshold = await getAutoApproveThreshold(
+            context.conversationId,
+            "background",
           );
-          return {
-            allowed: true,
-            decision: "guardian_auto_approve",
-            riskLevel,
-            riskMeta,
+          const bgThreshold =
+            gatewayBgThreshold ??
+            resolveThreshold(cfg.permissions.autoApproveUpTo, "background");
+          const thresholdOrdinal: Record<string, number> = {
+            none: -1,
+            low: 0,
+            medium: 1,
+            high: 2,
           };
+          const riskOrdinal: Record<string, number> = {
+            [RiskLevel.Low]: 0,
+            [RiskLevel.Medium]: 1,
+            [RiskLevel.High]: 2,
+          };
+          const withinThreshold =
+            (riskOrdinal[riskLevel] ?? 2) <=
+            (thresholdOrdinal[bgThreshold] ?? 0);
+          if (withinThreshold) {
+            log.info(
+              { toolName: name, riskLevel },
+              "Auto-approving for non-interactive guardian session",
+            );
+            return {
+              allowed: true,
+              decision: "guardian_auto_approve",
+              riskLevel,
+              riskMeta,
+            };
+          }
         }
 
         // Non-interactive sessions have no client to respond to prompts -
@@ -407,6 +421,7 @@ export class PermissionChecker {
           context.toolUseId,
           v2ForcePrompt,
           riskReason,
+          getIsContainerized(),
         );
 
         const decision =

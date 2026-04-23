@@ -26,10 +26,7 @@ import {
 import { unregisterConversationSender } from "../tools/browser/browser-screencast.js";
 import { type AbortReason, createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
-import {
-  unregisterCallNotifiers,
-  unregisterWatchNotifiers,
-} from "./conversation-notifiers.js";
+import { unregisterCallNotifiers } from "./conversation-notifiers.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import { resetSkillToolProjection } from "./conversation-skill-tools.js";
 import { repairHistory } from "./history-repair.js";
@@ -340,7 +337,6 @@ export function abortConversation(
     ctx.surfaceActionRequestIds.clear();
     ctx.surfaceState.clear();
     ctx.accumulatedSurfaceState.clear();
-    unregisterWatchNotifiers(ctx.conversationId);
     for (const queued of ctx.queue) {
       queued.onEvent({
         type: "generation_cancelled",

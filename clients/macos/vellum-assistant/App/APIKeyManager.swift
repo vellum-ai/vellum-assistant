@@ -67,14 +67,6 @@ enum APIKeyManager {
         return ids
     }()
 
-    /// Returns true if any known provider has a key configured.
-    static func hasAnyKey() -> Bool {
-        for provider in allSyncableProviders {
-            if getKey(for: provider) != nil { return true }
-        }
-        return false
-    }
-
     // MARK: - Migration from UserDefaults
 
     /// One-time migration: copies API keys from UserDefaults to credential

@@ -366,17 +366,17 @@ final class ChatActionHandler {
 
         case .compactionCircuitClosed(let event):
             guard belongsToConversation(event.conversationId) else { return }
+            vm.appendCompactionEvent(CompactionEventLogEntry(
+                timestamp: Date(),
+                kind: "circuit_closed",
+                summary: "Circuit closed"
+            ))
             // Skip the no-op write when the banner already self-dismissed via
             // the 60s timer; writing nil→nil would still trigger an
             // `@Observable` invalidation.
             guard vm.compactionCircuitOpenUntil != nil else { return }
             vm.compactionCircuitOpenUntil = nil
             log.info("Auto-compaction resumed (circuit breaker closed)")
-            vm.appendCompactionEvent(CompactionEventLogEntry(
-                timestamp: Date(),
-                kind: "circuit_closed",
-                summary: "Circuit closed"
-            ))
 
         default:
             break
@@ -1197,6 +1197,7 @@ final class ChatActionHandler {
                 vm.messages[msgIdx].toolCalls[tcIdx].workingDir = confirmation.scopeOptions
                     .first(where: { $0.scope != "everywhere" })?.scope
             }
+            vm.messages[msgIdx].toolCalls[tcIdx].isContainerized = msg.isContainerized ?? false
         }
         let confirmMsg = ChatMessage(
             role: .assistant,

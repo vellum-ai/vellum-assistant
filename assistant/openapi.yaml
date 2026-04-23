@@ -4310,6 +4310,7 @@ paths:
                             - slack
                             - calendar
                             - assistant
+                            - telegram
                         timestamp:
                           type: string
                         status:
@@ -4349,6 +4350,23 @@ paths:
                             - medium
                             - high
                             - critical
+                        conversationId:
+                          type: string
+                        detailPanel:
+                          type: object
+                          properties:
+                            kind:
+                              type: string
+                              enum:
+                                - emailDraft
+                                - documentPreview
+                                - permissionChat
+                                - paymentAuth
+                                - toolPermission
+                                - updatesList
+                          required:
+                            - kind
+                          additionalProperties: false
                         author:
                           type: string
                           enum:
@@ -4481,6 +4499,7 @@ paths:
                       - slack
                       - calendar
                       - assistant
+                      - telegram
                   timestamp:
                     type: string
                   status:
@@ -4520,6 +4539,23 @@ paths:
                       - medium
                       - high
                       - critical
+                  conversationId:
+                    type: string
+                  detailPanel:
+                    type: object
+                    properties:
+                      kind:
+                        type: string
+                        enum:
+                          - emailDraft
+                          - documentPreview
+                          - permissionChat
+                          - paymentAuth
+                          - toolPermission
+                          - updatesList
+                    required:
+                      - kind
+                    additionalProperties: false
                   author:
                     type: string
                     enum:

@@ -23,6 +23,12 @@ struct HomeDetailPanel<Content: View>: View {
 
     let icon: VIcon?
     let title: String
+    /// Optional foreground tint for the icon chip. Falls back to
+    /// `VColor.primaryBase` when `nil`.
+    var iconForeground: Color? = nil
+    /// Optional background fill for the icon chip. Falls back to
+    /// `VColor.surfaceBase` when `nil`.
+    var iconBackground: Color? = nil
     /// Tap handler for the trailing "Go to Thread" button in the header.
     /// Pass `nil` to hide the button (e.g. previews that don't surface a
     /// thread affordance).
@@ -76,11 +82,11 @@ struct HomeDetailPanel<Content: View>: View {
             HStack(spacing: VSpacing.sm) {
                 if let icon {
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(VColor.surfaceBase)
+                        .fill(iconBackground ?? VColor.surfaceBase)
                         .frame(width: 32, height: 32)
                         .overlay {
                             VIconView(icon, size: 20)
-                                .foregroundStyle(VColor.primaryBase)
+                                .foregroundStyle(iconForeground ?? VColor.primaryBase)
                         }
                         .accessibilityHidden(true)
                 }

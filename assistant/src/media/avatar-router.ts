@@ -1,60 +1,45 @@
 import { getConfig } from "../config/loader.js";
-import {
-  buildManagedBaseUrl,
-  resolveManagedProxyContext,
-} from "../providers/managed-proxy/context.js";
-import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { ConfigError, ProviderError } from "../util/errors.js";
-import {
-  generateImage,
-  type ImageGenCredentials,
-} from "./gemini-image-service.js";
+import { resolveImageGenCredentials } from "./image-credentials.js";
+import { generateImage, mapImageGenError } from "./image-service.js";
 
 export async function generateAvatar(
   prompt: string,
 ): Promise<{ imageBase64: string; mimeType: string }> {
   const config = getConfig();
-  const imageGenMode = config.services["image-generation"].mode;
+  const svc = config.services["image-generation"];
 
-  // Resolve credentials strictly based on mode — no cross-mode fallbacks
-  let credentials: ImageGenCredentials | undefined;
-
-  if (imageGenMode === "managed") {
-    const managedBaseUrl = await buildManagedBaseUrl("gemini");
-    if (managedBaseUrl) {
-      const ctx = await resolveManagedProxyContext();
-      credentials = {
-        type: "managed-proxy",
-        assistantApiKey: ctx.assistantApiKey,
-        baseUrl: managedBaseUrl,
-      };
-    }
-  } else {
-    const geminiKey = await getProviderKeyAsync("gemini");
-    if (geminiKey) {
-      credentials = { type: "direct", apiKey: geminiKey };
-    }
-  }
+  const { credentials, errorHint } = await resolveImageGenCredentials({
+    provider: svc.provider,
+    mode: svc.mode,
+  });
 
   if (!credentials) {
-    const hint =
-      imageGenMode === "managed"
-        ? "Managed proxy is not available. Please log in to Vellum or switch to Your Own mode."
-        : "Gemini API key is not configured. Please set your Gemini API key in Settings > Models & Services.";
-    throw new ConfigError(hint);
+    throw new ConfigError(errorHint ?? "Image generation is not configured.");
   }
 
-  const result = await generateImage(credentials, {
-    prompt,
-    mode: "generate",
-    model: config.services["image-generation"].model,
-  });
+  let result;
+  try {
+    result = await generateImage(svc.provider, credentials, {
+      prompt,
+      mode: "generate",
+      model: svc.model,
+    });
+  } catch (error) {
+    // Re-throw with a provider-aware, user-friendly message so callers
+    // (e.g. avatar-generator) don't need provider context to surface a
+    // useful error.
+    throw new ProviderError(
+      mapImageGenError(svc.provider, error),
+      svc.provider,
+    );
+  }
 
   const image = result.images[0];
   if (!image) {
     throw new ProviderError(
-      "Gemini image generation returned no images.",
-      "gemini",
+      "Image generation returned no images.",
+      svc.provider,
     );
   }
 

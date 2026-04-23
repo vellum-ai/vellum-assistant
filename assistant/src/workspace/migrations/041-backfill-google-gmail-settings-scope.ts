@@ -7,10 +7,9 @@ const GMAIL_SETTINGS_BASIC_SCOPE =
 /**
  * Backfill the `gmail.settings.basic` scope for existing Google provider rows.
  *
- * The scope was added to PROVIDER_SEED_DATA in #25970, but `seedProviders()`
- * intentionally preserves `defaultScopes` on conflict (the `onConflictDoUpdate`
- * in `oauth-store.ts` omits `defaultScopes` and `scopePolicy`). Any workspace
- * that already had a `google` provider row never picked up the new scope.
+ * The scope was added to PROVIDER_SEED_DATA in #25970. This migration ensures
+ * existing workspace rows that were created before the seed update also include
+ * the scope.
  *
  * This migration reads the current `defaultScopes` JSON array for the `google`
  * provider and appends the scope if it is not already present.

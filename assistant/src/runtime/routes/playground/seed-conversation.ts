@@ -110,7 +110,13 @@ export function seedConversationRouteDefinitions(
           const contentJson = JSON.stringify([
             { type: "text", text: msg.text },
           ]);
-          await deps.addMessage(conversationId, msg.role, contentJson);
+          // Skip memory/vector indexing for seeded synthetic messages — the
+          // lorem-ipsum content has no semantic value and would otherwise
+          // spam the embedding pipeline (2 embeddings per turn × up to 500
+          // turns) and pollute the vector store.
+          await deps.addMessage(conversationId, msg.role, contentJson, {
+            skipIndexing: true,
+          });
         }
 
         // Reconstruct the in-memory Message[] shape estimatePromptTokens

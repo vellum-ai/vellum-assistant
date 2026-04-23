@@ -34,7 +34,12 @@ export type FeedItemStatus = "new" | "seen" | "acted_on" | "dismissed";
  * stays exhaustive. Future sources will be added explicitly rather
  * than letting arbitrary strings slip through.
  */
-export type FeedItemSource = "gmail" | "slack" | "calendar" | "assistant";
+export type FeedItemSource =
+  | "gmail"
+  | "slack"
+  | "calendar"
+  | "assistant"
+  | "telegram";
 
 /**
  * Internal field used by the hybrid authoring resolver (PR 5 writer).
@@ -62,6 +67,20 @@ export interface FeedAction {
   prompt: string;
 }
 
+/** Which detail panel the macOS client should open for this feed item. */
+export type FeedItemDetailPanelKind =
+  | "emailDraft"
+  | "documentPreview"
+  | "permissionChat"
+  | "paymentAuth"
+  | "toolPermission"
+  | "updatesList";
+
+/** Server-driven detail panel descriptor attached to a feed item. */
+export interface FeedItemDetailPanel {
+  kind: FeedItemDetailPanelKind;
+}
+
 /**
  * A single item rendered in the Home feed.
  *
@@ -81,7 +100,7 @@ export interface FeedItem {
   priority: number;
   title: string;
   summary: string;
-  /** Optional; when present must be one of the four v1 sources. */
+  /** Optional; when present must be one of the v1 sources. */
   source?: FeedItemSource;
   /** Event time (ISO-8601). */
   timestamp: string;
@@ -94,6 +113,10 @@ export interface FeedItem {
   actions?: FeedAction[];
   /** Visual urgency treatment — controls badge color independently of sort priority. */
   urgency?: FeedItemUrgency;
+  /** Optional conversation this feed item is associated with. */
+  conversationId?: string;
+  /** Server-driven detail panel descriptor; when present, the client opens this panel kind. */
+  detailPanel?: FeedItemDetailPanel;
   /** Internal: who authored this item. */
   author: FeedItemAuthor;
   /** Internal: ISO-8601 writer-record time, used for ordering + TTL. */
@@ -157,6 +180,7 @@ const feedItemSourceSchema = z.enum([
   "slack",
   "calendar",
   "assistant",
+  "telegram",
 ]);
 
 const feedItemAuthorSchema = z.enum(["assistant", "platform"]);
@@ -167,6 +191,19 @@ const feedActionSchema = z.object({
   id: z.string(),
   label: z.string(),
   prompt: z.string(),
+});
+
+const feedItemDetailPanelKindSchema = z.enum([
+  "emailDraft",
+  "documentPreview",
+  "permissionChat",
+  "paymentAuth",
+  "toolPermission",
+  "updatesList",
+]);
+
+const feedItemDetailPanelSchema = z.object({
+  kind: feedItemDetailPanelKindSchema,
 });
 
 /**
@@ -196,6 +233,8 @@ export const feedItemSchema = z.object({
   minTimeAway: z.number().int().min(0).optional(),
   actions: z.array(feedActionSchema).optional(),
   urgency: feedItemUrgencySchema.optional(),
+  conversationId: z.string().optional(),
+  detailPanel: feedItemDetailPanelSchema.optional(),
   author: feedItemAuthorSchema,
   createdAt: z.string(),
 });

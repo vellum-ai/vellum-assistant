@@ -67,6 +67,7 @@ export class PermissionPrompter {
     toolUseId?: string,
     hostAccessEnablePrompt?: boolean,
     riskReason?: string,
+    isContainerized?: boolean,
   ): Promise<{
     decision: UserDecision;
     selectedPattern?: string;
@@ -118,6 +119,7 @@ export class PermissionPrompter {
         input: redactSensitiveFields(input),
         riskLevel,
         riskReason,
+        isContainerized,
         allowlistOptions: allowlistOptions.map((o) => ({
           label: o.label,
           description: o.description,

@@ -27,6 +27,12 @@ struct ImageGenerationServiceCard: View {
         authManager.isAuthenticated
     }
 
+    /// The API-key provider associated with the currently-selected draft model.
+    /// Flips between `"gemini"` and `"openai"` as the user switches models in the picker.
+    private var currentProvider: String {
+        SettingsStore.imageGenProvider(forModel: draftModel)
+    }
+
     /// True when the user has made changes worth saving.
     private var hasChanges: Bool {
         // In managed mode when not logged in, there is nothing actionable to save.
@@ -71,7 +77,7 @@ struct ImageGenerationServiceCard: View {
                         onSave: { save() },
                         savingLabel: "Validating...",
                         onReset: {
-                            store.clearImageGenKey()
+                            store.clearImageGenKey(for: currentProvider)
                             imageGenHasKey = false
                             apiKeyText = ""
                         },
@@ -86,7 +92,26 @@ struct ImageGenerationServiceCard: View {
             initialModel = store.selectedImageGenModel
         }
         .task {
-            imageGenHasKey = await APIKeyManager.hasKey(for: "gemini")
+            imageGenHasKey = await APIKeyManager.hasKey(for: currentProvider)
+        }
+        .onChange(of: draftModel) { oldValue, newValue in
+            // When the user picks a model whose provider differs from the previous
+            // selection (e.g. a Gemini model → an OpenAI model), clear any typed
+            // API-key text. Without this, a partially-typed Gemini key could be
+            // submitted under the openai credential slot (or vice versa) if the
+            // user switches models before hitting Save. Clearing only on actual
+            // provider change avoids disrupting in-flight typing when the user
+            // just switches between two models of the same provider.
+            let oldProvider = SettingsStore.imageGenProvider(forModel: oldValue)
+            let newProvider = SettingsStore.imageGenProvider(forModel: newValue)
+            if oldProvider != newProvider {
+                apiKeyText = ""
+            }
+            // Re-fetch the "key configured" indicator when the user switches between
+            // Gemini and OpenAI models in the picker so the UI reflects the right provider.
+            Task {
+                imageGenHasKey = await APIKeyManager.hasKey(for: currentProvider)
+            }
         }
         .onChange(of: store.imageGenMode) { _, newValue in
             // Sync draft when external changes arrive (e.g. daemon reload)
@@ -129,7 +154,7 @@ struct ImageGenerationServiceCard: View {
             label: "API Key",
             hasKey: imageGenHasKey,
             text: $apiKeyText,
-            emptyPlaceholder: "Enter your Gemini API key",
+            emptyPlaceholder: currentProvider == "openai" ? "Enter your OpenAI API key" : "Enter your Gemini API key",
             errorMessage: store.imageGenKeySaveError
         )
         .disabled(store.imageGenKeySaving)
@@ -161,10 +186,11 @@ struct ImageGenerationServiceCard: View {
         let trimmedKey = apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
         if draftMode == "your-own" && !trimmedKey.isEmpty {
             let keyTextBinding = $apiKeyText
-            store.saveImageGenKey(trimmedKey, onSuccess: { [self] in
+            let provider = currentProvider
+            store.saveImageGenKey(trimmedKey, for: provider, onSuccess: { [self] in
                 imageGenHasKey = true
                 keyTextBinding.wrappedValue = ""
-                showToast("Gemini API key saved", .success)
+                showToast("\(provider == "openai" ? "OpenAI" : "Gemini") API key saved", .success)
             })
         }
 

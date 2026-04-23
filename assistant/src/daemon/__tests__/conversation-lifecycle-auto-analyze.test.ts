@@ -89,7 +89,6 @@ mock.module("../../tools/browser/browser-screencast.js", () => ({
 
 mock.module("../conversation-notifiers.js", () => ({
   unregisterCallNotifiers: () => {},
-  unregisterWatchNotifiers: () => {},
 }));
 
 mock.module("../conversation-skill-tools.js", () => ({

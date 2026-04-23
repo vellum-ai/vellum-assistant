@@ -10,6 +10,7 @@ import {
   generateImage,
   type ImageGenCredentials,
   mapImageGenError,
+  providerForModel,
 } from "../../media/image-service.js";
 import { log } from "../logger.js";
 
@@ -150,14 +151,28 @@ Examples:
     const config = getConfig();
     const svc = config.services["image-generation"];
 
+    // Derive provider from the explicit `--model` override when supplied so
+    // that `--model gpt-image-2` routes to OpenAI even when config.provider
+    // is `gemini` (and vice-versa). Without this, the Gemini service would
+    // silently downgrade unknown models to its default.
+    const provider = providerForModel(modelOverride, svc.provider);
+
     const { credentials, errorHint } = await resolveImageGenCredentials({
-      provider: svc.provider,
+      provider,
       mode: svc.mode,
     });
 
     if (!credentials) {
-      const hint =
+      const baseHint =
         errorHint ?? "No credentials available for image generation.";
+      // The shared hint in image-credentials.ts is correct for tool surfaces
+      // but drops CLI-specific recovery guidance. When the managed proxy is
+      // unavailable (mode === "managed" with no platform base URL), the CLI
+      // user can authenticate or flip the mode — tell them how from the CLI.
+      const hint =
+        svc.mode === "managed"
+          ? `${baseHint}\n  Run 'assistant auth login' to authenticate, or set services.image-generation.mode to 'your-own' in config.`
+          : baseHint;
       if (jsonOutput) {
         process.stdout.write(JSON.stringify({ ok: false, error: hint }) + "\n");
       } else {
@@ -219,7 +234,7 @@ Examples:
 
     // --- Generate image ---
     try {
-      const result = await generateImage(svc.provider, resolvedCredentials, {
+      const result = await generateImage(provider, resolvedCredentials, {
         prompt,
         mode,
         sourceImages,
@@ -270,7 +285,7 @@ Examples:
         }
       }
     } catch (error) {
-      const errorMsg = mapImageGenError(svc.provider, error);
+      const errorMsg = mapImageGenError(provider, error);
       if (jsonOutput) {
         process.stdout.write(
           JSON.stringify({ ok: false, error: errorMsg }) + "\n",

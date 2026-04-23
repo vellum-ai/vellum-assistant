@@ -41,6 +41,27 @@ jobs:
               - 'clients/**'
               - '.github/workflows/ci-main-macos.yaml'
 
+  flexframe-lint:
+    name: FlexFrame Lint
+    needs: [changes]
+    if: needs.changes.outputs.clients == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Ensure ripgrep is available
+        run: |
+          if ! command -v rg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ripgrep
+          fi
+          rg --version | head -1
+
+      - name: FlexFrame guard
+        run: bash clients/scripts/check-flexframe.sh
+
   test:
     name: macOS Tests
     needs: [changes]
@@ -303,7 +324,7 @@ jobs:
 
   notify-macos:
     name: Slack Notification (macOS)
-    needs: [changes, test, build]
+    needs: [changes, test, build, flexframe-lint]
     if: always()
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -316,11 +337,11 @@ jobs:
         run: |
           GITHUB_USER="${{ github.actor }}"
 
-          if [[ "${{ needs.test.result }}" == "failure" ]] || [[ "${{ needs.build.result }}" == "failure" ]]; then
+          if [[ "${{ needs.test.result }}" == "failure" ]] || [[ "${{ needs.build.result }}" == "failure" ]] || [[ "${{ needs.flexframe-lint.result }}" == "failure" ]]; then
             STATUS="failure"
-          elif [[ "${{ needs.test.result }}" == "cancelled" ]] || [[ "${{ needs.build.result }}" == "cancelled" ]]; then
+          elif [[ "${{ needs.test.result }}" == "cancelled" ]] || [[ "${{ needs.build.result }}" == "cancelled" ]] || [[ "${{ needs.flexframe-lint.result }}" == "cancelled" ]]; then
             STATUS="cancelled"
-          elif [[ "${{ needs.test.result }}" == "skipped" ]] && [[ "${{ needs.build.result }}" == "skipped" ]]; then
+          elif [[ "${{ needs.test.result }}" == "skipped" ]] && [[ "${{ needs.build.result }}" == "skipped" ]] && [[ "${{ needs.flexframe-lint.result }}" == "skipped" ]]; then
             STATUS="skipped"
           else
             STATUS="success"

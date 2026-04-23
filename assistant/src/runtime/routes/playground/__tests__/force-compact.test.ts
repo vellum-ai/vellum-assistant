@@ -15,6 +15,7 @@ interface FakeConversationOptions {
   messagesBefore?: Message[];
   messagesAfter?: Message[];
   result?: Partial<ContextWindowResult>;
+  processing?: boolean;
 }
 
 interface FakeConversation {
@@ -48,6 +49,7 @@ function makeFakeConversation(
   };
 
   const fake = {
+    processing: options.processing ?? false,
     getMessages(): Message[] {
       // First call returns the pre-compaction messages; subsequent calls
       // return the post-compaction messages. This mirrors how the route
@@ -72,7 +74,7 @@ function makeDeps(
   overrides: Partial<PlaygroundRouteDeps> = {},
 ): PlaygroundRouteDeps {
   return {
-    getConversationById: () => undefined,
+    getConversationById: async () => undefined,
     isPlaygroundEnabled: () => true,
     listConversationsByTitlePrefix: () => [],
     deleteConversationById: () => false,
@@ -115,7 +117,7 @@ describe("forceCompactRouteDefinitions", () => {
     expect(routes[0].policyKey).toBe("conversations/playground/compact");
   });
 
-  test("returns 404 when the playground flag is disabled", async () => {
+  test("returns 404 with playground_disabled code when the playground flag is disabled", async () => {
     const deps = makeDeps({ isPlaygroundEnabled: () => false });
     const [route] = forceCompactRouteDefinitions(deps);
 
@@ -125,13 +127,15 @@ describe("forceCompactRouteDefinitions", () => {
     const body = (await res.json()) as {
       error: { code: string; message: string };
     };
-    expect(body.error.code).toBe("NOT_FOUND");
+    // Distinct from `conversation_not_found` so the Swift client can
+    // surface the right toast text without sniffing the URL path.
+    expect(body.error.code).toBe("playground_disabled");
   });
 
-  test("returns 404 when the conversation is missing", async () => {
+  test("returns 404 with conversation_not_found code when the conversation is missing", async () => {
     const deps = makeDeps({
       isPlaygroundEnabled: () => true,
-      getConversationById: () => undefined,
+      getConversationById: async () => undefined,
     });
     const [route] = forceCompactRouteDefinitions(deps);
 
@@ -141,7 +145,7 @@ describe("forceCompactRouteDefinitions", () => {
     const body = (await res.json()) as {
       error: { code: string; message: string };
     };
-    expect(body.error.code).toBe("NOT_FOUND");
+    expect(body.error.code).toBe("conversation_not_found");
     expect(body.error.message).toContain("conv-missing");
   });
 
@@ -173,7 +177,7 @@ describe("forceCompactRouteDefinitions", () => {
 
     const deps = makeDeps({
       isPlaygroundEnabled: () => true,
-      getConversationById: () => fake.conversation,
+      getConversationById: async () => fake.conversation,
     });
     const [route] = forceCompactRouteDefinitions(deps);
 
@@ -202,6 +206,40 @@ describe("forceCompactRouteDefinitions", () => {
     expect(fake.forceCompactCallCount()).toBe(1);
   });
 
+  test("returns 409 and skips forceCompact when conversation is already processing", async () => {
+    // Simulate a turn (or a concurrent /compact) already in flight against
+    // this conversation. A second playground POST landing in this window
+    // would otherwise race with the first call: duplicate
+    // `contextCompactedMessageCount` increments, duplicate
+    // `context_compacted` SSE events, and double usage recording. Easy to
+    // trigger by double-clicking the playground "Force Compact" button.
+    const fake = makeFakeConversation({
+      messagesBefore: [
+        { role: "user", content: [{ type: "text", text: "hi" }] },
+      ],
+      processing: true,
+    });
+
+    const deps = makeDeps({
+      isPlaygroundEnabled: () => true,
+      getConversationById: async () => fake.conversation,
+    });
+    const [route] = forceCompactRouteDefinitions(deps);
+
+    const res = await route.handler(makeRouteContext("conv-busy"));
+    expect(res.status).toBe(409);
+
+    const body = (await res.json()) as {
+      error: { code: string; message: string };
+    };
+    expect(body.error.code).toBe("CONFLICT");
+    expect(body.error.message).toContain("already in progress");
+
+    // Critical: we must NOT have invoked forceCompact a second time while
+    // an existing call was in flight.
+    expect(fake.forceCompactCallCount()).toBe(0);
+  });
+
   test("defaults summaryText/summaryFailed to null when forceCompact omits them", async () => {
     const fake = makeFakeConversation({
       messagesBefore: [
@@ -222,7 +260,7 @@ describe("forceCompactRouteDefinitions", () => {
 
     const deps = makeDeps({
       isPlaygroundEnabled: () => true,
-      getConversationById: () => fake.conversation,
+      getConversationById: async () => fake.conversation,
     });
     const [route] = forceCompactRouteDefinitions(deps);
 

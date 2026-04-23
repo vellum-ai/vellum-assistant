@@ -107,6 +107,13 @@ mock.module("../../../media/image-service.js", () => ({
       return `Mapped error (${String(provider)}): ${error.message}`;
     return "An unexpected error occurred during image generation.";
   },
+  providerForModel: (model: string | undefined, fallback: string) => {
+    if (!model) return fallback;
+    if (model.startsWith("gpt-") || model.startsWith("dall-e-"))
+      return "openai";
+    if (model.startsWith("gemini-")) return "gemini";
+    return fallback;
+  },
 }));
 
 mock.module("../../../util/logger.js", () => ({
@@ -344,7 +351,39 @@ describe("credential errors", () => {
     expect(exitCode).toBe(1);
     const parsed = JSON.parse(stdout.trim());
     expect(parsed.ok).toBe(false);
+    // Base hint from image-credentials.ts is preserved.
     expect(parsed.error).toContain("Managed proxy");
+    // CLI augments the hint with CLI-specific recovery guidance so users
+    // know how to resolve the problem from the CLI (the shared hint is
+    // tool-flavored and only mentions the Vellum app).
+    expect(parsed.error).toContain("assistant auth login");
+    expect(parsed.error).toContain(
+      "services.image-generation.mode to 'your-own'",
+    );
+  });
+
+  test("your-own mode hint is NOT augmented with CLI auth guidance", async () => {
+    // The CLI-specific `assistant auth login` guidance only makes sense when
+    // the user is trying to use managed mode. In your-own mode, the shared
+    // hint (pointing at Settings > Models & Services for the API key) is
+    // already actionable from the CLI perspective (the key is in secure
+    // storage, the user just hasn't set it). Augmenting here would confuse
+    // the user into thinking they need to authenticate to Vellum.
+    mockConfig.services["image-generation"].mode = "your-own";
+    mockConfig.services["image-generation"].provider = "gemini";
+    mockProviderKeys.gemini = undefined;
+
+    const { exitCode, stdout } = await runCommand([
+      "image-generation",
+      "generate",
+      "--prompt",
+      "A sunset",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).not.toContain("assistant auth login");
   });
 });
 
@@ -468,6 +507,91 @@ describe("provider dispatch", () => {
     };
     expect(creds.type).toBe("direct");
     expect(creds.apiKey).toBe("test-openai-key");
+  });
+
+  test("cross-provider override: config=gemini + --model gpt-image-2 dispatches to openai", async () => {
+    // Config still points at gemini (the user's Settings default), but the
+    // CLI caller explicitly picks gpt-image-2. The command must dispatch to
+    // OpenAI and resolve OpenAI credentials, not fall back to Gemini's
+    // default model.
+    mockConfig.services["image-generation"].mode = "your-own";
+    mockConfig.services["image-generation"].provider = "gemini";
+    mockConfig.services["image-generation"].model =
+      "gemini-3.1-flash-image-preview";
+    mockProviderKeys.openai = "test-openai-key";
+    mockGenerateResult = {
+      images: [
+        {
+          mimeType: "image/png",
+          dataBase64: Buffer.from("fake-png-data").toString("base64"),
+        },
+      ],
+      resolvedModel: "gpt-image-2",
+    };
+    const outDir = join(os.tmpdir(), `img-cross-openai-${Date.now()}`);
+
+    const { exitCode } = await runCommand([
+      "image-generation",
+      "generate",
+      "--prompt",
+      "Test",
+      "--model",
+      "gpt-image-2",
+      "--output-dir",
+      outDir,
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastGenerateCall).toBeDefined();
+    expect(lastGenerateCall!.provider).toBe("openai");
+    const req = lastGenerateCall!.request as { model: string };
+    expect(req.model).toBe("gpt-image-2");
+    const creds = lastGenerateCall!.credentials as {
+      type: string;
+      apiKey: string;
+    };
+    expect(creds.type).toBe("direct");
+    expect(creds.apiKey).toBe("test-openai-key");
+  });
+
+  test("cross-provider override: config=openai + --model gemini-3-pro-image-preview dispatches to gemini", async () => {
+    mockConfig.services["image-generation"].mode = "your-own";
+    mockConfig.services["image-generation"].provider = "openai";
+    mockConfig.services["image-generation"].model = "gpt-image-2";
+    mockProviderKeys.gemini = "test-gemini-key";
+    mockGenerateResult = {
+      images: [
+        {
+          mimeType: "image/png",
+          dataBase64: Buffer.from("fake-png-data").toString("base64"),
+        },
+      ],
+      resolvedModel: "gemini-3-pro-image-preview",
+    };
+    const outDir = join(os.tmpdir(), `img-cross-gemini-${Date.now()}`);
+
+    const { exitCode } = await runCommand([
+      "image-generation",
+      "generate",
+      "--prompt",
+      "Test",
+      "--model",
+      "gemini-3-pro-image-preview",
+      "--output-dir",
+      outDir,
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(lastGenerateCall).toBeDefined();
+    expect(lastGenerateCall!.provider).toBe("gemini");
+    const req = lastGenerateCall!.request as { model: string };
+    expect(req.model).toBe("gemini-3-pro-image-preview");
+    const creds = lastGenerateCall!.credentials as {
+      type: string;
+      apiKey: string;
+    };
+    expect(creds.type).toBe("direct");
+    expect(creds.apiKey).toBe("test-gemini-key");
   });
 });
 

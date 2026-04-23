@@ -18,6 +18,7 @@ struct AnimatedImageView: View {
     @State private var isLoading = true
     @State private var isGIF: Bool = false
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.bubbleMaxWidth) private var bubbleMaxWidth
 
     // MARK: - In-memory cache
 
@@ -45,16 +46,16 @@ struct AnimatedImageView: View {
         return cache
     }()
 
-    /// Maximum display dimension in points (matches text bubble maxWidth).
-    private let maxDimension: CGFloat = VSpacing.chatBubbleMaxWidth
-
     var body: some View {
+        // `MessageListLayoutMetrics` reports 0 on the first layout pass before
+        // `GeometryReader` resolves; the token is the static fallback.
+        let maxDimension: CGFloat = bubbleMaxWidth > 0 ? bubbleMaxWidth : VSpacing.chatBubbleMaxWidth
         Group {
             if let data = imageData, isGIF {
                 GIFView(data: data)
                     .frame(
-                        width: min(gifSize.width, maxDimension),
-                        height: min(gifSize.height, maxDimension)
+                        width: min(gifSize(maxDimension: maxDimension).width, maxDimension),
+                        height: min(gifSize(maxDimension: maxDimension).height, maxDimension)
                     )
             } else if let image = loadedImage,
                       let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
@@ -96,7 +97,7 @@ struct AnimatedImageView: View {
         }
     }
 
-    private var gifSize: CGSize {
+    private func gifSize(maxDimension: CGFloat) -> CGSize {
         guard let image = loadedImage else { return CGSize(width: maxDimension, height: maxDimension) }
         let size = image.size
         guard size.width > 0, size.height > 0 else { return CGSize(width: maxDimension, height: maxDimension) }

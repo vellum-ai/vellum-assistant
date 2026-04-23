@@ -33,6 +33,30 @@ export function mapImageGenError(
   return mapGeminiError(error);
 }
 
+/**
+ * Derive the owning provider from an explicit model ID.
+ *
+ * When a caller (LLM tool invocation, CLI `--model` flag) passes an explicit
+ * `model` argument, the request should dispatch to the provider that owns
+ * that model — not to the user's configured Settings provider. Without this,
+ * asking for `gpt-image-2` while `services["image-generation"].provider` is
+ * `gemini` silently falls back to the Gemini default model.
+ *
+ * Model prefix mapping:
+ *   - `gpt-*` or `dall-e-*` → `openai`
+ *   - `gemini-*`            → `gemini`
+ *   - anything else (or `undefined`) → the provided `fallback`
+ */
+export function providerForModel(
+  model: string | undefined,
+  fallback: ImageGenProvider,
+): ImageGenProvider {
+  if (!model) return fallback;
+  if (model.startsWith("gpt-") || model.startsWith("dall-e-")) return "openai";
+  if (model.startsWith("gemini-")) return "gemini";
+  return fallback;
+}
+
 export type {
   GeneratedImage,
   ImageGenCredentials,

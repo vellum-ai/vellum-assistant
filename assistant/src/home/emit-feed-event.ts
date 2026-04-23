@@ -41,6 +41,7 @@ import { randomUUID } from "node:crypto";
 import {
   type FeedAction,
   type FeedItem,
+  type FeedItemDetailPanel,
   feedItemSchema,
   type FeedItemSource,
   type FeedItemUrgency,
@@ -96,6 +97,10 @@ export interface EmitFeedEventParams {
   expiresAt?: string;
   /** Visual urgency treatment — controls badge color independently of sort priority. */
   urgency?: FeedItemUrgency;
+  /** Optional conversation this feed item is associated with. */
+  conversationId?: string;
+  /** Server-driven detail panel descriptor; when present, the client opens this panel kind. */
+  detailPanel?: FeedItemDetailPanel;
 }
 
 /**
@@ -148,6 +153,8 @@ export async function emitFeedEvent(
     createdAt: now,
     actions: params.actions,
     urgency: params.urgency,
+    conversationId: params.conversationId,
+    detailPanel: params.detailPanel,
     minTimeAway: params.minTimeAway,
     expiresAt: params.expiresAt,
   };

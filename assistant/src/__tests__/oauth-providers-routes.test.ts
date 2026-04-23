@@ -18,7 +18,7 @@ const mockListProviders = mock(() => [
     userinfoUrl: null,
     baseUrl: null,
     defaultScopes: "[]",
-    scopePolicy: "[]",
+    availableScopes: null,
     scopeSeparator: null,
     authorizeParams: null,
 
@@ -60,7 +60,7 @@ const mockListProviders = mock(() => [
     userinfoUrl: null,
     baseUrl: null,
     defaultScopes: "[]",
-    scopePolicy: "[]",
+    availableScopes: null,
     scopeSeparator: null,
     authorizeParams: null,
 
@@ -163,6 +163,7 @@ describe("GET /v1/oauth/providers", () => {
       "requires_client_secret",
       "logo_url",
       "supports_managed_mode",
+      "managed_service_is_paid",
       "feature_flag",
     ];
 

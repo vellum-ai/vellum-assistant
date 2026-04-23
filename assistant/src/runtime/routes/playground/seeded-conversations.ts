@@ -8,15 +8,7 @@
 import { httpError } from "../../http-errors.js";
 import type { RouteDefinition } from "../../http-router.js";
 import { assertPlaygroundEnabled, type PlaygroundRouteDeps } from "./index.js";
-
-/**
- * Title prefix every playground-seeded conversation starts with. PR 6
- * (seed-conversation) is expected to export this constant from
- * `./seed-conversation.ts`. Until PR 6 lands, declare it locally so this
- * file can be merged independently. On rebase, switch to the imported value
- * from `./seed-conversation.js` to avoid two sources of truth.
- */
-export const PLAYGROUND_TITLE_PREFIX = "[Playground] ";
+import { PLAYGROUND_TITLE_PREFIX } from "./seed-conversation.js";
 
 export function seededConversationsRouteDefinitions(
   deps: PlaygroundRouteDeps,

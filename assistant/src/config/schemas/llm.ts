@@ -57,8 +57,6 @@ export const LLMCallSiteEnum = z.enum([
   "guardianQuestionCopy",
   "approvalCopy",
   "approvalConversation",
-  "watchCommentary",
-  "watchSummary",
   "interactionClassifier",
   "styleAnalyzer",
   "inviteInstructionGenerator",
@@ -66,6 +64,7 @@ export const LLMCallSiteEnum = z.enum([
   "meetConsentMonitor",
   "meetChatOpportunity",
   "inference",
+  "feedEventCopy",
 ]);
 export type LLMCallSite = z.infer<typeof LLMCallSiteEnum>;
 

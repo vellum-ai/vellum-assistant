@@ -3,7 +3,9 @@ import { attachmentRoutes } from "./attachment.js";
 import { browserExecuteRoute } from "./browser.js";
 import { cacheRoutes } from "./cache.js";
 import { getContactRoute } from "./get-contact.js";
+import { listClientsRoute } from "./list-clients.js";
 import { mergeContactsRoute } from "./merge-contacts.js";
+import { renameConversationRoute } from "./rename-conversation.js";
 import { searchContactsRoute } from "./search-contacts.js";
 import { taskTemplateRoutes } from "./task.js";
 import { taskQueueRoutes } from "./task-queue.js";
@@ -17,7 +19,9 @@ export const cliIpcRoutes: IpcRoute[] = [
   ...attachmentRoutes,
   browserExecuteRoute,
   getContactRoute,
+  listClientsRoute,
   mergeContactsRoute,
+  renameConversationRoute,
   searchContactsRoute,
   uiRequestRoute,
   upsertContactRoute,

@@ -258,6 +258,8 @@ export interface ToolExecutionResult {
   riskLevel?: string;
   /** Human-readable reason for the risk classification. */
   riskReason?: string;
+  /** Whether the daemon is running in a containerized (Docker) environment. */
+  isContainerized?: boolean;
   /** Scope options ladder for the rule editor (narrowest to broadest). */
   riskScopeOptions?: Array<{ pattern: string; label: string }>;
   /**
@@ -291,6 +293,10 @@ export interface ProxyApprovalRequest {
     matchingPatterns?: string[];
   };
   sessionId: string;
+  /** HTTP method (plain HTTP only; undefined for HTTPS CONNECT tunnels). */
+  method?: string;
+  /** Curated non-sensitive headers (plain HTTP only). */
+  requestHeaders?: Record<string, string>;
 }
 
 /** Callback for proxy policy decisions requiring user confirmation. Returns true if approved. */

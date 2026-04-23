@@ -24,9 +24,7 @@ A task progress card is shown automatically when you run your first DoorDash com
 
 When the user asks you to order food (e.g. "Order pizza from Andiamo's"):
 
-1. **Check session** - run `bun {baseDir}/scripts/doordash-entry.ts status --json`. If `loggedIn` is false or the session is expired, tell the user: "A Chrome window will open to the DoorDash login page. Please sign in there - I'll detect your login automatically and minimize the window." Then run `bun {baseDir}/scripts/doordash-entry.ts refresh --json`. This captures your session automatically and auto-stops once it detects you've signed in. The session is imported automatically. **This command blocks until login is complete - just wait for it.**
-
-   Keep the DoorDash Chrome window open in the background - it's needed for API requests.
+1. **Check session** - run `bun {baseDir}/scripts/doordash-entry.ts status --json`. If `loggedIn` is false or the session is expired, inform the user that their DoorDash session has expired and they need to log in again.
 
 2. **Search** - run `bun {baseDir}/scripts/doordash-entry.ts search "<query>" --json` to find matching restaurants. Present the top results to the user with name, rating, and delivery info. If the user named a specific restaurant, pick the best match. If ambiguous, ask.
 
@@ -55,11 +53,11 @@ When the user asks you to order food (e.g. "Order pizza from Andiamo's"):
 
 - **Always confirm before checkout.** Never place an order without explicit user approval.
 - **Be proactive.** If the user says "order pizza from Andiamo's", don't ask clarifying questions upfront - search, find the store, show the menu, and suggest items. Only ask when you need a choice the user hasn't specified.
-- **Handle expired sessions gracefully.** If any command returns `"error": "session_expired"`, run `bun {baseDir}/scripts/doordash-entry.ts refresh --json` to re-capture the session.
+- **Handle expired sessions gracefully.** If any command returns `"error": "session_expired"`, inform the user that their DoorDash session has expired and they need to log in again.
 - **Show prices.** Always show prices when presenting items or the cart summary.
 - **Use `--json` flag** on all commands for reliable parsing.
 - **Do NOT use the browser skill.** All DoorDash interaction goes through the CLI, not browser automation.
-- **Rate limiting.** DoorDash rate-limits rapid sequential requests. When adding multiple items (e.g. a team order), wait 8–10 seconds between `cart add` calls. If you get a 403 error, wait 15–20 seconds and retry. For large orders (5+ items), consider running `bun {baseDir}/scripts/doordash-entry.ts refresh --json` midway through if you hit repeated 403s.
+- **Rate limiting.** DoorDash rate-limits rapid sequential requests. When adding multiple items (e.g. a team order), wait 8–10 seconds between `cart add` calls. If you get a 403 error, wait 15–20 seconds and retry.
 - **Special instructions are unreliable.** Some merchants disable special instructions entirely. Always prefer `--options` for customizations (size, milk type, etc.). Only use `--special-instructions` for free-text requests that aren't covered by the item's option groups. If the merchant rejects special instructions, drop them and proceed without.
 - **Customization fallback.** If `cart add` with `--options` fails, or if the item details show options that are hard to construct (deeply nested, unusual format), proactively offer to use `cart learn` so the user can customize the item visually in the browser. Don't silently drop customizations - tell the user what happened and offer alternatives.
 - **Always-allow tip.** At the start of an ordering flow, suggest the user enable "always allow" for DoorDash commands: "Tip: You can type 'a' to always allow DoorDash commands for this conversation so you won't be prompted each time."
@@ -127,7 +125,6 @@ bun {baseDir}/scripts/doordash-entry.ts cart add --store-id <id> --menu-id <id> 
 
 ```
 bun {baseDir}/scripts/doordash-entry.ts status --json              # Check if logged in
-bun {baseDir}/scripts/doordash-entry.ts refresh --json             # Capture fresh session (auto-stops after login)
 bun {baseDir}/scripts/doordash-entry.ts logout --json              # Clear session
 bun {baseDir}/scripts/doordash-entry.ts search "<query>" --json    # Search restaurants
 bun {baseDir}/scripts/doordash-entry.ts menu <storeId> --json      # Get store menu (auto-detects retail stores)

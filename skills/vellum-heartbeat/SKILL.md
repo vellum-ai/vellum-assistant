@@ -1,9 +1,9 @@
 ---
-name: heartbeat
+name: vellum-heartbeat
 description: Configure periodic background checklist runs
 compatibility: "Designed for Vellum personal assistants"
 metadata:
-  emoji: "\U0001F493"
+  emoji: "💓"
   vellum:
     display-name: "Heartbeat"
     activation-hints:
@@ -23,6 +23,7 @@ Edit `config.json` using `file_edit`:
 3. **Optional active hours**: Set `heartbeat.activeHoursStart` and `heartbeat.activeHoursEnd` (0-23) to restrict runs to certain hours. Both must be set together.
 
 Example config.json heartbeat section:
+
 ```json
 {
   "heartbeat": {

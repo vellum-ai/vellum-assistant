@@ -3,6 +3,7 @@ import { resolveImageGenCredentials } from "../../../../media/image-credentials.
 import {
   generateImage,
   mapImageGenError,
+  providerForModel,
 } from "../../../../media/image-service.js";
 import { getFilePathBySourcePath } from "../../../../memory/attachments-store.js";
 import type { ImageContent } from "../../../../providers/types.js";
@@ -18,8 +19,13 @@ export async function run(
 ): Promise<ToolExecutionResult> {
   const config = getConfig();
   const svc = config.services["image-generation"];
+  const modelOverride = input.model as string | undefined;
+  // Derive provider from the explicit model when supplied so that requesting
+  // e.g. `gpt-image-2` while config.provider === "gemini" routes to OpenAI
+  // instead of silently falling back to the Gemini default model.
+  const provider = providerForModel(modelOverride, svc.provider);
   const { credentials, errorHint } = await resolveImageGenCredentials({
-    provider: svc.provider,
+    provider,
     mode: svc.mode,
   });
   if (!credentials) {
@@ -32,9 +38,7 @@ export async function run(
   const prompt = input.prompt as string;
   const mode = (input.mode as "generate" | "edit") ?? "generate";
   const sourcePaths = input.source_paths as string[] | undefined;
-  const model =
-    (input.model as string | undefined) ??
-    config.services["image-generation"].model;
+  const model = modelOverride ?? config.services["image-generation"].model;
   const variants = input.variants as number | undefined;
 
   // Resolve source images from file paths (sandboxed to workingDir, edit mode only)
@@ -88,7 +92,7 @@ export async function run(
   }
 
   try {
-    const result = await generateImage(svc.provider, credentials, {
+    const result = await generateImage(provider, credentials, {
       prompt,
       mode,
       sourceImages,
@@ -124,7 +128,7 @@ export async function run(
     };
   } catch (error) {
     return {
-      content: mapImageGenError(svc.provider, error),
+      content: mapImageGenError(provider, error),
       isError: true,
     };
   }

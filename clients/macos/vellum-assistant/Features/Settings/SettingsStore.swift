@@ -918,15 +918,15 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    func saveImageGenKey(_ raw: String, onSuccess: (() -> Void)? = nil) {
+    func saveImageGenKey(_ raw: String, for provider: String = "gemini", onSuccess: (() -> Void)? = nil) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         imageGenKeySaveError = nil
         imageGenKeySaving = true
-        APIKeyManager.setKey(trimmed, for: "gemini")
-        removeDeletionTombstone(type: "api_key", name: "gemini")
+        APIKeyManager.setKey(trimmed, for: provider)
+        removeDeletionTombstone(type: "api_key", name: provider)
         Task {
-            let result = await APIKeyManager.setKey(trimmed, for: "gemini")
+            let result = await APIKeyManager.setKey(trimmed, for: provider)
             imageGenKeySaving = false
             if result.success {
                 scheduleRoutingSourceRefresh()
@@ -934,18 +934,18 @@ public final class SettingsStore: ObservableObject {
             } else if let error = result.error {
                 imageGenKeySaveError = error
                 if !result.isTransient {
-                    let _: Void = APIKeyManager.deleteKey(for: "gemini")
+                    let _: Void = APIKeyManager.deleteKey(for: provider)
                 }
             }
         }
     }
 
-    func clearImageGenKey() {
-        APIKeyManager.deleteKey(for: "gemini")
+    func clearImageGenKey(for provider: String = "gemini") {
+        APIKeyManager.deleteKey(for: provider)
         scheduleRoutingSourceRefresh()
         Task {
-            let deleted = await APIKeyManager.deleteKey(for: "gemini")
-            if !deleted { addDeletionTombstone(type: "api_key", name: "gemini") }
+            let deleted = await APIKeyManager.deleteKey(for: provider)
+            if !deleted { addDeletionTombstone(type: "api_key", name: provider) }
         }
     }
 
@@ -4225,6 +4225,7 @@ struct OAuthProviderMetadata: Codable, Sendable {
     let client_id_placeholder: String?
     let requires_client_secret: Bool
     let logo_url: String?
+    let managed_service_is_paid: Bool?
 
     /// The platform OAuth slug is the provider_key itself (bare name, e.g. "google").
     var platformOAuthSlug: String {
@@ -4235,6 +4236,12 @@ struct OAuthProviderMetadata: Codable, Sendable {
     var logoURL: URL? {
         guard let raw = logo_url, !raw.isEmpty else { return nil }
         return URL(string: raw)
+    }
+
+    /// Whether this provider's managed service incurs additional costs.
+    /// Falls back to `false` when the daemon didn't supply the flag.
+    var isPaid: Bool {
+        managed_service_is_paid ?? false
     }
 }
 

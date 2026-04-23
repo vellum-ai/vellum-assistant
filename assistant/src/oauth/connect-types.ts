@@ -12,18 +12,14 @@
  */
 
 // ---------------------------------------------------------------------------
-// Scope policy
+// Available scopes
 // ---------------------------------------------------------------------------
 
-/** Controls which additional scopes may be requested beyond the default set. */
-export interface OAuthScopePolicy {
-  /** Whether callers may request scopes not listed in defaultScopes. */
-  allowAdditionalScopes: boolean;
-  /** Scopes that may optionally be added beyond the defaults. */
-  allowedOptionalScopes: string[];
-  /** Scopes that must never be requested, regardless of other settings. */
-  forbiddenScopes: string[];
-}
+/** Informational scope metadata for the assistant. Either a structured list
+ * of scopes with optional descriptions, or a URL to the provider's scope docs. */
+export type AvailableScopes =
+  | Array<{ scope: string; description?: string }>
+  | string;
 
 // ---------------------------------------------------------------------------
 // Connect result

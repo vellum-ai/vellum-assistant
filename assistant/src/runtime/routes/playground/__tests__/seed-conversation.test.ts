@@ -8,7 +8,12 @@ import {
   seedConversationRouteDefinitions,
 } from "../seed-conversation.js";
 
-type AddMessageArgs = [string, "user" | "assistant", string];
+type AddMessageArgs = [
+  string,
+  "user" | "assistant",
+  string,
+  { skipIndexing?: boolean } | undefined,
+];
 
 interface Spy {
   deps: PlaygroundRouteDeps;
@@ -23,7 +28,9 @@ function makeDeps(overrides?: { enabled?: boolean }): Spy {
   let nextMessageId = 0;
 
   const deps: PlaygroundRouteDeps = {
-    getConversationById: (_id: string): Conversation | undefined => undefined,
+    getConversationById: async (
+      _id: string,
+    ): Promise<Conversation | undefined> => undefined,
     isPlaygroundEnabled: () => overrides?.enabled ?? true,
     listConversationsByTitlePrefix: () => [],
     deleteConversationById: () => false,
@@ -31,8 +38,8 @@ function makeDeps(overrides?: { enabled?: boolean }): Spy {
       createdTitles.push(title);
       return { id: `conv-${++nextConvId}` };
     },
-    addMessage: async (conversationId, role, contentJson) => {
-      addedMessages.push([conversationId, role, contentJson]);
+    addMessage: async (conversationId, role, contentJson, options) => {
+      addedMessages.push([conversationId, role, contentJson, options]);
       return { id: `msg-${++nextMessageId}` };
     },
   };
@@ -64,7 +71,7 @@ function makeCtx(body: unknown) {
 }
 
 describe("POST /v1/playground/seed-conversation", () => {
-  test("returns 404 when the playground flag is disabled", async () => {
+  test("returns 404 with playground_disabled code when the playground flag is disabled", async () => {
     const { deps } = makeDeps({ enabled: false });
     const handler = getSeedHandler(deps);
 
@@ -72,7 +79,9 @@ describe("POST /v1/playground/seed-conversation", () => {
     expect(res.status).toBe(404);
 
     const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("NOT_FOUND");
+    // Distinct from `conversation_not_found` so the Swift client can
+    // surface the right toast text without sniffing the URL path.
+    expect(body.error.code).toBe("playground_disabled");
   });
 
   test("seeds N turns as 2N messages and returns conversation id", async () => {
@@ -94,7 +103,7 @@ describe("POST /v1/playground/seed-conversation", () => {
 
     // Roles alternate user/assistant across the 10 inserted messages.
     for (let i = 0; i < spy.addedMessages.length; i++) {
-      const [convId, role, contentJson] = spy.addedMessages[i];
+      const [convId, role, contentJson, options] = spy.addedMessages[i];
       expect(convId).toBe("conv-1");
       expect(role).toBe(i % 2 === 0 ? "user" : "assistant");
       // Content is a JSON-encoded array of blocks matching the in-memory
@@ -105,6 +114,10 @@ describe("POST /v1/playground/seed-conversation", () => {
       }>;
       expect(parsed[0].type).toBe("text");
       expect(parsed[0].text.length).toBeGreaterThan(0);
+      // Every seeded message must skip memory/vector indexing — the
+      // lorem-ipsum payload has no semantic value and embedding it would
+      // pollute the vector store.
+      expect(options?.skipIndexing).toBe(true);
     }
   });
 

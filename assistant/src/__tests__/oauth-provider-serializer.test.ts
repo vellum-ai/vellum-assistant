@@ -19,7 +19,7 @@ function makeRow(overrides: Partial<OAuthProviderRow> = {}): OAuthProviderRow {
     userinfoUrl: null,
     baseUrl: null,
     defaultScopes: "[]",
-    scopePolicy: "{}",
+    availableScopes: null,
     scopeSeparator: " ",
     authorizeParams: null,
     pingUrl: null,
@@ -29,6 +29,7 @@ function makeRow(overrides: Partial<OAuthProviderRow> = {}): OAuthProviderRow {
     revokeUrl: null,
     revokeBodyTemplate: null,
     managedServiceConfigKey: null,
+    managedServiceIsPaid: false,
     displayLabel: null,
     description: null,
     dashboardUrl: null,
@@ -57,7 +58,7 @@ describe("serializeProvider", () => {
   test("parses JSON fields correctly", () => {
     const row = makeRow({
       defaultScopes: JSON.stringify(["openid", "email"]),
-      scopePolicy: JSON.stringify({ required: ["openid"] }),
+      availableScopes: JSON.stringify("https://example.com/scopes"),
       authorizeParams: JSON.stringify({ access_type: "offline" }),
       pingHeaders: JSON.stringify({ "X-Api-Version": "2" }),
       pingBody: JSON.stringify({ query: "{ me { id } }" }),
@@ -78,7 +79,7 @@ describe("serializeProvider", () => {
     const result = serializeProvider(row)!;
 
     expect(result.defaultScopes).toEqual(["openid", "email"]);
-    expect(result.scopePolicy).toEqual({ required: ["openid"] });
+    expect(result.availableScopes).toBe("https://example.com/scopes");
     expect(result.extraParams).toEqual({ access_type: "offline" });
     expect(result.pingHeaders).toEqual({ "X-Api-Version": "2" });
     expect(result.pingBody).toEqual({ query: "{ me { id } }" });
@@ -101,7 +102,7 @@ describe("serializeProvider", () => {
     const result = serializeProvider(row)!;
 
     expect(result.defaultScopes).toEqual([]);
-    expect(result.scopePolicy).toEqual({});
+    expect(result.availableScopes).toBeNull();
     expect(result.extraParams).toBeNull();
     expect(result.pingHeaders).toBeNull();
     expect(result.pingBody).toBeNull();
@@ -288,6 +289,7 @@ describe("serializeProviderSummary", () => {
       requires_client_secret: true,
       logo_url: null,
       supports_managed_mode: true,
+      managed_service_is_paid: false,
       feature_flag: null,
     });
   });
