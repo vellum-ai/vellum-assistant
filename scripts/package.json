@@ -2,6 +2,9 @@
   "name": "@vellumai/scripts",
   "private": true,
   "license": "MIT",
+  "scripts": {
+    "generate:llm-catalog": "bun run generate-llm-provider-catalog.ts"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "0.39.0"
   }
