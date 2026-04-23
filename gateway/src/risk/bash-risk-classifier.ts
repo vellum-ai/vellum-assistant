@@ -330,20 +330,28 @@ export function classifySegment(
   let effectiveMatchType: RiskAssessment["matchType"] = "registry";
 
   try {
-    // Build the subcommand pattern (e.g., "git push") to look up in cache.
-    // Determine the subcommand name the same way resolveSubcommand does.
-    let subcommand: string | undefined;
-    if (spec.subcommands && segment.args.length > 0) {
-      const valueFlagsList = spec.argSchema?.valueFlags;
-      const valueFlags = valueFlagsList ? new Set(valueFlagsList) : undefined;
-      subcommand = firstPositionalArg(segment.args, valueFlags);
-      if (subcommand && !spec.subcommands[subcommand]) {
-        subcommand = undefined;
+    // Build the full subcommand pattern (e.g., "git stash drop") to look up in
+    // cache. Walk the subcommand tree the same way resolveSubcommand does,
+    // collecting each traversed subcommand name to build the complete chain.
+    const subcommandChain: string[] = [];
+    {
+      let walkSpec: CommandRiskSpec = spec;
+      let walkArgs: string[] = segment.args;
+      while (walkSpec.subcommands && walkArgs.length > 0) {
+        const valueFlagsList = walkSpec.argSchema?.valueFlags;
+        const valueFlags = valueFlagsList ? new Set(valueFlagsList) : undefined;
+        const subName = firstPositionalArg(walkArgs, valueFlags);
+        if (!subName || !walkSpec.subcommands[subName]) break;
+        subcommandChain.push(subName);
+        const subIdx = walkArgs.indexOf(subName);
+        walkArgs = walkArgs.slice(subIdx + 1);
+        walkSpec = walkSpec.subcommands[subName];
       }
     }
-    const subcommandPattern = subcommand
-      ? `${programName} ${subcommand}`
-      : programName;
+    const subcommandPattern =
+      subcommandChain.length > 0
+        ? `${programName} ${subcommandChain.join(" ")}`
+        : programName;
     const cachedRule = getTrustRuleV3Cache().findBaseRisk(
       "bash",
       subcommandPattern,
@@ -560,11 +568,17 @@ export function classifySegment(
         // Escalation: always apply (matched rule is >= baseRisk)
         risk = argRuleMaxRisk;
         reason = argRuleReason;
+        // The registry's arg rules determined the final risk, not the user's
+        // cached base risk override. Reset matchType to "registry".
+        effectiveMatchType = "registry";
       } else if (!hasUnmatchedNonFlagArg) {
         // De-escalation: only safe when ALL non-flag args matched rules.
         // Every arg is accounted for, so the lower risk is justified.
         risk = argRuleMaxRisk;
         reason = argRuleReason;
+        // Arg rules de-escalated — the registry's arg rules determined the
+        // final risk, so matchType should reflect the registry, not the cache.
+        effectiveMatchType = "registry";
       }
       // Otherwise: some args matched low rules but other args went unmatched.
       // Keep baseRisk as the floor — can't safely de-escalate.

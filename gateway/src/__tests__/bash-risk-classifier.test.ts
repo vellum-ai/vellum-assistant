@@ -32,6 +32,12 @@ function segment(command: string): CommandSegment {
 describe("risk rule cache integration", () => {
   let store: TrustRuleV3Store;
 
+  // initGatewayDb() seeds the trust_rules table from DEFAULT_COMMAND_REGISTRY
+  // via seedTrustRuleV3sFromRegistry(). Tests that modify existing patterns
+  // (like "git push") must update the seeded rows rather than creating new ones.
+  // Seeded IDs follow the pattern: default:bash:<command-with-hyphens>
+  // e.g., "git push" -> "default:bash:git-push"
+
   beforeEach(async () => {
     resetGatewayDb();
     await initGatewayDb();
@@ -44,15 +50,8 @@ describe("risk rule cache integration", () => {
   });
 
   test("user-modified risk override changes baseRisk", () => {
-    // Seed a default rule for "git push" and then modify its risk to "low"
-    store.upsertDefault({
-      id: "test-git-push",
-      tool: "bash",
-      pattern: "git push",
-      risk: "medium",
-      description: "Git push",
-    });
-    store.update("test-git-push", { risk: "low" });
+    // Modify the seeded "git push" rule's risk to "low"
+    store.update("default:bash:git-push", { risk: "low" });
 
     initTrustRuleV3Cache(store);
 
@@ -66,15 +65,8 @@ describe("risk rule cache integration", () => {
   });
 
   test("matchType is user_rule when a user-modified rule determines risk", () => {
-    // Create a default rule and modify it — userModified becomes true
-    store.upsertDefault({
-      id: "test-git-push-mt",
-      tool: "bash",
-      pattern: "git push",
-      risk: "medium",
-      description: "Git push",
-    });
-    store.update("test-git-push-mt", { risk: "low" });
+    // Modify the seeded "git push" rule — userModified becomes true
+    store.update("default:bash:git-push", { risk: "low" });
 
     initTrustRuleV3Cache(store);
 
@@ -88,29 +80,10 @@ describe("risk rule cache integration", () => {
   });
 
   test("matchType is user_rule when a user-defined rule determines risk", () => {
-    // Create a user-defined rule (origin = "user_defined")
-    store.create({
-      tool: "bash",
-      pattern: "my-custom-cmd",
-      risk: "low",
-      description: "Custom command",
-    });
+    // Modify the seeded "ls" rule — sets userModified and origin stays "default"
+    // but userModified=true triggers user_rule matchType
+    store.update("default:bash:ls", { risk: "low" });
 
-    initTrustRuleV3Cache(store);
-
-    // my-custom-cmd is not in the registry, so it would normally be "unknown".
-    // But with the cache, the risk is overridden. However, the classifier
-    // checks the registry first — if there's no registry entry, it returns
-    // "unknown" before reaching the cache. So use a known command instead.
-    store.create({
-      tool: "bash",
-      pattern: "ls",
-      risk: "low",
-      description: "List files — user override",
-    });
-
-    // Reinitialize cache with the new rule
-    resetTrustRuleV3Cache();
     initTrustRuleV3Cache(store);
 
     const result = classifySegment(segment("ls"), [], DEFAULT_COMMAND_REGISTRY);
@@ -119,15 +92,8 @@ describe("risk rule cache integration", () => {
   });
 
   test("arg rules still escalate on top of cached baseRisk", () => {
-    // Set git push base risk to "low" via cache
-    store.upsertDefault({
-      id: "test-git-push-esc",
-      tool: "bash",
-      pattern: "git push",
-      risk: "medium",
-      description: "Git push",
-    });
-    store.update("test-git-push-esc", { risk: "low" });
+    // Set git push base risk to "low" via cache update
+    store.update("default:bash:git-push", { risk: "low" });
 
     initTrustRuleV3Cache(store);
 
@@ -158,19 +124,11 @@ describe("risk rule cache integration", () => {
   });
 
   test("subcommand resolution — git push looks up 'git push' in cache, not just 'git'", () => {
-    // Create rules for both "git" and "git push" with different risks
-    store.create({
-      tool: "bash",
-      pattern: "git",
-      risk: "low",
-      description: "Git base",
-    });
-    store.create({
-      tool: "bash",
-      pattern: "git push",
-      risk: "high",
-      description: "Git push — elevated",
-    });
+    // Modify the seeded "git" to low, keep "git push" at its seeded risk.
+    // Then modify "git push" to high. The classifier should find "git push"
+    // (the more specific pattern), not "git".
+    store.update("default:bash:git", { risk: "low" });
+    store.update("default:bash:git-push", { risk: "high" });
 
     initTrustRuleV3Cache(store);
 
@@ -186,14 +144,8 @@ describe("risk rule cache integration", () => {
   });
 
   test("cache override does not affect matchType when rule is not user-modified", () => {
-    // A default rule that has NOT been user-modified
-    store.upsertDefault({
-      id: "test-git-default",
-      tool: "bash",
-      pattern: "git",
-      risk: "low",
-      description: "Git default",
-    });
+    // The seeded "git" rule has NOT been user-modified — it's a default rule.
+    // Don't call store.update() so userModified stays false.
 
     initTrustRuleV3Cache(store);
 
@@ -204,6 +156,66 @@ describe("risk rule cache integration", () => {
     );
 
     // Default rule, not user-modified — matchType should remain "registry"
+    expect(result.matchType).toBe("registry");
+  });
+
+  test("multi-level subcommand — git stash drop looks up 'git stash drop' in cache", () => {
+    // Modify the seeded "git stash drop" rule (ID: default:bash:git-stash-drop)
+    // to "low". The classifier should build the full subcommand path
+    // "git stash drop" and find this specific rule in the cache.
+    store.update("default:bash:git-stash-drop", { risk: "low" });
+
+    initTrustRuleV3Cache(store);
+
+    const result = classifySegment(
+      segment("git stash drop"),
+      [],
+      DEFAULT_COMMAND_REGISTRY,
+    );
+
+    // The cache should match the full path "git stash drop", overriding
+    // the registry's high baseRisk for git stash drop.
+    expect(result.risk).toBe("low");
+    expect(result.matchType).toBe("user_rule");
+  });
+
+  test("multi-level subcommand — falls back to parent when specific sub not cached", () => {
+    // Modify the seeded "git stash" rule to "low", but leave "git stash drop"
+    // at its seeded value. Then soft-delete "git stash drop" so the cache
+    // falls back to the parent "git stash" pattern.
+    store.update("default:bash:git-stash", { risk: "low" });
+    store.remove("default:bash:git-stash-drop");
+
+    initTrustRuleV3Cache(store);
+
+    // "git stash drop" should look up "git stash drop" first, not find it
+    // (soft-deleted), then the cache's findBaseRisk falls back to "git stash"
+    const result = classifySegment(
+      segment("git stash drop"),
+      [],
+      DEFAULT_COMMAND_REGISTRY,
+    );
+
+    expect(result.risk).toBe("low");
+    expect(result.matchType).toBe("user_rule");
+  });
+
+  test("matchType resets to registry when arg rules escalate above cached base risk", () => {
+    // Set git push base risk to "low" via a user-modified cache rule
+    store.update("default:bash:git-push", { risk: "low" });
+
+    initTrustRuleV3Cache(store);
+
+    // git push --force: cache sets base to "low" (user_rule matchType),
+    // but --force arg rule escalates to "high". Since the registry's arg
+    // rules determined the final risk, matchType should be "registry".
+    const result = classifySegment(
+      segment("git push --force"),
+      [],
+      DEFAULT_COMMAND_REGISTRY,
+    );
+
+    expect(result.risk).toBe("high");
     expect(result.matchType).toBe("registry");
   });
 });
