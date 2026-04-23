@@ -66,8 +66,6 @@ import * as messagingRead from "./bundled-skills/messaging/tools/messaging-read.
 import * as messagingSearch from "./bundled-skills/messaging/tools/messaging-search.js";
 import * as messagingSend from "./bundled-skills/messaging/tools/messaging-send.js";
 import * as messagingSenderDigest from "./bundled-skills/messaging/tools/messaging-sender-digest.js";
-// ── notifications ──────────────────────────────────────────────────────────────
-import * as sendNotification from "./bundled-skills/notifications/tools/send-notification.js";
 // ── phone-calls ────────────────────────────────────────────────────────────────
 import * as callEnd from "./bundled-skills/phone-calls/tools/call-end.js";
 import * as callStart from "./bundled-skills/phone-calls/tools/call-start.js";
@@ -182,9 +180,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["messaging:tools/messaging-draft.ts", messagingDraft],
   ["messaging:tools/messaging-sender-digest.ts", messagingSenderDigest],
   ["messaging:tools/messaging-archive-by-sender.ts", messagingArchiveBySender],
-
-  // notifications
-  ["notifications:tools/send-notification.ts", sendNotification],
 
   // phone-calls
   ["phone-calls:tools/call-start.ts", callStart],

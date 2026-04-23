@@ -74,7 +74,7 @@
         "required": ["message", "confidence"]
       },
       "executor": "tools/send-notification.ts",
-      "execution_target": "host"
+      "execution_target": "sandbox"
     }
   ]
 }
