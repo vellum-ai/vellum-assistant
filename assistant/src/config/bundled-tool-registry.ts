@@ -82,8 +82,6 @@ import * as scheduleCreate from "./bundled-skills/schedule/tools/schedule-create
 import * as scheduleDelete from "./bundled-skills/schedule/tools/schedule-delete.js";
 import * as scheduleList from "./bundled-skills/schedule/tools/schedule-list.js";
 import * as scheduleUpdate from "./bundled-skills/schedule/tools/schedule-update.js";
-// ── screen-watch ───────────────────────────────────────────────────────────────
-import * as startScreenWatch from "./bundled-skills/screen-watch/tools/start-screen-watch.js";
 // ── sequences ──────────────────────────────────────────────────────────────────
 import * as sequenceAnalytics from "./bundled-skills/sequences/tools/sequence-analytics.js";
 import * as sequenceCreate from "./bundled-skills/sequences/tools/sequence-create.js";
@@ -204,9 +202,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["schedule:tools/schedule-list.ts", scheduleList],
   ["schedule:tools/schedule-update.ts", scheduleUpdate],
   ["schedule:tools/schedule-delete.ts", scheduleDelete],
-
-  // screen-watch
-  ["screen-watch:tools/start-screen-watch.ts", startScreenWatch],
 
   // sequences
   ["sequences:tools/sequence-create.ts", sequenceCreate],

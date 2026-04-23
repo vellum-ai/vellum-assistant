@@ -13,7 +13,17 @@
 import type { Conversation } from "../../../daemon/conversation.js";
 
 export interface PlaygroundRouteDeps {
-  readonly getConversationById: (id: string) => Conversation | undefined;
+  /**
+   * Resolve a conversation by ID for conv-scoped playground routes
+   * (`forceCompact`, `injectFailures`, `resetCircuit`, `getState`). Async
+   * because production wiring may need to hydrate a `Conversation` from the
+   * DB on demand — freshly-seeded rows live only in the DB until the daemon
+   * loads them. Implementations must return `undefined` for IDs that do not
+   * exist in the DB at all so route handlers can preserve their 404 path.
+   */
+  readonly getConversationById: (
+    id: string,
+  ) => Promise<Conversation | undefined>;
   readonly isPlaygroundEnabled: () => boolean;
   /**
    * List non-archived conversations whose title starts with `prefix`. Used by

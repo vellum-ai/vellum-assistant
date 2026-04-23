@@ -327,7 +327,7 @@
       "key": "onboarding-pre-chat",
       "label": "Pre-Chat Onboarding Flow",
       "description": "Gates the 3-screen pre-chat onboarding flow (tools, tasks/tone, name exchange) shown before the first conversation",
-      "defaultEnabled": false
+      "defaultEnabled": true
     },
     {
       "id": "home-tab",

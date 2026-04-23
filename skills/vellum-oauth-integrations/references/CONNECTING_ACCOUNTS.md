@@ -23,15 +23,27 @@ assistant oauth apps list --provider-key <provider-key>
 
 If there are none, they will either need to opt in to using "managed" mode or they will need to create an OAuth app (see [Configuring a New OAuth Application](CONFIGURING_APPLICATIONS.md)).
 
+## Choosing Scopes
+
+Before connecting, consider what the user is trying to accomplish and request only the scopes needed for that task. You can see what scopes are available for a provider with:
+
+```bash
+assistant oauth providers get <provider-key>
+```
+
+**Always request the bare minimum scopes needed for the task at hand.** For example, if the user only wants to read their calendar, don't also request write access. If they only need to view emails, don't request send permissions. This follows the principle of least privilege and builds trust with the user — they'll see exactly what they're granting on the provider's consent screen.
+
+If the user later needs additional scopes for a different task, you can disconnect and reconnect with updated scopes. See [Updating Scopes](UPDATING_SCOPES.md) for details.
+
 ## Initiating the Connection
 
 To actually initiate a connection with the OAuth provider, run:
 
 ```bash
-assistant oauth connect <provider-key>
+assistant oauth connect <provider-key> --scopes <scope1> <scope2> ...
 ```
 
-**Tip:** You can optionally specify scopes using the `--scopes` flag. This is useful if you know ahead of time what your user is trying to accomplish and want to request the bare minimum scopes needed to accomplish the task at hand.
+When `--scopes` is provided, the specified scopes replace the provider's defaults entirely. When omitted, the provider's default scopes are used.
 
 If the provider-specific setup skill gives its own browser handoff instructions, follow those instead of the default browser behavior. Google bring-your-own setup on the macOS desktop app is one example: request the auth URL with `--no-browser`, then open it using the provider skill's AppleScript/browser handoff rules.
 

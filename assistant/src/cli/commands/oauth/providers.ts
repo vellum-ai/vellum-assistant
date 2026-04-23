@@ -13,7 +13,10 @@ import {
   registerProvider,
   updateProvider,
 } from "../../../oauth/oauth-store.js";
-import { serializeProvider } from "../../../oauth/provider-serializer.js";
+import {
+  type SerializedProvider,
+  serializeProvider,
+} from "../../../oauth/provider-serializer.js";
 import { isProviderVisible } from "../../../oauth/provider-visibility.js";
 import { SEEDED_PROVIDER_KEYS } from "../../../oauth/seed-providers.js";
 import { getCliLogger } from "../../logger.js";
@@ -22,6 +25,137 @@ import { shouldOutputJson, writeOutput } from "../../output.js";
 const log = getCliLogger("cli");
 
 const LOOPBACK_CALLBACK_PATH = "/oauth/callback";
+
+// ---------------------------------------------------------------------------
+// Text formatting helpers (non-JSON output)
+// ---------------------------------------------------------------------------
+
+/**
+ * Format available scopes for text output.
+ * Returns a single-line string for URLs, or a multi-line bullet list for
+ * structured scope arrays.
+ */
+function formatAvailableScopes(
+  availableScopes: unknown,
+  indent: string = "    ",
+): string | null {
+  if (!availableScopes) return null;
+  if (typeof availableScopes === "string") return availableScopes;
+  if (Array.isArray(availableScopes)) {
+    return (
+      "\n" +
+      (availableScopes as Array<{ scope: string; description?: string }>)
+        .map(
+          (s) =>
+            `${indent}- ${s.scope}${s.description ? ` — ${s.description}` : ""}`,
+        )
+        .join("\n")
+    );
+  }
+  return null;
+}
+
+/** Render a single provider as a concise summary line for `list`. */
+function formatProviderSummary(p: SerializedProvider): string {
+  const name = p.displayName ?? p.providerKey;
+  const desc = p.description ? ` — ${p.description}` : "";
+  const managed = p.supportsManagedMode ? " [managed]" : "";
+  const scopes =
+    (p.defaultScopes as string[])?.length > 0
+      ? `  Scopes: ${(p.defaultScopes as string[]).join(", ")}`
+      : "";
+  return (
+    `${p.providerKey} (${name})${desc}${managed}` +
+    `${scopes ? "\n" + scopes : ""}` +
+    `\n  Run \`assistant oauth providers get ${p.providerKey}\` for full details.`
+  );
+}
+
+/** Format a JSON value as indented text for `get` detail output. */
+function formatJsonValue(value: unknown, indent: string = "    "): string {
+  const json = JSON.stringify(value, null, 2);
+  return json
+    .split("\n")
+    .map((line, i) => (i === 0 ? line : indent + line))
+    .join("\n");
+}
+
+/** Render a single provider as structured text for `get` with all fields. */
+function formatProviderDetail(p: SerializedProvider): string {
+  const lines: string[] = [];
+  const name = p.displayName ?? p.providerKey;
+  lines.push(`${p.providerKey} (${name})`);
+  if (p.description) lines.push(`  Description: ${p.description}`);
+  if (p.supportsManagedMode) lines.push(`  Managed mode: yes`);
+  if (p.managedServiceIsPaid) lines.push(`  Managed service is paid: yes`);
+  if (p.dashboardUrl) lines.push(`  Dashboard: ${p.dashboardUrl}`);
+  if (p.appType) lines.push(`  App type: ${p.appType}`);
+  lines.push(
+    `  Requires client secret: ${p.requiresClientSecret ? "yes" : "no"}`,
+  );
+  if (p.clientIdPlaceholder)
+    lines.push(`  Client ID format: ${p.clientIdPlaceholder}`);
+  lines.push(`  Auth URL: ${p.authUrl}`);
+  lines.push(`  Token URL: ${p.tokenUrl}`);
+  if (p.refreshUrl) lines.push(`  Refresh URL: ${p.refreshUrl}`);
+  if (p.tokenEndpointAuthMethod)
+    lines.push(`  Token auth method: ${p.tokenEndpointAuthMethod}`);
+  if (p.tokenExchangeBodyFormat && p.tokenExchangeBodyFormat !== "form")
+    lines.push(`  Token exchange body format: ${p.tokenExchangeBodyFormat}`);
+  if ((p.defaultScopes as string[])?.length > 0)
+    lines.push(`  Default scopes: ${(p.defaultScopes as string[]).join(", ")}`);
+  const avail = formatAvailableScopes(p.availableScopes);
+  if (avail) lines.push(`  Available scopes: ${avail}`);
+  if (p.scopeSeparator && p.scopeSeparator !== " ")
+    lines.push(`  Scope separator: "${p.scopeSeparator}"`);
+  if (p.extraParams)
+    lines.push(`  Authorize params: ${formatJsonValue(p.extraParams)}`);
+  if (p.redirectUri) lines.push(`  Redirect URI: ${p.redirectUri}`);
+  if (p.loopbackPort) lines.push(`  Loopback port: ${p.loopbackPort}`);
+  if (p.baseUrl) lines.push(`  Base URL: ${p.baseUrl}`);
+  if (p.userinfoUrl) lines.push(`  Userinfo URL: ${p.userinfoUrl}`);
+  if (p.pingUrl) lines.push(`  Ping URL: ${p.pingUrl}`);
+  if (p.pingMethod) lines.push(`  Ping method: ${p.pingMethod}`);
+  if (p.pingHeaders)
+    lines.push(`  Ping headers: ${formatJsonValue(p.pingHeaders)}`);
+  if (p.pingBody) lines.push(`  Ping body: ${formatJsonValue(p.pingBody)}`);
+  if (p.revokeUrl) lines.push(`  Revoke URL: ${p.revokeUrl}`);
+  if (p.revokeBodyTemplate)
+    lines.push(
+      `  Revoke body template: ${formatJsonValue(p.revokeBodyTemplate)}`,
+    );
+  if (p.injectionTemplates)
+    lines.push(
+      `  Injection templates: ${formatJsonValue(p.injectionTemplates)}`,
+    );
+  if (p.identityUrl) lines.push(`  Identity URL: ${p.identityUrl}`);
+  if (p.identityMethod) lines.push(`  Identity method: ${p.identityMethod}`);
+  if (p.identityHeaders)
+    lines.push(`  Identity headers: ${formatJsonValue(p.identityHeaders)}`);
+  if (p.identityBody)
+    lines.push(`  Identity body: ${formatJsonValue(p.identityBody)}`);
+  if (p.identityResponsePaths)
+    lines.push(
+      `  Identity response paths: ${(p.identityResponsePaths as string[]).join(", ")}`,
+    );
+  if (p.identityFormat) lines.push(`  Identity format: ${p.identityFormat}`);
+  if (p.identityOkField)
+    lines.push(`  Identity ok field: ${p.identityOkField}`);
+  if (p.setupNotes) {
+    if (Array.isArray(p.setupNotes)) {
+      lines.push(
+        `  Setup notes:\n${(p.setupNotes as string[]).map((n) => `    - ${n}`).join("\n")}`,
+      );
+    } else {
+      lines.push(`  Setup notes: ${formatJsonValue(p.setupNotes)}`);
+    }
+  }
+  if (p.featureFlag) lines.push(`  Feature flag: ${p.featureFlag}`);
+  if (p.logoUrl) lines.push(`  Logo: ${p.logoUrl}`);
+  lines.push(`  Created: ${p.createdAt}`);
+  lines.push(`  Updated: ${p.updatedAt}`);
+  return lines.join("\n");
+}
 
 /**
  * Resolve a logo URL from CLI flags, enforcing mutual exclusion between
@@ -171,11 +305,17 @@ Examples:
             rows = rows.filter((r) => r && r.supportsManagedMode);
           }
 
-          if (!shouldOutputJson(cmd)) {
-            log.info(`Found ${rows.length} provider(s)`);
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, rows);
+          } else {
+            const validRows = rows.filter(
+              (r): r is NonNullable<typeof r> => r != null,
+            );
+            const lines = validRows.map(formatProviderSummary);
+            process.stdout.write(
+              `${validRows.length} provider(s):\n\n${lines.join("\n\n")}\n`,
+            );
           }
-
-          writeOutput(cmd, rows);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           writeOutput(cmd, { ok: false, error: message });
@@ -228,7 +368,12 @@ Examples:
           return;
         }
 
-        writeOutput(cmd, parseProviderRow(row));
+        const parsed = parseProviderRow(row);
+        if (shouldOutputJson(cmd)) {
+          writeOutput(cmd, parsed);
+        } else if (parsed) {
+          process.stdout.write(formatProviderDetail(parsed) + "\n");
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         writeOutput(cmd, { ok: false, error: message });

@@ -12,6 +12,7 @@ import { describe, expect, test } from "bun:test";
 import type { Message } from "../../../providers/types.js";
 import {
   extractTagLineTexts,
+  isReactionTagLine,
   parentAlias,
   type RenderableSlackMessage,
   renderSlackTranscript,
@@ -228,11 +229,17 @@ describe("renderSlackTranscript — basics", () => {
     ]);
   });
 
-  test("omits sender label for assistant-role message (role slot conveys identity)", () => {
+  test("assistant-role message emits content with no tag-line wrapper", () => {
+    // Rationale: the `role` slot already conveys identity, and the
+    // assistant responds ~immediately after the triggering user message
+    // so the timestamp would add little beyond chronological adjacency.
+    // Keeping a bracketed tag on assistant rows caused the model to
+    // mimic the `[MM/DD/YY HH:MM]:` format as a literal prefix in new
+    // outbound Slack replies.
     const out = renderSlackTranscript([
       userMsg(TS_14_25, null, "yo 👋", { role: "assistant" }),
     ]);
-    expect(out).toEqual([textMsg("assistant", "[11/14/23 14:25]: yo 👋")]);
+    expect(out).toEqual([textMsg("assistant", "yo 👋")]);
   });
 
   test("omits sender label for user-role message with null senderLabel (no displayName)", () => {
@@ -245,41 +252,38 @@ describe("renderSlackTranscript — basics", () => {
     expect(out).toEqual([textMsg("user", "[11/14/23 14:25]: hi")]);
   });
 
-  test("omits sender label in thread-reply tag for assistant row", () => {
-    const alias = parentAlias(TS_14_25);
+  test("thread-reply assistant row emits content-only — no tag wrapper, no thread arrow", () => {
     const out = renderSlackTranscript([
       userMsg(TS_14_28, null, "got it", {
         threadTs: TS_14_25,
         role: "assistant",
       }),
     ]);
-    expect(out).toEqual([
-      textMsg("assistant", `[11/14/23 14:28 → ${alias}]: got it`),
-    ]);
+    expect(out).toEqual([textMsg("assistant", "got it")]);
   });
 
-  test("omits sender label in deleted tag for assistant row", () => {
+  test("deleted assistant row collapses to the `[deleted]` sentinel", () => {
+    // Chronology must still be preserved — we emit a stable short sentinel
+    // rather than eliding the row entirely. The sentinel is intentionally
+    // different from the user-row `[MM/DD/YY — deleted MM/DD/YY]` form so
+    // the model has no timestamp pattern to mimic in new outbound replies.
     const out = renderSlackTranscript([
       userMsg(TS_14_25, null, "(removed)", {
         deletedAt: MS_14_32,
         role: "assistant",
       }),
     ]);
-    expect(out).toEqual([
-      textMsg("assistant", "[11/14/23 14:25 — deleted 11/14/23 14:32]"),
-    ]);
+    expect(out).toEqual([textMsg("assistant", "[deleted]")]);
   });
 
-  test("omits sender label in edited tag for assistant row", () => {
+  test("edited assistant row emits the latest content verbatim — no edit suffix", () => {
     const out = renderSlackTranscript([
       userMsg(TS_14_25, null, "v2", {
         editedAt: MS_14_30,
         role: "assistant",
       }),
     ]);
-    expect(out).toEqual([
-      textMsg("assistant", "[11/14/23 14:25, edited 11/14/23 14:30]: v2"),
-    ]);
+    expect(out).toEqual([textMsg("assistant", "v2")]);
   });
 
   test("reaction with null senderLabel falls back on role-derived subject", () => {
@@ -378,6 +382,50 @@ describe("parentAlias", () => {
   test("starts with M and is 7 chars long (M + 6 hex)", () => {
     const a = parentAlias("1700000000.000100");
     expect(a).toMatch(/^M[0-9a-f]{6}$/);
+  });
+});
+
+// ── isReactionTagLine ────────────────────────────────────────────────────────
+
+describe("isReactionTagLine", () => {
+  // Pinned to the exact shapes `renderReaction` and the overflow trailer
+  // produce. The helper is the public contract that lets consumers
+  // re-label the transcript without double-attributing reaction lines,
+  // so drift here silently breaks `buildActiveThreadBlockFromRenderable`.
+  const alias = parentAlias("1700000000.000100");
+
+  test("matches reaction-add line", () => {
+    expect(
+      isReactionTagLine(`[11/14/23 14:28 @bob reacted 👍 to ${alias}]`),
+    ).toBe(true);
+  });
+
+  test("matches reaction-remove line", () => {
+    expect(
+      isReactionTagLine(`[11/14/23 14:28 @bob removed 👍 from ${alias}]`),
+    ).toBe(true);
+  });
+
+  test("matches overflow trailer line", () => {
+    expect(isReactionTagLine(`[…and 2 more reactions to ${alias}]`)).toBe(true);
+  });
+
+  test("does not match a regular message tag line", () => {
+    expect(isReactionTagLine("[11/14/23 14:25 @alice]: hi")).toBe(false);
+  });
+
+  test("does not match content-only assistant output", () => {
+    expect(isReactionTagLine("on it. here's the answer")).toBe(false);
+  });
+
+  test("does not match the `[deleted]` sentinel", () => {
+    expect(isReactionTagLine("[deleted]")).toBe(false);
+  });
+
+  test("does not match a user-deleted marker", () => {
+    expect(
+      isReactionTagLine("[11/14/23 14:25 @alice — deleted 11/14/23 14:32]"),
+    ).toBe(false);
   });
 });
 
@@ -709,11 +757,11 @@ describe("renderSlackTranscript — mixed legacy + post-upgrade", () => {
     expect(texts[1].includes("→")).toBe(false);
   });
 
-  test("legacy assistant row carries assistant role", () => {
+  test("legacy assistant row carries assistant role and emits content verbatim", () => {
     const out = renderSlackTranscript([
       legacyMsg(MS_14_25, "@bot", "ack", "assistant"),
     ]);
-    expect(out).toEqual([textMsg("assistant", "[11/14/23 14:25 @bot]: ack")]);
+    expect(out).toEqual([textMsg("assistant", "ack")]);
   });
 
   test("preserves message role faithfully across mixed inputs", () => {
@@ -873,7 +921,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
     expect(out[0]).toEqual({
       role: "assistant",
       content: [
-        { type: "text", text: "[11/14/23 14:25]: looking it up" },
+        { type: "text", text: "looking it up" },
         { type: "tool_use", id: "tu_1", name: "search", input: { q: "x" } },
       ],
     });
@@ -921,7 +969,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
         role: "assistant",
         content: [
           { type: "thinking", thinking: "let me think", signature: "sig-abc" },
-          { type: "text", text: "[11/14/23 14:25]: here's the answer" },
+          { type: "text", text: "here's the answer" },
         ],
       },
     ]);
@@ -946,7 +994,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
       {
         role: "assistant",
         content: [
-          { type: "text", text: "[11/14/23 14:25]: doing a thing" },
+          { type: "text", text: "doing a thing" },
           { type: "tool_use", id: "tu_A", name: "op", input: {} },
           { type: "tool_result", tool_use_id: "tu_A", content: "ok" },
         ],
@@ -954,7 +1002,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
     ]);
   });
 
-  test("[text, ui_surface] assistant row strips ui_surface — only tag line remains", () => {
+  test("[text, ui_surface] assistant row strips ui_surface — only content remains", () => {
     const base: RenderableSlackMessage = {
       ...userMsg(TS_14_25, null, "reply body", { role: "assistant" }),
       contentBlocks: [
@@ -969,7 +1017,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
     expect(out).toEqual([
       {
         role: "assistant",
-        content: [{ type: "text", text: "[11/14/23 14:25]: reply body" }],
+        content: [{ type: "text", text: "reply body" }],
       },
     ]);
   });
@@ -991,7 +1039,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
     expect(out).toEqual([
       {
         role: "assistant",
-        content: [{ type: "text", text: "[11/14/23 14:25]: web search" }],
+        content: [{ type: "text", text: "web search" }],
       },
     ]);
   });
@@ -1077,7 +1125,7 @@ describe("renderSlackTranscript — replayable content-block preservation", () =
         content: [
           {
             type: "text",
-            text: "[11/14/23 14:25]: ran a web search [stripped non-replayable: server_tool_use(web_search), ui_surface]",
+            text: "ran a web search [stripped non-replayable: server_tool_use(web_search), ui_surface]",
           },
         ],
       },
@@ -1155,7 +1203,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
     expect(out).toEqual([
       {
         role: "assistant",
-        content: [{ type: "text", text: "[11/14/23 14:25]: looking it up" }],
+        content: [{ type: "text", text: "looking it up" }],
       },
     ]);
   });
@@ -1206,7 +1254,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
       {
         role: "assistant",
         content: [
-          { type: "text", text: "[11/14/23 14:25]: running op" },
+          { type: "text", text: "running op" },
           { type: "tool_use", id: "tu_paired", name: "op", input: { a: 1 } },
         ],
       },
@@ -1296,7 +1344,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
       {
         role: "assistant",
         content: [
-          { type: "text", text: "[11/14/23 14:25]: running op" },
+          { type: "text", text: "running op" },
           { type: "tool_use", id: "tu_paired", name: "op", input: {} },
         ],
       },
@@ -1308,7 +1356,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
       },
       {
         role: "assistant",
-        content: [{ type: "text", text: "[11/14/23 14:28]: looking" }],
+        content: [{ type: "text", text: "looking" }],
       },
       {
         role: "user",
@@ -1365,7 +1413,7 @@ describe("renderSlackTranscript — orphan tool_use / tool_result filter", () =>
               filename: "doc.pdf",
             },
           },
-          { type: "text", text: "[11/14/23 14:25]: here you go" },
+          { type: "text", text: "here you go" },
         ],
       },
     ]);

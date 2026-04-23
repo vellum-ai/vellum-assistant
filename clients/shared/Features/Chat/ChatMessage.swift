@@ -887,6 +887,8 @@ public struct ToolCallData: Identifiable, Equatable {
     /// Working directory for this tool call (extracted from confirmation scope options).
     /// Persists after pendingConfirmation is cleared so the rule editor modal can use it.
     public var workingDir: String?
+    /// Whether the daemon is running in a containerized (Docker) environment.
+    public var isContainerized: Bool = false
     /// Accumulated streaming output from tool_output_chunk events (plain text only).
     /// Capped at 5000 characters (keeps the tail when exceeded).
     public var partialOutput: String = ""

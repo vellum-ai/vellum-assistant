@@ -13,6 +13,7 @@
 import { estimatePromptTokens } from "../../../context/token-estimator.js";
 import { httpError } from "../../http-errors.js";
 import type { RouteDefinition } from "../../http-router.js";
+import { conversationNotFoundResponse } from "./conversation-not-found.js";
 import { assertPlaygroundEnabled, type PlaygroundRouteDeps } from "./index.js";
 
 export function forceCompactRouteDefinitions(
@@ -29,13 +30,9 @@ export function forceCompactRouteDefinitions(
         const gate = assertPlaygroundEnabled(deps);
         if (gate) return gate;
 
-        const conversation = deps.getConversationById(params.id);
+        const conversation = await deps.getConversationById(params.id);
         if (!conversation) {
-          return httpError(
-            "NOT_FOUND",
-            `Conversation ${params.id} not found`,
-            404,
-          );
+          return conversationNotFoundResponse(params.id);
         }
 
         // Per-conversation in-flight guard. `Conversation.processing` is set

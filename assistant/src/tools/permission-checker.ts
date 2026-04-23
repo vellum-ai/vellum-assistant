@@ -1,4 +1,5 @@
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { getHookManager } from "../hooks/manager.js";
 import { resolveThreshold } from "../permissions/approval-policy.js";
@@ -42,6 +43,7 @@ export type PermissionDecision =
         riskLevel: string;
         riskReason: string;
         riskScopeOptions: Array<{ pattern: string; label: string }>;
+        isContainerized?: boolean;
       };
     }
   | {
@@ -54,6 +56,7 @@ export type PermissionDecision =
         riskLevel: string;
         riskReason: string;
         riskScopeOptions: Array<{ pattern: string; label: string }>;
+        isContainerized?: boolean;
       };
     };
 
@@ -139,6 +142,7 @@ export class PermissionChecker {
           riskLevel: cachedAssessment.riskLevel,
           riskReason: cachedAssessment.reason,
           riskScopeOptions: cachedAssessment.scopeOptions,
+          isContainerized: getIsContainerized(),
         }
       : undefined;
 
@@ -429,6 +433,7 @@ export class PermissionChecker {
           context.toolUseId,
           v2ForcePrompt,
           riskReason,
+          getIsContainerized(),
         );
 
         const decision =

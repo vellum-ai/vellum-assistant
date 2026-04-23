@@ -23,6 +23,7 @@ import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import {
   extractTagLineTexts,
+  isReactionTagLine,
   type RenderableSlackMessage,
   renderSlackTranscript,
 } from "../messaging/providers/slack/render-transcript.js";
@@ -1549,21 +1550,33 @@ function buildActiveThreadBlockFromRenderable(
   if (members.length === 0) return null;
 
   // The active-thread block is flattened to plain text below, which discards
-  // `Message.role`. Force a role-derived sender label on any member whose
-  // `rowToRenderable` emitted `null` (assistant rows, user rows without a
-  // real Slack displayName) so speaker attribution survives the flattening.
-  const labeledMembers = members.map((m) =>
-    m.senderLabel
-      ? m
-      : {
-          ...m,
-          senderLabel: m.role === "assistant" ? "@assistant" : "@user",
-        },
-  );
+  // `Message.role`. Assistant rows are relabeled in the post-render step:
+  // `renderSlackTranscript` emits assistant content with no tag-line wrapper
+  // (to prevent the model mimicking `[MM/DD/YY HH:MM]:` prefixes in outbound
+  // replies), so we prepend an explicit `@assistant:` label to the flattened
+  // line. Unnamed user rows (no real Slack displayName) get a `@user`
+  // senderLabel here so their tag line carries attribution through the
+  // renderer. Labeled user rows and assistant rows pass through unchanged.
+  const labeledMembers = members.map((m) => {
+    if (m.role === "assistant") return m;
+    if (m.senderLabel !== null) return m;
+    return { ...m, senderLabel: "@user" };
+  });
 
   const rendered = renderSlackTranscript(labeledMembers);
   if (rendered.length === 0) return null;
-  const lines = extractTagLineTexts(rendered).join("\n");
+  // Reaction / overflow-trailer lines already embed `@assistant` inline, so
+  // `isReactionTagLine` is used to skip those and avoid double-attribution
+  // (`@assistant: [... @assistant reacted ...]`). Regular content and the
+  // `[deleted]` sentinel get the prefix so attribution survives flattening.
+  const lines = rendered
+    .map((msg) => {
+      const text = extractTagLineTexts([msg])[0] ?? "";
+      return msg.role === "assistant" && !isReactionTagLine(text)
+        ? `@assistant: ${text}`
+        : text;
+    })
+    .join("\n");
   return `<active_thread>\n${lines}\n</active_thread>`;
 }
 

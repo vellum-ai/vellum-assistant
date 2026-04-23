@@ -1,9 +1,9 @@
 ---
-name: skills-catalog
+name: vellum-skills-catalog
 description: Discover bundled skills and search/install community skills from the skills.sh registry
 compatibility: "Designed for Vellum personal assistants"
 metadata:
-  emoji: "\U0001F9E9"
+  emoji: "🧩"
   vellum:
     display-name: "Skills Catalog"
     activation-hints:
@@ -53,6 +53,7 @@ assistant skills add <owner>/<repo>@<skill-name>
 ```
 
 For example:
+
 ```bash
 assistant skills add vercel-labs/skills@find-skills
 ```

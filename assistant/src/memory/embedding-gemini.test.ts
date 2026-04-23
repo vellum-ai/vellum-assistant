@@ -181,7 +181,7 @@ describe("GeminiEmbeddingBackend", () => {
       const body = JSON.parse(init.body as string);
       expect(body.taskType).toBeUndefined();
       expect(body.outputDimensionality).toBeUndefined();
-      expect(Object.keys(body)).toEqual(["model", "content"]);
+      expect(Object.keys(body)).toEqual(["content"]);
     });
   });
 

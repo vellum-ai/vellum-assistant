@@ -240,22 +240,6 @@ mock.module("../hooks/manager.js", () => ({
   }),
 }));
 
-mock.module("../tools/watch/watch-state.js", () => ({
-  watchSessions: new Map(),
-  registerWatchStartNotifier: () => {},
-  unregisterWatchStartNotifier: () => {},
-  fireWatchStartNotifier: () => {},
-  registerWatchCommentaryNotifier: () => {},
-  unregisterWatchCommentaryNotifier: () => {},
-  fireWatchCommentaryNotifier: () => {},
-  registerWatchCompletionNotifier: () => {},
-  unregisterWatchCompletionNotifier: () => {},
-  fireWatchCompletionNotifier: () => {},
-  getActiveWatchSession: () => undefined,
-  addObservation: () => {},
-  pruneWatchSessions: () => {},
-}));
-
 mock.module("../calls/call-state.js", () => ({
   registerCallQuestionNotifier: () => {},
   unregisterCallQuestionNotifier: () => {},
@@ -290,13 +274,6 @@ mock.module("../calls/call-store.js", () => ({
   claimCallback: () => true,
   releaseCallbackClaim: () => {},
   finalizeCallbackClaim: () => true,
-}));
-
-mock.module("../daemon/watch-handler.js", () => ({
-  lastCommentaryByConversation: new Map(),
-  lastSummaryByConversation: new Map(),
-  handleWatchObservation: () => Promise.resolve(),
-  generateSummary: () => Promise.resolve(),
 }));
 
 mock.module("../tools/browser/browser-screencast.js", () => ({

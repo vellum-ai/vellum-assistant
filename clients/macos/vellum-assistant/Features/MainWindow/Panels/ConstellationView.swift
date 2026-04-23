@@ -195,7 +195,7 @@ private let subCategoryMap: [SkillCategory: [SubCategoryDef]] = [
         SubCategoryDef(label: "Services", emoji: "\u{1F6D2}", skillIds: ["amazon", "doordash", "restaurant-reservation"]),
     ],
     .knowledge: [
-        SubCategoryDef(label: "Learning", emoji: "\u{1F9E0}", skillIds: ["knowledge-graph", "skills-catalog", "self-upgrade"]),
+        SubCategoryDef(label: "Learning", emoji: "\u{1F9E0}", skillIds: ["knowledge-graph", "vellum-skills-catalog", "self-upgrade"]),
         SubCategoryDef(label: "Daily", emoji: "\u{2600}\u{FE0F}", skillIds: ["start-the-day", "weather"]),
     ],
 ]

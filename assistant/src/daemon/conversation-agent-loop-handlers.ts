@@ -540,6 +540,7 @@ export function handleToolResult(
     toolUseId: event.toolUseId,
     riskLevel: event.riskLevel,
     riskReason: event.riskReason,
+    isContainerized: event.isContainerized,
     riskScopeOptions: event.riskScopeOptions,
   });
 }

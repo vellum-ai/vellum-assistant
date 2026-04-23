@@ -84,6 +84,12 @@ You can update which mode a given provider should use with:
 assistant oauth mode <provider-key> --set "managed"|"your-own"
 ```
 
+## Troubleshooting
+
+### Permission / Insufficient Scope Errors
+
+If an API request returns a `403 Forbidden`, `401 Unauthorized`, or a message about missing scopes, the connection likely doesn't have the scopes needed for that action. See [Updating Scopes](references/UPDATING_SCOPES.md) for how to disconnect and reconnect with the required scopes.
+
 # Reference
 
 For detailed information on the following topics, see the reference files:
@@ -91,4 +97,5 @@ For detailed information on the following topics, see the reference files:
 - **[Registering New OAuth Providers](references/REGISTERING_PROVIDERS.md)** - How to register a new OAuth provider that doesn't come with Vellum's defaults
 - **[Configuring a New OAuth Application](references/CONFIGURING_APPLICATIONS.md)** - How to configure a user-managed OAuth Application for providers whose mode is set to "your-own"
 - **[Connecting Accounts](references/CONNECTING_ACCOUNTS.md)** - How to direct the user to log in and create a new OAuth connection
+- **[Updating Scopes](references/UPDATING_SCOPES.md)** - How to update the scopes on an existing connection when additional permissions are needed
 - **[Making Requests on Behalf of the User](references/MAKING_REQUESTS.md)** - How to make requests and take actions on behalf of the user once they have connected their account

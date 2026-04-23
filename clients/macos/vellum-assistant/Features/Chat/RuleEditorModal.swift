@@ -31,6 +31,7 @@ struct RuleEditorModal: View {
     let riskReason: String
     let scopeOptions: [ScopeOptionItem]
     let workingDir: String
+    let isContainerized: Bool
     let onSave: (SavedRule) -> Void
     let onDismiss: () -> Void
 
@@ -244,31 +245,10 @@ struct RuleEditorModal: View {
 
     // MARK: - Section 4: Scope
 
-    /// Whether the working directory looks like a real user project (not an
-    /// internal sandbox/container path). When false, the "In [project]" scope
-    /// option is hidden — only "Everywhere" is offered.
-    ///
-    // TODO: The daemon could provide an isContainerized flag on tool call data
-    // so the client doesn't need path heuristics to detect sandbox directories.
-    private var isUserProjectDir: Bool {
-        // Internal sandbox paths live under the XDG data directory structure:
-        // ~/.local/share/vellum/assistants/ (production)
-        // ~/.local/share/vellum-dev/assistants/ (development)
-        // ~/.local/share/vellum-staging/assistants/ (staging)
-        // ~/.local/share/vellum-test/assistants/ (test)
-        // ~/.local/share/vellum-local/assistants/ (local)
-        // Anchoring on "/.local/share/vellum" avoids false-matching legit user
-        // project paths like /Users/dev/code/vellum/assistants/my-bot/.
-        let lower = workingDir.lowercased()
-        if lower.contains("/.local/share/vellum/assistants/")
-            || lower.contains("/.local/share/vellum-dev/assistants/")
-            || lower.contains("/.local/share/vellum-staging/assistants/")
-            || lower.contains("/.local/share/vellum-test/assistants/")
-            || lower.contains("/.local/share/vellum-local/assistants/") {
-            return false
-        }
-        return true
-    }
+    /// Whether the working directory is a real user project (not an internal
+    /// sandbox/container path). When false, the "In [project]" scope option
+    /// is hidden — only "Everywhere" is offered.
+    private var isUserProjectDir: Bool { !isContainerized }
 
     @ViewBuilder
     private var scopeSection: some View {

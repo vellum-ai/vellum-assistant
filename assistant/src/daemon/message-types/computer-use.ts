@@ -1,4 +1,4 @@
-// Computer use and watch observation types.
+// Computer use and recording types.
 
 import type { CommandIntent, UserMessageAttachment } from "./shared.js";
 
@@ -13,19 +13,6 @@ export interface TaskSubmit {
   source?: "voice" | "text";
   /** Structured command intent — bypasses text parsing when present. */
   commandIntent?: CommandIntent;
-}
-
-export interface WatchObservation {
-  type: "watch_observation";
-  watchId: string;
-  conversationId: string;
-  ocrText: string;
-  appName?: string;
-  windowTitle?: string;
-  bundleIdentifier?: string;
-  timestamp: number;
-  captureIndex: number;
-  totalExpected: number;
 }
 
 // === Recording ===
@@ -89,30 +76,11 @@ export interface RecordingResume {
   recordingId: string;
 }
 
-export interface WatchStarted {
-  type: "watch_started";
-  conversationId: string;
-  watchId: string;
-  durationSeconds: number;
-  intervalSeconds: number;
-}
-
-export interface WatchCompleteRequest {
-  type: "watch_complete_request";
-  conversationId: string;
-  watchId: string;
-}
-
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
-export type _ComputerUseClientMessages =
-  | TaskSubmit
-  | WatchObservation
-  | RecordingStatus;
+export type _ComputerUseClientMessages = TaskSubmit | RecordingStatus;
 
 export type _ComputerUseServerMessages =
-  | WatchStarted
-  | WatchCompleteRequest
   | RecordingStart
   | RecordingStop
   | RecordingPause
