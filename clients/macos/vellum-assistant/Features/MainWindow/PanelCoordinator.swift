@@ -285,15 +285,25 @@ extension MainWindowView {
                         onCardAction: { _, _ in }
                     )
                 case .emailDraft(let item):
-                    HomeDetailPanel(
-                        icon: nil,
-                        title: item.title,
-                        onDismiss: { activeHomeDetailPanel = nil }
-                    ) {
-                        Text(item.summary)
-                            .font(VFont.bodyMediumDefault)
-                            .foregroundStyle(VColor.contentSecondary)
-                            .padding(VSpacing.lg)
+                    if let panelData = EmailDraftPanelData.from(item.detailPanel?.data) {
+                        HomeEmailDraftDetailView(
+                            item: item,
+                            panelData: panelData,
+                            feedStore: feedStore,
+                            onDismiss: { activeHomeDetailPanel = nil }
+                        )
+                        .id(item.id)
+                    } else {
+                        HomeDetailPanel(
+                            icon: nil,
+                            title: item.title,
+                            onDismiss: { activeHomeDetailPanel = nil }
+                        ) {
+                            Text(item.summary)
+                                .font(VFont.bodyMediumDefault)
+                                .foregroundStyle(VColor.contentSecondary)
+                                .padding(VSpacing.lg)
+                        }
                     }
                 case .documentPreview(let item):
                     HomeDetailPanel(
@@ -1109,6 +1119,64 @@ private struct AppLoadingView: View {
             if !Task.isCancelled {
                 timedOut = true
             }
+        }
+    }
+}
+
+// MARK: - Email Draft Detail View
+
+/// Structured email draft detail panel that renders to/subject/body
+/// fields from server-provided `EmailDraftPanelData` and exposes
+/// Discard / Send footer buttons. Action wiring through `feedStore`
+/// is a follow-up — the buttons are visible but currently dismiss
+/// the panel.
+struct HomeEmailDraftDetailView: View {
+    let item: FeedItem
+    let panelData: EmailDraftPanelData
+    let feedStore: HomeFeedStore
+    let onDismiss: () -> Void
+
+    @State private var toAddress: String
+    @State private var subject: String
+    @State private var bodyText: String
+
+    init(
+        item: FeedItem,
+        panelData: EmailDraftPanelData,
+        feedStore: HomeFeedStore,
+        onDismiss: @escaping () -> Void
+    ) {
+        self.item = item
+        self.panelData = panelData
+        self.feedStore = feedStore
+        self.onDismiss = onDismiss
+        self._toAddress = State(initialValue: panelData.to)
+        self._subject = State(initialValue: panelData.subject)
+        self._bodyText = State(initialValue: panelData.body)
+    }
+
+    var body: some View {
+        HomeDetailPanel(
+            icon: nil,
+            title: item.title,
+            onDismiss: onDismiss,
+            scrollable: false
+        ) {
+            HomeEmailEditor(
+                toAddress: $toAddress,
+                subject: $subject,
+                bodyText: $bodyText,
+                attachments: [],
+                onAttachmentTap: { _ in },
+                onSend: {
+                    // Action wiring is a follow-up — just dismiss for now.
+                    onDismiss()
+                },
+                onDiscard: {
+                    // Action wiring is a follow-up — just dismiss for now.
+                    onDismiss()
+                }
+            )
         }
     }
 }
