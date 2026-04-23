@@ -36,14 +36,55 @@
 
 import { createHash } from "node:crypto";
 import { request as httpRequest } from "node:http";
-import { posix as posixPath } from "node:path";
+import { homedir } from "node:os";
+import { join as pathJoin, posix as posixPath } from "node:path";
 
-import type { DaemonRuntimeMode } from "../../../assistant/src/runtime/runtime-mode.js";
-import { getDaemonRuntimeMode } from "../../../assistant/src/runtime/runtime-mode.js";
-import { getLogger } from "../../../assistant/src/util/logger.js";
-import { vellumRoot } from "../../../assistant/src/util/platform.js";
+import type {
+  DaemonRuntimeMode,
+  Logger,
+  SkillHost,
+} from "@vellumai/skill-host-contracts";
 
-const log = getLogger("meet-docker-runner");
+/**
+ * No-op logger used when a `DockerRunner` is instantiated without an
+ * explicit logger (test harnesses, callers that haven't migrated to the
+ * `createDockerRunner(host)` factory yet). Keeps runtime behaviour quiet
+ * but well-typed so call sites like `this.logger.info(...)` are safe.
+ */
+const NOOP_LOGGER: Logger = {
+  debug: () => {},
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+};
+
+/**
+ * Resolve the current runtime mode without reaching into `assistant/`.
+ * Mirrors `getDaemonRuntimeMode()` semantics: the daemon sets
+ * `IS_CONTAINERIZED=true` (or `1`) when running inside a container.
+ *
+ * Used as the default `resolveMode` when callers don't inject one (legacy
+ * callers that still construct `new DockerRunner({ workspaceDir })`
+ * directly). New callers go through {@link createDockerRunner} which
+ * wires `host.platform.runtimeMode()` here.
+ */
+function detectRuntimeModeFromEnv(): DaemonRuntimeMode {
+  const raw = process.env.IS_CONTAINERIZED?.trim().toLowerCase();
+  return raw === "true" || raw === "1" ? "docker" : "bare-metal";
+}
+
+/**
+ * Inline the `vellumRoot()` resolution from `assistant/src/util/platform.ts`
+ * so {@link getMeetBotInstanceHash} stays a zero-arg helper without pulling
+ * the assistant helper in as an import. Mirrors the canonical rule: honour
+ * `BASE_DATA_DIR` when set (per-instance daemons in the CLI lifecycle),
+ * otherwise fall back to `$HOME/.vellum`.
+ */
+function resolveVellumRoot(): string {
+  const baseDataDir = process.env.BASE_DATA_DIR?.trim();
+  if (baseDataDir) return pathJoin(baseDataDir, ".vellum");
+  return pathJoin(homedir(), ".vellum");
+}
 
 /** Path to the Docker Engine unix socket. */
 export const DEFAULT_DOCKER_SOCKET_PATH = "/var/run/docker.sock";
@@ -239,8 +280,10 @@ export interface DockerRunnerOptions {
   socketPath?: string;
   /**
    * Override the runtime-mode resolver. Defaults to
-   * {@link getDaemonRuntimeMode}. Tests inject a fixed value to exercise
-   * both bare-metal and Docker branches without touching env vars.
+   * {@link detectRuntimeModeFromEnv} (reads `IS_CONTAINERIZED`). Tests
+   * inject a fixed value to exercise both bare-metal and Docker branches
+   * without touching env vars; the skill-host factory injects
+   * `host.platform.runtimeMode` here instead.
    */
   resolveMode?: () => DaemonRuntimeMode;
   /**
@@ -249,10 +292,18 @@ export interface DockerRunnerOptions {
    * host-path bind. In bare-metal mode this is a host-visible path; in
    * Docker mode it's the daemon container's internal `/workspace`
    * (visible to inner `dockerd`). Defaults to `process.cwd()` if unset;
-   * callers should inject the real workspace dir (`getWorkspaceDir()`
-   * from `util/platform.ts`).
+   * callers should inject the real workspace dir via the
+   * {@link createDockerRunner} factory (`host.platform.workspaceDir()`).
    */
   workspaceDir?: string;
+  /**
+   * Structured logger for runner-internal events (create/start/cleanup
+   * diagnostics, socket-reachability warnings). Defaults to a no-op logger
+   * so legacy construction (`new DockerRunner({ socketPath })`) stays
+   * silent; the {@link createDockerRunner} factory wires
+   * `host.logger.get("meet-docker-runner")` here.
+   */
+  logger?: Logger;
 }
 
 /**
@@ -313,10 +364,13 @@ const socketReachabilityCache = new Map<string, Promise<true>>();
  * restarts the daemon — the current call still rejects so fail-fast
  * semantics hold.
  */
-export function ensureSocketReachable(socketPath: string): Promise<true> {
+export function ensureSocketReachable(
+  socketPath: string,
+  logger: Logger = NOOP_LOGGER,
+): Promise<true> {
   let cached = socketReachabilityCache.get(socketPath);
   if (cached === undefined) {
-    cached = probePing(socketPath).catch((err) => {
+    cached = probePing(socketPath, logger).catch((err) => {
       socketReachabilityCache.delete(socketPath);
       throw err;
     });
@@ -333,7 +387,10 @@ export function resetSocketReachabilityCacheForTests(): void {
   socketReachabilityCache.clear();
 }
 
-async function probePing(socketPath: string): Promise<true> {
+async function probePing(
+  socketPath: string,
+  logger: Logger,
+): Promise<true> {
   // `/_ping` returns the literal text `"OK"` (not JSON), so we go straight
   // to the raw-response helper rather than a JSON-decoding request helper
   // which would choke on the non-JSON body.
@@ -341,10 +398,10 @@ async function probePing(socketPath: string): Promise<true> {
     await requestRaw(socketPath, "GET", `/${DOCKER_API_VERSION}/_ping`, null);
     return true;
   } catch (err) {
-    log.warn(
-      { err, socketPath },
-      "Docker Engine socket reachability probe failed",
-    );
+    logger.warn("Docker Engine socket reachability probe failed", {
+      err,
+      socketPath,
+    });
     throw new Error(dockerSocketUnreachableMessage(socketPath));
   }
 }
@@ -462,11 +519,13 @@ export class DockerRunner {
   readonly socketPath: string;
   private readonly resolveMode: () => DaemonRuntimeMode;
   private readonly workspaceDir: string;
+  private readonly logger: Logger;
 
   constructor(options: DockerRunnerOptions = {}) {
     this.socketPath = options.socketPath ?? DEFAULT_DOCKER_SOCKET_PATH;
-    this.resolveMode = options.resolveMode ?? getDaemonRuntimeMode;
+    this.resolveMode = options.resolveMode ?? detectRuntimeModeFromEnv;
     this.workspaceDir = options.workspaceDir ?? process.cwd();
+    this.logger = options.logger ?? NOOP_LOGGER;
   }
 
   /**
@@ -495,7 +554,7 @@ export class DockerRunner {
     // `dockerd` — if that's not responding, the init supervisor failed
     // to bring it up and no meeting can proceed.
     if (mode === "docker") {
-      await ensureSocketReachable(this.socketPath);
+      await ensureSocketReachable(this.socketPath, this.logger);
     }
 
     const resolvedMounts = this.resolveMounts(opts.workspaceMounts);
@@ -511,7 +570,10 @@ export class DockerRunner {
       createBody,
     );
     const containerId = createResp.Id;
-    log.info({ containerId, image: opts.image }, "Created container");
+    this.logger.info("Created container", {
+      containerId,
+      image: opts.image,
+    });
 
     try {
       await this.request<void>(
@@ -522,10 +584,10 @@ export class DockerRunner {
     } catch (err) {
       // Best-effort cleanup so we don't leak a created-but-never-started
       // container if start fails (e.g. image pull needed, bind failure).
-      log.warn(
-        { err, containerId },
-        "Container start failed; attempting cleanup",
-      );
+      this.logger.warn("Container start failed; attempting cleanup", {
+        err,
+        containerId,
+      });
       await this.remove(containerId).catch(() => {});
       throw err;
     }
@@ -820,13 +882,18 @@ export const MEET_BOT_INSTANCE_LABEL = "vellum.meet.instance";
  * resistance for the small set of instance roots on a single host, and
  * short enough to stay readable in `docker ps`.
  *
- * The hash is over {@link vellumRoot}'s absolute path so the full filesystem
- * path isn't leaked into Docker metadata. Deterministic for a given instance
- * root — the stamp-side and the reap-side see the same value as long as the
- * daemon process sees the same `BASE_DATA_DIR`.
+ * The hash is over the assistant's vellum root absolute path so the full
+ * filesystem path isn't leaked into Docker metadata. Deterministic for a
+ * given instance root — the stamp-side and the reap-side see the same
+ * value as long as the daemon process sees the same `BASE_DATA_DIR`. The
+ * root resolution is inlined via {@link resolveVellumRoot} so the skill
+ * keeps zero `assistant/` imports.
  */
 export function getMeetBotInstanceHash(): string {
-  return createHash("sha256").update(vellumRoot()).digest("hex").slice(0, 16);
+  return createHash("sha256")
+    .update(resolveVellumRoot())
+    .digest("hex")
+    .slice(0, 16);
 }
 
 /**
@@ -1159,4 +1226,32 @@ export async function reapOrphanedMeetBots(opts: {
   }
 
   return { killed, kept, skippedUnlabeled };
+}
+
+// ---------------------------------------------------------------------------
+// SkillHost factory
+// ---------------------------------------------------------------------------
+
+/**
+ * Name under which {@link createDockerRunner} is registered in
+ * `modules-registry.ts`. Consumers (notably `session-manager.ts` once
+ * PR 17 migrates it) look up the factory via this name so the hard-coded
+ * `new DockerRunner(...)` constructor call no longer couples the session
+ * manager to the runner's implementation module.
+ */
+export const DOCKER_RUNNER_MODULE = "docker-runner";
+
+/**
+ * SkillHost-backed factory for {@link DockerRunner}. Wires the runner's
+ * runtime-mode resolver, workspace directory, and structured logger from
+ * `host.platform.*` / `host.logger.get(...)` so the runner stays free of
+ * any `assistant/` imports. Tests that want to override the socket path
+ * or inject fakes continue to construct {@link DockerRunner} directly.
+ */
+export function createDockerRunner(host: SkillHost): DockerRunner {
+  return new DockerRunner({
+    resolveMode: () => host.platform.runtimeMode(),
+    workspaceDir: host.platform.workspaceDir(),
+    logger: host.logger.get("meet-docker-runner"),
+  });
 }
