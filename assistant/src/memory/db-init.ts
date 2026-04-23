@@ -147,6 +147,7 @@ import {
   migrateScheduleQuietFlag,
   migrateScheduleReuseConversation,
   migrateScheduleScriptColumn,
+  migrateScheduleWakeConversationId,
   migrateSchemaIndexesAndColumns,
   migrateScrubCorruptedImageAttachments,
   migrateStripIntegrationPrefixFromProviderKeys,
@@ -380,6 +381,7 @@ export function initializeDb(): void {
     migrateStripPlaceholderSentinelsFromMessages,
     migrateOAuthProvidersManagedServiceIsPaid,
     migrateOAuthProvidersAvailableScopes,
+    migrateScheduleWakeConversationId,
   ];
 
   // Run each migration step, catching and logging individual failures so one

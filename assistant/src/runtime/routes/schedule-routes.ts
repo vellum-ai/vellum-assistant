@@ -36,10 +36,13 @@ const SCHEDULE_GUARDIAN_TRUST_CONTEXT = {
 // Handlers
 // ---------------------------------------------------------------------------
 
-function handleListSchedules(): Response {
+function handleListSchedules(opts?: { includeAll?: boolean }): Response {
   const jobs = listSchedules();
+  const filtered = opts?.includeAll
+    ? jobs
+    : jobs.filter((j) => j.createdBy !== "defer");
   return Response.json({
-    schedules: jobs.map((j) => ({
+    schedules: filtered.map((j) => ({
       id: j.id,
       name: j.name,
       enabled: j.enabled,
@@ -60,6 +63,7 @@ function handleListSchedules(): Response {
       status: j.status,
       routingIntent: j.routingIntent,
       reuseConversation: j.reuseConversation,
+      wakeConversationId: j.wakeConversationId,
       isOneShot: j.cronExpression == null,
     })),
   });
@@ -111,7 +115,7 @@ function handleCancelSchedule(id: string): Response {
   return handleListSchedules();
 }
 
-const VALID_MODES = ["notify", "execute", "script"] as const;
+const VALID_MODES = ["notify", "execute", "script", "wake"] as const;
 const VALID_ROUTING_INTENTS = [
   "single_channel",
   "multi_channel",
@@ -157,6 +161,7 @@ function handleUpdateSchedule(
     "routingIntent",
     "quiet",
     "reuseConversation",
+    "wakeConversationId",
   ] as const) {
     if (key in body) {
       updates[key] = body[key];
@@ -313,6 +318,31 @@ async function handleRunScheduleNow(
     return handleListSchedules();
   }
 
+  // ── Wake mode (resume an existing conversation, no new message) ────
+  if (schedule.mode === "wake") {
+    if (!schedule.wakeConversationId) {
+      return httpError(
+        "BAD_REQUEST",
+        "Wake schedule has no target conversation",
+        400,
+      );
+    }
+    const { wakeAgentForOpportunity } =
+      await import("../../runtime/agent-wake.js");
+    try {
+      await wakeAgentForOpportunity({
+        conversationId: schedule.wakeConversationId,
+        hint: schedule.message,
+        source: "defer",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn({ err, jobId: schedule.id }, "Manual wake execution failed");
+      return httpError("INTERNAL_ERROR", message, 500);
+    }
+    return handleListSchedules();
+  }
+
   // Regular message-based schedule — respect reuseConversation flag
   const isRecurring = schedule.expression != null;
   let conversationId: string | null = null;
@@ -391,7 +421,10 @@ export function scheduleRouteDefinitions(deps: {
       responseBody: z.object({
         schedules: z.array(z.unknown()).describe("Schedule objects"),
       }),
-      handler: () => handleListSchedules(),
+      handler: ({ url }) => {
+        const includeAll = url.searchParams.get("include_all") === "true";
+        return handleListSchedules({ includeAll });
+      },
     },
     {
       endpoint: "schedules/:id/runs",

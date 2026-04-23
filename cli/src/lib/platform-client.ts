@@ -913,3 +913,181 @@ export async function platformPollImportStatus(
     error: body.error,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Unified signed-url + job-status endpoints (teleport-gcs-unify)
+// ---------------------------------------------------------------------------
+
+/**
+ * Discriminated union representing the unified migration job status shape
+ * returned by `GET /v1/migrations/jobs/{job_id}/` on both the platform and
+ * the local runtime.
+ */
+export type UnifiedJobStatus =
+  | {
+      jobId: string;
+      type: "export" | "import";
+      status: "processing";
+    }
+  | {
+      jobId: string;
+      type: "export" | "import";
+      status: "complete";
+      bundleKey?: string;
+      result?: unknown;
+    }
+  | {
+      jobId: string;
+      type: "export" | "import";
+      status: "failed";
+      error: string;
+    };
+
+interface RawUnifiedJobStatus {
+  job_id: string;
+  type: "export" | "import";
+  status: "processing" | "complete" | "failed";
+  bundle_key?: string;
+  result?: unknown;
+  error?: string;
+}
+
+/**
+ * Normalise the wire-format job-status payload into the TypeScript
+ * discriminated union. Shared between platform and local-runtime helpers
+ * since both endpoints return the same shape.
+ */
+export function parseUnifiedJobStatus(
+  raw: RawUnifiedJobStatus,
+): UnifiedJobStatus {
+  if (raw.status === "processing") {
+    return { jobId: raw.job_id, type: raw.type, status: "processing" };
+  }
+  if (raw.status === "complete") {
+    return {
+      jobId: raw.job_id,
+      type: raw.type,
+      status: "complete",
+      bundleKey: raw.bundle_key,
+      result: raw.result,
+    };
+  }
+  return {
+    jobId: raw.job_id,
+    type: raw.type,
+    status: "failed",
+    error: raw.error ?? "Job failed without an error message",
+  };
+}
+
+/**
+ * Request a signed URL from the platform for either uploading a new bundle
+ * or downloading an existing one. Calls `POST /v1/migrations/signed-url/`.
+ *
+ * - `operation: "upload"` (optionally with `contentType` / `contentLength`)
+ *   returns a URL the CLI can PUT a bundle to.
+ * - `operation: "download"` with a `bundleKey` returns a URL the local
+ *   runtime can GET the bundle from during an import-from-GCS flow.
+ *
+ * Retries once with a fresh org-ID cache on 401 to match the retry pattern
+ * used by other authenticated platform helpers. 503 is bubbled up so
+ * callers can decide to fall back (e.g. legacy inline upload).
+ */
+export async function platformRequestSignedUrl(
+  params: {
+    operation: "upload" | "download";
+    bundleKey?: string;
+    contentType?: string;
+    contentLength?: number;
+  },
+  token: string,
+  platformUrl?: string,
+): Promise<{
+  url: string;
+  bundleKey: string;
+  expiresAt: string;
+  maxContentLength?: number;
+}> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const body: Record<string, unknown> = { operation: params.operation };
+  if (params.bundleKey !== undefined) body.bundle_key = params.bundleKey;
+  if (params.contentType !== undefined) body.content_type = params.contentType;
+  if (params.contentLength !== undefined) {
+    body.content_length = params.contentLength;
+  }
+
+  const doRequest = async (): Promise<Response> =>
+    fetch(`${resolvedUrl}/v1/migrations/signed-url/`, {
+      method: "POST",
+      headers: await authHeaders(token, platformUrl),
+      body: JSON.stringify(body),
+    });
+
+  let response = await doRequest();
+
+  if (response.status === 401) {
+    // Invalidate the cached org-ID (if any) and retry once with a fresh
+    // lookup. For session-token callers, a 401 frequently means the
+    // cached org ID is stale — calling doRequest() again without clearing
+    // the cache would just send the same stale header and fail again.
+    orgIdCache.delete(`${token}::${platformUrl ?? ""}`);
+    response = await doRequest();
+  }
+
+  if (response.status === 201 || response.status === 200) {
+    const json = (await response.json()) as {
+      url: string;
+      bundle_key: string;
+      expires_at: string;
+      max_content_length?: number;
+    };
+    return {
+      url: json.url,
+      bundleKey: json.bundle_key,
+      expiresAt: json.expires_at,
+      maxContentLength: json.max_content_length,
+    };
+  }
+
+  if (response.status === 503) {
+    throw new Error(
+      `Signed URL endpoint unavailable (503) — caller may fall back`,
+    );
+  }
+
+  const errorBody = (await response.json().catch(() => ({}))) as {
+    detail?: string;
+  };
+  throw new Error(
+    errorBody.detail ??
+      `Failed to request signed URL: ${response.status} ${response.statusText}`,
+  );
+}
+
+/**
+ * Poll the unified job-status endpoint on the platform. Calls
+ * `GET /v1/migrations/jobs/{jobId}/` and parses into {@link UnifiedJobStatus}.
+ */
+export async function platformPollJobStatus(
+  jobId: string,
+  token: string,
+  platformUrl?: string,
+): Promise<UnifiedJobStatus> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const response = await fetch(`${resolvedUrl}/v1/migrations/jobs/${jobId}/`, {
+    headers: await authHeaders(token, platformUrl),
+  });
+
+  if (response.status === 404) {
+    throw new Error("Migration job not found");
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `Job status check failed: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const raw = (await response.json()) as RawUnifiedJobStatus;
+  return parseUnifiedJobStatus(raw);
+}

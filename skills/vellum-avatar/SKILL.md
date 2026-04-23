@@ -10,16 +10,12 @@ metadata:
 
 You are helping the user customize their assistant's avatar. There are three ways to set an avatar: building a native character from traits, uploading a custom image, or generating one with AI. When the user says they want to change their avatar, present all three options and ask which they prefer.
 
-**All commands in this skill use the `bash` tool.** `$VELLUM_WORKSPACE_DIR` and `$INTERNAL_GATEWAY_BASE_URL` are available in the sandbox environment — do not use `host_bash`.
-
 ## Avatar Modes
 
 The avatar system supports two representations:
 
 - **Native character** - Defined by `data/avatar/character-traits.json` (body shape, eye style, color). Rendered client-side as an animated character. A static PNG at `data/avatar/avatar-image.png` is auto-generated for use by other clients and the dock icon.
-- **Custom image** - A static PNG at `data/avatar/avatar-image.png`. Used for uploaded or AI-generated avatars. No traits file exists.
-
-See [Mutual Exclusivity Rule](#mutual-exclusivity-rule) for how these modes interact.
+- **Custom image** - A static PNG at `data/avatar/avatar-image.png`. Used for uploaded or AI-generated avatars. When set via upload (`assistant avatar set`), character traits are preserved so the native character can be restored later via `assistant avatar remove`. When AI-generated (`assistant avatar generate`), character trait files are removed.
 
 ## Mode 1: Native Character Traits
 
@@ -67,33 +63,25 @@ The user picks a body shape, eye style, and color. Present the options conversat
 
 ### Setting traits
 
-After the user chooses, run the following command to set the character traits. This writes `character-traits.json`, generates the static PNG, and creates an ASCII representation in one step:
+After the user chooses, run the following command to set the character traits. This writes `character-traits.json`, generates the static PNG, creates an ASCII representation, updates IDENTITY.md, and notifies connected clients — all in one step:
 
 ```bash
 assistant avatar character update --body-shape <value> --eye-style <value> --color <value>
 ```
 
-The client will detect the traits file and render the animated character. The assistant also generates a static PNG for use as dock icon and by other clients.
+The client will detect the traits file and render the animated character.
 
 ## Mode 2: Upload a Custom Image
 
 The user provides a file path to an image they want to use as their avatar.
 
-Copy the image to the avatar location:
+Use the CLI command to set it:
 
 ```bash
-mkdir -p "$VELLUM_WORKSPACE_DIR/data/avatar"
-cp "<user-provided-path>" "$VELLUM_WORKSPACE_DIR/data/avatar/avatar-image.png"
+assistant avatar set --image "<user-provided-path>"
 ```
 
-Then remove the native character files, since a custom image overrides the native character:
-
-```bash
-rm -f "$VELLUM_WORKSPACE_DIR/data/avatar/character-traits.json"
-rm -f "$VELLUM_WORKSPACE_DIR/data/avatar/character-ascii.txt"
-```
-
-Tell the user their avatar has been updated. The client will pick up the new image automatically.
+The path can be absolute or relative to the workspace (e.g. `conversations/<id>/attachments/Dropped Image.png`).
 
 ## Mode 3: AI-Generated Image
 
@@ -108,7 +96,33 @@ The user describes what they want their avatar to look like. Use the `bash` tool
 }
 ```
 
-This generates an image using AI, saves it to `data/avatar/avatar-image.png`, and removes any native character files automatically. The generated avatar will appear automatically in the client.
+This generates an image using AI and saves it to `data/avatar/avatar-image.png`.
+
+## Removing the Avatar
+
+When the user wants to remove their custom avatar and go back to the default:
+
+```bash
+assistant avatar remove
+```
+
+This removes the custom image. If a native character was previously configured, it is automatically restored (the character traits are preserved).
+
+## Viewing the Avatar
+
+When the user asks to see their current avatar, get the path and then read it:
+
+```bash
+assistant avatar get
+```
+
+This prints the absolute path to the avatar image (regenerating from character traits if needed). Then use `file_read` on the returned path to display the image inline.
+
+To get the avatar as base64 data instead:
+
+```bash
+assistant avatar get --format base64
+```
 
 ## UX Guidelines
 
@@ -122,18 +136,4 @@ This generates an image using AI, saves it to `data/avatar/avatar-image.png`, an
 - After any avatar change, confirm it was applied and let the user know they can change it again anytime.
 - **After any avatar change**, update the `## Avatar` section in `IDENTITY.md` with a plain-text description of the current avatar appearance. Do NOT use markdown image links — write a human-readable description instead. This ensures you remember what you look like across sessions. Example: `## Avatar\nA friendly purple cat with green eyes wearing a tiny hat`
 - **When the user asks what your avatar looks like**, read the `## Avatar` section in `IDENTITY.md` for your text description.
-- **When the user asks you to show or provide your avatar**, use the `get_avatar` tool. Do NOT use `file_read` — the `get_avatar` tool handles everything. Only call it once.
-
-## Mutual Exclusivity Rule
-
-`character-traits.json` and `avatar-image.png` represent different avatar modes:
-
-- **Native character** - `character-traits.json` is the source of truth. The assistant auto-generates `avatar-image.png` as a static representation, so both files coexist.
-- **Custom image** - `avatar-image.png` is user-provided (uploaded or AI-generated). No traits file exists.
-
-The client checks for character traits first - if `character-traits.json` exists, it renders the animated character. Otherwise, it falls back to `avatar-image.png` for custom images.
-
-Enforcement rules:
-
-- **Setting native character traits** → run `assistant avatar character update --body-shape X --eye-style Y --color Z`. This writes `character-traits.json`, auto-generates the PNG, and creates ASCII art in one step.
-- **Uploading or generating a custom image** → write `avatar-image.png` and remove `character-traits.json` and `character-ascii.txt`.
+- **When the user asks you to show or provide your avatar**, run `assistant avatar get` to get the path, then use `file_read` on that path to display the image. Only do this once.

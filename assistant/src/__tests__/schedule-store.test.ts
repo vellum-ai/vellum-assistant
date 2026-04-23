@@ -972,6 +972,123 @@ describe("listSchedules filters", () => {
   });
 });
 
+// ── Wake mode ───────────────────────────────────────────────────────
+
+describe("createSchedule (wake mode)", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+  });
+
+  test("creates a wake schedule with wakeConversationId", () => {
+    const job = createSchedule({
+      name: "Wake conv",
+      message: "resume conversation",
+      nextRunAt: Date.now() + 60_000,
+      mode: "wake",
+      wakeConversationId: "conv-123",
+    });
+
+    expect(job.mode).toBe("wake");
+    expect(job.wakeConversationId).toBe("conv-123");
+    expect(job.status).toBe("active");
+
+    const retrieved = getSchedule(job.id);
+    expect(retrieved).not.toBeNull();
+    expect(retrieved!.wakeConversationId).toBe("conv-123");
+  });
+
+  test("throws when creating wake schedule without wakeConversationId", () => {
+    expect(() =>
+      createSchedule({
+        name: "Bad wake",
+        message: "no conv id",
+        nextRunAt: Date.now() + 60_000,
+        mode: "wake",
+      }),
+    ).toThrow("Wake schedules require wakeConversationId");
+  });
+});
+
+// ── listSchedules new filters ───────────────────────────────────────
+
+describe("listSchedules new filters", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+  });
+
+  test("mode filter returns only schedules with matching mode", () => {
+    createSchedule({
+      name: "Execute schedule",
+      message: "execute",
+      nextRunAt: Date.now() + 60_000,
+      mode: "execute",
+    });
+    createSchedule({
+      name: "Wake schedule",
+      message: "wake",
+      nextRunAt: Date.now() + 60_000,
+      mode: "wake",
+      wakeConversationId: "conv-abc",
+    });
+
+    const wakeOnly = listSchedules({ mode: "wake" });
+    expect(wakeOnly.length).toBe(1);
+    expect(wakeOnly[0].name).toBe("Wake schedule");
+    expect(wakeOnly[0].mode).toBe("wake");
+  });
+
+  test("createdBy filter returns only schedules with matching creator", () => {
+    createSchedule({
+      name: "Agent schedule",
+      message: "by agent",
+      nextRunAt: Date.now() + 60_000,
+      createdBy: "agent",
+    });
+    createSchedule({
+      name: "Defer schedule",
+      message: "by defer",
+      nextRunAt: Date.now() + 60_000,
+      createdBy: "defer",
+    });
+
+    const deferOnly = listSchedules({ createdBy: "defer" });
+    expect(deferOnly.length).toBe(1);
+    expect(deferOnly[0].name).toBe("Defer schedule");
+    expect(deferOnly[0].createdBy).toBe("defer");
+  });
+
+  test("conversationId filter returns only wakes targeting that conversation", () => {
+    createSchedule({
+      name: "Wake for conv-123",
+      message: "wake conv-123",
+      nextRunAt: Date.now() + 60_000,
+      mode: "wake",
+      wakeConversationId: "conv-123",
+    });
+    createSchedule({
+      name: "Wake for conv-456",
+      message: "wake conv-456",
+      nextRunAt: Date.now() + 60_000,
+      mode: "wake",
+      wakeConversationId: "conv-456",
+    });
+    createSchedule({
+      name: "Regular schedule",
+      message: "no wake",
+      nextRunAt: Date.now() + 60_000,
+    });
+
+    const conv123Only = listSchedules({ conversationId: "conv-123" });
+    expect(conv123Only.length).toBe(1);
+    expect(conv123Only[0].name).toBe("Wake for conv-123");
+    expect(conv123Only[0].wakeConversationId).toBe("conv-123");
+  });
+});
+
 // ── describeCronExpression ──────────────────────────────────────────
 
 describe("describeCronExpression", () => {

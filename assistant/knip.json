@@ -15,7 +15,8 @@
     "../skills/meet-join/meet-controller-ext/src/background.ts",
     "../skills/meet-join/meet-controller-ext/src/content.ts",
     "../skills/meet-join/meet-controller-ext/src/avatar/avatar.ts",
-    "../skills/meet-join/meet-controller-ext/src/messaging/content-bridge.ts"
+    "../skills/meet-join/meet-controller-ext/src/messaging/content-bridge.ts",
+    "../skills/meet-join/scripts/emit-manifest.ts"
   ],
   "project": [
     "src/**/*.ts",
@@ -31,6 +32,7 @@
     "@vellumai/egress-proxy",
     "@vellumai/gateway-client",
     "@resvg/resvg-js-darwin-arm64",
-    "@resvg/resvg-js-darwin-x64"
+    "@resvg/resvg-js-darwin-x64",
+    "@vellumai/skill-host-contracts"
   ]
 }

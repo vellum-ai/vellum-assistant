@@ -15,7 +15,7 @@ import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("avatar-routes");
 
-function publishAvatarUpdated(): void {
+export function publishAvatarUpdated(): void {
   const avatarPath = getAvatarImagePath();
   assistantEventHub
     .publish(

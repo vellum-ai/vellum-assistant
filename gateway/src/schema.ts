@@ -3848,6 +3848,150 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/migrations/export-to-gcs": {
+        post: {
+          summary: "Kick off an async export-to-GCS job",
+          description:
+            "Transparent proxy to the assistant daemon's `POST /v1/migrations/export-to-gcs` endpoint. The daemon schedules a background export job that streams the workspace backup to the supplied signed GCS upload URL and returns `202 Accepted` with a `job_id`. Callers poll `GET /v1/migrations/jobs/{jobId}` for progress. Registered explicitly (not via the runtime-proxy catch-all) so local/docker teleport works regardless of `runtimeProxyEnabled`.",
+          operationId: "migrationExportToGcs",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "202": {
+              description: "Export job accepted.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["job_id"],
+                    properties: { job_id: { type: "string" } },
+                  },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "409": {
+              description: "Another export is already in flight.",
+            },
+            "502": { description: "Failed to reach assistant daemon" },
+            "504": { description: "Assistant daemon request timed out" },
+          },
+        },
+      },
+      "/v1/migrations/import-from-gcs": {
+        post: {
+          summary: "Kick off an async import-from-GCS job",
+          description:
+            "Transparent proxy to the assistant daemon's `POST /v1/migrations/import-from-gcs` endpoint. The daemon schedules a background import job that fetches a `.vbundle` archive at the supplied `bundle_url` and streams it through the importer, returning `202 Accepted` with a `job_id`. Callers poll `GET /v1/migrations/jobs/{jobId}` for progress. Registered explicitly (not via the runtime-proxy catch-all) so local/docker teleport works regardless of `runtimeProxyEnabled`.",
+          operationId: "migrationImportFromGcs",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["bundle_url"],
+                  properties: {
+                    bundle_url: {
+                      type: "string",
+                      format: "uri",
+                      description:
+                        "Signed GCS URL pointing at a .vbundle archive.",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "202": {
+              description: "Import job accepted.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["job_id"],
+                    properties: { job_id: { type: "string" } },
+                  },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "409": {
+              description: "Another import is already in flight.",
+            },
+            "502": { description: "Failed to reach assistant daemon" },
+            "504": { description: "Assistant daemon request timed out" },
+          },
+        },
+      },
+      "/v1/migrations/jobs/{jobId}": {
+        get: {
+          summary: "Poll unified migration job status",
+          description:
+            "Transparent proxy to the assistant daemon's `GET /v1/migrations/jobs/{job_id}` endpoint. Returns the current status of an async export-to-GCS or import-from-GCS job tracked by the daemon's migration job registry. Registered explicitly (not via the runtime-proxy catch-all) so local/docker teleport works regardless of `runtimeProxyEnabled`.",
+          operationId: "migrationJobStatus",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              in: "path",
+              name: "jobId",
+              required: true,
+              schema: { type: "string" },
+              description:
+                "The `job_id` returned by the 202 response from `POST /v1/migrations/export-to-gcs` or `POST /v1/migrations/import-from-gcs`.",
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Current job status.",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["job_id", "type", "status"],
+                    properties: {
+                      job_id: { type: "string" },
+                      type: {
+                        type: "string",
+                        enum: ["export", "import"],
+                      },
+                      status: {
+                        type: "string",
+                        enum: ["processing", "complete", "failed"],
+                      },
+                      result: {},
+                      error: { type: "string" },
+                      error_code: { type: "string" },
+                      upstream_status: { type: "integer" },
+                    },
+                  },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "404": {
+              description: "Unknown job_id.",
+            },
+            "502": { description: "Failed to reach assistant daemon" },
+            "504": { description: "Assistant daemon request timed out" },
+          },
+        },
+      },
       "/v1/admin/workspace-commit": {
         post: {
           summary: "Commit workspace changes",
