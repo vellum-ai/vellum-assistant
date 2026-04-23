@@ -1,14 +1,14 @@
 /**
  * Default runtime injector plugin — the canonical chain of injectors that
- * replaces the hardcoded injection sequence previously baked into
- * `applyRuntimeInjections` (pre-migration).
+ * drives the per-turn injection sequence consumed by
+ * `applyRuntimeInjections`.
  *
  * Each of the seven default injectors reads its per-turn inputs from
  * `ctx.injectionInputs` (see {@link TurnInjectionInputs}), runs its gating
  * conditions (injection mode, feature flags, channel type, null-input
  * short-circuits), and returns an {@link InjectionBlock} with a
- * {@link InjectionPlacement} that preserves the byte-for-byte positional
- * semantics of the pre-migration `inject*` helpers:
+ * {@link InjectionPlacement} that yields the canonical positional
+ * semantics expected by the assembly pipeline:
  *
  * | name                     | order | placement               |
  * | ------------------------ | ----- | ----------------------- |
@@ -32,12 +32,11 @@
  * sorted ascending, so a plugin-registered injector at `order: 25`
  * reliably slots between `unified-turn-context` (20) and `pkb` (30).
  *
- * Registration happens via a side-effect import in
- * `daemon/external-plugins-bootstrap.ts` so the default chain is present for
- * every assistant boot.
- *
- * Design doc: `.private/plans/agent-plugin-system.md` (PR 21 — scaffolding,
- * G2.1 — full migration).
+ * Registration happens via a module-load side effect at the bottom of this
+ * file — importing the module is enough to populate the registry. The
+ * explicit `registerDefaultPlugins()` call in `plugins/defaults/index.ts`
+ * (invoked from `daemon/external-plugins-bootstrap.ts`) re-registers the
+ * same plugin idempotently, so either entry point alone is sufficient.
  */
 
 import { resolve } from "node:path";
@@ -225,9 +224,6 @@ function buildPkbContextBlock(content: string): string {
  * enough scope metadata is available, run the hybrid PKB search to
  * surface up to three relevance hints; fall back to the flat static
  * reminder on empty results or any error.
- *
- * Lifted verbatim from the pre-migration `applyRuntimeInjections` branch
- * so the emitted bytes match.
  */
 async function buildPkbReminderWithHints(
   inputs: TurnInjectionInputs,

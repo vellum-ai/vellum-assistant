@@ -1699,10 +1699,10 @@ export async function collectInjectorBlocks(
  * skipped entirely (no leading/trailing blank lines). When no injector
  * contributes, the function returns an empty string.
  *
- * Kept for the PR 21 test suite (which asserts the concatenation contract)
- * and for callers that want a single informational string view of the chain.
- * The canonical integration point is {@link applyRuntimeInjections}, which
- * uses {@link collectInjectorBlocks} + placement-aware application to splice
+ * Used by tests that assert the concatenation contract and by callers that
+ * want a single informational string view of the chain. The canonical
+ * integration point is {@link applyRuntimeInjections}, which uses
+ * {@link collectInjectorBlocks} + placement-aware application to splice
  * each block into the per-turn message array.
  */
 export async function composeInjectorChain(ctx: TurnContext): Promise<string> {
@@ -1831,7 +1831,7 @@ export interface RuntimeInjectionOptions {
   pkbContext?: string | null;
   pkbActive?: boolean;
   /**
-   * Dense query vector surfaced from the graph memory retriever (PR 3).
+   * Dense query vector surfaced from the graph memory retriever.
    * When present together with `pkbActive`, used to run `searchPkbFiles`
    * to surface relevance hints in the PKB system reminder. When missing,
    * the reminder falls back to the flat static text.
@@ -1901,8 +1901,8 @@ export interface RuntimeInjectionOptions {
    * {@link Injector}s via {@link collectInjectorBlocks}. When omitted,
    * `applyRuntimeInjections` synthesizes an ephemeral context (with a
    * fallback `trust` classification) so the default-injector chain still
-   * runs — test call sites that pass option fields without a matching
-   * `turnContext` continue to exercise the same code path.
+   * runs — call sites that build the options bag without holding a full
+   * `TurnContext` get the same chain output.
    *
    * When provided, the caller's `trust`, `conversationId`, `turnIndex`,
    * etc. are preserved; the function layers its per-turn
