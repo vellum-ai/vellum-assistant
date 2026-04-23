@@ -3,6 +3,82 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "EventStreamClient")
 
+private struct SSEHandshakeSnapshot: Sendable {
+    let statusCode: Int
+    let contentType: String
+    let contentLength: String
+    let server: String
+    let via: String
+    let trace: String
+
+    init(http: HTTPURLResponse) {
+        statusCode = http.statusCode
+        contentType = http.value(forHTTPHeaderField: "Content-Type") ?? "<nil>"
+        contentLength = http.value(forHTTPHeaderField: "Content-Length") ?? "<nil>"
+        server = http.value(forHTTPHeaderField: "Server") ?? "<nil>"
+        via = http.value(forHTTPHeaderField: "Via") ?? "<nil>"
+        trace = Self.firstHeaderValue(
+            in: http,
+            names: ["X-Request-Id", "X-Correlation-Id", "Cf-Ray", "X-Amzn-Trace-Id"]
+        ) ?? "<nil>"
+    }
+
+    var summary: String {
+        "status=\(statusCode) content-type=\(contentType) content-length=\(contentLength) server=\(server) via=\(via) trace=\(trace)"
+    }
+
+    var isEventStream: Bool {
+        contentType.localizedCaseInsensitiveContains("text/event-stream")
+    }
+
+    private static func firstHeaderValue(in http: HTTPURLResponse, names: [String]) -> String? {
+        for name in names {
+            if let value = http.value(forHTTPHeaderField: name), !value.isEmpty {
+                return "\(name)=\(value)"
+            }
+        }
+        return nil
+    }
+}
+
+private actor SSEHandshakeDiagnostics {
+    private var lastResponse: SSEHandshakeSnapshot?
+
+    func reset() {
+        lastResponse = nil
+    }
+
+    func record(_ response: URLResponse) {
+        if let http = response as? HTTPURLResponse {
+            lastResponse = SSEHandshakeSnapshot(http: http)
+        }
+    }
+
+    func snapshot() -> SSEHandshakeSnapshot? {
+        lastResponse
+    }
+}
+
+private final class SSEHandshakeCaptureDelegate: NSObject, URLSessionDataDelegate {
+    private let diagnostics: SSEHandshakeDiagnostics
+
+    init(diagnostics: SSEHandshakeDiagnostics) {
+        self.diagnostics = diagnostics
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        Task {
+            await diagnostics.record(response)
+        }
+        completionHandler(.allow)
+    }
+}
+
 /// Client that manages an SSE connection to the assistant runtime and broadcasts
 /// parsed `ServerMessage` values to multiple independent subscribers.
 ///
@@ -39,6 +115,7 @@ public final class EventStreamClient {
     private var shouldReconnect = true
     private var hasShownCreditsExhausted = false
     private var hasConnectedAtLeastOnce = false
+    private let sseHandshakeDiagnostics = SSEHandshakeDiagnostics()
 
     // MARK: - SSE Parse Time Tracking
 
@@ -288,23 +365,24 @@ public final class EventStreamClient {
     private func startSSEStream() {
         sseTask?.cancel()
 
+        // Keep the session local to this stream start and capture it into the
+        // Task so nothing outside the Task can invalidate it mid-setup. The
+        // delegate records the initial response headers, which lets us log the
+        // last SSE handshake metadata when `bytes(for:)` later fails with a
+        // generic parse error.
+        let handshakeCaptureDelegate = SSEHandshakeCaptureDelegate(diagnostics: sseHandshakeDiagnostics)
+        let session = URLSession(
+            configuration: .default,
+            delegate: handshakeCaptureDelegate,
+            delegateQueue: nil
+        )
         sseTask = Task { @MainActor [weak self] in
-            // Own the session inside the Task so its lifetime is tied to this
-            // one stream. Nothing outside this Task can reach `session`, which
-            // eliminates the race where a back-to-back `startSSEStream()` on
-            // the MainActor invalidated a session that another `@MainActor`
-            // task had already captured but not yet passed to
-            // `URLSession.bytes(for:)`. That race crashed the process with
-            // `NSGenericException: Task created in a session that has been
-            // invalidated` (LUM-1001), thrown uncatchably from
-            // `-[__NSURLSessionLocal taskForClassInfo:]` when `bytes(for:)`
-            // synchronously creates its data task on the cooperative pool.
-            let session = URLSession(configuration: .default)
             defer { session.invalidateAndCancel() }
 
             guard let self, !Task.isCancelled else { return }
 
             do {
+                await self.sseHandshakeDiagnostics.reset()
                 let (bytes, response) = try await GatewayHTTPClient.stream(
                     path: "assistants/{assistantId}/events",
                     timeout: .infinity,
@@ -313,7 +391,11 @@ public final class EventStreamClient {
 
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                    log.error("SSE connection failed with status \(statusCode, privacy: .public)")
+                    if let http = response as? HTTPURLResponse {
+                        self.logSSEHandshakeFailure(http)
+                    } else {
+                        log.error("SSE connection failed with status \(statusCode, privacy: .public)")
+                    }
                     if statusCode == 402, !self.hasShownCreditsExhausted {
                         self.hasShownCreditsExhausted = true
                         self.broadcastMessage(.conversationError(ConversationErrorMessage(
@@ -332,7 +414,11 @@ public final class EventStreamClient {
                 }
 
                 self.hasShownCreditsExhausted = false
-                log.info("SSE stream connected")
+                let handshake = SSEHandshakeSnapshot(http: http)
+                log.info("SSE stream connected: \(handshake.summary, privacy: .public)")
+                if !handshake.isEventStream {
+                    log.error("SSE stream connected with unexpected content type: \(handshake.summary, privacy: .public)")
+                }
 
                 // On reconnect (not the first connect), broadcast a synthetic
                 // conversation_list_invalidated so any events missed during the
@@ -345,6 +431,7 @@ public final class EventStreamClient {
                             ConversationListInvalidatedMessage(reason: "sse_reconnected")
                         )
                     )
+                    NotificationCenter.default.post(name: .eventStreamDidReconnect, object: self)
                 }
                 self.hasConnectedAtLeastOnce = true
 
@@ -358,7 +445,7 @@ public final class EventStreamClient {
                 }
             } catch {
                 if !Task.isCancelled {
-                    log.error("SSE stream error: \(error.localizedDescription, privacy: .public)")
+                    await self.logSSEStreamError(error)
                 }
             }
 
@@ -366,6 +453,24 @@ public final class EventStreamClient {
                 self.handleSSEDisconnect()
             }
         }
+    }
+
+    private func logSSEHandshakeFailure(_ http: HTTPURLResponse) {
+        let handshake = SSEHandshakeSnapshot(http: http)
+        log.error("SSE connection failed: \(handshake.summary, privacy: .public)")
+    }
+
+    private func logSSEStreamError(_ error: Error) async {
+        let nsError = error as NSError
+        let metadata: String
+        if let handshake = await sseHandshakeDiagnostics.snapshot() {
+            metadata = handshake.summary
+        } else {
+            metadata = "no-response-metadata"
+        }
+        log.error(
+            "SSE stream error: domain=\(nsError.domain, privacy: .public) code=\(nsError.code, privacy: .public) message=\(error.localizedDescription, privacy: .public) \(metadata, privacy: .public)"
+        )
     }
 
     // MARK: - SSE Parsing

@@ -3015,6 +3015,28 @@ final class ChatViewModelTests: XCTestCase {
                        "onReconnectHistoryNeeded should be called with the conversation ID")
     }
 
+    func testEventStreamReconnectDuringStreamingTriggersHistoryCatchUp() {
+        viewModel.conversationId = "sess-sse-reconnect"
+        viewModel.isThinking = true
+        viewModel.currentAssistantMessageId = UUID()
+
+        var reconnectConversationId: String?
+        let expectation = XCTestExpectation(description: "onReconnectHistoryNeeded called after SSE reconnect")
+        viewModel.onReconnectHistoryNeeded = { conversationId in
+            reconnectConversationId = conversationId
+            expectation.fulfill()
+        }
+
+        NotificationCenter.default.post(name: .eventStreamDidReconnect, object: nil)
+
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertNil(viewModel.currentAssistantMessageId,
+                     "SSE reconnect should clear currentAssistantMessageId")
+        XCTAssertEqual(reconnectConversationId, "sess-sse-reconnect",
+                       "SSE reconnect should request history catch-up for the active conversation")
+    }
+
     func testPopulateFromHistoryResetsStreamingState() {
         // Simulate mid-stream state: an assistant message is being built,
         // the delta buffer has accumulated text, and a flush task is scheduled.

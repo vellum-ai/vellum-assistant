@@ -17,6 +17,7 @@ public enum MultipartPart {
 ///     let response = try await GatewayHTTPClient.get(path: "health")
 ///     let response = try await GatewayHTTPClient.post(path: "assistants/upgrade")
 public enum GatewayHTTPClient {
+    private static let sseAcceptHeader = "text/event-stream, application/json"
 
     /// Response from a gateway HTTP request.
     public struct Response {
@@ -460,7 +461,7 @@ public enum GatewayHTTPClient {
     public static func stream(path: String, timeout: TimeInterval = 30, session: URLSession = .shared) async throws -> (URLSession.AsyncBytes, URLResponse) {
         let connection = try resolveConnection()
         var request = try buildRequest(path: path, params: nil, method: "GET", timeout: timeout, connection: connection)
-        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.setValue(sseAcceptHeader, forHTTPHeaderField: "Accept")
         logOutgoing(request, quiet: false)
         let (bytes, response) = try await session.bytes(for: request)
         if let http = response as? HTTPURLResponse {
@@ -487,7 +488,7 @@ public enum GatewayHTTPClient {
     public static func streamPost(path: String, body: Data, timeout: TimeInterval = 30, session: URLSession = .shared) async throws -> (URLSession.AsyncBytes, URLResponse) {
         let connection = try resolveConnection()
         var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
-        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.setValue(sseAcceptHeader, forHTTPHeaderField: "Accept")
         request.httpBody = body
         logOutgoing(request, quiet: false)
         let (bytes, response) = try await session.bytes(for: request)
@@ -519,7 +520,7 @@ public enum GatewayHTTPClient {
     public static func streamPostWithRetry(path: String, body: Data, timeout: TimeInterval = 30, session: URLSession = .shared) async throws -> (URLSession.AsyncBytes, URLResponse) {
         let connection = try resolveConnection()
         var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
-        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        request.setValue(sseAcceptHeader, forHTTPHeaderField: "Accept")
         request.httpBody = body
         logOutgoing(request, quiet: false)
 
@@ -546,7 +547,7 @@ public enum GatewayHTTPClient {
         // Rebuild with fresh credentials from the credential store.
         let freshConnection = try resolveConnection()
         var retryRequest = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: freshConnection)
-        retryRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        retryRequest.setValue(sseAcceptHeader, forHTTPHeaderField: "Accept")
         retryRequest.httpBody = body
         logOutgoing(retryRequest, quiet: false)
         let (retryBytes, retryResponse) = try await session.bytes(for: retryRequest)

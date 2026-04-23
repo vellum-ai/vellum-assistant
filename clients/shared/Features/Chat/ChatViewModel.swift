@@ -651,9 +651,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         }
     }
     @ObservationIgnored private var reconnectObserver: NSObjectProtocol?
+    @ObservationIgnored private var eventStreamReconnectObserver: NSObjectProtocol?
     @ObservationIgnored private var appPreviewCapturedObserver: NSObjectProtocol?
-    /// Debounces rapid-fire daemon reconnect notifications so only one history
-    /// reload is triggered per reconnect burst (500ms settle window).
+    /// Debounces rapid-fire transport reconnect notifications so only one
+    /// history reload is triggered per reconnect burst (500ms settle window).
     @ObservationIgnored private var reconnectDebounceTask: Task<Void, Never>?
     /// Guards against overlapping reconnect history loads. Set true before
     /// requesting history, cleared when `populateFromHistory` completes.
@@ -661,7 +662,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// Safety task that resets `isReconnectHistoryLoading` if the history
     /// response never arrives (e.g. the request throws or is dropped).
     @ObservationIgnored private var reconnectLatchTimeoutTask: Task<Void, Never>?
-    /// Set to true when daemonDidReconnect fires before conversationId is populated.
+    /// Set to true when a reconnect notification fires before conversationId is populated.
     /// Cleared and actioned in the conversationId didSet observer.
     @ObservationIgnored var needsOfflineFlush: Bool = false
     /// Set to true when reconnecting after an SSE gap while a run was in progress.
@@ -1201,81 +1202,16 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             queue: nil
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                // Snapshot pendingMessageIds before clearing so the debounced
-                // reconnect catch-up (which fires 500ms later) can still dedup
-                // local messages that were pending when the connection dropped.
-                // Only take a new snapshot if no debounce task is in flight —
-                // a rapid second reconnect must not overwrite the snapshot to
-                // empty while the first debounce is still pending.
-                if self?.reconnectDebounceTask == nil {
-                    self?.reconnectPendingSnapshot = self?.pendingMessageIds ?? []
-                }
-                self?.pendingQueuedCount = 0
-                self?.pendingMessageIds.removeAll()
-                self?.requestIdToMessageId.removeAll()
-                self?.activeRequestIdToMessageId.removeAll()
-                self?.pendingLocalDeletions.removeAll()
-                self?.lastActivityVersion = 0
-                self?.assistantActivityPhase = "idle"
-                self?.assistantActivityAnchor = "global"
-                self?.assistantActivityReason = nil
-                self?.assistantStatusText = nil
-                // If a run was in progress when the connection dropped, the
-                // client may have missed the messageComplete (or the full
-                // assistant response). Reset the spinner and re-fetch history
-                // so the UI catches up on anything that happened during the gap.
-                // Debounce: cancel any pending reconnect task and wait 500ms
-                // to coalesce rapid-fire reconnect notifications into one load.
-                if self?.isThinking == true || self?.isSending == true || self?.currentAssistantMessageId != nil {
-                    self?.isThinking = false
-                    self?.isSending = false
-                    self?.currentAssistantMessageId = nil
-                    self?.discardStreamingBuffer()
-                    self?.discardPartialOutputBuffer()
-                    self?.reconnectDebounceTask?.cancel()
-                    self?.reconnectDebounceTask = Task { @MainActor [weak self] in
-                        defer { if !Task.isCancelled { self?.reconnectDebounceTask = nil } }
-                        try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
-                        guard !Task.isCancelled else { return }
-                        guard let self, !self.isReconnectHistoryLoading else { return }
-                        if let conversationId = self.conversationId {
-                            self.isReconnectHistoryLoading = true
-                            self.needsReconnectCatchUp = true
-                            // Safety timeout: if the history response never arrives
-                            // (e.g. request throws or is dropped), reset the latch
-                            // so future reconnects aren't blocked forever.
-                            self.reconnectLatchTimeoutTask?.cancel()
-                            self.reconnectLatchTimeoutTask = Task { @MainActor [weak self] in
-                                try? await Task.sleep(nanoseconds: 10_000_000_000) // 10s
-                                guard !Task.isCancelled, let self, self.isReconnectHistoryLoading else { return }
-                                log.warning("Reconnect history latch timed out after 10s — resetting")
-                                self.isReconnectHistoryLoading = false
-                                self.needsReconnectCatchUp = false
-                                self.reconnectPendingSnapshot = []
-                            }
-                            self.onReconnectHistoryNeeded?(conversationId)
-                        }
-                    }
-                }
-                // Auto-retry a failed message on reconnect so the user doesn't
-                // have to manually click "Retry" after a transient daemon crash.
-                if let self, self.isConnectionError, self.lastFailedMessageText != nil {
-                    self.retryLastMessage()
-                } else if let self, self.isConnectionError {
-                    // No message to retry, but clear the stale error banner
-                    self.errorText = nil
-                    self.lastFailedSendError = nil
-                    self.connectionDiagnosticHint = nil
-                }
-
-                // If we already have a conversation ID, flush immediately. Otherwise
-                // defer: conversationId's didSet will trigger flushOfflineQueue() once
-                // the conversation is restored from history (cold-start reconnect case).
-                if self?.conversationId != nil {
-                    self?.flushOfflineQueue()
-                } else {
-                    self?.needsOfflineFlush = true
-                }
+                self?.handleTransportReconnect()
+            }
+        }
+        eventStreamReconnectObserver = NotificationCenter.default.addObserver(
+            forName: .eventStreamDidReconnect,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleTransportReconnect()
             }
         }
 
@@ -2372,6 +2308,86 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         }
     }
 
+    private func handleTransportReconnect() {
+        // Snapshot pendingMessageIds before clearing so the debounced
+        // reconnect catch-up (which fires 500ms later) can still dedup
+        // local messages that were pending when the connection dropped.
+        // Only take a new snapshot if no debounce task is in flight —
+        // a rapid second reconnect must not overwrite the snapshot to
+        // empty while the first debounce is still pending.
+        if reconnectDebounceTask == nil {
+            reconnectPendingSnapshot = pendingMessageIds
+        }
+        pendingQueuedCount = 0
+        pendingMessageIds.removeAll()
+        requestIdToMessageId.removeAll()
+        activeRequestIdToMessageId.removeAll()
+        pendingLocalDeletions.removeAll()
+        lastActivityVersion = 0
+        assistantActivityPhase = "idle"
+        assistantActivityAnchor = "global"
+        assistantActivityReason = nil
+        assistantStatusText = nil
+
+        // If a run was in progress when the connection dropped, the client may
+        // have missed the messageComplete (or the full assistant response).
+        // Reset the spinner and re-fetch history so the UI catches up on
+        // anything that happened during the gap. Debounce: cancel any pending
+        // reconnect task and wait 500ms to coalesce rapid-fire reconnect
+        // notifications into one load.
+        if isThinking || isSending || currentAssistantMessageId != nil {
+            isThinking = false
+            isSending = false
+            currentAssistantMessageId = nil
+            discardStreamingBuffer()
+            discardPartialOutputBuffer()
+            reconnectDebounceTask?.cancel()
+            reconnectDebounceTask = Task { @MainActor [weak self] in
+                defer { if !Task.isCancelled { self?.reconnectDebounceTask = nil } }
+                try? await Task.sleep(nanoseconds: 500_000_000) // 500ms
+                guard !Task.isCancelled else { return }
+                guard let self, !self.isReconnectHistoryLoading else { return }
+                if let conversationId = self.conversationId {
+                    self.isReconnectHistoryLoading = true
+                    self.needsReconnectCatchUp = true
+                    // Safety timeout: if the history response never arrives
+                    // (e.g. request throws or is dropped), reset the latch
+                    // so future reconnects aren't blocked forever.
+                    self.reconnectLatchTimeoutTask?.cancel()
+                    self.reconnectLatchTimeoutTask = Task { @MainActor [weak self] in
+                        try? await Task.sleep(nanoseconds: 10_000_000_000) // 10s
+                        guard !Task.isCancelled, let self, self.isReconnectHistoryLoading else { return }
+                        log.warning("Reconnect history latch timed out after 10s — resetting")
+                        self.isReconnectHistoryLoading = false
+                        self.needsReconnectCatchUp = false
+                        self.reconnectPendingSnapshot = []
+                    }
+                    self.onReconnectHistoryNeeded?(conversationId)
+                }
+            }
+        }
+
+        // Auto-retry a failed message on reconnect so the user doesn't
+        // have to manually click "Retry" after a transient daemon crash.
+        if isConnectionError, lastFailedMessageText != nil {
+            retryLastMessage()
+        } else if isConnectionError {
+            // No message to retry, but clear the stale error banner.
+            errorText = nil
+            lastFailedSendError = nil
+            connectionDiagnosticHint = nil
+        }
+
+        // If we already have a conversation ID, flush immediately. Otherwise
+        // defer: conversationId's didSet will trigger flushOfflineQueue() once
+        // the conversation is restored from history (cold-start reconnect case).
+        if conversationId != nil {
+            flushOfflineQueue()
+        } else {
+            needsOfflineFlush = true
+        }
+    }
+
     deinit {
         // Cancel all Combine subscriptions first so no new work can be scheduled
         // from incoming publisher events while the remaining cleanup runs.
@@ -2397,6 +2413,9 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
             MemoryPressureMonitor.shared.removeListener(token)
         }
         if let observer = reconnectObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = eventStreamReconnectObserver {
             NotificationCenter.default.removeObserver(observer)
         }
         if let observer = appPreviewCapturedObserver {
