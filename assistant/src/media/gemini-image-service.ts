@@ -1,45 +1,13 @@
 import { ApiError, GoogleGenAI } from "@google/genai";
 
-// --- Request / Response types ---
-
-interface ImageGenerationRequest {
-  prompt: string;
-  mode: "generate" | "edit";
-  /** Base64-encoded source images for edit mode */
-  sourceImages?: Array<{ mimeType: string; dataBase64: string }>;
-  /** Model override; defaults to 'gemini-3.1-flash-image-preview' */
-  model?: string;
-  /** Number of output variants (1-4, default 1) */
-  variants?: number;
-}
-
-/** Credentials for direct Gemini API access. */
-interface DirectCredentials {
-  type: "direct";
-  apiKey: string;
-}
-
-/** Credentials for managed proxy access (platform translates to Vertex AI). */
-interface ManagedProxyCredentials {
-  type: "managed-proxy";
-  assistantApiKey: string;
-  baseUrl: string;
-}
-
-export type ImageGenCredentials = DirectCredentials | ManagedProxyCredentials;
-
-interface GeneratedImage {
-  mimeType: string;
-  dataBase64: string;
-  /** Short title derived from the model's text response, if available. */
-  title?: string;
-}
-
-interface ImageGenerationResult {
-  images: GeneratedImage[];
-  text?: string;
-  resolvedModel: string;
-}
+import {
+  type GeneratedImage,
+  type ImageGenCredentials,
+  type ImageGenerationRequest,
+  type ImageGenerationResult,
+  type ManagedProxyCredentials,
+  MAX_VARIANTS,
+} from "./types.js";
 
 // --- Constants ---
 
@@ -48,7 +16,6 @@ const ALLOWED_MODELS = new Set([
   "gemini-3.1-flash-image-preview",
   "gemini-3-pro-image-preview",
 ]);
-const MAX_VARIANTS = 4;
 
 // --- Error mapping ---
 
