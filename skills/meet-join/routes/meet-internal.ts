@@ -38,17 +38,14 @@
 
 import { timingSafeEqual } from "node:crypto";
 
-import { MeetBotEventSchema } from "../contracts/index.js";
+import type { SkillHost } from "@vellumai/skill-host-contracts";
 import { z } from "zod";
 
+import { MeetBotEventSchema } from "../contracts/index.js";
 import {
   getMeetSessionEventRouter,
   type MeetSessionEventRouter,
 } from "../daemon/session-event-router.js";
-import { getLogger } from "../../../assistant/src/util/logger.js";
-import { httpError } from "../../../assistant/src/runtime/http-errors.js";
-
-const log = getLogger("meet-internal-routes");
 
 /**
  * Batched-event request body. The bot buffers events briefly and ships
@@ -56,6 +53,28 @@ const log = getLogger("meet-internal-routes");
  */
 export const MeetIngressBatchSchema = z.array(MeetBotEventSchema);
 export type MeetIngressBatch = z.infer<typeof MeetIngressBatchSchema>;
+
+// ── Local HTTP error helper ─────────────────────────────────────────────────
+//
+// The skill no longer imports `httpError` from `assistant/src/runtime/`; the
+// skill-isolation plan (`.private/plans/skill-isolation.md`) bans all
+// `assistant/` reach-ins from `skills/`. The wire envelope below is the
+// exact shape produced by `assistant/src/runtime/http-errors.ts` so clients
+// (the meet bot) observe no change.
+
+type MeetRouteErrorCode = "BAD_REQUEST" | "UNAUTHORIZED";
+
+function meetRouteError(
+  code: MeetRouteErrorCode,
+  message: string,
+  status: number,
+  details?: unknown,
+): Response {
+  const body = {
+    error: { code, message, ...(details !== undefined ? { details } : {}) },
+  };
+  return Response.json(body, { status });
+}
 
 /**
  * Handle `POST /v1/internal/meet/:meetingId/events`.
@@ -67,12 +86,20 @@ export type MeetIngressBatch = z.infer<typeof MeetIngressBatchSchema>;
  *      constant-time comparison. 401 on any mismatch.
  *   3. Dispatch each validated event to the registered session handler.
  *   4. Return 204 on success.
+ *
+ * `host` provides logger access (replacing the former direct import of
+ * `getLogger` from `assistant/`). `router` remains an injectable default
+ * for tests that want to drive a fresh router without hitting the module
+ * singleton.
  */
 export async function handleMeetInternalEvents(
+  host: SkillHost,
   req: Request,
   meetingId: string,
   router: MeetSessionEventRouter = getMeetSessionEventRouter(),
 ): Promise<Response> {
+  const log = host.logger.get("meet-internal-routes");
+
   if (req.method !== "POST") {
     return new Response("method not allowed", {
       status: 405,
@@ -84,19 +111,19 @@ export async function handleMeetInternalEvents(
   const expectedToken = router.resolveBotApiToken(meetingId);
   if (!expectedToken) {
     log.warn(
-      { meetingId },
       "meet-internal: no active session for meetingId; rejecting",
+      { meetingId },
     );
-    return httpError("UNAUTHORIZED", "unauthorized", 401);
+    return meetRouteError("UNAUTHORIZED", "unauthorized", 401);
   }
 
   const presented = parseBearerToken(req.headers.get("authorization"));
   if (!presented || !tokensMatch(presented, expectedToken)) {
     log.warn(
-      { meetingId, tokenPresented: presented !== null },
       "meet-internal: bearer token mismatch; rejecting",
+      { meetingId, tokenPresented: presented !== null },
     );
-    return httpError("UNAUTHORIZED", "unauthorized", 401);
+    return meetRouteError("UNAUTHORIZED", "unauthorized", 401);
   }
 
   // ── Body parse ───────────────────────────────────────────────────────
@@ -104,16 +131,16 @@ export async function handleMeetInternalEvents(
   try {
     rawBody = await req.json();
   } catch {
-    return httpError("BAD_REQUEST", "invalid JSON body", 400);
+    return meetRouteError("BAD_REQUEST", "invalid JSON body", 400);
   }
 
   const parsed = MeetIngressBatchSchema.safeParse(rawBody);
   if (!parsed.success) {
     log.warn(
-      { meetingId, issues: parsed.error.issues },
       "meet-internal: invalid event batch",
+      { meetingId, issues: parsed.error.issues },
     );
-    return httpError(
+    return meetRouteError(
       "BAD_REQUEST",
       "invalid event batch",
       400,
@@ -131,14 +158,14 @@ export async function handleMeetInternalEvents(
   for (const event of parsed.data) {
     if (event.meetingId !== meetingId) {
       log.warn(
+        "meet-internal: event meetingId does not match path",
         {
           pathMeetingId: meetingId,
           eventMeetingId: event.meetingId,
           eventType: event.type,
         },
-        "meet-internal: event meetingId does not match path",
       );
-      return httpError(
+      return meetRouteError(
         "BAD_REQUEST",
         "event meetingId does not match path",
         400,

@@ -10,10 +10,38 @@
 
 import { describe, expect, test } from "bun:test";
 
+import type { SkillHost } from "@vellumai/skill-host-contracts";
+
 import type { MeetBotEvent } from "../../contracts/index.js";
 
 import { MeetSessionEventRouter } from "../../daemon/session-event-router.js";
 import { handleMeetInternalEvents } from "../meet-internal.js";
+
+/**
+ * Minimal host stub covering just the surface `handleMeetInternalEvents`
+ * touches today — logger access. Extended to a full `SkillHost` via a
+ * throwing proxy so any unexpected facet access fails loudly rather than
+ * silently returning `undefined`.
+ */
+function buildTestHost(): SkillHost {
+  const noopLogger = {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+  };
+  const throwing = (name: string): never => {
+    throw new Error(`unexpected host.${name} access in meet-internal test`);
+  };
+  return new Proxy({} as SkillHost, {
+    get: (_t, prop) => {
+      if (prop === "logger") return { get: () => noopLogger };
+      return throwing(String(prop));
+    },
+  });
+}
+
+const host: SkillHost = buildTestHost();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -99,7 +127,7 @@ describe("handleMeetInternalEvents — auth", () => {
       body: [lifecycleEvent("m1")],
     });
 
-    const res = await handleMeetInternalEvents(req, "m1", router);
+    const res = await handleMeetInternalEvents(host, req, "m1", router);
 
     expect(res.status).toBe(401);
     const body = (await res.json()) as { error: { code: string } };
@@ -110,7 +138,7 @@ describe("handleMeetInternalEvents — auth", () => {
     const { router } = makeRouterWithToken("m1", "secret");
     const req = buildRequest("m1", { body: [lifecycleEvent("m1")] });
 
-    const res = await handleMeetInternalEvents(req, "m1", router);
+    const res = await handleMeetInternalEvents(host, req, "m1", router);
 
     expect(res.status).toBe(401);
   });
@@ -122,7 +150,7 @@ describe("handleMeetInternalEvents — auth", () => {
       body: [lifecycleEvent("m1")],
     });
 
-    const res = await handleMeetInternalEvents(req, "m1", router);
+    const res = await handleMeetInternalEvents(host, req, "m1", router);
 
     expect(res.status).toBe(401);
   });
@@ -138,7 +166,7 @@ describe("handleMeetInternalEvents — auth", () => {
       body: JSON.stringify([lifecycleEvent("m1")]),
     });
 
-    const res = await handleMeetInternalEvents(req, "m1", router);
+    const res = await handleMeetInternalEvents(host, req, "m1", router);
 
     expect(res.status).toBe(401);
   });
@@ -158,7 +186,7 @@ describe("handleMeetInternalEvents — success path", () => {
     ];
     const req = buildRequest("m1", { bearer: "tok-1", body: batch });
 
-    const res = await handleMeetInternalEvents(req, "m1", router);
+    const res = await handleMeetInternalEvents(host, req, "m1", router);
 
     expect(res.status).toBe(204);
     expect(received).toEqual(batch);
@@ -172,7 +200,7 @@ describe("handleMeetInternalEvents — success path", () => {
 
     const req = buildRequest("m1", { bearer: "tok-1", body: [] });
 
-    const res = await handleMeetInternalEvents(req, "m1", router);
+    const res = await handleMeetInternalEvents(host, req, "m1", router);
 
     expect(res.status).toBe(204);
     expect(received).toEqual([]);
@@ -188,7 +216,7 @@ describe("handleMeetInternalEvents — success path", () => {
       body: [lifecycleEvent("m1")],
     });
 
-    const res = await handleMeetInternalEvents(req, "m1", router);
+    const res = await handleMeetInternalEvents(host, req, "m1", router);
 
     expect(res.status).toBe(204);
   });
@@ -208,7 +236,7 @@ describe("handleMeetInternalEvents — success path", () => {
       body: JSON.stringify([lifecycleEvent("m1")]),
     });
 
-    const res = await handleMeetInternalEvents(req, "m1", router);
+    const res = await handleMeetInternalEvents(host, req, "m1", router);
 
     expect(res.status).toBe(204);
     expect(received).toHaveLength(1);
@@ -220,7 +248,7 @@ describe("handleMeetInternalEvents — body validation", () => {
     const { router } = makeRouterWithToken("m1", "tok");
     const req = buildRequest("m1", { bearer: "tok", rawBody: "not-json{" });
 
-    const res = await handleMeetInternalEvents(req, "m1", router);
+    const res = await handleMeetInternalEvents(host, req, "m1", router);
 
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { code: string } };
@@ -234,7 +262,7 @@ describe("handleMeetInternalEvents — body validation", () => {
       body: { not: "an array" },
     });
 
-    const res = await handleMeetInternalEvents(req, "m1", router);
+    const res = await handleMeetInternalEvents(host, req, "m1", router);
 
     expect(res.status).toBe(400);
   });
@@ -252,7 +280,7 @@ describe("handleMeetInternalEvents — body validation", () => {
       ],
     });
 
-    const res = await handleMeetInternalEvents(req, "m1", router);
+    const res = await handleMeetInternalEvents(host, req, "m1", router);
 
     expect(res.status).toBe(400);
   });
@@ -272,7 +300,7 @@ describe("handleMeetInternalEvents — body validation", () => {
       ],
     });
 
-    const res = await handleMeetInternalEvents(req, "m1", router);
+    const res = await handleMeetInternalEvents(host, req, "m1", router);
 
     expect(res.status).toBe(400);
   });
@@ -291,7 +319,7 @@ describe("handleMeetInternalEvents — body validation", () => {
       ],
     });
 
-    const res = await handleMeetInternalEvents(req, "m1", router);
+    const res = await handleMeetInternalEvents(host, req, "m1", router);
 
     expect(res.status).toBe(400);
     // Importantly: the valid event was NOT dispatched — we reject the
@@ -314,7 +342,7 @@ describe("handleMeetInternalEvents — body validation", () => {
       body: [lifecycleEvent("m1"), lifecycleEvent("m2")],
     });
 
-    const res = await handleMeetInternalEvents(req, "m1", router);
+    const res = await handleMeetInternalEvents(host, req, "m1", router);
 
     expect(res.status).toBe(400);
     // Atomic rejection: a mid-batch mismatch aborts the whole batch and
@@ -330,7 +358,7 @@ describe("handleMeetInternalEvents — method enforcement", () => {
     const { router } = makeRouterWithToken("m1", "tok");
     const req = buildRequest("m1", { method: "GET", bearer: "tok" });
 
-    const res = await handleMeetInternalEvents(req, "m1", router);
+    const res = await handleMeetInternalEvents(host, req, "m1", router);
 
     expect(res.status).toBe(405);
     expect(res.headers.get("allow")).toBe("POST");

@@ -79,7 +79,7 @@ export function register(host: SkillHost): void {
           ),
         );
       }
-      return handleMeetInternalEvents(req, meetingId);
+      return handleMeetInternalEvents(host, req, meetingId);
     },
   });
 

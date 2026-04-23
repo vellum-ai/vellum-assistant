@@ -28,7 +28,11 @@ import { afterAll, describe, expect, mock, test } from "bun:test";
 let lastHandlerMeetingId: string | null = null;
 mock.module("../routes/meet-internal.js", () => ({
   MEET_INTERNAL_EVENTS_PATH_RE: /^\/v1\/internal\/meet\/([^/]+)\/events$/,
-  handleMeetInternalEvents: async (_req: Request, meetingId: string) => {
+  handleMeetInternalEvents: async (
+    _host: SkillHost,
+    _req: Request,
+    meetingId: string,
+  ) => {
     lastHandlerMeetingId = meetingId;
     return new Response(null, { status: 204 });
   },
