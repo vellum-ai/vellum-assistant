@@ -598,6 +598,26 @@ extension DynamicPageSurfaceView {
             }
         }
 
+        /// Handle target="_blank" links and window.open() calls.
+        /// Without this, WKWebView silently swallows these navigations.
+        func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            if sandboxMode {
+                log.info("createWebViewWith: blocked in sandbox mode")
+                return nil
+            }
+            if let url = navigationAction.request.url,
+               let scheme = url.scheme?.lowercased(),
+               ["http", "https", "mailto"].contains(scheme) {
+                NSWorkspace.shared.open(url)
+            }
+            return nil
+        }
+
         func webView(
             _ webView: WKWebView,
             decidePolicyFor navigationAction: WKNavigationAction,
