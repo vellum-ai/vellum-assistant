@@ -78,6 +78,19 @@ export const ASSISTANT_API_VERSIONS: Record<string, string[]> = {
  */
 const registeredPlugins = new Map<string, Plugin>();
 
+/**
+ * Latch that closes the per-boot registration window. Flipped to `true` by
+ * {@link closeRegistration} once `loadUserPlugins()` has returned. After that,
+ * any attempt to register a *new* plugin throws — this is the safety net
+ * against a user plugin whose dynamic `import()` was timed out but whose
+ * top-level `await` later resolves and still tries to call
+ * {@link registerPlugin}. Without the latch such a late arrival would land in
+ * the registry after `bootstrapPlugins()` has already walked it, leaving the
+ * plugin visible to `getMiddlewaresFor()` / `getInjectors()` with its
+ * `init()` hook never invoked.
+ */
+let registrationClosed = false;
+
 // ─── Registration ────────────────────────────────────────────────────────────
 
 /**
@@ -139,10 +152,24 @@ export function registerPlugin(plugin: Plugin): void {
   }
 
   // Duplicate-name check — plugins must be uniquely addressable in logs,
-  // storage paths, and error messages.
+  // storage paths, and error messages. Runs BEFORE the closed-registration
+  // check so `registerDefaultPlugins()` (which replays every default even
+  // after the registration window closes) keeps seeing the familiar
+  // "already registered" error it catches and swallows.
   if (registeredPlugins.has(name)) {
     throw new PluginExecutionError(
       `plugin ${name} is already registered`,
+      name,
+    );
+  }
+
+  // Closed-registration check — rejects a genuinely new plugin that arrives
+  // after {@link closeRegistration}. The canonical offender is a user plugin
+  // whose dynamic `import()` was timed out in `loadUserPlugins()` but whose
+  // module evaluation eventually completes and still calls this function.
+  if (registrationClosed) {
+    throw new PluginExecutionError(
+      `plugin ${name} cannot register: plugin registration is closed (late arrival after loadUserPlugins() returned)`,
       name,
     );
   }
@@ -220,6 +247,23 @@ export function getInjectors(): Injector[] {
 }
 
 /**
+ * Close the per-boot registration window. After this call, any attempt to
+ * register a genuinely new plugin throws a {@link PluginExecutionError}.
+ * Re-registering an already-registered plugin still hits the duplicate-name
+ * check first (so idempotent callers like `registerDefaultPlugins()` keep
+ * working unchanged).
+ *
+ * Called by `loadUserPlugins()` immediately before it returns so the
+ * `bootstrapPlugins()` invariant ("registry has been fully populated for this
+ * boot cycle") cannot be violated by a user plugin whose dynamic `import()`
+ * timed out mid-load but whose top-level `await` resolves later and still
+ * reaches `registerPlugin()`. Idempotent.
+ */
+export function closeRegistration(): void {
+  registrationClosed = true;
+}
+
+/**
  * Remove a plugin from the registry. Invoked from the bootstrap's failure path
  * after {@link Plugin.onShutdown} and contribution teardown have run, so
  * {@link getMiddlewaresFor} and {@link getInjectors} no longer expose a
@@ -250,4 +294,8 @@ export function resetPluginRegistryForTests(): void {
     );
   }
   registeredPlugins.clear();
+  // Re-open the registration window so subsequent tests can register plugins
+  // again. Without this, the latch set by a prior `closeRegistration()` call
+  // would leak across test cases and reject legitimate registrations.
+  registrationClosed = false;
 }

@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   ASSISTANT_API_VERSIONS,
+  closeRegistration,
   getInjectors,
   getMiddlewaresFor,
   getRegisteredPlugins,
@@ -62,6 +63,35 @@ describe("plugin registry", () => {
     );
     expect(() => registerPlugin(buildPlugin("alpha"))).toThrow(
       "already registered",
+    );
+  });
+
+  test("rejects a late `registerPlugin` call after `closeRegistration`", () => {
+    // Models the user-plugin hang: `loadUserPlugins()` timed out awaiting the
+    // plugin's dynamic import, called `closeRegistration()`, and returned.
+    // The plugin's module evaluation later completes and still tries to
+    // register. The latch must reject it so the registry doesn't gain an
+    // entry after `bootstrapPlugins()` has walked it.
+    closeRegistration();
+
+    expect(() => registerPlugin(buildPlugin("late-arrival"))).toThrow(
+      PluginExecutionError,
+    );
+    expect(() => registerPlugin(buildPlugin("late-arrival"))).toThrow(
+      "registration is closed",
+    );
+    expect(getRegisteredPlugins().map((p) => p.manifest.name)).not.toContain(
+      "late-arrival",
+    );
+  });
+
+  test("`resetPluginRegistryForTests` re-opens the registration window", () => {
+    closeRegistration();
+    resetPluginRegistryForTests();
+    // Without the reset reopening the latch, this registration would throw.
+    expect(() => registerPlugin(buildPlugin("after-reset"))).not.toThrow();
+    expect(getRegisteredPlugins().map((p) => p.manifest.name)).toContain(
+      "after-reset",
     );
   });
 

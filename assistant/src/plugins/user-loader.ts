@@ -40,6 +40,7 @@ import { pathToFileURL } from "node:url";
 
 import { getLogger } from "../util/logger.js";
 import { vellumRoot } from "../util/platform.js";
+import { closeRegistration } from "./registry.js";
 
 const log = getLogger("user-plugin-loader");
 
@@ -83,6 +84,10 @@ export async function loadUserPlugins(
       { pluginsDir },
       "loadUserPlugins: no plugins directory — skipping",
     );
+    // Close the registration window even on the fast path so a late arrival
+    // from an unrelated source (e.g. a mis-ordered static import) still can't
+    // slip in after bootstrap walks the registry.
+    closeRegistration();
     return;
   }
 
@@ -97,6 +102,7 @@ export async function loadUserPlugins(
       { err, pluginsDir },
       "loadUserPlugins: failed to read plugins directory",
     );
+    closeRegistration();
     return;
   }
 
@@ -149,8 +155,21 @@ export async function loadUserPlugins(
           importTimeoutMs,
         );
       });
-      const result = await Promise.race([import(moduleUrl), timeoutPromise]);
+      // Retain the import promise so we can attach a terminal `.catch` on the
+      // timeout branch. `Promise.race` does not cancel the losing promise —
+      // the module evaluation keeps running in the background even after we
+      // stop awaiting it, and if it eventually throws (either from the
+      // module body or from the late `registerPlugin()` hitting a closed
+      // registry) an unhandled rejection would crash the daemon.
+      const importPromise = import(moduleUrl);
+      const result = await Promise.race([importPromise, timeoutPromise]);
       if (result === timeoutSentinel) {
+        importPromise.catch(() => {
+          // Abandoned import completed (or threw) after the timeout. The
+          // closed-registration latch in registry.ts guarantees any late
+          // `registerPlugin()` call is rejected, so swallowing the outcome
+          // here is the safe default.
+        });
         log.warn(
           { pluginDir, registerPath, timeoutMs: importTimeoutMs },
           `Timed out loading user plugin ${pluginDir} after ${importTimeoutMs}ms — skipping`,
@@ -174,4 +193,12 @@ export async function loadUserPlugins(
       if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
     }
   }
+
+  // Close the registration window once every candidate plugin has been
+  // awaited (or timed out). The per-plugin try/catch guarantees no throw
+  // escapes the loop, so this line always runs. Any abandoned import that
+  // later resolves and reaches `registerPlugin()` is rejected by the latch,
+  // preserving the `bootstrapPlugins()` invariant that the registry is
+  // fully populated before it is walked.
+  closeRegistration();
 }

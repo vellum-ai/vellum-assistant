@@ -178,6 +178,48 @@ registerPlugin({
     expect(names).not.toContain("hanging-plugin");
   });
 
+  test("plugin whose top-level await resolves AFTER the timeout cannot register late", async () => {
+    // Codex/Devin P1 regression: racing `import(moduleUrl)` against a timeout
+    // only stops the loader from awaiting the module — it does NOT cancel
+    // module evaluation. A plugin whose top-level await eventually resolves
+    // continues running in the background and would otherwise call
+    // `registerPlugin()` after `loadUserPlugins()` has returned (and after
+    // `bootstrapPlugins()` has potentially already walked the registry),
+    // leaving the plugin visible to `getMiddlewaresFor()` / `getInjectors()`
+    // with its `init()` hook never invoked.
+    //
+    // The `closeRegistration()` latch must reject that late arrival so the
+    // registry stays consistent with the bootstrap invariant.
+    writePlugin(
+      "slow-late-plugin",
+      `
+await new Promise((resolve) => setTimeout(resolve, 200));
+registerPlugin({
+  manifest: {
+    name: "slow-late-plugin",
+    version: "0.0.1",
+    requires: { pluginRuntime: "v1" },
+  },
+});
+`,
+    );
+
+    // Time out well before the plugin's top-level await resolves. The loader
+    // returns immediately; the abandoned import keeps evaluating in the
+    // background.
+    await loadUserPlugins({ importTimeoutMs: 25 });
+
+    // Wait long enough for the abandoned import's top-level await to resolve
+    // and try to `registerPlugin()`. The closed-registration latch must
+    // reject the call; the `.catch(() => {})` on the abandoned import must
+    // swallow the resulting rejection so the test does not see an
+    // unhandled-rejection crash.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    const names = getRegisteredPlugins().map((p) => p.manifest.name);
+    expect(names).not.toContain("slow-late-plugin");
+  });
+
   test("subdirectory without register.{ts,js} is silently skipped", async () => {
     // Populate a directory that looks like a plugin but lacks a register
     // file. The loader must skip it without throwing.
