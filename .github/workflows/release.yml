@@ -2438,7 +2438,21 @@ jobs:
   # As with the macOS builds, `needs:` gates on GCR manifests only because
   # this job runs in staging too; the Docker Hub gate lives on `release-ios`
   # (prod-only), which is the sole external publisher of this .ipa.
+  #
+  # -------------------------------------------------------------------------
+  # PAUSED during the Capacitor iOS migration (LUM-1125).
+  # iOS releases are handled manually out of `vellum-assistant-platform`'s
+  # Capacitor shell while the replacement CI workflow is being designed.
+  # Both pipelines cannot upload to the same bundle ID
+  # (`ai.vocify-inc.vellum-assistant-ios`) simultaneously — App Store
+  # Connect rejects duplicate build numbers, so we skip this one.
+  #
+  # To re-enable either for a fallback native-iOS release, or if the
+  # Capacitor migration is abandoned: remove `if: false` from here and
+  # from `release-ios` below.
+  # -------------------------------------------------------------------------
   build-ios:
+    if: false
     needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     runs-on: macos-15
     timeout-minutes: 30
@@ -2476,9 +2490,13 @@ jobs:
         working-directory: clients/ios
         run: ./build.sh test
 
+  # PAUSED during the Capacitor iOS migration (LUM-1125) — see note on
+  # `build-ios` above. To re-enable, delete the `if: false` line and
+  # restore the original staging gate:
+  #   if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
   release-ios:
+    if: false
     needs: [extract-version, build-ios, push-dockerhub-image]
-    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: macos-15
     timeout-minutes: 30
     env:

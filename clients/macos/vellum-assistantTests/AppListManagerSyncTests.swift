@@ -9,7 +9,7 @@ import XCTest
 ///
 /// The chain under test:
 ///   app_create tool runs
-///   → handleAppChange in tool-side-effects.ts broadcasts app_files_changed
+///   → notifyAppChanged in tool-side-effects.ts broadcasts app_files_changed
 ///   → macOS client calls /v1/apps, receives updated list
 ///   → AppListManager.syncFromDaemon() is called with the new list
 ///   → manager.apps contains the new app
