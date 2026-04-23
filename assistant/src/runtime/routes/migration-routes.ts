@@ -516,6 +516,12 @@ export async function handleMigrationExportToGcs(
             // request as "duplex option is required when body is a
             // ReadableStream".
             duplex: "half",
+            // `validateGcsSignedUrl` only vets the initial URL. If the
+            // upstream responds with a 3xx, default fetch would follow
+            // the redirect and PUT bytes to an attacker-controlled host.
+            // Refuse redirects so the signed URL's origin is the only
+            // destination for the export archive.
+            redirect: "error",
             headers: {
               "Content-Type": "application/octet-stream",
               "Content-Length": String(size),
@@ -564,10 +570,7 @@ export async function handleMigrationExportToGcs(
           try {
             await cleanup();
           } catch (err) {
-            log.warn(
-              { err },
-              "Failed to clean up export-to-gcs temp file",
-            );
+            log.warn({ err }, "Failed to clean up export-to-gcs temp file");
           }
         }
       }
@@ -584,10 +587,7 @@ export async function handleMigrationExportToGcs(
         { status: 409 },
       );
     }
-    log.error(
-      { err },
-      "Unexpected error while enqueueing export-to-gcs job",
-    );
+    log.error({ err }, "Unexpected error while enqueueing export-to-gcs job");
     return httpError(
       "INTERNAL_ERROR",
       err instanceof Error ? err.message : "Unexpected export-to-gcs error",
@@ -1557,6 +1557,7 @@ export function migrationRouteDefinitions(): RouteDefinition[] {
           .optional()
           .describe("Human-readable export description."),
       }),
+      responseStatus: "202",
       responseBody: z.object({
         job_id: z.string(),
         status: z.literal("pending"),

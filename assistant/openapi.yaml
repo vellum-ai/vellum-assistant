@@ -5644,7 +5644,7 @@ paths:
       tags:
         - migrations
       responses:
-        "200":
+        "202":
           description: Successful response
           content:
             application/json:

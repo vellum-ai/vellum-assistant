@@ -232,17 +232,14 @@ describe("handleMigrationExportToGcs — happy path", () => {
     });
 
     try {
-      const req = new Request(
-        "http://localhost/v1/migrations/export-to-gcs",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            upload_url: makeFakeSignedUploadUrl(fixture.port),
-            description: "happy-path export",
-          }),
-        },
-      );
+      const req = new Request("http://localhost/v1/migrations/export-to-gcs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          upload_url: makeFakeSignedUploadUrl(fixture.port),
+          description: "happy-path export",
+        }),
+      });
 
       const res = await handleMigrationExportToGcs(req);
       expect(res.status).toBe(202);
@@ -369,16 +366,13 @@ describe("handleMigrationExportToGcs — upload failure", () => {
     });
 
     try {
-      const req = new Request(
-        "http://localhost/v1/migrations/export-to-gcs",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            upload_url: makeFakeSignedUploadUrl(fixture.port),
-          }),
-        },
-      );
+      const req = new Request("http://localhost/v1/migrations/export-to-gcs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          upload_url: makeFakeSignedUploadUrl(fixture.port),
+        }),
+      });
 
       const res = await handleMigrationExportToGcs(req);
       expect(res.status).toBe(202);
@@ -395,23 +389,62 @@ describe("handleMigrationExportToGcs — upload failure", () => {
   }, 15_000);
 });
 
+describe("handleMigrationExportToGcs — redirect handling", () => {
+  test("PUT server responds with a 302 redirect → job failed (no SSRF follow)", async () => {
+    // If the upstream "storage.googleapis.com" responded with a 3xx to an
+    // attacker-controlled host, default fetch would follow and PUT bytes
+    // there. `redirect: "error"` on the fetch must surface the redirect
+    // as a transport failure instead — the job must end `failed` rather
+    // than `complete`, and no bytes must reach the redirect target.
+    let redirectTargetHit = false;
+    const redirectTarget = await startFixtureServer(async (_req, res) => {
+      redirectTargetHit = true;
+      res.writeHead(200);
+      res.end();
+    });
+    const fixture = await startFixtureServer(async (_req, res) => {
+      res.writeHead(302, {
+        Location: `http://127.0.0.1:${redirectTarget.port}/attacker`,
+      });
+      res.end();
+    });
+
+    try {
+      const req = new Request("http://localhost/v1/migrations/export-to-gcs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          upload_url: makeFakeSignedUploadUrl(fixture.port),
+        }),
+      });
+
+      const res = await handleMigrationExportToGcs(req);
+      expect(res.status).toBe(202);
+      const body = (await res.json()) as AcceptedResponse;
+
+      const terminal = await waitForJobTerminal(body.job_id);
+      expect(terminal.status).toBe("failed");
+      expect(redirectTargetHit).toBe(false);
+    } finally {
+      await fixture.close();
+      await redirectTarget.close();
+    }
+  }, 15_000);
+});
+
 describe("handleMigrationExportToGcs — URL validation", () => {
   test("rejects non-https scheme when allowlist is default (400)", async () => {
     // Temporarily reset the validator to production defaults so this
     // assertion exercises the strict scheme check.
     _setUrlImportValidatorOptionsForTests(undefined);
     try {
-      const req = new Request(
-        "http://localhost/v1/migrations/export-to-gcs",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            upload_url:
-              "http://storage.googleapis.com/b/o?X-Goog-Signature=fake",
-          }),
-        },
-      );
+      const req = new Request("http://localhost/v1/migrations/export-to-gcs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          upload_url: "http://storage.googleapis.com/b/o?X-Goog-Signature=fake",
+        }),
+      });
       const res = await handleMigrationExportToGcs(req);
       expect(res.status).toBe(400);
       const body = (await res.json()) as ErrorEnvelope;
@@ -425,17 +458,13 @@ describe("handleMigrationExportToGcs — URL validation", () => {
   });
 
   test("rejects wrong host (400)", async () => {
-    const req = new Request(
-      "http://localhost/v1/migrations/export-to-gcs",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          upload_url:
-            "https://evil.example.com/bucket/obj?X-Goog-Signature=fake",
-        }),
-      },
-    );
+    const req = new Request("http://localhost/v1/migrations/export-to-gcs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        upload_url: "https://evil.example.com/bucket/obj?X-Goog-Signature=fake",
+      }),
+    });
     const res = await handleMigrationExportToGcs(req);
     expect(res.status).toBe(400);
     const body = (await res.json()) as ErrorEnvelope;
@@ -444,17 +473,14 @@ describe("handleMigrationExportToGcs — URL validation", () => {
   });
 
   test("rejects path traversal (400)", async () => {
-    const req = new Request(
-      "http://localhost/v1/migrations/export-to-gcs",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          upload_url:
-            "https://storage.googleapis.com/bucket/..%2Fother?X-Goog-Signature=fake",
-        }),
-      },
-    );
+    const req = new Request("http://localhost/v1/migrations/export-to-gcs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        upload_url:
+          "https://storage.googleapis.com/bucket/..%2Fother?X-Goog-Signature=fake",
+      }),
+    });
     const res = await handleMigrationExportToGcs(req);
     expect(res.status).toBe(400);
     const body = (await res.json()) as ErrorEnvelope;
