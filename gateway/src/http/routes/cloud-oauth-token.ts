@@ -7,14 +7,13 @@
  *
  * POST /v1/internal/oauth/chrome-extension/token
  *   Body: { assistantId: string, actorPrincipalId: string }
- *   Auth: edge (service-token — only the platform calls this)
+ *   Auth: none at gateway router layer (request reaches here only via
+ *         platform-owned vembda gateway-query plumbing)
  *   Returns: { token: string, expiresIn: number, guardianId: string }
  */
 
 import { getLogger } from "../../logger.js";
 import { mintToken } from "../../auth/token-service.js";
-import { validateEdgeToken } from "../../auth/token-exchange.js";
-import { parseSub } from "../../auth/subject.js";
 import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
 
 const log = getLogger("cloud-oauth-token");
@@ -25,25 +24,6 @@ const GUARDIAN_TOKEN_TTL_SECONDS = 3600;
 export function createCloudOAuthTokenHandler() {
   return {
     async handleMintToken(req: Request): Promise<Response> {
-      // Restrict to service tokens only — the platform calls this via vembda.
-      // Actor tokens from regular users must not be able to mint arbitrary
-      // guardian JWTs (would allow impersonation). Fail closed: reject
-      // unless we can positively confirm the caller is svc_gateway.
-      const authHeader = req.headers.get("authorization");
-      const bearerToken = authHeader?.replace(/^Bearer\s+/i, "");
-      if (!bearerToken) {
-        return Response.json({ error: "Forbidden" }, { status: 403 });
-      }
-      const tokenResult = validateEdgeToken(bearerToken);
-      if (!tokenResult.ok) {
-        return Response.json({ error: "Forbidden" }, { status: 403 });
-      }
-      const callerSub = parseSub(tokenResult.claims.sub);
-      if (!callerSub.ok || callerSub.principalType !== "svc_gateway") {
-        log.warn("Cloud OAuth token request rejected: not a service token");
-        return Response.json({ error: "Forbidden" }, { status: 403 });
-      }
-
       let body: unknown;
       try {
         body = await req.json();
