@@ -1,18 +1,26 @@
 /**
- * Default `historyRepair` plugin — preserves pre-plugins behavior.
+ * Default `historyRepair` plugin.
  *
- * Wraps {@link repairHistory} from `daemon/history-repair.ts`. The orchestrator
- * invokes this pipeline once per turn, just before the provider call, to
- * collapse common history drift (orphan tool_result blocks, missing
- * tool_result blocks, same-role-consecutive messages). The deep-repair
- * fallback (`deepRepairHistory`) — invoked only after a provider ordering
- * error — remains a direct call in the orchestrator for now; future PRs can
- * widen the pipeline if deep-repair turns out to have swap points worth
- * exposing to plugin authors.
+ * The plugin's middleware is a passthrough — it calls `next(args)` and returns
+ * the result unchanged. The actual repair lives in
+ * {@link defaultHistoryRepairTerminal}, which is wired in as the pipeline's
+ * `terminal` argument by `runPipeline` call sites in
+ * `daemon/conversation-agent-loop.ts`. This separation matters: the default
+ * plugin is registered before any user plugin (defaults load first in
+ * `bootstrapPlugins()`), which puts it at the OUTERMOST position of the onion
+ * chain. If the default middleware were to invoke the terminal directly
+ * without calling `next`, it would shadow every later-registered plugin.
+ * Routing through `next(args)` lets user middleware participate normally.
  *
  * Plugins that override this middleware receive both `history` and `provider`
  * so they can route behavior per provider (e.g. strip blocks a specific
  * provider can't handle) without reaching into ambient state.
+ *
+ * Scope: this pipeline wraps only the standard pre-run repair (`repairHistory`).
+ * The orchestrator's one-shot deep-repair fallback (`deepRepairHistory`),
+ * invoked only after a provider ordering error, intentionally bypasses the
+ * pipeline today — see the design note at the `deepRepairHistory` call site
+ * in `daemon/conversation-agent-loop.ts`.
  */
 
 import { repairHistory } from "../../daemon/history-repair.js";
@@ -27,7 +35,9 @@ import {
 
 /**
  * Terminal handler for the `historyRepair` pipeline. Exported so tests can
- * verify default behavior directly without going through `runPipeline`.
+ * verify default behavior directly without going through `runPipeline`, and
+ * so `daemon/conversation-agent-loop.ts` can pass it as the `terminal`
+ * argument to `runPipeline`.
  */
 export function defaultHistoryRepairTerminal(
   args: HistoryRepairArgs,
@@ -35,9 +45,10 @@ export function defaultHistoryRepairTerminal(
   return repairHistory(args.history);
 }
 
-const terminal: Middleware<HistoryRepairArgs, HistoryRepairResult> = async (
+const passthrough: Middleware<HistoryRepairArgs, HistoryRepairResult> = async (
   args,
-) => defaultHistoryRepairTerminal(args);
+  next,
+) => next(args);
 
 export const defaultHistoryRepairPlugin: Plugin = {
   manifest: {
@@ -47,7 +58,7 @@ export const defaultHistoryRepairPlugin: Plugin = {
     requires: { pluginRuntime: "v1", historyRepairApi: "v1" },
   },
   middleware: {
-    historyRepair: terminal,
+    historyRepair: passthrough,
   },
 };
 

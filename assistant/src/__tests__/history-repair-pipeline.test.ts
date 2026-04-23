@@ -321,6 +321,49 @@ describe("historyRepair pipeline — end-to-end via runPipeline", () => {
     expect(result.stats).toEqual(customStats);
   });
 
+  test("user plugin registered AFTER the default still runs (no shadowing)", async () => {
+    // Production registration order: defaults load first via the side-effect
+    // imports in `defaults/index.ts`, then user plugins register on top via
+    // `bootstrapPlugins()`. The user's middleware ends up at a deeper onion
+    // layer than the default. If the default's middleware were to bypass
+    // `next` and call the terminal directly, the user middleware would never
+    // run — this test guards against that regression.
+    registerPlugin(defaultHistoryRepairPlugin);
+
+    let userMiddlewareRan = false;
+    const userMiddleware: Middleware<
+      HistoryRepairArgs,
+      HistoryRepairResult
+    > = async (args, next) => {
+      userMiddlewareRan = true;
+      return next(args);
+    };
+    registerPlugin({
+      manifest: {
+        name: "late-user-plugin",
+        version: "0.0.1",
+        requires: { pluginRuntime: "v1", historyRepairApi: "v1" },
+      },
+      middleware: { historyRepair: userMiddleware },
+    });
+
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+      { role: "assistant", content: [{ type: "text", text: "hello" }] },
+    ];
+
+    await runPipeline<HistoryRepairArgs, HistoryRepairResult>(
+      "historyRepair",
+      getMiddlewaresFor("historyRepair"),
+      async (args) => defaultHistoryRepairTerminal(args),
+      { history: messages, provider: "anthropic" },
+      makeCtx(),
+      DEFAULT_TIMEOUTS.historyRepair,
+    );
+
+    expect(userMiddlewareRan).toBe(true);
+  });
+
   test("runs well under the 1s DEFAULT_TIMEOUTS.historyRepair budget", async () => {
     registerPlugin(defaultHistoryRepairPlugin);
 
