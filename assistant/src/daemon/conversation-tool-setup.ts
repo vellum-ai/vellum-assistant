@@ -580,6 +580,7 @@ export const HOST_TOOL_TO_CAPABILITY = new Map<string, HostProxyCapability>([
   ["host_file_read", "host_file"],
   ["host_file_write", "host_file"],
   ["host_file_edit", "host_file"],
+  ["host_file_transfer", "host_file"],
   ["host_browser", "host_browser"],
 ]);
 // Derived from HOST_TOOL_TO_CAPABILITY so the invariant "every host tool has

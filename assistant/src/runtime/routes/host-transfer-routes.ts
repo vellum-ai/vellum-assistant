@@ -52,7 +52,9 @@ export function handleTransferContentGet(
     return httpError("NOT_FOUND", "Unknown or consumed transfer", 404);
   }
 
-  return new Response(content.buffer, {
+  // Buffer extends Uint8Array at runtime but Bun's BodyInit typing doesn't
+  // recognise it. Cast through unknown to satisfy the type checker.
+  return new Response(content.buffer as unknown as ArrayBuffer, {
     status: 200,
     headers: {
       "Content-Type": "application/octet-stream",

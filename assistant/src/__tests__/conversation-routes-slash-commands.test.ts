@@ -237,6 +237,8 @@ function makeConversation() {
     setHostBashProxy: () => {},
     setHostBrowserProxy: () => {},
     setHostFileProxy: () => {},
+    setHostTransferProxy: () => {},
+    getHostTransferProxy: () => undefined,
     setHostCuProxy: () => {},
     addPreactivatedSkillId: () => {},
     usageStats: {
