@@ -41,6 +41,7 @@ import {
   deriveSetupMessage,
   deriveHealthStatusDisplay,
   healthToPhase,
+  cleanErrorMessage,
   shouldExpandTroubleshooting,
   hasTroubleshootingControls,
   deriveEnvironmentHint,
@@ -240,17 +241,6 @@ function setPhase(phase: ConnectionPhase): void {
     paused: 'paused',
   };
   applyHealthState(healthMap[phase]);
-}
-
-/**
- * Render an inline error message without touching any other UI.
- *
- * Use this for generic popup errors -- e.g. cloud OAuth failures,
- * refresh exceptions, or generic service-worker messages.
- */
-function showErrorText(msg: string): void {
-  errorText.textContent = msg;
-  errorText.style.display = 'block';
 }
 
 function hideDebugDetails(): void {
@@ -688,9 +678,6 @@ async function refreshCloudStatus(): Promise<void> {
     // reconnect. The worker writes `vellum.relayAuthError` when the
     // cloud token refresh fails (see cloudReconnectHook in worker.ts)
     // and clears it on a successful connect.
-    //
-    // Use showErrorText directly: the message already instructs the
-    // user to sign in with Vellum (cloud) again, which is all they need.
     const authErrResult = await chrome.storage.local.get('vellum.relayAuthError');
     const authErr = authErrResult['vellum.relayAuthError'];
     if (
@@ -698,13 +685,14 @@ async function refreshCloudStatus(): Promise<void> {
       typeof authErr === 'object' &&
       typeof (authErr as { message?: unknown }).message === 'string'
     ) {
-      showErrorText((authErr as { message: string }).message);
-      if (typeof (authErr as { debugDetails?: unknown }).debugDetails === 'string') {
-        maybeShowDebugDetails(
-          (authErr as { message: string }).message,
-          (authErr as { debugDetails: string }).debugDetails,
-        );
-      }
+      const rawMsg = (authErr as { message: string }).message;
+      const debugDets = typeof (authErr as { debugDetails?: unknown }).debugDetails === 'string'
+        ? (authErr as { debugDetails: string }).debugDetails
+        : undefined;
+      // Fall back to rawMsg only when it contains a trace ID — otherwise
+      // passing it as debugText would duplicate the message in Debug Details.
+      const debugFallback = /\[trace=/.test(rawMsg) ? rawMsg : undefined;
+      showErrorTextWithDebug(cleanErrorMessage(rawMsg, 'Connection error'), debugDets ?? debugFallback);
     }
   } catch (err) {
     setCloudStatus(`Error: ${err instanceof Error ? err.message : String(err)}`, false);
@@ -744,9 +732,16 @@ btnCloudSignIn.addEventListener('click', async () => {
     setCloudStatus(`Signed in as guardian:${response.token.guardianId}`, true);
     hideDebugDetails();
   } else {
-    const message = `Sign-in failed: ${response.error ?? 'Unknown error'}`;
-    setCloudStatus(message, false);
-    showErrorTextWithDebug(message, response.debugDetails);
+    const rawError = response.error ?? 'Unknown error';
+    setCloudStatus('Sign-in failed', false);
+    // Fall back to rawError only when it contains a trace ID — otherwise
+    // passing it as debugText would duplicate the error message in the
+    // Debug Details panel.
+    const debugFallback = /\[trace=/.test(rawError) ? rawError : undefined;
+    showErrorTextWithDebug(
+      `Sign-in failed: ${cleanErrorMessage(rawError, 'Unknown error')}`,
+      response.debugDetails ?? debugFallback,
+    );
   }
   btnCloudSignIn.disabled = false;
 });

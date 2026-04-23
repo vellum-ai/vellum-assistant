@@ -456,12 +456,22 @@ describe('deriveHealthStatusDisplay', () => {
     expect(status.text).toBe('Connection error');
   });
 
-  test('error with error message: includes message in text', () => {
+  test('error with error message: includes cleaned message in text', () => {
     const detail = makeDetail({ lastErrorMessage: 'Native host not installed' });
     const status = deriveHealthStatusDisplay('error', detail);
     expect(status.dotClass).toBe('disconnected');
-    expect(status.text).toContain('Error');
-    expect(status.text).toContain('Native host not installed');
+    expect(status.text).toBe('Native host not installed');
+  });
+
+  test('error with cloud sign-in message: strips prefixes and trace IDs', () => {
+    const detail = makeDetail({
+      lastErrorMessage: 'cloud sign-in failed: gateway_error (gateway_status_401) [trace=abc-123]',
+    });
+    const status = deriveHealthStatusDisplay('error', detail);
+    expect(status.dotClass).toBe('disconnected');
+    expect(status.text).toBe('Gateway_error (gateway_status_401)');
+    expect(status.text).not.toContain('cloud sign-in failed');
+    expect(status.text).not.toContain('[trace=');
   });
 
   test('reconnecting with disconnect code: still shows friendly message', () => {
@@ -619,8 +629,7 @@ describe('integrated health-to-display scenarios', () => {
 
     const status = deriveHealthStatusDisplay('error', detail);
     expect(status.dotClass).toBe('disconnected');
-    expect(status.text).toContain('Error');
-    expect(status.text).toContain('Native host not installed');
+    expect(status.text).toBe('Native host not installed');
 
     expect(shouldExpandTroubleshooting('error')).toBe(true);
   });

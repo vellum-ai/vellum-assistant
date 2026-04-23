@@ -345,6 +345,18 @@ export function healthToPhase(health: ConnectionHealthState): ConnectionPhase {
  * | auth_required  | disconnected  | Action required (+ detail if available)  |
  * | error          | disconnected  | Error (+ detail if available)            |
  */
+
+/**
+ * Strip verbose prefixes and trace IDs from error messages to produce
+ * a concise, human-readable summary for display in the popup UI.
+ */
+export function cleanErrorMessage(raw: string, fallback: string): string {
+  return raw
+    .replace(/\[trace=[^\]]+\]/g, '')
+    .replace(/cloud sign-in failed:\s*/gi, '')
+    .trim() || fallback;
+}
+
 export function deriveHealthStatusDisplay(
   health: ConnectionHealthState,
   detail?: ConnectionHealthDetail,
@@ -362,16 +374,16 @@ export function deriveHealthStatusDisplay(
       return {
         dotClass: 'disconnected',
         text: detail?.lastErrorMessage
-          ? `Action required: ${detail.lastErrorMessage}`
+          ? `Action required: ${cleanErrorMessage(detail.lastErrorMessage, 'sign in or re-pair to continue')}`
           : 'Action required \u2014 sign in or re-pair to continue',
       };
-    case 'error':
-      return {
-        dotClass: 'disconnected',
-        text: detail?.lastErrorMessage
-          ? `Error: ${detail.lastErrorMessage}`
-          : 'Connection error',
-      };
+    case 'error': {
+      let text = detail?.lastErrorMessage
+        ? cleanErrorMessage(detail.lastErrorMessage, 'Connection error')
+        : 'Connection error';
+      text = text.charAt(0).toUpperCase() + text.slice(1);
+      return { dotClass: 'disconnected', text };
+    }
   }
 }
 
