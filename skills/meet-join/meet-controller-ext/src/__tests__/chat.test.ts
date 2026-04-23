@@ -405,6 +405,41 @@ describe("startChatReader", () => {
     expect(ev.fromName).toBe("Carol");
   });
 
+  test("tags messages attached async via MutationObserver as backfill", async () => {
+    // Regression for the async-attach window: `startChatReader` does not
+    // await `ensurePanelOpen`, so when the panel is closed at reader-start
+    // the chat list mounts later and pre-existing history arrives via the
+    // MutationObserver. Those messages must still carry `isBackfill: true`
+    // so the detector skips Tier 2 on them — otherwise history burns the
+    // debounce slot the first real live message needs.
+    installed!.closePanel();
+
+    const events: ExtensionToBotMessage[] = [];
+    reader = startChatReader({
+      meetingId: "m1",
+      selfName: "Bot",
+      onEvent: (ev) => events.push(ev),
+    });
+
+    // Reader has clicked the toggle; panel + list are now mounted. Simulate
+    // Meet populating the freshly-mounted list with pre-existing history.
+    installed!.appendMessage({
+      id: "msg-history-1",
+      sender: "Alice",
+      text: "old message from before the bot joined",
+    });
+    await flushMicrotasks();
+
+    const historyEvents = events.filter((e) => e.type === "chat.inbound");
+    expect(historyEvents.length).toBe(1);
+    const history = historyEvents[0] as Extract<
+      ExtensionToBotMessage,
+      { type: "chat.inbound" }
+    >;
+    expect(history.fromName).toBe("Alice");
+    expect(history.isBackfill).toBe(true);
+  });
+
   test("does not click the panel toggle when the panel is already open", () => {
     reader = startChatReader({
       meetingId: "m1",
