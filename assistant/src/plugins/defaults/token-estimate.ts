@@ -1,53 +1,68 @@
 /**
- * Default `tokenEstimate` pipeline plugin.
+ * Default `tokenEstimate` plugin.
  *
- * The `tokenEstimate` pipeline produces the user-facing prompt-token estimate
- * the orchestrator consults before calling a provider — the value that drives
- * preflight overflow gating and the mid-loop checkpoint yield decision. This
- * plugin's terminal middleware delegates to
- * {@link import("../../context/token-estimator.js").estimatePromptTokensRaw estimatePromptTokensRaw},
- * so the default output matches the uncalibrated raw estimator.
+ * The plugin's middleware is a passthrough — it calls `next(args)` and returns
+ * the result unchanged. The actual estimate lives in
+ * {@link defaultTokenEstimateTerminal}, which is wired in as the pipeline's
+ * `terminal` argument by `runPipeline` call sites in
+ * `daemon/conversation-agent-loop.ts`. This separation matters: the default
+ * plugin is registered before any user plugin (defaults load first in
+ * `bootstrapPlugins()`), which puts it at the OUTERMOST position of the onion
+ * chain. If the default middleware were to invoke the terminal directly
+ * without calling `next`, it would shadow every later-registered plugin. The
+ * passthrough lets user middleware that wraps the default (e.g. a doubler, a
+ * provider-native `countTokens` override) participate normally.
  *
- * The calibration path in `agent/loop.ts` (pre-send raw estimate recorded
- * alongside provider-reported ground truth) stays outside the pipeline on
- * purpose: calibration must see the raw estimate so the EWMA learns against
- * provider truth instead of chasing its own corrected output. Pipelines are
- * for user-facing estimates only.
- *
- * Custom plugins can override by contributing their own `tokenEstimate`
- * middleware via the registry — e.g. a plugin that calls a provider-native
- * `countTokens` endpoint and short-circuits the chain by skipping `next`.
+ * The terminal delegates to
+ * {@link import("../../context/token-estimator.js").estimatePromptTokens estimatePromptTokens},
+ * which applies the EWMA calibration correction recorded from past provider
+ * responses. Preflight + mid-loop checks must use the calibrated estimate —
+ * before this pipeline existed, both call sites invoked `estimatePromptTokens`
+ * directly, and the calibrated estimate is what keeps the overflow gate
+ * consistent with the convergence path in the reducer. The pre-send
+ * calibration capture in `agent/loop.ts` still uses `estimatePromptTokensRaw`
+ * on purpose — the calibrator must learn against the raw estimate so the EWMA
+ * converges against provider ground truth rather than chasing its own
+ * corrected output. Pipelines produce user-facing estimates; calibration
+ * capture stays outside the pipeline.
  */
 
 import {
-  estimatePromptTokensRaw,
+  estimatePromptTokens,
   estimateToolsTokens,
 } from "../../context/token-estimator.js";
 import { registerPlugin } from "../registry.js";
 import {
   type EstimateArgs,
   type EstimateResult,
+  type Middleware,
   type Plugin,
   PluginExecutionError,
 } from "../types.js";
 
 /**
- * Terminal middleware for the `tokenEstimate` pipeline. Computes the tool
- * token budget from `args.tools` and delegates to {@link estimatePromptTokensRaw}
- * with the canonical provider key. Short-circuits the chain by ignoring
- * `next` — this plugin is the last stop when no other plugin supplies its
- * own `tokenEstimate` middleware.
+ * Terminal handler for the `tokenEstimate` pipeline. Computes the tool token
+ * budget from `args.tools` and delegates to {@link estimatePromptTokens} with
+ * the canonical provider key, applying the EWMA calibration correction.
+ * Exported so tests can verify default behavior directly without going through
+ * `runPipeline`, and so `daemon/conversation-agent-loop.ts` can pass it as the
+ * `terminal` argument to `runPipeline`.
  */
 export const defaultTokenEstimateTerminal = async (
   args: EstimateArgs,
 ): Promise<EstimateResult> => {
   const toolTokenBudget =
     args.tools.length > 0 ? estimateToolsTokens(args.tools) : 0;
-  return estimatePromptTokensRaw(args.history, args.systemPrompt, {
+  return estimatePromptTokens(args.history, args.systemPrompt, {
     providerName: args.providerName,
     toolTokenBudget,
   });
 };
+
+const passthrough: Middleware<EstimateArgs, EstimateResult> = async (
+  args,
+  next,
+) => next(args);
 
 /**
  * Default `tokenEstimate` plugin. Registered by
@@ -62,8 +77,7 @@ export const defaultTokenEstimatePlugin: Plugin = {
     requires: { pluginRuntime: "v1", tokenEstimateApi: "v1" },
   },
   middleware: {
-    tokenEstimate: async (args, _next, _ctx) =>
-      defaultTokenEstimateTerminal(args),
+    tokenEstimate: passthrough,
   },
 };
 

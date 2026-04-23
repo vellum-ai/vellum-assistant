@@ -23,7 +23,10 @@ import {
   estimateToolsTokens,
 } from "../context/token-estimator.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
-import { defaultTokenEstimatePlugin } from "../plugins/defaults/token-estimate.js";
+import {
+  defaultTokenEstimatePlugin,
+  defaultTokenEstimateTerminal,
+} from "../plugins/defaults/token-estimate.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,
@@ -140,14 +143,11 @@ async function runViaPipeline(args: EstimateArgs): Promise<EstimateResult> {
   return runPipeline<EstimateArgs, EstimateResult>(
     "tokenEstimate",
     getMiddlewaresFor("tokenEstimate"),
-    // Terminal is a sentinel — the default plugin's middleware short-circuits
-    // so this should only run when no plugin contributes. We make it throw
-    // to catch any accidental fall-through.
-    async () => {
-      throw new Error(
-        "pipeline terminal reached — no middleware short-circuit",
-      );
-    },
+    // Mirror the production wiring in `daemon/conversation-agent-loop.ts`:
+    // the default plugin's middleware is a passthrough, so the terminal is
+    // wired in by the call site. Using the same terminal here means the
+    // tests exercise the exact composition shape that ships.
+    defaultTokenEstimateTerminal,
     args,
     makeCtx(),
     DEFAULT_TIMEOUTS.tokenEstimate,
@@ -339,6 +339,71 @@ describe("tokenEstimate pipeline — custom override", () => {
     };
     const pipelineResult = await runViaPipeline(args);
     expect(pipelineResult).toBe(rawEstimate(args) * 2);
+  });
+});
+
+describe("tokenEstimate pipeline — default does not shadow late plugins", () => {
+  test("user middleware registered AFTER the default still runs", async () => {
+    // Regression test for the default-first shadowing hazard: defaults are
+    // registered before user plugins in `bootstrapPlugins()`, putting the
+    // default at the OUTERMOST onion position. If the default middleware
+    // runs the estimate directly instead of calling `next(args)`, any user
+    // plugin loaded afterward is invisible. The default is a passthrough —
+    // this test fails loudly if that invariant ever regresses.
+    registerDefault();
+    const observed: EstimateArgs[] = [];
+    const observer: Middleware<EstimateArgs, EstimateResult> = async (
+      args,
+      next,
+      _ctx,
+    ) => {
+      observed.push(args);
+      // Return a sentinel so we can distinguish the observer's result from
+      // the default's output.
+      await next(args);
+      return 999_999;
+    };
+    const userPlugin: Plugin = {
+      manifest: {
+        name: "late-registered-observer",
+        version: "1.0.0",
+        requires: { pluginRuntime: "v1", tokenEstimateApi: "v1" },
+      },
+      middleware: { tokenEstimate: observer },
+    };
+    registerPlugin(userPlugin);
+
+    const args: EstimateArgs = {
+      history: TEXT_HISTORY,
+      systemPrompt: SYSTEM_PROMPT,
+      tools: [],
+      providerName: "anthropic",
+    };
+    const result = await runViaPipeline(args);
+    expect(observed.length).toBe(1);
+    expect(result).toBe(999_999);
+  });
+});
+
+describe("tokenEstimate pipeline — args are immutable to middleware", () => {
+  test("frozen history/tools reject in-place mutation attempts", () => {
+    // The call site freezes shallow clones of `history` and `tools` before
+    // handing them to the pipeline. This mirrors the runtime protection
+    // that stops a misbehaving middleware from trimming `args.history` in
+    // place — which would silently drop prompt context from the
+    // orchestrator's live `runMessages` array before the provider call.
+    const frozenHistory = Object.freeze([...TEXT_HISTORY]);
+    const frozenTools = Object.freeze([...SAMPLE_TOOLS]);
+    expect(() => {
+      (frozenHistory as Message[]).pop();
+    }).toThrow(TypeError);
+    expect(() => {
+      (frozenTools as ToolDefinition[]).push({
+        name: "extra",
+        description: "",
+        input_schema: { type: "object", properties: {} },
+      });
+    }).toThrow(TypeError);
   });
 });
 

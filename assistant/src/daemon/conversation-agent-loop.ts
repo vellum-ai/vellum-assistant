@@ -96,7 +96,11 @@ import type {
   TurnContext as PluginTurnContext,
 } from "../plugins/types.js";
 import { PluginExecutionError, PluginTimeoutError } from "../plugins/types.js";
-import type { ContentBlock, Message } from "../providers/types.js";
+import type {
+  ContentBlock,
+  Message,
+  ToolDefinition,
+} from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
@@ -1330,9 +1334,18 @@ export async function runAgentLoopImpl(
         getMiddlewaresFor("tokenEstimate"),
         defaultTokenEstimateTerminal,
         {
-          history,
+          // Shallow-frozen copies so a misbehaving middleware that mutates
+          // `args.history` or `args.tools` in place (e.g. trims the array
+          // before calling next) can't silently strip prompt context from
+          // the orchestrator's live `runMessages` / resolved-tools arrays.
+          // TypeScript `readonly` on `EstimateArgs` does not prevent
+          // `push`/`splice` at runtime; the frozen wrapper throws in strict
+          // mode and isolates any mutation attempts from the call-site state.
+          history: Object.freeze([...history]) as Message[],
           systemPrompt: ctx.systemPrompt,
-          tools: ctx.agentLoop.getResolvedTools(history),
+          tools: Object.freeze([
+            ...ctx.agentLoop.getResolvedTools(history),
+          ]) as ToolDefinition[],
           providerName: estimationProviderName,
         },
         pipelineTurnCtx,
