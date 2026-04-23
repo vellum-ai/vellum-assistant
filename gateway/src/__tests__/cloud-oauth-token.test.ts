@@ -4,38 +4,23 @@ import "./test-preload.js";
 import {
   initSigningKey,
   loadOrCreateSigningKey,
-  mintToken,
   verifyToken,
 } from "../auth/token-service.js";
-import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 import { createCloudOAuthTokenHandler } from "../http/routes/cloud-oauth-token.js";
-
-let serviceToken: string;
 
 beforeAll(() => {
   initSigningKey(loadOrCreateSigningKey());
-  // Mint a service token (svc:gateway:self) that the handler accepts.
-  serviceToken = mintToken({
-    aud: "vellum-gateway",
-    sub: "svc:gateway:self",
-    scope_profile: "gateway_service_v1",
-    policy_epoch: CURRENT_POLICY_EPOCH,
-    ttlSeconds: 60,
-  });
 });
 
 const handler = createCloudOAuthTokenHandler();
 
-/** Build a POST request with the service-token Authorization header. */
+/** Build a POST request to the cloud OAuth token endpoint. */
 function makeRequest(body: unknown): Request {
   return new Request(
     "http://gateway.test/v1/internal/oauth/chrome-extension/token",
     {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${serviceToken}`,
-      },
+      headers: { "content-type": "application/json" },
       body: typeof body === "string" ? body : JSON.stringify(body),
     },
   );
@@ -120,10 +105,7 @@ describe("POST /v1/internal/oauth/chrome-extension/token", () => {
         "http://gateway.test/v1/internal/oauth/chrome-extension/token",
         {
           method: "POST",
-          headers: {
-            "content-type": "application/json",
-            authorization: `Bearer ${serviceToken}`,
-          },
+          headers: { "content-type": "application/json" },
           body: "not-json",
         },
       ),
@@ -160,7 +142,7 @@ describe("POST /v1/internal/oauth/chrome-extension/token", () => {
     expect(body.error).toContain("colon");
   });
 
-  test("request without authorization header returns 403", async () => {
+  test("request without authorization header succeeds for valid payload", async () => {
     const res = await handler.handleMintToken(
       new Request(
         "http://gateway.test/v1/internal/oauth/chrome-extension/token",
@@ -174,33 +156,6 @@ describe("POST /v1/internal/oauth/chrome-extension/token", () => {
         },
       ),
     );
-    expect(res.status).toBe(403);
-  });
-
-  test("request with actor token (not service) returns 403", async () => {
-    const actorToken = mintToken({
-      aud: "vellum-gateway",
-      sub: "actor:asst-123:some-user",
-      scope_profile: "actor_client_v1",
-      policy_epoch: CURRENT_POLICY_EPOCH,
-      ttlSeconds: 60,
-    });
-    const res = await handler.handleMintToken(
-      new Request(
-        "http://gateway.test/v1/internal/oauth/chrome-extension/token",
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            authorization: `Bearer ${actorToken}`,
-          },
-          body: JSON.stringify({
-            assistantId: "asst-123",
-            actorPrincipalId: "user-456",
-          }),
-        },
-      ),
-    );
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
   });
 });

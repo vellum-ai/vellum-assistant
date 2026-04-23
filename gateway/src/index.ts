@@ -678,7 +678,7 @@ async function main() {
     {
       path: "/v1/internal/oauth/chrome-extension/token",
       method: "POST",
-      auth: "edge",
+      auth: "none",
       handler: (req) => cloudOAuthTokenHandler.handleMintToken(req),
     },
 
