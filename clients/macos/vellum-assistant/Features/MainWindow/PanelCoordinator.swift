@@ -344,15 +344,53 @@ extension MainWindowView {
                         onClose: { activeHomeDetailPanel = nil }
                     )
                 case .permissionChat(let item):
-                    HomeDetailPanel(
-                        icon: nil,
-                        title: item.title,
-                        onDismiss: { activeHomeDetailPanel = nil }
-                    ) {
-                        Text(item.summary)
-                            .font(VFont.bodyMediumDefault)
-                            .foregroundStyle(VColor.contentSecondary)
-                            .padding(VSpacing.lg)
+                    if let chatData = PermissionChatPanelData.from(item.detailPanel?.data) {
+                        HomeDetailPanel(
+                            icon: nil,
+                            title: item.title,
+                            onGoToThread: item.conversationId.flatMap { id in
+                                UUID(uuidString: id).map { uuid in
+                                    {
+                                        activeHomeDetailPanel = nil
+                                        windowState.selection = .conversation(uuid)
+                                    }
+                                }
+                            },
+                            onDismiss: { activeHomeDetailPanel = nil }
+                        ) {
+                            HomePermissionChatPreview(
+                                userMessage: chatData.userMessage,
+                                assistantResponse: chatData.assistantResponse,
+                                confirmation: ToolConfirmationData(
+                                    requestId: chatData.requestId,
+                                    toolName: chatData.toolName,
+                                    riskLevel: chatData.riskLevel ?? "medium",
+                                    persistentDecisionsAllowed: false
+                                ),
+                                onAllow: { activeHomeDetailPanel = nil },
+                                onDeny: { activeHomeDetailPanel = nil },
+                                onAlwaysAllow: { _, _, _, _ in activeHomeDetailPanel = nil }
+                            )
+                        }
+                    } else if ToolPermissionPanelData.from(item.detailPanel?.data) != nil {
+                        HomeDetailPanel(
+                            icon: nil,
+                            title: item.title,
+                            onDismiss: { activeHomeDetailPanel = nil }
+                        ) {
+                            HomePermissionDetailCard(item: item)
+                        }
+                    } else {
+                        HomeDetailPanel(
+                            icon: nil,
+                            title: item.title,
+                            onDismiss: { activeHomeDetailPanel = nil }
+                        ) {
+                            Text(item.summary)
+                                .font(VFont.bodyMediumDefault)
+                                .foregroundStyle(VColor.contentSecondary)
+                                .padding(VSpacing.lg)
+                        }
                     }
                 case .paymentAuth(let item):
                     HomePaymentAuthPanel(
