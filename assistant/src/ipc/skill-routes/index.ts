@@ -1,6 +1,7 @@
 import type { IpcRoute } from "../cli-server.js";
 import { memorySkillRoutes } from "./memory.js";
 import { providerSkillRoutes } from "./providers.js";
+import { registriesRoutes } from "./registries.js";
 
 /**
  * Skill IPC routes — host capabilities exposed to first-party skill processes
@@ -13,4 +14,5 @@ import { providerSkillRoutes } from "./providers.js";
 export const skillIpcRoutes: IpcRoute[] = [
   ...memorySkillRoutes,
   ...providerSkillRoutes,
+  ...registriesRoutes,
 ];
