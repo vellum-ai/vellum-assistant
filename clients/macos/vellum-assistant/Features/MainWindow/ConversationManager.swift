@@ -353,7 +353,6 @@ final class ConversationManager: ConversationRestorerDelegate {
 
     func activateConversation(_ id: UUID) {
         let previousActiveId = selectionStore.activeConversationId
-        selectionStore.trimPreviousConversationIfNeeded(nextConversationId: id)
 
         // Channel conversations: invalidate cache before activation so
         // loadHistoryIfNeeded fetches fresh data from the daemon.
@@ -854,7 +853,6 @@ final class ConversationManager: ConversationRestorerDelegate {
         selectionStore.removeAbandonedEmptyConversation(switching: id)
 
         let previousActiveId = selectionStore.activeConversationId
-        selectionStore.trimPreviousConversationIfNeeded(nextConversationId: id)
 
         if selectionStore.chatViewModels[id] == nil {
             let viewModel = makeViewModel()

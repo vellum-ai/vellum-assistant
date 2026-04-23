@@ -233,13 +233,6 @@ mock.module("../memory/conversation-queries.js", () => ({
   buildExcerpt: () => "",
 }));
 
-mock.module("../hooks/manager.js", () => ({
-  getHookManager: () => ({
-    trigger: () => Promise.resolve(),
-    initialize: () => {},
-  }),
-}));
-
 mock.module("../tools/watch/watch-state.js", () => ({
   watchSessions: new Map(),
   registerWatchStartNotifier: () => {},
@@ -290,13 +283,6 @@ mock.module("../calls/call-store.js", () => ({
   claimCallback: () => true,
   releaseCallbackClaim: () => {},
   finalizeCallbackClaim: () => true,
-}));
-
-mock.module("../daemon/watch-handler.js", () => ({
-  lastCommentaryByConversation: new Map(),
-  lastSummaryByConversation: new Map(),
-  handleWatchObservation: () => Promise.resolve(),
-  generateSummary: () => Promise.resolve(),
 }));
 
 mock.module("../tools/browser/browser-screencast.js", () => ({

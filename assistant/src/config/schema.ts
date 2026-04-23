@@ -43,6 +43,8 @@ export {
   TwilioConfigSchema,
   WhatsAppConfigSchema,
 } from "./schemas/channels.js";
+export type { ConversationsConfig } from "./schemas/conversations.js";
+export { ConversationsConfigSchema } from "./schemas/conversations.js";
 export {
   DEFAULT_ELEVENLABS_VOICE_ID,
   VALID_CONVERSATION_TIMEOUTS,
@@ -240,6 +242,7 @@ import {
   TwilioConfigSchema,
   WhatsAppConfigSchema,
 } from "./schemas/channels.js";
+import { ConversationsConfigSchema } from "./schemas/conversations.js";
 import { FilingConfigSchema } from "./schemas/filing.js";
 import { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
 import { HostBrowserConfigSchema } from "./schemas/host-browser.js";
@@ -307,6 +310,9 @@ export const AssistantConfigSchema = z
     hostBrowser: HostBrowserConfigSchema.default(
       HostBrowserConfigSchema.parse({}),
     ),
+    conversations: ConversationsConfigSchema.default(
+      ConversationsConfigSchema.parse({}),
+    ),
     journal: JournalConfigSchema.default(JournalConfigSchema.parse({})),
     analysis: AnalysisConfigSchema.default(AnalysisConfigSchema.parse({})),
     backup: BackupConfigSchema.default(BackupConfigSchema.parse({})),
@@ -328,6 +334,19 @@ export const AssistantConfigSchema = z
       NotificationsConfigSchema.parse({}),
     ),
     ui: UiConfigSchema.default(UiConfigSchema.parse({})),
+    // Per-plugin config blocks keyed by plugin name. The schema is intentionally
+    // permissive — each plugin's manifest supplies its own validator which the
+    // plugin bootstrap (`external-plugins-bootstrap.ts`) runs against the raw
+    // block under `plugins.<name>` before handing the parsed result to the
+    // plugin's `init()`. Keeping this open here means adding a new plugin does
+    // not require a core-schema change, while invalid configs still surface
+    // through the plugin's own validator at bootstrap.
+    plugins: z
+      .record(z.string(), z.unknown())
+      .optional()
+      .describe(
+        "Per-plugin configuration keyed by plugin name. Validated downstream by each plugin's manifest.config validator at bootstrap.",
+      ),
     collectUsageData: z
       .boolean()
       .default(true)

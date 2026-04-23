@@ -16,6 +16,7 @@ struct ThinkingBlockView: View {
     var typographyGeneration: Int = 0
 
     @Environment(\.thinkingBlockExpansionStore) private var expansionStore
+    @Environment(\.bubbleMaxWidth) private var bubbleMaxWidth
 
     /// Cached parsed markdown segments — parsed lazily only when the block is
     /// expanded, avoiding synchronous O(n) work while collapsed (the default).
@@ -50,20 +51,15 @@ struct ThinkingBlockView: View {
 
                 // ⚠️ No .frame(maxWidth:) in LazyVStack cells — see AGENTS.md.
                 //
-                // `maxContentWidth` is the budget for the measured text run.
-                // `MarkdownSegmentView` falls back to `VSpacing.chatBubbleMaxWidth`
-                // when nil, and `SelectableRunView` applies that as a definite
-                // `.frame(width:)`. The `.padding(VSpacing.sm)` below then adds
-                // 8pt on each side, so passing `nil` makes the outer card 776pt
-                // wide — 16pt wider than the 760pt chat column, visibly mis-
-                // aligned with the adjacent progress card. Subtracting the
-                // padding from the budget keeps the padded card at exactly
-                // `chatBubbleMaxWidth`.
+                // `maxContentWidth` becomes a definite `.frame(width:)` inside
+                // `SelectableRunView`, so subtract the card's own
+                // `.padding(VSpacing.sm)` to keep the padded card at the chat
+                // column width.
                 MarkdownSegmentView(
                     segments: cachedSegments,
                     isStreaming: isStreaming,
                     typographyGeneration: typographyGeneration,
-                    maxContentWidth: VSpacing.chatBubbleMaxWidth - 2 * VSpacing.sm,
+                    maxContentWidth: max(bubbleMaxWidth - 2 * VSpacing.sm, 0),
                     textColor: VColor.contentSecondary,
                     secondaryTextColor: VColor.contentTertiary,
                     mutedTextColor: VColor.contentTertiary,

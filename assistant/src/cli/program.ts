@@ -5,7 +5,6 @@ import { Command } from "commander";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { getConfigReadOnly } from "../config/loader.js";
 import { isEmailEnabled } from "../email/feature-gate.js";
-import { registerHooksCommand } from "../hooks/cli.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
 import { registerAttachmentCommand } from "./commands/attachment.js";
@@ -18,6 +17,7 @@ import { registerBashCommand } from "./commands/bash.js";
 import { registerBrowserCommand } from "./commands/browser.js";
 import { registerCacheCommand } from "./commands/cache.js";
 import { registerChannelVerificationSessionsCommand } from "./commands/channel-verification-sessions.js";
+import { registerClientsCommand } from "./commands/clients.js";
 import { registerCompletionsCommand } from "./commands/completions.js";
 import { registerConfigCommand } from "./commands/config.js";
 import { registerContactsCommand } from "./commands/contacts.js";
@@ -37,7 +37,6 @@ import { registerOAuthCommand } from "./commands/oauth/index.js";
 import { registerPlatformCommand } from "./commands/platform/index.js";
 import { registerRoutesCommand } from "./commands/routes.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
-import { registerShotgunCommand } from "./commands/shotgun.js";
 import { registerSkillsCommand } from "./commands/skills.js";
 import { registerSttCommand } from "./commands/stt.js";
 import { registerTaskCommand } from "./commands/task.js";
@@ -88,7 +87,6 @@ Examples:
   registerAuthCommand(program);
   registerAttachmentCommand(program);
   registerAvatarCommand(program);
-  registerHooksCommand(program);
   registerMcpCommand(program);
   if (isEmailEnabled(getConfigReadOnly())) {
     registerDomainCommand(program);
@@ -96,6 +94,7 @@ Examples:
   }
   registerContactsCommand(program);
   registerChannelVerificationSessionsCommand(program);
+  registerClientsCommand(program);
   registerAutonomyCommand(program);
   registerCompletionsCommand(program);
   registerNotificationsCommand(program);
@@ -109,7 +108,6 @@ Examples:
   registerImageGenerationCommand(program);
   registerUiCommand(program);
 
-  registerShotgunCommand(program);
   registerSequenceCommand(program);
   registerSttCommand(program);
   registerTtsCommand(program);

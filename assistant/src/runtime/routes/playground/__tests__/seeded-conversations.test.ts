@@ -3,10 +3,8 @@ import { describe, expect, test } from "bun:test";
 import type { Conversation } from "../../../../daemon/conversation.js";
 import type { RouteDefinition } from "../../../http-router.js";
 import type { PlaygroundRouteDeps } from "../deps.js";
-import {
-  PLAYGROUND_TITLE_PREFIX,
-  seededConversationsRouteDefinitions,
-} from "../seeded-conversations.js";
+import { PLAYGROUND_TITLE_PREFIX } from "../seed-conversation.js";
+import { seededConversationsRouteDefinitions } from "../seeded-conversations.js";
 
 interface StubOpts {
   enabled?: boolean;
@@ -16,7 +14,7 @@ interface StubOpts {
     messageCount: number;
     createdAt: number;
   }>;
-  getConversationById?: (id: string) => Conversation | undefined;
+  getConversationById?: (id: string) => Promise<Conversation | undefined>;
   deleteReturn?: boolean | ((id: string) => boolean);
 }
 
@@ -32,7 +30,7 @@ function makeStub(opts: StubOpts = {}): Stub {
   const deleteReturn = opts.deleteReturn ?? true;
   const deps: PlaygroundRouteDeps = {
     isPlaygroundEnabled: () => opts.enabled ?? true,
-    getConversationById: opts.getConversationById ?? (() => undefined),
+    getConversationById: opts.getConversationById ?? (async () => undefined),
     listConversationsByTitlePrefix: (prefix) => {
       listCalls.push(prefix);
       return opts.listRows ?? [];
@@ -70,7 +68,7 @@ function ctx(params: Record<string, string> = {}) {
 }
 
 describe("seededConversationsRouteDefinitions — flag disabled", () => {
-  test("GET list returns 404 when the playground flag is off", async () => {
+  test("GET list returns 404 with playground_disabled code when the playground flag is off", async () => {
     const { deps, listCalls } = makeStub({ enabled: false });
     const routes = seededConversationsRouteDefinitions(deps);
     const route = findRoute(routes, "GET", "playground/seeded-conversations");
@@ -78,10 +76,14 @@ describe("seededConversationsRouteDefinitions — flag disabled", () => {
     const res = await route.handler(ctx());
 
     expect(res.status).toBe(404);
+    const body = (await res.json()) as { error: { code: string } };
+    // Distinct from `conversation_not_found` so the Swift client can
+    // surface the right toast text without sniffing the URL path.
+    expect(body.error.code).toBe("playground_disabled");
     expect(listCalls).toEqual([]);
   });
 
-  test("DELETE single returns 404 when the playground flag is off", async () => {
+  test("DELETE single returns 404 with playground_disabled code when the playground flag is off", async () => {
     const { deps, deleteCalls } = makeStub({ enabled: false });
     const routes = seededConversationsRouteDefinitions(deps);
     const route = findRoute(
@@ -93,10 +95,12 @@ describe("seededConversationsRouteDefinitions — flag disabled", () => {
     const res = await route.handler(ctx({ id: "conv-1" }));
 
     expect(res.status).toBe(404);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("playground_disabled");
     expect(deleteCalls).toEqual([]);
   });
 
-  test("DELETE bulk returns 404 when the playground flag is off", async () => {
+  test("DELETE bulk returns 404 with playground_disabled code when the playground flag is off", async () => {
     const { deps, listCalls, deleteCalls } = makeStub({ enabled: false });
     const routes = seededConversationsRouteDefinitions(deps);
     const route = findRoute(
@@ -108,6 +112,8 @@ describe("seededConversationsRouteDefinitions — flag disabled", () => {
     const res = await route.handler(ctx());
 
     expect(res.status).toBe(404);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("playground_disabled");
     expect(listCalls).toEqual([]);
     expect(deleteCalls).toEqual([]);
   });

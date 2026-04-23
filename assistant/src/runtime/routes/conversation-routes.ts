@@ -1,7 +1,13 @@
 /**
  * Route handlers for conversation messages and suggestions.
  */
-import { existsSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join, relative } from "node:path";
 
 import { z } from "zod";
@@ -48,10 +54,12 @@ import type {
   NonHostProxyTransportMetadata,
 } from "../../daemon/message-types/conversations.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
+import { emitFeedEvent } from "../../home/emit-feed-event.js";
 import {
   writeOnboardingSidecar,
   writeRelationshipState,
 } from "../../home/relationship-state-writer.js";
+import { rewriteCommandPreview } from "../../home/rewrite-command-preview.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
@@ -88,6 +96,7 @@ import { buildAssistantEvent } from "../assistant-event.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { AuthContext } from "../auth/types.js";
 import { getChromeExtensionRegistry } from "../chrome-extension-registry.js";
+import { getClientRegistry } from "../client-registry.js";
 import { bridgeConfirmationRequestToGuardian } from "../confirmation-request-guardian-bridge.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
@@ -998,6 +1007,54 @@ function makeHubPublisher(
         },
       });
 
+      const inputRecord = msg.input as Record<string, unknown>;
+      const commandPreview =
+        redactSecrets(summarizeToolInput(msg.toolName, inputRecord)) ||
+        undefined;
+      const technicalTitle = commandPreview
+        ? `Requesting permission: ${commandPreview}`
+        : `Requesting approval to use ${msg.toolName}.`;
+      const dedupKey = `tool-approval:${msg.requestId}`;
+
+      // Emit immediately with the technical preview.
+      void emitFeedEvent({
+        source: "assistant",
+        title: technicalTitle,
+        summary: technicalTitle,
+        dedupKey,
+        urgency: msg.riskLevel === "high" ? "high" : "medium",
+        conversationId,
+      }).catch((err) => {
+        log.warn(
+          { err, requestId: msg.requestId },
+          "Failed to emit tool approval request feed event",
+        );
+      });
+
+      // Background: rewrite into prose and update the feed item.
+      if (commandPreview) {
+        void rewriteCommandPreview(msg.toolName, commandPreview)
+          .then((prose) => {
+            if (prose) {
+              const proseTitle = `Requesting permission: ${prose}`;
+              return emitFeedEvent({
+                source: "assistant",
+                title: proseTitle,
+                summary: proseTitle,
+                dedupKey,
+                urgency: msg.riskLevel === "high" ? "high" : "medium",
+                conversationId,
+              });
+            }
+          })
+          .catch((err) => {
+            log.warn(
+              { err, requestId: msg.requestId },
+              "Failed to update feed event with prose rewrite",
+            );
+          });
+      }
+
       // Create a canonical guardian request so HTTP handlers can find it
       // via applyCanonicalGuardianDecision.
       try {
@@ -1283,31 +1340,49 @@ export function persistOnboardingArtifacts(onboarding: {
   const assistantName = onboarding.assistantName?.trim();
   if (assistantName) {
     const identityPath = getWorkspacePromptPath("IDENTITY.md");
-    if (!existsSync(identityPath)) {
-      try {
+    try {
+      if (existsSync(identityPath)) {
+        const content = readFileSync(identityPath, "utf-8");
+        const updated = content.replace(
+          /^- (?:\*\*)?Name:(?:\*\*)?\s*.*$/m,
+          () => `- **Name:** ${assistantName}`,
+        );
+        if (updated !== content) {
+          writeFileSync(identityPath, updated, "utf-8");
+        }
+      } else {
         writeFileSync(
           identityPath,
-          `# Identity\n\n- Name: ${assistantName}\n`,
+          `# Identity\n\n- **Name:** ${assistantName}\n`,
           "utf-8",
         );
-      } catch (err) {
-        log.warn(
-          { err, identityPath },
-          "Failed to seed IDENTITY.md from onboarding",
-        );
       }
+    } catch (err) {
+      log.warn(
+        { err, identityPath },
+        "Failed to seed IDENTITY.md from onboarding",
+      );
     }
   }
 
   const userName = onboarding.userName?.trim();
   if (userName) {
     const userPath = getWorkspacePromptPath("USER.md");
-    if (!existsSync(userPath)) {
-      try {
-        writeFileSync(userPath, `# User\n\n- Name: ${userName}\n`, "utf-8");
-      } catch (err) {
-        log.warn({ err, userPath }, "Failed to seed USER.md from onboarding");
+    try {
+      if (existsSync(userPath)) {
+        const content = readFileSync(userPath, "utf-8");
+        const updated = content.replace(
+          /^- (?:\*\*)?Name:(?:\*\*)?\s*.*$/m,
+          () => `- **Name:** ${userName}`,
+        );
+        if (updated !== content) {
+          writeFileSync(userPath, updated, "utf-8");
+        }
+      } else {
+        writeFileSync(userPath, `# User\n\n- **Name:** ${userName}\n`, "utf-8");
       }
+    } catch (err) {
+      log.warn({ err, userPath }, "Failed to seed USER.md from onboarding");
     }
   }
 
@@ -1339,6 +1414,7 @@ export async function handleSendMessage(
     bypassSecretCheck?: boolean;
     hostHomeDir?: string;
     hostUsername?: string;
+    clientId?: string;
     clientMessageId?: string;
     onboarding?: {
       tools: string[];
@@ -1495,20 +1571,37 @@ export async function handleSendMessage(
         interfaceId: sourceInterface,
       } satisfies NonHostProxyTransportMetadata);
 
+  // Register/refresh the client in the unified client registry so
+  // `assistant clients list` can discover all connected interfaces.
+  // Uses the client-supplied clientId when available (stable per-install
+  // UUID), falling back to a synthetic key derived from interfaceId so
+  // older clients that don't send clientId still appear in the registry.
+  const effectiveClientId =
+    typeof body.clientId === "string" && body.clientId.length > 0
+      ? body.clientId
+      : `synthetic:${sourceInterface}`;
+  getClientRegistry().register({
+    clientId: effectiveClientId,
+    interfaceId: sourceInterface,
+    hostHomeDir: body.hostHomeDir,
+    hostUsername: body.hostUsername,
+  });
+
   const conversation = await smDeps.getOrCreateConversation(
     mapping.conversationId,
     { transport },
   );
 
   // Store pre-chat onboarding context on the conversation when this is the
-  // very first message (no prior messages loaded). Also persist the
-  // onboarding selections so the Home page shows onboarding-sourced
-  // chips immediately, and seed IDENTITY.md / USER.md so subsequent
-  // turn-boundary recomputes of relationship-state have a stable
-  // persona source beyond the in-memory conversation object.
-  if (body.onboarding && conversation.messages.length === 0) {
-    conversation.setOnboardingContext(body.onboarding);
-    persistOnboardingArtifacts(body.onboarding);
+  // very first message (no prior messages loaded). Artifact persistence
+  // (IDENTITY.md, USER.md, sidecar) is deferred: on the canned greeting
+  // path it runs inside the setTimeout right before warmPromptCache() so
+  // the warmed system prompt includes the identity; on the normal LLM
+  // path it runs immediately before inference starts.
+  const isFirstOnboarding =
+    !!body.onboarding && conversation.messages.length === 0;
+  if (isFirstOnboarding) {
+    conversation.setOnboardingContext(body.onboarding!);
   }
 
   // Resolve guardian context from the AuthContext's actorPrincipalId.
@@ -1618,14 +1711,13 @@ export async function handleSendMessage(
     conversation.hostBrowserSenderOverride = undefined;
   }
 
-  // Provision the host browser proxy. For interfaces that natively support
-  // host_browser (chrome-extension), always provision it. For macOS, the
-  // static capability check returns false (supportsHostProxy("macos",
-  // "host_browser") === false) because the extension isn't guaranteed to be
-  // attached — but when the registry confirms an active extension
-  // connection, we provision the proxy anyway so macOS turns can drive the
-  // user's real Chrome session. When no extension is connected, macOS skips
-  // provisioning and browser tools fall through to cdp-inspect/local.
+  // Provision the host browser proxy. Both macOS and chrome-extension
+  // natively support host_browser. For macOS, the proxy is wired to the
+  // SSE sender by default so `host_browser_request` frames reach the
+  // desktop client directly. When the guardian also has an active extension
+  // connection (isRegistryRouted), the registry-routed sender is used
+  // instead so browser tools route through the user's real Chrome session.
+  // For chrome-extension, the registry sender is always used.
   const shouldProvisionBrowserProxy =
     supportsHostProxy(sourceInterface, "host_browser") ||
     (canServiceRegistryBrowser(sourceInterface) && isRegistryRouted);
@@ -1688,9 +1780,10 @@ export async function handleSendMessage(
     skipProxySenderUpdate: preservingProxies,
   });
   // Re-enable the browser proxy for turns that provisioned one. This covers:
+  // - macOS: always provisioned (SSE sender or registry-routed when extension
+  //   is connected)
   // - chrome-extension: natively supports host_browser (non-interactive but
   //   has a connected client for host_browser_request events)
-  // - macOS with extension: provisioned above when isRegistryRouted is true
   //
   // The helper bypasses the `hasNoClient` gate so chrome-extension turns can
   // drive the browser via CDP without leaking host_bash/host_file tool
@@ -1775,6 +1868,9 @@ export async function handleSendMessage(
           "canned-greeting queue drain",
         );
 
+        if (isFirstOnboarding) {
+          persistOnboardingArtifacts(body.onboarding!);
+        }
         conversation.warmPromptCache();
       }, 0);
 
@@ -1790,6 +1886,10 @@ export async function handleSendMessage(
         silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
       }
     }
+  }
+
+  if (isFirstOnboarding) {
+    persistOnboardingArtifacts(body.onboarding!);
   }
 
   const attachments = hasAttachments

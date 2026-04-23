@@ -432,15 +432,16 @@ describe("macOS browser backend fallback (no extension, no cdp-inspect)", () => 
     expect(interfaceCtx!.userMessageInterface).toBe("macos");
     expect(interfaceCtx!.assistantMessageInterface).toBe("macos");
 
-    // With no extension in the ChromeExtensionRegistry, the conversation's
-    // hostBrowserProxy should NOT be provisioned through the registry.
-    // The absence of a hostBrowserProxy means the CDP factory will skip
-    // the extension candidate entirely and fall through:
-    // cdp-inspect (desktop-auto) → local.
+    // macOS now natively supports host_browser, so the conversation gets a
+    // hostBrowserProxy provisioned via the SSE sender path even without an
+    // extension connection. The proxy routes host_browser_request frames to
+    // the macOS desktop client over SSE. The hostBrowserSenderOverride
+    // remains undefined because no registry-routed extension connection is
+    // present — the proxy uses the default SSE sender.
     expect(
       (capturedConversation as unknown as Record<string, unknown>)
         .hostBrowserProxy,
-    ).toBeUndefined();
+    ).toBeDefined();
     expect(
       (capturedConversation as unknown as Record<string, unknown>)
         .hostBrowserSenderOverride,

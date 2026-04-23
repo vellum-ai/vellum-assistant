@@ -206,8 +206,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "config/bundled-skills/media-processing/tools/analyze-keyframes.ts", // keyframe analysis tool API key lookup
       "providers/registry.ts", // provider registry API key lookup for initialization
       "providers/provider-availability.ts", // provider availability API key check
-      "media/app-icon-generator.ts", // app icon generation API key lookup
-      "media/avatar-router.ts", // avatar generation API key lookup
+      "media/image-credentials.ts", // shared image-gen credential resolver (provider API key lookup)
       "memory/embedding-backend.ts", // embedding backend API key lookup
       "daemon/providers-setup.ts", // provider initialization API key lookup
       "workspace/migrations/006-services-config.ts", // services config migration reads provider API keys
@@ -216,6 +215,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/handlers/config-model.ts", // masked provider key display
       "providers/speech-to-text/resolve.ts", // STT provider API key lookup
       "daemon/lifecycle.ts", // CES client injection into secure-keys at startup
+      "daemon/external-plugins-bootstrap.ts", // reads credentials at plugin init (manifest.requiresCredential) via the CES-mediated getSecureKeyAsync path
       "inbound/platform-callback-registration.ts", // managed credential lookup for platform base URL, assistant ID, and API key
       "tts/providers/elevenlabs-provider.ts", // ElevenLabs TTS API key lookup
       "tts/providers/deepgram-provider.ts", // Deepgram TTS API key lookup

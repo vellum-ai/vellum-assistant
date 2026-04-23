@@ -699,7 +699,7 @@ plaintext — plaintext only makes sense when the user owns physical access to
 the medium (e.g. an external SSD).
 
 Examples:
-  $ vellum backup enable --interval 6 --retention 7
+  $ vellum backup enable --interval 6 --retention 3
   $ vellum backup destinations add /Volumes/BackupSSD/vellum --plaintext
   $ vellum backup status
   $ vellum backup list
@@ -717,7 +717,7 @@ Examples:
     )
     .option(
       "--retention <n>",
-      "Snapshots to retain per destination (1-100). Defaults to 7.",
+      "Snapshots to retain per destination (1-100). Defaults to 3.",
     )
     .option(
       "--no-offsite",

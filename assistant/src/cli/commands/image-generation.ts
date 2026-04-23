@@ -5,16 +5,13 @@ import { join } from "node:path";
 import { Command } from "commander";
 
 import { getConfig } from "../../config/loader.js";
+import { resolveImageGenCredentials } from "../../media/image-credentials.js";
 import {
   generateImage,
   type ImageGenCredentials,
-  mapGeminiError,
-} from "../../media/gemini-image-service.js";
-import {
-  buildManagedBaseUrl,
-  resolveManagedProxyContext,
-} from "../../providers/managed-proxy/context.js";
-import { getProviderKeyAsync } from "../../security/secure-keys.js";
+  mapImageGenError,
+  providerForModel,
+} from "../../media/image-service.js";
 import { log } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -72,11 +69,12 @@ export function registerImageGenerationCommand(program: Command): void {
     `
 Modes:
   managed    — Uses platform-managed credentials (requires login to Vellum).
-  your-own   — Uses your own Gemini API key configured in settings.
+  your-own   — Uses your own Gemini or OpenAI API key depending on the configured model.
 
 Supported models:
   gemini-3.1-flash-image-preview (default)
   gemini-3-pro-image-preview
+  gpt-image-2
 
 Examples:
   $ assistant image-generation generate --prompt "A sunset over the ocean"
@@ -114,12 +112,14 @@ Notes:
   Edit mode (--mode edit) requires at least one --source image file.
   Output files are named image-1.png, image-2.png, etc. (extension matches MIME type).
   Default output directory is the system temp directory.
+  Uses your own Gemini or OpenAI API key depending on the configured model.
 
 Examples:
   $ assistant image-generation generate --prompt "A mountain landscape at dawn"
   $ assistant image-generation generate --prompt "Make it darker" --mode edit --source input.png
   $ assistant image-generation generate --prompt "Logo variations" --variants 4 --output-dir ./logos
-  $ assistant image-generation generate --prompt "A robot" --model gemini-3-pro-image-preview --json`,
+  $ assistant image-generation generate --prompt "A robot" --model gemini-3-pro-image-preview --json
+  $ assistant image-generation generate --prompt "A robot" --model gpt-image-2 --json`,
   );
 
   generate.action(async (opts) => {
@@ -149,33 +149,30 @@ Examples:
 
     // --- Resolve credentials ---
     const config = getConfig();
-    const imageGenMode = config.services["image-generation"].mode;
+    const svc = config.services["image-generation"];
 
-    let credentials: ImageGenCredentials | undefined;
+    // Derive provider from the explicit `--model` override when supplied so
+    // that `--model gpt-image-2` routes to OpenAI even when config.provider
+    // is `gemini` (and vice-versa). Without this, the Gemini service would
+    // silently downgrade unknown models to its default.
+    const provider = providerForModel(modelOverride, svc.provider);
 
-    if (imageGenMode === "managed") {
-      const managedBaseUrl = await buildManagedBaseUrl("gemini");
-      if (managedBaseUrl) {
-        const ctx = await resolveManagedProxyContext();
-        credentials = {
-          type: "managed-proxy",
-          assistantApiKey: ctx.assistantApiKey,
-          baseUrl: managedBaseUrl,
-        };
-      }
-    } else {
-      const apiKey = await getProviderKeyAsync("gemini");
-      if (apiKey) {
-        credentials = { type: "direct", apiKey };
-      }
-    }
+    const { credentials, errorHint } = await resolveImageGenCredentials({
+      provider,
+      mode: svc.mode,
+    });
 
     if (!credentials) {
+      const baseHint =
+        errorHint ?? "No credentials available for image generation.";
+      // The shared hint in image-credentials.ts is correct for tool surfaces
+      // but drops CLI-specific recovery guidance. When the managed proxy is
+      // unavailable (mode === "managed" with no platform base URL), the CLI
+      // user can authenticate or flip the mode — tell them how from the CLI.
       const hint =
-        imageGenMode === "managed"
-          ? "Managed proxy is not available. Please log in to Vellum or switch to your-own mode:\n  Run 'assistant auth login' to authenticate, or set services.image-generation.mode to 'your-own' in config."
-          : "No Gemini API key configured. Add your Gemini API key:\n  Run 'assistant keys set gemini <key>' or configure it in Settings > Models & Services.";
-
+        svc.mode === "managed"
+          ? `${baseHint}\n  Run 'assistant auth login' to authenticate, or set services.image-generation.mode to 'your-own' in config.`
+          : baseHint;
       if (jsonOutput) {
         process.stdout.write(JSON.stringify({ ok: false, error: hint }) + "\n");
       } else {
@@ -184,6 +181,8 @@ Examples:
       process.exitCode = 1;
       return;
     }
+
+    const resolvedCredentials: ImageGenCredentials = credentials;
 
     // --- Read source images for edit mode ---
     let sourceImages:
@@ -231,11 +230,11 @@ Examples:
     }
 
     // --- Resolve model ---
-    const model = modelOverride ?? config.services["image-generation"].model;
+    const model = modelOverride ?? svc.model;
 
     // --- Generate image ---
     try {
-      const result = await generateImage(credentials, {
+      const result = await generateImage(provider, resolvedCredentials, {
         prompt,
         mode,
         sourceImages,
@@ -286,7 +285,7 @@ Examples:
         }
       }
     } catch (error) {
-      const errorMsg = mapGeminiError(error);
+      const errorMsg = mapImageGenError(provider, error);
       if (jsonOutput) {
         process.stdout.write(
           JSON.stringify({ ok: false, error: errorMsg }) + "\n",

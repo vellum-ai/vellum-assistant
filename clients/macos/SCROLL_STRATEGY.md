@@ -200,15 +200,18 @@ Deep-link scroll uses `.center` anchor for scroll-to-ID via `ScrollPosition` val
 
 ---
 
-## User Message Collapse (Prevents First-Frame Flash)
+## User Message Collapse
 
-Long user messages collapse at 150pt. The collapse decision uses `NSString.boundingRect` on the first frame (before `onGeometryChange` fires) to avoid a full-height flash:
+Long user messages collapse at 150pt. The collapse decision is driven **purely** by a deterministic estimate of text + per-attachment heights, computed from the model:
 
 ```swift
-let isCollapsible = userMessageIntrinsicHeight > 0
-    ? userMessageIntrinsicHeight > userMessageMaxCollapsedHeight
-    : estimatedTextExceedsCollapseThreshold  // NSString.boundingRect estimate
+let isCollapsible = estimatedContentExceedsCollapseThreshold
+let needsCollapse = isCollapsible && !isUserMessageExpanded
 ```
+
+`estimatedContentExceedsCollapseThreshold` combines `NSString.boundingRect` on the message text with conservative per-attachment heights (single image ~200pt, grid tiles 120pt, videos/inline previews ~200pt, audio ~80pt, file chips ~40pt) that mirror the renderers in `ChatBubbleAttachmentContent.swift`.
+
+**Do not wire `onGeometryChange` (or any layout observation) into the collapsibility state.** `.frame(height: 150)` is a `_FrameLayout` that hard-proposes 150pt to its child; observing the child's height and feeding it back into state creates a feedback loop that flips `isCollapsible` to false on the first toggle, removing the "Show less" button and the frame clamp together. See [`onGeometryChange` docs](https://developer.apple.com/documentation/swiftui/view/ongeometrychange(for:of:action:)) for the general guidance that geometry observations should not drive state that changes the observed layout.
 
 Collapsed messages have:
 - Gradient fade overlay (transparent -> `VColor.surfaceLift`)

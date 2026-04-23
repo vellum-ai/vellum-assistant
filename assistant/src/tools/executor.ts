@@ -3,9 +3,15 @@ import { readFileSync } from "node:fs";
 import { getConfig } from "../config/loader.js";
 import { bridgeCesApproval } from "../credential-execution/approval-bridge.js";
 import { isCesShellLockdownEnabled } from "../credential-execution/feature-gates.js";
-import { getHookManager } from "../hooks/manager.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
+import { runPipeline } from "../plugins/pipeline.js";
+import { getMiddlewaresFor } from "../plugins/registry.js";
+import type {
+  ToolExecuteArgs,
+  ToolExecuteResult,
+  TurnContext,
+} from "../plugins/types.js";
 import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
 import { redactSensitiveFields } from "../security/redaction.js";
 import { TokenExpiredError } from "../security/token-manager.js";
@@ -43,6 +49,59 @@ export class ToolExecutor {
   }
 
   async execute(
+    name: string,
+    input: Record<string, unknown>,
+    context: ToolContext,
+    /**
+     * Optional per-turn context threaded in by the agent loop. Production
+     * sites propagate the orchestrator-built `TurnContext` (real
+     * `conversationId`, trust cascade, attached `contextWindowManager`) so
+     * middleware registered on the `toolExecute` pipeline sees the same
+     * context every other pipeline slot uses. When omitted (CLI/test
+     * invocations that call `ToolExecutor.execute` directly), the executor
+     * synthesizes a fallback context from the {@link ToolContext}, which
+     * keeps pre-threading behavior intact for legacy callers.
+     */
+    turnContext?: TurnContext,
+  ): Promise<ToolExecutionResult> {
+    // Compute the per-tool timeout budget upfront so the pipeline timeout
+    // matches the existing per-tool timeout. `toolExecute` is intentionally
+    // `null` in `DEFAULT_TIMEOUTS` because `ToolExecutor` already enforces
+    // per-tool timeouts inside `executeWithTimeout`; we pass the same
+    // budget to `runPipeline` so a runaway middleware doesn't silently
+    // exceed the tool's configured limit, without double-enforcing on the
+    // happy path (the pipeline race is a cheap backstop).
+    const perToolTimeoutMs = computePerToolTimeoutMs(name, input);
+
+    // Prefer the orchestrator-supplied `turnContext` so the pipeline sees
+    // the real conversation identity, per-turn trust, and context-window
+    // manager. When absent (CLI / test invocations that bypass the agent
+    // loop), synthesize a minimal context from the `ToolContext` — the
+    // same fallback the executor has used since the pipeline was added.
+    const turnCtx: TurnContext = turnContext ?? {
+      requestId: context.requestId ?? "",
+      conversationId: context.conversationId,
+      turnIndex: 0,
+      trust: {
+        sourceChannel: "vellum",
+        trustClass: context.trustClass,
+      },
+    };
+
+    const middlewares = getMiddlewaresFor("toolExecute");
+    const pipelineArgs: ToolExecuteArgs = { name, input, context };
+
+    return runPipeline<ToolExecuteArgs, ToolExecuteResult>(
+      "toolExecute",
+      middlewares,
+      (args) => this.executeInternal(args.name, args.input, args.context),
+      pipelineArgs,
+      turnCtx,
+      perToolTimeoutMs,
+    );
+  }
+
+  private async executeInternal(
     name: string,
     input: Record<string, unknown>,
     context: ToolContext,
@@ -117,6 +176,7 @@ export class ToolExecutor {
             riskLevel: string;
             riskReason: string;
             riskScopeOptions: Array<{ pattern: string; label: string }>;
+            isContainerized?: boolean;
           }
         | undefined;
       if (!gateResult.grantConsumed || context.requireFreshApproval) {
@@ -128,7 +188,6 @@ export class ToolExecutor {
           context,
           executionTarget,
           (event) => emitLifecycleEvent(context, event),
-          sanitizeToolInput,
           startTime,
           computePreviewDiff,
         );
@@ -144,6 +203,7 @@ export class ToolExecutor {
             riskLevel: permRiskMeta?.riskLevel,
             riskReason: permRiskMeta?.riskReason,
             riskScopeOptions: permRiskMeta?.riskScopeOptions,
+            isContainerized: permRiskMeta?.isContainerized,
           };
         }
 
@@ -152,59 +212,11 @@ export class ToolExecutor {
         }
       }
 
-      const hookResult = await getHookManager().trigger("pre-tool-execute", {
-        toolName: name,
-        input: sanitizeToolInput(name, input),
-        riskLevel,
-        decision,
-        workingDir: context.workingDir,
-        conversationId: context.conversationId,
-      });
-
-      if (hookResult.blocked) {
-        const msg = `Tool execution blocked by hook "${hookResult.blockedBy}"`;
-        const durationMs = Date.now() - startTime;
-        emitLifecycleEvent(context, {
-          type: "error",
-          toolName: name,
-          executionTarget,
-          input,
-          workingDir: context.workingDir,
-          conversationId: context.conversationId,
-          requestId: context.requestId,
-          riskLevel,
-          decision: "blocked",
-          durationMs,
-          errorMessage: msg,
-          isExpected: true,
-          errorCategory: "tool_failure",
-        });
-        return { content: msg, isError: true };
-      }
-
-      // Execute the tool - proxy tools delegate to an external resolver
+      // Execute the tool - proxy tools delegate to an external resolver.
+      // Use the shared per-tool timeout helper so the pipeline runner and
+      // the inner execute-with-timeout wrapper agree on the same budget.
       let execResult: ToolExecutionResult;
-      let toolTimeoutMs: number;
-      if (name === "bash" || name === "host_bash") {
-        // Shell tools manage their own timeouts (SIGKILL on expiry).
-        // Compute the same effective timeout so the executor wrapper
-        // doesn't prematurely kill them with the generic toolExecutionTimeoutSec.
-        const { shellDefaultTimeoutSec, shellMaxTimeoutSec } =
-          getConfig().timeouts;
-        const requestedSec =
-          typeof input.timeout_seconds === "number"
-            ? input.timeout_seconds
-            : shellDefaultTimeoutSec;
-        const shellTimeoutSec = Math.max(
-          1,
-          Math.min(requestedSec, shellMaxTimeoutSec),
-        );
-        // Buffer so the shell's own timeout fires first and handles cleanup
-        toolTimeoutMs = (shellTimeoutSec + 5) * 1000;
-      } else {
-        const rawTimeoutSec = getConfig().timeouts.toolExecutionTimeoutSec;
-        toolTimeoutMs = safeTimeoutMs(rawTimeoutSec);
-      }
+      const toolTimeoutMs = computePerToolTimeoutMs(name, input);
 
       const execContext = context;
 
@@ -378,7 +390,6 @@ export class ToolExecutor {
         decision,
         startTime,
         emitLifecycleEvent,
-        sanitizeToolInput,
       );
       if (secretResult.earlyReturn) {
         return secretResult.result;
@@ -402,15 +413,6 @@ export class ToolExecutor {
         result: safeResult,
       });
 
-      void getHookManager().trigger("post-tool-execute", {
-        toolName: name,
-        input: sanitizeToolInput(name, input),
-        riskLevel,
-        isError: execResult.isError,
-        durationMs,
-        conversationId: context.conversationId,
-      });
-
       // Merge risk metadata from the classifier assessment cache onto the
       // tool result so downstream consumers (AgentEvent → handleToolResult →
       // ToolResult SSE message) can forward it to the client.
@@ -420,6 +422,7 @@ export class ToolExecutor {
           riskLevel: permRiskMeta.riskLevel,
           riskReason: permRiskMeta.riskReason,
           riskScopeOptions: permRiskMeta.riskScopeOptions,
+          isContainerized: permRiskMeta.isContainerized,
         };
       }
 
@@ -472,15 +475,6 @@ export class ToolExecutor {
         errorStack: err instanceof Error ? err.stack : undefined,
       });
 
-      void getHookManager().trigger("post-tool-execute", {
-        toolName: name,
-        input: sanitizeToolInput(name, input),
-        riskLevel,
-        isError: true,
-        durationMs,
-        conversationId: context.conversationId,
-      });
-
       if (isExpected) {
         return { content: msg, isError: true };
       }
@@ -500,7 +494,45 @@ export { isSideEffectTool } from "./side-effects.js";
 export { PermissionChecker } from "./permission-checker.js";
 
 /**
- * Sanitize tool inputs before they are emitted in lifecycle events and hooks.
+ * Compute the effective per-tool execution timeout in milliseconds.
+ *
+ * Shell tools (`bash`, `host_bash`) manage their own timeouts with SIGKILL
+ * on expiry. We add a 5s buffer so the shell's own deadline fires first and
+ * handles cleanup before the executor wrapper trips. Non-shell tools use
+ * the generic `toolExecutionTimeoutSec` configuration value.
+ *
+ * Called from two sites:
+ * 1. The public `ToolExecutor.execute` wrapper — passes the result to
+ *    `runPipeline` as the pipeline-level timeout so middleware inherits
+ *    the same budget the tool enforces internally.
+ * 2. `executeInternal` — passes the result to `executeWithTimeout` around
+ *    the actual tool invocation.
+ *
+ * Both sites see the same value because `getConfig()` returns a cached
+ * object; there is no observable divergence.
+ */
+function computePerToolTimeoutMs(
+  name: string,
+  input: Record<string, unknown>,
+): number {
+  if (name === "bash" || name === "host_bash") {
+    const { shellDefaultTimeoutSec, shellMaxTimeoutSec } = getConfig().timeouts;
+    const requestedSec =
+      typeof input.timeout_seconds === "number"
+        ? input.timeout_seconds
+        : shellDefaultTimeoutSec;
+    const shellTimeoutSec = Math.max(
+      1,
+      Math.min(requestedSec, shellMaxTimeoutSec),
+    );
+    return (shellTimeoutSec + 5) * 1000;
+  }
+  const rawTimeoutSec = getConfig().timeouts.toolExecutionTimeoutSec;
+  return safeTimeoutMs(rawTimeoutSec);
+}
+
+/**
+ * Sanitize tool inputs before they are emitted in lifecycle events.
  * Applies recursive field-level redaction for known-sensitive keys.
  */
 function sanitizeToolInput(

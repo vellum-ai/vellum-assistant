@@ -121,6 +121,17 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   cesClient?: CesClient;
   /** The interface ID of the connected client driving the current turn (e.g. "macos", "chrome-extension"). Propagated into ToolContext for browser backend selection. */
   readonly transportInterface?: InterfaceId;
+  /**
+   * Registry-routed sender override for the host browser proxy. When set
+   * (non-undefined), indicates the browser proxy sender was replaced by a
+   * ChromeExtensionRegistry WebSocket sender — i.e., an extension connection
+   * was actively wired at turn-start. Propagated into ToolContext as
+   * `hostBrowserRegistryRouted` (boolean) so the CDP factory can distinguish
+   * SSE-backed proxies from extension-backed proxies.
+   */
+  hostBrowserSenderOverride?: (
+    msg: import("./message-protocol.js").ServerMessage,
+  ) => void;
   /** Turn-scoped flag: true when any tool call in the current turn received explicit user approval via interactive prompt. Cleared at turn end. */
   approvedViaPromptThisTurn?: boolean;
 }
@@ -159,6 +170,7 @@ export function createToolExecutor(
   input: Record<string, unknown>,
   onOutput?: (chunk: string) => void,
   toolUseId?: string,
+  turnContext?: import("../plugins/types.js").TurnContext,
 ) => Promise<ToolExecutionResult> {
   // Register the conversation's sendToClient for browser screencast surface messages
   registerConversationSender(ctx.conversationId, (msg) =>
@@ -170,6 +182,7 @@ export function createToolExecutor(
     input: Record<string, unknown>,
     onOutput?: (chunk: string) => void,
     toolUseId?: string,
+    turnContext?: import("../plugins/types.js").TurnContext,
   ) => {
     if (isDoordashCommand(name, input)) {
       markDoordashStepInProgress(ctx, input);
@@ -229,6 +242,7 @@ export function createToolExecutor(
       isPlatformHosted: getIsPlatform(),
       cesClient: ctx.cesClient,
       transportInterface: ctx.transportInterface,
+      hostBrowserRegistryRouted: !!ctx.hostBrowserSenderOverride,
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {
         // Tool context's sendToClient uses a loose { type: string; [key: string]: unknown }
@@ -306,7 +320,12 @@ export function createToolExecutor(
         };
       }
 
-      const result = await executor.execute(toolName, toolInput, toolContext);
+      const result = await executor.execute(
+        toolName,
+        toolInput,
+        toolContext,
+        turnContext,
+      );
       if (toolContext.approvedViaPrompt) {
         ctx.approvedViaPromptThisTurn = true;
       }
@@ -319,7 +338,12 @@ export function createToolExecutor(
       return result;
     }
 
-    const result = await executor.execute(name, input, toolContext);
+    const result = await executor.execute(
+      name,
+      input,
+      toolContext,
+      turnContext,
+    );
     if (toolContext.approvedViaPrompt) {
       ctx.approvedViaPromptThisTurn = true;
     }
@@ -364,10 +388,23 @@ export function createProxyApprovalCallback(
 
     const input: Record<string, unknown> = {
       url,
-      proxy_session_id: request.sessionId,
+      scheme,
     };
+    if (request.method) {
+      input.method = request.method;
+    }
+    if (request.requestHeaders && Object.keys(request.requestHeaders).length) {
+      input.request_headers = request.requestHeaders;
+    }
+    input.reason =
+      decision.kind === "ask_missing_credential"
+        ? "No credential in this session matches this host. Approving will send the request without authentication."
+        : "This host isn't covered by any known credential template. Approving will send the request as-is.";
     if (decision.kind === "ask_missing_credential") {
-      input.matching_patterns = decision.matchingPatterns;
+      input.known_credential_patterns = decision.matchingPatterns;
+    }
+    if (!request.method) {
+      input.connection_detail_available = "no";
     }
 
     const riskLevel: string = "medium";

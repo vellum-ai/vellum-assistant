@@ -137,10 +137,12 @@ export function supportsHostProxy(
   id: InterfaceId,
   capability?: HostProxyCapability,
 ): boolean {
-  // host_browser is excluded for macos because the proxy path requires a
-  // Chrome extension that isn't guaranteed to be attached; browser tools
-  // fall back to the local Playwright Chromium instead.
-  if (id === "macos") return capability !== "host_browser";
+  // macOS supports all four host proxy capabilities including host_browser.
+  // The host_browser proxy is provisioned via the SSE sender path (or via the
+  // ChromeExtensionRegistry when an extension connection is present). When no
+  // extension is connected, browser tools fall through to cdp-inspect/local
+  // via the CDP factory's candidate chain.
+  if (id === "macos") return true;
   if (id === "chrome-extension" && capability === "host_browser") return true;
   return false;
 }

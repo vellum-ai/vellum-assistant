@@ -53,4 +53,49 @@ final class EventStreamClientLifecycleTests: XCTestCase {
             _ = client
         }
     }
+
+    // MARK: - Host Tool Ownership Filtering
+
+    /// Verify that `registerConversationId` adds the ID to the locally owned
+    /// set, which is the prerequisite for host tool requests (including
+    /// host_browser_request) to pass the ownership filter.
+    func testRegisterConversationIdAddsToLocallyOwned() {
+        let client = EventStreamClient()
+        XCTAssertFalse(client.locallyOwnedConversationIds.contains("conv-abc"))
+
+        client.registerConversationId("conv-abc")
+
+        XCTAssertTrue(client.locallyOwnedConversationIds.contains("conv-abc"))
+    }
+
+    /// Verify that `cleanupAfterConversationIdResolution` removes the local
+    /// ID and does not leave a stale entry that could match future requests.
+    func testCleanupAfterResolutionRemovesLocalId() {
+        let client = EventStreamClient()
+        client.registerConversationId("local-123")
+
+        client.cleanupAfterConversationIdResolution(localId: "local-123", serverId: "server-456")
+
+        XCTAssertFalse(
+            client.locallyOwnedConversationIds.contains("local-123"),
+            "Local ID should be removed after resolution"
+        )
+    }
+
+    /// Verify that the locally-owned set tracks both local and server IDs
+    /// after a conversation ID resolution, since SSE messages may arrive
+    /// using either ID.
+    func testLocallyOwnedSetContainsServerIdAfterSendMessage() {
+        let client = EventStreamClient()
+        // sendMessage registers the conversation ID as locally owned and
+        // maps the server ID once the POST response arrives. Since we
+        // cannot easily drive a full sendMessage in a unit test (it makes
+        // an HTTP call), verify that registerConversationId is sufficient
+        // and that the set is mutable via the public API.
+        client.registerConversationId("conv-local")
+        client.registerConversationId("conv-server")
+
+        XCTAssertTrue(client.locallyOwnedConversationIds.contains("conv-local"))
+        XCTAssertTrue(client.locallyOwnedConversationIds.contains("conv-server"))
+    }
 }

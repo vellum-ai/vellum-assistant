@@ -207,6 +207,18 @@ export interface ToolContext {
    * to cdp-inspect or local Playwright.
    */
   transportInterface?: InterfaceId;
+  /**
+   * True when the host browser proxy's sender was overridden by a
+   * registry-routed extension connection (ChromeExtensionRegistry WebSocket).
+   * The CDP factory uses this to distinguish between an SSE-backed proxy
+   * (macOS, no extension) and an extension-backed proxy: only the latter
+   * should suppress desktop-auto cdp-inspect when temporarily unavailable,
+   * because the extension transport was explicitly expected and the
+   * disconnection is transient. An SSE-backed proxy that reports
+   * unavailable (e.g. non-interactive turn) should NOT suppress
+   * cdp-inspect — the proxy was never expected to service browser requests.
+   */
+  hostBrowserRegistryRouted?: boolean;
 }
 
 export interface DiffInfo {
@@ -246,6 +258,8 @@ export interface ToolExecutionResult {
   riskLevel?: string;
   /** Human-readable reason for the risk classification. */
   riskReason?: string;
+  /** Whether the daemon is running in a containerized (Docker) environment. */
+  isContainerized?: boolean;
   /** Scope options ladder for the rule editor (narrowest to broadest). */
   riskScopeOptions?: Array<{ pattern: string; label: string }>;
   /**
@@ -279,6 +293,10 @@ export interface ProxyApprovalRequest {
     matchingPatterns?: string[];
   };
   sessionId: string;
+  /** HTTP method (plain HTTP only; undefined for HTTPS CONNECT tunnels). */
+  method?: string;
+  /** Curated non-sensitive headers (plain HTTP only). */
+  requestHeaders?: Record<string, string>;
 }
 
 /** Callback for proxy policy decisions requiring user confirmation. Returns true if approved. */

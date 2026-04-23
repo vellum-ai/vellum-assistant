@@ -27,11 +27,7 @@ import {
   viewCart,
 } from "./lib/client.js";
 import { extractQueries, saveQueries } from "./lib/query-extractor.js";
-import {
-  clearSession,
-  importFromCredentialStore,
-  loadSession,
-} from "./lib/session.js";
+import { clearSession, loadSession } from "./lib/session.js";
 import { NetworkRecorder } from "./lib/shared/network-recorder.js";
 import { loadRecording, saveRecording } from "./lib/shared/recording-store.js";
 import type { SessionRecording } from "./lib/shared/recording-types.js";
@@ -103,24 +99,6 @@ async function ensureChromeWithCdp(opts?: {
   };
 }
 
-async function minimizeChromeWindow(cdpBase?: string): Promise<void> {
-  const args = ["browser", "chrome", "minimize"];
-  if (cdpBase) {
-    const port = new URL(cdpBase).port;
-    if (port) args.push("--port", port);
-  }
-  await runChromeCommand(args, "Chrome minimize failed");
-}
-
-async function restoreChromeWindow(cdpBase?: string): Promise<void> {
-  const args = ["browser", "chrome", "restore"];
-  if (cdpBase) {
-    const port = new URL(cdpBase).port;
-    if (port) args.push("--port", port);
-  }
-  await runChromeCommand(args, "Chrome restore failed");
-}
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -173,9 +151,7 @@ async function run(cmd: Command, fn: () => Promise<unknown>): Promise<void> {
 export function registerDoordashCommand(program: Command): void {
   const dd = program
     .command("doordash")
-    .description(
-      'Order food from DoorDash. Requires an active session (use "refresh" to authenticate).',
-    )
+    .description("Order food from DoorDash. Requires an active session.")
     .option("--json", "Machine-readable JSON output");
 
   // =========================================================================
@@ -186,53 +162,6 @@ export function registerDoordashCommand(program: Command): void {
     .action((_opts: unknown, cmd: Command) => {
       clearSession();
       output({ ok: true, message: "Session cleared" }, getJson(cmd));
-    });
-
-  // =========================================================================
-  // refresh - capture fresh cookies via browser recording
-  // =========================================================================
-  dd.command("refresh")
-    .description(
-      "Capture fresh DoorDash cookies via browser recording. " +
-        "Opens doordash.com in a separate Chrome window - sign in when prompted. " +
-        "Your existing Chrome and tabs are not affected.",
-    )
-    .option("--duration <seconds>", "Recording duration in seconds", "180")
-    .action(async (opts: { duration: string }, cmd: Command) => {
-      const json = getJson(cmd);
-      const duration = parseInt(opts.duration, 10);
-
-      try {
-        // Restore minimized Chrome window so user can see the login page
-        try {
-          await restoreChromeWindow();
-        } catch {
-          /* best-effort */
-        }
-
-        await startLearnSession(duration);
-
-        const session = await importFromCredentialStore("doordash.com");
-
-        // Best-effort: minimize Chrome window after capturing session
-        try {
-          await minimizeChromeWindow();
-          process.stderr.write("[doordash] Chrome window minimized\n");
-        } catch {
-          // Non-fatal: minimizing is best-effort
-        }
-
-        output(
-          {
-            ok: true,
-            message: "Session refreshed successfully",
-            cookieCount: session.cookies.length,
-          },
-          json,
-        );
-      } catch (err) {
-        outputError(err instanceof Error ? err.message : String(err));
-      }
     });
 
   // =========================================================================
@@ -974,96 +903,4 @@ export function registerDoordashCommand(program: Command): void {
         return { methods, count: methods.length };
       });
     });
-}
-
-// ---------------------------------------------------------------------------
-// Learn session helper
-// ---------------------------------------------------------------------------
-
-async function startLearnSession(durationSeconds: number): Promise<void> {
-  // Step 1: Ensure Chrome is running with CDP
-  await ensureChromeWithCdp({
-    startUrl: "https://www.doordash.com/consumer/login/",
-  });
-
-  // Step 2: Start learn session via IPC signal
-  let startStdout: string;
-  try {
-    ({ stdout: startStdout } = await execFileAsync("assistant", [
-      "shotgun",
-      "start",
-      "--duration",
-      String(durationSeconds),
-      "--interval",
-      "5",
-      "--focus",
-      "doordash.com",
-    ]));
-  } catch (err: unknown) {
-    const execErr = err as { stdout?: string; message?: string };
-    throw new Error(`Failed to start learn session: ${execErr.message ?? err}`);
-  }
-
-  const startResult = JSON.parse(startStdout) as {
-    ok: boolean;
-    watchId?: string;
-    conversationId?: string;
-    error?: string;
-  };
-
-  if (!startResult.ok || !startResult.watchId) {
-    throw new Error(
-      `Learn session start failed: ${startResult.error ?? "missing watchId"}`,
-    );
-  }
-
-  // Step 3: Poll session status via IPC signal for completion or failure
-  const { watchId } = startResult;
-  const timeoutMs = (durationSeconds + 30) * 1000;
-  const pollIntervalMs = 2000;
-  const startTime = Date.now();
-
-  return new Promise<void>((resolve, reject) => {
-    const pollOnce = async () => {
-      if (Date.now() - startTime > timeoutMs) {
-        reject(
-          new Error(`Learn session timed out after ${durationSeconds + 30}s`),
-        );
-        return;
-      }
-
-      try {
-        const { stdout: statusStdout } = await execFileAsync("assistant", [
-          "shotgun",
-          "status",
-          watchId,
-        ]);
-
-        const status = JSON.parse(statusStdout) as {
-          ok: boolean;
-          status?: string;
-          error?: string;
-        };
-
-        if (
-          status.ok &&
-          (status.status === "completed" || status.status === "completing")
-        ) {
-          resolve();
-          return;
-        }
-
-        if (status.ok && status.status === "cancelled") {
-          reject(new Error("Learn session was cancelled"));
-          return;
-        }
-      } catch {
-        // Status query failed - continue polling
-      }
-
-      setTimeout(pollOnce, pollIntervalMs);
-    };
-
-    setTimeout(pollOnce, pollIntervalMs);
-  });
 }

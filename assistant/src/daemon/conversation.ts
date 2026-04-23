@@ -5,7 +5,7 @@
  * - conversation-lifecycle.ts    — loadFromDb, abort, dispose
  * - conversation-messaging.ts    — enqueueMessage, persistUserMessage, redirectToSecurePrompt
  * - conversation-agent-loop.ts   — runAgentLoop, generateTitle
- * - conversation-notifiers.ts    — watch/call notifier registration
+ * - conversation-notifiers.ts    — call notifier registration
  * - conversation-tool-setup.ts   — tool definitions, executor, resolveTools callback
  * - conversation-media-retry.ts  — media trimming + raceWithTimeout
  * - conversation-process.ts      — drainQueue, processMessage
@@ -43,7 +43,6 @@ import {
   ToolProfiler,
 } from "../events/tool-profiling-listener.js";
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
-import { getHookManager } from "../hooks/manager.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import {
   getConversationOriginChannel,
@@ -430,7 +429,7 @@ export class Conversation {
       broadcastToAllClients,
     );
 
-    // Register watch/call notifiers (reads ctx properties lazily)
+    // Register call notifiers (reads ctx properties lazily)
     registerConversationNotifiers(conversationId, this);
 
     // Tool infrastructure
@@ -542,11 +541,6 @@ export class Conversation {
       systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
       config: llmDefault.contextWindow,
       toolTokenBudget: this.agentLoop.getToolTokenBudget(),
-    });
-
-    void getHookManager().trigger("conversation-start", {
-      conversationId: this.conversationId,
-      workingDir: this.workingDir,
     });
   }
 
@@ -726,13 +720,16 @@ export class Conversation {
   }
 
   /**
-   * Restore host browser proxy availability only. Used for interfaces that
-   * support host_browser but not the full desktop proxy set, so calling
-   * restoreProxyAvailability() would incorrectly re-enable bash/file/CU
-   * proxies that should stay disabled. Applicable to chrome-extension turns
-   * (which only support host_browser) and macOS turns with an active
-   * extension connection (which route browser tools through the extension
-   * registry instead of cdp-inspect/local).
+   * Restore host browser proxy availability only. Used in two scenarios:
+   *
+   * 1. **Chrome-extension turns** — only support host_browser (not the full
+   *    desktop proxy set), so calling restoreProxyAvailability() would
+   *    incorrectly re-enable bash/file/CU proxies.
+   * 2. **macOS turns** — when called from queue-drain, the browser proxy
+   *    sender needs to be either the registry-routed sender (when an
+   *    extension connection is present) or the SSE hub sender (when no
+   *    extension is connected). This helper resolves the correct sender
+   *    via `hostBrowserSenderOverride ?? sendToClient`.
    *
    * Unlike `restoreProxyAvailability()`, this helper does NOT gate on
    * `hasNoClient`. The chrome-extension interface is non-interactive (so
@@ -748,7 +745,9 @@ export class Conversation {
    * WebSocket rather than the SSE hub: if the queue-drain path called this
    * helper with `sendToClient`, the registry-routed sender established at
    * turn-start would be clobbered by the SSE hub emitter and
-   * host_browser_request frames would stop reaching the extension.
+   * host_browser_request frames would stop reaching the extension. When
+   * no override is set (macOS without extension), `sendToClient` is used
+   * so frames reach the desktop client via SSE.
    *
    * Callers must only invoke this when they know the current interface
    * supports host_browser (see `supportsHostProxy(id, "host_browser")`)
@@ -1304,7 +1303,11 @@ export class Conversation {
     // is `undefined` on early-return paths (no eligible messages, disabled,
     // etc.) — skip those so they don't silently reset the counter.
     if (result.summaryFailed !== undefined) {
-      trackCompactionOutcome(this, result.summaryFailed, this.sendToClient);
+      await trackCompactionOutcome(
+        this,
+        result.summaryFailed,
+        this.sendToClient,
+      );
     }
     if (result.compacted) {
       applyCompactionResult(this, result, this.sendToClient, null);
@@ -1457,7 +1460,6 @@ export class Conversation {
     userMessageId: string,
     onEvent: (msg: ServerMessage) => void,
     options?: {
-      skipPreMessageRollback?: boolean;
       isInteractive?: boolean;
       isUserMessage?: boolean;
       titleText?: string;

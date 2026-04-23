@@ -65,7 +65,7 @@ Host browser allows the assistant to proxy CDP (Chrome DevTools Protocol) JSON-R
 
 The `chrome-extension` interface in `INTERFACE_IDS` is a non-interactive transport that supports only the `host_browser` capability — it does NOT support `host_bash`, `host_file`, or `host_cu`. This is encoded in `supportsHostProxy(id, capability)`: passing a capability argument returns `true` for `chrome-extension` only when the capability is `host_browser`; the no-arg form returns `false` for `chrome-extension` (so legacy desktop-only call sites that assume full-desktop proxy availability continue to gate correctly).
 
-Unlike the SSE-based host proxies used by the macOS client, `host_browser_request` frames for the chrome-extension interface do NOT travel through `assistantEventHub`. Instead they are routed through the `ChromeExtensionRegistry` singleton (`runtime/chrome-extension-registry.ts`), which tracks active chrome-extension WebSocket connections keyed by `(guardianId, clientInstanceId)`. The registry is populated on WebSocket `open` and drained on `close` inside `http-server.ts`'s `/v1/browser-relay` handlers — see the `wsType === "browser-relay"` branches.
+For the chrome-extension interface, `host_browser_request` frames do NOT travel through `assistantEventHub`. Instead they are routed through the `ChromeExtensionRegistry` singleton (`runtime/chrome-extension-registry.ts`), which tracks active chrome-extension WebSocket connections keyed by `(guardianId, clientInstanceId)`. The registry is populated on WebSocket `open` and drained on `close` inside `http-server.ts`'s `/v1/browser-relay` handlers — see the `wsType === "browser-relay"` branches. For macOS, `host_browser_request` frames travel through `assistantEventHub` (SSE) by default; when the guardian also has an active extension connection, the registry-routed WebSocket sender takes precedence.
 
 A single guardian may have multiple parallel extension installs connected at once (two Chrome profiles, two desktops sharing a sync identity). Each install generates a stable `clientInstanceId` on first run, persists it in `chrome.storage.local`, and sends it on every WebSocket handshake as a query param (`clientInstanceId=...`) or header (`x-client-instance-id`). The registry keys inner entries by that id so sibling installs don't evict each other on register/unregister. The default `send(guardianId, msg)` path routes to whichever instance has the most recent activity (`lastActiveAt`); `sendToInstance(guardianId, clientInstanceId, msg)` pins a specific install. Older extension builds that omit the id get a connection-scoped `legacy:<connectionId>` fallback key so they degrade gracefully to single-instance semantics.
 
@@ -79,11 +79,20 @@ See `docs/browser-use-architecture-phase2.md` for the full wire diagram and comp
 
 On macOS-originated turns, the CDP factory (`tools/browser/cdp-client/factory.ts`) evaluates three browser backends in strict priority order. Each candidate is tried lazily; if the first command fails with a transport-level error, the factory falls over to the next candidate. CDP protocol errors (the browser understood the command but rejected it) do NOT trigger failover.
 
-| Priority | Backend         | Condition                                                                                                                                                                                           | Source                                                                                 |
-| -------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| 1        | **Extension**   | `hostBrowserProxy` present AND `isAvailable()` returns `true` (registry-routed WebSocket is connected)                                                                                              | `ChromeExtensionRegistry` via `resolveHostBrowserSender()` in `conversation-routes.ts` |
-| 2        | **cdp-inspect** | (a) `hostBrowser.cdpInspect.enabled` is `true` in config, OR (b) `transportInterface === "macos"` AND `desktopAuto.enabled` is `true` (default) AND the cooldown from a prior failure is not active | Config + `desktopAuto` policy in factory                                               |
-| 3        | **Local**       | Always present as the final fallback                                                                                                                                                                | Playwright sacrificial-profile browser managed by `browserManager`                     |
+| Priority | Backend                    | Condition                                                                                                                                                                                           | Transport                                                                                              |
+| -------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| 1        | **Extension / host proxy** | `hostBrowserProxy` present AND `isAvailable()` returns `true`. On macOS, the proxy is always provisioned (SSE sender when no extension is present, registry-routed when extension is connected)     | WS via `ChromeExtensionRegistry` (extension present) or SSE via `assistantEventHub` (macOS host proxy) |
+| 2        | **cdp-inspect**            | (a) `hostBrowser.cdpInspect.enabled` is `true` in config, OR (b) `transportInterface === "macos"` AND `desktopAuto.enabled` is `true` (default) AND the cooldown from a prior failure is not active | Direct CDP WebSocket to `localhost:9222`                                                               |
+| 3        | **Local**                  | Always present as the final fallback                                                                                                                                                                | In-process Playwright CDP via `browserManager`                                                         |
+
+**Transport selection for the extension/host-proxy backend:**
+
+The "extension" backend label is a misnomer inherited from the original Phase 2 design where only the Chrome Extension provided host-browser access. In the current architecture, two transports can power this backend:
+
+- **Extension WebSocket**: When the `ChromeExtensionRegistry` has an active entry for the guardian, `resolveHostBrowserSender()` returns a registry-routed sender. `host_browser_request` frames travel over the `/v1/browser-relay` WebSocket to the Chrome extension, which executes CDP commands via `chrome.debugger`.
+- **macOS SSE bridge**: When the macOS desktop client is connected but no extension is present, `resolveHostBrowserSender()` returns the `onEvent` SSE hub sender. `host_browser_request` frames travel through `assistantEventHub` to the desktop client's SSE connection. The desktop client executes CDP commands against the local Chrome and POSTs results back to `/v1/host-browser-result`.
+
+Both transports use the same `HostBrowserProxy` → `ExtensionCdpClient` pipeline. The `browser_status` output distinguishes the transport via the `details.transport` field: `"extension-ws"` or `"macos-sse"`.
 
 **Fallback criteria for cdp-inspect (desktop-auto):**
 
@@ -98,24 +107,24 @@ On macOS-originated turns, the CDP factory (`tools/browser/cdp-client/factory.ts
 
 All CDP-backed browser tools (`browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, `browser_hover`, `browser_scroll`, `browser_press_key`, `browser_select_option`, `browser_wait_for`, `browser_extract`, `browser_fill_credential`, `browser_attach`, `browser_detach`, `browser_close`, `browser_status`) accept an optional `browser_mode` input parameter that overrides the automatic backend selection for that invocation.
 
-| Value            | Behavior                                                                 |
-| ---------------- | ------------------------------------------------------------------------ |
-| `auto` (default) | Existing priority-ordered fallback: extension -> cdp-inspect -> local    |
-| `extension`      | Pin to chrome-extension backend. Fails immediately if proxy unavailable. |
-| `cdp-inspect`    | Pin to CDP inspect/debugger backend. Fails if endpoint unreachable.      |
-| `local`          | Pin to local Playwright-managed browser. No fallback.                    |
-| `cdp-debugger`   | Alias for `cdp-inspect`.                                                 |
-| `playwright`     | Alias for `local`.                                                       |
+| Value            | Behavior                                                                     |
+| ---------------- | ---------------------------------------------------------------------------- |
+| `auto` (default) | Existing priority-ordered fallback: extension -> cdp-inspect -> local        |
+| `extension`      | Pin to extension/host-proxy backend. Fails immediately if proxy unavailable. |
+| `cdp-inspect`    | Pin to CDP inspect/debugger backend. Fails if endpoint unreachable.          |
+| `local`          | Pin to local Playwright-managed browser. No fallback.                        |
+| `cdp-debugger`   | Alias for `cdp-inspect`.                                                     |
+| `playwright`     | Alias for `local`.                                                           |
 
 **Strict pinned-mode semantics**: When `browser_mode` is set to a specific backend (not `auto`), the factory builds exactly one candidate and disables failover. If the pinned backend is unavailable, the tool returns a detailed error including:
 
 - The requested mode
 - An ordered list of attempted backends with exact failure reasons
-- A remediation checklist tailored by backend and failure code (e.g. "Ensure Chrome is running with --remote-debugging-port=9222")
+- A remediation checklist tailored by backend, failure code, and transport (e.g. for macOS SSE: "Verify the Vellum desktop app is running"; for extension: "Ensure Chrome is running with the extension paired")
 
 **Auto-mode fallback logging**: In auto mode, fallback transitions are logged at `warn` level with structured metadata including the full candidate sequence and per-candidate failure reasons. This ensures fallback events are always observable in production logs.
 
-**Test coverage:** Regression tests for `browser_mode` wiring live in `__tests__/headless-browser-mode.test.ts`. E2E regression tests for backend precedence live in `__tests__/host-browser-e2e-cloud.test.ts` (extension path) and `__tests__/conversation-routes-disk-view.test.ts` (macOS fallback path). Unit tests for pinned candidate construction and failover live in `tools/browser/cdp-client/__tests__/factory.test.ts`.
+**Test coverage:** Regression tests for `browser_mode` wiring live in `__tests__/headless-browser-mode.test.ts`. E2E regression tests for backend precedence live in `__tests__/host-browser-e2e-cloud.test.ts` (extension path and macOS SSE bridge path) and `__tests__/conversation-routes-disk-view.test.ts` (macOS fallback path). Unit tests for pinned candidate construction and failover live in `tools/browser/cdp-client/__tests__/factory.test.ts`. Browser status tests covering macOS host-browser diagnostics live in `tools/browser/__tests__/browser-status.test.ts`.
 
 ### Channel approvals (Telegram, Slack)
 

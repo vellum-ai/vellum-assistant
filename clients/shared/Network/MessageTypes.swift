@@ -48,6 +48,8 @@ import Foundation
 // │                                 │ decodes only to keep SSE healthy        │
 // │ HostBrowserCancelRequest        │ Hand-maintained alongside               │
 // │                                 │ HostBrowserRequest                      │
+// │ HostBrowserResultPayload        │ Posted back to daemon; hand-maintained  │
+// │                                 │ alongside HostBrowserRequest            │
 // │ SkillSearchResult               │ Client-only result wrapper for search;  │
 // │                                 │ not a wire type                         │
 // │ SkillOperationResult            │ Client-only result wrapper for skill    │
@@ -1716,6 +1718,25 @@ public struct HostBrowserRequest: Decodable, Sendable {
 public struct HostBrowserCancelRequest: Decodable, Sendable {
     public let type: String
     public let requestId: String
+}
+
+/// Payload posted back to the daemon with the result of a host browser execution.
+public struct HostBrowserResultPayload: Codable, Sendable {
+    public let requestId: String
+    public let content: String
+    public let isError: Bool
+
+    public init(requestId: String, content: String, isError: Bool) {
+        self.requestId = requestId
+        self.content = content
+        self.isError = isError
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case requestId
+        case content
+        case isError
+    }
 }
 
 // MARK: - Meet (live meeting state)

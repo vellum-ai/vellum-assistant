@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+#
+# meme — Quick CLI for generating memes via Memegen.link
+#
+# Usage:
+#   meme search <query>          Search templates by name/keyword
+#   meme list                    Show popular templates
+#   meme gen <id> <lines...>     Generate a meme image
+#   meme preview <id>            Show blank template URL
+#
+# Options (for gen):
+#   --width <int>                Set image width (default: none/original)
+#   --height <int>               Set image height
+#   --font <name>                Font: impact, thick, comic, notosans
+#   --format <ext>               Output format: png, jpg, gif, webp (default: png)
+#   --output <path>              Output file path (default: ./meme_<id>.<format>)
+#
+# Examples:
+#   meme search drake
+#   meme gen drake "Building from scratch" "Using the free API"
+#   meme gen --width 1200 cmm "Most hot takes are lukewarm"
+#   meme gen gru "Step 1" "Step 2" "Step 3" "Step 4"
+
+set -euo pipefail
+
+API_BASE="https://api.memegen.link"
+
+# --- Helpers ---
+
+encode_text() {
+  local text="$1"
+  # Apply memegen encoding rules
+  # IMPORTANT: escape literal underscores and dashes BEFORE converting spaces,
+  # since memegen treats _ and - as spaces in caption text.
+  text="${text//_/__}"       # literal _ → __ (must be before space→_)
+  text="${text//-/--}"       # literal - → -- (must be before space→-)
+  text="${text// /_}"        # spaces → underscores
+  text="${text//\?/~q}"      # ? → ~q
+  text="${text//\!/~e}"      # ! → ~e
+  text="${text//\#/~h}"      # # → ~h
+  text="${text//\&/~a}"      # & → ~a
+  text="${text//\%/~p}"      # % → ~p
+  text="${text//\//~s}"      # / → ~s
+  text="${text//\\/~b}"      # \ → ~b
+  text="${text//</~l}"       # < → ~l
+  text="${text//>/~g}"       # > → ~g
+  text="${text//\"/\'\'}"    # " → ''
+  echo "$text"
+}
+
+usage() {
+  sed -n '3,22p' "$0" | sed 's/^# \?//'
+  exit 1
+}
+
+# --- Commands ---
+
+cmd_search() {
+  local query="${1:?Usage: meme search <query>}"
+  curl -s "${API_BASE}/templates" | python3 - "$query" <<'PYEOF'
+import json, sys
+templates = json.load(sys.stdin)
+query = sys.argv[1].lower()
+matches = [t for t in templates if query in t['name'].lower() or query in t['id'].lower() or any(query in k.lower() for k in t.get('keywords', []))]
+if not matches:
+    print(f'No templates found matching: {sys.argv[1]}')
+    sys.exit(0)
+for t in matches[:20]:
+    kw = ', '.join(t.get('keywords', []))
+    print(f"  {t['id']:25s} {t['name']:45s} {t['lines']} lines  {kw}")
+print(f'\n  {len(matches)} match(es)')
+PYEOF
+}
+
+cmd_list() {
+  cat <<'EOF'
+  Popular Meme Templates:
+
+  ID                   Name                                    Lines
+  ───────────────────  ──────────────────────────────────────  ─────
+  drake                Drakeposting                            2
+  db                   Distracted Boyfriend                    3
+  fine                 This is Fine                            2
+  cmm                  Change My Mind                          1
+  astronaut            Always Has Been                         4
+  pigeon               Is This a Pigeon?                       2
+  exit                 Left Exit 12 Off Ramp                   3
+  gru                  Gru's Plan                              4
+  pooh                 Tuxedo Winnie the Pooh                  2
+  rollsafe             Roll Safe                               2
+  chair                American Chopper Argument               6
+  ds                   Daily Struggle                          3
+  same                 They're The Same Picture                3
+  midwit               Midwit                                  3
+  gb                   Galaxy Brain                            4
+  right                Anakin and Padme                        3
+  harold               Hide the Pain Harold                    2
+  vince                Vince McMahon Reaction                  4
+  home                 We Have Food at Home                    2
+  panik-kalm-panik     Panik Kalm Panik                       3
+  woman-cat            Woman Yelling at a Cat                  2
+  spiderman            Spider-Man Pointing                     2
+
+  Use 'meme search <query>' to find more (170+ templates available)
+EOF
+}
+
+cmd_preview() {
+  local id="${1:?Usage: meme preview <template_id>}"
+  echo "  Blank template: ${API_BASE}/images/${id}.png"
+  echo "  Example:        ${API_BASE}/images/${id}/top_text/bottom_text.png"
+}
+
+cmd_gen() {
+  local width="" height="" font="" format="png" output="" id=""
+  local -a lines=()
+
+  # Parse options
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --width)  width="$2"; shift 2 ;;
+      --height) height="$2"; shift 2 ;;
+      --font)   font="$2"; shift 2 ;;
+      --format) format="$2"; shift 2 ;;
+      --output) output="$2"; shift 2 ;;
+      -*)       echo "Unknown option: $1"; usage ;;
+      *)
+        if [[ -z "$id" ]]; then
+          id="$1"
+        else
+          lines+=("$1")
+        fi
+        shift
+        ;;
+    esac
+  done
+
+  [[ -z "$id" ]] && { echo "Error: template ID required"; usage; }
+  [[ ${#lines[@]} -eq 0 ]] && { echo "Error: at least one text line required"; usage; }
+
+  # Build URL path from text lines
+  local path=""
+  for line in "${lines[@]}"; do
+    local encoded
+    encoded=$(encode_text "$line")
+    path="${path}/${encoded}"
+  done
+
+  # Build query params
+  local params=""
+  [[ -n "$width" ]]  && params="${params:+${params}&}width=${width}"
+  [[ -n "$height" ]] && params="${params:+${params}&}height=${height}"
+  [[ -n "$font" ]]   && params="${params:+${params}&}font=${font}"
+  local query=""
+  [[ -n "$params" ]] && query="?${params}"
+
+  local url="${API_BASE}/images/${id}${path}.${format}${query}"
+
+  # Default output path
+  [[ -z "$output" ]] && output="./meme_${id}.${format}"
+
+  echo "  Generating: ${url}"
+  curl -sL "$url" -o "$output"
+
+  if [[ -f "$output" ]] && [[ $(stat -f%z "$output" 2>/dev/null || stat -c%s "$output" 2>/dev/null) -gt 1000 ]]; then
+    echo "  Saved: ${output} ($(du -h "$output" | cut -f1))"
+  else
+    echo "  Error: Failed to generate meme (file too small or missing)"
+    exit 1
+  fi
+}
+
+# --- Main ---
+
+case "${1:-}" in
+  search)  shift; cmd_search "$@" ;;
+  list)    cmd_list ;;
+  preview) shift; cmd_preview "$@" ;;
+  gen)     shift; cmd_gen "$@" ;;
+  -h|--help|help|"") usage ;;
+  *)       echo "Unknown command: $1"; usage ;;
+esac

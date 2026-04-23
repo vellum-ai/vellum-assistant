@@ -42,11 +42,11 @@ describe("supportsHostProxy (runtime)", () => {
     expect(supportsHostProxy("chrome-extension", "host_cu")).toBe(false);
   });
 
-  test("capability form grants host_bash/file/cu to macOS but not host_browser", () => {
+  test("capability form grants all four capabilities to macOS including host_browser", () => {
     expect(supportsHostProxy("macos", "host_bash")).toBe(true);
     expect(supportsHostProxy("macos", "host_file")).toBe(true);
     expect(supportsHostProxy("macos", "host_cu")).toBe(true);
-    expect(supportsHostProxy("macos", "host_browser")).toBe(false);
+    expect(supportsHostProxy("macos", "host_browser")).toBe(true);
   });
 
   test("capability form rejects everything for non-host-proxy interfaces", () => {
@@ -161,5 +161,39 @@ describe("isHostProxyTransport", () => {
       channelId: "vellum",
     };
     expect(isHostProxyTransport(transport)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// macOS host_browser capability — regression guards
+// ---------------------------------------------------------------------------
+
+describe("macOS host_browser capability", () => {
+  test("macOS supports host_browser via supportsHostProxy capability check", () => {
+    // macOS is now host-browser-capable, enabling host_browser_request
+    // frames to be sent to the desktop client via SSE or extension registry.
+    expect(supportsHostProxy("macos", "host_browser")).toBe(true);
+  });
+
+  test("macOS still passes the no-arg host-proxy check (full desktop proxy)", () => {
+    // The no-arg form gates computer-use preactivation and full proxy restore.
+    // macOS must still pass this check.
+    expect(supportsHostProxy("macos")).toBe(true);
+  });
+
+  test("non-macOS non-extension interfaces remain host_browser-ineligible", () => {
+    const ineligible: InterfaceId[] = [
+      "ios",
+      "cli",
+      "telegram",
+      "phone",
+      "vellum",
+      "whatsapp",
+      "slack",
+      "email",
+    ];
+    for (const id of ineligible) {
+      expect(supportsHostProxy(id, "host_browser")).toBe(false);
+    }
   });
 });

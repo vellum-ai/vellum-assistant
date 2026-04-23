@@ -8,7 +8,6 @@ import { createContextSummaryMessage } from "../context/window-manager.js";
 import type { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
-import { getHookManager } from "../hooks/manager.js";
 import { enqueueAutoAnalysisIfEnabled } from "../memory/auto-analysis-enqueue.js";
 import { isAutoAnalysisConversation } from "../memory/auto-analysis-guard.js";
 import {
@@ -27,10 +26,7 @@ import {
 import { unregisterConversationSender } from "../tools/browser/browser-screencast.js";
 import { type AbortReason, createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
-import {
-  unregisterCallNotifiers,
-  unregisterWatchNotifiers,
-} from "./conversation-notifiers.js";
+import { unregisterCallNotifiers } from "./conversation-notifiers.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import { resetSkillToolProjection } from "./conversation-skill-tools.js";
 import { repairHistory } from "./history-repair.js";
@@ -341,7 +337,6 @@ export function abortConversation(
     ctx.surfaceActionRequestIds.clear();
     ctx.surfaceState.clear();
     ctx.accumulatedSurfaceState.clear();
-    unregisterWatchNotifiers(ctx.conversationId);
     for (const queued of ctx.queue) {
       queued.onEvent({
         type: "generation_cancelled",
@@ -355,10 +350,6 @@ export function abortConversation(
 // ── dispose ──────────────────────────────────────────────────────────
 
 export function disposeConversation(ctx: DisposeContext): void {
-  void getHookManager().trigger("conversation-end", {
-    conversationId: ctx.conversationId,
-  });
-
   // Trigger graph extraction for end-of-conversation sweep.
   // Only extract from guardian conversations to preserve the memory trust
   // boundary — untrusted content must not influence future memory retrieval.

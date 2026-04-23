@@ -125,8 +125,10 @@ extension MainWindowView {
         isAppChatOpen = false
         Task {
             let info = await IdentityInfo.loadAsync()
-            cachedAssistantName = AssistantDisplayName.resolve(info?.name, fallback: "Your Assistant")
-            if info != nil { assistantNameResolved = true }
+            if let name = AssistantDisplayName.firstUserFacing(from: [info?.name]) {
+                cachedAssistantName = name
+                assistantNameResolved = true
+            }
         }
         selectedConversationId = conversationManager.activeConversationId
         if let activeId = conversationManager.activeConversationId {

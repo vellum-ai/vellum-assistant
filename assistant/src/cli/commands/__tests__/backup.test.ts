@@ -301,7 +301,7 @@ function getComputedBackupConfig(): BackupConfig {
   return {
     enabled: (raw.enabled as boolean | undefined) ?? false,
     intervalHours: (raw.intervalHours as number | undefined) ?? 6,
-    retention: (raw.retention as number | undefined) ?? 7,
+    retention: (raw.retention as number | undefined) ?? 3,
     offsite: {
       enabled: (offsite.enabled as boolean | undefined) ?? true,
       destinations:

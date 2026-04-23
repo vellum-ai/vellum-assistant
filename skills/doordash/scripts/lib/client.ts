@@ -83,7 +83,7 @@ async function findDoordashTab(): Promise<string> {
   const res = await fetch(`${CDP_BASE}/json/list`).catch(() => null);
   if (!res?.ok) {
     throw new SessionExpiredError(
-      "Chrome CDP not available. Run `vellum doordash refresh` first.",
+      "Chrome CDP not available. Ensure Chrome is running with remote debugging enabled.",
     );
   }
   const targets = (await res.json()) as Array<{

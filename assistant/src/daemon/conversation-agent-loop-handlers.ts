@@ -16,13 +16,11 @@ import type {
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
 import {
-  addMessage,
   getConversation,
   getMessageById,
   provenanceFromTrustContext,
   updateMessageContent,
 } from "../memory/conversation-crud.js";
-import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
 import {
   backfillMessageIdOnLogs,
   recordRequestLog,
@@ -33,6 +31,14 @@ import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
+import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
+import { getMiddlewaresFor } from "../plugins/registry.js";
+import type {
+  PersistAddResult,
+  PersistArgs,
+  PersistResult,
+  TurnContext,
+} from "../plugins/types.js";
 import type { ContentBlock, ImageContent } from "../providers/types.js";
 import { isContextOverflowError } from "../providers/types.js";
 import { ProviderError } from "../util/errors.js";
@@ -52,6 +58,46 @@ import { isProviderOrderingError } from "./conversation-slash.js";
 import type { ServerMessage } from "./message-protocol.js";
 
 const log = getLogger("agent-loop-handlers");
+
+/**
+ * Build a {@link TurnContext} from the handler's deps for pipeline logging
+ * and plugin attribution.
+ *
+ * Reads `turnIndex` from `deps.ctx.turnCount` — the orchestrator-owned
+ * per-turn counter that is stable for the entire duration of a single
+ * `runAgentLoopImpl` invocation. The handlers fire after the orchestrator
+ * has completed its in-turn pipeline work but before `ctx.turnCount++` runs
+ * in the outer `finally` block, so this value always reflects the turn the
+ * handler's event belongs to. Trust pulls from the per-turn snapshot first,
+ * then the conversation-level context, then the canonical `unknown`
+ * fallback so the required field stays populated for edge cases (fresh
+ * conversations before the trust resolver runs, heartbeat turns that never
+ * bind an actor).
+ */
+function buildHandlerTurnContext(deps: EventHandlerDeps): TurnContext {
+  return {
+    requestId: deps.reqId,
+    conversationId: deps.ctx.conversationId,
+    turnIndex: deps.ctx.turnCount,
+    trust: deps.ctx.currentTurnTrustContext ??
+      deps.ctx.trustContext ?? {
+        sourceChannel: "vellum",
+        trustClass: "unknown",
+      },
+  };
+}
+
+/**
+ * Terminal fed into the `persistence` pipeline. The default plugin
+ * (registered at daemon bootstrap) always handles each op, so reaching the
+ * terminal signals a configuration bug. Shared with `conversation-agent-loop.ts`
+ * via the same message text for ops-grepability.
+ */
+function persistenceTerminal(_args: PersistArgs): Promise<PersistResult> {
+  throw new Error(
+    "persistence terminal reached: the default plugin should handle every op",
+  );
+}
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -540,6 +586,7 @@ export function handleToolResult(
     toolUseId: event.toolUseId,
     riskLevel: event.riskLevel,
     riskReason: event.riskReason,
+    isContainerized: event.isContainerized,
     riskScopeOptions: event.riskScopeOptions,
   });
 }
@@ -718,21 +765,28 @@ export async function handleMessageComplete(
       assistantMessageInterface:
         deps.turnInterfaceContext.assistantMessageInterface,
     };
-    const toolResultMsg = await addMessage(
-      deps.ctx.conversationId,
-      "user",
-      JSON.stringify(toolResultBlocks),
-      toolResultMetadata,
-    );
-    // Sync tool-result user message to disk view
+    // Route the add + disk-view sync through the `persistence` pipeline so
+    // plugins can observe or override both operations together. The default
+    // plugin performs the add and, because `syncToDisk` is true, immediately
+    // calls `syncMessageToDisk` against the just-persisted row — preserving
+    // the pre-pipeline behavior.
     const convForToolResult = getConversation(deps.ctx.conversationId);
-    if (convForToolResult) {
-      syncMessageToDisk(
-        deps.ctx.conversationId,
-        toolResultMsg.id,
-        convForToolResult.createdAt,
-      );
-    }
+    await runPipeline<PersistArgs, PersistResult>(
+      "persistence",
+      getMiddlewaresFor("persistence"),
+      persistenceTerminal,
+      {
+        op: "add",
+        conversationId: deps.ctx.conversationId,
+        role: "user",
+        content: JSON.stringify(toolResultBlocks),
+        metadata: toolResultMetadata,
+        syncToDisk: convForToolResult !== undefined,
+        createdAtMs: convForToolResult?.createdAt,
+      },
+      buildHandlerTurnContext(deps),
+      DEFAULT_TIMEOUTS.persistence,
+    );
     for (const id of state.pendingToolResults.keys()) {
       state.persistedToolUseIds.add(id);
     }
@@ -819,12 +873,26 @@ export async function handleMessageComplete(
       );
     }
   }
-  const assistantMsg = await addMessage(
-    deps.ctx.conversationId,
-    "assistant",
-    JSON.stringify(contentWithSurfaces),
-    assistantChannelMetadata,
-  );
+  // Route the assistant-message persistence through the `persistence`
+  // pipeline. No `syncToDisk` here — the orchestrator separately invokes
+  // `syncMessageToDisk` on `state.lastAssistantMessageId` after the loop
+  // completes (see `conversation-agent-loop.ts::syncLastAssistantMessageToDisk`),
+  // matching the pre-pipeline behavior exactly.
+  const assistantPersistResult = (await runPipeline<PersistArgs, PersistResult>(
+    "persistence",
+    getMiddlewaresFor("persistence"),
+    persistenceTerminal,
+    {
+      op: "add",
+      conversationId: deps.ctx.conversationId,
+      role: "assistant",
+      content: JSON.stringify(contentWithSurfaces),
+      metadata: assistantChannelMetadata,
+    },
+    buildHandlerTurnContext(deps),
+    DEFAULT_TIMEOUTS.persistence,
+  )) as PersistAddResult;
+  const assistantMsg = assistantPersistResult.message;
   state.lastAssistantMessageId = assistantMsg.id;
 
   // Backfill message_id on all LLM request logs from this turn.

@@ -58,9 +58,16 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
     const parts = this.buildParts(normalized);
 
     const body: Record<string, unknown> = {
-      model: `models/${this.model}`,
       content: { parts },
     };
+    // Include `model` in the body only for managed-proxy requests — the
+    // platform billing layer reads it from the body to validate rate cards.
+    // Direct Gemini API requests must NOT include it because the model is
+    // already in the URL path and the API rejects the duplicate (`oneof
+    // field '_model' is already set`).
+    if (this.managedBaseUrl) {
+      body.model = `models/${this.model}`;
+    }
     if (this.taskType) body.taskType = this.taskType;
     if (this.dimensions) body.outputDimensionality = this.dimensions;
 

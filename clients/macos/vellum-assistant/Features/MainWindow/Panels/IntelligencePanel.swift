@@ -69,8 +69,18 @@ struct IntelligencePanel: View {
             }
         }
         .task {
-            let info = await IdentityInfo.loadAsync()
-            cachedAssistantName = AssistantDisplayName.resolve(info?.name, fallback: "Your Assistant")
+            let info = await IdentityInfo.refreshCache()
+            if let name = AssistantDisplayName.firstUserFacing(from: [info?.name]) {
+                cachedAssistantName = name
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .identityChanged)) { _ in
+            Task {
+                let info = await IdentityInfo.refreshCache()
+                if let name = AssistantDisplayName.firstUserFacing(from: [info?.name]) {
+                    cachedAssistantName = name
+                }
+            }
         }
     }
 

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AgentEvent } from "../agent/loop.js";
 import type { UserMessageAttachment } from "../daemon/message-protocol.js";
+import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 import { ProviderError } from "../util/errors.js";
 
@@ -76,9 +77,13 @@ mock.module("../config/loader.js", () => ({
 }));
 
 // Token estimator: return a small value (well within budget) so preflight
-// does not trigger in existing tests.
+// does not trigger in existing tests. Stub both the calibrated and raw
+// entry points — the latter backs the default `tokenEstimate` plugin
+// pipeline now used by the orchestrator's preflight / mid-loop checkpoints.
 mock.module("../context/token-estimator.js", () => ({
   estimatePromptTokens: () => 1000,
+  estimatePromptTokensRaw: () => 1000,
+  estimateToolsTokens: () => 0,
 }));
 
 // Overflow recovery module mocks — the convergence loop delegates to these
@@ -255,6 +260,9 @@ mock.module("../agent/loop.js", () => ({
     constructor() {}
     getToolTokenBudget() {
       return 0;
+    }
+    getResolvedTools() {
+      return [];
     }
     getActiveModel() {
       return undefined;
@@ -440,6 +448,12 @@ describe("provider ordering error retry", () => {
     firstRunErrorMode = "ordering";
     maybeCompactCalls = [];
     forceCompactionEnabled = false;
+    // Orchestrator pipelines (`overflowReduce`, `persistence`, …) run through
+    // the plugin registry; re-register every default so each pipeline has a
+    // middleware to dispatch to. The `context-overflow-reducer` module itself
+    // (and other collaborators) are mocked above, so the default plugins'
+    // delegates go through the mocked implementations.
+    resetPluginRegistryAndRegisterDefaults();
   });
 
   test("simulated strict provider error triggers exactly one retry", async () => {

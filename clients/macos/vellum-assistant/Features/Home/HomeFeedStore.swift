@@ -253,6 +253,8 @@ public final class HomeFeedStore {
             minTimeAway: item.minTimeAway,
             actions: item.actions,
             urgency: item.urgency,
+            conversationId: item.conversationId,
+            detailPanel: item.detailPanel,
             author: item.author,
             createdAt: item.createdAt
         )

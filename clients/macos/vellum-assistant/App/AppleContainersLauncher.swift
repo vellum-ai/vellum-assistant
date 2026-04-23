@@ -102,7 +102,12 @@ final class AppleContainersLauncher: AssistantManagementClient {
             builtLocally = true
         }
 
-        let platformURL = VellumEnvironment.current.containerPlatformURL
+        // TODO: Apple Containers can reach the host machine via the vmnet bridge gateway IP.
+        // This is available after the pod's VmnetNetwork is created,
+        // and will require some refactoring.
+        // For now, a true `local` build is not supported;
+        // target a remote platform environmentinstead.
+        let platformURL: String = VellumEnvironment.current.platformURL
 
         let config = AppleContainersPodRuntime.Configuration(
             instanceName: assistantName,

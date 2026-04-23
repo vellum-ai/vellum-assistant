@@ -402,6 +402,11 @@ extension AppDelegate {
                     }
                     self.inFlightCuTasks[msg.requestId] = task
 
+                case .hostBrowserRequest(let msg):
+                    self.hostBrowserExecutor.execute(msg)
+                case .hostBrowserCancel(let msg):
+                    self.hostBrowserExecutor.cancel(msg.requestId)
+
                 case .hostBashCancel(let msg):
                     HostToolExecutor.cancelHostBashRequest(msg.requestId)
                 case .hostFileCancel(let msg):

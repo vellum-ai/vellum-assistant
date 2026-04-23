@@ -26,6 +26,7 @@ struct InlineFilePreviewView: View {
     private static let charThreshold = 50_000
 
     @Environment(\.filePreviewExpansionStore) private var expansionStore
+    @Environment(\.bubbleMaxWidth) private var bubbleMaxWidth
     @State private var cachedContent: String? = nil
     @State private var isLoading: Bool = false
     @State private var loadError: Bool = false
@@ -156,10 +157,13 @@ struct InlineFilePreviewView: View {
     }
 
     private var markdownContent: some View {
+        // `maxContentWidth` becomes a definite `.frame(width:)` inside
+        // `SelectableRunView`, so subtract the card's own `.padding(VSpacing.sm)`
+        // to keep the padded card at the chat-column width.
         MarkdownSegmentView(
             segments: cachedSegments,
             isStreaming: false,
-            maxContentWidth: nil,
+            maxContentWidth: max(bubbleMaxWidth - 2 * VSpacing.sm, 0),
             textColor: VColor.contentDefault,
             secondaryTextColor: VColor.contentSecondary,
             mutedTextColor: VColor.contentTertiary,

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { HeartbeatAlert } from "../daemon/message-protocol.js";
+import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import {
   GUARDIAN_PERSONA_TEMPLATE,
@@ -396,6 +397,19 @@ export class HeartbeatService {
       }
 
       log.info({ conversationId: conversation.id }, "Heartbeat completed");
+
+      void emitFeedEvent({
+        source: "assistant",
+        title: "Heartbeat",
+        summary: "Heartbeat check completed.",
+        dedupKey: `heartbeat:ok:${new Date().toISOString().split("T")[0]}`,
+        priority: 30,
+      }).catch((err) => {
+        log.warn(
+          { err, conversationId: conversation.id },
+          "Failed to emit heartbeat feed event",
+        );
+      });
     } catch (err) {
       log.error({ err }, "Heartbeat failed");
       try {
@@ -407,6 +421,15 @@ export class HeartbeatService {
       } catch (alertErr) {
         log.error({ alertErr }, "Failed to broadcast heartbeat alert");
       }
+
+      void emitFeedEvent({
+        source: "assistant",
+        title: "Heartbeat",
+        summary: "Heartbeat check failed. Check logs for details.",
+        dedupKey: `heartbeat:fail:${new Date().toISOString().split("T")[0]}`,
+        priority: 55,
+        urgency: "medium",
+      }).catch(() => {});
     }
   }
 
@@ -431,7 +454,7 @@ ${checklist}
     if (unhealthyProviders.length > 0) {
       const providers = unhealthyProviders.join(", ");
       prompt += `\n\n<credential-status>
-The following providers have broken or expired OAuth credentials: ${providers}.
+The following providers have broken or expired credentials: ${providers}.
 Do NOT attempt to use tools for these providers — they will fail. Skip any checklist items that depend on them and note the outage in your summary.
 </credential-status>`;
     }

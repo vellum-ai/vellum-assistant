@@ -50,6 +50,21 @@ mock.module("../oauth/oauth-store.js", () => ({
   getProvider: (provider: string) =>
     mockProviders.find((p) => p.provider === provider),
   isProviderConnected: () => false,
+  // Needed by manual-token-connection.ts at import time — these aren't
+  // invoked in this test suite but must resolve so the module loads.
+  createConnection: () => {
+    throw new Error("createConnection not mocked");
+  },
+  deleteConnection: () => {
+    throw new Error("deleteConnection not mocked");
+  },
+  getConnectionByProvider: () => undefined,
+  updateConnection: () => {
+    throw new Error("updateConnection not mocked");
+  },
+  upsertApp: async () => {
+    throw new Error("upsertApp not mocked");
+  },
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -63,11 +78,8 @@ mock.module("../util/logger.js", () => ({
 
 // ── Import under test ────────────────────────────────────────────────
 
-const {
-  checkAllCredentials,
-  checkCredentialForProvider,
-  _setFetchFn,
-} = await import("../credential-health/credential-health-service.js");
+const { checkAllCredentials, checkCredentialForProvider, _setFetchFn } =
+  await import("../credential-health/credential-health-service.js");
 
 // Inject mock fetch via the test helper (Bun's global fetch can't be
 // overridden via globalThis assignment).
@@ -125,10 +137,7 @@ function addConnection(
 }
 
 function setToken(connectionId: string, token = "mock-token") {
-  secureKeyValues.set(
-    `oauth_connection/${connectionId}/access_token`,
-    token,
-  );
+  secureKeyValues.set(`oauth_connection/${connectionId}/access_token`, token);
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -320,6 +329,66 @@ describe("credential-health-service", () => {
     expect(google!.status).toBe("healthy");
     // Slack: all scopes present, valid token -> healthy
     expect(slack!.status).toBe("healthy");
+  });
+
+  describe("manual-token providers", () => {
+    // slack_channel and telegram store their primary access token at
+    // credential/<provider>/bot_token rather than at
+    // oauth_connection/<id>/access_token. The health check must resolve the
+    // provider-specific path via manualTokenAccessCredentialKey — otherwise
+    // every manual-token connection gets flagged as missing_token and ends
+    // up in the heartbeat <credential-status> block even when credentials
+    // are valid.
+
+    test("slack_channel is healthy when bot_token is present and ping succeeds", async () => {
+      addProvider("slack_channel", {
+        pingUrl: "https://slack.com/api/auth.test",
+      });
+      addConnection("slack_channel", "conn-slack", {
+        expiresAt: null,
+        hasRefreshToken: false,
+        grantedScopes: [],
+      });
+      secureKeyValues.set("credential/slack_channel/bot_token", "xoxb-valid");
+
+      const report = await checkAllCredentials();
+      expect(report.results).toHaveLength(1);
+      expect(report.results[0]!.status).toBe("healthy");
+      expect(report.unhealthy).toHaveLength(0);
+    });
+
+    test("slack_channel is missing_token when bot_token is absent, even if OAuth access-token path is populated", async () => {
+      addProvider("slack_channel", {
+        pingUrl: "https://slack.com/api/auth.test",
+      });
+      addConnection("slack_channel", "conn-slack", {
+        expiresAt: null,
+        hasRefreshToken: false,
+        grantedScopes: [],
+      });
+      // Write to the OAuth access-token path — this must be IGNORED for
+      // manual-token providers, otherwise the fix isn't routing correctly.
+      secureKeyValues.set(
+        "oauth_connection/conn-slack/access_token",
+        "should-be-ignored",
+      );
+
+      const report = await checkAllCredentials();
+      expect(report.results[0]!.status).toBe("missing_token");
+    });
+
+    test("telegram resolves to credential/telegram/bot_token", async () => {
+      addProvider("telegram");
+      addConnection("telegram", "conn-tg", {
+        expiresAt: null,
+        hasRefreshToken: false,
+        grantedScopes: [],
+      });
+      secureKeyValues.set("credential/telegram/bot_token", "telegram-token");
+
+      const report = await checkAllCredentials();
+      expect(report.results[0]!.status).toBe("healthy");
+    });
   });
 
   describe("checkCredentialForProvider", () => {

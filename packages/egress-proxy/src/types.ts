@@ -197,12 +197,19 @@ export type PolicyDecision =
 /**
  * Callback invoked by the proxy HTTP forwarder for each outbound request.
  * Returns injected headers on allow, or `null` to block the request.
+ *
+ * `method` and `requestHeaders` are populated for plain-HTTP proxied
+ * requests (absolute-URL form). For HTTPS CONNECT tunnels the proxy has
+ * not yet terminated TLS and cannot see HTTP-level details, so these are
+ * left undefined.
  */
 export type PolicyCallback = (
   hostname: string,
   port: number | null,
   path: string,
   scheme: "http" | "https",
+  method?: string,
+  requestHeaders?: Record<string, string | string[] | undefined>,
 ) => Promise<Record<string, string> | null>;
 
 /**
@@ -216,6 +223,18 @@ export interface ProxyApprovalRequest {
     | PolicyDecisionAskUnauthenticated;
   /** The proxy session ID that originated the request. */
   sessionId: ProxySessionId;
+  /**
+   * HTTP method of the incoming request, when available. Undefined for HTTPS
+   * CONNECT tunnels — at CONNECT time the proxy has not terminated TLS so
+   * no HTTP-level information is visible.
+   */
+  method?: string;
+  /**
+   * Curated subset of request headers, when available. Only non-sensitive
+   * headers are surfaced (content-type, content-length, user-agent, accept).
+   * Undefined for HTTPS CONNECT tunnels.
+   */
+  requestHeaders?: Record<string, string>;
 }
 
 /**

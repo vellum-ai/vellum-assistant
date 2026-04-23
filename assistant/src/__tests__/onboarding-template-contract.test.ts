@@ -48,11 +48,6 @@ describe("onboarding template contracts", () => {
       expect(bootstrap).toContain("file_edit");
     });
 
-    test("includes budget constraint", () => {
-      expect(bootstrap).toContain("$2");
-      expect(bootstrap).toContain("$5");
-    });
-
     test("contains core principle", () => {
       expect(bootstrap).toContain("earns its keep");
     });

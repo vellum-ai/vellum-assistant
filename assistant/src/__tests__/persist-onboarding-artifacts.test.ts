@@ -77,7 +77,7 @@ describe("persistOnboardingArtifacts", () => {
     });
 
     const content = readFileSync(workspacePath("IDENTITY.md"), "utf-8");
-    expect(content).toBe("# Identity\n\n- Name: Nova\n");
+    expect(content).toBe("# Identity\n\n- **Name:** Nova\n");
   });
 
   test("seeds USER.md with user name when file does not exist", () => {
@@ -89,7 +89,7 @@ describe("persistOnboardingArtifacts", () => {
     });
 
     const content = readFileSync(workspacePath("USER.md"), "utf-8");
-    expect(content).toBe("# User\n\n- Name: Alex\n");
+    expect(content).toBe("# User\n\n- **Name:** Alex\n");
   });
 
   test("seeds both IDENTITY.md and USER.md when both names are provided", () => {
@@ -102,17 +102,17 @@ describe("persistOnboardingArtifacts", () => {
     });
 
     expect(readFileSync(workspacePath("IDENTITY.md"), "utf-8")).toBe(
-      "# Identity\n\n- Name: Pax\n",
+      "# Identity\n\n- **Name:** Pax\n",
     );
     expect(readFileSync(workspacePath("USER.md"), "utf-8")).toBe(
-      "# User\n\n- Name: Alex\n",
+      "# User\n\n- **Name:** Alex\n",
     );
   });
 
-  test("does not overwrite existing IDENTITY.md", () => {
+  test("updates Name field in existing IDENTITY.md template", () => {
     writeFileSync(
       workspacePath("IDENTITY.md"),
-      "# Identity\n\n- Name: Existing\n",
+      "# Identity\n\n- **Name:** _(not yet chosen)_\n- **Role:** _(not yet established)_\n",
     );
 
     persistOnboardingArtifacts({
@@ -123,11 +123,16 @@ describe("persistOnboardingArtifacts", () => {
     });
 
     const content = readFileSync(workspacePath("IDENTITY.md"), "utf-8");
-    expect(content).toBe("# Identity\n\n- Name: Existing\n");
+    expect(content).toBe(
+      "# Identity\n\n- **Name:** NewName\n- **Role:** _(not yet established)_\n",
+    );
   });
 
-  test("does not overwrite existing USER.md", () => {
-    writeFileSync(workspacePath("USER.md"), "# User\n\n- Name: Existing\n");
+  test("updates Name field in existing USER.md template", () => {
+    writeFileSync(
+      workspacePath("USER.md"),
+      "# User\n\n- **Name:** _(not yet chosen)_\n",
+    );
 
     persistOnboardingArtifacts({
       tools: [],
@@ -137,7 +142,41 @@ describe("persistOnboardingArtifacts", () => {
     });
 
     const content = readFileSync(workspacePath("USER.md"), "utf-8");
-    expect(content).toBe("# User\n\n- Name: Existing\n");
+    expect(content).toBe("# User\n\n- **Name:** NewUser\n");
+  });
+
+  test("updates old-format Name field in existing IDENTITY.md", () => {
+    writeFileSync(
+      workspacePath("IDENTITY.md"),
+      "# Identity\n\n- Name: OldFormat\n",
+    );
+
+    persistOnboardingArtifacts({
+      tools: [],
+      tasks: [],
+      tone: "casual",
+      assistantName: "NewName",
+    });
+
+    const content = readFileSync(workspacePath("IDENTITY.md"), "utf-8");
+    expect(content).toBe("# Identity\n\n- **Name:** NewName\n");
+  });
+
+  test("does not touch existing file without Name field", () => {
+    writeFileSync(
+      workspacePath("IDENTITY.md"),
+      "# Identity\n\nCustom content here\n",
+    );
+
+    persistOnboardingArtifacts({
+      tools: [],
+      tasks: [],
+      tone: "casual",
+      assistantName: "NewName",
+    });
+
+    const content = readFileSync(workspacePath("IDENTITY.md"), "utf-8");
+    expect(content).toBe("# Identity\n\nCustom content here\n");
   });
 
   test("skips IDENTITY.md when assistantName is missing", () => {
@@ -194,10 +233,10 @@ describe("persistOnboardingArtifacts", () => {
     });
 
     expect(readFileSync(workspacePath("IDENTITY.md"), "utf-8")).toBe(
-      "# Identity\n\n- Name: Nova\n",
+      "# Identity\n\n- **Name:** Nova\n",
     );
     expect(readFileSync(workspacePath("USER.md"), "utf-8")).toBe(
-      "# User\n\n- Name: Alex\n",
+      "# User\n\n- **Name:** Alex\n",
     );
   });
 

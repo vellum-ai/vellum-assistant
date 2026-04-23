@@ -32,19 +32,19 @@ struct FeedbackGallerySection: View {
                         HStack(spacing: VSpacing.xl) {
                             VStack(spacing: VSpacing.xs) {
                                 Text("Accent").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
-                                VBadge(style: .count(Int(badgeCount)), color: VColor.primaryBase)
+                                VBadge(count: Int(badgeCount), tone: .accent)
                             }
                             VStack(spacing: VSpacing.xs) {
                                 Text("Success").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
-                                VBadge(style: .count(Int(badgeCount)), color: VColor.systemPositiveStrong)
+                                VBadge(count: Int(badgeCount), tone: .positive)
                             }
                             VStack(spacing: VSpacing.xs) {
                                 Text("Error").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
-                                VBadge(style: .count(Int(badgeCount)), color: VColor.systemNegativeStrong)
+                                VBadge(count: Int(badgeCount), tone: .danger)
                             }
                             VStack(spacing: VSpacing.xs) {
                                 Text("Warning").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
-                                VBadge(style: .count(Int(badgeCount)), color: VColor.systemMidStrong)
+                                VBadge(count: Int(badgeCount), tone: .warning)
                             }
                         }
 
@@ -234,6 +234,152 @@ struct FeedbackGallerySection: View {
                         style: .warning,
                         onDismiss: {}
                     )
+                }
+            }
+
+            if filter == nil || filter == "vNotification" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VNotification
+                GallerySectionHeader(
+                    title: "VNotification",
+                    description: "Compact single-line feedback bar. Supports 4 tones × 2 styles, with optional leading icon, action label, and dismiss button."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        // 4 tones × 2 styles grid
+                        LazyVGrid(
+                            columns: [GridItem(.flexible()), GridItem(.flexible())],
+                            spacing: VSpacing.md
+                        ) {
+                            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                Text("Positive · Weak").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                                VNotification(
+                                    "This is a notification component",
+                                    tone: .positive,
+                                    style: .weak,
+                                    actionLabel: "Action",
+                                    onAction: {},
+                                    onDismiss: {}
+                                )
+                            }
+                            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                Text("Positive · Strong").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                                VNotification(
+                                    "This is a notification component",
+                                    tone: .positive,
+                                    style: .strong,
+                                    actionLabel: "Action",
+                                    onAction: {},
+                                    onDismiss: {}
+                                )
+                            }
+                            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                Text("Negative · Weak").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                                VNotification(
+                                    "This is a notification component",
+                                    tone: .negative,
+                                    style: .weak,
+                                    actionLabel: "Action",
+                                    onAction: {},
+                                    onDismiss: {}
+                                )
+                            }
+                            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                Text("Negative · Strong").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                                VNotification(
+                                    "This is a notification component",
+                                    tone: .negative,
+                                    style: .strong,
+                                    actionLabel: "Action",
+                                    onAction: {},
+                                    onDismiss: {}
+                                )
+                            }
+                            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                Text("Warning · Weak").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                                VNotification(
+                                    "This is a notification component",
+                                    tone: .warning,
+                                    style: .weak,
+                                    actionLabel: "Action",
+                                    onAction: {},
+                                    onDismiss: {}
+                                )
+                            }
+                            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                Text("Warning · Strong").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                                VNotification(
+                                    "This is a notification component",
+                                    tone: .warning,
+                                    style: .strong,
+                                    actionLabel: "Action",
+                                    onAction: {},
+                                    onDismiss: {}
+                                )
+                            }
+                            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                Text("Neutral · Weak").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                                VNotification(
+                                    "This is a notification component",
+                                    tone: .neutral,
+                                    style: .weak,
+                                    actionLabel: "Action",
+                                    onAction: {},
+                                    onDismiss: {}
+                                )
+                            }
+                            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                Text("Neutral · Strong").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                                VNotification(
+                                    "This is a notification component",
+                                    tone: .neutral,
+                                    style: .strong,
+                                    actionLabel: "Action",
+                                    onAction: {},
+                                    onDismiss: {}
+                                )
+                            }
+                        }
+
+                        Divider().background(VColor.borderBase)
+
+                        // Optional slots
+                        Text("Optional slots")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentSecondary)
+                        VStack(alignment: .leading, spacing: VSpacing.sm) {
+                            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                Text("Message only").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                                VNotification(
+                                    "This is a notification component",
+                                    tone: .positive,
+                                    style: .weak
+                                )
+                            }
+                            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                Text("Message + dismiss").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                                VNotification(
+                                    "This is a notification component",
+                                    tone: .positive,
+                                    style: .weak,
+                                    onDismiss: {}
+                                )
+                            }
+                            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                                Text("Message + action").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
+                                VNotification(
+                                    "This is a notification component",
+                                    tone: .positive,
+                                    style: .weak,
+                                    actionLabel: "Action",
+                                    onAction: {}
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
@@ -465,6 +611,23 @@ struct FeedbackGallerySection: View {
                 }
             }
 
+            if filter == nil || filter == "vPaidBadge" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VPaidBadge
+                GallerySectionHeader(
+                    title: "VPaidBadge",
+                    description: "Pill badge marking an integration or feature as paid."
+                )
+
+                VCard {
+                    HStack(spacing: VSpacing.lg) {
+                        VPaidBadge()
+                    }
+                }
+            }
+
             if filter == nil || filter == "vContextWindowIndicator" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
@@ -536,12 +699,14 @@ extension FeedbackGallerySection {
         case "vTag": FeedbackGallerySection(filter: "vTag")
         case "vLoadingIndicator": FeedbackGallerySection(filter: "vLoadingIndicator")
         case "vToast": FeedbackGallerySection(filter: "vToast")
+        case "vNotification": FeedbackGallerySection(filter: "vNotification")
         case "vInlineMessage": FeedbackGallerySection(filter: "vInlineMessage")
         case "vShortcutTag": FeedbackGallerySection(filter: "vShortcutTag")
         case "vCopyButton": FeedbackGallerySection(filter: "vCopyButton")
         case "vBusyIndicator": FeedbackGallerySection(filter: "vBusyIndicator")
         case "vSkeletonBone": FeedbackGallerySection(filter: "vSkeletonBone")
         case "vSkillTypePill": FeedbackGallerySection(filter: "vSkillTypePill")
+        case "vPaidBadge": FeedbackGallerySection(filter: "vPaidBadge")
         case "vInfoTooltip": FeedbackGallerySection(filter: "vInfoTooltip")
         case "vContextWindowIndicator": FeedbackGallerySection(filter: "vContextWindowIndicator")
         default: EmptyView()

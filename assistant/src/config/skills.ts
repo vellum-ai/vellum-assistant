@@ -19,6 +19,10 @@ import {
 import { z } from "zod";
 
 import {
+  getPluginContributedSkillDefinition,
+  getPluginContributedSkillSummaries,
+} from "../plugins/plugin-skill-contributions.js";
+import {
   extractAllText,
   getConfiguredProvider,
   userMessage,
@@ -59,7 +63,24 @@ const SkillMetadataSchema = z
   })
   .passthrough();
 
-export type SkillSource = "bundled" | "managed" | "workspace" | "extra";
+/**
+ * Origin of a skill in the merged catalog.
+ *
+ * - `bundled`: ships inside the assistant binary under `bundled-skills/`.
+ * - `managed`: installed into `~/.vellum/workspace/skills/` from our catalog.
+ * - `workspace`: user-authored skill living in a conversation's working dir.
+ * - `extra`: third-party directory roots passed via `loadSkillCatalog`'s
+ *   `extraDirs` argument (primarily for tests).
+ * - `plugin`: contributed at runtime by a loaded plugin via
+ *   `PluginSkillRegistration`. Body is held in-memory by
+ *   `plugins/plugin-skill-contributions.ts`, not on disk.
+ */
+export type SkillSource =
+  | "bundled"
+  | "managed"
+  | "workspace"
+  | "extra"
+  | "plugin";
 
 // ─── Core interfaces ─────────────────────────────────────────────────────────
 
@@ -819,6 +840,37 @@ export function loadSkillCatalog(
     catalog.push(skill);
   }
 
+  // Load plugin-contributed skills. They sit above bundled/extra but below
+  // managed and workspace so that user-authored filesystem skills can
+  // override a plugin-provided skill by declaring the same id under
+  // `~/.vellum/workspace/skills/`. Registration is owned by the plugin
+  // bootstrap — this call is a pure read against the in-memory registry.
+  const pluginSkills = getPluginContributedSkillSummaries();
+  for (const skill of pluginSkills) {
+    if (seenIds.has(skill.id)) {
+      const existingIndex = catalog.findIndex((s) => s.id === skill.id);
+      if (
+        existingIndex !== -1 &&
+        (catalog[existingIndex].source === "bundled" ||
+          catalog[existingIndex].source === "extra")
+      ) {
+        log.info(
+          { id: skill.id, pluginSkill: true },
+          "Plugin skill overrides bundled/extra skill",
+        );
+        catalog[existingIndex] = skill;
+        continue;
+      }
+      log.warn(
+        { id: skill.id },
+        "Skipping duplicate plugin skill id (already present in catalog)",
+      );
+      continue;
+    }
+    seenIds.add(skill.id);
+    catalog.push(skill);
+  }
+
   // Load managed (user) skills, which take precedence over bundled skills with the same ID
   const skillsDir = getSkillsDir();
   const indexedDirectories = getIndexedSkillDirectories(skillsDir);
@@ -829,16 +881,24 @@ export function loadSkillCatalog(
     if (!skill) continue;
 
     if (seenIds.has(skill.id)) {
-      // If the existing entry is bundled, the user skill overrides it
+      // If the existing entry is bundled, extra, or plugin-contributed, the
+      // user skill overrides it. Only another `managed` or `workspace` entry
+      // (already at or above managed precedence) is treated as a true
+      // duplicate.
       const existingIndex = catalog.findIndex((s) => s.id === skill.id);
       if (
         existingIndex !== -1 &&
         (catalog[existingIndex].bundled ||
-          catalog[existingIndex].source === "extra")
+          catalog[existingIndex].source === "extra" ||
+          catalog[existingIndex].source === "plugin")
       ) {
         log.info(
-          { id: skill.id, directory },
-          "User skill overrides bundled skill",
+          {
+            id: skill.id,
+            directory,
+            overriding: catalog[existingIndex].source,
+          },
+          "User skill overrides existing catalog entry",
         );
         catalog[existingIndex] = skillSummaryFromDefinition(skill, "managed");
         continue;
@@ -1018,6 +1078,35 @@ export function listReferenceFiles(directoryPath: string): string | null {
 }
 
 function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
+  // Plugin-contributed skills live in-memory, not on disk. The registry
+  // (see `plugins/plugin-skill-contributions.ts`) stores a pre-built
+  // SkillDefinition we can return directly — no file read, no frontmatter
+  // parse. We still run placeholder / feature-gate substitution on the
+  // body so plugin skills behave the same as filesystem skills from the
+  // model's perspective.
+  if (skill.source === "plugin") {
+    const pluginDef = getPluginContributedSkillDefinition(skill.id);
+    if (!pluginDef) {
+      // The skill was in the catalog when the selector ran but has since
+      // been unregistered (plugin hot-reload, shutdown race). Fail loudly
+      // rather than returning a mystery undefined.
+      return {
+        error: `Plugin-contributed skill "${skill.id}" is no longer registered`,
+      };
+    }
+    // Shallow-clone so mutating the returned `body` below does not touch
+    // the registry's stored copy — the registry must stay the source of
+    // truth across repeated `skill_load` calls.
+    const loaded: SkillDefinition = { ...pluginDef };
+    loaded.body = loaded.body.replaceAll("{baseDir}", loaded.directoryPath);
+    loaded.body = loaded.body.replaceAll(
+      "{workspaceDir}",
+      getWorkspaceDirDisplay(),
+    );
+    loaded.body = applyFeatureGatedSections(loaded.body);
+    return { skill: loaded };
+  }
+
   let loaded: SkillDefinition | null;
   if (skill.bundled) {
     loaded = readBundledSkillFromDirectory(skill.directoryPath);

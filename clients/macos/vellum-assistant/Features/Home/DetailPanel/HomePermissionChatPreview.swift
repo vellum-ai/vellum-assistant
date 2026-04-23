@@ -20,6 +20,8 @@ import VellumAssistantShared
 /// stub closures for the non-relevant affordances (regenerate, fork,
 /// surfaces, retry, etc. are all no-ops in a detail-panel context).
 struct HomePermissionChatPreview: View {
+    @Environment(AssistantFeatureFlagStore.self) private var assistantFeatureFlagStore
+
     let userMessage: String
     let assistantResponse: String
     let confirmation: ToolConfirmationData
@@ -51,7 +53,7 @@ struct HomePermissionChatPreview: View {
             // branch (guardian, surfaces, retry, etc.).
             ToolConfirmationBubble(
                 confirmation: confirmation,
-                isV3: MacOSClientFeatureFlagManager.shared.isEnabled("permission-controls-v3"),
+                isV3: assistantFeatureFlagStore.isEnabled("permission-controls-v3"),
                 onAllow: onAllow,
                 onDeny: onDeny,
                 onAlwaysAllow: onAlwaysAllow,

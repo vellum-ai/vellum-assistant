@@ -8,6 +8,7 @@ public protocol HostProxyClientProtocol {
     func postBashResult(_ result: HostBashResultPayload) async -> Bool
     func postFileResult(_ result: HostFileResultPayload) async -> Bool
     func postCuResult(_ result: HostCuResultPayload) async -> Bool
+    func postBrowserResult(_ result: HostBrowserResultPayload) async -> Bool
 }
 
 /// Gateway-backed implementation of ``HostProxyClientProtocol``.
@@ -72,6 +73,25 @@ public struct HostProxyClient: HostProxyClientProtocol {
             return true
         } catch {
             log.error("postCuResult error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    public func postBrowserResult(_ result: HostBrowserResultPayload) async -> Bool {
+        do {
+            let body = try JSONEncoder().encode(result)
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/host-browser-result",
+                body: body,
+                timeout: 30
+            )
+            guard response.isSuccess else {
+                log.error("postBrowserResult failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("postBrowserResult error: \(error.localizedDescription)")
             return false
         }
     }

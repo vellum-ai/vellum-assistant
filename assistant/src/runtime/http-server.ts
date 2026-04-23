@@ -72,6 +72,7 @@ import {
 import type { ExternalConversationBinding } from "../memory/external-conversation-store.js";
 import * as externalConversationStore from "../memory/external-conversation-store.js";
 import { listGroups } from "../memory/group-crud.js";
+import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { resolveStreamingTranscriber } from "../providers/speech-to-text/resolve.js";
 import {
   consumeCallback,
@@ -229,7 +230,6 @@ import { ttsRouteDefinitions } from "./routes/tts-routes.js";
 import { upgradeBroadcastRouteDefinitions } from "./routes/upgrade-broadcast-routes.js";
 import { usageRouteDefinitions } from "./routes/usage-routes.js";
 import { userRouteDefinitions } from "./routes/user-routes.js";
-import { watchRouteDefinitions } from "./routes/watch-routes.js";
 import { workItemRouteDefinitions } from "./routes/work-items-routes.js";
 import { workspaceCommitRouteDefinitions } from "./routes/workspace-commit-routes.js";
 import { workspaceRouteDefinitions } from "./routes/workspace-routes.js";
@@ -362,7 +362,6 @@ export class RuntimeHttpServer {
   private getSkillContext?: RuntimeHttpServerOptions["getSkillContext"];
   private conversationManagementDeps?: RuntimeHttpServerOptions["conversationManagementDeps"];
   private getModelSetContext?: RuntimeHttpServerOptions["getModelSetContext"];
-  private getWatchDeps?: RuntimeHttpServerOptions["getWatchDeps"];
   private getRecordingDeps?: RuntimeHttpServerOptions["getRecordingDeps"];
   private getCesClient?: RuntimeHttpServerOptions["getCesClient"];
   private onProviderCredentialsChanged?: RuntimeHttpServerOptions["onProviderCredentialsChanged"];
@@ -387,7 +386,6 @@ export class RuntimeHttpServer {
     this.getSkillContext = options.getSkillContext;
     this.conversationManagementDeps = options.conversationManagementDeps;
     this.getModelSetContext = options.getModelSetContext;
-    this.getWatchDeps = options.getWatchDeps;
     this.getRecordingDeps = options.getRecordingDeps;
     this.getCesClient = options.getCesClient;
     this.onProviderCredentialsChanged = options.onProviderCredentialsChanged;
@@ -2002,10 +2000,25 @@ export class RuntimeHttpServer {
         getHeartbeatService: this.getHeartbeatService,
       }),
       ...playgroundRouteDefinitions({
-        getConversationById: (id) => {
-          const s = this.findConversation?.(id);
-          if (!s || !("abort" in s)) return undefined;
-          return s as import("../daemon/conversation.js").Conversation;
+        getConversationById: async (id) => {
+          // Gate on DB existence first so genuinely-missing IDs return
+          // `undefined` (preserving the route handlers' 404 path) rather
+          // than triggering `getOrCreateConversation`'s create branch and
+          // masking the not-found case. For existing-but-not-loaded rows
+          // (e.g. freshly seeded by `POST /playground/seed-conversation`),
+          // hydrate the in-memory `Conversation` on demand so conv-scoped
+          // playground routes work without first opening the conversation
+          // in the main window.
+          if (!getConversation(id)) return undefined;
+          const sendDeps = this.sendMessageDeps;
+          if (!sendDeps) {
+            // Fall back to the in-memory active map when the daemon hasn't
+            // wired the hydration-capable accessor (e.g. unit tests).
+            const s = this.findConversation?.(id);
+            if (!s || !("abort" in s)) return undefined;
+            return s as import("../daemon/conversation.js").Conversation;
+          }
+          return sendDeps.getOrCreateConversation(id);
         },
         isPlaygroundEnabled: () =>
           isAssistantFeatureFlagEnabled("compaction-playground", getConfig()),
@@ -2016,15 +2029,43 @@ export class RuntimeHttpServer {
           // — `deleteConversation` always returns a result object even when
           // no row matched.
           if (!getConversation(id)) return false;
-          deleteConversation(id);
+          // Mirror the canonical DELETE /v1/conversations/:id handler in
+          // conversation-management-routes.ts: tear down the in-memory
+          // Conversation first (so a running agent loop can't write to a
+          // deleted row and trip FK constraints), then drop the DB row,
+          // then enqueue Qdrant vector cleanup for the returned segment
+          // and summary IDs. Without this, seeded-then-deleted playground
+          // conversations leak vectors and zombie Conversation objects.
+          if (this.findConversation?.(id)) {
+            this.conversationManagementDeps?.destroyConversation(id);
+          }
+          const deleted = deleteConversation(id);
+          for (const segId of deleted.segmentIds) {
+            enqueueMemoryJob("delete_qdrant_vectors", {
+              targetType: "segment",
+              targetId: segId,
+            });
+          }
+          for (const summaryId of deleted.deletedSummaryIds) {
+            enqueueMemoryJob("delete_qdrant_vectors", {
+              targetType: "summary",
+              targetId: summaryId,
+            });
+          }
           return true;
         },
         createConversation: async (title) => {
           const row = createConversation({ title });
           return { id: row.id };
         },
-        addMessage: async (conversationId, role, contentJson) => {
-          const persisted = await addMessage(conversationId, role, contentJson);
+        addMessage: async (conversationId, role, contentJson, options) => {
+          const persisted = await addMessage(
+            conversationId,
+            role,
+            contentJson,
+            undefined,
+            options,
+          );
           return { id: persisted.id };
         },
       }),
@@ -2065,11 +2106,6 @@ export class RuntimeHttpServer {
       ...oauthAppsRouteDefinitions(),
       ...attachmentRouteDefinitions(),
 
-      ...(this.getWatchDeps
-        ? watchRouteDefinitions({
-            getWatchDeps: this.getWatchDeps,
-          })
-        : []),
       ...(this.getRecordingDeps
         ? recordingRouteDefinitions({
             getRecordingDeps: this.getRecordingDeps,

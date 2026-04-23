@@ -149,6 +149,8 @@ export interface ToolResult {
   riskLevel?: string;
   /** Human-readable reason for the risk classification. */
   riskReason?: string;
+  /** Whether the daemon is running in a containerized (Docker) environment. */
+  isContainerized?: boolean;
   /** Scope options ladder for the rule editor modal (narrowest to broadest). */
   riskScopeOptions?: Array<{ pattern: string; label: string }>;
 }
@@ -161,6 +163,8 @@ export interface ConfirmationRequest {
   riskLevel: string;
   /** Human-readable reason for the risk classification (e.g. "Modifies remote repository state"). */
   riskReason?: string;
+  /** Whether the daemon is running in a containerized (Docker) environment. */
+  isContainerized?: boolean;
   executionTarget?: "sandbox" | "host";
   allowlistOptions: Array<{
     label: string;

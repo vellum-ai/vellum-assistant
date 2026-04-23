@@ -43,6 +43,7 @@ public enum FeedItemSource: String, Codable, Sendable, Hashable {
     case slack
     case calendar
     case assistant
+    case telegram
 }
 
 /// Visual urgency treatment — controls badge color independently of sort priority.
@@ -82,6 +83,24 @@ public struct FeedAction: Codable, Sendable, Identifiable, Hashable {
     }
 }
 
+// MARK: - FeedItemDetailPanel
+
+/// Which detail panel the macOS client should open for this feed item.
+public enum FeedItemDetailPanelKind: String, Codable, Sendable, Hashable {
+    case emailDraft
+    case documentPreview
+    case permissionChat
+    case paymentAuth
+    case toolPermission
+    case updatesList
+}
+
+/// Server-driven detail panel descriptor attached to a feed item.
+public struct FeedItemDetailPanel: Codable, Sendable, Hashable {
+    public let kind: FeedItemDetailPanelKind
+    public init(kind: FeedItemDetailPanelKind) { self.kind = kind }
+}
+
 // MARK: - FeedItem
 
 /// A single item rendered in the Home feed.
@@ -110,6 +129,10 @@ public struct FeedItem: Codable, Sendable, Identifiable, Hashable {
     public let actions: [FeedAction]?
     /// Visual urgency treatment — controls badge color independently of sort priority.
     public let urgency: FeedItemUrgency?
+    /// Optional conversation this feed item is associated with.
+    public let conversationId: String?
+    /// Server-driven detail panel descriptor; when present, the client opens this panel kind.
+    public let detailPanel: FeedItemDetailPanel?
     /// Internal: who authored this item.
     public let author: FeedItemAuthor
     /// Internal: writer-record time, used for ordering + TTL.
@@ -128,6 +151,8 @@ public struct FeedItem: Codable, Sendable, Identifiable, Hashable {
         minTimeAway: TimeInterval? = nil,
         actions: [FeedAction]? = nil,
         urgency: FeedItemUrgency? = nil,
+        conversationId: String? = nil,
+        detailPanel: FeedItemDetailPanel? = nil,
         author: FeedItemAuthor,
         createdAt: Date
     ) {
@@ -143,6 +168,8 @@ public struct FeedItem: Codable, Sendable, Identifiable, Hashable {
         self.minTimeAway = minTimeAway
         self.actions = actions
         self.urgency = urgency
+        self.conversationId = conversationId
+        self.detailPanel = detailPanel
         self.author = author
         self.createdAt = createdAt
     }

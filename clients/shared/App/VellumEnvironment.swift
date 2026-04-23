@@ -148,13 +148,19 @@ public enum VellumEnvironment: String {
         return current.webURL
     }
 
-    /// The platform URL to inject into containers (Docker, Apple Containers).
-    /// For `local`, containers can't reach `localhost` on the host, so we
-    /// fall back to the remote dev platform.
-    public var containerPlatformURL: String {
+    /// The platform URL to inject into containerized assistants.
+    ///
+    /// For local Docker containers setup, we can use `host.docker.internal`
+    /// to target platform services running locally on the host,
+    /// or else attach the assistants to the actual Docker network.
+    ///
+    /// This doesn't apply to Apple Containers: VMs can reach the host via the vmnet
+    /// bridge gateway IP. This is only known after the pod network is created,
+    /// and will require some refactoring to support.
+    public var dockerHostPlatformURL: String {
         switch self {
         case .local:
-            return "https://dev-platform.vellum.ai"
+            return "http://host.docker.internal:8000"
         default:
             return platformURL
         }

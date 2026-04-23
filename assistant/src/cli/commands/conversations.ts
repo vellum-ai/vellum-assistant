@@ -1,9 +1,6 @@
 import type { Command } from "commander";
 
-import {
-  getRuntimeHttpHost,
-  getRuntimeHttpPort,
-} from "../../config/env.js";
+import { getRuntimeHttpHost, getRuntimeHttpPort } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
 import { healthCheckHost, isHttpHealthy } from "../../daemon/daemon-control.js";
@@ -24,7 +21,10 @@ import {
   SPARSE_EMBEDDING_VERSION,
 } from "../../memory/embedding-backend.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
-import { initQdrantClient, resolveQdrantUrl } from "../../memory/qdrant-client.js";
+import {
+  initQdrantClient,
+  resolveQdrantUrl,
+} from "../../memory/qdrant-client.js";
 import {
   initAuthSigningKey,
   loadOrCreateSigningKey,
@@ -110,6 +110,55 @@ Examples:
       log.info(
         `Created conversation: ${conversation.title ?? "New Conversation"} (${conversation.id})`,
       );
+    });
+
+  conversations
+    .command("rename <conversationId> <title>")
+    .description("Rename a conversation")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  conversationId   Conversation ID (or unique prefix). Supports prefix matching.
+                   Run 'assistant conversations list' to find IDs.
+  title            The new title for the conversation. Should be concise (under
+                   60 characters) and descriptive of the current topic.
+
+Renames the conversation to the given title and marks it as a manual rename
+(auto-generated titles will not overwrite it).
+
+Examples:
+  $ assistant conversations rename abc123 "Project planning"
+  $ assistant conversations rename abc123 "Bug triage 2026-04-22"`,
+    )
+    .action(async (conversationId: string, title: string) => {
+      const trimmedTitle = title.trim();
+      if (!trimmedTitle) {
+        log.error("Error: title must be a non-empty string");
+        process.exit(1);
+      }
+
+      const ipcResult = await cliIpcCall<{ ok: boolean; error?: string }>(
+        "rename_conversation",
+        { conversationId, title: trimmedTitle },
+      );
+
+      if (!ipcResult.ok) {
+        log.error(
+          `Rename failed: ${ipcResult.error}. Run 'assistant conversations list' to verify the conversation exists.`,
+        );
+        process.exit(1);
+      }
+
+      const result = ipcResult.result!;
+      if (!result.ok) {
+        log.error(
+          `Rename failed: ${result.error}. Run 'assistant conversations list' to see available conversations.`,
+        );
+        process.exit(1);
+      }
+
+      log.info(`Renamed conversation to "${trimmedTitle}" (${conversationId})`);
     });
 
   conversations

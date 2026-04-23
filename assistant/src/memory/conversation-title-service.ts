@@ -234,6 +234,12 @@ export async function regenerateConversationTitle(
   }
 
   const prompt = buildRegenerationPrompt(recentMessages);
+  // Skip the LLM call if no messages yielded extractable text — the prompt
+  // would be just the "Recent messages:" header, and the model tends to
+  // fabricate a meta-title about the emptiness rather than decline.
+  if (!/\n(?:User|Assistant): /.test(prompt)) {
+    return { title: conversation.title ?? UNTITLED_FALLBACK, updated: false };
+  }
   const result = await runBtwSidechain({
     content: prompt,
     provider,
@@ -296,6 +302,7 @@ function buildTitleSystemPrompt(): string {
     "- Do NOT echo back what the user asked you to do",
     "- Do NOT respond to the conversation content",
     "- Do NOT assess feasibility or comment on capabilities",
+    "- If input is sparse or references external context, extract a topic from the words that ARE present (e.g. 'so about that t-shirt...' → 'T-Shirt Discussion'). Never describe the absence, emptiness, or insufficiency of context — titles like 'Missing Context', 'Unclear Request', 'No Topic' are forbidden",
   ].join("\n");
 }
 
@@ -329,9 +336,27 @@ function buildTitlePrompt(
   return parts.join("\n");
 }
 
+const META_FAILURE_TITLES = new Set([
+  "missing context",
+  "no context",
+  "insufficient context",
+  "unclear context",
+  "empty context",
+  "no topic",
+  "unclear topic",
+  "unclear request",
+  "unclear message",
+  "empty conversation",
+  "empty message",
+  "no content",
+]);
+
 function normalizeTitle(raw: string): string {
   let title = raw.trim().replace(/^["']|["']$/g, "");
   title = stripMarkdown(title);
+  if (META_FAILURE_TITLES.has(title.toLowerCase())) {
+    return "";
+  }
   return title;
 }
 

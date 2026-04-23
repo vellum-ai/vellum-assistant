@@ -400,6 +400,67 @@ struct HomeGallerySection: View {
                 }
             }
 
+            // MARK: - HomeRecapGroupRow
+
+            if filter == nil || filter == "homeRecapGroupRow" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "HomeRecapGroupRow",
+                    description: "Grouped Home feed row: parent summary header with a nested list of child rows underneath. Used when HomeFeedGrouping collapses a run of 3+ low-priority digests into a single card. Production wiring uses isExpanded: .constant(true); children are individually tappable."
+                )
+
+                VCard(background: VColor.surfaceBase) {
+                    HomeRecapGroupRow(
+                        parentIcon: .bell,
+                        parentIconForeground: VColor.feedDigestStrong,
+                        parentIconBackground: VColor.feedDigestWeak,
+                        parentTitle: "There's also 4 low priority updates if you want to have a look.",
+                        children: [
+                            HomeRecapGroupRow.Child(
+                                id: "gallery-child-1",
+                                icon: .bell,
+                                iconForeground: VColor.feedDigestStrong,
+                                iconBackground: VColor.feedDigestWeak,
+                                title: "This is the First notification in the group"
+                            ),
+                            HomeRecapGroupRow.Child(
+                                id: "gallery-child-2",
+                                icon: .bell,
+                                iconForeground: VColor.feedDigestStrong,
+                                iconBackground: VColor.feedDigestWeak,
+                                title: "This is the Second notification in the group"
+                            ),
+                            HomeRecapGroupRow.Child(
+                                id: "gallery-child-3",
+                                icon: .bell,
+                                iconForeground: VColor.feedDigestStrong,
+                                iconBackground: VColor.feedDigestWeak,
+                                title: "This is the Third notification in the group"
+                            ),
+                            HomeRecapGroupRow.Child(
+                                id: "gallery-child-4",
+                                icon: .bell,
+                                iconForeground: VColor.feedDigestStrong,
+                                iconBackground: VColor.feedDigestWeak,
+                                title: "This is the Fourth notification in the group"
+                            ),
+                        ],
+                        isExpanded: .constant(true),
+                        onParentTap: {},
+                        onChildTap: { _ in },
+                        // Wired as no-ops so the hover-only Dismiss button
+                        // renders on the parent header and each child in
+                        // the gallery — lets designers/reviewers verify
+                        // the affordance matches HomeRecapRow's dismiss.
+                        onParentDismiss: {},
+                        onChildDismiss: { _ in }
+                    )
+                }
+            }
+
             // MARK: - HomeDetailPanel
 
             if filter == nil || filter == "homeDetailPanel" {
@@ -433,10 +494,22 @@ struct HomeGallerySection: View {
 
                 GallerySectionHeader(
                     title: "HomeEmailEditor",
-                    description: "Pure body content for the email editor variant of the Home detail panel."
+                    description: "Pure body content for the email editor variant of the Home detail panel. Footer actions are right-aligned (Discard + primary). The primary CTA depends on Google OAuth state: \"Send\" when connected, otherwise a \"Connect to Google OAuth\" banner appears above the footer and the primary CTA becomes \"Copy to Clipboard\"."
                 )
 
-                HomeEmailEditorDemo()
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    Text("Google connected (primary = Send)")
+                        .font(VFont.bodySmallEmphasised)
+                        .foregroundStyle(VColor.contentSecondary)
+
+                    HomeEmailEditorDemo(isGmailConnected: true)
+
+                    Text("Google not connected (primary = Copy to Clipboard, banner visible)")
+                        .font(VFont.bodySmallEmphasised)
+                        .foregroundStyle(VColor.contentSecondary)
+
+                    HomeEmailEditorDemo(isGmailConnected: false)
+                }
             }
 
             // MARK: - HomeDocumentPreview
@@ -506,6 +579,103 @@ struct HomeGallerySection: View {
                     )
                 }
                 .frame(height: 520)
+            }
+
+            // MARK: - HomeScheduledDetailPanel
+
+            if filter == nil || filter == "homeScheduledDetailPanel" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "HomeScheduledDetailPanel",
+                    description: "Right-hand detail panel surfaced when a scheduled (.thread) feed item is tapped on Home. Shows schedule metadata (Name, Syntax, Mode, Schedule, Enabled, Next Run) plus outlined secondary + filled primary actions. Rendered here with HomeScheduledDetails.placeholder."
+                )
+
+                HomeScheduledDetailPanel(
+                    title: "Scheduled Thing",
+                    description: HomeScheduledDetails.placeholder.description,
+                    rows: HomeScheduledDetails.placeholder.displayRows().map { row in
+                        HomeScheduledDetailPanel.DetailRow(key: row.key, value: row.value)
+                    },
+                    primaryActionLabel: "Action",
+                    secondaryActionLabel: "Action",
+                    onClose: {},
+                    onPrimaryAction: {},
+                    onSecondaryAction: {}
+                )
+                .frame(height: 520)
+            }
+
+            // MARK: - HomeNudgeDetailPanel
+
+            if filter == nil || filter == "homeNudgeDetailPanel" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+
+                GallerySectionHeader(
+                    title: "HomeNudgeDetailPanel",
+                    description: "Right-hand detail panel surfaced when a .nudge feed item is tapped on Home. Optional description at top, scrollable stack of N cards (title + description + optional action row), and a right-aligned footer with secondary + primary actions (Clear All / Resolve All). Rendered here with HomeNudgeDetailPanelPlaceholders.sampleCards."
+                )
+
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
+                    Text("Placeholder content — 4 cards, each with 2 actions")
+                        .font(VFont.bodySmallEmphasised)
+                        .foregroundStyle(VColor.contentSecondary)
+
+                    HomeNudgeDetailPanel(
+                        title: "Heartbeat",
+                        icon: .heart,
+                        iconForeground: VColor.feedNudgeStrong,
+                        iconBackground: VColor.feedNudgeWeak,
+                        description: "Found some issues.",
+                        cards: HomeNudgeDetailPanelPlaceholders.sampleCards,
+                        primaryActionLabel: "Resolve All",
+                        secondaryActionLabel: "Clear All",
+                        onClose: {},
+                        onPrimaryAction: {},
+                        onSecondaryAction: {},
+                        onCardAction: { _, _ in }
+                    )
+                    .frame(height: 640)
+
+                    Divider().background(VColor.borderBase)
+
+                    Text("No description, no secondary action, cards without buttons")
+                        .font(VFont.bodySmallEmphasised)
+                        .foregroundStyle(VColor.contentSecondary)
+
+                    HomeNudgeDetailPanel(
+                        title: "Heartbeat",
+                        icon: .heart,
+                        iconForeground: VColor.feedNudgeStrong,
+                        iconBackground: VColor.feedNudgeWeak,
+                        description: nil,
+                        cards: [
+                            HomeNudgeDetailPanel.Card(
+                                id: "noact-1",
+                                title: "All clear",
+                                description: "Nothing to act on — this nudge is purely informational.",
+                                actions: []
+                            ),
+                            HomeNudgeDetailPanel.Card(
+                                id: "noact-2",
+                                title: "Still monitoring",
+                                description: "We'll follow up if anything changes.",
+                                actions: []
+                            ),
+                        ],
+                        primaryActionLabel: "Acknowledge",
+                        secondaryActionLabel: nil,
+                        onClose: {},
+                        onPrimaryAction: {},
+                        onSecondaryAction: nil,
+                        onCardAction: { _, _ in }
+                    )
+                    .frame(height: 420)
+                }
             }
 
             // MARK: - HomeSplitLayout
@@ -657,10 +827,17 @@ struct HomeGallerySection: View {
 /// sample content matching the Figma mock (thread name, recipient, subject,
 /// body, and a single attachment). Kept private to the gallery so it can
 /// own the `@State` bindings required by the editor's field text.
+///
+/// The `isGmailConnected` flag flips the primary CTA between "Send" (when
+/// true) and "Copy to Clipboard" with a visible "Connect to Google OAuth"
+/// banner (when false). Default is true so the connected flow is shown
+/// first.
 private struct HomeEmailEditorDemo: View {
     private static let sampleAttachments: [HomeEmailEditor.Attachment] = [
         .init(id: UUID(), fileName: "nba-2025-invoice-224468.pdf", fileSize: "24 kb"),
     ]
+
+    let isGmailConnected: Bool
 
     @State private var toAddress: String = "john@johnstown.com"
     @State private var subject: String = "looking for a basketball scholarship"
@@ -675,10 +852,14 @@ private struct HomeEmailEditorDemo: View {
     Rok
     """
 
+    init(isGmailConnected: Bool = true) {
+        self.isGmailConnected = isGmailConnected
+    }
+
     var body: some View {
         HomeDetailPanel(
             icon: nil,
-            title: "Thread Name Here",
+            title: "Email Draft to John Wick",
             onGoToThread: {},
             onDismiss: {},
             scrollable: false
@@ -689,7 +870,11 @@ private struct HomeEmailEditorDemo: View {
                 bodyText: $bodyText,
                 attachments: Self.sampleAttachments,
                 onAttachmentTap: { _ in },
-                onSend: {}
+                isGmailConnected: isGmailConnected,
+                onSend: {},
+                onCopyToClipboard: {},
+                onDiscard: {},
+                onConnectGoogle: {}
             )
         }
         .frame(height: 640)
@@ -777,7 +962,8 @@ private struct HomeSplitLayoutDemo: View {
                     bodyText: $bodyText,
                     attachments: Self.sampleAttachments,
                     onAttachmentTap: { _ in },
-                    onSend: {}
+                    onSend: {},
+                    onDiscard: {}
                 )
             }
         case .document:
@@ -843,7 +1029,10 @@ extension HomeGallerySection {
         case "homeUpdatesListCard": HomeGallerySection(filter: "homeUpdatesListCard")
         case "homeFeedGroupHeader": HomeGallerySection(filter: "homeFeedGroupHeader")
         case "homeRecapRow": HomeGallerySection(filter: "homeRecapRow")
+        case "homeRecapGroupRow": HomeGallerySection(filter: "homeRecapGroupRow")
         case "homeDetailPanel": HomeGallerySection(filter: "homeDetailPanel")
+        case "homeScheduledDetailPanel": HomeGallerySection(filter: "homeScheduledDetailPanel")
+        case "homeNudgeDetailPanel": HomeGallerySection(filter: "homeNudgeDetailPanel")
         case "homeEmailEditor": HomeGallerySection(filter: "homeEmailEditor")
         case "homeDocumentPreview": HomeGallerySection(filter: "homeDocumentPreview")
         case "homePermissionChatPreview": HomeGallerySection(filter: "homePermissionChatPreview")

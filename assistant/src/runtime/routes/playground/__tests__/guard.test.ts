@@ -7,7 +7,9 @@ import { playgroundRouteDefinitions } from "../index.js";
 
 function makeDeps(enabled: boolean): PlaygroundRouteDeps {
   return {
-    getConversationById: (_id: string): Conversation | undefined => undefined,
+    getConversationById: async (
+      _id: string,
+    ): Promise<Conversation | undefined> => undefined,
     isPlaygroundEnabled: () => enabled,
     listConversationsByTitlePrefix: () => [],
     deleteConversationById: () => false,
@@ -30,8 +32,13 @@ describe("assertPlaygroundEnabled", () => {
     const body = (await result?.json()) as {
       error: { code: string; message: string };
     };
-    expect(body.error.code).toBe("NOT_FOUND");
-    expect(body.error.message).toBe("Not found");
+    // The body code must be `playground_disabled` (not the generic
+    // `NOT_FOUND`) so the Swift `CompactionPlaygroundClient` can route
+    // this to `.notAvailable` rather than `.notFound`. The two cases
+    // collide on conv-scoped routes because this guard runs *before*
+    // the conversation lookup — the URL alone cannot tell them apart.
+    expect(body.error.code).toBe("playground_disabled");
+    expect(body.error.message).toBe("Compaction playground is not enabled");
   });
 
   test("returns null when the flag is enabled", () => {

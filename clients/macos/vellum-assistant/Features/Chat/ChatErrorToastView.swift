@@ -132,6 +132,7 @@ struct ChatConversationErrorToast: View {
         .background(accent)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .transition(.move(edge: .top).combined(with: .opacity))
+        .layoutHangSignpost("chat.errorToast")
     }
 
     // MARK: - Category Helpers
@@ -236,6 +237,7 @@ struct CreditsExhaustedBanner: View {
             )
         )
         .transition(.move(edge: .bottom).combined(with: .opacity))
+        .layoutHangSignpost("chat.creditsExhaustedBanner")
     }
 }
 
@@ -271,6 +273,7 @@ struct CompactionCircuitOpenBanner: View {
         .background(VColor.systemMidStrong)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .transition(.move(edge: .top).combined(with: .opacity))
+        .layoutHangSignpost("chat.compactionCircuitOpenBanner")
         .onReceive(timer) { tick in
             if tick >= openUntil {
                 onExpired()
@@ -324,5 +327,6 @@ struct MissingApiKeyBanner: View {
             )
         )
         .transition(.move(edge: .bottom).combined(with: .opacity))
+        .layoutHangSignpost("chat.missingApiKeyBanner")
     }
 }

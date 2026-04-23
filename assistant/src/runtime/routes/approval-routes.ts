@@ -10,6 +10,7 @@
  */
 import { z } from "zod";
 
+import { emitFeedEvent } from "../../home/emit-feed-event.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { addRule } from "../../permissions/trust-store.js";
 import type { UserDecision } from "../../permissions/types.js";
@@ -209,6 +210,22 @@ export async function handleConfirm(
     },
     "Confirmation resolved via HTTP",
   );
+
+  const approved = effectiveDecision === "allow";
+  const toolName = interaction.confirmationDetails?.toolName ?? "unknown tool";
+  void emitFeedEvent({
+    source: "assistant",
+    title: `${approved ? "Approved" : "Denied"} use of ${toolName}.`,
+    summary: `${approved ? "Approved" : "Denied"} use of ${toolName}.`,
+    dedupKey: `tool-approval:${requestId}`,
+    urgency: approved ? undefined : "medium",
+    conversationId: interaction.conversationId,
+  }).catch((err) => {
+    log.warn(
+      { err, requestId },
+      "Failed to emit tool approval resolution feed event",
+    );
+  });
 
   // ACP permissions: resolve directly without a Conversation object.
   if (interaction.directResolve) {

@@ -42,6 +42,14 @@ struct HomePageView<DetailPanel: View>: View {
     /// Fired when the user taps one of the suggestion pills. The parent
     /// opens a fresh conversation seeded with the suggestion label.
     let onSuggestionSelected: (HomeSuggestion) -> Void
+    /// Fired when the user taps a feed item that resolves to a detail
+    /// panel via ``HomeDetailPanelKind.resolve(for:)``. The parent
+    /// presents the appropriate panel instead of opening a conversation.
+    /// Declared as `var` with a no-op default so the synthesized memberwise
+    /// initializer still accepts this argument (Swift bakes `let` defaults
+    /// in and omits them from the memberwise init, which breaks the
+    /// convenience-init forwarding path and any direct memberwise callers).
+    var onDetailPanelSelected: (FeedItem) -> Void = { _ in }
     /// Drives the two-pane split. When false, the home content renders in
     /// its original single-column layout and the `detailPanel` slot is
     /// ignored.
@@ -139,15 +147,57 @@ struct HomePageView<DetailPanel: View>: View {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         HomeFeedGroupHeader(label: bucket.group.label)
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            ForEach(bucket.items, id: \.id) { item in
-                                HomeRecapRow(
-                                    icon: icon(for: item),
-                                    iconForeground: iconForeground(for: item),
-                                    iconBackground: iconBackground(for: item),
-                                    title: item.title,
-                                    onDismiss: { dismissItem(item) },
-                                    onTap: { openItem(item) }
-                                )
+                            ForEach(bucket.rows, id: \.id) { row in
+                                switch row {
+                                case .single(let item):
+                                    HomeRecapRow(
+                                        icon: icon(for: item),
+                                        iconForeground: iconForeground(for: item),
+                                        iconBackground: iconBackground(for: item),
+                                        title: item.title,
+                                        onDismiss: { dismissItem(item) },
+                                        onTap: { openItem(item) }
+                                    )
+                                case .group(let parent, let children):
+                                    HomeRecapGroupRow(
+                                        parentIcon: icon(for: parent),
+                                        parentIconForeground: iconForeground(for: parent),
+                                        parentIconBackground: iconBackground(for: parent),
+                                        parentTitle: parent.title,
+                                        children: children.map { child in
+                                            HomeRecapGroupRow.Child(
+                                                id: child.id,
+                                                icon: icon(for: child),
+                                                iconForeground: iconForeground(for: child),
+                                                iconBackground: iconBackground(for: child),
+                                                title: child.title
+                                            )
+                                        },
+                                        // Always-expanded matches Figma `3679:21591` which shows the
+                                        // group's children already visible. Keeping expand/collapse as
+                                        // an affordance conflicted with tap-to-open (Devin P1 feedback
+                                        // on PR #27466 cycle 2) — any tap would either navigate away
+                                        // (losing the expand affordance) or block open (making the
+                                        // parent unreachable, Codex P2 cycle 1). Always-expanded keeps
+                                        // both open-tap AND visible children.
+                                        isExpanded: .constant(true),
+                                        onParentTap: { openItem(parent) },
+                                        onChildTap: { child in
+                                            if let feedChild = children.first(where: { $0.id == child.id }) {
+                                                openItem(feedChild)
+                                            }
+                                        },
+                                        // Mirror HomeRecapRow's dismiss affordance on the parent and
+                                        // each child so grouped rows aren't sticky in the feed
+                                        // (Codex P2 + Devin feedback on PR #27475).
+                                        onParentDismiss: { dismissItem(parent) },
+                                        onChildDismiss: { child in
+                                            if let feedChild = children.first(where: { $0.id == child.id }) {
+                                                dismissItem(feedChild)
+                                            }
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -202,19 +252,31 @@ struct HomePageView<DetailPanel: View>: View {
     /// Sorts the feed by `priority desc, createdAt desc`, hides
     /// dismissed items (so `dismissItem(_:)` gives immediate feedback
     /// without waiting for a server refresh to rewrite the array),
-    /// applies the active type filter (nil = show all), then delegates
-    /// to `HomeFeedTimeGroup.bucket(_:)` for day-bucketing. Replaces
-    /// the prior `attentionItems` / `activityItems` partitioning.
-    private var groupedFeed: [(group: HomeFeedTimeGroup, items: [FeedItem])] {
+    /// applies the active type filter (nil = show all), buckets via
+    /// `HomeFeedTimeGroup.bucket(_:)`, then collapses contiguous
+    /// low-priority digest runs within each bucket via
+    /// `HomeFeedGrouping.group(_:)`.
+    // Exposed for HomePageViewGroupingTests — kept out of public API via no-op accessor; grouping is a behavior that benefits from direct unit testing.
+    var groupedFeed: [(group: HomeFeedTimeGroup, rows: [HomeFeedGroupedRow])] {
+        groupedFeed(for: activeFilter)
+    }
+
+    /// Pure grouping pipeline exposed for unit tests. Mirrors the logic
+    /// used by ``groupedFeed`` but takes the filter as a parameter so
+    /// tests don't need to manipulate `@State`.
+    func groupedFeed(for filter: FeedItemType?) -> [(group: HomeFeedTimeGroup, rows: [HomeFeedGroupedRow])] {
         let sorted = feedStore.items.sorted { a, b in
             if a.priority != b.priority { return a.priority > b.priority }
             return a.createdAt > b.createdAt
         }
         let filtered = sorted.filter { item in
             item.status != .dismissed
-                && (activeFilter == nil || activeFilter == item.type)
+                && (filter == nil || filter == item.type)
         }
-        return HomeFeedTimeGroup.bucket(filtered)
+        let buckets = HomeFeedTimeGroup.bucket(filtered)
+        return buckets.map { bucket in
+            (group: bucket.group, rows: HomeFeedGrouping.group(bucket.items))
+        }
     }
 
     // MARK: - Suggestions
@@ -280,11 +342,27 @@ struct HomePageView<DetailPanel: View>: View {
 
     // MARK: - Actions
 
-    /// Opens the feed item in a new conversation. The daemon interprets
-    /// any unknown action id as an "open" intent and seeds the new
+    /// Opens the feed item. Items that resolve to a detail panel via
+    /// ``HomeDetailPanelKind.resolve(for:)`` route to
+    /// `onDetailPanelSelected`; every other item (including non-calendar
+    /// `.thread` items such as rollup-producer general-purpose threads)
+    /// keeps the existing "trigger the `open` action and navigate into
+    /// the resulting conversation" flow. The daemon interprets any
+    /// unknown action id as an "open" intent and seeds the new
     /// conversation with the first available action's prompt (or the
     /// item summary if there are no actions).
-    private func openItem(_ item: FeedItem) {
+    ///
+    /// Exposed as `internal` (not `private`) so routing tests can drive it
+    /// directly without needing to render the full view tree.
+    func openItem(_ item: FeedItem) {
+        if HomeDetailPanelKind.resolve(for: item) != nil {
+            onDetailPanelSelected(item)
+            return
+        }
+        if let conversationId = item.conversationId {
+            onFeedConversationOpened(conversationId)
+            return
+        }
         Task {
             if let conversationId = await feedStore.triggerAction(
                 itemId: item.id,
@@ -359,7 +437,8 @@ extension HomePageView where DetailPanel == EmptyView {
         onFeedConversationOpened: @escaping (String) -> Void,
         onStartNewChat: @escaping () -> Void,
         onDismissSuggestions: @escaping () -> Void,
-        onSuggestionSelected: @escaping (HomeSuggestion) -> Void
+        onSuggestionSelected: @escaping (HomeSuggestion) -> Void,
+        onDetailPanelSelected: @escaping (FeedItem) -> Void = { _ in }
     ) {
         self.init(
             store: store,
@@ -369,6 +448,7 @@ extension HomePageView where DetailPanel == EmptyView {
             onStartNewChat: onStartNewChat,
             onDismissSuggestions: onDismissSuggestions,
             onSuggestionSelected: onSuggestionSelected,
+            onDetailPanelSelected: onDetailPanelSelected,
             isDetailPanelVisible: false,
             detailPanel: { EmptyView() }
         )

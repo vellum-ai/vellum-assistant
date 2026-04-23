@@ -365,6 +365,7 @@ extension AppDelegate {
             // Retain the onboarding state so avatar traits generated during
             // hatching can be synced to the assistant after the switch.
             self?.onboardingState = state
+            self?.pendingPreChatContext = state.preChatContext
 
             // Detect the newly hatched assistant by diffing lockfile against snapshot.
             // loadAll() returns newest-first, so the first new ID is the most recently hatched.
@@ -500,16 +501,28 @@ extension AppDelegate {
         // ConversationManager.enterDraftMode() creates the first draft VM.
         let context = pendingPreChatContext
         pendingPreChatContext = nil
-        if let name = context?.assistantName, !name.isEmpty,
-           let activeId = LockfileAssistant.loadActiveAssistantId() {
-            IdentityInfo.seedCache(name: name, forAssistantId: activeId)
+        let onboardingName = onboardingState?.assistantName
+        let resolvedName = AssistantDisplayName.firstUserFacing(from: [
+            context?.assistantName,
+            onboardingName,
+        ])
+        if let resolvedName {
+            var activeId = LockfileAssistant.loadActiveAssistantId()
+            if activeId == nil, let latest = LockfileAssistant.loadLatest() {
+                LockfileAssistant.setActiveAssistantId(latest.assistantId)
+                activeId = latest.assistantId
+            }
+            if let activeId {
+                IdentityInfo.seedCache(name: resolvedName, forAssistantId: activeId)
+            }
         }
         let main = MainWindow(
             services: services,
             updateManager: updateManager,
             assistantFeatureFlagStore: featureFlagStore,
             isFirstLaunch: isFirstLaunch,
-            preChatContext: context
+            preChatContext: context,
+            initialAssistantName: resolvedName
         )
         main.onMicrophoneToggle = { [weak self] in
             self?.voiceInput?.toggleRecording()

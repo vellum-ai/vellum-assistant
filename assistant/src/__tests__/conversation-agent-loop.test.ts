@@ -6,6 +6,7 @@ import type {
   CheckpointInfo,
 } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 
 // ── Module mocks (must precede imports of the module under test) ─────
@@ -57,10 +58,19 @@ mock.module("../config/loader.js", () => ({
 // ── Overflow recovery mocks ──────────────────────────────────────────
 
 // Token estimator returns a small value by default (well within budget)
-// so preflight does not trigger unless the test overrides it.
+// so preflight does not trigger unless the test overrides it. Both the
+// calibrated entry point (`estimatePromptTokens`, used in the convergence
+// path) and the raw entry point (`estimatePromptTokensRaw`, used by the
+// default `tokenEstimate` plugin pipeline for preflight/mid-loop) are
+// stubbed so either call site can drive the test.
 let mockEstimateTokens = 1000;
 mock.module("../context/token-estimator.js", () => ({
   estimatePromptTokens: () => mockEstimateTokens,
+  estimatePromptTokensRaw: () => mockEstimateTokens,
+  // Pass-through: the default plugin computes `toolTokenBudget` via this
+  // helper before delegating to the raw estimator. Return 0 so the mocked
+  // raw estimate is not perturbed.
+  estimateToolsTokens: () => 0,
 }));
 
 // Reducer: by default returns the input untouched and marks exhausted
@@ -101,20 +111,6 @@ mock.module("../daemon/context-overflow-reducer.js", () => ({
 let mockOverflowAction: string = "fail_gracefully";
 mock.module("../daemon/context-overflow-policy.js", () => ({
   resolveOverflowAction: () => mockOverflowAction,
-}));
-
-let hookBlocked = false;
-let hookBlockedBy = "";
-
-mock.module("../hooks/manager.js", () => ({
-  getHookManager: () => ({
-    trigger: async (hookName: string) => {
-      if (hookName === "pre-message" && hookBlocked) {
-        return { blocked: true, blockedBy: hookBlockedBy };
-      }
-      return { blocked: false };
-    },
-  }),
 }));
 
 const updateMessageMetadataMock = mock(
@@ -367,7 +363,9 @@ type AgentLoopRun = (
   onEvent: (event: AgentEvent) => void,
   signal?: AbortSignal,
   requestId?: string,
-  onCheckpoint?: (checkpoint: CheckpointInfo) => CheckpointDecision,
+  onCheckpoint?: (
+    checkpoint: CheckpointInfo,
+  ) => CheckpointDecision | Promise<CheckpointDecision>,
 ) => Promise<Message[]>;
 
 function makeCtx(
@@ -397,6 +395,7 @@ function makeCtx(
     agentLoop: {
       run: agentLoopRun,
       getToolTokenBudget: () => 0,
+      getResolvedTools: () => [],
       // Tests here don't exercise calibration; returning undefined makes
       // the estimator use the per-provider aggregate key.
       getActiveModel: () => undefined,
@@ -502,8 +501,6 @@ function makeCtx(
 // ── Tests ────────────────────────────────────────────────────────────
 
 beforeEach(() => {
-  hookBlocked = false;
-  hookBlockedBy = "";
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
@@ -519,6 +516,12 @@ beforeEach(() => {
     () => {},
   );
   applyRuntimeInjectionsMock.mockClear();
+  // Orchestrator pipelines (overflowReduce, persistence, …) run through the
+  // plugin registry; reset and re-register every default so the pipelines
+  // dispatch to middleware backed by the mocked collaborators these tests
+  // install (`reduceContextOverflow`, `syncMessageToDisk`, etc.) instead of
+  // hitting the bare terminals.
+  resetPluginRegistryAndRegisterDefaults();
 });
 
 describe("session-agent-loop", () => {
@@ -529,47 +532,6 @@ describe("session-agent-loop", () => {
       await expect(
         runAgentLoopImpl(ctx, "hello", "msg-1", () => {}),
       ).rejects.toThrow("runAgentLoop called without prior persistUserMessage");
-    });
-  });
-
-  describe("pre-message hook blocking", () => {
-    test("emits error and returns early when pre-message hook blocks", async () => {
-      hookBlocked = true;
-      hookBlockedBy = "test-hook";
-      const events: ServerMessage[] = [];
-      const ctx = makeCtx();
-
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
-
-      const errorEvent = events.find((e) => e.type === "error");
-      expect(errorEvent).toBeDefined();
-      expect((errorEvent as { message: string }).message).toContain(
-        "test-hook",
-      );
-    });
-
-    test("removes user message when hook blocks without skipPreMessageRollback", async () => {
-      hookBlocked = true;
-      hookBlockedBy = "guard";
-      const ctx = makeCtx();
-      const originalLength = ctx.messages.length;
-
-      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
-
-      expect(ctx.messages.length).toBe(originalLength - 1);
-    });
-
-    test("keeps user message when hook blocks with skipPreMessageRollback", async () => {
-      hookBlocked = true;
-      hookBlockedBy = "guard";
-      const ctx = makeCtx();
-      const originalLength = ctx.messages.length;
-
-      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {}, {
-        skipPreMessageRollback: true,
-      });
-
-      expect(ctx.messages.length).toBe(originalLength);
     });
   });
 
@@ -1628,7 +1590,7 @@ describe("session-agent-loop", () => {
           providerDurationMs: 100,
         });
         if (onCheckpoint) {
-          const decision = onCheckpoint({
+          const decision = await onCheckpoint({
             turnIndex: 0,
             toolCount: 1,
             hasToolUse: true,
@@ -1696,7 +1658,7 @@ describe("session-agent-loop", () => {
           providerDurationMs: 100,
         });
         if (onCheckpoint) {
-          onCheckpoint({
+          await onCheckpoint({
             turnIndex: 0,
             toolCount: 1,
             hasToolUse: true,

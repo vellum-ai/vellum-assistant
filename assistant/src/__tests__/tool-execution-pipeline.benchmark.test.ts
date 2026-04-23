@@ -67,12 +67,6 @@ mock.module("../tools/registry.js", () => ({
   },
 }));
 
-mock.module("../hooks/manager.js", () => ({
-  getHookManager: () => ({
-    trigger: () => Promise.resolve({ blocked: false }),
-  }),
-}));
-
 import { check, classifyRisk } from "../permissions/checker.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";

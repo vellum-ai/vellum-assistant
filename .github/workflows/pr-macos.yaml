@@ -10,6 +10,8 @@ on:
       - 'clients/.periphery.yml'
       - 'clients/.periphery_baseline.json'
       - 'clients/scripts/periphery-scan.sh'
+      - 'clients/scripts/check-flexframe.sh'
+      - 'clients/scripts/flexframe-allowlist.txt'
       - 'assistant/**'
       - 'gateway/**'
       - 'credential-executor/**'
@@ -21,6 +23,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  flexframe-lint:
+    name: FlexFrame Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Ensure ripgrep is available
+        run: |
+          if ! command -v rg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ripgrep
+          fi
+          rg --version | head -1
+
+      - name: FlexFrame guard
+        run: bash clients/scripts/check-flexframe.sh
+
   lint-unused:
     if: contains(github.event.pull_request.labels.*.name, 'preview')
     name: Lint Unused Code

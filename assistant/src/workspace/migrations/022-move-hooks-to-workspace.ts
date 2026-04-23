@@ -43,9 +43,8 @@ export const moveHooksToWorkspaceMigration: WorkspaceMigration = {
     if (!existsSync(oldHooksDir)) return;
 
     // Move hook entries from root to workspace. The old (user) entries take
-    // precedence over anything already at the destination (e.g. template
-    // files written by installTemplates(), which runs before migrations).
-    // We remove the destination first so renameSync succeeds atomically.
+    // precedence over anything already at the destination. We remove the
+    // destination first so renameSync succeeds atomically.
     try {
       const entries = readdirSync(oldHooksDir);
       for (const entry of entries) {

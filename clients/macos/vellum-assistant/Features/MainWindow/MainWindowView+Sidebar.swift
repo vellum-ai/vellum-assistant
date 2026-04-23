@@ -15,12 +15,14 @@ extension MainWindowView {
         }
         // When an app is open, keep it visible and switch the conversation
         // context instead of navigating away to a full-screen conversation.
+        // `ConversationManager` is synced by the `onChange(of: windowState.selection)`
+        // handler in `MainWindowView.body`, which yields before the heavy VM
+        // work so SwiftUI commits the sidebar highlight on the current frame.
         if let appId = windowState.activeAppId {
             windowState.setAppEditing(appId: appId, conversationId: conversation.id)
         } else {
             windowState.selection = .conversation(conversation.id)
         }
-        conversationManager.selectConversation(id: conversation.id)
 
         // Auto-expand the section containing the selected conversation
         // so it's always visible in the sidebar.
