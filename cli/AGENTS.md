@@ -62,9 +62,9 @@ The CLI creates and manages Docker volumes for containerized instances. See the 
 **Meet Docker-in-Docker support** (assistant container only): The assistant container runs an inner `dockerd` that hosts the Meet-bot containers as nested children. The CLI supports this by:
 
 - Creating a dedicated `<name>-dockerd-data` volume mounted at `/var/lib/docker` so pulled images and container state persist across assistant restarts.
-- Running the assistant container with `--privileged` (or `CAP_SYS_ADMIN` + `CAP_NET_ADMIN`) so the inner dockerd can configure cgroups, overlay mounts, and container networking.
+- Running the assistant container with `CAP_SYS_ADMIN` + `CAP_NET_ADMIN` plus `--security-opt seccomp=unconfined` + `--security-opt apparmor=unconfined` so the inner dockerd can configure cgroups, overlay mounts, and container networking without the default seccomp profile blocking clone/unshare/pivot_root syscalls or the default AppArmor profile denying its mount operations. `--privileged` is deliberately avoided — dropping it shrinks the escape surface by withholding the rest of the host capability set and access to host device nodes.
 - No longer bind-mounting the host's `/var/run/docker.sock`; Meet-bot spawning happens entirely inside the assistant container.
 
 Both are wired in `serviceDockerRunArgs()` in `lib/docker.ts`.
 
-The privileged assistant container is acceptable for single-user local deployments. Managed/multi-tenant mode needs a different spawn model (e.g. a Kubernetes job runner) and is out of scope for this CLI.
+This capability + security-opt set is acceptable for single-user local deployments. Managed/multi-tenant mode needs a different spawn model (e.g. a Kubernetes job runner) and is out of scope for this CLI.
