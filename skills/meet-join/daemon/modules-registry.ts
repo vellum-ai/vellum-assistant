@@ -27,6 +27,11 @@
 
 import type { SkillHost } from "@vellumai/skill-host-contracts";
 
+import {
+  createDockerRunner,
+  DOCKER_RUNNER_MODULE,
+} from "./docker-runner.js";
+
 /**
  * Factory signature for a meet-join sub-module. Every sub-module
  * converted in Waves 6+ exposes a builder of this shape — the returned
@@ -74,10 +79,27 @@ export function getSubModule<T>(
 }
 
 /**
- * Test-only helper — drops every registration. Production code never
- * needs this; it exists so unit tests that pre-register mock factories
- * can start from a clean slate between cases.
+ * Test-only helper — drops every registration, including the built-in
+ * factory registrations installed at module load. Tests that expect the
+ * built-ins to still be present afterwards must re-invoke the specific
+ * `registerSubModule(...)` lines at the bottom of this file (a cached
+ * re-import will not re-run module-top-level side effects).
  */
 export function resetSubModulesForTests(): void {
   factories.clear();
 }
+
+// ---------------------------------------------------------------------------
+// Built-in registrations
+// ---------------------------------------------------------------------------
+//
+// Each converted sub-module registers its factory here at import time.
+// Placing the calls in this file (rather than at the bottom of the factory
+// file) avoids the circular-import hazard of running
+// `registerSubModule(...)` before `factories` has been initialized, while
+// still giving every sub-module a single obvious wiring point. Each Wave 6
+// PR appends its own pair (import + registerSubModule) to the lists below
+// — merge conflicts are expected and are resolved by appending the
+// neighbouring PR's entry before rebasing.
+
+registerSubModule(DOCKER_RUNNER_MODULE, createDockerRunner);
