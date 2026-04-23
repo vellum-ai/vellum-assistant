@@ -1762,6 +1762,15 @@ public struct HostTransferRequest: Decodable, Sendable {
     public let sizeBytes: Int?
     public let sha256: String?
     public let overwrite: Bool?
+
+    private enum CodingKeys: String, CodingKey {
+        case type, requestId, conversationId, direction
+        case transferId = "transfer_id"
+        case destPath = "dest_path"
+        case sourcePath = "source_path"
+        case sizeBytes = "size_bytes"
+        case sha256, overwrite
+    }
 }
 
 /// Cancellation signal from the daemon telling the client to abort an in-flight
