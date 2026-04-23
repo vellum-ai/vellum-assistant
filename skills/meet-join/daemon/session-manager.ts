@@ -1340,14 +1340,17 @@ class MeetSessionManagerImpl {
 
     // Chat-opportunity detector — proactively watches transcript/chat for
     // moments where the assistant chiming in via meeting chat would help,
-    // and wakes the agent loop on positive Tier 2 verdicts. Constructed
-    // only when `services.meet.proactiveChat.enabled === true`; keeping
-    // the detector null when disabled means zero lifecycle overhead and
-    // no event-handler cost on the dispatcher path.
+    // and wakes the agent loop on positive Tier 2 verdicts. The detector
+    // also hosts the 1:1 voice-mode EOU path, which is independently
+    // gated from proactive chat. Construct it whenever EITHER feature is
+    // enabled so disabling proactive chat does not silently disable
+    // voice mode. When both are off, leaving the detector null means
+    // zero lifecycle overhead and no event-handler cost on the
+    // dispatcher path.
     const proactiveChatConfig = meet.proactiveChat;
     const voiceModeConfig = meet.voiceMode;
     const chatOpportunityDetector: MeetChatOpportunityDetectorLike | null =
-      proactiveChatConfig.enabled
+      proactiveChatConfig.enabled || voiceModeConfig.enabled
         ? this.deps.chatOpportunityDetectorFactory({
             meetingId,
             conversationId,
