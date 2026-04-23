@@ -160,7 +160,7 @@ function captureHub(): {
  */
 function makeFakeAudioIngest(): MeetAudioIngestLike {
   return {
-    start: async () => {},
+    start: async () => ({ port: 42173, ready: Promise.resolve() }),
     stop: async () => {},
     subscribePcm: () => () => {},
   };

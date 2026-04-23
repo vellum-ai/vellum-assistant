@@ -870,10 +870,15 @@ describe("MeetSessionManager audio ingest wiring", () => {
     const ingest = audioIngestFactory.getLastIngest();
     expect(ingest).not.toBeNull();
     expect(ingest!.start).toHaveBeenCalledTimes(1);
-    const call = ingest!.start.mock.calls[0] as unknown as [string];
-    expect(call).toHaveLength(1);
-    const [meetingId] = call;
+    const call = ingest!.start.mock.calls[0] as unknown as [string, string];
+    expect(call).toHaveLength(2);
+    const [meetingId, botApiToken] = call;
     expect(meetingId).toBe("m-audio");
+    // The session manager must hand the ingest the same per-session
+    // bot API token it threads into the container env so the bot's audio
+    // handshake lines up with the ingest's expected token.
+    expect(typeof botApiToken).toBe("string");
+    expect(botApiToken.length).toBeGreaterThan(0);
     // Session manager no longer fetches a Deepgram key — STT resolution
     // lives inside the audio ingest.
     expect(getProviderKey).not.toHaveBeenCalledWith("deepgram");
@@ -1276,7 +1281,7 @@ describe("MeetSessionManager dispatcher sequencing", () => {
       factory: () => {
         const subscribers = new Set<(bytes: Uint8Array) => void>();
         const ingest: MeetAudioIngestLike = {
-          start: async (meetingId: string) => {
+          start: async (meetingId: string, _botApiToken: string) => {
             // By the time audio ingest starts, the router handler must be
             // installed so transcripts fired during STT startup can reach
             // the dispatcher rather than falling through the unregistered

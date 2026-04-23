@@ -90,6 +90,14 @@ function fakeFailedParec(exitCode: number): SpawnedParec {
 interface RecordingSocket extends CapturedSocket {
   /** All bytes written via `write()`, concatenated in order. */
   writes: Uint8Array[];
+  /**
+   * Writes excluding `AUTH <token>\n` handshake frames. Framing and
+   * chunking assertions should use this so they don't trip on the
+   * handshake the capture pipeline prepends to every attempt.
+   */
+  pcmWrites: Uint8Array[];
+  /** Handshake frames — one per successful reconnect attempt. */
+  authWrites: Uint8Array[];
   /** Count of `end()` invocations. */
   endCalls: number;
   /** Count of `destroy()` invocations. */
@@ -98,6 +106,26 @@ interface RecordingSocket extends CapturedSocket {
   triggerError(err: NodeJS.ErrnoException): void;
   /** Trigger a synthetic `close` event on this socket. */
   triggerClose(): void;
+}
+
+/**
+ * Detect an `AUTH <token>\n` handshake frame by its ASCII prefix and
+ * trailing newline. Intentionally loose on token content so rotating
+ * the fixture token doesn't require matching the exact value here.
+ */
+function isAuthFrame(w: Uint8Array): boolean {
+  if (w.length < 6) return false;
+  // "AUTH "
+  if (
+    w[0] !== 0x41 ||
+    w[1] !== 0x55 ||
+    w[2] !== 0x54 ||
+    w[3] !== 0x48 ||
+    w[4] !== 0x20
+  ) {
+    return false;
+  }
+  return w[w.length - 1] === 0x0a;
 }
 
 /**
@@ -114,6 +142,18 @@ function recordingSocket(): RecordingSocket {
 
   return {
     writes,
+    // The capture pipeline precedes every PCM stream with an
+    // `AUTH <token>\n` handshake, and it re-sends the handshake on
+    // every reconnect. Identify handshake writes by their `AUTH ` ASCII
+    // prefix + trailing newline so tests that share a single
+    // RecordingSocket across reconnect attempts still isolate PCM
+    // frames cleanly.
+    get pcmWrites() {
+      return writes.filter((w) => !isAuthFrame(w));
+    },
+    get authWrites() {
+      return writes.filter((w) => isAuthFrame(w));
+    },
     get endCalls() {
       return endCalls;
     },
@@ -206,6 +246,7 @@ describe("startAudioCapture — argv + defaults", () => {
     const capture = await startAudioCapture({
       daemonHost: "127.0.0.1",
       daemonPort: 9000,
+      authToken: "test-token",
       spawn: (argv) => {
         spawnedArgv.push([...argv]);
         return proc;
@@ -234,6 +275,7 @@ describe("startAudioCapture — argv + defaults", () => {
     const capture = await startAudioCapture({
       daemonHost: "127.0.0.1",
       daemonPort: 9000,
+      authToken: "test-token",
       sourceDevice: "custom_source.monitor",
       rateHz: 48_000,
       spawn: (argv) => {
@@ -263,6 +305,7 @@ describe("startAudioCapture — argv + defaults", () => {
     const capture = await startAudioCapture({
       daemonHost: "host.docker.internal",
       daemonPort: 42173,
+      authToken: "test-token",
       spawn: () => proc,
       connect: (host, port) => {
         seenTargets.push({ host, port });
@@ -285,6 +328,7 @@ describe("startAudioCapture — argv + defaults", () => {
       await startAudioCapture({
         daemonHost: "127.0.0.1",
         daemonPort: 9000,
+      authToken: "test-token",
         frameBytes: 0,
         spawn: () => proc,
         connect: () => sock,
@@ -294,6 +338,76 @@ describe("startAudioCapture — argv + defaults", () => {
     }
     expect(thrown).toBeInstanceOf(Error);
     expect((thrown as Error).message).toContain("frameBytes must be > 0");
+  });
+});
+
+describe("startAudioCapture — auth handshake", () => {
+  test("writes `AUTH <authToken>\\n` as the first bytes on every connection", async () => {
+    const { proc } = fakeParec([]);
+    const sock = recordingSocket();
+
+    const capture = await startAudioCapture({
+      daemonHost: "127.0.0.1",
+      daemonPort: 9000,
+      authToken: "tok-abc123",
+      spawn: () => proc,
+      connect: () => sock,
+    });
+
+    // The handshake is written synchronously at connect time — no wait
+    // needed. It must be the very first write, ahead of any PCM frame.
+    expect(sock.writes.length).toBeGreaterThanOrEqual(1);
+    const first = sock.writes[0]!;
+    const decoded = new TextDecoder().decode(first);
+    expect(decoded).toBe("AUTH tok-abc123\n");
+
+    await capture.stop();
+  });
+
+  test("resends the handshake after a reconnect", async () => {
+    // First attempt: parec fails and we reconnect.
+    const first = fakeFailedParec(1);
+    const { proc: second } = fakeParec([fakePcm(DEFAULT_FRAME_BYTES)]);
+    const procs = [first, second];
+    let spawnIdx = 0;
+    const sock = recordingSocket();
+
+    const capture = await startAudioCapture({
+      daemonHost: "127.0.0.1",
+      daemonPort: 9000,
+      authToken: "tok-reconnect",
+      spawn: () => procs[spawnIdx++]!,
+      connect: () => sock,
+    });
+
+    await waitFor(() => sock.pcmWrites.length === 1);
+    // Two auth writes (one per attempt): initial attempt + reconnect.
+    expect(sock.authWrites.length).toBe(2);
+    for (const frame of sock.authWrites) {
+      expect(new TextDecoder().decode(frame)).toBe("AUTH tok-reconnect\n");
+    }
+
+    await capture.stop();
+  });
+
+  test("rejects an empty authToken up front", async () => {
+    const { proc } = fakeParec([]);
+    const sock = recordingSocket();
+
+    let thrown: unknown;
+    try {
+      await startAudioCapture({
+        daemonHost: "127.0.0.1",
+        daemonPort: 9000,
+        authToken: "",
+        spawn: () => proc,
+        connect: () => sock,
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toContain("authToken is required");
   });
 });
 
@@ -314,20 +428,22 @@ describe("startAudioCapture — framing", () => {
     const capture = await startAudioCapture({
       daemonHost: "127.0.0.1",
       daemonPort: 9000,
+      authToken: "test-token",
       spawn: () => proc,
       connect: () => sock,
     });
 
-    // Wait until all 5 frames have arrived at the socket.
-    await waitFor(() => sock.writes.length === 5);
+    // Wait until all 5 PCM frames have arrived at the socket (excluding
+    // the auth handshake that precedes them).
+    await waitFor(() => sock.pcmWrites.length === 5);
 
-    // Every write must be exactly `frameBytes` bytes.
-    for (const w of sock.writes) {
+    // Every PCM write must be exactly `frameBytes` bytes.
+    for (const w of sock.pcmWrites) {
       expect(w.length).toBe(frameBytes);
     }
 
-    // Concatenated writes must equal the original payload verbatim.
-    expect(concat(sock.writes)).toEqual(payload);
+    // Concatenated PCM writes must equal the original payload verbatim.
+    expect(concat(sock.pcmWrites)).toEqual(payload);
 
     await capture.stop();
   });
@@ -344,17 +460,18 @@ describe("startAudioCapture — framing", () => {
     const capture = await startAudioCapture({
       daemonHost: "127.0.0.1",
       daemonPort: 9000,
+      authToken: "test-token",
       frameBytes,
       spawn: () => proc,
       connect: () => sock,
     });
 
-    await waitFor(() => sock.writes.length === 1);
+    await waitFor(() => sock.pcmWrites.length === 1);
     // Give the pump a tick to confirm it doesn't emit another (short) frame
     // after the stream ends.
     await tick(20);
-    expect(sock.writes.length).toBe(1);
-    expect(sock.writes[0]!.length).toBe(frameBytes);
+    expect(sock.pcmWrites.length).toBe(1);
+    expect(sock.pcmWrites[0]!.length).toBe(frameBytes);
 
     await capture.stop();
   });
@@ -368,16 +485,17 @@ describe("startAudioCapture — framing", () => {
     const capture = await startAudioCapture({
       daemonHost: "127.0.0.1",
       daemonPort: 9000,
+      authToken: "test-token",
       frameBytes,
       spawn: () => proc,
       connect: () => sock,
     });
 
-    await waitFor(() => sock.writes.length === 3);
-    for (const w of sock.writes) {
+    await waitFor(() => sock.pcmWrites.length === 3);
+    for (const w of sock.pcmWrites) {
       expect(w.length).toBe(frameBytes);
     }
-    expect(concat(sock.writes)).toEqual(payload);
+    expect(concat(sock.pcmWrites)).toEqual(payload);
 
     await capture.stop();
   });
@@ -400,6 +518,7 @@ describe("startAudioCapture — reconnect", () => {
     const capture = await startAudioCapture({
       daemonHost: "127.0.0.1",
       daemonPort: 9000,
+      authToken: "test-token",
       spawn: (argv) => {
         spawnCalls.push([...argv]);
         const p = procs[spawnIdx++];
@@ -409,10 +528,12 @@ describe("startAudioCapture — reconnect", () => {
       connect: () => sock,
     });
 
-    // Two frames should arrive after the reconnect.
-    await waitFor(() => sock.writes.length === 2);
+    // Two frames should arrive after the reconnect. Each reconnect
+    // resends the handshake, so `writes` starts with the second
+    // attempt's auth frame; filter it out via `pcmWrites`.
+    await waitFor(() => sock.pcmWrites.length === 2);
     expect(spawnCalls.length).toBe(2);
-    expect(concat(sock.writes)).toEqual(payload);
+    expect(concat(sock.pcmWrites)).toEqual(payload);
 
     await capture.stop();
   });
@@ -425,6 +546,7 @@ describe("startAudioCapture — reconnect", () => {
     const capture = await startAudioCapture({
       daemonHost: "127.0.0.1",
       daemonPort: 9000,
+      authToken: "test-token",
       spawn: () => {
         spawnCount += 1;
         return fakeFailedParec(1);
@@ -458,6 +580,7 @@ describe("startAudioCapture — reconnect", () => {
     const capture = await startAudioCapture({
       daemonHost: "127.0.0.1",
       daemonPort: 9000,
+      authToken: "test-token",
       onError: (err) => errors.push(err),
       spawn: () => {
         spawnCount += 1;
@@ -492,11 +615,12 @@ describe("startAudioCapture — stop semantics", () => {
     const capture = await startAudioCapture({
       daemonHost: "127.0.0.1",
       daemonPort: 9000,
+      authToken: "test-token",
       spawn: () => proc,
       connect: () => sock,
     });
 
-    await waitFor(() => sock.writes.length === 1);
+    await waitFor(() => sock.pcmWrites.length === 1);
     await capture.stop();
 
     // `stop()` must have killed the fake parec (it resolves `killed`).
@@ -513,6 +637,7 @@ describe("startAudioCapture — stop semantics", () => {
     const capture = await startAudioCapture({
       daemonHost: "127.0.0.1",
       daemonPort: 9000,
+      authToken: "test-token",
       spawn: () => proc,
       connect: () => sock,
     });
@@ -537,6 +662,7 @@ describe("startAudioCapture — stop semantics", () => {
     const capture = await startAudioCapture({
       daemonHost: "127.0.0.1",
       daemonPort: 9000,
+      authToken: "test-token",
       spawn: () => procs[spawnIdx++]!,
       connect: () => (connectIdx++ === 0 ? sock1 : sock2),
     });
@@ -548,8 +674,8 @@ describe("startAudioCapture — stop semantics", () => {
     sock1.triggerError(connErr);
 
     // Expect the second socket to eventually receive the replayed payload.
-    await waitFor(() => sock2.writes.length === 1);
-    expect(concat(sock2.writes)).toEqual(payload);
+    await waitFor(() => sock2.pcmWrites.length === 1);
+    expect(concat(sock2.pcmWrites)).toEqual(payload);
 
     await capture.stop();
   });

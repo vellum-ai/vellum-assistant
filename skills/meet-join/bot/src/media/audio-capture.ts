@@ -55,6 +55,12 @@ export const DEFAULT_FRAME_BYTES = 320;
 const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_BACKOFF_MS = 500;
 
+/**
+ * Wire-format prefix for the auth handshake line. Must stay in lockstep
+ * with {@link AUDIO_INGEST_AUTH_PREFIX} on the daemon side.
+ */
+const AUDIO_INGEST_AUTH_PREFIX = "AUTH ";
+
 /** s16le is 2 bytes per sample. */
 const BYTES_PER_SAMPLE = 2;
 
@@ -78,6 +84,15 @@ export interface AudioCaptureOptions {
   daemonHost: string;
   /** TCP port the daemon's audio server is listening on. */
   daemonPort: number;
+  /**
+   * Per-session auth token the daemon issued to this bot (same value as
+   * `BOT_API_TOKEN` used for the HTTP API). Sent as the first bytes on
+   * every audio-ingest TCP connection — `AUTH <token>\n` — so the
+   * daemon, which binds its audio port on `0.0.0.0` to reach Linux
+   * Docker, can reject any other LAN peer that race-connects to the
+   * port. Must match the token in the daemon's in-memory session.
+   */
+  authToken: string;
   /**
    * Pulse source to capture from. Defaults to the monitor of the
    * `meet_capture` null-sink created by `pulse-setup.sh`.
@@ -232,6 +247,18 @@ export async function startAudioCapture(
       `startAudioCapture: frameBytes must be > 0, got ${frameBytes}`,
     );
   }
+  if (!opts.authToken) {
+    throw new Error(
+      "startAudioCapture: authToken is required — the daemon rejects unauthenticated audio-ingest connections",
+    );
+  }
+
+  // Prebuild the handshake frame once. `\n` terminates the line on the
+  // daemon side. Both lengths (prefix + 64-hex token + newline = 70 bytes)
+  // fit comfortably inside one TCP segment.
+  const authFrame = new TextEncoder().encode(
+    `${AUDIO_INGEST_AUTH_PREFIX}${opts.authToken}\n`,
+  );
 
   // Derive the stability threshold from the configured rate/frame size so the
   // reconnect-reset gate maps to a constant audio duration regardless of the
@@ -316,6 +343,34 @@ export async function startAudioCapture(
       };
     }
     currentSocket = sock;
+
+    // 2a. Send the auth handshake as the very first bytes on the
+    //     connection. The daemon's audio-ingest server waits for
+    //     `AUTH <token>\n` before it treats any traffic as PCM — without
+    //     this, it destroys the connection as an unauthenticated peer.
+    //     `write` queues the bytes; Node will flush them once the TCP
+    //     connection actually opens (synchronous return ≠ connected).
+    //     Treat handshake write errors the same as any other socket
+    //     failure so the retry loop reconnects.
+    try {
+      sock.write(authFrame);
+    } catch (err) {
+      try {
+        proc.kill("SIGTERM");
+      } catch {
+        // Best effort.
+      }
+      try {
+        sock.destroy();
+      } catch {
+        // Best effort.
+      }
+      return {
+        outcome: "socket",
+        error: err instanceof Error ? err : new Error(String(err)),
+        framesWritten: 0,
+      };
+    }
 
     // 3. Wait for either parec to exit, the socket to die, or `stop()`.
     const stoppedP = stopSignal.then(() => "stopped" as const);

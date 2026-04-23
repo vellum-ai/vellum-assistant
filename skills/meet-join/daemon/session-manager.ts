@@ -443,8 +443,20 @@ export interface MeetAudioIngestLike {
    * bot container as `DAEMON_AUDIO_PORT`, and `ready` resolves once the
    * bot has actually connected (or rejects on timeout). Splitting the two
    * lets the container spawn run concurrently with the bot-connect wait.
+   *
+   * `botApiToken` is the same per-session token the session manager
+   * threads into `BOT_API_TOKEN` for the bot container. The ingest
+   * requires the bot to send `AUTH <token>\n` as the first bytes over
+   * the TCP connection and destroys any peer that doesn't match — this
+   * closes the hole opened by binding the audio server on
+   * `0.0.0.0` (so Linux Docker bots can reach it via
+   * `host.docker.internal:host-gateway`), which would otherwise let any
+   * LAN-adjacent process inject PCM or stall the listener.
    */
-  start(meetingId: string): Promise<{ port: number; ready: Promise<void> }>;
+  start(
+    meetingId: string,
+    botApiToken: string,
+  ): Promise<{ port: number; ready: Promise<void> }>;
   stop(): Promise<void>;
   subscribePcm(cb: (bytes: Uint8Array) => void): () => void;
 }
@@ -1106,7 +1118,7 @@ class MeetSessionManagerImpl {
     let audioIngestReady: Promise<void>;
     let audioPort: number;
     try {
-      const handle = await audioIngest.start(meetingId);
+      const handle = await audioIngest.start(meetingId, botApiToken);
       audioPort = handle.port;
       audioIngestReady = handle.ready;
     } catch (err) {
