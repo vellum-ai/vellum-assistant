@@ -47,6 +47,7 @@ struct HomeDocumentPreviewPanel: View {
     }
 
     private func loadImageIfNeeded() async {
+        loadedImage = nil
         guard let urlString = panelData?.imageUrl,
               let url = URL(string: urlString) else { return }
         do {
