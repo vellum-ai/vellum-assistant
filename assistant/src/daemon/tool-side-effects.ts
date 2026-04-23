@@ -7,9 +7,7 @@
  * registry entry instead of another if/else branch.
  */
 
-import { compileApp } from "../bundler/app-compiler.js";
 import { generateAppIcon } from "../media/app-icon-generator.js";
-import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
 import { findActiveSession } from "../runtime/channel-verification-service.js";
 import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
@@ -39,41 +37,22 @@ export type PostExecutionHook = (
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-/** Shared logic for refreshing app surfaces, broadcasting changes, and triggering auto-deploy. */
-function handleAppChange(
+/**
+ * Propagate an app change to connected clients and the publish pipeline.
+ *
+ * Compilation is the responsibility of the tool executor (see
+ * `executeAppCreate`, `executeAppRefresh`): executors own the source→dist
+ * transform and surface `compile_errors` in their result when it fails.
+ * Post-execution hooks only observe the outcome and notify — they must
+ * not re-run a compile because `compileApp()` begins with `rm -rf dist/`
+ * and would race with the executor's own output (LUM-1153).
+ */
+function notifyAppChanged(
   ctx: ToolSetupContext,
   appId: string,
   broadcastToAllClients: ((msg: ServerMessage) => void) | undefined,
   opts?: { fileChange?: boolean; status?: string },
 ): void {
-  const app = getApp(appId);
-
-  // Multifile apps need a recompile before refreshing surfaces so the
-  // WebView picks up the latest compiled output.
-  if (app && isMultifileApp(app)) {
-    const appDir = getAppDirPath(appId);
-    void compileApp(appDir)
-      .then((result) => {
-        if (!result.ok) {
-          log.warn(
-            { appId, errors: result.errors },
-            "Recompile failed on app change, serving stale dist/",
-          );
-        }
-        refreshSurfacesForApp(ctx, appId, opts);
-        broadcastToAllClients?.({ type: "app_files_changed", appId });
-        void updatePublishedAppDeployment(appId);
-      })
-      .catch((err) => {
-        log.warn({ appId, err }, "Recompile threw on app change");
-        // Still refresh surfaces with stale output
-        refreshSurfacesForApp(ctx, appId, opts);
-        broadcastToAllClients?.({ type: "app_files_changed", appId });
-        void updatePublishedAppDeployment(appId);
-      });
-    return;
-  }
-
   refreshSurfacesForApp(ctx, appId, opts);
   broadcastToAllClients?.({ type: "app_files_changed", appId });
   void updatePublishedAppDeployment(appId);
@@ -108,7 +87,6 @@ registerHook(
         id?: string;
         name?: string;
         description?: string;
-        compile_errors?: unknown;
       };
       if (parsed.id) {
         // The apps directory may have just been created — ensure the
@@ -116,27 +94,7 @@ registerHook(
         // trigger live reload.
         ensureAppSourceWatcher();
 
-        // executeAppCreate compiles multifile apps inline and populates
-        // dist/ before returning. handleAppChange would otherwise start
-        // a second compile that begins with `rm -rf dist/`, so we only
-        // invoke it when the executor left compile_errors — i.e. the
-        // authoritative compile did not succeed and a retry is wanted.
-        const app = getApp(parsed.id);
-        const executorCompiled =
-          app != null &&
-          isMultifileApp(app) &&
-          parsed.compile_errors === undefined;
-
-        if (executorCompiled) {
-          refreshSurfacesForApp(ctx, parsed.id);
-          broadcastToAllClients?.({
-            type: "app_files_changed",
-            appId: parsed.id,
-          });
-          void updatePublishedAppDeployment(parsed.id);
-        } else {
-          handleAppChange(ctx, parsed.id, broadcastToAllClients);
-        }
+        notifyAppChanged(ctx, parsed.id, broadcastToAllClients);
 
         // Fire-and-forget: generate an app icon in the background.
         // When complete, broadcast again so clients pick up the new icon.
@@ -186,33 +144,12 @@ registerHook(
 );
 
 // Trigger surface refresh + broadcast when an app is refreshed.
-// If the executor already compiled (multifile path), skip the redundant
-// recompile and just refresh surfaces / broadcast / deploy directly.
 registerHook(
   "app_refresh",
-  (_name, input, result, { ctx, broadcastToAllClients }) => {
+  (_name, input, _result, { ctx, broadcastToAllClients }) => {
     const appId = input.app_id as string | undefined;
     if (!appId) return;
-
-    // executeAppRefresh already compiled multifile apps and included a
-    // "compiled" field in the result. Skip the expensive recompile and
-    // go straight to surface refresh + broadcast + deploy.
-    let alreadyCompiled = false;
-    try {
-      const parsed = JSON.parse(result.content) as { compiled?: boolean };
-      alreadyCompiled = parsed.compiled !== undefined;
-    } catch {
-      // Result wasn't valid JSON — fall through to handleAppChange.
-    }
-
-    if (alreadyCompiled) {
-      const opts = { fileChange: true };
-      refreshSurfacesForApp(ctx, appId, opts);
-      broadcastToAllClients?.({ type: "app_files_changed", appId });
-      void updatePublishedAppDeployment(appId);
-    } else {
-      handleAppChange(ctx, appId, broadcastToAllClients, { fileChange: true });
-    }
+    notifyAppChanged(ctx, appId, broadcastToAllClients, { fileChange: true });
   },
 );
 
