@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { resolveIpcSocketPath } from "../socket-path.js";
 
 const LONG_WORKSPACE_DIR =
-  "/Users/noaflaherty/.local/share/vellum-dev/assistants/vellum-safe-dace-8hrt6e/.vellum/workspace";
+  "/Users/alice-johnson/.local/share/vellum-dev/assistants/vellum-safe-dace-8hrt6e/.vellum/workspace";
 
 let savedWorkspaceDir: string | undefined;
 let savedBaseDataDir: string | undefined;
