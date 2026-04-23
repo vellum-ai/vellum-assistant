@@ -164,6 +164,108 @@ describe("schedule run-now trust propagation", () => {
   });
 });
 
+// ── GET /schedules — exclude_created_by filtering ─────────────────────────
+
+function getListHandler() {
+  const route = scheduleRouteDefinitions({
+    sendMessageDeps: {} as never,
+  }).find(
+    (candidate) =>
+      candidate.endpoint === "schedules" && candidate.method === "GET",
+  );
+  if (!route) throw new Error("List schedules route not found");
+  return route.handler;
+}
+
+async function callListHandler(
+  excludeCreatedBy?: string,
+): Promise<{ status: number; body: { schedules: Array<{ id: string }> } }> {
+  const handler = getListHandler();
+  const suffix = excludeCreatedBy
+    ? `?exclude_created_by=${excludeCreatedBy}`
+    : "";
+  const urlStr = `http://localhost/v1/schedules${suffix}`;
+  const response = await handler({
+    req: new Request(urlStr),
+    url: new URL(urlStr),
+    server: {} as never,
+    authContext: {} as never,
+    params: {},
+  });
+  return {
+    status: response.status,
+    body: (await response.json()) as { schedules: Array<{ id: string }> },
+  };
+}
+
+describe("GET /schedules — exclude_created_by filtering", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  test("returns all schedules when no exclude_created_by param", async () => {
+    createSchedule({
+      name: "Agent schedule",
+      cronExpression: "* * * * *",
+      message: "hello",
+      syntax: "cron",
+    });
+    createSchedule({
+      name: "Deferred wake",
+      cronExpression: "0 9 * * *",
+      message: "wake up",
+      syntax: "cron",
+      createdBy: "defer",
+    });
+
+    const { status, body } = await callListHandler();
+    expect(status).toBe(200);
+    expect(body.schedules).toHaveLength(2);
+  });
+
+  test("filters out deferred wakes when exclude_created_by=defer", async () => {
+    createSchedule({
+      name: "Agent schedule",
+      cronExpression: "* * * * *",
+      message: "hello",
+      syntax: "cron",
+    });
+    const deferred = createSchedule({
+      name: "Deferred wake",
+      cronExpression: "0 9 * * *",
+      message: "wake up",
+      syntax: "cron",
+      createdBy: "defer",
+    });
+
+    const { status, body } = await callListHandler("defer");
+    expect(status).toBe(200);
+    expect(body.schedules).toHaveLength(1);
+    expect(body.schedules.every((s) => s.id !== deferred.id)).toBe(true);
+  });
+
+  test("returns empty list when all schedules match exclusion", async () => {
+    createSchedule({
+      name: "Deferred 1",
+      cronExpression: "* * * * *",
+      message: "a",
+      syntax: "cron",
+      createdBy: "defer",
+    });
+    createSchedule({
+      name: "Deferred 2",
+      cronExpression: "0 9 * * *",
+      message: "b",
+      syntax: "cron",
+      createdBy: "defer",
+    });
+
+    const { status, body } = await callListHandler("defer");
+    expect(status).toBe(200);
+    expect(body.schedules).toHaveLength(0);
+  });
+});
+
 // ── schedules/:id/runs limit handling ─────────────────────────────────────
 
 function getRunsHandler() {
@@ -171,8 +273,7 @@ function getRunsHandler() {
     sendMessageDeps: {} as never,
   }).find(
     (candidate) =>
-      candidate.endpoint === "schedules/:id/runs" &&
-      candidate.method === "GET",
+      candidate.endpoint === "schedules/:id/runs" && candidate.method === "GET",
   );
   if (!route) throw new Error("Runs schedule route not found");
   return route.handler;
@@ -288,5 +389,88 @@ describe("schedule runs list — limit handling", () => {
     const { status, body } = await callRunsHandler(job.id, "2.7");
     expect(status).toBe(200);
     expect((body as { runs: unknown[] }).runs).toHaveLength(2);
+  });
+});
+
+// ── Wake mode support ─────────────────────────────────────────────────────
+
+function getPatchHandler() {
+  const route = scheduleRouteDefinitions({
+    sendMessageDeps: {} as never,
+  }).find(
+    (candidate) =>
+      candidate.endpoint === "schedules/:id" && candidate.method === "PATCH",
+  );
+  if (!route) throw new Error("PATCH schedule route not found");
+  return route.handler;
+}
+
+describe("wake mode in schedule routes", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  test("PATCH accepts 'wake' as a valid mode", async () => {
+    const schedule = createSchedule({
+      name: "Wake test",
+      cronExpression: "* * * * *",
+      message: "check deferred",
+      syntax: "cron",
+    });
+
+    const handler = getPatchHandler();
+    const urlStr = `http://localhost/v1/schedules/${schedule.id}`;
+    const response = await handler({
+      req: new Request(urlStr, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "wake", wakeConversationId: "conv-xyz" }),
+      }),
+      url: new URL(urlStr),
+      server: {} as never,
+      authContext: {} as never,
+      params: { id: schedule.id },
+    });
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      schedules: Array<{
+        id: string;
+        mode: string;
+        wakeConversationId: string | null;
+      }>;
+    };
+    const updated = body.schedules.find((s) => s.id === schedule.id);
+    expect(updated).toBeDefined();
+    expect(updated!.mode).toBe("wake");
+    expect(updated!.wakeConversationId).toBe("conv-xyz");
+  });
+
+  test("list schedules includes wakeConversationId", async () => {
+    createSchedule({
+      name: "Wake schedule",
+      cronExpression: "0 9 * * *",
+      message: "morning wake",
+      syntax: "cron",
+      mode: "wake",
+      wakeConversationId: "conv-abc",
+    });
+
+    const handler = getListHandler();
+    const response = await handler({
+      req: new Request("http://localhost/v1/schedules"),
+      url: new URL("http://localhost/v1/schedules"),
+      server: {} as never,
+      authContext: {} as never,
+      params: {},
+    });
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      schedules: Array<{ name: string; wakeConversationId: string | null }>;
+    };
+    const wakeSchedule = body.schedules.find((s) => s.name === "Wake schedule");
+    expect(wakeSchedule).toBeDefined();
+    expect(wakeSchedule!.wakeConversationId).toBe("conv-abc");
   });
 });
