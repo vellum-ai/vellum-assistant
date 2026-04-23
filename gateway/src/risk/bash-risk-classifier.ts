@@ -28,6 +28,7 @@ import {
   type UserRule,
 } from "./risk-types.js";
 import { cachedParse } from "./shell-identity.js";
+import { getTrustRuleV3Cache } from "./trust-rule-v3-cache.js";
 
 // ── Risk ordering helpers ────────────────────────────────────────────────────
 
@@ -322,6 +323,49 @@ export function classifySegment(
   const { spec: resolvedSpec, remainingArgs: _remainingArgs } =
     resolveSubcommand(spec, segment.args);
 
+  // 4b. Check TrustRuleV3Cache for base risk overrides.
+  // The cache overrides ONLY baseRisk — structural data (argRules, subcommands,
+  // isWrapper, sandboxAutoApprove, argSchema) still comes from the registry.
+  let effectiveBaseRisk: Risk = resolvedSpec.baseRisk;
+  let effectiveMatchType: RiskAssessment["matchType"] = "registry";
+
+  try {
+    // Build the full subcommand pattern (e.g., "git stash drop") to look up in
+    // cache. Walk the subcommand tree the same way resolveSubcommand does,
+    // collecting each traversed subcommand name to build the complete chain.
+    const subcommandChain: string[] = [];
+    {
+      let walkSpec: CommandRiskSpec = spec;
+      let walkArgs: string[] = segment.args;
+      while (walkSpec.subcommands && walkArgs.length > 0) {
+        const valueFlagsList = walkSpec.argSchema?.valueFlags;
+        const valueFlags = valueFlagsList ? new Set(valueFlagsList) : undefined;
+        const subName = firstPositionalArg(walkArgs, valueFlags);
+        if (!subName || !walkSpec.subcommands[subName]) break;
+        subcommandChain.push(subName);
+        const subIdx = walkArgs.indexOf(subName);
+        walkArgs = walkArgs.slice(subIdx + 1);
+        walkSpec = walkSpec.subcommands[subName];
+      }
+    }
+    const subcommandPattern =
+      subcommandChain.length > 0
+        ? `${programName} ${subcommandChain.join(" ")}`
+        : programName;
+    const cachedRule = getTrustRuleV3Cache().findBaseRisk(
+      "bash",
+      subcommandPattern,
+    );
+    if (cachedRule) {
+      effectiveBaseRisk = cachedRule.risk;
+      if (cachedRule.userModified || cachedRule.origin === "user_defined") {
+        effectiveMatchType = "user_rule";
+      }
+    }
+  } catch {
+    // Cache not initialized (e.g., in tests) — use registry baseRisk
+  }
+
   // 5. Evaluate arg rules
   //
   // Arg rules can both escalate AND de-escalate from baseRisk.
@@ -334,7 +378,7 @@ export function classifySegment(
   //
   // Escalation always applies — any matched rule that's higher than baseRisk
   // raises the risk regardless of unmatched args.
-  let risk: Risk = resolvedSpec.baseRisk;
+  let risk: Risk = effectiveBaseRisk;
   let reason = resolvedSpec.reason || `${segment.program} (default)`;
 
   const argRules = resolvedSpec.argRules;
@@ -524,11 +568,17 @@ export function classifySegment(
         // Escalation: always apply (matched rule is >= baseRisk)
         risk = argRuleMaxRisk;
         reason = argRuleReason;
+        // The registry's arg rules determined the final risk, not the user's
+        // cached base risk override. Reset matchType to "registry".
+        effectiveMatchType = "registry";
       } else if (!hasUnmatchedNonFlagArg) {
         // De-escalation: only safe when ALL non-flag args matched rules.
         // Every arg is accounted for, so the lower risk is justified.
         risk = argRuleMaxRisk;
         reason = argRuleReason;
+        // Arg rules de-escalated — the registry's arg rules determined the
+        // final risk, so matchType should reflect the registry, not the cache.
+        effectiveMatchType = "registry";
       }
       // Otherwise: some args matched low rules but other args went unmatched.
       // Keep baseRisk as the floor — can't safely de-escalate.
@@ -541,7 +591,7 @@ export function classifySegment(
   // Example: `curl http://localhost:$PORT` — arg rule de-escalates to low,
   // but baseRisk=medium is the floor, so escalateOne(medium) → high.
   if (segment.args.some((a) => a.includes("$"))) {
-    const escalationBase = maxRisk(risk, resolvedSpec.baseRisk);
+    const escalationBase = maxRisk(risk, effectiveBaseRisk);
     const escalated = escalateOne(escalationBase);
     if (riskOrd(escalated) > riskOrd(risk)) {
       risk = escalated;
@@ -570,7 +620,7 @@ export function classifySegment(
     }
   }
 
-  return { risk, reason, matchType: "registry" };
+  return { risk, reason, matchType: effectiveMatchType };
 }
 
 // ── Scope option generation ──────────────────────────────────────────────────
