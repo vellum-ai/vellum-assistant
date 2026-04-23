@@ -22,6 +22,9 @@ struct ImageGenerationServiceCard: View {
     @State private var initialModel: String = ""
     /// Whether the image generation provider has a stored API key (fetched per-component).
     @State private var imageGenHasKey = false
+    /// In-flight `APIKeyManager.hasKey` lookup — tracked so rapid provider switches
+    /// can cancel stale responses before they overwrite the current provider's state.
+    @State private var hasKeyTask: Task<Void, Never>?
 
     private var isLoggedIn: Bool {
         authManager.isAuthenticated
@@ -92,7 +95,7 @@ struct ImageGenerationServiceCard: View {
             initialModel = store.selectedImageGenModel
         }
         .task {
-            imageGenHasKey = await APIKeyManager.hasKey(for: currentProvider)
+            await refreshHasKey(for: currentProvider)
         }
         .onChange(of: draftModel) { oldValue, newValue in
             // When the user picks a model whose provider differs from the previous
@@ -109,8 +112,12 @@ struct ImageGenerationServiceCard: View {
             }
             // Re-fetch the "key configured" indicator when the user switches between
             // Gemini and OpenAI models in the picker so the UI reflects the right provider.
-            Task {
-                imageGenHasKey = await APIKeyManager.hasKey(for: currentProvider)
+            // Cancel any in-flight lookup so a slow prior-provider response can't
+            // overwrite state for the current provider (hasKey has a 5s network timeout).
+            hasKeyTask?.cancel()
+            let targetProvider = newProvider
+            hasKeyTask = Task {
+                await refreshHasKey(for: targetProvider)
             }
         }
         .onChange(of: store.imageGenMode) { _, newValue in
@@ -188,7 +195,19 @@ struct ImageGenerationServiceCard: View {
             let keyTextBinding = $apiKeyText
             let provider = currentProvider
             store.saveImageGenKey(trimmedKey, for: provider, onSuccess: { [self] in
-                imageGenHasKey = true
+                // Validation can take seconds; the user may have switched providers
+                // while it ran. Only flip the indicator directly when the save-time
+                // provider still matches the card's current provider — otherwise
+                // re-query so the displayed state reflects the now-visible provider.
+                if provider == currentProvider {
+                    imageGenHasKey = true
+                } else {
+                    hasKeyTask?.cancel()
+                    let targetProvider = currentProvider
+                    hasKeyTask = Task {
+                        await refreshHasKey(for: targetProvider)
+                    }
+                }
                 keyTextBinding.wrappedValue = ""
                 showToast("\(provider == "openai" ? "OpenAI" : "Gemini") API key saved", .success)
             })
@@ -205,5 +224,16 @@ struct ImageGenerationServiceCard: View {
             store.setImageGenModel(capturedModel)
         }
         initialModel = draftModel
+    }
+
+    /// Fetch `hasKey` for `provider` and write the result only if the card's
+    /// current provider still matches. Guards against stale responses from a
+    /// prior provider arriving after the user has already switched.
+    private func refreshHasKey(for provider: String) async {
+        let result = await APIKeyManager.hasKey(for: provider)
+        if Task.isCancelled { return }
+        if provider == currentProvider {
+            imageGenHasKey = result
+        }
     }
 }
