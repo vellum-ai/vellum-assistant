@@ -761,10 +761,7 @@ function listenUnix(socketPath: string): Promise<AudioIngestServer> {
       if (settled) return;
       settled = true;
 
-      log.info(
-        { socketPath },
-        "MeetAudioIngest: Unix socket server listening",
-      );
+      log.info({ socketPath }, "MeetAudioIngest: Unix socket server listening");
 
       const wrapped: AudioIngestServer = {
         port: 0,

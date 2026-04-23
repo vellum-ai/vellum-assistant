@@ -628,7 +628,9 @@ export interface MeetSessionManagerDeps {
    * Override the audio-ingest factory. Default constructs a
    * {@link MeetAudioIngest} with its own defaults.
    */
-  audioIngestFactory?: (opts?: { audioSocketPath?: string }) => MeetAudioIngestLike;
+  audioIngestFactory?: (opts?: {
+    audioSocketPath?: string;
+  }) => MeetAudioIngestLike;
   /**
    * Override the consent-monitor factory. Default constructs a
    * {@link MeetConsentMonitor} with its own defaults. Tests can inject
@@ -787,7 +789,8 @@ class MeetSessionManagerImpl {
       getWorkspaceDir: deps.getWorkspaceDir ?? getWorkspaceDir,
       audioIngestFactory:
         deps.audioIngestFactory ??
-        ((opts) => new MeetAudioIngest({ audioSocketPath: opts?.audioSocketPath })),
+        ((opts) =>
+          new MeetAudioIngest({ audioSocketPath: opts?.audioSocketPath })),
       consentMonitorFactory:
         deps.consentMonitorFactory ?? defaultConsentMonitorFactory,
       conversationBridgeFactory:

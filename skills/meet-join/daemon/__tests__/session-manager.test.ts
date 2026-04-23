@@ -362,7 +362,9 @@ describe("MeetSessionManager.join", () => {
     const ingestStartPromise = new Promise<void>((r) => {
       resolveIngestStart = r;
     });
-    const factory = (_opts?: { audioSocketPath?: string }): MeetAudioIngestLike => ({
+    const factory = (_opts?: {
+      audioSocketPath?: string;
+    }): MeetAudioIngestLike => ({
       start: mock(async () => {
         await ingestStartPromise;
         return { port: 42173, ready: Promise.resolve() };
@@ -833,9 +835,7 @@ describe("MeetSessionManager container-exit watcher", () => {
       // (from the leave path) should have fired.
       const errors = received.filter((e) => e.message.type === "meet.error");
       expect(errors).toHaveLength(0);
-      const leftEvents = received.filter(
-        (e) => e.message.type === "meet.left",
-      );
+      const leftEvents = received.filter((e) => e.message.type === "meet.left");
       expect(leftEvents).toHaveLength(1);
     } finally {
       dispose();
