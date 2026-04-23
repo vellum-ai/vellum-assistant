@@ -1400,20 +1400,22 @@ if [ -d "$APP_ICON" ] && [ -n "$ICON_SOURCE_DIR" ]; then
 
     # Render a 1024x1024 master PNG using an inline Swift script.
     # This is consistent with how dmg/generate-background.swift works.
-    MASTER_PNG=$(mktemp /tmp/appicon-master-XXXXXX.png)
-    swift - "$APP_ICON/Assets/white-V.svg" "$APP_ICON/icon.json" "$MASTER_PNG" <<'SWIFT_SCRIPT'
+    MASTER_PNG=$(mktemp /tmp/appicon-master-XXXXXX).png
+    swift - "$APP_ICON" "$MASTER_PNG" <<'SWIFT_SCRIPT'
 import CoreGraphics
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-let svgPath = CommandLine.arguments[1]
-let jsonPath = CommandLine.arguments[2]
-let outputPath = CommandLine.arguments[3]
+let iconDir = CommandLine.arguments[1]
+let outputPath = CommandLine.arguments[2]
 
-// --- Parse fill color from icon.json ---
+// --- Parse icon.json ---
+let jsonPath = iconDir + "/icon.json"
 let jsonData = try! Data(contentsOf: URL(fileURLWithPath: jsonPath))
 let json = try! JSONSerialization.jsonObject(with: jsonData) as! [String: Any]
+
+// Fill color
 let fillDict = json["fill"] as! [String: Any]
 let solidStr = fillDict["solid"] as! String  // "display-p3:0.12941,0.42353,0.21569,1.00000"
 
@@ -1422,6 +1424,20 @@ let fillColor = CGColor(
     colorSpace: CGColorSpace(name: CGColorSpace.displayP3)!,
     components: colorParts
 )!
+
+// Layer position: scale and translation
+let groups = json["groups"] as! [[String: Any]]
+let layers = groups[0]["layers"] as! [[String: Any]]
+let layer = layers[0]
+let position = layer["position"] as! [String: Any]
+let scale = CGFloat(position["scale"] as! Double)
+let translationPts = position["translation-in-points"] as! [Double]
+let txPoints = CGFloat(translationPts[0])
+let tyPoints = CGFloat(translationPts[1])
+
+// SVG filename from layer image-name
+let imageName = layer["image-name"] as! String
+let svgPath = iconDir + "/Assets/" + imageName
 
 // --- Parse SVG path ---
 let svgString = try! String(contentsOfFile: svgPath, encoding: .utf8)
@@ -1518,12 +1534,9 @@ ctx.addPath(bgPath)
 ctx.setFillColor(fillColor)
 ctx.fillPath()
 
-// Draw the white V centered with scale=6 and translation=[0, 25] from icon.json.
+// Draw the white V centered with scale and translation from icon.json.
 // Icon Composer coordinates: origin is center of the 1024x1024 canvas,
 // Y-axis points up, and scale is relative to the SVG's native size.
-let scale: CGFloat = 6
-let txPoints: CGFloat = 0
-let tyPoints: CGFloat = 25
 
 // Scale from points to pixels (icon.json uses a 1024-point canvas)
 let svgPixelWidth = svgWidth * scale
