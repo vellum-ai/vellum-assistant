@@ -1350,13 +1350,217 @@ if [ -d "$XCASSETS" ]; then
     if [ -d "$APP_ICON" ]; then
         ACTOOL_INPUTS+=("$APP_ICON")
     fi
-    xcrun actool "${ACTOOL_INPUTS[@]}" \
+    # Capture actool output; suppress warnings but surface real failures
+    ACTOOL_OUTPUT=$(xcrun actool "${ACTOOL_INPUTS[@]}" \
         --compile "$RESOURCES_DIR" \
         --platform macosx \
         --minimum-deployment-target 14.0 \
         --app-icon AppIcon \
         --output-partial-info-plist /dev/null \
-        > /dev/null 2>&1 || true
+        2>&1) || {
+        # Filter out warning lines and check if there are real errors
+        ACTOOL_ERRORS=$(echo "$ACTOOL_OUTPUT" | grep -iv 'warning:' || true)
+        if [ -n "$ACTOOL_ERRORS" ]; then
+            echo "actool failed:"
+            echo "$ACTOOL_ERRORS"
+            exit 1
+        fi
+    }
+fi
+
+# Generate AppIcon.icns from SVG source for Finder/DMG icon display.
+# actool with .icon bundles only emits into Assets.car — it does not produce a
+# standalone .icns.  Finder and create-dmg rely on CFBundleIconFile → .icns,
+# so we render one from the same SVG source that Icon Composer uses.
+if [ ! -f "$RESOURCES_DIR/AppIcon.icns" ] && [ -d "$APP_ICON" ]; then
+    echo "Generating AppIcon.icns from SVG..."
+
+    ICONSET_DIR=$(mktemp -d)/AppIcon.iconset
+    mkdir -p "$ICONSET_DIR"
+
+    # Render a 1024x1024 master PNG using an inline Swift script.
+    # This is consistent with how dmg/generate-background.swift works.
+    MASTER_PNG=$(mktemp /tmp/appicon-master-XXXXXX.png)
+    swift - "$APP_ICON/Assets/white-V.svg" "$APP_ICON/icon.json" "$MASTER_PNG" <<'SWIFT_SCRIPT'
+import CoreGraphics
+import Foundation
+import ImageIO
+import UniformTypeIdentifiers
+
+let svgPath = CommandLine.arguments[1]
+let jsonPath = CommandLine.arguments[2]
+let outputPath = CommandLine.arguments[3]
+
+// --- Parse fill color from icon.json ---
+let jsonData = try! Data(contentsOf: URL(fileURLWithPath: jsonPath))
+let json = try! JSONSerialization.jsonObject(with: jsonData) as! [String: Any]
+let fillDict = json["fill"] as! [String: Any]
+let solidStr = fillDict["solid"] as! String  // "display-p3:0.12941,0.42353,0.21569,1.00000"
+
+let colorParts = solidStr.split(separator: ":")[1].split(separator: ",").map { CGFloat(Double($0)!) }
+let fillColor = CGColor(
+    colorSpace: CGColorSpace(name: CGColorSpace.displayP3)!,
+    components: colorParts
+)!
+
+// --- Parse SVG path ---
+let svgString = try! String(contentsOfFile: svgPath, encoding: .utf8)
+// Extract the path d attribute from the SVG
+let dRange = svgString.range(of: "d=\"")!
+let afterD = svgString[dRange.upperBound...]
+let closingQuote = afterD.firstIndex(of: "\"")!
+let pathData = String(afterD[..<closingQuote])
+
+// Parse SVG viewBox for coordinate mapping
+let vbRange = svgString.range(of: "viewBox=\"")!
+let afterVB = svgString[vbRange.upperBound...]
+let vbClose = afterVB.firstIndex(of: "\"")!
+let vbParts = String(afterVB[..<vbClose]).split(separator: " ").map { CGFloat(Double($0)!) }
+let svgWidth = vbParts[2]
+let svgHeight = vbParts[3]
+
+// --- Build CGPath from SVG path data ---
+func parseSVGPath(_ d: String) -> CGPath {
+    let path = CGMutablePath()
+    var chars = Array(d)
+    var i = 0
+    var currentX: CGFloat = 0
+    var currentY: CGFloat = 0
+
+    func skipWhitespaceAndCommas() {
+        while i < chars.count && (chars[i] == " " || chars[i] == "," || chars[i] == "\n" || chars[i] == "\r" || chars[i] == "\t") {
+            i += 1
+        }
+    }
+
+    func parseNumber() -> CGFloat {
+        skipWhitespaceAndCommas()
+        var numStr = ""
+        if i < chars.count && (chars[i] == "-" || chars[i] == "+") {
+            numStr.append(chars[i]); i += 1
+        }
+        while i < chars.count && (chars[i] >= "0" && chars[i] <= "9" || chars[i] == ".") {
+            numStr.append(chars[i]); i += 1
+        }
+        return CGFloat(Double(numStr) ?? 0)
+    }
+
+    while i < chars.count {
+        skipWhitespaceAndCommas()
+        if i >= chars.count { break }
+        let cmd = chars[i]
+        if cmd.isLetter { i += 1 }
+        switch cmd {
+        case "M":
+            let x = parseNumber(); let y = parseNumber()
+            path.move(to: CGPoint(x: x, y: y))
+            currentX = x; currentY = y
+        case "m":
+            let dx = parseNumber(); let dy = parseNumber()
+            currentX += dx; currentY += dy
+            path.move(to: CGPoint(x: currentX, y: currentY))
+        case "L":
+            let x = parseNumber(); let y = parseNumber()
+            path.addLine(to: CGPoint(x: x, y: y))
+            currentX = x; currentY = y
+        case "l":
+            let dx = parseNumber(); let dy = parseNumber()
+            currentX += dx; currentY += dy
+            path.addLine(to: CGPoint(x: currentX, y: currentY))
+        case "Z", "z":
+            path.closeSubpath()
+        default:
+            break
+        }
+    }
+    return path
+}
+
+// --- Render 1024x1024 PNG ---
+let size = 1024
+let colorSpace = CGColorSpace(name: CGColorSpace.displayP3)!
+
+guard let ctx = CGContext(
+    data: nil, width: size, height: size,
+    bitsPerComponent: 8, bytesPerRow: 0,
+    space: colorSpace,
+    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+) else { fatalError("Failed to create bitmap context") }
+
+let s = CGFloat(size)
+
+// Draw macOS squircle rounded-rect background with the green fill.
+// Apple's macOS icon shape uses ~22.37% corner radius (continuous corners).
+let iconRect = CGRect(x: 0, y: 0, width: s, height: s)
+let cornerRadius = s * 0.2237
+let bgPath = CGPath(roundedRect: iconRect, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
+ctx.addPath(bgPath)
+ctx.setFillColor(fillColor)
+ctx.fillPath()
+
+// Draw the white V centered with scale=6 and translation=[0, 25] from icon.json.
+// Icon Composer coordinates: origin is center of the 1024x1024 canvas,
+// Y-axis points up, and scale is relative to the SVG's native size.
+let scale: CGFloat = 6
+let txPoints: CGFloat = 0
+let tyPoints: CGFloat = 25
+
+// Scale from points to pixels (icon.json uses a 1024-point canvas)
+let svgPixelWidth = svgWidth * scale
+let svgPixelHeight = svgHeight * scale
+
+// Center the scaled SVG on the canvas, then apply translation
+let offsetX = (s - svgPixelWidth) / 2.0 + txPoints
+// Flip Y: CGContext uses bottom-left origin with Y-up, but SVG uses top-left
+// origin with Y-down. Flip the context to match SVG coordinate convention.
+// icon.json translation Y=25 means 25pt upward in Icon Composer;
+// in our now-flipped top-left-origin context, upward = negative Y.
+let offsetY = (s - svgPixelHeight) / 2.0 - tyPoints
+
+ctx.saveGState()
+// Flip to top-left origin (matching SVG coordinates)
+ctx.translateBy(x: 0, y: s)
+ctx.scaleBy(x: 1, y: -1)
+// Move to where the SVG should be drawn, then scale the SVG coordinates
+ctx.translateBy(x: offsetX, y: offsetY)
+ctx.scaleBy(x: scale, y: scale)
+let vPath = parseSVGPath(pathData)
+ctx.addPath(vPath)
+ctx.setFillColor(.white)
+ctx.fillPath()
+ctx.restoreGState()
+
+// Write PNG
+guard let image = ctx.makeImage() else { fatalError("Failed to create CGImage") }
+let url = URL(fileURLWithPath: outputPath)
+guard let dest = CGImageDestinationCreateWithURL(
+    url as CFURL, UTType.png.identifier as CFString, 1, nil
+) else { fatalError("Failed to create image destination") }
+CGImageDestinationAddImage(dest, image, nil)
+guard CGImageDestinationFinalize(dest) else { fatalError("Failed to write PNG") }
+SWIFT_SCRIPT
+
+    if [ ! -f "$MASTER_PNG" ]; then
+        echo "Error: Failed to generate master icon PNG"
+        exit 1
+    fi
+
+    # Generate all required icon sizes from the 1024x1024 master.
+    # iconutil requires: 16, 32, 128, 256, 512 at 1x and 2x (10 files).
+    for SIZE in 16 32 128 256 512; do
+        DOUBLE=$((SIZE * 2))
+        sips -z "$SIZE" "$SIZE" "$MASTER_PNG" --out "$ICONSET_DIR/icon_${SIZE}x${SIZE}.png" > /dev/null
+        sips -z "$DOUBLE" "$DOUBLE" "$MASTER_PNG" --out "$ICONSET_DIR/icon_${SIZE}x${SIZE}@2x.png" > /dev/null
+    done
+
+    # Produce the .icns file
+    iconutil --convert icns --output "$RESOURCES_DIR/AppIcon.icns" "$ICONSET_DIR"
+
+    # Clean up
+    rm -rf "$(dirname "$ICONSET_DIR")"
+    rm -f "$MASTER_PNG"
+
+    echo "Generated AppIcon.icns"
 fi
 
 # Copy document type icon for .vellum UTI
