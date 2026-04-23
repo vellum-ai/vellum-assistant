@@ -256,18 +256,51 @@ extension MainWindowView {
                         onSecondaryAction: { activeHomeDetailPanel = nil }
                     )
                 case .nudge(let item):
+                    let nudgeData = NudgePanelData.from(item.detailPanel?.data)
+                    let nudgeCards: [HomeNudgeDetailPanel.Card] = nudgeData.map { data in
+                        data.cards.map { card in
+                            HomeNudgeDetailPanel.Card(
+                                id: card.id,
+                                title: card.title,
+                                description: card.description,
+                                actions: []
+                            )
+                        }
+                    } ?? HomeNudgeDetailPanelPlaceholders.sampleCards
+                    let nudgeDescription = nudgeData?.description ?? "Found some issues."
                     HomeNudgeDetailPanel(
                         title: item.title,
                         icon: .heart,
                         iconForeground: VColor.feedNudgeStrong,
                         iconBackground: VColor.feedNudgeWeak,
-                        description: "Found some issues.",
-                        cards: HomeNudgeDetailPanelPlaceholders.sampleCards,
+                        description: nudgeDescription,
+                        cards: nudgeCards,
                         primaryActionLabel: "Resolve All",
                         secondaryActionLabel: "Clear All",
                         onClose: { activeHomeDetailPanel = nil },
-                        onPrimaryAction: { activeHomeDetailPanel = nil },
-                        onSecondaryAction: { activeHomeDetailPanel = nil },
+                        onPrimaryAction: {
+                            if let firstAction = item.actions?.first {
+                                Task {
+                                    _ = await feedStore.triggerAction(
+                                        itemId: item.id,
+                                        actionId: firstAction.id
+                                    )
+                                    await MainActor.run {
+                                        activeHomeDetailPanel = nil
+                                    }
+                                }
+                            } else {
+                                activeHomeDetailPanel = nil
+                            }
+                        },
+                        onSecondaryAction: {
+                            Task {
+                                await feedStore.dismiss(itemId: item.id)
+                                await MainActor.run {
+                                    activeHomeDetailPanel = nil
+                                }
+                            }
+                        },
                         onCardAction: { _, _ in }
                     )
                 case .emailDraft(let item):
