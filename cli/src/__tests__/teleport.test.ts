@@ -1987,6 +1987,66 @@ describe("auth + transient-error resilience", () => {
     expect(leaseGuardianTokenMock).not.toHaveBeenCalled();
   });
 
+  test("runtime poll 401 mid-migration triggers forceRefresh lease and completes", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
+
+    // Export kickoff succeeds with the cached "local-token".
+    // During polling, the first status check fails with 401 (token expired
+    // mid-migration), the poll loop calls refreshOn401 → leaseGuardianToken,
+    // then the next poll succeeds with the new token.
+    const tokensSeenByPoll: string[] = [];
+    localRuntimePollJobStatusMock.mockImplementation(
+      async (_runtimeUrl, token, jobId) => {
+        tokensSeenByPoll.push(token);
+        if (tokensSeenByPoll.length === 1) {
+          throw new Error("Local job status check failed: 401 Unauthorized");
+        }
+        return {
+          jobId,
+          type: "export" as const,
+          status: "complete" as const,
+          result: undefined,
+        };
+      },
+    );
+
+    leaseGuardianTokenMock.mockResolvedValueOnce({
+      accessToken: "poll-refreshed-token",
+      accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    } as unknown as Awaited<
+      ReturnType<typeof guardianToken.leaseGuardianToken>
+    >);
+
+    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+    const restoreFetch = installTrackingFetch();
+    try {
+      await teleport();
+
+      // The first poll used the cached token; the second (post-refresh) poll
+      // used the freshly leased one.
+      expect(tokensSeenByPoll.length).toBeGreaterThanOrEqual(2);
+      expect(tokensSeenByPoll[0]).toBe("local-token");
+      expect(tokensSeenByPoll[1]).toBe("poll-refreshed-token");
+
+      // leaseGuardianToken was invoked for the forceRefresh path.
+      expect(leaseGuardianTokenMock).toHaveBeenCalledTimes(1);
+
+      // The 401 branch emits its own warning — distinct from the generic
+      // transient-error warning — so this asserts the refresh path fired.
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("refreshing auth"),
+      );
+    } finally {
+      restoreFetch();
+      warnSpy.mockRestore();
+    }
+  });
+
   test("transient poll error does not abort teleport (job completes after retry)", async () => {
     setArgv("--from", "my-local", "--platform");
 

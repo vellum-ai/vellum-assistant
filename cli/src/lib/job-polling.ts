@@ -24,11 +24,36 @@ export interface PollJobUntilDoneOptions {
    * successful polls reset the counter. Defaults to 5.
    */
   maxTransientErrors?: number;
+  /**
+   * Optional async hook invoked when `poll()` throws an error containing a
+   * `401` HTTP status. The callback is expected to refresh whatever
+   * credential the poll closure reads (e.g. re-lease a guardian token), then
+   * return. The polling loop will retry the poll after the callback resolves
+   * instead of propagating the 401.
+   *
+   * Used by long-running migrations where the cached access token may expire
+   * mid-poll. Without this hook, 4xx errors (except 429) are permanent and
+   * would abandon a migration that's still running on the server.
+   */
+  refreshOn401?: () => Promise<void>;
+  /**
+   * Maximum consecutive 401 refreshes tolerated before the last 401 is
+   * propagated. Tracked separately from {@link maxTransientErrors} because
+   * a persistent 401 after a refresh usually means the underlying credential
+   * is revoked, not a transient network issue. Defaults to 3.
+   */
+  maxAuthRefreshes?: number;
 }
 
 const DEFAULT_INTERVAL_MS = 2_000;
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_MAX_TRANSIENT_ERRORS = 5;
+const DEFAULT_MAX_AUTH_REFRESHES = 3;
+
+function is401Error(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /\b401\b/.test(msg);
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -88,9 +113,12 @@ export async function pollJobUntilDone(
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxTransientErrors =
     options.maxTransientErrors ?? DEFAULT_MAX_TRANSIENT_ERRORS;
+  const maxAuthRefreshes =
+    options.maxAuthRefreshes ?? DEFAULT_MAX_AUTH_REFRESHES;
   const deadline = Date.now() + timeoutMs;
 
   let consecutiveTransientErrors = 0;
+  let consecutiveAuthRefreshes = 0;
 
   // First poll happens immediately so fast-path completions don't wait
   // one interval before returning.
@@ -99,7 +127,33 @@ export async function pollJobUntilDone(
     try {
       status = await options.poll();
       consecutiveTransientErrors = 0;
+      consecutiveAuthRefreshes = 0;
     } catch (err) {
+      // 401 Unauthorized takes precedence over the generic transient
+      // classifier: when a refresh callback is registered, a long-running
+      // poll loop can re-lease its credential and keep going instead of
+      // abandoning a migration that's still running on the server.
+      if (options.refreshOn401 && is401Error(err)) {
+        consecutiveAuthRefreshes += 1;
+        if (consecutiveAuthRefreshes > maxAuthRefreshes) {
+          throw err;
+        }
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `${options.label} polling got 401, refreshing auth and retrying... (${msg})`,
+        );
+        await options.refreshOn401();
+        if (Date.now() >= deadline) {
+          throw new Error(
+            `Timed out waiting for ${options.label} after ${Math.round(
+              timeoutMs / 1000,
+            )}s`,
+          );
+        }
+        await sleep(intervalMs);
+        continue;
+      }
+
       if (!isTransientPollError(err)) {
         throw err;
       }

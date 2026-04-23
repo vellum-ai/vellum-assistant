@@ -419,6 +419,17 @@ async function exportFromAssistant(
       label: "local-runtime export",
       poll: () =>
         localRuntimePollJobStatus(entry.runtimeUrl, accessToken, jobId),
+      // Large exports can take longer than a guardian-token lease. If the
+      // runtime returns 401 mid-poll, re-lease a fresh token and rebind the
+      // closure variable so the next poll uses it.
+      refreshOn401: async () => {
+        accessToken = await getAccessToken(
+          entry.runtimeUrl,
+          entry.assistantId,
+          entry.assistantId,
+          { forceRefresh: true },
+        );
+      },
     });
 
     if (terminal.status === "failed") {
@@ -441,9 +452,24 @@ async function exportFromAssistant(
 
     console.log(`Export started (job ${jobId})...`);
 
+    let exportPlatformToken = platformToken;
     const terminal = await pollJobUntilDone({
       label: "platform export",
-      poll: () => platformPollJobStatus(jobId, platformToken, entry.runtimeUrl),
+      poll: () =>
+        platformPollJobStatus(jobId, exportPlatformToken, entry.runtimeUrl),
+      // The platform token is normally static per-process, but re-reading the
+      // on-disk credential covers the case where the user ran `vellum login`
+      // in another terminal during a long migration. A persistent 401 after
+      // a re-read surfaces to the caller with a clear next step.
+      refreshOn401: async () => {
+        const refreshed = readPlatformToken();
+        if (!refreshed) {
+          throw new Error(
+            "Platform auth expired during export and no credential was found on disk. Run 'vellum login' and retry.",
+          );
+        }
+        exportPlatformToken = refreshed;
+      },
     });
 
     if (terminal.status === "failed") {
@@ -574,10 +600,20 @@ async function importToAssistant(
         process.exit(1);
       }
 
+      let importPlatformToken = platformToken;
       const terminal = await pollJobUntilDone({
         label: "platform import",
         poll: () =>
-          platformPollJobStatus(jobId, platformToken, entry.runtimeUrl),
+          platformPollJobStatus(jobId, importPlatformToken, entry.runtimeUrl),
+        refreshOn401: async () => {
+          const refreshed = readPlatformToken();
+          if (!refreshed) {
+            throw new Error(
+              "Platform auth expired during import and no credential was found on disk. Run 'vellum login' and retry.",
+            );
+          }
+          importPlatformToken = refreshed;
+        },
       });
 
       if (terminal.status === "failed") {
@@ -647,6 +683,14 @@ async function importToAssistant(
       label: "local-runtime import",
       poll: () =>
         localRuntimePollJobStatus(entry.runtimeUrl, accessToken, jobId),
+      refreshOn401: async () => {
+        accessToken = await getAccessToken(
+          entry.runtimeUrl,
+          entry.assistantId,
+          entry.assistantId,
+          { forceRefresh: true },
+        );
+      },
     });
 
     if (terminal.status === "failed") {
