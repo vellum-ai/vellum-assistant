@@ -387,10 +387,12 @@ struct SubagentEventGrouping {
     /// first pair's `startedAt` and the last pair's `completedAt` (falling
     /// back to its `startedAt` when the pair has no result).
     static func duration(across pairs: [SubagentToolCallPair]) -> TimeInterval? {
-        guard let first = pairs.first?.startedAt,
-              let last = pairs.last?.completedAt ?? pairs.last?.startedAt else {
+        guard let firstPair = pairs.first,
+              let lastPair = pairs.last else {
             return nil
         }
+        let first = firstPair.startedAt
+        let last = lastPair.completedAt ?? lastPair.startedAt
         let delta = last.timeIntervalSince(first)
         return delta > 0 ? delta : nil
     }
