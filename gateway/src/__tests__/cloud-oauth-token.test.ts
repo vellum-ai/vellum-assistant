@@ -1,13 +1,18 @@
-import { describe, test, expect, beforeAll } from "bun:test";
+import {
+  describe,
+  test,
+  expect,
+  beforeAll,
+  beforeEach,
+  afterEach,
+} from "bun:test";
 import "./test-preload.js";
 
 import {
   initSigningKey,
   loadOrCreateSigningKey,
-  mintToken,
   verifyToken,
 } from "../auth/token-service.js";
-import { CURRENT_POLICY_EPOCH } from "../auth/policy.js";
 import { createCloudOAuthTokenHandler } from "../http/routes/cloud-oauth-token.js";
 
 beforeAll(() => {
@@ -17,6 +22,21 @@ beforeAll(() => {
 const handler = createCloudOAuthTokenHandler();
 const ASSISTANT_ID = "asst-123";
 const ACTOR_PRINCIPAL_ID = "user-456";
+const PLATFORM_INTERNAL_API_KEY = "platform-internal-key";
+const ORIGINAL_PLATFORM_INTERNAL_API_KEY =
+  process.env.PLATFORM_INTERNAL_API_KEY;
+
+beforeEach(() => {
+  process.env.PLATFORM_INTERNAL_API_KEY = PLATFORM_INTERNAL_API_KEY;
+});
+
+afterEach(() => {
+  if (ORIGINAL_PLATFORM_INTERNAL_API_KEY === undefined) {
+    delete process.env.PLATFORM_INTERNAL_API_KEY;
+    return;
+  }
+  process.env.PLATFORM_INTERNAL_API_KEY = ORIGINAL_PLATFORM_INTERNAL_API_KEY;
+});
 
 /** Build a POST request to the cloud OAuth token endpoint. */
 function makeRequest(body: unknown, authorization?: string): Request {
@@ -38,17 +58,10 @@ function makeRequest(body: unknown, authorization?: string): Request {
 
 describe("POST /v1/internal/oauth/chrome-extension/token", () => {
   test("happy path: valid body returns 200 with token, expiresIn, and guardianId", async () => {
-    const actorToken = mintToken({
-      aud: "vellum-gateway",
-      sub: `actor:${ASSISTANT_ID}:${ACTOR_PRINCIPAL_ID}`,
-      scope_profile: "actor_client_v1",
-      policy_epoch: CURRENT_POLICY_EPOCH,
-      ttlSeconds: 60,
-    });
     const res = await handler.handleMintToken(
       makeRequest(
         { assistantId: ASSISTANT_ID, actorPrincipalId: ACTOR_PRINCIPAL_ID },
-        `Bearer ${actorToken}`,
+        `Bearer ${PLATFORM_INTERNAL_API_KEY}`,
       ),
     );
 
@@ -167,96 +180,45 @@ describe("POST /v1/internal/oauth/chrome-extension/token", () => {
     expect(body.error).toContain("colon");
   });
 
-  test("request with invalid token returns 403", async () => {
+  test("request without authorization header returns 403", async () => {
+    const res = await handler.handleMintToken(
+      makeRequest({
+        assistantId: ASSISTANT_ID,
+        actorPrincipalId: ACTOR_PRINCIPAL_ID,
+      }),
+    );
+    expect(res.status).toBe(403);
+  });
+
+  test("request with invalid bearer token returns 403", async () => {
     const res = await handler.handleMintToken(
       makeRequest(
         { assistantId: ASSISTANT_ID, actorPrincipalId: ACTOR_PRINCIPAL_ID },
-        "Bearer not-a-jwt",
+        "Bearer wrong-internal-key",
       ),
     );
     expect(res.status).toBe(403);
   });
 
-  test("request with mismatched actor token assistant returns 403", async () => {
-    const actorToken = mintToken({
-      aud: "vellum-gateway",
-      sub: `actor:other-assistant:${ACTOR_PRINCIPAL_ID}`,
-      scope_profile: "actor_client_v1",
-      policy_epoch: CURRENT_POLICY_EPOCH,
-      ttlSeconds: 60,
-    });
+  test("request with non-bearer authorization header returns 403", async () => {
     const res = await handler.handleMintToken(
       makeRequest(
         { assistantId: ASSISTANT_ID, actorPrincipalId: ACTOR_PRINCIPAL_ID },
-        `Bearer ${actorToken}`,
+        "Api-Key some-key",
       ),
     );
     expect(res.status).toBe(403);
   });
 
-  test("request with mismatched actor token principal returns 403", async () => {
-    const actorToken = mintToken({
-      aud: "vellum-gateway",
-      sub: `actor:${ASSISTANT_ID}:other-user`,
-      scope_profile: "actor_client_v1",
-      policy_epoch: CURRENT_POLICY_EPOCH,
-      ttlSeconds: 60,
-    });
+  test("request returns 503 when PLATFORM_INTERNAL_API_KEY is not configured", async () => {
+    delete process.env.PLATFORM_INTERNAL_API_KEY;
+
     const res = await handler.handleMintToken(
       makeRequest(
         { assistantId: ASSISTANT_ID, actorPrincipalId: ACTOR_PRINCIPAL_ID },
-        `Bearer ${actorToken}`,
+        `Bearer ${PLATFORM_INTERNAL_API_KEY}`,
       ),
     );
-    expect(res.status).toBe(403);
-  });
-
-  test("request with non-actor service token returns 403", async () => {
-    const serviceToken = mintToken({
-      aud: "vellum-gateway",
-      sub: "svc:gateway:self",
-      scope_profile: "gateway_service_v1",
-      policy_epoch: CURRENT_POLICY_EPOCH,
-      ttlSeconds: 60,
-    });
-    const res = await handler.handleMintToken(
-      makeRequest(
-        { assistantId: ASSISTANT_ID, actorPrincipalId: ACTOR_PRINCIPAL_ID },
-        `Bearer ${serviceToken}`,
-      ),
-    );
-    expect(res.status).toBe(403);
-  });
-
-  test("request without authorization header succeeds for valid payload when auth is not enforced", async () => {
-    const res = await handler.handleMintToken(
-      new Request(
-        "http://gateway.test/v1/internal/oauth/chrome-extension/token",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            assistantId: ASSISTANT_ID,
-            actorPrincipalId: ACTOR_PRINCIPAL_ID,
-          }),
-        },
-      ),
-    );
-    expect(res.status).toBe(200);
-  });
-
-  test("request without authorization header returns 403 when auth is enforced", async () => {
-    process.env.CHROME_OAUTH_TOKEN_REQUIRE_AUTH = "true";
-    try {
-      const res = await handler.handleMintToken(
-        makeRequest({
-          assistantId: ASSISTANT_ID,
-          actorPrincipalId: ACTOR_PRINCIPAL_ID,
-        }),
-      );
-      expect(res.status).toBe(403);
-    } finally {
-      delete process.env.CHROME_OAUTH_TOKEN_REQUIRE_AUTH;
-    }
+    expect(res.status).toBe(503);
   });
 });

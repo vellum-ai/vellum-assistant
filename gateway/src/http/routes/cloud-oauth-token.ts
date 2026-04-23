@@ -7,14 +7,12 @@
  *
  * POST /v1/internal/oauth/chrome-extension/token
  *   Body: { assistantId: string, actorPrincipalId: string }
- *   Auth: none at gateway router layer (request reaches here only via
- *         platform-owned vembda gateway-query plumbing)
+ *   Auth: Authorization: Bearer <PLATFORM_INTERNAL_API_KEY>
  *   Returns: { token: string, expiresIn: number, guardianId: string }
  */
 
+import { timingSafeEqual } from "node:crypto";
 import { getLogger } from "../../logger.js";
-import { validateEdgeToken } from "../../auth/token-exchange.js";
-import { parseSub } from "../../auth/subject.js";
 import { mintToken } from "../../auth/token-service.js";
 import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
 
@@ -22,10 +20,6 @@ const log = getLogger("cloud-oauth-token");
 
 /** TTL for minted guardian tokens — 1 hour. */
 const GUARDIAN_TOKEN_TTL_SECONDS = 3600;
-
-function isAuthEnforced(): boolean {
-  return process.env.CHROME_OAUTH_TOKEN_REQUIRE_AUTH === "true";
-}
 
 export function createCloudOAuthTokenHandler() {
   return {
@@ -83,44 +77,20 @@ export function createCloudOAuthTokenHandler() {
         );
       }
 
-      const authHeader = req.headers.get("authorization");
-      const bearerToken = authHeader?.replace(/^Bearer\s+/i, "");
-      if (!bearerToken) {
-        if (isAuthEnforced()) {
-          return Response.json(
-            { error: "Authorization token is required" },
-            { status: 403 },
-          );
-        }
-        log.warn(
-          { assistantId, actorPrincipalId },
-          "Cloud OAuth token mint request missing bearer token; allowing legacy unauthenticated path",
+      const expectedInternalKey = process.env.PLATFORM_INTERNAL_API_KEY?.trim();
+      if (!expectedInternalKey) {
+        log.error(
+          "PLATFORM_INTERNAL_API_KEY is not configured; refusing cloud OAuth token mint request",
         );
-      } else {
-        const tokenResult = validateEdgeToken(bearerToken);
-        if (!tokenResult.ok) {
-          return Response.json({ error: "Forbidden" }, { status: 403 });
-        }
+        return Response.json(
+          { error: "Internal auth is not configured" },
+          { status: 503 },
+        );
+      }
 
-        const callerSub = parseSub(tokenResult.claims.sub);
-        if (!callerSub.ok || callerSub.principalType !== "actor") {
-          return Response.json({ error: "Forbidden" }, { status: 403 });
-        }
-        if (
-          callerSub.assistantId !== assistantId ||
-          callerSub.actorPrincipalId !== actorPrincipalId
-        ) {
-          log.warn(
-            {
-              requestedAssistantId: assistantId,
-              requestedActorPrincipalId: actorPrincipalId,
-              callerAssistantId: callerSub.assistantId,
-              callerActorPrincipalId: callerSub.actorPrincipalId,
-            },
-            "Cloud OAuth token mint request token claims do not match requested principal",
-          );
-          return Response.json({ error: "Forbidden" }, { status: 403 });
-        }
+      const bearerToken = extractBearerToken(req);
+      if (!matchesInternalKey(bearerToken, expectedInternalKey)) {
+        return Response.json({ error: "Forbidden" }, { status: 403 });
       }
 
       const sub = `actor:${assistantId}:${actorPrincipalId}`;
@@ -153,4 +123,23 @@ export function createCloudOAuthTokenHandler() {
       }
     },
   };
+}
+
+function extractBearerToken(req: Request): string | null {
+  const authHeader = req.headers.get("authorization");
+  if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
+    return null;
+  }
+  return authHeader.slice(7).trim();
+}
+
+function matchesInternalKey(
+  providedKey: string | null,
+  expectedKey: string,
+): boolean {
+  if (!providedKey) return false;
+  const provided = Buffer.from(providedKey);
+  const expected = Buffer.from(expectedKey);
+  if (provided.length !== expected.length) return false;
+  return timingSafeEqual(provided, expected);
 }
