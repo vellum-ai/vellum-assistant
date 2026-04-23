@@ -165,14 +165,14 @@ Examples:
     if (!credentials) {
       const baseHint =
         errorHint ?? "No credentials available for image generation.";
-      // The shared hint in image-credentials.ts is correct for tool surfaces
-      // but drops CLI-specific recovery guidance. When the managed proxy is
-      // unavailable (mode === "managed" with no platform base URL), the CLI
-      // user can authenticate or flip the mode — tell them how from the CLI.
+      // The shared hint in image-credentials.ts is UI-neutral (it points at
+      // "Settings > Models & Services"), which is correct for tool surfaces
+      // but drops the actionable CLI command. Prepend the exact command for
+      // each mode so CLI users see a next-step they can copy-paste.
       const hint =
         svc.mode === "managed"
           ? `${baseHint}\n  Run 'assistant auth login' to authenticate, or set services.image-generation.mode to 'your-own' in config.`
-          : baseHint;
+          : `Run: assistant keys set ${provider} <key>.\n${baseHint}`;
       if (jsonOutput) {
         process.stdout.write(JSON.stringify({ ok: false, error: hint }) + "\n");
       } else {

@@ -316,6 +316,10 @@ describe("credential errors", () => {
     const parsed = JSON.parse(stdout.trim());
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("Gemini API key");
+    // CLI prepends the actionable `assistant keys set` command with the
+    // resolved provider — the shared hint is UI-neutral ("Settings") so
+    // without this prefix CLI users get no copy-pasteable next step.
+    expect(parsed.error).toContain("Run: assistant keys set gemini <key>");
   });
 
   test("--json outputs OpenAI-specific hint when provider=openai and no key set", async () => {
@@ -335,6 +339,7 @@ describe("credential errors", () => {
     const parsed = JSON.parse(stdout.trim());
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("OpenAI API key");
+    expect(parsed.error).toContain("Run: assistant keys set openai <key>");
   });
 
   test("--json outputs error when no credentials in managed mode", async () => {
