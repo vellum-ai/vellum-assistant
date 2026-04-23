@@ -55,6 +55,8 @@
  * via `deps.setTimer` / `deps.clearTimer` injections.
  */
 
+import type { Logger, SkillHost } from "@vellumai/skill-host-contracts";
+
 import type {
   InboundChatEvent,
   MeetBotEvent,
@@ -62,14 +64,30 @@ import type {
   TranscriptChunkEvent,
 } from "../contracts/index.js";
 
-import { getLogger } from "../../../assistant/src/util/logger.js";
 import {
   type MeetEventSubscriber,
   type MeetEventUnsubscribe,
   subscribeToMeetingEvents,
 } from "./event-publisher.js";
+import { registerSubModule } from "./modules-registry.js";
 
-const log = getLogger("meet-chat-opportunity-detector");
+/**
+ * Fallback logger used when the detector is constructed without a host-
+ * sourced logger. Keeps the class callable from unit tests that build it
+ * directly without supplying a full {@link SkillHost} stub.
+ */
+const consoleLogger: Logger = {
+  debug: () => {},
+  info: () => {},
+  warn: (msg, meta) => {
+    // eslint-disable-next-line no-console
+    console.warn(msg, meta ?? {});
+  },
+  error: (msg, meta) => {
+    // eslint-disable-next-line no-console
+    console.error(msg, meta ?? {});
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -161,6 +179,13 @@ export interface MeetChatOpportunityDetectorDeps {
    */
   setTimer?: (cb: () => void, ms: number) => TimerHandle;
   clearTimer?: (handle: TimerHandle) => void;
+  /**
+   * Logger used for detector telemetry. Production callers wire
+   * `host.logger.get("meet-chat-opportunity-detector")` via
+   * {@link createChatOpportunityDetector}; unit tests get a console-
+   * backed fallback so they don't need to build a full {@link SkillHost}.
+   */
+  logger?: Logger;
 }
 
 // ---------------------------------------------------------------------------
@@ -200,6 +225,7 @@ function escapeRegex(value: string): string {
 function compilePatterns(
   patterns: readonly string[],
   meetingId: string,
+  log: Logger,
 ): RegExp[] {
   const compiled: RegExp[] = [];
   for (const pattern of patterns) {
@@ -208,8 +234,8 @@ function compilePatterns(
       compiled.push(new RegExp(pattern, "i"));
     } catch (err) {
       log.warn(
-        { err, pattern, meetingId },
         "MeetChatOpportunityDetector: invalid detector regex — skipping",
+        { err, pattern, meetingId },
       );
     }
   }
@@ -234,6 +260,7 @@ export class MeetChatOpportunityDetector {
   private readonly now: () => number;
   private readonly setTimer: (cb: () => void, ms: number) => TimerHandle;
   private readonly clearTimer: (handle: TimerHandle) => void;
+  private readonly log: Logger;
 
   private unsubscribe: MeetEventUnsubscribe | null = null;
   private disposed = false;
@@ -295,6 +322,7 @@ export class MeetChatOpportunityDetector {
       ((handle: TimerHandle): void => {
         clearTimeout(handle as ReturnType<typeof setTimeout>);
       });
+    this.log = deps.logger ?? consoleLogger;
 
     this.patterns = this.config.enabled
       ? this.buildPatterns(
@@ -343,9 +371,9 @@ export class MeetChatOpportunityDetector {
       try {
         this.unsubscribe();
       } catch (err) {
-        log.warn(
-          { err, meetingId: this.meetingId },
+        this.log.warn(
           "MeetChatOpportunityDetector: unsubscribe threw during dispose",
+          { err, meetingId: this.meetingId },
         );
       }
       this.unsubscribe = null;
@@ -384,10 +412,11 @@ export class MeetChatOpportunityDetector {
         return;
       }
     } catch (err) {
-      log.warn(
-        { err, meetingId: this.meetingId, eventType: event.type },
-        "MeetChatOpportunityDetector: event handler threw",
-      );
+      this.log.warn("MeetChatOpportunityDetector: event handler threw", {
+        err,
+        meetingId: this.meetingId,
+        eventType: event.type,
+      });
     }
   }
 
@@ -488,9 +517,9 @@ export class MeetChatOpportunityDetector {
       try {
         patterns.push(new RegExp(`\\b${nameLiteral}\\b`, "i"));
       } catch (err) {
-        log.warn(
-          { err, displayName, meetingId: this.meetingId },
+        this.log.warn(
           "MeetChatOpportunityDetector: failed to build name-mention regex",
+          { err, displayName, meetingId: this.meetingId },
         );
       }
       // Address + question: `(hey|hi|ok|so),? <assistantName>[,.]? … ?`.
@@ -499,13 +528,13 @@ export class MeetChatOpportunityDetector {
           new RegExp(`(hey|hi|ok|so),?\\s+${nameLiteral}[,.]?\\s+.*\\?$`, "i"),
         );
       } catch (err) {
-        log.warn(
-          { err, displayName, meetingId: this.meetingId },
+        this.log.warn(
           "MeetChatOpportunityDetector: failed to build addressed-question regex",
+          { err, displayName, meetingId: this.meetingId },
         );
       }
     }
-    patterns.push(...compilePatterns(extras, this.meetingId));
+    patterns.push(...compilePatterns(extras, this.meetingId, this.log));
     return patterns;
   }
 
@@ -545,14 +574,11 @@ export class MeetChatOpportunityDetector {
       this.lastTier2CallAt !== null &&
       nowMs - this.lastTier2CallAt < this.config.tier2DebounceMs
     ) {
-      log.debug(
-        {
-          event: "chat_opportunity.tier2.debounced",
-          meetingId: this.meetingId,
-          msSinceLast: nowMs - this.lastTier2CallAt,
-        },
-        "MeetChatOpportunityDetector: Tier 2 debounced",
-      );
+      this.log.debug("MeetChatOpportunityDetector: Tier 2 debounced", {
+        event: "chat_opportunity.tier2.debounced",
+        meetingId: this.meetingId,
+        msSinceLast: nowMs - this.lastTier2CallAt,
+      });
       return;
     }
 
@@ -570,15 +596,12 @@ export class MeetChatOpportunityDetector {
       const decision = await this.callDetectorLLM(prompt);
       if (this.disposed) return;
       if (!decision.shouldRespond) {
-        log.debug(
-          {
-            event: "chat_opportunity.tier2.negative",
-            meetingId: this.meetingId,
-            triggerReason,
-            reason: decision.reason,
-          },
-          "MeetChatOpportunityDetector: Tier 2 declined",
-        );
+        this.log.debug("MeetChatOpportunityDetector: Tier 2 declined", {
+          event: "chat_opportunity.tier2.negative",
+          meetingId: this.meetingId,
+          triggerReason,
+          reason: decision.reason,
+        });
         return;
       }
       this.stats.tier2PositiveCount += 1;
@@ -591,10 +614,11 @@ export class MeetChatOpportunityDetector {
       // Restore the debounce clock on failure so the next trigger isn't
       // silently suppressed for the remainder of the debounce window.
       this.lastTier2CallAt = prevTier2CallAt;
-      log.warn(
-        { err, meetingId: this.meetingId, triggerReason },
-        "MeetChatOpportunityDetector: Tier 2 LLM call failed",
-      );
+      this.log.warn("MeetChatOpportunityDetector: Tier 2 LLM call failed", {
+        err,
+        meetingId: this.meetingId,
+        triggerReason,
+      });
     } finally {
       this.tier2InFlight = false;
     }
@@ -649,14 +673,14 @@ export class MeetChatOpportunityDetector {
       nowAfter - this.lastEscalationAt < cooldownMs
     ) {
       this.stats.escalationsSuppressed += 1;
-      log.debug(
+      this.log.debug(
+        "MeetChatOpportunityDetector: escalation suppressed by cooldown",
         {
           event: "chat_opportunity.escalation.suppressed",
           meetingId: this.meetingId,
           kind: opts.kind,
           msSinceLast: nowAfter - this.lastEscalationAt,
         },
-        "MeetChatOpportunityDetector: escalation suppressed by cooldown",
       );
       return;
     }
@@ -664,21 +688,21 @@ export class MeetChatOpportunityDetector {
     this.lastEscalationAt = nowAfter;
     this.stats.escalationsFired += 1;
     if (opts.kind === "voice") this.stats.voiceWakesFired += 1;
-    log.info(
+    this.log.info(
+      "MeetChatOpportunityDetector: firing opportunity callback",
       {
         event: "chat_opportunity.escalation.fired",
         meetingId: this.meetingId,
         kind: opts.kind,
         ...opts.logContext,
       },
-      "MeetChatOpportunityDetector: firing opportunity callback",
     );
     try {
       this.onOpportunity({ reason: opts.reason, kind: opts.kind });
     } catch (err) {
-      log.error(
-        { err, meetingId: this.meetingId, kind: opts.kind },
+      this.log.error(
         "MeetChatOpportunityDetector: onOpportunity callback threw",
+        { err, meetingId: this.meetingId, kind: opts.kind },
       );
     }
   }
@@ -738,3 +762,34 @@ export class MeetChatOpportunityDetector {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Host-based factory
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a callable that constructs per-meeting
+ * {@link MeetChatOpportunityDetector} instances bound to a
+ * {@link SkillHost}. The factory wires the host's logger; per-meeting
+ * deps (config, voice config, LLM callable, opportunity callback, etc.)
+ * are supplied by the session manager at construction time.
+ *
+ * Registered under the sub-module slot `"chat-opportunity-detector"` in
+ * {@link registerSubModule} at module import time; PR 17's session
+ * manager consumes the registration via `getSubModule`.
+ */
+export function createChatOpportunityDetector(
+  host: SkillHost,
+): (deps: MeetChatOpportunityDetectorDeps) => MeetChatOpportunityDetector {
+  const logger = host.logger.get("meet-chat-opportunity-detector");
+  return (deps) =>
+    new MeetChatOpportunityDetector({
+      ...deps,
+      logger: deps.logger ?? logger,
+    });
+}
+
+registerSubModule(
+  "chat-opportunity-detector",
+  createChatOpportunityDetector,
+);

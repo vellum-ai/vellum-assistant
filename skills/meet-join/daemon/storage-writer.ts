@@ -48,6 +48,8 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
+import type { Logger, SkillHost } from "@vellumai/skill-host-contracts";
+
 import type {
   MeetBotEvent,
   Participant,
@@ -56,15 +58,30 @@ import type {
   TranscriptChunkEvent,
 } from "../contracts/index.js";
 
-import { getLogger } from "../../../assistant/src/util/logger.js";
-import { getWorkspaceDir } from "../../../assistant/src/util/platform.js";
 import {
   type MeetEventSubscriber,
   type MeetEventUnsubscribe,
   subscribeToMeetingEvents,
 } from "./event-publisher.js";
+import { registerSubModule } from "./modules-registry.js";
 
-const log = getLogger("meet-storage-writer");
+/**
+ * Fallback logger for tests / direct `new MeetStorageWriter(...)` calls that
+ * omit the host-sourced logger. Keeps every production caller host-wired
+ * without forcing unit tests to build a full {@link SkillHost} stub.
+ */
+const consoleLogger: Logger = {
+  debug: () => {},
+  info: () => {},
+  warn: (msg, meta) => {
+    // eslint-disable-next-line no-console
+    console.warn(msg, meta ?? {});
+  },
+  error: (msg, meta) => {
+    // eslint-disable-next-line no-console
+    console.error(msg, meta ?? {});
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Tuning knobs
@@ -125,7 +142,11 @@ export interface FsPrimitives {
 }
 
 export interface MeetStorageWriterDeps {
-  /** Override workspace directory resolution (tests). */
+  /**
+   * Resolve the workspace directory. Tests pass a tempdir; production
+   * callers construct the writer via {@link createStorageWriter} which
+   * wires this to `host.platform.workspaceDir()`.
+   */
   getWorkspaceDir?: () => string;
   /** Override the `spawn` used to launch ffmpeg (tests). */
   spawn?: SpawnFn;
@@ -142,6 +163,14 @@ export interface MeetStorageWriterDeps {
     meetingId: string,
     cb: MeetEventSubscriber,
   ) => MeetEventUnsubscribe;
+  /**
+   * Logger used for best-effort I/O telemetry. Defaults to a console-
+   * backed fallback so unit tests that construct the writer directly
+   * don't need to supply one. Production callers wire
+   * `host.logger.get("meet-storage-writer")` via
+   * {@link createStorageWriter}.
+   */
+  logger?: Logger;
 }
 
 /**
@@ -187,6 +216,7 @@ export class MeetStorageWriter {
 
   private readonly deps: Required<MeetStorageWriterDeps>;
   private readonly fs: FsPrimitives;
+  private readonly log: Logger;
 
   private segmentsFd: AppendFdState | null = null;
   private transcriptFd: AppendFdState | null = null;
@@ -208,15 +238,26 @@ export class MeetStorageWriter {
     if (!meetingId) {
       throw new Error("MeetStorageWriter: meetingId is required");
     }
+    // No ambient workspace fallback — callers must provide a resolver.
+    // Production wiring comes from {@link createStorageWriter} via
+    // `host.platform.workspaceDir()`; tests/tooling inject a tempdir.
+    const resolveWorkspaceDir = deps.getWorkspaceDir;
+    if (!resolveWorkspaceDir) {
+      throw new Error(
+        "MeetStorageWriter: deps.getWorkspaceDir is required — construct via createStorageWriter(host) or pass an explicit resolver",
+      );
+    }
     this.meetingId = meetingId;
     this.deps = {
-      getWorkspaceDir: deps.getWorkspaceDir ?? getWorkspaceDir,
+      getWorkspaceDir: resolveWorkspaceDir,
       spawn: deps.spawn ?? nodeSpawn,
       fs: deps.fs ?? {},
       now: deps.now ?? Date.now,
       subscribe: deps.subscribe ?? subscribeToMeetingEvents,
+      logger: deps.logger ?? consoleLogger,
     };
     this.fs = { ...DEFAULT_FS, ...(deps.fs ?? {}) };
+    this.log = this.deps.logger;
     this.meetingDir = join(
       this.deps.getWorkspaceDir(),
       "meets",
@@ -259,25 +300,29 @@ export class MeetStorageWriter {
     }) as ChildProcessWithoutNullStreams;
 
     child.on("error", (err) => {
-      log.error(
-        { err, meetingId: this.meetingId },
-        "ffmpeg spawn/runtime error",
-      );
+      this.log.error("ffmpeg spawn/runtime error", {
+        err,
+        meetingId: this.meetingId,
+      });
     });
     child.on("exit", (code, signal) => {
-      log.info({ meetingId: this.meetingId, code, signal }, "ffmpeg exited");
+      this.log.info("ffmpeg exited", {
+        meetingId: this.meetingId,
+        code,
+        signal,
+      });
     });
     child.stderr?.on("data", (chunk: Buffer) => {
-      log.debug(
-        { meetingId: this.meetingId, stderr: chunk.toString("utf8") },
-        "ffmpeg stderr",
-      );
+      this.log.debug("ffmpeg stderr", {
+        meetingId: this.meetingId,
+        stderr: chunk.toString("utf8"),
+      });
     });
     child.stdin.on("error", (err) => {
-      log.debug(
-        { err, meetingId: this.meetingId },
-        "ffmpeg stdin error (suppressed)",
-      );
+      this.log.debug("ffmpeg stdin error (suppressed)", {
+        err,
+        meetingId: this.meetingId,
+      });
     });
 
     this.ffmpegChild = child;
@@ -305,10 +350,10 @@ export class MeetStorageWriter {
       try {
         this.eventUnsubscribe();
       } catch (err) {
-        log.warn(
-          { err, meetingId: this.meetingId },
-          "dispatcher unsubscribe threw during stop",
-        );
+        this.log.warn("dispatcher unsubscribe threw during stop", {
+          err,
+          meetingId: this.meetingId,
+        });
       }
       this.eventUnsubscribe = null;
     }
@@ -322,10 +367,10 @@ export class MeetStorageWriter {
       try {
         this.pcmUnsubscribe();
       } catch (err) {
-        log.warn(
-          { err, meetingId: this.meetingId },
-          "pcm unsubscribe threw during stop",
-        );
+        this.log.warn("pcm unsubscribe threw during stop", {
+          err,
+          meetingId: this.meetingId,
+        });
       }
       this.pcmUnsubscribe = null;
     }
@@ -336,10 +381,10 @@ export class MeetStorageWriter {
       try {
         child.stdin?.end();
       } catch (err) {
-        log.warn(
-          { err, meetingId: this.meetingId },
-          "ffmpeg stdin close threw during stop",
-        );
+        this.log.warn("ffmpeg stdin close threw during stop", {
+          err,
+          meetingId: this.meetingId,
+        });
       }
     }
   }
@@ -374,10 +419,11 @@ export class MeetStorageWriter {
           break;
       }
     } catch (err) {
-      log.error(
-        { err, meetingId: this.meetingId, eventType: event.type },
-        "MeetStorageWriter: handler threw",
-      );
+      this.log.error("MeetStorageWriter: handler threw", {
+        err,
+        meetingId: this.meetingId,
+        eventType: event.type,
+      });
     }
   }
 
@@ -465,10 +511,10 @@ export class MeetStorageWriter {
       try {
         this.fs.fsyncSync(state.fd);
       } catch (err) {
-        log.warn(
-          { err, meetingId: this.meetingId },
-          "fsync failed (non-fatal)",
-        );
+        this.log.warn("fsync failed (non-fatal)", {
+          err,
+          meetingId: this.meetingId,
+        });
       }
       state.writesSinceFlush = 0;
       state.lastFlushAtMs = now;
@@ -480,18 +526,18 @@ export class MeetStorageWriter {
     try {
       this.fs.fsyncSync(state.fd);
     } catch (err) {
-      log.warn(
-        { err, meetingId: this.meetingId },
-        "final fsync failed (non-fatal)",
-      );
+      this.log.warn("final fsync failed (non-fatal)", {
+        err,
+        meetingId: this.meetingId,
+      });
     }
     try {
       this.fs.closeSync(state.fd);
     } catch (err) {
-      log.warn(
-        { err, meetingId: this.meetingId },
-        "fd close failed (non-fatal)",
-      );
+      this.log.warn("fd close failed (non-fatal)", {
+        err,
+        meetingId: this.meetingId,
+      });
     }
   }
 
@@ -544,7 +590,10 @@ export class MeetStorageWriter {
     try {
       child.stdin.write(Buffer.from(bytes));
     } catch (err) {
-      log.warn({ err, meetingId: this.meetingId }, "ffmpeg stdin write failed");
+      this.log.warn("ffmpeg stdin write failed", {
+        err,
+        meetingId: this.meetingId,
+      });
     }
   }
 
@@ -555,7 +604,39 @@ export class MeetStorageWriter {
     try {
       child.stdin?.end();
     } catch (err) {
-      log.warn({ err, meetingId: this.meetingId }, "ffmpeg stdin end failed");
+      this.log.warn("ffmpeg stdin end failed", {
+        err,
+        meetingId: this.meetingId,
+      });
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Host-based factory
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a callable that creates per-meeting {@link MeetStorageWriter}
+ * instances bound to a {@link SkillHost}. Returning a factory (rather
+ * than a single writer) matches how the session manager spins up one
+ * writer per active meeting — all sharing the same host-scoped logger
+ * and workspace-path resolution.
+ *
+ * Registered under the sub-module slot `"storage-writer"` in
+ * {@link registerSubModule} at module import time; PR 17's session
+ * manager consumes the registration via `getSubModule`.
+ */
+export function createStorageWriter(
+  host: SkillHost,
+): (meetingId: string, overrides?: MeetStorageWriterDeps) => MeetStorageWriter {
+  const logger = host.logger.get("meet-storage-writer");
+  return (meetingId, overrides = {}) =>
+    new MeetStorageWriter(meetingId, {
+      getWorkspaceDir: () => host.platform.workspaceDir(),
+      logger,
+      ...overrides,
+    });
+}
+
+registerSubModule("storage-writer", createStorageWriter);

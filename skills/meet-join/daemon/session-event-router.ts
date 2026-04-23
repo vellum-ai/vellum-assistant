@@ -25,13 +25,20 @@
  * Late events (arriving after `unregister`) are logged and dropped so a
  * slow in-flight POST from a just-terminated bot session can't explode the
  * handler graph.
+ *
+ * ## Host-based factory
+ *
+ * The router no longer imports from `assistant/` directly. Callers build
+ * one via {@link createSessionEventRouter}, passing the `SkillHost` the
+ * skill received from its entry point. The router's only host dependency
+ * is the logger facet, used for handler-error / drop telemetry.
  */
+
+import type { Logger, SkillHost } from "@vellumai/skill-host-contracts";
 
 import type { MeetBotEvent } from "../contracts/index.js";
 
-import { getLogger } from "../../../assistant/src/util/logger.js";
-
-const log = getLogger("meet-session-event-router");
+import { registerSubModule } from "./modules-registry.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -64,6 +71,19 @@ export type BotApiTokenResolver = (meetingId: string) => string | null;
 export class MeetSessionEventRouter {
   private readonly handlers = new Map<string, MeetSessionEventHandler>();
   private resolveBotApiTokenImpl: BotApiTokenResolver = () => null;
+  private readonly log: Logger;
+
+  /**
+   * Construct a router. The optional {@link Logger} is used only for
+   * handler-error / drop telemetry; production callers wire
+   * `host.logger.get("meet-session-event-router")` via
+   * {@link createSessionEventRouter}. Tests that construct the router
+   * directly get a console-backed fallback so they do not need to inject
+   * a logger.
+   */
+  constructor(logger?: Logger) {
+    this.log = logger ?? consoleLogger;
+  }
 
   /**
    * Register a handler for a meeting. Overwrites any existing handler
@@ -73,9 +93,9 @@ export class MeetSessionEventRouter {
    */
   register(meetingId: string, handler: MeetSessionEventHandler): void {
     if (this.handlers.has(meetingId)) {
-      log.warn(
-        { meetingId },
+      this.log.warn(
         "MeetSessionEventRouter: overwriting existing handler registration",
+        { meetingId },
       );
     }
     this.handlers.set(meetingId, handler);
@@ -100,19 +120,20 @@ export class MeetSessionEventRouter {
   dispatch(meetingId: string, event: MeetBotEvent): void {
     const handler = this.handlers.get(meetingId);
     if (!handler) {
-      log.info(
-        { meetingId, eventType: event.type },
+      this.log.info(
         "MeetSessionEventRouter: dropping event for unregistered meeting",
+        { meetingId, eventType: event.type },
       );
       return;
     }
     try {
       handler(event);
     } catch (err) {
-      log.error(
-        { err, meetingId, eventType: event.type },
-        "MeetSessionEventRouter: handler threw",
-      );
+      this.log.error("MeetSessionEventRouter: handler threw", {
+        err,
+        meetingId,
+        eventType: event.type,
+      });
     }
   }
 
@@ -141,14 +162,40 @@ export class MeetSessionEventRouter {
 }
 
 // ---------------------------------------------------------------------------
-// Singleton (matches the style of `ChromeExtensionRegistry` / `assistantEventHub`)
+// Fallback logger for tests / direct-construction paths
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal console-backed logger used when the router is constructed
+ * without a host-supplied logger. Keeps the no-arg `new MeetSessionEventRouter()`
+ * constructor callable from unit tests without forcing them to build a
+ * host stub.
+ */
+const consoleLogger: Logger = {
+  debug: () => {},
+  info: () => {},
+  warn: (msg, meta) => {
+    // eslint-disable-next-line no-console
+    console.warn(msg, meta ?? {});
+  },
+  error: (msg, meta) => {
+    // eslint-disable-next-line no-console
+    console.error(msg, meta ?? {});
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Singleton
 // ---------------------------------------------------------------------------
 
 let instance: MeetSessionEventRouter | null = null;
 
 /**
  * Process-level singleton router shared by the ingress route, the session
- * manager, and all event subscribers.
+ * manager, and all event subscribers. Uses the console-backed fallback
+ * logger; callers that want host-scoped logging should construct a
+ * dedicated router via {@link createSessionEventRouter} and pass it
+ * around explicitly.
  */
 export function getMeetSessionEventRouter(): MeetSessionEventRouter {
   if (!instance) instance = new MeetSessionEventRouter();
@@ -172,3 +219,24 @@ export function setBotApiTokenResolver(resolver: BotApiTokenResolver): void {
 export function __resetMeetSessionEventRouterForTests(): void {
   instance = null;
 }
+
+// ---------------------------------------------------------------------------
+// Host-based factory
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a {@link MeetSessionEventRouter} scoped to a {@link SkillHost}.
+ * The router's logger is sourced from `host.logger.get(...)` so handler-
+ * error and drop telemetry carries the host's log scope.
+ *
+ * Registered under the sub-module slot `"session-event-router"` in
+ * {@link registerSubModule} at module import time; PR 17's session
+ * manager consumes the registration via `getSubModule`.
+ */
+export function createSessionEventRouter(
+  host: SkillHost,
+): MeetSessionEventRouter {
+  return new MeetSessionEventRouter(host.logger.get("meet-session-event-router"));
+}
+
+registerSubModule("session-event-router", createSessionEventRouter);

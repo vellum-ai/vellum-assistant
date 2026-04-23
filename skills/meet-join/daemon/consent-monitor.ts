@@ -33,6 +33,8 @@
  * method — the real {@link MeetSessionManager} satisfies this naturally.
  */
 
+import type { Logger, SkillHost } from "@vellumai/skill-host-contracts";
+
 import type {
   InboundChatEvent,
   MeetBotEvent,
@@ -41,23 +43,67 @@ import type {
 } from "../contracts/index.js";
 
 import {
-  createTimeout,
-  extractToolUse,
-  getConfiguredProvider,
-  userMessage,
-} from "../../../assistant/src/providers/provider-send-message.js";
-import type {
-  Provider,
-  ToolDefinition,
-} from "../../../assistant/src/providers/types.js";
-import { getLogger } from "../../../assistant/src/util/logger.js";
-import {
   type MeetEventSubscriber,
   type MeetEventUnsubscribe,
   subscribeToMeetingEvents,
 } from "./event-publisher.js";
+import { registerSubModule } from "./modules-registry.js";
 
-const log = getLogger("meet-consent-monitor");
+/**
+ * Structural overlay of the daemon's `ToolDefinition` used to force the
+ * LLM into a strict-JSON response. The contract's `providers.llm` facet
+ * types its request arguments as `unknown`, so the skill declares the
+ * local shape it actually needs — keeping the concrete daemon type
+ * (`assistant/src/providers/types.ts`) out of this file.
+ */
+interface ObjectionToolDefinition {
+  name: string;
+  description: string;
+  input_schema: {
+    type: "object";
+    properties: Record<string, unknown>;
+    required: readonly string[];
+  };
+}
+
+/**
+ * Minimal provider surface the default LLM binding uses. The host's
+ * `providers.llm.getConfigured()` returns an opaque `Provider`, which we
+ * narrow here to the one `sendMessage` method this module calls.
+ */
+interface LlmProviderLike {
+  sendMessage(
+    messages: unknown[],
+    tools: ObjectionToolDefinition[],
+    system: string,
+    opts: {
+      config: {
+        callSite: string;
+        max_tokens: number;
+        tool_choice: { type: "tool"; name: string };
+      };
+      signal: AbortSignal;
+    },
+  ): Promise<unknown>;
+}
+
+/**
+ * Fallback logger used when the monitor is constructed without a host-
+ * sourced logger. Keeps the class callable from unit tests that build it
+ * directly without supplying a full {@link SkillHost} stub.
+ */
+const consoleLogger: Logger = {
+  debug: () => {},
+  info: () => {},
+  warn: (msg, meta) => {
+    // eslint-disable-next-line no-console
+    console.warn(msg, meta ?? {});
+  },
+  error: (msg, meta) => {
+    // eslint-disable-next-line no-console
+    console.error(msg, meta ?? {});
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -126,10 +172,12 @@ export interface MeetConsentMonitorDeps {
   sessionManager: MeetSessionLeaver;
   config: MeetConsentMonitorConfig;
   /**
-   * Ask the LLM for an objection verdict. Defaults to a wrapper around the
-   * repo-wide provider abstraction using {@link CONSENT_LLM_MAX_TOKENS}
-   * under the `meetConsentMonitor` call site. Tests inject scripted
-   * responses.
+   * Ask the LLM for an objection verdict. Production callers build this
+   * via {@link createConsentMonitor}, which wires the host's
+   * `providers.llm.*` facet; direct `new MeetConsentMonitor(...)` callers
+   * (tests) must supply their own scripted implementation — there is no
+   * ambient default since the monitor no longer imports from
+   * `assistant/`.
    */
   llmAsk?: ObjectionLLMAsk;
   /** Override the dispatcher subscribe (tests). */
@@ -142,6 +190,13 @@ export interface MeetConsentMonitorDeps {
   clearIntervalFn?: (handle: unknown) => void;
   /** Override `Date.now` for tests that want deterministic dedupe timing. */
   now?: () => number;
+  /**
+   * Logger used for monitor telemetry. Production callers wire
+   * `host.logger.get("meet-consent-monitor")` via
+   * {@link createConsentMonitor}; unit tests get a console-backed
+   * fallback so they don't need to build a full {@link SkillHost}.
+   */
+  logger?: Logger;
 }
 
 // ---------------------------------------------------------------------------
@@ -178,6 +233,7 @@ export class MeetConsentMonitor {
   private readonly setIntervalFn: (cb: () => void, ms: number) => unknown;
   private readonly clearIntervalFn: (handle: unknown) => void;
   private readonly now: () => number;
+  private readonly log: Logger;
 
   private unsubscribe: MeetEventUnsubscribe | null = null;
   private timerHandle: unknown = null;
@@ -264,7 +320,12 @@ export class MeetConsentMonitor {
     this.assistantId = deps.assistantId;
     this.sessionManager = deps.sessionManager;
     this.config = deps.config;
-    this.llmAsk = deps.llmAsk ?? defaultLLMAsk;
+    // With the default-LLM binding removed, production callers wire
+    // `deps.llmAsk` via {@link createConsentMonitor}; tests that omit it
+    // get a stub that reports no objection so construction does not throw
+    // but the monitor is effectively a no-op.
+    this.llmAsk =
+      deps.llmAsk ?? (async () => ({ objected: false, reason: "" }));
     this.subscribe = deps.subscribe ?? subscribeToMeetingEvents;
     this.setIntervalFn =
       deps.setIntervalFn ?? ((cb, ms) => setInterval(cb, ms));
@@ -272,6 +333,7 @@ export class MeetConsentMonitor {
       deps.clearIntervalFn ??
       ((handle) => clearInterval(handle as ReturnType<typeof setInterval>));
     this.now = deps.now ?? Date.now;
+    this.log = deps.logger ?? consoleLogger;
   }
 
   /**
@@ -302,10 +364,10 @@ export class MeetConsentMonitor {
       try {
         this.unsubscribe();
       } catch (err) {
-        log.warn(
-          { err, meetingId: this.meetingId },
-          "MeetConsentMonitor: unsubscribe threw during stop",
-        );
+        this.log.warn("MeetConsentMonitor: unsubscribe threw during stop", {
+          err,
+          meetingId: this.meetingId,
+        });
       }
       this.unsubscribe = null;
     }
@@ -313,10 +375,10 @@ export class MeetConsentMonitor {
       try {
         this.clearIntervalFn(this.timerHandle);
       } catch (err) {
-        log.warn(
-          { err, meetingId: this.meetingId },
-          "MeetConsentMonitor: clearInterval threw during stop",
-        );
+        this.log.warn("MeetConsentMonitor: clearInterval threw during stop", {
+          err,
+          meetingId: this.meetingId,
+        });
       }
       this.timerHandle = null;
     }
@@ -340,10 +402,11 @@ export class MeetConsentMonitor {
         return;
       }
     } catch (err) {
-      log.warn(
-        { err, meetingId: this.meetingId, eventType: event.type },
-        "MeetConsentMonitor: event handler threw",
-      );
+      this.log.warn("MeetConsentMonitor: event handler threw", {
+        err,
+        meetingId: this.meetingId,
+        eventType: event.type,
+      });
     }
   }
 
@@ -524,15 +587,12 @@ export class MeetConsentMonitor {
       this.lastLlmCheckAt !== null &&
       now - this.lastLlmCheckAt < LLM_CHECK_DEBOUNCE_MS
     ) {
-      log.debug(
-        {
-          event: "consent_monitor.check.debounced",
-          meetingId: this.meetingId,
-          trigger,
-          msSinceLastCheck: now - this.lastLlmCheckAt,
-        },
-        "MeetConsentMonitor: LLM check debounced",
-      );
+      this.log.debug("MeetConsentMonitor: LLM check debounced", {
+        event: "consent_monitor.check.debounced",
+        meetingId: this.meetingId,
+        trigger,
+        msSinceLastCheck: now - this.lastLlmCheckAt,
+      });
       return;
     }
 
@@ -544,13 +604,13 @@ export class MeetConsentMonitor {
       trigger === "tick" &&
       this.lastContentTimestamp === this.lastLlmCheckContentTimestamp
     ) {
-      log.debug(
+      this.log.debug(
+        "MeetConsentMonitor: timer tick skipped — no new non-bot content",
         {
           event: "consent_monitor.timer.skipped_no_new_content",
           meetingId: this.meetingId,
           lastContentTimestamp: this.lastContentTimestamp,
         },
-        "MeetConsentMonitor: timer tick skipped — no new non-bot content",
       );
       return;
     }
@@ -582,28 +642,22 @@ export class MeetConsentMonitor {
       this.lastLlmCheckContentTimestamp = contentTimestampAtCheck;
 
       if (!decision.objected) {
-        log.debug(
-          {
-            meetingId: this.meetingId,
-            trigger,
-            reason: decision.reason,
-          },
-          "MeetConsentMonitor: LLM confirmed no objection",
-        );
+        this.log.debug("MeetConsentMonitor: LLM confirmed no objection", {
+          meetingId: this.meetingId,
+          trigger,
+          reason: decision.reason,
+        });
         return;
       }
       // Positive verdict — lock the monitor and act.
       this.decided = true;
-      log.info(
-        {
-          meetingId: this.meetingId,
-          assistantId: this.assistantId,
-          trigger,
-          reason: decision.reason,
-          autoLeave: this.config.autoLeaveOnObjection,
-        },
-        "MeetConsentMonitor: objection detected",
-      );
+      this.log.info("MeetConsentMonitor: objection detected", {
+        meetingId: this.meetingId,
+        assistantId: this.assistantId,
+        trigger,
+        reason: decision.reason,
+        autoLeave: this.config.autoLeaveOnObjection,
+      });
       if (this.config.autoLeaveOnObjection) {
         try {
           await this.sessionManager.leave(
@@ -611,10 +665,10 @@ export class MeetConsentMonitor {
             `objection: ${decision.reason}`,
           );
         } catch (err) {
-          log.error(
-            { err, meetingId: this.meetingId },
-            "MeetConsentMonitor: session leave failed",
-          );
+          this.log.error("MeetConsentMonitor: session leave failed", {
+            err,
+            meetingId: this.meetingId,
+          });
         }
       }
     } catch (err) {
@@ -622,9 +676,9 @@ export class MeetConsentMonitor {
       // silently suppressed. The content watermark doesn't need restoring
       // because it's only advanced after a successful LLM call (line above).
       this.lastLlmCheckAt = prevLlmCheckAt;
-      log.warn(
-        { err, meetingId: this.meetingId, trigger },
+      this.log.warn(
         "MeetConsentMonitor: LLM call failed — staying in the meeting",
+        { err, meetingId: this.meetingId, trigger },
       );
     } finally {
       this.llmInFlight = false;
@@ -673,16 +727,16 @@ export class MeetConsentMonitor {
 }
 
 // ---------------------------------------------------------------------------
-// Default LLM binding
+// Default LLM binding (host-scoped)
 // ---------------------------------------------------------------------------
 
 /** Tool schema used to force structured JSON output from the LLM. */
-const OBJECTION_TOOL: ToolDefinition = {
+const OBJECTION_TOOL: ObjectionToolDefinition = {
   name: "report_objection",
   description:
     "Report whether any meeting participant has objected to the AI note-taker's presence.",
   input_schema: {
-    type: "object" as const,
+    type: "object",
     properties: {
       objected: {
         type: "boolean",
@@ -700,27 +754,29 @@ const OBJECTION_TOOL: ToolDefinition = {
 };
 
 /**
- * Default {@link ObjectionLLMAsk} — routes through the repo-wide provider
- * abstraction under the `meetConsentMonitor` call site, times out at
- * {@link CONSENT_LLM_TIMEOUT_MS}, and extracts the tool-use input as the
- * structured verdict.
+ * Build the default {@link ObjectionLLMAsk} bound to a {@link SkillHost}.
+ * Routes through `host.providers.llm.*` under the `meetConsentMonitor`
+ * call site, times out at {@link CONSENT_LLM_TIMEOUT_MS}, and extracts
+ * the tool-use input as the structured verdict.
  *
- * Hidden behind an injectable hook so tests never need to stand up a
- * real provider.
+ * Kept as a factory — rather than a singleton — so tests never need to
+ * stand up a real provider and each host-scoped monitor gets its own
+ * closure over the host's provider accessors.
  */
-async function defaultLLMAsk(prompt: string): Promise<ObjectionDecision> {
-  const provider: Provider | null =
-    await getConfiguredProvider("meetConsentMonitor");
-  if (!provider) {
-    // No provider available — conservatively assume no objection so the
-    // monitor doesn't interrupt a meeting based on missing infra.
-    return { objected: false, reason: "" };
-  }
+function createDefaultLlmAsk(host: SkillHost): ObjectionLLMAsk {
+  return async (prompt) => {
+    const provider = (await host.providers.llm.getConfigured(
+      "meetConsentMonitor",
+    )) as LlmProviderLike | null;
+    if (!provider) {
+      // No provider available — conservatively assume no objection so the
+      // monitor doesn't interrupt a meeting based on missing infra.
+      return { objected: false, reason: "" };
+    }
 
-  const { signal, cleanup } = createTimeout(CONSENT_LLM_TIMEOUT_MS);
-  try {
+    const controller = host.providers.llm.createTimeout(CONSENT_LLM_TIMEOUT_MS);
     const response = await provider.sendMessage(
-      [userMessage(prompt)],
+      [host.providers.llm.userMessage(prompt)],
       [OBJECTION_TOOL],
       "You are a strict JSON classifier. Only respond via the report_objection tool.",
       {
@@ -729,17 +785,51 @@ async function defaultLLMAsk(prompt: string): Promise<ObjectionDecision> {
           max_tokens: CONSENT_LLM_MAX_TOKENS,
           tool_choice: { type: "tool" as const, name: OBJECTION_TOOL.name },
         },
-        signal,
+        signal: controller.signal,
       },
     );
-    const tool = extractToolUse(response);
+    const tool = host.providers.llm.extractToolUse(response) as {
+      input?: { objected?: unknown; reason?: unknown };
+    } | null;
     if (!tool) return { objected: false, reason: "" };
-    const input = tool.input as { objected?: unknown; reason?: unknown };
+    const input = tool.input ?? {};
     return {
       objected: input.objected === true,
       reason: typeof input.reason === "string" ? input.reason : "",
     };
-  } finally {
-    cleanup();
-  }
+  };
 }
+
+// ---------------------------------------------------------------------------
+// Host-based factory
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a callable that constructs per-meeting {@link MeetConsentMonitor}
+ * instances bound to a {@link SkillHost}. The factory wires the host's
+ * logger and the host-scoped default LLM ask; per-meeting deps
+ * (`meetingId`, `sessionManager`, `config`, etc.) are supplied by the
+ * session manager at construction time.
+ *
+ * Registered under the sub-module slot `"consent-monitor"` in
+ * {@link registerSubModule} at module import time; PR 17's session
+ * manager consumes the registration via `getSubModule`.
+ */
+export function createConsentMonitor(
+  host: SkillHost,
+): (
+  deps: Omit<MeetConsentMonitorDeps, "assistantId"> & { assistantId?: string },
+) => MeetConsentMonitor {
+  const logger = host.logger.get("meet-consent-monitor");
+  const defaultLlmAsk = createDefaultLlmAsk(host);
+  const defaultAssistantId = host.identity.internalAssistantId;
+  return (deps) =>
+    new MeetConsentMonitor({
+      ...deps,
+      assistantId: deps.assistantId ?? defaultAssistantId,
+      llmAsk: deps.llmAsk ?? defaultLlmAsk,
+      logger: deps.logger ?? logger,
+    });
+}
+
+registerSubModule("consent-monitor", createConsentMonitor);

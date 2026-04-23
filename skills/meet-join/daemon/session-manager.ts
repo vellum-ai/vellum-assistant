@@ -811,7 +811,10 @@ class MeetSessionManagerImpl {
           })),
       storageWriterFactory:
         deps.storageWriterFactory ??
-        ((args) => new MeetStorageWriter(args.meetingId)),
+        ((args) =>
+          new MeetStorageWriter(args.meetingId, {
+            getWorkspaceDir: resolveWorkspaceDir,
+          })),
       resolveAssistantDisplayName:
         deps.resolveAssistantDisplayName ?? getAssistantName,
       insertMessage,

@@ -37,6 +37,14 @@
  */
 
 import type {
+  AssistantEvent,
+  AssistantEventCallback,
+  Logger,
+  SkillHost,
+  Subscription as AssistantEventSubscription,
+} from "@vellumai/skill-host-contracts";
+
+import type {
   MeetBotEvent,
   ParticipantChangeEvent,
   SpeakerChangeEvent,
@@ -44,19 +52,31 @@ import type {
 } from "../contracts/index.js";
 
 import {
-  type AssistantEventCallback,
-  type AssistantEventSubscription,
-  assistantEventHub,
-} from "../../../assistant/src/runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../assistant/src/runtime/assistant-scope.js";
-import { getLogger } from "../../../assistant/src/util/logger.js";
-import {
   type MeetEventSubscriber,
   type MeetEventUnsubscribe,
   subscribeToMeetingEvents,
 } from "./event-publisher.js";
+import { registerSubModule } from "./modules-registry.js";
 
-const log = getLogger("meet-barge-in-watcher");
+export type { AssistantEventCallback, AssistantEventSubscription };
+
+/**
+ * Fallback logger used when the watcher is constructed without a host-
+ * sourced logger. Keeps the class callable from unit tests that build it
+ * directly without supplying a full {@link SkillHost} stub.
+ */
+const consoleLogger: Logger = {
+  debug: () => {},
+  info: () => {},
+  warn: (msg, meta) => {
+    // eslint-disable-next-line no-console
+    console.warn(msg, meta ?? {});
+  },
+  error: (msg, meta) => {
+    // eslint-disable-next-line no-console
+    console.error(msg, meta ?? {});
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -105,8 +125,11 @@ export interface MeetBargeInWatcherDeps {
     cb: MeetEventSubscriber,
   ) => MeetEventUnsubscribe;
   /**
-   * Override the assistant-event-hub subscribe (tests). Defaults to the
-   * process-level {@link assistantEventHub} singleton.
+   * Subscribe to the assistant-event hub. Production callers wire this
+   * via {@link createBargeInWatcher} to `host.events.subscribe`; direct
+   * `new MeetBargeInWatcher` callers (tests) must supply their own
+   * scripted implementation — there is no ambient default since the
+   * watcher no longer imports from `assistant/`.
    */
   subscribeAssistantEvents?: (
     cb: AssistantEventCallback,
@@ -128,6 +151,13 @@ export interface MeetBargeInWatcherDeps {
    * floats.
    */
   interimConfidenceThreshold?: number;
+  /**
+   * Logger used for best-effort error / debug telemetry. Production
+   * callers wire `host.logger.get("meet-barge-in-watcher")` via
+   * {@link createBargeInWatcher}; unit tests get a console-backed
+   * fallback so they don't need to build a full {@link SkillHost}.
+   */
+  logger?: Logger;
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +178,7 @@ export class MeetBargeInWatcher {
   private readonly clearTimeoutFn: (handle: unknown) => void;
   private readonly debounceMs: number;
   private readonly interimConfidenceThreshold: number;
+  private readonly log: Logger;
 
   /** Bot's DOM participant id, captured from the first `isSelf` joiner. */
   private botSpeakerId: string | null = null;
@@ -165,13 +196,12 @@ export class MeetBargeInWatcher {
     this.meetingId = deps.meetingId;
     this.sessionManager = deps.sessionManager;
     this.subscribe = deps.subscribe ?? subscribeToMeetingEvents;
+    // Tests that omit this hook get a no-op subscription so `start()` does
+    // not throw; no hub-driven cancels will fire in that mode. Production
+    // wiring comes from {@link createBargeInWatcher}.
     this.subscribeAssistantEvents =
       deps.subscribeAssistantEvents ??
-      ((cb) =>
-        assistantEventHub.subscribe(
-          { assistantId: DAEMON_INTERNAL_ASSISTANT_ID },
-          cb,
-        ));
+      (() => ({ dispose: () => {}, active: false }));
     this.setTimeoutFn = deps.setTimeoutFn ?? ((cb, ms) => setTimeout(cb, ms));
     this.clearTimeoutFn =
       deps.clearTimeoutFn ??
@@ -179,6 +209,7 @@ export class MeetBargeInWatcher {
     this.debounceMs = deps.debounceMs ?? BARGE_IN_DEBOUNCE_MS;
     this.interimConfidenceThreshold =
       deps.interimConfidenceThreshold ?? BARGE_IN_INTERIM_CONFIDENCE_THRESHOLD;
+    this.log = deps.logger ?? consoleLogger;
   }
 
   /**
@@ -207,10 +238,10 @@ export class MeetBargeInWatcher {
       try {
         this.dispatcherUnsubscribe();
       } catch (err) {
-        log.warn(
-          { err, meetingId: this.meetingId },
-          "MeetBargeInWatcher: dispatcher unsubscribe threw",
-        );
+        this.log.warn("MeetBargeInWatcher: dispatcher unsubscribe threw", {
+          err,
+          meetingId: this.meetingId,
+        });
       }
       this.dispatcherUnsubscribe = null;
     }
@@ -219,9 +250,9 @@ export class MeetBargeInWatcher {
       try {
         this.hubSubscription.dispose();
       } catch (err) {
-        log.warn(
-          { err, meetingId: this.meetingId },
+        this.log.warn(
           "MeetBargeInWatcher: assistant-event-hub dispose threw",
+          { err, meetingId: this.meetingId },
         );
       }
       this.hubSubscription = null;
@@ -263,31 +294,36 @@ export class MeetBargeInWatcher {
           return;
       }
     } catch (err) {
-      log.warn(
-        { err, meetingId: this.meetingId, eventType: event.type },
-        "MeetBargeInWatcher: meeting-event handler threw",
-      );
+      this.log.warn("MeetBargeInWatcher: meeting-event handler threw", {
+        err,
+        meetingId: this.meetingId,
+        eventType: event.type,
+      });
     }
   }
 
-  private onAssistantEvent(event: {
-    message: { type: string; meetingId?: string };
-  }): void {
-    const message = event.message;
+  private onAssistantEvent(event: AssistantEvent): void {
+    // The neutral contract's `AssistantEvent` types `message` as unknown;
+    // narrow to the meet-specific shape we care about without introducing
+    // a dependency on the daemon's `ServerMessage` union.
+    const message = event.message as
+      | { type?: string; meetingId?: string; streamId?: string }
+      | undefined;
+    if (!message) return;
     // Filter to our own meeting only — the assistant event hub fans every
     // assistant event to every subscriber, so we have to gate on meetingId
     // ourselves. `meetingId` is part of the `meet.speaking_*` payload shape.
     if (message.meetingId !== this.meetingId) return;
 
     if (message.type === "meet.speaking_started") {
-      const streamId = (message as { streamId?: string }).streamId;
+      const { streamId } = message;
       if (streamId) this.activeSpeakingStreams.add(streamId);
       this.clearPendingCancel();
       return;
     }
 
     if (message.type === "meet.speaking_ended") {
-      const streamId = (message as { streamId?: string }).streamId;
+      const { streamId } = message;
       if (streamId) this.activeSpeakingStreams.delete(streamId);
       if (this.activeSpeakingStreams.size === 0) {
         this.clearPendingCancel();
@@ -372,15 +408,16 @@ export class MeetBargeInWatcher {
       // scheduling and firing, in which case there's nothing to cancel.
       if (this.activeSpeakingStreams.size === 0) return;
 
-      log.info(
-        { meetingId: this.meetingId, trigger },
-        "Meet barge-in: cancelling in-flight TTS",
-      );
+      this.log.info("Meet barge-in: cancelling in-flight TTS", {
+        meetingId: this.meetingId,
+        trigger,
+      });
       void this.sessionManager.cancelSpeak(this.meetingId).catch((err) => {
-        log.warn(
-          { err, meetingId: this.meetingId, trigger },
-          "MeetBargeInWatcher: cancelSpeak rejected",
-        );
+        this.log.warn("MeetBargeInWatcher: cancelSpeak rejected", {
+          err,
+          meetingId: this.meetingId,
+          trigger,
+        });
       });
     }, this.debounceMs);
   }
@@ -390,11 +427,43 @@ export class MeetBargeInWatcher {
     try {
       this.clearTimeoutFn(this.pendingCancelHandle);
     } catch (err) {
-      log.warn(
-        { err, meetingId: this.meetingId },
-        "MeetBargeInWatcher: clearTimeout threw",
-      );
+      this.log.warn("MeetBargeInWatcher: clearTimeout threw", {
+        err,
+        meetingId: this.meetingId,
+      });
     }
     this.pendingCancelHandle = null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Host-based factory
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a callable that constructs per-meeting {@link MeetBargeInWatcher}
+ * instances bound to a {@link SkillHost}. The factory wires the host's
+ * logger and the host-scoped assistant-event-hub subscription; per-meeting
+ * deps (`meetingId`, `sessionManager`, etc.) are supplied by the session
+ * manager at construction time.
+ *
+ * Registered under the sub-module slot `"barge-in-watcher"` in
+ * {@link registerSubModule} at module import time; PR 17's session
+ * manager consumes the registration via `getSubModule`.
+ */
+export function createBargeInWatcher(
+  host: SkillHost,
+): (deps: MeetBargeInWatcherDeps) => MeetBargeInWatcher {
+  const logger = host.logger.get("meet-barge-in-watcher");
+  const assistantId = host.identity.internalAssistantId;
+  return (deps) =>
+    new MeetBargeInWatcher({
+      ...deps,
+      subscribeAssistantEvents:
+        deps.subscribeAssistantEvents ??
+        ((cb) => host.events.subscribe({ assistantId }, cb)),
+      logger: deps.logger ?? logger,
+    });
+}
+
+registerSubModule("barge-in-watcher", createBargeInWatcher);
