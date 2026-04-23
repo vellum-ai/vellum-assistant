@@ -4,6 +4,9 @@
   "private": true,
   "license": "MIT",
   "type": "module",
+  "scripts": {
+    "emit-manifest": "bun run scripts/emit-manifest.ts"
+  },
   "dependencies": {
     "@vellumai/skill-host-contracts": "file:../../packages/skill-host-contracts",
     "zod": "4.3.6"
