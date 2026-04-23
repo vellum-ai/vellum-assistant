@@ -238,6 +238,8 @@ export async function handleConfirm(
         riskLevel: interaction.confirmationDetails?.riskLevel,
         requestId,
         decision: effectiveDecision,
+        userMessage: "",
+        assistantResponse: "",
       },
     },
   }).catch((err) => {
