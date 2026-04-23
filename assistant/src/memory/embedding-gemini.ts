@@ -60,14 +60,12 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
     const body: Record<string, unknown> = {
       content: { parts },
     };
-    // Include `model` in the body only for managed-proxy requests — the
-    // platform billing layer reads it from the body to validate rate cards.
-    // Direct Gemini API requests must NOT include it because the model is
-    // already in the URL path and the API rejects the duplicate (`oneof
-    // field '_model' is already set`).
-    if (this.managedBaseUrl) {
-      body.model = `models/${this.model}`;
-    }
+    // Do NOT set `model` in the body. Gemini's embedContent API models `model`
+    // as a protobuf oneof populated from the URL path (internally `_model`),
+    // so adding it to the body triggers a 400: "oneof field '_model' is
+    // already set. Cannot set 'model'". This holds for both the direct API
+    // and the managed proxy, which forwards the body unchanged; the platform
+    // billing layer parses the model from the URL path instead.
     if (this.taskType) body.taskType = this.taskType;
     if (this.dimensions) body.outputDimensionality = this.dimensions;
 

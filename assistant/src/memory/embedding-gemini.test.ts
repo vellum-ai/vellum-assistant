@@ -276,9 +276,45 @@ describe("GeminiEmbeddingBackend", () => {
       // Should have Bearer auth header
       const headers = init.headers as Record<string, string>;
       expect(headers["Authorization"]).toBe("Bearer ast-managed-key");
-      // Managed path includes model in body for platform billing validation
+      // Managed path must NOT include `model` in the body — Gemini models it
+      // as a protobuf oneof populated from the URL path (internally `_model`)
+      // and rejects the duplicate with "oneof field '_model' is already set".
+      // See the comment in embedSingle() for the full invariant.
       const body = JSON.parse(init.body as string);
-      expect(body.model).toBe("models/gemini-embedding-2-preview");
+      expect(body.model).toBeUndefined();
+      expect(body._model).toBeUndefined();
+    });
+
+    test("never sets `model` or `_model` in the request body (oneof invariant)", async () => {
+      // Regression for JARVIS-587: every embed_segment job was failing with
+      // `Invalid value (oneof), oneof field '_model' is already set. Cannot
+      // set 'model'`. Ensure neither field is ever present on the wire,
+      // regardless of transport.
+      const managedBackend = new GeminiEmbeddingBackend(
+        "ast-managed-key",
+        "gemini-embedding-2-preview",
+        {
+          managedBaseUrl:
+            "https://platform.example.com/v1/runtime-proxy/gemini",
+          taskType: "RETRIEVAL_DOCUMENT",
+          dimensions: 3072,
+        },
+      );
+      await managedBackend.embed(["hello"]);
+
+      const directBackend = new GeminiEmbeddingBackend(
+        "direct-key",
+        "test-model",
+      );
+      await directBackend.embed(["hello"]);
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      for (const call of mockFetch.mock.calls) {
+        const [, init] = call as [string, RequestInit];
+        const body = JSON.parse(init.body as string);
+        expect(body.model).toBeUndefined();
+        expect(body._model).toBeUndefined();
+      }
     });
 
     test("uses direct Google API URL when managedBaseUrl is not set", async () => {
