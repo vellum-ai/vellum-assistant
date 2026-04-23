@@ -1372,7 +1372,7 @@ fi
 # actool with .icon bundles only emits into Assets.car — it does not produce a
 # standalone .icns.  Finder and create-dmg rely on CFBundleIconFile → .icns,
 # so we render one from the same SVG source that Icon Composer uses.
-if [ ! -f "$RESOURCES_DIR/AppIcon.icns" ]; then
+if [ ! -f "$RESOURCES_DIR/AppIcon.icns" ] && [ -d "$APP_ICON" ]; then
     echo "Generating AppIcon.icns from SVG..."
 
     ICONSET_DIR=$(mktemp -d)/AppIcon.iconset
@@ -1511,11 +1511,16 @@ let svgPixelHeight = svgHeight * scale
 
 // Center the scaled SVG on the canvas, then apply translation
 let offsetX = (s - svgPixelWidth) / 2.0 + txPoints
-// Flip Y: icon.json translation Y=25 means 25pt upward in Icon Composer
-// In our top-left-origin context, upward = negative Y
+// Flip Y: CGContext uses bottom-left origin with Y-up, but SVG uses top-left
+// origin with Y-down. Flip the context to match SVG coordinate convention.
+// icon.json translation Y=25 means 25pt upward in Icon Composer;
+// in our now-flipped top-left-origin context, upward = negative Y.
 let offsetY = (s - svgPixelHeight) / 2.0 - tyPoints
 
 ctx.saveGState()
+// Flip to top-left origin (matching SVG coordinates)
+ctx.translateBy(x: 0, y: s)
+ctx.scaleBy(x: 1, y: -1)
 // Move to where the SVG should be drawn, then scale the SVG coordinates
 ctx.translateBy(x: offsetX, y: offsetY)
 ctx.scaleBy(x: scale, y: scale)
