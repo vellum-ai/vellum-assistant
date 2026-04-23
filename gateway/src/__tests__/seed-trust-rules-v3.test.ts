@@ -51,11 +51,7 @@ describe("seedTrustRuleV3sFromRegistry()", () => {
   });
 
   test("count is > 200 for the current registry size", () => {
-    // Seed on a fresh store to get the count directly
-    resetGatewayDb();
-    // Re-init without seeding to get a clean count
-    // Actually initGatewayDb seeds automatically, so we check via list
-    // The rules were already seeded by initGatewayDb in beforeEach
+    // Rules were already seeded by initGatewayDb in beforeEach
     const rules = store.list({ origin: "default" });
     expect(rules.length).toBeGreaterThan(200);
   });
