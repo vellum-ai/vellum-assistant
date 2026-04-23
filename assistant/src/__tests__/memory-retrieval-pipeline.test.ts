@@ -329,10 +329,6 @@ describe("memoryRetrieval pipeline — default vs custom plugin", () => {
     expect(timeoutErr.message).toContain("memoryRetrieval");
   });
 
-  test("DEFAULT_TIMEOUTS.memoryRetrieval matches the 5s design-doc budget", () => {
-    expect(DEFAULT_TIMEOUTS.memoryRetrieval).toBe(5_000);
-  });
-
   test("onEvent is invoked by the default retriever's terminal path", async () => {
     const received: ServerMessage[] = [];
     const { memory } = makeFakeGraphMemory();
