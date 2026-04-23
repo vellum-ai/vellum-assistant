@@ -145,6 +145,7 @@ export function createSchedule(params: {
     timezone,
     message: params.message,
     script: params.script ?? null,
+    wakeConversationId: null as string | null,
     nextRunAt,
     lastRunAt: null as number | null,
     lastStatus: null as string | null,
