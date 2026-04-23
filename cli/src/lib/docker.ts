@@ -635,8 +635,19 @@ export function serviceDockerRunArgs(opts: {
       // container runs its own `dockerd` so the Meet subsystem can spawn
       // sibling meet-bot containers without needing access to the host's
       // Docker engine. This requires:
-      //   - `--privileged` so the inner dockerd can manage cgroups, iptables,
-      //     overlayfs mounts, etc.
+      //   - `CAP_SYS_ADMIN` + `CAP_NET_ADMIN` so the inner dockerd can
+      //     configure cgroups, overlay mounts, network namespaces, and
+      //     iptables. We deliberately avoid `--privileged` (which grants the
+      //     full host capability set and access to every host device node)
+      //     to shrink the escape surface from any code running inside the
+      //     assistant container. See the "Security tradeoff for Docker mode"
+      //     note in AGENTS.md.
+      //   - `seccomp=unconfined` + `apparmor=unconfined` because Docker's
+      //     default seccomp profile blocks syscalls dockerd needs (e.g.
+      //     certain clone/unshare and pivot_root flags) and the default
+      //     AppArmor profile on Debian/Ubuntu hosts denies the mount
+      //     operations dockerd performs while launching bot containers. On
+      //     hosts where these LSMs are inactive, the options are no-ops.
       //   - A dedicated named volume mounted at `/var/lib/docker` so the
       //     inner Docker image cache and container state survive restarts of
       //     the assistant container.
@@ -646,7 +657,14 @@ export function serviceDockerRunArgs(opts: {
         "run",
         "--init",
         "-d",
-        "--privileged",
+        "--cap-add",
+        "SYS_ADMIN",
+        "--cap-add",
+        "NET_ADMIN",
+        "--security-opt",
+        "seccomp=unconfined",
+        "--security-opt",
+        "apparmor=unconfined",
         "--name",
         res.assistantContainer,
         `--network=${res.network}`,
