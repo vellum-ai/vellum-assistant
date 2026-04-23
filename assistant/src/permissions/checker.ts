@@ -349,7 +349,13 @@ async function buildCommandCandidates(
     return [...new Set(candidates)];
   }
 
-  const fileTarget = getStringField(input, "path", "file_path");
+  const fileTarget = getStringField(
+    input,
+    "path",
+    "file_path",
+    "dest_path",
+    "source_path",
+  );
   if (
     toolName === "host_file_read" ||
     toolName === "host_file_write" ||
@@ -456,7 +462,13 @@ export async function classifyRisk(
       "host_file_transfer",
     ].includes(toolName)
   ) {
-    const filePath = getStringField(input, "path", "file_path");
+    const filePath = getStringField(
+      input,
+      "path",
+      "file_path",
+      "dest_path",
+      "source_path",
+    );
     const isHostTool = toolName.startsWith("host_");
     const assessment = await fileRiskClassifier.classify({
       toolName: toolName as
@@ -802,7 +814,12 @@ function fileAllowlistStrategy(
   toolName: string,
   input: Record<string, unknown>,
 ): AllowlistOption[] {
-  const filePath = (input.path as string) ?? (input.file_path as string) ?? "";
+  const filePath =
+    (input.path as string) ??
+    (input.file_path as string) ??
+    (input.dest_path as string) ??
+    (input.source_path as string) ??
+    "";
   const toolLabel = TOOL_DISPLAY_NAMES[toolName] ?? toolName;
   const options: AllowlistOption[] = [];
 

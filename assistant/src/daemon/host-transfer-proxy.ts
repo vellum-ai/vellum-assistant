@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
@@ -19,6 +20,7 @@ interface PendingTransfer {
   transferId: string;
   direction: "to_host" | "to_sandbox";
   filePath: string;
+  overwrite?: boolean;
   sizeBytes?: number;
   sha256?: string;
   fileBuffer?: Buffer;
@@ -205,6 +207,7 @@ export class HostTransferProxy {
     input: {
       sourcePath: string;
       destPath: string;
+      overwrite?: boolean;
       conversationId: string;
     },
     signal?: AbortSignal,
@@ -267,6 +270,7 @@ export class HostTransferProxy {
         transferId,
         direction: "to_sandbox",
         filePath: input.destPath,
+        overwrite: input.overwrite,
         detachAbort,
       };
       this.pending.set(requestId, entry);
@@ -393,6 +397,17 @@ export class HostTransferProxy {
     }
 
     const { requestId } = entry;
+
+    // Enforce overwrite policy before writing.
+    if (entry.overwrite === false && existsSync(entry.filePath)) {
+      const errorMsg = `Destination file already exists: ${entry.filePath}. Set overwrite to true to replace it.`;
+      clearTimeout(entry.timer);
+      entry.detachAbort();
+      this.pending.delete(requestId);
+      this.transfers.delete(transferId);
+      entry.resolve({ content: errorMsg, isError: true });
+      return { accepted: false, error: errorMsg };
+    }
 
     const cleanup = () => {
       clearTimeout(entry.timer);

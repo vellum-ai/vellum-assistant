@@ -114,6 +114,7 @@ class HostFileTransferTool implements Tool {
         {
           sourcePath,
           destPath,
+          overwrite,
           conversationId: context.conversationId,
         },
         context.signal,
