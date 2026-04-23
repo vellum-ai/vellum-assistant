@@ -44,10 +44,13 @@ import { runShutdownHooks } from "../daemon/shutdown-registry.js";
 import { RiskLevel } from "../permissions/types.js";
 import {
   ASSISTANT_API_VERSIONS,
+  getInjectors,
+  getMiddlewaresFor,
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
 import {
+  type PipelineMiddlewareMap,
   type Plugin,
   PluginExecutionError,
   type PluginInitContext,
@@ -454,6 +457,49 @@ describe("plugin bootstrap", () => {
     await bootstrapPlugins(fakeCtx);
 
     expect(initFired).toBe(false);
+  });
+
+  test("requiresFlag disabled: plugin middleware and injectors are dropped from the registry", async () => {
+    // Regression: prior to the unregisterPlugin() call on the flag-gated skip
+    // path, `getMiddlewaresFor()` and `getInjectors()` iterated over every
+    // entry in `registeredPlugins` — so a gated-off plugin's middleware and
+    // injectors still ran on every pipeline invocation and system-prompt
+    // assembly even though `init()` had never fired to set up the state they
+    // depended on.
+    _setOverridesForTesting({ "plugin-middleware-disabled": false });
+
+    const gatedMiddleware: PipelineMiddlewareMap["llmCall"] = async (
+      args,
+      next,
+    ) => next(args);
+    const plugin = buildPlugin(
+      "gated-middleware",
+      {
+        middleware: { llmCall: gatedMiddleware },
+        injectors: [
+          {
+            name: "gated-middleware-injector",
+            order: 100,
+            async produce() {
+              return null;
+            },
+          },
+        ],
+      },
+      { requiresFlag: ["plugin-middleware-disabled"] },
+    );
+    registerPlugin(plugin);
+
+    await bootstrapPlugins(fakeCtx);
+
+    // Neither the middleware slot nor the injector list should expose the
+    // flag-gated plugin's contributions. The default plugins also contribute
+    // llmCall middleware / injectors, so we key on identity rather than
+    // asserting empty lists.
+    expect(getMiddlewaresFor("llmCall")).not.toContain(gatedMiddleware);
+    expect(
+      getInjectors().some((i) => i.name === "gated-middleware-injector"),
+    ).toBe(false);
   });
 
   test("requiresFlag disabled: no shutdown hook entry installed for the skipped plugin", async () => {
