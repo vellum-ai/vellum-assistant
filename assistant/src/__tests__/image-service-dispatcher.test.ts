@@ -172,4 +172,15 @@ describe("providerForModel", () => {
     expect(providerForModel("unknown-model", "openai")).toBe("openai");
     expect(providerForModel("", "gemini")).toBe("gemini");
   });
+
+  test("returns fallback for non-string inputs without throwing", () => {
+    // The tool's `input.model` is `unknown` — guard against LLM emitting
+    // `{"model": 123}` or other non-string values rather than crashing on
+    // `.startsWith`.
+    expect(providerForModel(123, "gemini")).toBe("gemini");
+    expect(providerForModel(null, "openai")).toBe("openai");
+    expect(providerForModel({}, "gemini")).toBe("gemini");
+    expect(providerForModel([], "openai")).toBe("openai");
+    expect(providerForModel(true, "gemini")).toBe("gemini");
+  });
 });

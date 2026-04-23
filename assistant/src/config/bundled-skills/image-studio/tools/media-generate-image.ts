@@ -19,7 +19,7 @@ export async function run(
 ): Promise<ToolExecutionResult> {
   const config = getConfig();
   const svc = config.services["image-generation"];
-  const modelOverride = input.model as string | undefined;
+  const modelOverride = input.model;
   // Derive provider from the explicit model when supplied so that requesting
   // e.g. `gpt-image-2` while config.provider === "gemini" routes to OpenAI
   // instead of silently falling back to the Gemini default model.
@@ -38,7 +38,10 @@ export async function run(
   const prompt = input.prompt as string;
   const mode = (input.mode as "generate" | "edit") ?? "generate";
   const sourcePaths = input.source_paths as string[] | undefined;
-  const model = modelOverride ?? config.services["image-generation"].model;
+  const model =
+    typeof modelOverride === "string" && modelOverride
+      ? modelOverride
+      : config.services["image-generation"].model;
   const variants = input.variants as number | undefined;
 
   // Resolve source images from file paths (sandboxed to workingDir, edit mode only)
