@@ -10,12 +10,23 @@ import VellumAssistantShared
 struct HomePermissionDetailCard: View {
     let item: FeedItem
 
-    private var panelData: ToolPermissionPanelData? {
-        ToolPermissionPanelData.from(item.detailPanel?.data)
+    private var toolData: ToolPermissionPanelData? {
+        if let data = ToolPermissionPanelData.from(item.detailPanel?.data) {
+            return data
+        }
+        if let chat = PermissionChatPanelData.from(item.detailPanel?.data) {
+            return ToolPermissionPanelData(
+                toolName: chat.toolName,
+                commandPreview: chat.commandPreview,
+                riskLevel: chat.riskLevel,
+                decision: nil
+            )
+        }
+        return nil
     }
 
     var body: some View {
-        if let data = panelData {
+        if let data = toolData {
             structuredContent(data)
         } else {
             Text(item.title)
