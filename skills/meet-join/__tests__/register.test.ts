@@ -1,63 +1,24 @@
 /**
  * Tests for `skills/meet-join/register.ts`.
  *
- * The register module is a pure side-effect: importing it pushes every
- * meet_* tool onto the assistant's external-tool registry when the
- * `meet` feature flag is on. Without this bootstrap, the daemon's
+ * `register(host)` wires meet-join's tools and HTTP route into the
+ * assistant via the host contract. Without it, the daemon's
  * `initializeTools()` never sees the meet tools and they remain
- * invisible to the LLM. These assertions guard that invariant — if
- * a meet tool is added/renamed/removed, this test catches the drift
+ * invisible to the LLM. These assertions guard that invariant — if a
+ * meet tool is added / renamed / removed, this test catches the drift
  * before the tool silently disappears from production.
  *
- * Test strategy: we mock `registerExternalTools` so we can capture
- * exactly what the bootstrap call registers without pulling in the
- * whole assistant tool-registry module graph (which would force us
- * to stand up SQLite, credential storage, etc. just to assert a tool
- * list). The real integration from register.ts → registry.ts is
- * thin enough that a pure-call assertion here is sufficient.
+ * Test strategy: build a fake `SkillHost` that captures every
+ * registration call and pass it to `register(host)`. Module-level
+ * side-effect imports of the tools and the meet-internal route are
+ * mocked so that the tool objects and the path regex resolve without
+ * pulling in the real assistant tool-registry / session-router module
+ * graphs (which would force us to stand up SQLite, credential
+ * storage, etc. just to assert a tool list).
  */
 
+import type { SkillHost, Tool } from "@vellumai/skill-host-contracts";
 import { afterAll, describe, expect, mock, test } from "bun:test";
-
-// Module-scope state so each test can tweak inputs without re-installing mocks.
-let flagEnabled = true;
-let captured: Array<{ name: string }> | null = null;
-const capturedRoutes: Array<{
-  pattern: RegExp;
-  methods: string[];
-  handler: (req: Request, match: RegExpMatchArray) => Promise<Response>;
-}> = [];
-
-mock.module("../../../assistant/src/tools/registry.js", () => ({
-  registerExternalTools: (
-    toolsOrProvider:
-      | Array<{ name: string }>
-      | (() => Array<{ name: string }>),
-  ) => {
-    // register.ts registers a lazy provider so the flag read happens
-    // after daemon startup's default-config merge. Resolve the provider
-    // here to assert the tools it would produce at initializeTools() time.
-    const tools =
-      typeof toolsOrProvider === "function"
-        ? toolsOrProvider()
-        : toolsOrProvider;
-    captured = tools.map((t) => ({ name: t.name }));
-  },
-}));
-
-mock.module("../../../assistant/src/runtime/skill-route-registry.js", () => ({
-  registerSkillRoute: (route: {
-    pattern: RegExp;
-    methods: string[];
-    handler: (req: Request, match: RegExpMatchArray) => Promise<Response>;
-  }) => {
-    capturedRoutes.push(route);
-    // Real `registerSkillRoute` returns an opaque handle; mimic that shape
-    // so callers that retain the return value see something handle-like
-    // rather than `undefined`. Tests here don't invoke unregister.
-    return Object.freeze({});
-  },
-}));
 
 // Stub the meet-internal route module so we can (a) assert the exact
 // meetingId passed to the handler after URL decoding, and (b) avoid
@@ -73,11 +34,19 @@ mock.module("../routes/meet-internal.js", () => ({
   },
 }));
 
+// The tool modules still import from `assistant/` until Wave 6 lands
+// (PR 14). Mock the transitive imports they evaluate at load time so
+// this test does not force the full daemon bootstrap.
+mock.module("../../../assistant/src/tools/registry.js", () => ({
+  registerExternalTools: () => {},
+}));
+
+mock.module("../../../assistant/src/runtime/skill-route-registry.js", () => ({
+  registerSkillRoute: () => Object.freeze({}),
+}));
+
 mock.module("../../../assistant/src/config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: (key: string) => {
-    if (key === "meet") return flagEnabled;
-    return true;
-  },
+  isAssistantFeatureFlagEnabled: () => true,
 }));
 
 mock.module("../../../assistant/src/config/loader.js", () => ({
@@ -132,6 +101,76 @@ mock.module("../../../assistant/src/util/logger.js", () => ({
     }),
 }));
 
+type FakeRoute = {
+  pattern: RegExp;
+  methods: string[];
+  handler: (req: Request, match: RegExpMatchArray) => Promise<Response>;
+};
+
+/**
+ * Build a fake `SkillHost` that captures the two registration calls
+ * `register()` makes. Every other facet is a throwing proxy so that
+ * if `register.ts` ever reached outside its documented contract the
+ * test would fail loudly instead of silently succeeding against a
+ * half-stubbed host.
+ */
+function buildCaptureHost(flagEnabled: boolean): {
+  host: SkillHost;
+  toolProviders: Array<() => Tool[]>;
+  routes: FakeRoute[];
+} {
+  const routes: FakeRoute[] = [];
+  const toolProviders: Array<() => Tool[]> = [];
+
+  const unreachable = (path: string): never => {
+    throw new Error(
+      `register.test: fake SkillHost facet ${path} was unexpectedly accessed`,
+    );
+  };
+  const throwingProxy = (path: string) =>
+    new Proxy({}, { get: (_t, p) => unreachable(`${path}.${String(p)}`) });
+
+  const host: SkillHost = {
+    logger: {
+      get: () =>
+        new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
+    } as SkillHost["logger"],
+    config: {
+      isFeatureFlagEnabled: (key: string) =>
+        key === "meet" ? flagEnabled : true,
+      getSection: () => undefined,
+    },
+    identity: {
+      getAssistantName: () => "TestAssistant",
+      internalAssistantId: "self",
+    },
+    platform: throwingProxy("platform") as SkillHost["platform"],
+    providers: throwingProxy("providers") as SkillHost["providers"],
+    memory: throwingProxy("memory") as SkillHost["memory"],
+    events: throwingProxy("events") as SkillHost["events"],
+    registries: {
+      registerTools: (provider) => {
+        if (typeof provider !== "function") {
+          // register.ts always passes a provider closure; an eager
+          // array would bypass the flag-deferral intent of the
+          // external-tool registry.
+          throw new Error("register.test: expected lazy tool provider");
+        }
+        toolProviders.push(provider);
+      },
+      registerSkillRoute: (route) => {
+        routes.push(route as FakeRoute);
+        return Object.freeze({}) as never;
+      },
+      registerShutdownHook: () =>
+        unreachable("registries.registerShutdownHook"),
+    },
+    speakers: throwingProxy("speakers") as SkillHost["speakers"],
+  };
+
+  return { host, toolProviders, routes };
+}
+
 const EXPECTED_TOOL_NAMES = [
   "meet_cancel_speak",
   "meet_disable_avatar",
@@ -142,22 +181,7 @@ const EXPECTED_TOOL_NAMES = [
   "meet_speak",
 ];
 
-// Flag must be true BEFORE the initial import — register.ts runs its
-// side effect at module-load time, and the ESM cache means we only get
-// one shot at observing the call.
-flagEnabled = true;
-
-// Evaluate register.ts once at top level so the assertions below see
-// the exact call made at production module-load time. Subsequent
-// imports hit the ESM cache and do not re-run the side effect.
-await import("../register.js");
-
-// Snapshot the captured tools so later mutations to the `captured`
-// module-scope variable (via beforeEach in other describe blocks or
-// stray test cleanup) cannot invalidate these assertions.
-const registeredAtImport: Array<{ name: string }> | null = captured
-  ? [...captured]
-  : null;
+const { register } = await import("../register.js");
 
 afterAll(() => {
   mock.restore();
@@ -165,28 +189,44 @@ afterAll(() => {
 
 describe("meet-join register", () => {
   test("registers every meet_* tool when the meet flag is on", () => {
-    expect(registeredAtImport).not.toBeNull();
-    const registeredNames = (registeredAtImport ?? [])
-      .map((t) => t.name)
-      .sort();
+    const capture = buildCaptureHost(true);
+    register(capture.host);
 
+    const tools = capture.toolProviders.flatMap((p) => p());
+    const registeredNames = tools
+      .map((t: { name: string }) => t.name)
+      .sort();
     for (const expected of EXPECTED_TOOL_NAMES) {
       expect(registeredNames).toContain(expected);
     }
-
-    // Exactly 7 distinct meet_* tools are expected. A count mismatch is
-    // a signal to update the plan and related tests, not to silently
-    // accept the drift.
+    // Exactly 7 distinct meet_* tools are expected. A count mismatch
+    // is a signal to update the plan and related tests, not to
+    // silently accept the drift.
     const meetTools = registeredNames.filter((n) => n.startsWith("meet_"));
     expect(new Set(meetTools).size).toBe(EXPECTED_TOOL_NAMES.length);
   });
 
+  test("tool provider returns an empty list when the meet flag is off", () => {
+    // The lazy provider closure is what the daemon's tool manifest
+    // resolves at `getExternalTools()` time, so the flag read must
+    // deflect to `[]` when the flag is off — otherwise dormant tool
+    // definitions leak into the LLM's manifest and the in-`execute()`
+    // defensive flag checks become the only safety net.
+    const capture = buildCaptureHost(false);
+    register(capture.host);
+    const tools = capture.toolProviders.flatMap((p) => p());
+    expect(tools).toEqual([]);
+  });
+
   test("registers the meet-internal POST route for bot ingress", () => {
     // Without this registration the bot's POST /v1/internal/meet/:id/events
-    // request falls through to the daemon's JWT middleware, which rejects
-    // the bot's opaque hex bearer token with
+    // request falls through to the daemon's JWT middleware, which
+    // rejects the bot's opaque hex bearer token with
     // "malformed_token: expected 3 dot-separated parts".
-    const route = capturedRoutes.find((r) =>
+    const capture = buildCaptureHost(true);
+    register(capture.host);
+
+    const route = capture.routes.find((r) =>
       r.pattern.test("/v1/internal/meet/abc123/events"),
     );
     expect(route).toBeDefined();
@@ -196,8 +236,11 @@ describe("meet-join register", () => {
   });
 
   test("meet-internal route handler URL-decodes the meetingId capture", async () => {
+    const capture = buildCaptureHost(true);
+    register(capture.host);
+
     const path = "/v1/internal/meet/abc%20123/events";
-    const route = capturedRoutes.find((r) => r.pattern.test(path));
+    const route = capture.routes.find((r) => r.pattern.test(path));
     expect(route).toBeDefined();
     const match = path.match(route!.pattern)!;
     const req = new Request(`http://host${path}`, { method: "POST" });
@@ -206,11 +249,15 @@ describe("meet-join register", () => {
   });
 
   test("meet-internal route handler returns 400 on malformed percent-encoding", async () => {
-    // `%` without two trailing hex digits makes decodeURIComponent throw
-    // URIError. Without the try/catch this surfaces pre-auth and the
-    // daemon returns a 500; the handler must intercept and return 400.
+    // `%` without two trailing hex digits makes decodeURIComponent
+    // throw URIError. Without the try/catch this surfaces pre-auth
+    // and the daemon returns a 500; the handler must intercept and
+    // return 400.
+    const capture = buildCaptureHost(true);
+    register(capture.host);
+
     const path = "/v1/internal/meet/abc%ZZ/events";
-    const route = capturedRoutes.find((r) => r.pattern.test(path));
+    const route = capture.routes.find((r) => r.pattern.test(path));
     expect(route).toBeDefined();
     const match = path.match(route!.pattern)!;
     lastHandlerMeetingId = null;

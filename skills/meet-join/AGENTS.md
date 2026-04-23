@@ -14,24 +14,34 @@ reaching into an unlisted skill path breaks at runtime.
 
 There is one narrow exception:
 `assistant/src/daemon/external-skills-bootstrap.ts` may do a single
-side-effect import of `skills/meet-join/register.js` so that
-`registerExternalTools()` fires before `initializeTools()`. The
-exception exists because `bun --compile` only bundles statically
-analyzed imports — a dynamic relative import would fail inside the
-compiled binary's `/$bunfs/` layer. It is limited to that one file,
-that one side-effect import, and requires the skill's runtime files
-(including `register.ts`) to be whitelisted in the repo-root
-`.dockerignore` so the assistant Docker build context sees them; the
-assistant `Dockerfile` itself copies `skills/` generically and does
-not name meet-join. Named-export consumption from `skills/meet-join/`
-in `assistant/` code remains forbidden. See the root `AGENTS.md`
-"Skill Isolation" section for the full rule.
+named import of `register` from `skills/meet-join/register.js` and
+invoke it with a `DaemonSkillHost`. The exception exists because
+`bun --compile` only bundles statically analyzed imports — a dynamic
+relative import would fail inside the compiled binary's `/$bunfs/`
+layer. It is limited to that one file, that single named import, and
+requires the skill's runtime files (including `register.ts`) to be
+whitelisted in the repo-root `.dockerignore` so the assistant Docker
+build context sees them; the assistant `Dockerfile` itself copies
+`skills/` generically and does not name meet-join. Beyond `register`,
+no named-export consumption from `skills/meet-join/` in `assistant/`
+code is permitted. See the root `AGENTS.md` "Skill Isolation" section
+for the full rule.
 
-Skills wire into the assistant through registries:
+Skills wire into the assistant through the `SkillHost` contract from
+`@vellumai/skill-host-contracts`. The bootstrap passes a
+`DaemonSkillHost` into `register(host)`; the skill uses `host.registries.*`
+instead of direct imports from `assistant/`:
 
-- **Tools**: `registerExternalTools()` in `assistant/src/tools/registry.ts`
-- **Routes**: `registerSkillRoute()` in `assistant/src/runtime/skill-route-registry.ts`
-- **Shutdown**: `registerShutdownHook()` in `assistant/src/daemon/shutdown-registry.ts`
+- **Tools**: `host.registries.registerTools(() => [...])`
+- **Routes**: `host.registries.registerSkillRoute({ pattern, methods, handler })`
+- **Shutdown**: `host.registries.registerShutdownHook(name, hook)`
+
+Waves 6+ of the skill-isolation plan migrate each sub-module
+(`audio-ingest`, `speaker-resolver`, `tts-bridge`, …) onto the same
+host contract. Those PRs register their factory into
+`daemon/modules-registry.ts` rather than touching `register.ts`, so
+`register.ts` is not a merge-conflict hotspot across the parallel
+PRs.
 
 The meet skill owns its config schema (`config-schema.ts`) and reads its
 configuration from `$VELLUM_WORKSPACE_DIR/config/meet.json` via `meet-config.ts`.
