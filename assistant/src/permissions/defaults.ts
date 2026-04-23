@@ -36,6 +36,7 @@ const HOST_FILE_TOOLS: readonly ScopedTrustRule["tool"][] = [
   "host_file_read",
   "host_file_write",
   "host_file_edit",
+  "host_file_transfer",
 ] as const;
 const COMPUTER_USE_TOOLS = [
   "computer_use_observe",

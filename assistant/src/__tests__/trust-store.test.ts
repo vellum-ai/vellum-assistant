@@ -795,6 +795,7 @@ describe("Trust Store", () => {
         "host_bash",
         "host_file_edit",
         "host_file_read",
+        "host_file_transfer",
         "host_file_write",
         "recall",
         "scaffold_managed_skill",
