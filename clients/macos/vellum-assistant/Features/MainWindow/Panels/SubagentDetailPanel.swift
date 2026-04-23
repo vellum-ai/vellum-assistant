@@ -145,6 +145,8 @@ struct SubagentDetailPanel: View {
             errorCell(event)
         case .toolCall(let pair):
             SubagentToolCallRow(pair: pair, isExpanded: expansionBinding(for: pair.id))
+        case .orphanToolResult(let event):
+            SubagentOrphanToolResultRow(event: event, isExpanded: expansionBinding(for: event.id))
         case .completedToolCalls(let pairs):
             completedToolCallsSection(pairs)
         }
@@ -334,12 +336,21 @@ struct SubagentEventGrouping {
         case text(SubagentEventItem)
         case error(SubagentEventItem)
         case toolCall(SubagentToolCallPair)
+        /// A `.toolResult` event whose matching `.toolUse` is no longer in the
+        /// retained window — `SubagentDetailStore.trimStagedEvents` drops the
+        /// oldest events when the retention cap is hit, so on a long-running
+        /// subagent the paired call may be gone while the result lingers. We
+        /// still want the result (and any error payload) inspectable.
+        case orphanToolResult(SubagentEventItem)
         case completedToolCalls([SubagentToolCallPair])
     }
 
     /// Build the visual groups for the running state (tool calls inline). Each
     /// `.toolUse` consumes an immediately-following `.toolResult` and renders
-    /// as a single `.toolCall` pair; unpaired results are ignored.
+    /// as a single `.toolCall` pair. A `.toolResult` with no preceding
+    /// `.toolUse` in the retained window is surfaced as an `.orphanToolResult`
+    /// so retention-trimmed error output remains inspectable rather than
+    /// disappearing from the UI.
     static func build(events: [SubagentEventItem]) -> [Group] {
         var groups: [Group] = []
         var i = 0
@@ -366,7 +377,9 @@ struct SubagentEventGrouping {
                     toolName: name
                 )))
             case .toolResult:
-                // Orphaned — should have been consumed by a preceding .toolUse.
+                // Orphan — the paired `.toolUse` has been trimmed. Render the
+                // result as a standalone row so error output stays visible.
+                groups.append(.orphanToolResult(event))
                 i += 1
             }
         }
@@ -510,6 +523,80 @@ private struct SubagentToolCallRow: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, VSpacing.lg)
+    }
+}
+
+// MARK: - Orphan Tool Result Row
+
+/// Renders a `.toolResult` event whose matching `.toolUse` has been trimmed
+/// out of the retained event window. Mirrors the visual shape of
+/// `SubagentToolCallRow` (collapsible, same expansion-state binding) so the
+/// result content — especially error payloads — stays inspectable.
+private struct SubagentOrphanToolResultRow: View {
+    let event: SubagentEventItem
+    @Binding var isExpanded: Bool
+
+    @State private var isHovered = false
+
+    private var isError: Bool {
+        if case .toolResult(let err) = event.kind { return err }
+        return false
+    }
+
+    private var title: String {
+        isError ? "Tool error" : "Tool result"
+    }
+
+    private var state: VCollapsibleStepRowState {
+        isError ? .failed : .succeeded
+    }
+
+    private var hasDetails: Bool {
+        !event.content.isEmpty
+    }
+
+    var body: some View {
+        VCollapsibleStepRow(
+            title: title,
+            state: state,
+            startedAt: event.timestamp,
+            completedAt: event.timestamp,
+            hasDetails: hasDetails,
+            isExpanded: $isExpanded,
+            trailingAccessory: { trailingAccessory },
+            detailContent: { detailContent }
+        )
+        .onHover { isHovered = $0 }
+    }
+
+    @ViewBuilder
+    private var trailingAccessory: some View {
+        if isHovered, !event.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            SubagentCopyButton(text: event.content)
+                .transition(.opacity)
+        }
+    }
+
+    @ViewBuilder
+    private var detailContent: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            Divider().padding(.horizontal, VSpacing.lg)
+
+            if !event.content.isEmpty {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text(isError ? "ERROR" : "OUTPUT")
+                        .font(VFont.labelSmall)
+                        .foregroundStyle(VColor.contentTertiary)
+                    Text(event.content)
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(isError ? VColor.systemNegativeStrong : VColor.contentSecondary)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, VSpacing.lg)
+            }
+        }
+        .padding(.bottom, VSpacing.sm)
     }
 }
 
