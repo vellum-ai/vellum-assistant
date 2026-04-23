@@ -1403,7 +1403,12 @@ export async function runAgentLoopImpl(
             shouldInjectWorkspace = true;
           }
         },
-        reinjectForMode: async (reducedMessages, mode, didCompact) => {
+        reinjectForMode: async (
+          reducedMessages,
+          mode,
+          stepCompacted,
+          accumulatedCompacted,
+        ) => {
           // Mirror the pre-PR-23 behavior: `ctx.messages` must track the
           // reducer's latest output before re-injection runs, because other
           // sites consulted through `injectionOpts` (`workspaceTopLevelContext`,
@@ -1414,22 +1419,24 @@ export async function runAgentLoopImpl(
           // injection assembly on the same turn.
           ctx.messages = reducedMessages;
 
-          // When compaction ran it strips existing NOW.md / PKB blocks,
-          // so we must re-inject the current content. Otherwise rely on
-          // the deduplicated value from injectionOpts to avoid duplicate
-          // injection.
+          // When THIS iteration compacted, it stripped existing NOW.md /
+          // PKB blocks — so we re-inject current content. A later iteration
+          // that only truncates or downgrades must NOT re-force PKB/NOW,
+          // or each round would grow the token count. Matches the
+          // pre-PR-23 per-iteration `step.compactionResult?.compacted` gate.
           const injection = await applyRuntimeInjections(reducedMessages, {
             ...injectionOpts,
-            ...(didCompact && { pkbContext: currentPkbContent }),
-            ...(didCompact && { nowScratchpad: currentNowContent }),
+            ...(stepCompacted && { pkbContext: currentPkbContent }),
+            ...(stepCompacted && { nowScratchpad: currentNowContent }),
             workspaceTopLevelContext: shouldInjectWorkspace
               ? ctx.workspaceTopLevelContext
               : null,
-            // Once the reducer has compacted `ctx.messages`, the captured
+            // Once ANY iteration has compacted `ctx.messages`, the captured
             // `slackChronologicalMessages` snapshot (built from the full
             // persisted transcript) would overwrite the compacted history
-            // and undo compaction. Suppress the override from here on.
-            slackChronologicalMessages: didCompact
+            // and undo compaction. Suppress the override from here on —
+            // sticky across subsequent non-compacting iterations.
+            slackChronologicalMessages: accumulatedCompacted
               ? null
               : injectionOpts.slackChronologicalMessages,
             mode,

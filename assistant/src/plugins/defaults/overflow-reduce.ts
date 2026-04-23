@@ -56,6 +56,17 @@ export const defaultOverflowReduceMiddleware: Middleware<
   let attempts = 0;
 
   while (attempts < args.maxAttempts && !reducerState.exhausted) {
+    // Abort check at the top of every iteration. When the pipeline runner
+    // arms a timeout (or the caller aborts externally), `args.abortSignal`
+    // is linked to that trigger via `linkAbortSignal`, so this check lets
+    // us bail out BETWEEN iterations rather than letting another round of
+    // compaction / re-injection mutate `ctx.messages` after the turn has
+    // already failed. Individual `reduceContextOverflow` calls also honor
+    // the signal, but without this gate a fresh iteration could still
+    // start after the signal fires, since the previous one returned
+    // normally before the abort propagated.
+    args.abortSignal?.throwIfAborted();
+
     attempts++;
     args.emitActivityState();
 
@@ -78,14 +89,23 @@ export const defaultOverflowReduceMiddleware: Middleware<
     messages = step.messages;
     injectionMode = step.state.injectionMode;
 
+    // Per-iteration compaction flag: whether THIS step just produced a
+    // fresh compaction. PKB / NOW re-injection is gated on this — see the
+    // reinjectForMode JSDoc for why the two signals differ.
+    const stepCompacted = step.compactionResult?.compacted === true;
+
     // Let the orchestrator apply compaction side effects (circuit-breaker
     // tracking, event emission, ctx mutation) before we re-inject.
     if (step.compactionResult) {
       await args.onCompactionResult(step.compactionResult);
-      if (step.compactionResult.compacted) {
+      if (stepCompacted) {
         reducerCompacted = true;
       }
     }
+
+    // Second abort gate — if the side effects or the step itself took us
+    // past the deadline, don't rebuild runMessages or iterate again.
+    args.abortSignal?.throwIfAborted();
 
     // Rebuild runMessages via the orchestrator-supplied helper (which
     // re-runs `applyRuntimeInjections` with potentially downgraded mode
@@ -94,9 +114,15 @@ export const defaultOverflowReduceMiddleware: Middleware<
     // has to read from mutable shared state to rebuild runMessages — a
     // tier that doesn't trigger compaction (tool-result truncation, media
     // stubbing) won't update `ctx.messages` on its own.
+    //
+    // `stepCompacted` and `reducerCompacted` are both passed so the
+    // orchestrator can gate PKB / NOW re-injection per-iteration while
+    // keeping `slackChronologicalMessages` suppressed once any iteration
+    // has compacted.
     runMessages = await args.reinjectForMode(
       messages,
       injectionMode,
+      stepCompacted,
       reducerCompacted,
     );
 

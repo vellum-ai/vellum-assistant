@@ -399,11 +399,27 @@ export interface OverflowReduceArgs {
    * leak into the pipeline surface. The plugin passes the current reduced
    * messages array explicitly so the orchestrator doesn't need to read
    * mutable shared state. Returns the new `runMessages`.
+   *
+   * Two distinct "did compact" signals are passed so the orchestrator can
+   * match the pre-PR-23 semantics:
+   * - `stepCompacted` — whether THIS iteration's reducer step produced a
+   *   fresh compaction. Gates PKB / NOW re-injection: compaction strips the
+   *   existing blocks, so only iterations that just compacted need the
+   *   content re-threaded. Iterations that only truncated tool results or
+   *   downgraded injections must NOT force a re-injection or the token
+   *   count grows each round.
+   * - `accumulatedCompacted` — whether ANY iteration in this pipeline
+   *   invocation has compacted. Gates `slackChronologicalMessages`
+   *   suppression: once compaction has run, the captured Slack transcript
+   *   snapshot would overwrite the compacted history, so it must stay
+   *   suppressed for every subsequent iteration even if that iteration
+   *   didn't re-compact.
    */
   readonly reinjectForMode: (
     messages: Message[],
     mode: InjectionMode,
-    didCompact: boolean,
+    stepCompacted: boolean,
+    accumulatedCompacted: boolean,
   ) => Promise<Message[]>;
   /**
    * Invoked after each step to post-estimate the rebuilt `runMessages`.

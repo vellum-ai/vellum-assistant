@@ -179,7 +179,8 @@ async function runInlineBaseline(args: {
   readonly reinjectForMode: (
     reducedMessages: Message[],
     mode: InjectionMode,
-    didCompact: boolean,
+    stepCompacted: boolean,
+    accumulatedCompacted: boolean,
   ) => Promise<Message[]>;
   readonly estimatePostInjection: (runMsgs: Message[]) => number;
 }): Promise<{
@@ -198,6 +199,7 @@ async function runInlineBaseline(args: {
   let attempts = 0;
 
   while (attempts < args.maxAttempts && !reducerState.exhausted) {
+    args.abortSignal?.throwIfAborted();
     attempts++;
     const step = await reduceContextOverflow(
       messages,
@@ -217,13 +219,17 @@ async function runInlineBaseline(args: {
     messages = step.messages;
     injectionMode = step.state.injectionMode;
 
-    if (step.compactionResult?.compacted) {
+    const stepCompacted = step.compactionResult?.compacted === true;
+    if (stepCompacted) {
       reducerCompacted = true;
     }
+
+    args.abortSignal?.throwIfAborted();
 
     runMessages = await args.reinjectForMode(
       messages,
       injectionMode,
+      stepCompacted,
       reducerCompacted,
     );
 
@@ -243,7 +249,11 @@ async function runInlineBaseline(args: {
 
 function buildArgs(messages: Message[]): {
   args: OverflowReduceArgs;
-  reinjectCalls: Array<{ mode: InjectionMode; didCompact: boolean }>;
+  reinjectCalls: Array<{
+    mode: InjectionMode;
+    stepCompacted: boolean;
+    accumulatedCompacted: boolean;
+  }>;
   compactionResults: ContextWindowResult[];
   rawCompactFn: (
     messages: Message[],
@@ -251,7 +261,11 @@ function buildArgs(messages: Message[]): {
     options: ContextWindowCompactOptions,
   ) => Promise<ContextWindowResult>;
 } {
-  const reinjectCalls: Array<{ mode: InjectionMode; didCompact: boolean }> = [];
+  const reinjectCalls: Array<{
+    mode: InjectionMode;
+    stepCompacted: boolean;
+    accumulatedCompacted: boolean;
+  }> = [];
   const compactionResults: ContextWindowResult[] = [];
   const compactFn = makeCompactFn();
 
@@ -263,9 +277,10 @@ function buildArgs(messages: Message[]): {
   const reinjectForMode = async (
     reducedMessages: Message[],
     mode: InjectionMode,
-    didCompact: boolean,
+    stepCompacted: boolean,
+    accumulatedCompacted: boolean,
   ): Promise<Message[]> => {
-    reinjectCalls.push({ mode, didCompact });
+    reinjectCalls.push({ mode, stepCompacted, accumulatedCompacted });
     return reducedMessages;
   };
 
@@ -544,6 +559,118 @@ describe("overflow-reduce pipeline", () => {
 
       expect(result.attempts).toBeGreaterThanOrEqual(1);
       expect(result.reducerState.appliedTiers.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe("abort signal propagation", () => {
+    test("middleware bails between iterations when abortSignal fires", async () => {
+      // History that won't converge in one step — multiple iterations.
+      const longToolResult = "r".repeat(8000);
+      const history: Message[] = [
+        msg("user", "Start"),
+        toolUseMsg("tu_1", "read_file"),
+        toolResultMsg("tu_1", longToolResult),
+        msg("user", "Next"),
+      ];
+
+      const controller = new AbortController();
+      const build = buildArgs(history);
+      // Abort on the first `estimatePostInjection` — simulates the
+      // pipeline-level timeout firing mid-turn. The next loop iteration
+      // must see the signal and throw rather than starting another round.
+      let estimateCalls = 0;
+      const aborting: OverflowReduceArgs = {
+        ...build.args,
+        abortSignal: controller.signal,
+        estimatePostInjection: () => {
+          estimateCalls++;
+          if (estimateCalls === 1) controller.abort();
+          // Return a value that guarantees another iteration would fire
+          // without the abort gate.
+          return build.args.preflightBudget + 1_000_000;
+        },
+      };
+
+      expect(
+        defaultOverflowReduceMiddleware(
+          aborting,
+          async () => {
+            throw new Error("next should not be invoked");
+          },
+          makeTurnContext(),
+        ),
+      ).rejects.toThrow();
+      // Give the event loop a tick to resolve the rejected promise.
+      await Promise.resolve();
+      // Exactly one iteration ran; the abort gate stopped the next round.
+      expect(estimateCalls).toBe(1);
+    });
+
+    test("middleware refuses to start when abortSignal is already aborted", async () => {
+      const history: Message[] = [msg("user", "Hi")];
+      const controller = new AbortController();
+      controller.abort();
+      const build = buildArgs(history);
+      const args: OverflowReduceArgs = {
+        ...build.args,
+        abortSignal: controller.signal,
+      };
+
+      expect(
+        defaultOverflowReduceMiddleware(
+          args,
+          async () => {
+            throw new Error("next should not be invoked");
+          },
+          makeTurnContext(),
+        ),
+      ).rejects.toThrow();
+      await Promise.resolve();
+      // Reducer never ran — zero compaction and reinject callbacks observed.
+      expect(build.compactionResults).toHaveLength(0);
+      expect(build.reinjectCalls).toHaveLength(0);
+    });
+  });
+
+  describe("reinjectForMode two-flag semantics", () => {
+    test("stepCompacted reflects current iteration; accumulatedCompacted stays sticky", async () => {
+      // Force multiple iterations by returning over-budget until the loop
+      // exits on maxAttempts. First iteration compacts (stepCompacted=true);
+      // subsequent iterations run other tiers (stepCompacted=false), but
+      // accumulatedCompacted must remain true for slack suppression.
+      const longToolResult = "r".repeat(8000);
+      const history: Message[] = [
+        msg("user", "Start"),
+        toolUseMsg("tu_1", "read_file"),
+        toolResultMsg("tu_1", longToolResult),
+        msg("user", "Next"),
+      ];
+      const build = buildArgs(history);
+      const overBudget: OverflowReduceArgs = {
+        ...build.args,
+        estimatePostInjection: () => build.args.preflightBudget + 1_000_000,
+      };
+
+      await defaultOverflowReduceMiddleware(
+        overBudget,
+        async () => {
+          throw new Error("next should not be invoked");
+        },
+        makeTurnContext(),
+      );
+
+      // At least one compaction attempt happened.
+      expect(build.reinjectCalls.length).toBeGreaterThanOrEqual(1);
+      // The first iteration that compacted set accumulatedCompacted=true,
+      // and every subsequent call continues to see it true — even when
+      // that iteration's own step did NOT compact.
+      const firstCompactedAt = build.reinjectCalls.findIndex(
+        (c) => c.stepCompacted,
+      );
+      expect(firstCompactedAt).toBeGreaterThanOrEqual(0);
+      for (let i = firstCompactedAt; i < build.reinjectCalls.length; i++) {
+        expect(build.reinjectCalls[i]!.accumulatedCompacted).toBe(true);
+      }
     });
   });
 });
