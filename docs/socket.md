@@ -11,7 +11,6 @@ The vellum-ai Socket org is on **Socket Free**.
 - `socket-security` GitHub App checks on every PR.
 - `socket.yml` policy file (boolean `issueRules` map).
 - `socket fix` dep-upgrade autofix (requires an API token).
-- Free-tier Socket Certified Patches via `socket-patch` (no token needed).
 - ~1,000 scans/month.
 
 **NOT available on Free:**
@@ -19,7 +18,6 @@ The vellum-ai Socket org is on **Socket Free**.
 - Reachability analysis.
 - Priority scoring.
 - Slack / webhook alert channels.
-- Paid-tier Certified Patches — `socket-patch` silently skips these; expected.
 - Org-wide policy enforcement.
 - Socket Firewall.
 
@@ -34,24 +32,24 @@ The `socket-security` App (installed at the vellum-ai org level) emits two check
 
 Both are gated by `socket.yml` at the repo root.
 
-### `Socket Autofix` workflow (weekly Monday 09:00 UTC)
+### `Socket Fix` workflow (weekly Monday 09:00 UTC)
 
-`.github/workflows/socket-autofix.yml` runs on `cron: '0 9 * * 1'` plus `workflow_dispatch`. It contains two **independent** jobs (no `needs:` between them) that run in parallel.
+`.github/workflows/socket-autofix.yml` runs on `cron: '0 9 * * 1'` plus `workflow_dispatch`. (The workflow file name is historical; the workflow `name:` is `Socket Fix`.)
 
-Because this is a multi-workspace Bun monorepo with **no root-level `package.json`**, both jobs use `strategy.matrix` over the runtime-relevant workspaces that each own a `bun.lock` (`assistant`, `cli`, `credential-executor`, `gateway`, the two `clients/chrome-extension*` workspaces, the three `packages/*` workspaces, and the three `skills/meet-join*` workspaces). Each matrix leg sets `defaults.run.working-directory` to its workspace and runs `bun install --frozen-lockfile` before invoking the Socket CLI — Socket's `fix` and `socket-patch apply` both operate on a resolved `node_modules` tree, so skipping the install leaves them with nothing to scan. `meta` and `scripts` (dev tooling only) are deliberately excluded to conserve the Free tier's ~1,000 scans/month budget.
+Because this is a multi-workspace Bun monorepo with **no root-level `package.json`**, the job uses `strategy.matrix` over the runtime-relevant workspaces that each own a `bun.lock` (`assistant`, `cli`, `credential-executor`, `gateway`, the two `clients/chrome-extension*` workspaces, the three `packages/*` workspaces, and the three `skills/meet-join*` workspaces). Each matrix leg sets `defaults.run.working-directory` to its workspace and runs `bun install --frozen-lockfile --ignore-scripts` before invoking the Socket CLI — Socket's `fix` operates on a resolved `node_modules` tree, but postinstall hooks would mutate other workspaces and contaminate the autofix diffs. `meta` and `scripts` (dev tooling only) are deliberately excluded to conserve the Free tier's ~1,000 scans/month budget.
 
 - **`socket-fix`** — opens one PR per fixable GHSA/CVE, per workspace. Flags:
-  - `--pr-limit 10` — cap per-run PR volume. Socket's current default, pinned explicitly for reviewer visibility and future-default stability.
+  - `--pr-limit 3` — cap per matrix leg (12 × 3 = 36 PRs/week ceiling).
   - `--minimum-release-age 1w` — skip versions published in the last 7 days. Defense against malware-via-update (compromised maintainer pushing a poisoned patch release).
-- **`socket-patch`** — applies Socket Certified Patches per workspace. The canonical CLI sequence is `scan --json` → `get <id>` (one call per patch identifier, fed from the scan output via `jq`; `get` writes `.socket/manifest.json`) → `apply` (consumes the manifest). `apply` returns `status="no_manifest"` when no patches were staged, which is treated as a no-op success. Paid-tier patches are silently skipped on Free (expected — no PR opened those weeks).
+
+Socket Certified Patches (`socket-patch`) are deferred pending a `socket-patch setup` postinstall-hook rollout across all workspaces — see "Follow-ups / deferred" below.
 
 ## Policy file
 
 - **Location:** `socket.yml` at the repo root.
 - **Schema:** `issueRules` is a **boolean map** (`<alertName>: true|false`) per the upstream `@socketsecurity/config` v3 schema (`additionalProperties: { type: "boolean" }`). The `{ action: error|warn|ignore }` object form is **silently rejected** by Socket's config validator and falls back to dashboard defaults — do NOT reintroduce it.
-- **Two states in YAML:** `true` enables the alert (it will surface on the Socket PR check); `false` suppresses it. Block-vs-warn granularity is **not expressible in `socket.yml`** — it lives in the **Socket dashboard Security Policies**. To change whether a specific alert blocks or warns, configure the dashboard policy at the org level rather than editing this file.
+- **Dashboard policy layering:** block-vs-warn granularity is **not expressible in `socket.yml`** — it lives in the **Socket dashboard Security Policies**. To change whether a specific alert blocks or warns, configure the dashboard policy at the org level rather than editing this file.
 - **Extending the ignore list:** to suppress an alert category repo-wide, set it to `false`. To suppress a *specific package* that triggered an alert (e.g. esbuild for `installScripts`), use Socket's package-scoped override syntax — see https://docs.socket.dev/docs/socket-yml for the current shape. Prefer package-scoped overrides over category-wide `false`; always add a rationale comment above any suppression (why, who approved, date, expiry if any). Reviewers block suppression-without-rationale additions.
-- **Ecosystems:** currently npm/Bun only. The App auto-detects Python manifests if they land; `issueRules` apply across ecosystems, so no YAML change is needed for a new ecosystem unless we want divergent per-ecosystem policy.
 
 ## Token provenance
 
@@ -60,22 +58,13 @@ Because this is a multi-workspace Bun monorepo with **no root-level `package.jso
 - **Same token is used by the sibling `vellum-assistant-platform` repo.** One Socket token covers both repos; rotation means updating the secret in both.
 - **Rotation procedure:**
   1. In the Socket dashboard, create a new token with the same scopes (`full-scans:create`, `packages:list`).
-  2. Update the repo secret in `vellum-ai/vellum-assistant` → trigger `Socket Autofix` manually → confirm `socket-fix` succeeds.
-  3. Update the repo secret in `vellum-ai/vellum-assistant-platform` → trigger its workflow manually → confirm success.
-  4. Delete the old token in the Socket dashboard.
+  2. Update the repo secret in both `vellum-ai/vellum-assistant` and `vellum-ai/vellum-assistant-platform`, then trigger each repo's Socket workflow manually and confirm success.
+  3. Delete the old token in the Socket dashboard.
 - Do NOT rotate during the Monday 09:00 UTC scheduled-run window.
-- Job 2 (`socket-patch`) does NOT consume the token — token rotation cannot break `socket-patch`.
 
 ## Interpreting Socket alerts on a PR
 
-`Socket Security: Pull Request Alerts` annotates the PR with any Socket-detected issues for deps touched by the PR. Whether an alert **blocks** the check or shows as a warning is controlled by **two layers**:
-
-1. **`socket.yml`** — `<alertName>: true` enables the alert category; `<alertName>: false` suppresses it entirely.
-2. **Socket dashboard Security Policy** — maps enabled alerts to block / warn / notice severities at the org level. This is where warn-vs-block granularity lives.
-
-Post-ruleset-PATCH (see next section), a Socket check in `error` state (per dashboard policy) **blocks merge** on `main`. A check in `warn` / `notice` surfaces in the PR but does not block.
-
-See `## Policy file` for suppression syntax. Prefer package-scoped overrides over flipping a whole alert category to `false` — the latter weakens the policy for every other dep.
+`Socket Security: Pull Request Alerts` annotates the PR with any Socket-detected issues for deps touched by the PR. `socket.yml` decides which alert categories surface; the Socket dashboard Security Policy decides whether each surfaced alert blocks or warns. Post-ruleset-PATCH (see next section), a Socket check in `error` state **blocks merge** on `main`; `warn` / `notice` surfaces in the PR but does not block. Prefer package-scoped overrides over flipping a whole alert category to `false` — the latter weakens the policy for every other dep.
 
 ## Ruleset PATCH — wire Socket checks into `main` branch protection
 
@@ -159,24 +148,11 @@ Open a small PR that touches `assistant/package.json` (or any dependency manifes
 
 ## Scan-count watch
 
-Socket Free has ~1,000 scans/month. Consumption sources in this repo:
-
-- Each PR with a manifest/lockfile touch → 1 scan by the App.
-- Each `Socket Autofix` run → multiple scans depending on fix count.
-
-Check monthly usage at the Socket dashboard. If usage hits **70% (~700 scans) for two consecutive months**, revisit by either:
-
-- lowering `Socket Autofix` cadence. Note: POSIX cron has no true biweekly expression — when both day-of-month and day-of-week are constrained, cron ORs them, so `'0 9 */14 * 1'` fires *more* often than weekly, not less. Options: (a) switch to monthly with `cron: '0 9 1 * *'` (runs 09:00 UTC on the 1st of every month); (b) keep the weekly cron and gate the run with a workflow-level `if: (github.run_number % 2) == 0` so only every other run executes; or (c) drive from an external scheduler via `workflow_dispatch`.
-- upgrading to Team tier.
-
-File a Linear ticket the first time the threshold is reached.
+Socket Free has ~1,000 scans/month. Each PR with a manifest/lockfile touch consumes 1 scan; each weekly `Socket Fix` run consumes one scan per matrix leg (12) plus extra per fix opened. Check monthly usage at the Socket dashboard. If usage hits **70% (~700 scans) for two consecutive months**, lower the cron cadence or upgrade to Team tier, and file a Linear ticket the first time the threshold is reached. POSIX cron can't express biweekly cleanly — switch to monthly (`cron: '0 9 1 * *'`) or gate with `github.run_number % 2`.
 
 ## Follow-ups / deferred
 
-- Introduce a GitHub Terraform provider to manage the ruleset declaratively. Today the ruleset is managed by `gh api` only. Track as a separate ticket.
-- Extend `socket.yml` with a Python ecosystem block when/if Python manifests land in this repo (none today).
-- Wire Socket alerts into Slack — requires Team tier; re-evaluate at tier upgrade.
-- Automate scan-count monitoring. Socket does not emit a public usage API on Free, so a monthly manual check is the only option today.
+- **Socket Certified Patches** — deferred. `socket-patch apply` modifies files in `node_modules/`, which don't persist across `bun install`. Adoption requires running `bunx @socketsecurity/socket-patch setup` per workspace to install a `postinstall` hook; this rolls out an install-time dependency on every workspace's `package.json`. File as a follow-up when the team is ready to take on that cross-workspace change.
 
 ## See also
 
