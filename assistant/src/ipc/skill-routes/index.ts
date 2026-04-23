@@ -1,4 +1,5 @@
 import type { IpcRoute } from "../cli-server.js";
+import { registriesRoutes } from "./registries.js";
 
 /**
  * Skill IPC routes — host capabilities exposed to first-party skill processes
@@ -8,4 +9,4 @@ import type { IpcRoute } from "../cli-server.js";
  * host.config.*, host.identity.*, host.platform.*, host.memory.*,
  * host.providers.*, host.events.*, host.registries.*).
  */
-export const skillIpcRoutes: IpcRoute[] = [];
+export const skillIpcRoutes: IpcRoute[] = [...registriesRoutes];
