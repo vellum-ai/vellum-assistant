@@ -36,12 +36,14 @@ Both are gated by `socket.yml` at the repo root.
 
 ### `Socket Autofix` workflow (weekly Monday 09:00 UTC)
 
-`.github/workflows/socket-autofix.yml` runs on `cron: '0 9 * * 1'` plus `workflow_dispatch`. It contains two **independent** jobs (no `needs:` between them) that run in parallel:
+`.github/workflows/socket-autofix.yml` runs on `cron: '0 9 * * 1'` plus `workflow_dispatch`. It contains two **independent** jobs (no `needs:` between them) that run in parallel.
 
-- **`socket-fix`** — opens one PR per fixable GHSA/CVE. Flags:
+Because this is a multi-workspace Bun monorepo with **no root-level `package.json`**, both jobs use `strategy.matrix` over the runtime-relevant workspaces that each own a `bun.lock` (`assistant`, `cli`, `credential-executor`, `gateway`, the two `clients/chrome-extension*` workspaces, the three `packages/*` workspaces, and the three `skills/meet-join*` workspaces). Each matrix leg sets `defaults.run.working-directory` to its workspace and runs `bun install --frozen-lockfile` before invoking the Socket CLI — Socket's `fix` and `socket-patch apply` both operate on a resolved `node_modules` tree, so skipping the install leaves them with nothing to scan. `meta` and `scripts` (dev tooling only) are deliberately excluded to conserve the Free tier's ~1,000 scans/month budget.
+
+- **`socket-fix`** — opens one PR per fixable GHSA/CVE, per workspace. Flags:
   - `--pr-limit 10` — cap per-run PR volume. Socket's current default, pinned explicitly for reviewer visibility and future-default stability.
   - `--minimum-release-age 1w` — skip versions published in the last 7 days. Defense against malware-via-update (compromised maintainer pushing a poisoned patch release).
-- **`socket-patch`** — applies Socket Certified Patches, bundled into one PR. Paid-tier patches are silently skipped on Free (expected — no PR opened those weeks).
+- **`socket-patch`** — applies Socket Certified Patches per workspace. The canonical CLI sequence is `scan --json` → `get <id>` (one call per patch identifier, fed from the scan output via `jq`; `get` writes `.socket/manifest.json`) → `apply` (consumes the manifest). `apply` returns `status="no_manifest"` when no patches were staged, which is treated as a no-op success. Paid-tier patches are silently skipped on Free (expected — no PR opened those weeks).
 
 ## Policy file
 
