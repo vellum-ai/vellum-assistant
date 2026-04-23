@@ -84,6 +84,7 @@ import {
   getOrCreateConversation,
 } from "../../memory/conversation-key-store.js";
 import { searchConversations } from "../../memory/conversation-queries.js";
+import { resolveEffectiveDefaultContextWindowConfig } from "../../providers/model-context.js";
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";
 import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
@@ -2075,11 +2076,13 @@ export async function handleSendMessage(
   // Resolve slash commands before persisting or running the agent loop.
   const rawContent = content ?? "";
   const config = getConfig();
+  const effectiveContextWindow =
+    resolveEffectiveDefaultContextWindowConfig(config);
   const slashContext: SlashContext = {
     messageCount: conversation.getMessages().length,
     inputTokens: conversation.usageStats.inputTokens,
     outputTokens: conversation.usageStats.outputTokens,
-    maxInputTokens: config.llm.default.contextWindow.maxInputTokens,
+    maxInputTokens: effectiveContextWindow.maxInputTokens,
     model: config.llm.default.model,
     provider: config.llm.default.provider,
     estimatedCost: conversation.usageStats.estimatedCost,

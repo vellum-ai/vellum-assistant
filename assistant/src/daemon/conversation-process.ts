@@ -31,6 +31,7 @@ import {
 } from "../memory/conversation-crud.js";
 import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
+import { resolveEffectiveDefaultContextWindowConfig } from "../providers/model-context.js";
 import type { Message } from "../providers/types.js";
 import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
 import { getLogger } from "../util/logger.js";
@@ -255,12 +256,14 @@ function buildSlashContext(
   conversation: ProcessConversationContext,
 ): SlashContext {
   const config = getConfig();
+  const effectiveContextWindow =
+    resolveEffectiveDefaultContextWindowConfig(config);
   const turnInterface = conversation.getTurnInterfaceContext();
   return {
     messageCount: conversation.messages.length,
     inputTokens: conversation.usageStats.inputTokens,
     outputTokens: conversation.usageStats.outputTokens,
-    maxInputTokens: config.llm.default.contextWindow.maxInputTokens,
+    maxInputTokens: effectiveContextWindow.maxInputTokens,
     model: config.llm.default.model,
     provider: config.llm.default.provider,
     estimatedCost: conversation.usageStats.estimatedCost,

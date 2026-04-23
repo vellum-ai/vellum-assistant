@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_CONFIGURED_MAX_INPUT_TOKENS,
   resolveEffectiveContextWindowTokens,
+  resolveEffectiveDefaultContextWindowConfig,
 } from "../providers/model-context.js";
 
 describe("model context", () => {
@@ -64,5 +65,34 @@ describe("model context", () => {
         configuredMaxInputTokens: Number.NaN,
       }),
     ).toBe(DEFAULT_CONFIGURED_MAX_INPUT_TOKENS);
+  });
+
+  test("resolves default context window config with catalog cap", () => {
+    const config = {
+      llm: {
+        default: {
+          provider: "anthropic",
+          model: "claude-opus-4-6",
+          contextWindow: {
+            enabled: true,
+            maxInputTokens: 500_000,
+            targetBudgetRatio: 0.3,
+            compactThreshold: 0.8,
+            summaryBudgetRatio: 0.05,
+            overflowRecovery: {
+              enabled: true,
+              safetyMarginRatio: 0.05,
+              maxAttempts: 3,
+              interactiveLatestTurnCompression: "summarize",
+              nonInteractiveLatestTurnCompression: "truncate",
+            },
+          },
+        },
+      },
+    } as Parameters<typeof resolveEffectiveDefaultContextWindowConfig>[0];
+
+    expect(
+      resolveEffectiveDefaultContextWindowConfig(config).maxInputTokens,
+    ).toBe(200_000);
   });
 });

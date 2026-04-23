@@ -52,6 +52,7 @@ import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { CallSiteRoutingProvider } from "../providers/call-site-routing.js";
+import { resolveEffectiveDefaultContextWindowConfig } from "../providers/model-context.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { getProvider, initializeProviders } from "../providers/registry.js";
 import {
@@ -1521,12 +1522,14 @@ export class DaemonServer {
       );
 
     const config = getConfig();
+    const effectiveContextWindow =
+      resolveEffectiveDefaultContextWindowConfig(config);
     const serverInterfaceCtx = conversation.getTurnInterfaceContext();
     const slashContext: SlashContext = {
       messageCount: conversation.getMessages().length,
       inputTokens: conversation.usageStats.inputTokens,
       outputTokens: conversation.usageStats.outputTokens,
-      maxInputTokens: config.llm.default.contextWindow.maxInputTokens,
+      maxInputTokens: effectiveContextWindow.maxInputTokens,
       model: config.llm.default.model,
       provider: config.llm.default.provider,
       estimatedCost: conversation.usageStats.estimatedCost,

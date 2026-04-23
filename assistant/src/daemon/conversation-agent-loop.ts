@@ -27,7 +27,6 @@ import type {
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import type { AssistantConfig, ContextWindowConfig } from "../config/types.js";
 import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
@@ -99,7 +98,7 @@ import type {
   TurnContext as PluginTurnContext,
 } from "../plugins/types.js";
 import { PluginExecutionError, PluginTimeoutError } from "../plugins/types.js";
-import { resolveEffectiveContextWindowTokens } from "../providers/model-context.js";
+import { resolveEffectiveDefaultContextWindowConfig } from "../providers/model-context.js";
 import type {
   ContentBlock,
   Message,
@@ -199,21 +198,6 @@ const TOOL_FRIENDLY_LABEL: Record<string, string> = {
 type GitServiceInitializer = {
   ensureInitialized(): Promise<void>;
 };
-
-export function resolveEffectiveDefaultContextWindowConfig(
-  config: AssistantConfig,
-): ContextWindowConfig {
-  const defaultLlm = config.llm.default;
-  const contextWindow = defaultLlm.contextWindow;
-  return {
-    ...contextWindow,
-    maxInputTokens: resolveEffectiveContextWindowTokens({
-      provider: defaultLlm.provider,
-      model: defaultLlm.model,
-      configuredMaxInputTokens: contextWindow.maxInputTokens,
-    }),
-  };
-}
 
 // ── Compaction circuit-breaker pipeline helpers ─────────────────────
 //
