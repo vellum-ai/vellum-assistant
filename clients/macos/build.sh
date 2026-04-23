@@ -1458,7 +1458,7 @@ let svgHeight = vbParts[3]
 // --- Build CGPath from SVG path data ---
 func parseSVGPath(_ d: String) -> CGPath {
     let path = CGMutablePath()
-    var chars = Array(d)
+    let chars = Array(d)
     var i = 0
     var currentX: CGFloat = 0
     var currentY: CGFloat = 0
