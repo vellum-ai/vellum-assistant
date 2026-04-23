@@ -333,6 +333,48 @@ describe("ToolExecutor.execute → toolExecute pipeline", () => {
     expect(lastToolCall).toBeUndefined();
   });
 
+  test("slow middleware does not trip a pipeline-level timeout", async () => {
+    // Regression: `ToolExecutor.execute` used to pass the per-tool timeout
+    // to `runPipeline`, which made the pipeline race everything upstream of
+    // the tool call (permission checks, approval waits, middleware) against
+    // the same budget. A slow human clicking "allow" produced a
+    // `PluginTimeoutError` thrown past `executeInternal`'s catch block,
+    // breaking the `execute()` never-throws contract. The pipeline is now
+    // untimed; `executeWithTimeout` inside `executeInternal` is the sole
+    // enforcer of the per-tool budget and only wraps the actual tool call.
+    const slow: Middleware<ToolExecuteArgs, ToolExecuteResult> =
+      async function slowMw(args, next) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        return next(args);
+      };
+    registerPlugin({
+      manifest: {
+        name: "slow-tool-execute",
+        version: "0.0.1",
+        requires: { pluginRuntime: "v1" },
+      },
+      middleware: { toolExecute: slow },
+    });
+
+    const prev = mockConfig.timeouts.toolExecutionTimeoutSec;
+    mockConfig.timeouts.toolExecutionTimeoutSec = 0.01;
+    try {
+      const executor = new ToolExecutor(makePrompter());
+      const result = await executor.execute(
+        "file_read",
+        { path: "README.md" },
+        makeContext(),
+      );
+      // Middleware phase (50ms) exceeds the per-tool budget (10ms), but
+      // that budget is only enforced inside `executeWithTimeout` around
+      // the tool invocation itself. The terminal runs and succeeds.
+      expect(result.isError).toBe(false);
+      expect(result.content).toBe("real tool output");
+    } finally {
+      mockConfig.timeouts.toolExecutionTimeoutSec = prev;
+    }
+  });
+
   test("multiple middlewares compose in registration order (outer-first)", async () => {
     const trace: string[] = [];
 

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 
+import { parseChannelId } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { bridgeCesApproval } from "../credential-execution/approval-bridge.js";
 import { isCesShellLockdownEnabled } from "../credential-execution/feature-gates.js";
@@ -64,15 +65,6 @@ export class ToolExecutor {
      */
     turnContext?: TurnContext,
   ): Promise<ToolExecutionResult> {
-    // Compute the per-tool timeout budget upfront so the pipeline timeout
-    // matches the existing per-tool timeout. `toolExecute` is intentionally
-    // `null` in `DEFAULT_TIMEOUTS` because `ToolExecutor` already enforces
-    // per-tool timeouts inside `executeWithTimeout`; we pass the same
-    // budget to `runPipeline` so a runaway middleware doesn't silently
-    // exceed the tool's configured limit, without double-enforcing on the
-    // happy path (the pipeline race is a cheap backstop).
-    const perToolTimeoutMs = computePerToolTimeoutMs(name, input);
-
     // Prefer the orchestrator-supplied `turnContext` so the pipeline sees
     // the real conversation identity, per-turn trust, and context-window
     // manager. When absent (CLI / test invocations that bypass the agent
@@ -83,7 +75,7 @@ export class ToolExecutor {
       conversationId: context.conversationId,
       turnIndex: 0,
       trust: {
-        sourceChannel: "vellum",
+        sourceChannel: parseChannelId(context.executionChannel) ?? "vellum",
         trustClass: context.trustClass,
       },
     };
@@ -91,13 +83,22 @@ export class ToolExecutor {
     const middlewares = getMiddlewaresFor("toolExecute");
     const pipelineArgs: ToolExecuteArgs = { name, input, context };
 
+    // No pipeline-level timeout: `executeInternal` already wraps the real
+    // tool invocation in `executeWithTimeout`, which is the sole enforcer
+    // of the per-tool budget. Propagating `perToolTimeoutMs` to
+    // `runPipeline` made the pipeline race everything upstream of the
+    // tool call — permission checks, approval waits, middleware — against
+    // the same budget, so a slow human clicking "allow" produced a
+    // `PluginTimeoutError` thrown past `executeInternal`'s catch block,
+    // breaking the `execute()` never-throws contract. Letting the pipeline
+    // run untimed keeps the contract intact; runaway middleware is a
+    // plugin-health concern handled by per-plugin timeouts, not here.
     return runPipeline<ToolExecuteArgs, ToolExecuteResult>(
       "toolExecute",
       middlewares,
       (args) => this.executeInternal(args.name, args.input, args.context),
       pipelineArgs,
       turnCtx,
-      perToolTimeoutMs,
     );
   }
 
@@ -501,15 +502,8 @@ export { PermissionChecker } from "./permission-checker.js";
  * handles cleanup before the executor wrapper trips. Non-shell tools use
  * the generic `toolExecutionTimeoutSec` configuration value.
  *
- * Called from two sites:
- * 1. The public `ToolExecutor.execute` wrapper — passes the result to
- *    `runPipeline` as the pipeline-level timeout so middleware inherits
- *    the same budget the tool enforces internally.
- * 2. `executeInternal` — passes the result to `executeWithTimeout` around
- *    the actual tool invocation.
- *
- * Both sites see the same value because `getConfig()` returns a cached
- * object; there is no observable divergence.
+ * Consumed by `executeInternal` via `executeWithTimeout`, which is the
+ * sole enforcer of the per-tool budget.
  */
 function computePerToolTimeoutMs(
   name: string,
