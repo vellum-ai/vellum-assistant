@@ -116,13 +116,11 @@ registerHook(
         // trigger live reload.
         ensureAppSourceWatcher();
 
-        // executeAppCreate already compiles multifile apps inline and
-        // populates dist/ before returning. Skip the redundant recompile
-        // in handleAppChange: the recompile starts by rm -rf dist/, and
-        // if it races with (or fails before) the client's app_open fetch
-        // the user sees the "compilation failed" fallback instead of the
-        // freshly-built widget. Mirror the idempotent pattern added to
-        // the app_refresh hook in #23642.
+        // executeAppCreate compiles multifile apps inline and populates
+        // dist/ before returning. handleAppChange would otherwise start
+        // a second compile that begins with `rm -rf dist/`, so we only
+        // invoke it when the executor left compile_errors — i.e. the
+        // authoritative compile did not succeed and a retry is wanted.
         const app = getApp(parsed.id);
         const executorCompiled =
           app != null &&
