@@ -95,6 +95,10 @@ Examples:
       "--dedupe-key <key>",
       "Optional dedupe key to suppress duplicate notifications",
     )
+    .option(
+      "--deep-link-metadata <json>",
+      "Optional JSON metadata clients can use for deep linking",
+    )
     .addHelpText(
       "after",
       `
@@ -131,6 +135,7 @@ Examples:
           preferredChannels?: string;
           sessionId?: string;
           dedupeKey?: string;
+          deepLinkMetadata?: string;
         },
         cmd: Command,
       ) => {
@@ -181,6 +186,24 @@ Examples:
               .filter((ch) => ch.length > 0);
           }
 
+          // Parse --deep-link-metadata
+          let deepLinkMetadata: Record<string, unknown> | undefined;
+          if (opts.deepLinkMetadata != null) {
+            try {
+              deepLinkMetadata = JSON.parse(opts.deepLinkMetadata) as Record<
+                string,
+                unknown
+              >;
+            } catch {
+              writeOutput(cmd, {
+                ok: false,
+                error: `Invalid deep-link-metadata: must be a valid JSON string`,
+              });
+              process.exitCode = 1;
+              return;
+            }
+          }
+
           const sourceContextId = opts.sessionId ?? `cli-${Date.now()}`;
 
           const result = await cliIpcCall<{
@@ -204,6 +227,7 @@ Examples:
               requestedBySource: opts.sourceChannel,
               ...(opts.title ? { requestedTitle: opts.title } : {}),
               ...(preferredChannels?.length ? { preferredChannels } : {}),
+              ...(deepLinkMetadata ? { deepLinkMetadata } : {}),
             },
             ...(opts.dedupeKey ? { dedupeKey: opts.dedupeKey } : {}),
             throwOnError: true,
