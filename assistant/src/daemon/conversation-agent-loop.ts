@@ -1483,26 +1483,41 @@ export async function runAgentLoopImpl(
     }
 
     // Pre-run repair — routed through the `historyRepair` plugin pipeline so
-    // plugins can observe or override repair behavior. The default plugin
-    // (registered in `external-plugins-bootstrap.ts`) delegates to
-    // `repairHistory` unchanged, preserving existing behavior.
+    // plugins can observe or override repair behavior. The default plugin's
+    // middleware is a passthrough; the actual repair runs in the terminal
+    // (`defaultHistoryRepairTerminal`).
     let preRepairMessages = runMessages;
-    const preRunRepair = await runPipeline<
-      HistoryRepairArgs,
-      HistoryRepairResult
-    >(
-      "historyRepair",
-      getMiddlewaresFor("historyRepair"),
-      async (args) => defaultHistoryRepairTerminal(args),
-      { history: runMessages, provider: ctx.provider.name },
-      buildPluginTurnContext(ctx, reqId),
-      DEFAULT_TIMEOUTS.historyRepair,
-    );
+    let preRunRepair: HistoryRepairResult | null = null;
+    try {
+      preRunRepair = await runPipeline<HistoryRepairArgs, HistoryRepairResult>(
+        "historyRepair",
+        getMiddlewaresFor("historyRepair"),
+        async (args) => defaultHistoryRepairTerminal(args),
+        { history: runMessages, provider: ctx.provider.name },
+        buildPluginTurnContext(ctx, reqId),
+        DEFAULT_TIMEOUTS.historyRepair,
+      );
+    } catch (err) {
+      if (err instanceof PluginTimeoutError) {
+        // Pipeline exceeded its budget — likely a misbehaving third-party
+        // middleware. Degrade gracefully by proceeding with the un-repaired
+        // history rather than turn-fatal-erroring; un-repaired history is
+        // strictly better than no turn at all, and the provider call itself
+        // will still error visibly if the drift is unrecoverable.
+        rlog.warn(
+          { err, phase: "pre_run" },
+          "historyRepair pipeline timed out — proceeding with un-repaired history",
+        );
+      } else {
+        throw err;
+      }
+    }
     if (
-      preRunRepair.stats.assistantToolResultsMigrated > 0 ||
-      preRunRepair.stats.missingToolResultsInserted > 0 ||
-      preRunRepair.stats.orphanToolResultsDowngraded > 0 ||
-      preRunRepair.stats.consecutiveSameRoleMerged > 0
+      preRunRepair !== null &&
+      (preRunRepair.stats.assistantToolResultsMigrated > 0 ||
+        preRunRepair.stats.missingToolResultsInserted > 0 ||
+        preRunRepair.stats.orphanToolResultsDowngraded > 0 ||
+        preRunRepair.stats.consecutiveSameRoleMerged > 0)
     ) {
       rlog.warn(
         { phase: "pre_run", ...preRunRepair.stats },
@@ -1773,6 +1788,15 @@ export async function runAgentLoopImpl(
         { phase: "retry" },
         "Provider ordering error detected, attempting one-shot deep-repair retry",
       );
+      // Design note: deep-repair intentionally bypasses the `historyRepair`
+      // plugin pipeline. Deep-repair is a recovery-only path triggered by a
+      // provider ordering error — it must be deterministic and unaffected by
+      // user middleware that might have caused (or be unable to recover from)
+      // the original drift. Plugins can already observe / override the
+      // pre-run repair via the `historyRepair` pipeline above; widening that
+      // surface to deep-repair is intentionally deferred until there's a
+      // concrete plugin-level use case. Do not route this call through
+      // `runPipeline` without first revisiting that contract.
       const retryRepair = deepRepairHistory(runMessages);
       runMessages = retryRepair.messages;
       const retryStrip = stripHistoricalWebSearchResults(runMessages);
