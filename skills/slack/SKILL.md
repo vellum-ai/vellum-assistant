@@ -86,7 +86,7 @@ When you need to send a DM or look up a Slack user by name, check contacts first
 ## Delivery Notes
 
 - For rich content (digests, reports, formatted summaries): use the Slack API directly via `chat.postMessage` with blocks
-- For short alerts: `send_notification` is fine — it lets the notification router pick the best channel
+- For short alerts: `assistant notifications send` via `bash` is fine — it lets the notification router pick the best channel
 - For scheduled tasks: always include an explicit Slack API call to deliver results, otherwise output only lives in the conversation log
 
 ## Threading

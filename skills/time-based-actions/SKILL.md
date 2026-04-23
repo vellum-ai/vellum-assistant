@@ -22,22 +22,22 @@ Quick-reference decision guide for choosing the right tool when users ask about 
    - Examples: "every day at 9am", "weekly on Mondays", "every 2 hours"
 
 3. **Does the request need an alert RIGHT NOW (no delay)?**
-   - YES -> `send_notification`
+   - YES -> `assistant notifications send` via `bash`
    - Examples: "send me a notification", "alert me now", "ping me"
 
 4. **Is the request about tracking work with no time trigger?**
    - YES -> `task_list_add`
    - Examples: "add to my tasks", "remind me to do X" (no time), "put this on my list"
 
-## Critical Warning: `send_notification` is IMMEDIATE-ONLY
+## Critical Warning: `assistant notifications send` is IMMEDIATE-ONLY
 
-`send_notification` fires **instantly** when called. It has **NO delay, scheduling, or future-time capability**. NEVER use it for:
+`assistant notifications send` fires **instantly** when called. It has **NO delay, scheduling, or future-time capability**. NEVER use it for:
 
 - "Remind me in 5 minutes" -> use `reminder_create`
 - "Alert me at 3pm" -> use `reminder_create`
 - "Notify me tomorrow" -> use `reminder_create`
 
-If you use `send_notification` for any of these, the notification fires immediately and the user misses their intended reminder.
+If you use `assistant notifications send` for any of these, the notification fires immediately and the user misses their intended reminder.
 
 ## Critical Warning: `task_list_add` has NO time trigger
 
@@ -139,28 +139,30 @@ Use the following heuristics to pick `routing_intent`:
   3. If neither field is present or the interface is `cli`, omit `preferred_channels`.
 
   When a channel is determined, include it as a routing hint:
+
   ```
   routing_hints: { preferred_channels: ["<resolved channel>"] }
   routing_intent: "all_channels"
   ```
+
 - **Never use `single_channel` as a passive default.** If you haven't thought about which channel to use, use `all_channels`.
 
 ### Examples
 
-| Scenario                                                    | routing_intent   | routing_hints                          |
-| ----------------------------------------------------------- | ---------------- | -------------------------------------- |
-| `source_channel: telegram` in turn_context                  | `all_channels`   | `{ preferred_channels: ["telegram"] }` |
-| No `source_channel`, `interface: macos`                     | `all_channels`   | `{ preferred_channels: ["vellum"] }`   |
-| No `source_channel`, `interface: ios`                       | `all_channels`   | `{ preferred_channels: ["vellum"] }`   |
-| User says "remind me on Telegram"                           | `single_channel` | `{ preferred_channels: ["telegram"] }` |
-| No `source_channel`, `interface: cli`                       | `all_channels`   | `{}`                                   |
-| No channel info available                                   | `all_channels`   | `{}`                                   |
+| Scenario                                   | routing_intent   | routing_hints                          |
+| ------------------------------------------ | ---------------- | -------------------------------------- |
+| `source_channel: telegram` in turn_context | `all_channels`   | `{ preferred_channels: ["telegram"] }` |
+| No `source_channel`, `interface: macos`    | `all_channels`   | `{ preferred_channels: ["vellum"] }`   |
+| No `source_channel`, `interface: ios`      | `all_channels`   | `{ preferred_channels: ["vellum"] }`   |
+| User says "remind me on Telegram"          | `single_channel` | `{ preferred_channels: ["telegram"] }` |
+| No `source_channel`, `interface: cli`      | `all_channels`   | `{}`                                   |
+| No channel info available                  | `all_channels`   | `{}`                                   |
 
 ## Tool Summary
 
-| Tool                | Timing                 | Recurrence       | Purpose                                       |
-| ------------------- | ---------------------- | ---------------- | --------------------------------------------- |
-| `reminder_create`   | Future time (one-shot) | No               | Timed notification or timed autonomous action |
-| `schedule_create`   | Recurring pattern      | Yes (cron/RRULE) | Recurring automated jobs                      |
-| `send_notification` | **Immediate only**     | No               | Alert the user right now                      |
-| `task_list_add`     | **No time trigger**    | No               | Track work in the task queue                  |
+| Tool                           | Timing                 | Recurrence       | Purpose                                       |
+| ------------------------------ | ---------------------- | ---------------- | --------------------------------------------- |
+| `reminder_create`              | Future time (one-shot) | No               | Timed notification or timed autonomous action |
+| `schedule_create`              | Recurring pattern      | Yes (cron/RRULE) | Recurring automated jobs                      |
+| `assistant notifications send` | **Immediate only**     | No               | Alert the user right now                      |
+| `task_list_add`                | **No time trigger**    | No               | Track work in the task queue                  |

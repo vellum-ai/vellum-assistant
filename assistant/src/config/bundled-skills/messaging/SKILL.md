@@ -145,10 +145,10 @@ Telegram is supported as a messaging provider with limited capabilities compared
 
 ## Notifications vs Messages
 
-- `send_notification` is provided by the **notifications** skill (always active) -- use it when the user asks for an alert/notification (for example "send this as a desktop notification").
+- Notifications are sent via the **notifications** skill (always active) using `assistant notifications send` in `bash` -- use it when the user asks for an alert/notification (for example "send this as a desktop notification").
 - Use `messaging_send` when the user asks to send a message into a specific chat/email destination.
-- `send_notification` channel routing is LLM-driven; `preferred_channels` are hints, not hard channel forcing.
-- Before using `messaging_send` or `send_notification`, look up the recipient's contact record with `contact_search` to inform tone and content (see **Recipient Context** below).
+- Notification channel routing is LLM-driven; `--preferred-channels` are hints, not hard channel forcing.
+- Before using `messaging_send` or sending a notification, look up the recipient's contact record with `contact_search` to inform tone and content (see **Recipient Context** below).
 
 ## Personalized Drafting
 
