@@ -1,5 +1,11 @@
 import type { TrustRuleBase } from "@vellumai/ces-contracts";
 
+export type {
+  AllowlistOption,
+  ScopeOption,
+} from "@vellumai/skill-host-contracts";
+export { RiskLevel } from "@vellumai/skill-host-contracts";
+
 /**
  * Re-exported TrustRule type from `@vellumai/ces-contracts`.
  *
@@ -13,12 +19,6 @@ export type TrustRule = TrustRuleBase & {
   scope?: string;
   executionTarget?: string;
 };
-
-export enum RiskLevel {
-  Low = "low",
-  Medium = "medium",
-  High = "high",
-}
 
 export type UserDecision =
   | "allow"
@@ -44,17 +44,6 @@ export interface PermissionCheckResult {
   decision: "allow" | "deny" | "prompt";
   reason: string;
   matchedRule?: TrustRule;
-}
-
-export interface AllowlistOption {
-  label: string;
-  description: string;
-  pattern: string;
-}
-
-export interface ScopeOption {
-  label: string;
-  scope: string;
 }
 
 /** Contextual information passed alongside a permission check for policy decisions. */

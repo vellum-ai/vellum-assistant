@@ -1,3 +1,6 @@
+import type { ToolDefinition } from "@vellumai/skill-host-contracts";
+export type { ToolDefinition };
+
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { ProviderError } from "../util/errors.js";
 
@@ -80,12 +83,6 @@ export type ContentBlock =
 export interface Message {
   role: "user" | "assistant";
   content: ContentBlock[];
-}
-
-export interface ToolDefinition {
-  name: string;
-  description: string;
-  input_schema: object;
 }
 
 export type ModelIntent =

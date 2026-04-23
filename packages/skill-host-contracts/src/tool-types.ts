@@ -1,66 +1,115 @@
-import type { ApprovalRequired } from "@vellumai/ces-contracts";
-import type {
-  DiffInfo,
-  ExecutionTarget,
-  ProxyApprovalCallback,
-  RiskLevel,
-  SensitiveOutputBinding,
-  ToolDefinition,
-  ToolExecutionErrorEvent,
-  ToolExecutionStartEvent,
-  ToolPermissionDeniedEvent,
-  ToolPermissionPromptEvent,
-  ToolSecretDetectedEvent,
-} from "@vellumai/skill-host-contracts";
-
-import type { InterfaceId } from "../channels/types.js";
-import type { CesClient } from "../credential-execution/client.js";
-import type { SecretPromptResult } from "../permissions/secret-prompter.js";
-import type { ContentBlock } from "../providers/types.js";
-import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+/**
+ * Tool-related type declarations shared between the daemon and any
+ * skill-side package that needs to describe tools, permission risk, or tool
+ * execution results on the wire.
+ *
+ * Pure type-level declarations only (+ the `RiskLevel` enum, which is a value
+ * but is safely cross-package). No runtime helpers live here — the assistant
+ * keeps all behavior functions in `assistant/src/tools/` and re-exports the
+ * types from this file.
+ *
+ * Heavy daemon-internal references (CES client, host-proxy classes, trust
+ * classifications, interface IDs, content blocks, CES `ApprovalRequired`)
+ * are held as opaque `unknown` / broadened-`string` placeholders on this
+ * side so the contracts package never reaches into the assistant or the
+ * ces-contracts runtime. The assistant redeclares `Tool`, `ToolContext`,
+ * `ToolExecutionResult`, `ToolExecutedEvent`, `ToolLifecycleEvent`,
+ * `ToolLifecycleEventHandler`, and `ProxyToolResolver` in
+ * `assistant/src/tools/types.ts` with the concrete types in place, so
+ * existing call sites keep their full type information. The two sides are
+ * structurally independent — no inheritance, no intersection — which
+ * avoids TypeScript's contravariance mismatches on lifecycle-event
+ * handlers.
+ */
 
 // ---------------------------------------------------------------------------
-// Re-exports + concrete overlays for types that live in
-// @vellumai/skill-host-contracts.
+// Simple type-level declarations — moved in full
+// ---------------------------------------------------------------------------
+
+export type ExecutionTarget = "sandbox" | "host";
+
+export enum RiskLevel {
+  Low = "low",
+  Medium = "medium",
+  High = "high",
+}
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  input_schema: object;
+}
+
+export type ErrorCategory =
+  | "permission_denied"
+  | "auth"
+  | "tool_failure"
+  | "unexpected";
+
+export interface DiffInfo {
+  filePath: string;
+  oldContent: string;
+  newContent: string;
+  isNewFile: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Sensitive-output binding (pure data)
+// ---------------------------------------------------------------------------
+
+export type SensitiveOutputKind = "invite_code";
+
+export interface SensitiveOutputBinding {
+  kind: SensitiveOutputKind;
+  placeholder: string;
+  value: string;
+}
+
+// ---------------------------------------------------------------------------
+// Proxy approval contract (pure data + callback signature)
+// ---------------------------------------------------------------------------
+
+/** Approval request from the outbound proxy when a policy decision requires user confirmation. */
+export interface ProxyApprovalRequest {
+  decision: {
+    kind: "ask_missing_credential" | "ask_unauthenticated";
+    target: {
+      hostname: string;
+      port: number | null;
+      path: string;
+      scheme: "http" | "https";
+    };
+    /** Present when kind is "ask_missing_credential". */
+    matchingPatterns?: string[];
+  };
+  sessionId: string;
+  /** HTTP method (plain HTTP only; undefined for HTTPS CONNECT tunnels). */
+  method?: string;
+  /** Curated non-sensitive headers (plain HTTP only). */
+  requestHeaders?: Record<string, string>;
+}
+
+/** Callback for proxy policy decisions requiring user confirmation. Returns true if approved. */
+export type ProxyApprovalCallback = (
+  request: ProxyApprovalRequest,
+) => Promise<boolean>;
+
+/** Env vars a proxy session injects into child processes. */
+export interface ProxyEnvVars {
+  HTTP_PROXY: string;
+  HTTPS_PROXY: string;
+  NO_PROXY: string;
+  NODE_EXTRA_CA_CERTS?: string;
+  SSL_CERT_FILE?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Tool execution result
 //
-// The canonical declarations moved into the neutral contracts package as
-// part of the skill-isolation work. This file preserves existing import
-// paths (`"../tools/types.js"`) so all callers keep resolving.
-//
-// Pure re-exports below cover types the contracts package could declare
-// without any assistant-side references. The remaining interfaces (`Tool`,
-// `ToolContext`, `ToolExecutionResult`, `ToolExecutedEvent`,
-// `ToolLifecycleEvent`, `ToolLifecycleEventHandler`, `ProxyToolResolver`)
-// reference daemon-internal types (CES client, host-proxy classes,
-// `ContentBlock`, `ApprovalRequired`, `TrustClass`, `InterfaceId`,
-// `SecretPromptResult`) that can't move into a neutral package. For those,
-// the contracts version uses opaque placeholders (`unknown`, broadened
-// `string`) and the assistant redeclares the interface here with the
-// concrete types. The two sides are structurally independent — no
-// inheritance, no intersection — which avoids TypeScript's contravariance
-// mismatches on lifecycle-event handlers.
-// ---------------------------------------------------------------------------
-
-export type {
-  DiffInfo,
-  ErrorCategory,
-  ExecutionTarget,
-  ProxyApprovalCallback,
-  ProxyApprovalRequest,
-  ProxyEnvVars,
-  SensitiveOutputBinding,
-  SensitiveOutputKind,
-  ToolDefinition,
-  ToolExecutionErrorEvent,
-  ToolExecutionStartEvent,
-  ToolPermissionDeniedEvent,
-  ToolPermissionPromptEvent,
-  ToolSecretDetectedEvent,
-} from "@vellumai/skill-host-contracts";
-export { RiskLevel } from "@vellumai/skill-host-contracts";
-
-// ---------------------------------------------------------------------------
-// Assistant-side concrete overlays
+// `contentBlocks` is declared as `unknown[]` here; the assistant redeclares
+// this interface with the concrete `ContentBlock[]` in its own copy.
+// Skill-side consumers that don't care about typed content-block access are
+// unaffected.
 // ---------------------------------------------------------------------------
 
 export interface ToolExecutionResult {
@@ -70,7 +119,7 @@ export interface ToolExecutionResult {
   /** Optional status message for display (e.g. timeout, truncation). */
   status?: string;
   /** Optional rich content blocks (e.g. images) to include alongside text in the tool result. */
-  contentBlocks?: ContentBlock[];
+  contentBlocks?: unknown[];
   /**
    * Runtime-internal sensitive output bindings (placeholder -> real value).
    * Populated by the executor when tool output contains
@@ -104,8 +153,12 @@ export interface ToolExecutionResult {
    * with the granted grantId. CES tools populate this field rather than
    * returning a textual error so the executor can intercept and handle the
    * approval flow transparently.
+   *
+   * Declared as `unknown` here to keep this package free of
+   * `@vellumai/ces-contracts` imports; the assistant narrows it back to the
+   * concrete `ApprovalRequired` shape via intersection.
    */
-  cesApprovalRequired?: ApprovalRequired;
+  cesApprovalRequired?: unknown;
 }
 
 export type ProxyToolResolver = (
@@ -113,24 +166,83 @@ export type ProxyToolResolver = (
   input: Record<string, unknown>,
 ) => Promise<ToolExecutionResult>;
 
-/**
- * `ToolExecutedEvent` carries a `result: ToolExecutionResult` field, so
- * the assistant re-declares it here to reference the assistant-side
- * `ToolExecutionResult` (which narrows `contentBlocks` to `ContentBlock[]`
- * and `cesApprovalRequired` to `ApprovalRequired`).
- */
-export interface ToolExecutedEvent {
-  type: "executed";
+// ---------------------------------------------------------------------------
+// Tool lifecycle events
+// ---------------------------------------------------------------------------
+
+interface ToolLifecycleEventBase {
   toolName: string;
   input: Record<string, unknown>;
   workingDir: string;
   conversationId: string;
   requestId?: string;
   executionTarget?: ExecutionTarget;
+}
+
+export interface AllowlistOption {
+  label: string;
+  description: string;
+  pattern: string;
+}
+
+export interface ScopeOption {
+  label: string;
+  scope: string;
+}
+
+export interface ToolExecutionStartEvent extends ToolLifecycleEventBase {
+  type: "start";
+  startedAtMs: number;
+}
+
+export interface ToolPermissionPromptEvent extends ToolLifecycleEventBase {
+  type: "permission_prompt";
+  riskLevel: string;
+  /** Classifier-provided reason explaining why the risk level was assigned (bash/host_bash only). */
+  riskReason?: string;
+  reason: string;
+  allowlistOptions: AllowlistOption[];
+  scopeOptions: ScopeOption[];
+  diff?: DiffInfo;
+  persistentDecisionsAllowed?: boolean;
+}
+
+export interface ToolPermissionDeniedEvent extends ToolLifecycleEventBase {
+  type: "permission_denied";
+  riskLevel: string;
+  /** Classifier-provided reason explaining why the risk level was assigned (bash/host_bash only). */
+  riskReason?: string;
+  decision: "deny" | "always_deny";
+  reason: string;
+  durationMs: number;
+}
+
+export interface ToolExecutedEvent extends ToolLifecycleEventBase {
+  type: "executed";
   riskLevel: string;
   decision: string;
   durationMs: number;
   result: ToolExecutionResult;
+}
+
+export interface ToolExecutionErrorEvent extends ToolLifecycleEventBase {
+  type: "error";
+  riskLevel: string;
+  decision: string;
+  durationMs: number;
+  errorMessage: string;
+  isExpected: boolean;
+  /** Classifies the error for downstream consumers (audit, alerting, monitoring). */
+  errorCategory: ErrorCategory;
+  errorName?: string;
+  errorStack?: string;
+}
+
+export interface ToolSecretDetectedEvent extends ToolLifecycleEventBase {
+  type: "secret_detected";
+  matches: Array<{ type: string; redactedValue: string }>;
+  action: "redact" | "warn" | "block" | "prompt";
+  detectedAtMs: number;
 }
 
 export type ToolLifecycleEvent =
@@ -144,6 +256,15 @@ export type ToolLifecycleEvent =
 export type ToolLifecycleEventHandler = (
   event: ToolLifecycleEvent,
 ) => void | Promise<void>;
+
+// ---------------------------------------------------------------------------
+// Tool context
+//
+// Heavy daemon-internal fields (CES client, host-proxy classes, trust
+// classification, interface ID, secret-prompt result shape) are declared
+// `unknown` here. The assistant redeclares `ToolContext` with the concrete
+// daemon types in its own copy.
+// ---------------------------------------------------------------------------
 
 export interface ToolContext {
   workingDir: string;
@@ -164,7 +285,13 @@ export interface ToolContext {
   proxyToolResolver?: ProxyToolResolver;
   /** When set, only tools in this set may execute. Tools outside the set are blocked with an error. */
   allowedToolNames?: Set<string>;
-  /** Prompt the user for a secret value via native SecureField UI. */
+  /**
+   * Prompt the user for a secret value via native SecureField UI.
+   *
+   * The concrete return shape is owned by the assistant
+   * (`SecretPromptResult`); declared as `unknown` here so this package stays
+   * free of daemon-side imports.
+   */
   requestSecret?: (params: {
     service: string;
     field: string;
@@ -174,7 +301,7 @@ export interface ToolContext {
     purpose?: string;
     allowedTools?: string[];
     allowedDomains?: string[];
-  }) => Promise<SecretPromptResult>;
+  }) => Promise<unknown>;
   /** Optional callback to send a message to the connected client (e.g. open_url). */
   sendToClient?: (msg: { type: string; [key: string]: unknown }) => void;
   /** True when an interactive client is connected (not just a no-op callback). */
@@ -200,11 +327,11 @@ export interface ToolContext {
   principal?: string;
   /**
    * Trust classification of the actor who initiated this tool invocation.
-   * Determines permission level: guardians self-approve, trusted contacts
-   * may escalate to guardian for approval, unknown actors are fail-closed.
-   * See {@link TrustClass} in actor-trust-resolver.ts for value semantics.
+   * Broadened to `string` here; the assistant narrows this back to its
+   * concrete `TrustClass` union ("guardian" | "trusted_contact" | "unknown")
+   * in `assistant/src/tools/types.ts`.
    */
-  trustClass: TrustClass;
+  trustClass: string;
   /** Channel through which the tool invocation originates (e.g. 'telegram', 'phone'). Used for scoped grant consumption. */
   executionChannel?: string;
   /** Voice/call session ID, if the invocation originates from a call. Used for scoped grant consumption. */
@@ -233,24 +360,42 @@ export interface ToolContext {
   channelPermissionChannelId?: string;
   /** The tool_use block ID from the LLM response, used to correlate confirmation prompts with specific tool invocations. */
   toolUseId?: string;
-  /** Optional proxy for delegating host_bash execution to a connected client (managed/cloud-hosted mode). */
-  hostBashProxy?: import("../daemon/host-bash-proxy.js").HostBashProxy;
-  /** Optional proxy for delegating CDP commands to a connected client (managed/cloud-hosted mode). */
-  hostBrowserProxy?: import("../daemon/host-browser-proxy.js").HostBrowserProxy;
-  /** Optional proxy for delegating host_file_read/write/edit execution to a connected client (managed/cloud-hosted mode). */
-  hostFileProxy?: import("../daemon/host-file-proxy.js").HostFileProxy;
+  /**
+   * Optional proxy for delegating host_bash execution to a connected client
+   * (managed/cloud-hosted mode). Held as `unknown` here; the assistant
+   * narrows to the concrete `HostBashProxy` class.
+   */
+  hostBashProxy?: unknown;
+  /**
+   * Optional proxy for delegating CDP commands to a connected client
+   * (managed/cloud-hosted mode). Held as `unknown` here; the assistant
+   * narrows to the concrete `HostBrowserProxy` class.
+   */
+  hostBrowserProxy?: unknown;
+  /**
+   * Optional proxy for delegating host_file_read/write/edit execution to a
+   * connected client (managed/cloud-hosted mode). Held as `unknown` here;
+   * the assistant narrows to the concrete `HostFileProxy` class.
+   */
+  hostFileProxy?: unknown;
   /** True when the assistant is running as a platform-managed remote instance. Used to auto-approve sandboxed bash tools. */
   isPlatformHosted?: boolean;
-  /** CES RPC client for credential execution operations. When present, the executor can bridge CES approval flows. */
-  cesClient?: CesClient;
+  /**
+   * CES RPC client for credential execution operations. Held as `unknown`
+   * here; the assistant narrows to the concrete `CesClient` class.
+   */
+  cesClient?: unknown;
   /**
    * The interface ID of the connected client driving the current turn (e.g.
    * "macos", "chrome-extension"). Browser backend policy uses this to decide
    * transport preference — for example, macOS-originated turns prefer the
    * user's real Chrome session via the paired extension before falling back
    * to cdp-inspect or local Playwright.
+   *
+   * Broadened to `string` here; the assistant narrows to its concrete
+   * `InterfaceId` union.
    */
-  transportInterface?: InterfaceId;
+  transportInterface?: string;
   /**
    * True when the host browser proxy's sender was overridden by a
    * registry-routed extension connection (ChromeExtensionRegistry WebSocket).
@@ -264,6 +409,10 @@ export interface ToolContext {
    */
   hostBrowserRegistryRouted?: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Tool
+// ---------------------------------------------------------------------------
 
 export interface Tool {
   name: string;
