@@ -98,6 +98,14 @@ export async function fetchCesLogExport(
     };
   }
 
-  const data = await response.arrayBuffer();
+  let data: ArrayBuffer;
+  try {
+    data = await response.arrayBuffer();
+  } catch (err) {
+    return {
+      ok: false,
+      error: `CES log export failed to read response body: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
   return { ok: true, data };
 }
