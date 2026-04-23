@@ -220,6 +220,7 @@ export async function handleConfirm(
     dedupKey: `tool-approval:${requestId}`,
     urgency: approved ? undefined : "medium",
     conversationId: interaction.conversationId,
+    detailPanel: { kind: "toolPermission" },
   }).catch((err) => {
     log.warn(
       { err, requestId },

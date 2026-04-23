@@ -39,6 +39,7 @@ import type { ContextWindowManager } from "../context/window-manager.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
+import { rewriteFeedTitle } from "../home/rewrite-feed-title.js";
 import {
   clearSentryConversationContext,
   setSentryConversationContext,
@@ -2530,17 +2531,42 @@ export async function runAgentLoopImpl(
             } else {
               summary = conv.title ?? "Background task completed.";
             }
+            const feedTitle =
+              conv.title && !isReplaceableTitle(conv.title)
+                ? conv.title
+                : "Background task";
+            const dedupKey = `bg-conv:${ctx.conversationId}`;
             void emitFeedEvent({
               source: "assistant",
-              title: conv.title ?? "Background Task",
+              title: feedTitle,
               summary,
-              dedupKey: `bg-conv:${ctx.conversationId}`,
+              dedupKey,
+              conversationId: ctx.conversationId,
             }).catch((err) => {
               log.warn(
                 { err, conversationId: ctx.conversationId },
                 "Failed to emit background conversation feed event",
               );
             });
+
+            void rewriteFeedTitle(feedTitle)
+              .then((prose) => {
+                if (prose && prose !== feedTitle) {
+                  return emitFeedEvent({
+                    source: "assistant",
+                    title: prose,
+                    summary,
+                    dedupKey,
+                    conversationId: ctx.conversationId,
+                  });
+                }
+              })
+              .catch((err) => {
+                log.warn(
+                  { err, conversationId: ctx.conversationId },
+                  "Failed to update feed event with prose title rewrite",
+                );
+              });
           }
         } catch (feedErr) {
           log.warn(

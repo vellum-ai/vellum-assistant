@@ -1024,6 +1024,7 @@ function makeHubPublisher(
         dedupKey,
         urgency: msg.riskLevel === "high" ? "high" : "medium",
         conversationId,
+        detailPanel: { kind: "toolPermission" },
       }).catch((err) => {
         log.warn(
           { err, requestId: msg.requestId },
@@ -1044,6 +1045,7 @@ function makeHubPublisher(
                 dedupKey,
                 urgency: msg.riskLevel === "high" ? "high" : "medium",
                 conversationId,
+                detailPanel: { kind: "toolPermission" },
               });
             }
           })

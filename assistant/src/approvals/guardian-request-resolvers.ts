@@ -274,6 +274,7 @@ const pendingInteractionResolver: GuardianRequestResolver = {
       summary: `${approved ? "Approved" : "Denied"} access to ${request.toolName ?? "unknown tool"}.`,
       dedupKey: `guardian-approval:${request.id}`,
       urgency: approved ? undefined : "medium",
+      detailPanel: { kind: "toolPermission" },
     }).catch((err) => {
       log.warn(
         { err, requestId: request.id },
@@ -539,6 +540,7 @@ const accessRequestResolver: GuardianRequestResolver = {
         summary: `Denied access request.`,
         dedupKey: `guardian-access:${request.id}`,
         urgency: "medium",
+        detailPanel: { kind: "permissionChat" },
       }).catch((err) => {
         log.warn(
           { err, requestId: request.id },
@@ -592,6 +594,7 @@ const accessRequestResolver: GuardianRequestResolver = {
         summary: `Granted access request.`,
         dedupKey: `guardian-access:${request.id}`,
         urgency: undefined,
+        detailPanel: { kind: "permissionChat" },
       }).catch((err) => {
         log.warn(
           { err, requestId: request.id },
@@ -840,6 +843,7 @@ const accessRequestResolver: GuardianRequestResolver = {
       summary: `Granted access request.`,
       dedupKey: `guardian-access:${request.id}`,
       urgency: undefined,
+      detailPanel: { kind: "permissionChat" },
     }).catch((err) => {
       log.warn(
         { err, requestId: request.id },
@@ -927,6 +931,7 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
         summary: `Denied grant request for ${request.toolName ?? "unknown tool"}.`,
         dedupKey: `guardian-grant:${request.id}`,
         urgency: "medium",
+        detailPanel: { kind: "toolPermission" },
       }).catch((err) => {
         log.warn(
           { err, requestId: request.id },
@@ -1038,6 +1043,7 @@ const toolGrantRequestResolver: GuardianRequestResolver = {
       summary: `Approved grant request for ${request.toolName ?? "unknown tool"}.`,
       dedupKey: `guardian-grant:${request.id}`,
       urgency: undefined,
+      detailPanel: { kind: "toolPermission" },
     }).catch((err) => {
       log.warn(
         { err, requestId: request.id },

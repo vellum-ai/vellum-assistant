@@ -6,6 +6,8 @@ import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { HeartbeatAlert } from "../daemon/message-protocol.js";
 import { emitFeedEvent } from "../home/emit-feed-event.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
+import { getConversation } from "../memory/conversation-crud.js";
+import { GENERATING_TITLE } from "../memory/conversation-title-service.js";
 import {
   GUARDIAN_PERSONA_TEMPLATE,
   resolveGuardianPersona,
@@ -398,13 +400,22 @@ export class HeartbeatService {
 
       log.info({ conversationId: conversation.id }, "Heartbeat completed");
 
+      let title = "Heartbeat";
+      try {
+        const row = getConversation(conversation.id);
+        if (row?.title && row.title !== GENERATING_TITLE) {
+          title = row.title;
+        }
+      } catch {
+        // Best-effort; fall back to generic title.
+      }
+
       const today = new Date().toISOString().split("T")[0];
       void emitFeedEvent({
         source: "assistant",
-        title: "Heartbeat",
-        summary: "Heartbeat check completed.",
+        title,
+        summary: "Periodic check completed. Tap to see details.",
         dedupKey: `heartbeat:ok:${today}`,
-        priority: 30,
       }).catch((err) => {
         log.warn(
           { err, conversationId: conversation.id },

@@ -83,6 +83,13 @@ export interface WriteAssistantFeedItemParams {
   expiresAt?: string;
   /** Visual urgency treatment — controls badge color independently of sort priority. */
   urgency?: FeedItemUrgency;
+  /**
+   * Explicit stable id. When provided, the writer's merge semantics
+   * (thread in-place update, action same-id update) use this id instead
+   * of a random UUID, enabling deterministic dedup across successive
+   * calls for the same logical item.
+   */
+  id?: string;
 }
 
 /**
@@ -102,7 +109,7 @@ export async function writeAssistantFeedItem(
   const now = new Date().toISOString();
 
   const item: FeedItem = {
-    id: randomUUID(),
+    id: params.id ?? randomUUID(),
     type: params.type,
     source: params.source,
     title: params.title,

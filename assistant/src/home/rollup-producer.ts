@@ -411,7 +411,10 @@ function coerceRollupItem(
       ? Math.max(0, obj.minTimeAway)
       : undefined;
 
+  const id = `rollup:${type}:${coercedSource ?? "none"}`;
+
   return {
+    id,
     type,
     source: coercedSource,
     title,
