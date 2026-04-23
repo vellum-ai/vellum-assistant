@@ -141,9 +141,8 @@ describe("injector chain", () => {
   });
 
   test("composeInjectorChain returns empty string when every injector opts out", async () => {
-    // The default chain is the golden-path: all seven defaults return `null`
-    // in this PR, so the composed block is an empty string, matching the
-    // pre-PR behavior where no chain existed at all.
+    // The default chain is the golden-path: all eight defaults return `null`
+    // on an empty turn context, so the composed block is an empty string.
     registerPlugin(defaultInjectorsPlugin);
 
     const composed = await composeInjectorChain(makeTurnContext());
@@ -286,13 +285,13 @@ describe("injector chain", () => {
     expect(result.blocks.injectorChainBlock).toBe("THIRD_PARTY_BLOCK");
   });
 
-  // ── G2.1 migration integration tests ────────────────────────────────
+  // ── Integration tests ───────────────────────────────────────────────
   //
   // These assertions exercise the real per-turn injection pipeline with
-  // the default chain active, verifying that each ported injector emits
-  // byte-identical content to the pre-migration output and that a
-  // third-party injector registered at a fractional `order` slots into
-  // the correct position in the final user-tail content.
+  // the default chain active, verifying that each default injector emits
+  // the expected content and that a third-party injector registered at a
+  // fractional `order` slots into the correct position in the final
+  // user-tail content.
 
   test("golden-path: default chain injects workspace + unified-turn + PKB + NOW + subagent in the correct positions", async () => {
     // Canonical golden-path conversation state: full mode, non-Slack

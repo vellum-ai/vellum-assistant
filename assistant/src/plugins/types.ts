@@ -921,9 +921,8 @@ export interface TurnContext {
  *   user's typed text (e.g. subagent status, slack active-thread focus).
  * - `"after-memory-prefix"` — insert the block immediately after any leading
  *   memory-prefix blocks (`<memory_context>`, `<memory __injected>`) on the
- *   tail user message. Preserves the splice behaviour of `injectPkbContext`
- *   and `injectNowScratchpad` so memory/PKB/NOW ordering matches the
- *   pre-migration output byte-for-byte.
+ *   tail user message. Keeps memory/PKB/NOW in their canonical relative
+ *   order regardless of how many after-memory-prefix blocks are spliced.
  * - `"replace-run-messages"` — replace the full `runMessages` array with the
  *   block's `messagesOverride`. Used by the Slack chronological-transcript
  *   injector (the transcript is a whole new message list rendered from the
