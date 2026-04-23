@@ -134,6 +134,50 @@ registerPlugin({
     expect(getRegisteredPlugins()).toHaveLength(0);
   });
 
+  test("plugin with hanging top-level await is timed out and skipped", async () => {
+    // A plugin whose module evaluation never resolves (hanging top-level
+    // await) would otherwise block daemon startup indefinitely. The loader
+    // must bound the import with a timeout so the hang is isolated the same
+    // way a thrown error would be. A neighboring well-behaved plugin must
+    // still load.
+    writePlugin(
+      "hanging-plugin",
+      `
+await new Promise(() => {
+  // Intentionally never resolves — simulates a plugin whose top-level
+  // await blocks forever.
+});
+registerPlugin({
+  manifest: {
+    name: "hanging-plugin",
+    version: "0.0.1",
+    requires: { pluginRuntime: "v1" },
+  },
+});
+`,
+    );
+    writePlugin(
+      "healthy-plugin",
+      `
+registerPlugin({
+  manifest: {
+    name: "healthy-plugin",
+    version: "0.0.1",
+    requires: { pluginRuntime: "v1" },
+  },
+});
+`,
+    );
+
+    // Use a short test-only timeout so the suite does not wait the full
+    // production 10s for the hung-plugin path.
+    await loadUserPlugins({ importTimeoutMs: 250 });
+
+    const names = getRegisteredPlugins().map((p) => p.manifest.name);
+    expect(names).toContain("healthy-plugin");
+    expect(names).not.toContain("hanging-plugin");
+  });
+
   test("subdirectory without register.{ts,js} is silently skipped", async () => {
     // Populate a directory that looks like a plugin but lacks a register
     // file. The loader must skip it without throwing.

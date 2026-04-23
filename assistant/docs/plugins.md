@@ -41,7 +41,7 @@ off that one `Plugin` object.
 my-plugin/
 ├── package.json      # Node/Bun package metadata
 ├── README.md         # optional — human docs
-└── register.ts       # the entry point the daemon imports
+└── register.ts       # the entry point the assistant imports
 ```
 
 The `Plugin` shape is declared in
@@ -73,11 +73,11 @@ loader lives in
 has three key properties:
 
 - **Compiled wins.** If both `register.js` and `register.ts` are present,
-  the compiled `.js` file is loaded. This matches how the compiled daemon
-  binary resolves modules in production.
+  the compiled `.js` file is loaded. This matches how the compiled
+  assistant binary resolves modules in production.
 - **Per-plugin isolation.** If one plugin throws at import time, the error
   is logged with the plugin directory and the loader moves on. Other
-  plugins still load. One broken plugin cannot brick the daemon.
+  plugins still load. One broken plugin cannot brick the assistant.
 - **Per-instance.** The scan runs under `vellumRoot()`, which honors the
   multi-instance `BASE_DATA_DIR` override. Each assistant instance loads
   its own plugin set.
@@ -152,7 +152,7 @@ keys (the same keys declared in
 `meta/feature-flags/feature-flag-registry.json`). The bootstrap checks each
 key against `isAssistantFeatureFlagEnabled` before touching the plugin. If
 **any** listed flag is disabled, the plugin is skipped entirely for the
-duration of this daemon boot:
+duration of this assistant boot:
 
 - `init()` is **not** invoked.
 - `tools`, `routes`, and `skills` are **not** registered.
@@ -160,8 +160,8 @@ duration of this daemon boot:
   nothing to tear down on shutdown.
 
 Flag state is resolved once at bootstrap time. Flipping a `requiresFlag`
-key at runtime does not hot-reload the plugin — restart the daemon after
-changing the flag to pick up the new state. An empty `requiresFlag` (or
+key at runtime does not hot-reload the plugin — restart the assistant
+after changing the flag to pick up the new state. An empty `requiresFlag` (or
 the field being absent) means the plugin activates unconditionally.
 
 The skip path emits a single `info`-level log line naming both the plugin
@@ -494,8 +494,8 @@ export interface PluginInitContext {
 ```
 
 `pluginStorageDir` is a per-plugin writable directory. Use it for
-persistent state — cache files, counters, anything that must survive a
-daemon restart. The bootstrap creates it on demand.
+persistent state — cache files, counters, anything that must survive an
+assistant restart. The bootstrap creates it on demand.
 
 ## Tool, route, and skill contributions
 
@@ -505,9 +505,10 @@ middleware. Each is optional.
 ### Tools (`plugin.tools`)
 
 An array of `Tool` objects. The bootstrap registers them with the global
-tool registry after `init()` succeeds, stamping `origin: "skill"` and
-`ownerSkillId: <plugin.name>` so they participate in skill-scoped
-ref-counting.
+tool registry after `init()` succeeds, stamping `origin: "plugin"` and
+`ownerPluginId: <plugin.name>` so they live in a ref-count namespace
+disjoint from real skills (a plugin whose `manifest.name` happens to
+match a skill id cannot collide with that skill's registrations).
 
 ```typescript
 const myPlugin: Plugin = {
@@ -623,12 +624,12 @@ import API — a plugin's export surface is intentionally limited to the
 For cross-cutting concerns (broadcasting events, reacting to
 system-level changes), use the `assistantEventHub` pub/sub in
 [`runtime/assistant-event-hub.ts`](../src/runtime/assistant-event-hub.ts).
-The hub is the canonical place to publish events from inside the daemon
-process and to subscribe from anywhere that has access to the daemon's
-module graph.
+The hub is the canonical place to publish events from inside the
+assistant process and to subscribe from anywhere that has access to the
+assistant's module graph.
 
 Do not add new HTTP endpoints to implement plugin-to-plugin messaging
-inside a single daemon process.
+inside a single assistant process.
 
 `manifest.provides` is reserved as the hook for a future cross-plugin
 capability-negotiation protocol but is **not currently consumed by any
@@ -640,7 +641,7 @@ that adding real consumers later does not require bumping
 
 ## Hot reload
 
-**Not supported in v1.** Registering a plugin takes effect at daemon
+**Not supported in v1.** Registering a plugin takes effect at assistant
 startup only. To pick up a new or modified plugin:
 
 ```bash
@@ -648,7 +649,7 @@ vellum restart
 ```
 
 The registry's internal state is not mutable at runtime. `init()` and
-`onShutdown()` hooks are fired exactly once per daemon boot.
+`onShutdown()` hooks are fired exactly once per assistant boot.
 
 If you need hot reload for development, symlink your plugin directory
 into `~/.vellum/plugins/` so edits propagate, and automate the restart
@@ -678,7 +679,7 @@ match.
 
 Two plugins tried to register under the same `manifest.name`. Names must
 be globally unique. Rename one, or if this is a dev-reload issue,
-restart the daemon.
+restart the assistant.
 
 ### "plugin X requires credential Y but the credential store returned no value"
 
@@ -688,7 +689,7 @@ The credential named in `requiresCredential` is not set. Run:
 vellum credentials set Y
 ```
 
-…and restart the daemon.
+…and restart the assistant.
 
 ### "plugin X config validation failed: …"
 
@@ -709,18 +710,18 @@ background job that publishes results through `assistantEventHub`.
 Every pipeline invocation emits one structured line tagged
 `event=plugin.pipeline`. The fields:
 
-| Field                                      | Meaning                                                               |
-| ------------------------------------------ | --------------------------------------------------------------------- |
-| `pipeline`                                 | Pipeline name (`llmCall`, `toolExecute`, …).                          |
-| `chain`                                    | Ordered list of middleware function names, outermost first.           |
-| `durationMs`                               | Total time spent in the composed chain.                               |
-| `outcome`                                  | `"success"`, `"error"`, or `"timeout"`.                               |
-| `pluginName`                               | The specific plugin's name when the runner could attribute the frame. |
-| `timeoutMs`                                | The configured budget (only when one was set).                        |
-| `errorName`, `errorMessage`, `errorStack`  | Present on failure outcomes.                                          |
-| `requestId`, `conversationId`, `turnIndex` | Per-turn context for correlating with the rest of the daemon's logs.  |
+| Field                                      | Meaning                                                                 |
+| ------------------------------------------ | ----------------------------------------------------------------------- |
+| `pipeline`                                 | Pipeline name (`llmCall`, `toolExecute`, …).                            |
+| `chain`                                    | Ordered list of middleware function names, outermost first.             |
+| `durationMs`                               | Total time spent in the composed chain.                                 |
+| `outcome`                                  | `"success"`, `"error"`, or `"timeout"`.                                 |
+| `pluginName`                               | The specific plugin's name when the runner could attribute the frame.   |
+| `timeoutMs`                                | The configured budget (only when one was set).                          |
+| `errorName`, `errorMessage`, `errorStack`  | Present on failure outcomes.                                            |
+| `requestId`, `conversationId`, `turnIndex` | Per-turn context for correlating with the rest of the assistant's logs. |
 
-Pipe the daemon's stderr through `jq` to filter and inspect:
+Pipe the assistant's stderr through `jq` to filter and inspect:
 
 ```bash
 tail -f ~/.vellum/daemon.log | jq 'select(.event == "plugin.pipeline")'
@@ -745,10 +746,10 @@ tail -f ~/.vellum/daemon.log \
 - Confirm the directory is under `~/.vellum/plugins/` (or the per-instance
   equivalent under `$BASE_DATA_DIR/.vellum/plugins/`).
 - Confirm it has a `register.ts` or `register.js` at the top level.
-- Check the daemon's stderr for a line like
+- Check the assistant's stderr for a line like
   `loaded user plugin (side-effect import completed)` or
   `Failed to load user plugin <dir>: <err>`. Import-time throws are
-  logged but do not crash the daemon — the plugin is silently skipped
+  logged but do not crash the assistant — the plugin is silently skipped
   otherwise.
 - Verify `register.ts` calls `registerPlugin()` exactly once at module
   level. If the call is inside an unrelated conditional or wrapped in

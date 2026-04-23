@@ -1,12 +1,20 @@
 /**
- * Default `llmCall` plugin — the passthrough terminal that delegates to
- * {@link Provider.sendMessage}.
+ * Default `llmCall` plugin — a true passthrough that declares the pipeline
+ * surface and always yields to downstream middleware.
  *
- * The plugin system wraps every LLM request in the `llmCall` pipeline. This
- * default ensures the pipeline always has a terminal to fall through to when
- * no other plugin short-circuits or overrides it: it reconstitutes the
- * provider call from {@link LLMCallArgs} and returns the raw
- * {@link ProviderResponse} unchanged.
+ * The plugin system wraps every LLM request in the `llmCall` pipeline. The
+ * actual call to {@link Provider.sendMessage} lives in the `runPipeline`
+ * terminal at the call site (`agent/loop.ts`); this default's only job is to
+ * contribute the manifest (`provides.llmCall: "v1"`) so other plugins can
+ * negotiate against the pipeline surface.
+ *
+ * Because this plugin is registered at module load — BEFORE user plugins are
+ * loaded by `bootstrapPlugins()` — it sits at the outermost layer in
+ * `composeMiddleware`'s onion ordering. If its middleware called
+ * `provider.sendMessage` directly (instead of `next(args)`) it would
+ * short-circuit the chain and silently disable every user-registered
+ * `llmCall` middleware in production. The middleware therefore just forwards
+ * to `next(args)`.
  *
  * Registered from `daemon/external-plugins-bootstrap.ts` via a side-effect
  * import so the plugin is present in the registry before
@@ -24,9 +32,10 @@ import {
 } from "../types.js";
 
 /**
- * The default LLM-call plugin. Its sole contribution is the `llmCall`
- * middleware, which calls `args.provider.sendMessage(...)` with the exact
- * fields `args` carries and returns the provider response as-is.
+ * The default LLM-call plugin. Its `llmCall` middleware is a passthrough that
+ * forwards to `next(args)` unchanged so any user-registered middleware
+ * (registered later, inner in the onion) still runs and the terminal at the
+ * call site performs the actual `provider.sendMessage(...)` call.
  *
  * Manifest declares `provides.llmCall: "v1"` so other plugins can negotiate
  * against the pipeline surface and `requires.pluginRuntime: "v1"` to satisfy
@@ -42,15 +51,10 @@ export const defaultLlmCallPlugin: Plugin = {
   middleware: {
     llmCall: async function defaultLlmCall(
       args: LLMCallArgs,
-      _next,
+      next,
       _ctx,
     ): Promise<LLMCallResult> {
-      return args.provider.sendMessage(
-        args.messages,
-        args.tools,
-        args.systemPrompt,
-        args.options,
-      );
+      return next(args);
     },
   },
 };

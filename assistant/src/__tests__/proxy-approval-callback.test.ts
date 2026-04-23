@@ -133,13 +133,6 @@ describe("createProxyApprovalCallback", () => {
   test("returns true when user allows an ask_missing_credential request", async () => {
     const ctx = makeContext();
 
-    const _resolvePrompt:
-      | ((v: {
-          decision: string;
-          selectedPattern?: string;
-          selectedScope?: string;
-        }) => void)
-      | null = null;
     const prompterSendToClient = mock(() => {});
     const prompter = new PermissionPrompter(prompterSendToClient);
 
@@ -385,7 +378,9 @@ describe("createProxyApprovalCallback", () => {
       expect(msg.input).toHaveProperty("known_credential_patterns", [
         "*.fal.ai",
       ]);
-      expect(msg.input.reason).toMatch(/No credential in this session/);
+      expect(msg.input.reason).toMatch(
+        /A known credential template matches this host.*caller-supplied auth headers will still be sent/,
+      );
       expect(msg.input).not.toHaveProperty("proxy_session_id");
       prompter.resolveConfirmation(msg.requestId, "allow");
       return p;

@@ -931,9 +931,25 @@ export async function runBot(deps: BotDeps): Promise<void> {
       deps.exit(1);
       return;
     }
+    // The daemon refuses any audio-ingest connection that doesn't open
+    // with `AUTH <botApiToken>\n`, so we thread the same token the bot
+    // already uses for the HTTP API into the capture pipeline. Missing
+    // here means the daemon never set BOT_API_TOKEN — fail the boot
+    // explicitly rather than let the daemon silently drop our audio.
+    if (!env.botApiToken) {
+      await shutdown(
+        "error",
+        "BOT_API_TOKEN env var is missing — cannot authenticate audio-ingest to the daemon",
+      );
+      detachSigterm();
+      detachSigint();
+      deps.exit(1);
+      return;
+    }
     subsystems.audioCapture = await deps.startAudioCapture({
       daemonHost: env.daemonAudioHost,
       daemonPort: env.daemonAudioPort,
+      authToken: env.botApiToken,
       onError: (err) => {
         // Exhausted reconnect budget — the daemon is unreachable or the
         // pipeline is flapping. Shut the bot down so the daemon rolls the

@@ -197,6 +197,49 @@ describe("llmCall pipeline", () => {
     expect(provider.calls).toHaveLength(1);
   });
 
+  test("default registered first does not shadow later-registered user middleware", async () => {
+    // Regression for a shadowing bug where `defaultLlmCallPlugin` called
+    // `provider.sendMessage` directly instead of `next(args)`. Because the
+    // default registers at module load (before `bootstrapPlugins()` loads
+    // user plugins), it sat at the outermost layer in production — any
+    // user-registered `llmCall` middleware would have been silently skipped.
+    // This test locks in the fix by registering the default FIRST (matching
+    // production ordering) and asserting a user-registered spy still runs.
+    const observed: LLMCallArgs[] = [];
+    const spyPlugin: Plugin = {
+      manifest: {
+        name: "spy-llm-after-default",
+        version: "0.0.1",
+        requires: { pluginRuntime: "v1" },
+      },
+      middleware: {
+        llmCall: async (args, next, _ctx) => {
+          observed.push(args);
+          return next(args);
+        },
+      },
+    };
+
+    registerPlugin(defaultLlmCallPlugin);
+    registerPlugin(spyPlugin);
+
+    const provider = makeFakeProvider();
+    const args = makeArgs(provider);
+
+    await runPipeline<LLMCallArgs, LLMCallResult>(
+      "llmCall",
+      getMiddlewaresFor("llmCall"),
+      terminal,
+      args,
+      makeCtx(),
+      DEFAULT_TIMEOUTS.llmCall,
+    );
+
+    expect(observed).toHaveLength(1);
+    expect(observed[0]!.provider).toBe(provider);
+    expect(provider.calls).toHaveLength(1);
+  });
+
   test("short-circuit middleware prevents the real provider call", async () => {
     const synthetic = makeResponse({
       model: "synthetic-model",

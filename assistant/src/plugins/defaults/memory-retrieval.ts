@@ -68,10 +68,16 @@ export interface GraphMemoryPayload {
 
 /**
  * External state the default retriever needs but the pipeline args cannot
- * carry (conversation-scoped graph handle, per-turn abort signal, event
- * sink, live message list). Passed as a second argument to
- * {@link runDefaultMemoryRetrieval} rather than threaded through
- * {@link MemoryArgs} to keep the plugin-facing pipeline surface minimal.
+ * carry (conversation-scoped graph handle, event sink, live message list).
+ * Passed as a second argument to {@link runDefaultMemoryRetrieval} rather
+ * than threaded through {@link MemoryArgs} to keep the plugin-facing
+ * pipeline surface minimal.
+ *
+ * The per-turn abort signal lives on {@link MemoryArgs.signal} instead of
+ * here so the pipeline runner's `linkAbortSignal` can swap it for an
+ * internally-linked signal — that way a plugin timeout actually cancels
+ * the underlying `prepareMemory` work instead of letting it run after
+ * `Promise.race` has already rejected.
  */
 export interface DefaultMemoryRetrievalDeps {
   /** Live message list for this turn (pre-injection). */
@@ -80,8 +86,6 @@ export interface DefaultMemoryRetrievalDeps {
   readonly graphMemory: ConversationGraphMemory;
   /** Assistant config snapshot. */
   readonly config: AssistantConfig;
-  /** Abort signal wired to the turn's cancellation budget. */
-  readonly abortSignal: AbortSignal;
   /** Event sink used by the graph retriever (memory_status events). */
   readonly onEvent: (msg: ServerMessage) => void;
   /** True when the actor for this turn is trusted (guardian-class). */
@@ -99,7 +103,7 @@ export interface DefaultMemoryRetrievalDeps {
  * {@link DEFAULT_MEMORY_GRAPH_KIND} to consume it.
  */
 export async function runDefaultMemoryRetrieval(
-  _args: MemoryArgs,
+  args: MemoryArgs,
   deps: DefaultMemoryRetrievalDeps,
 ): Promise<MemoryResult> {
   // NOW.md and PKB are read unconditionally — the agent loop decides
@@ -117,10 +121,15 @@ export async function runDefaultMemoryRetrieval(
     };
   }
 
+  // `prepareMemory` requires a non-optional signal. In production the agent
+  // loop always threads one via `args.signal`; the fallback `AbortController`
+  // keeps direct callers (e.g. tests that skip the pipeline) working without
+  // forcing every call site to synthesize a dummy signal.
+  const abortSignal = args.signal ?? new AbortController().signal;
   const graphResult = await deps.graphMemory.prepareMemory(
     deps.messages,
     deps.config,
-    deps.abortSignal,
+    abortSignal,
     deps.onEvent,
   );
 

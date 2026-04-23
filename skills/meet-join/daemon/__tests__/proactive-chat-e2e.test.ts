@@ -151,7 +151,7 @@ function startFakeBot(): FakeBotServer {
 /** Fake audio ingest — the session manager never touches it after start. */
 function makeFakeAudioIngest(): MeetAudioIngestLike {
   return {
-    start: async () => {},
+    start: async () => ({ port: 42173, ready: Promise.resolve() }),
     stop: async () => {},
     subscribePcm: () => () => {},
   };

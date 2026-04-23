@@ -222,11 +222,21 @@ export type MemoryBlock = unknown;
  * Inputs to the memory-retrieval pipeline. The pipeline takes only
  * identifiers and the trust context — the actual data sources (PKB files,
  * NOW.md, memory graph) are side-effectful and read by the terminal.
+ *
+ * `signal` is the per-turn abort signal forwarded to the memory graph's
+ * `prepareMemory` call. Carrying it on `args` (rather than on the
+ * `DefaultMemoryRetrievalDeps` extra-state bundle) is load-bearing: the
+ * pipeline runner's `linkAbortSignal` swaps any `AbortSignal`-typed
+ * property on top-level args for an internal linked signal, so a plugin
+ * timeout (or external cancel) actually reaches `prepareMemory` and cancels
+ * the underlying retrieval instead of letting it run to completion after
+ * the pipeline has already errored.
  */
 export interface MemoryArgs {
   readonly conversationId: string;
   readonly trustContext: TrustContext | undefined;
   readonly turnIndex: number;
+  readonly signal?: AbortSignal;
 }
 
 /**
@@ -399,11 +409,27 @@ export interface OverflowReduceArgs {
    * leak into the pipeline surface. The plugin passes the current reduced
    * messages array explicitly so the orchestrator doesn't need to read
    * mutable shared state. Returns the new `runMessages`.
+   *
+   * Two distinct "did compact" signals are passed so the orchestrator can
+   * match the pre-PR-23 semantics:
+   * - `stepCompacted` — whether THIS iteration's reducer step produced a
+   *   fresh compaction. Gates PKB / NOW re-injection: compaction strips the
+   *   existing blocks, so only iterations that just compacted need the
+   *   content re-threaded. Iterations that only truncated tool results or
+   *   downgraded injections must NOT force a re-injection or the token
+   *   count grows each round.
+   * - `accumulatedCompacted` — whether ANY iteration in this pipeline
+   *   invocation has compacted. Gates `slackChronologicalMessages`
+   *   suppression: once compaction has run, the captured Slack transcript
+   *   snapshot would overwrite the compacted history, so it must stay
+   *   suppressed for every subsequent iteration even if that iteration
+   *   didn't re-compact.
    */
   readonly reinjectForMode: (
     messages: Message[],
     mode: InjectionMode,
-    didCompact: boolean,
+    stepCompacted: boolean,
+    accumulatedCompacted: boolean,
   ) => Promise<Message[]>;
   /**
    * Invoked after each step to post-estimate the rebuilt `runMessages`.
@@ -972,12 +998,12 @@ export interface Injector {
 
 /**
  * Tool registration contributed by a plugin. Uses the canonical {@link Tool}
- * interface from the tool registry — the bootstrap stamps `origin: "skill"`
- * and `ownerSkillId: <plugin.name>` before handing the batch to
- * `registerSkillTools` so plugin-scoped ref-counting and conflict detection
- * reuse the skill-tool machinery. Plugin authors supply the functional fields
- * (`name`, `description`, `getDefinition`, `execute`, etc.) and leave the
- * ownership metadata to the bootstrap to set authoritatively.
+ * interface from the tool registry — the bootstrap stamps `origin: "plugin"`
+ * and `ownerPluginId: <plugin.name>` before handing the batch to
+ * `registerPluginTools`, which keeps plugin ref-counts and conflict detection
+ * in a namespace disjoint from real skills. Plugin authors supply the
+ * functional fields (`name`, `description`, `getDefinition`, `execute`, etc.)
+ * and leave the ownership metadata to the bootstrap to set authoritatively.
  */
 export type PluginToolRegistration = Tool;
 /**

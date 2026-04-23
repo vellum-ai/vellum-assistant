@@ -68,6 +68,12 @@ let coreToolsSnapshot: Map<string, Tool> | null = null;
 // Tools are only removed from the global registry when this drops to 0.
 const skillRefCount = new Map<string, number>();
 
+// Plugin-tool refcount lives in its own namespace so plugin and skill IDs
+// cannot collide in the ref map even if a plugin's `manifest.name` happens to
+// match a skill id. Conflict detection on `tools` (keyed by tool name) is
+// separate and covers the case of two extensions choosing the same tool name.
+const pluginRefCount = new Map<string, number>();
+
 export function registerTool(tool: Tool): void {
   const existing = tools.get(tool.name);
   if (existing) {
@@ -108,10 +114,22 @@ export function registerSkillTools(newTools: Tool[]): Tool[] {
         );
         continue;
       }
-      // Existing is also a skill tool - only allow replacement from the same owner.
-      if (existing.ownerSkillId !== tool.ownerSkillId) {
+      // Existing is from a different origin (plugin/mcp) or a different
+      // skill — skill tools can only replace themselves (hot-reload).
+      if (
+        existing.origin !== "skill" ||
+        existing.ownerSkillId !== tool.ownerSkillId
+      ) {
+        const owner =
+          existing.origin === "skill"
+            ? `skill "${existing.ownerSkillId}"`
+            : existing.origin === "plugin"
+              ? `plugin "${existing.ownerPluginId}"`
+              : existing.origin === "mcp"
+                ? `MCP server "${existing.ownerMcpServerId}"`
+                : `${existing.origin ?? "unknown"}-origin tool`;
         throw new Error(
-          `Skill tool "${tool.name}" is already registered by skill "${existing.ownerSkillId}"`,
+          `Skill tool "${tool.name}" is already registered by ${owner}`,
         );
       }
     }
@@ -137,38 +155,108 @@ export function registerSkillTools(newTools: Tool[]): Tool[] {
 }
 
 /**
- * Register tools contributed by a plugin. Thin wrapper around
- * {@link registerSkillTools} that stamps `origin: "skill"` and
- * `ownerSkillId: pluginName` on every incoming tool so plugin-scoped
- * ref-counting, conflict detection, and hot-reload replacement reuse the
- * skill-tool machinery without plugin authors having to fill in ownership
- * metadata manually. Plugins and skills share the same tool-origin slot
- * because they play the same role in the registry — a batch of model-visible
- * tools owned by a named, dynamically-registered extension.
+ * Register tools contributed by a plugin. Stamps `origin: "plugin"` and
+ * `ownerPluginId: pluginName` on every incoming tool so plugin ownership is
+ * tracked in a namespace disjoint from skill tools — if a plugin's
+ * `manifest.name` happens to match a skill id, the two do not share refcount
+ * state or conflict-detection paths.
  *
- * The stamp is authoritative: any pre-existing `origin` or `ownerSkillId`
- * fields on the incoming tools are overwritten so the bootstrap cannot be
- * spoofed into claiming tools on behalf of an unrelated skill.
+ * Conflict handling mirrors {@link registerSkillTools}: collisions with core
+ * tools log a warning and skip; collisions with tools owned by a different
+ * plugin, skill, or MCP server throw; re-registering the same plugin's own
+ * tool (hot reload) is allowed.
+ *
+ * The stamp is authoritative: any pre-existing `origin` / `ownerPluginId` /
+ * `ownerSkillId` / `ownerMcpServerId` fields on the incoming tools are
+ * overwritten so the bootstrap cannot be spoofed into claiming tools on
+ * behalf of an unrelated extension.
  */
 export function registerPluginTools(
   pluginName: string,
   newTools: Tool[],
 ): Tool[] {
-  const stamped = newTools.map((tool) => ({
+  const stamped: Tool[] = newTools.map((tool) => ({
     ...tool,
-    origin: "skill" as const,
-    ownerSkillId: pluginName,
+    origin: "plugin" as const,
+    ownerPluginId: pluginName,
+    ownerSkillId: undefined,
+    ownerMcpServerId: undefined,
   }));
-  return registerSkillTools(stamped);
+
+  const accepted: Tool[] = [];
+  for (const tool of stamped) {
+    const existing = tools.get(tool.name);
+    if (existing) {
+      const existingIsCore = existing.origin === "core" || !existing.origin;
+      if (existingIsCore) {
+        log.warn(
+          { toolName: tool.name, pluginName },
+          `Plugin "${pluginName}" tried to register tool "${tool.name}" which conflicts with a core tool. Skipping.`,
+        );
+        continue;
+      }
+      if (existing.origin === "plugin") {
+        if (existing.ownerPluginId !== pluginName) {
+          throw new Error(
+            `Plugin tool "${tool.name}" is already registered by plugin "${existing.ownerPluginId}"`,
+          );
+        }
+        // Same plugin re-registering its own tool (hot reload) — allow.
+      } else {
+        // Conflict with a skill or MCP-owned tool.
+        throw new Error(
+          `Plugin "${pluginName}" tried to register tool "${tool.name}" which conflicts with a ${existing.origin}-origin tool`,
+        );
+      }
+    }
+    accepted.push(tool);
+  }
+
+  for (const tool of accepted) {
+    tools.set(tool.name, tool);
+    log.info(
+      { name: tool.name, ownerPluginId: tool.ownerPluginId },
+      "Plugin tool registered",
+    );
+  }
+
+  if (accepted.length > 0) {
+    pluginRefCount.set(pluginName, (pluginRefCount.get(pluginName) ?? 0) + 1);
+  }
+
+  return accepted;
 }
 
 /**
- * Unregister tools contributed by a plugin. Thin wrapper around
- * {@link unregisterSkillTools} — see that function for ref-counting
- * semantics. Safe to call when the plugin never contributed tools (no-op).
+ * Decrement the reference count for a plugin and remove its tools only when
+ * no more references remain. Safe to call when the plugin never contributed
+ * tools (no-op).
  */
 export function unregisterPluginTools(pluginName: string): void {
-  unregisterSkillTools(pluginName);
+  const current = pluginRefCount.get(pluginName) ?? 0;
+  if (current > 1) {
+    pluginRefCount.set(pluginName, current - 1);
+    log.info(
+      { pluginName, remaining: current - 1 },
+      "Decremented plugin ref count, tools kept",
+    );
+    return;
+  }
+
+  pluginRefCount.delete(pluginName);
+  for (const [name, tool] of tools) {
+    if (tool.origin === "plugin" && tool.ownerPluginId === pluginName) {
+      tools.delete(name);
+      log.info({ name, pluginName }, "Plugin tool unregistered");
+    }
+  }
+}
+
+/**
+ * Return the current reference count for a plugin's tools. Exposed for testing.
+ */
+export function getPluginRefCount(pluginName: string): number {
+  return pluginRefCount.get(pluginName) ?? 0;
 }
 
 /**
@@ -222,6 +310,17 @@ export function registerMcpTools(newTools: Tool[]): Tool[] {
             skillId: existing.ownerSkillId,
           },
           `MCP server "${tool.ownerMcpServerId}" tried to register tool "${tool.name}" which conflicts with skill tool from "${existing.ownerSkillId}". Skipping.`,
+        );
+        continue;
+      }
+      if (existing.origin === "plugin") {
+        log.warn(
+          {
+            toolName: tool.name,
+            serverId: tool.ownerMcpServerId,
+            pluginName: existing.ownerPluginId,
+          },
+          `MCP server "${tool.ownerMcpServerId}" tried to register tool "${tool.name}" which conflicts with plugin tool from "${existing.ownerPluginId}". Skipping.`,
         );
         continue;
       }
@@ -376,6 +475,7 @@ export async function initializeTools(): Promise<void> {
     coreToolsSnapshot = new Map<string, Tool>();
     for (const [name, tool] of tools) {
       if (tool.origin === "skill") continue;
+      if (tool.origin === "plugin") continue;
       // Exclude pre-existing tools not declared in the manifest
       if (preExisting.has(name) && !manifestToolNames.has(name)) continue;
       coreToolsSnapshot.set(name, tool);
@@ -398,6 +498,7 @@ export async function initializeTools(): Promise<void> {
 export function __resetRegistryForTesting(): void {
   tools.clear();
   skillRefCount.clear();
+  pluginRefCount.clear();
 
   if (coreToolsSnapshot) {
     for (const [name, tool] of coreToolsSnapshot) {
@@ -414,4 +515,5 @@ export function __resetRegistryForTesting(): void {
 export function __clearRegistryForTesting(): void {
   tools.clear();
   skillRefCount.clear();
+  pluginRefCount.clear();
 }

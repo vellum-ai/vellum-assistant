@@ -717,7 +717,11 @@ export async function check(
         ? isWorkspaceScopedInvocation(toolName, input, workingDir)
         : false,
     toolOrigin:
-      tool?.origin === "skill" ? "skill" : tool ? "builtin" : undefined,
+      tool?.origin === "skill" || tool?.origin === "plugin"
+        ? "skill"
+        : tool
+          ? "builtin"
+          : undefined,
     isSkillBundled: tool?.ownerSkillBundled ?? false,
     hasManifestOverride: !!manifestOverride,
     autoApproveUpTo: resolvedThreshold,

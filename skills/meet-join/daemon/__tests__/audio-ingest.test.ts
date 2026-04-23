@@ -29,12 +29,22 @@ import type {
   SttStreamServerEvent,
 } from "../../../../assistant/src/stt/types.js";
 import {
+  AUDIO_INGEST_AUTH_PREFIX,
   BOT_CONNECT_TIMEOUT_MS,
+  HANDSHAKE_TIMEOUT_MS,
+  MAX_HANDSHAKE_BYTES,
   MeetAudioIngest,
   MeetAudioIngestError,
   type AudioIngestConnection,
   type AudioIngestServer,
 } from "../audio-ingest.js";
+
+/**
+ * Deterministic token used in every test that doesn't care about the token
+ * value. Keep it out of the 64-char hex shape the real bot generates so it
+ * is obvious at a glance that this is a test literal.
+ */
+const TEST_BOT_TOKEN = "test-bot-token-0123456789abcdef";
 import {
   __resetMeetSessionEventRouterForTests,
   getMeetSessionEventRouter,
@@ -121,19 +131,29 @@ class FakeSocketConnection implements AudioIngestConnection {
     this.destroyed = true;
   }
 
-  /** Test helper: feed inbound data. */
+  /**
+   * Test helper: feed inbound data.
+   *
+   * Snapshots `dataListeners` before iteration to mirror how Node's
+   * `EventEmitter.emit` freezes the listener array at emit time — a
+   * listener that adds another listener mid-emit must not have the new
+   * listener fire for the current chunk. The audio-ingest handshake
+   * relies on this: on successful auth it registers the PCM forwarder
+   * via `wireConnection(conn, meetingId)`, and without a snapshot the
+   * freshly-registered forwarder would see the auth-line bytes as PCM.
+   */
   emitData(chunk: Buffer): void {
-    for (const l of this.dataListeners) l(chunk);
+    for (const l of [...this.dataListeners]) l(chunk);
   }
 
   /** Test helper: simulate the bot disconnecting. */
   emitClose(): void {
-    for (const l of this.closeListeners) l();
+    for (const l of [...this.closeListeners]) l();
   }
 
   /** Test helper: simulate a socket-level error. */
   emitError(err: Error): void {
-    for (const l of this.errorListeners) l(err);
+    for (const l of [...this.errorListeners]) l(err);
   }
 }
 
@@ -165,10 +185,24 @@ class FakeAudioIngestServer implements AudioIngestServer {
     this.closedPromiseResolved = true;
   }
 
-  /** Test helper: deliver a new connection to all registered listeners. */
-  connectBot(): FakeSocketConnection {
+  /**
+   * Test helper: deliver a new connection to all registered listeners and,
+   * by default, emit the `AUTH <token>\n` handshake line so the ingest's
+   * handshake guard accepts the connection. Tests that exercise the
+   * handshake itself pass `authLine` to send a custom line (or `null` to
+   * send nothing).
+   */
+  connectBot(
+    options: { authLine?: string | null; authToken?: string } = {},
+  ): FakeSocketConnection {
     const conn = new FakeSocketConnection();
     for (const l of this.connectionListeners) l(conn);
+    if (options.authLine !== null) {
+      const line =
+        options.authLine ??
+        `${AUDIO_INGEST_AUTH_PREFIX}${options.authToken ?? TEST_BOT_TOKEN}\n`;
+      conn.emitData(Buffer.from(line, "utf8"));
+    }
     return conn;
   }
 }
@@ -257,7 +291,7 @@ describe("MeetAudioIngest.start", () => {
 
     // start() now resolves with { port, ready } as soon as the listener
     // is bound — `ready` is the promise that waits for the bot to dial in.
-    const { port, ready } = await setup.ingest.start("m1");
+    const { port, ready } = await setup.ingest.start("m1", TEST_BOT_TOKEN);
 
     expect(port).toBe(42000);
     expect(setup.listenCalls).toBe(1);
@@ -287,7 +321,7 @@ describe("MeetAudioIngest.start", () => {
       listen,
     });
 
-    await expect(ingest.start("m1")).rejects.toThrow(
+    await expect(ingest.start("m1", TEST_BOT_TOKEN)).rejects.toThrow(
       /stt auth failed/,
     );
     expect(listen).toHaveBeenCalledTimes(0);
@@ -311,7 +345,7 @@ describe("MeetAudioIngest.start", () => {
       },
     });
 
-    await expect(ingest.start("m1")).rejects.toThrow(
+    await expect(ingest.start("m1", TEST_BOT_TOKEN)).rejects.toThrow(
       /EADDRINUSE/,
     );
     expect(session).not.toBeNull();
@@ -344,7 +378,7 @@ describe("MeetAudioIngest.start", () => {
       },
     });
 
-    const rejection = ingest.start("m-missing");
+    const rejection = ingest.start("m-missing", TEST_BOT_TOKEN);
     await expect(rejection).rejects.toThrow(
       /No streaming-capable STT provider is configured/,
     );
@@ -391,7 +425,7 @@ describe("MeetAudioIngest.start", () => {
 
     try {
       const setup = newIngestSetup();
-      const { ready } = await setup.ingest.start("m1");
+      const { ready } = await setup.ingest.start("m1", TEST_BOT_TOKEN);
 
       // Let microtasks settle so the ingest has called `listen()` and
       // registered its watchdog.
@@ -405,7 +439,7 @@ describe("MeetAudioIngest.start", () => {
       pending[0].fired = true;
 
       await expect(ready).rejects.toThrow(
-        /bot did not connect to 127\.0\.0\.1:\d+ within/,
+        /bot did not connect to \*:\d+ within/,
       );
     } finally {
       globalThis.setTimeout = realSetTimeout;
@@ -421,7 +455,7 @@ describe("MeetAudioIngest.start", () => {
 describe("MeetAudioIngest — audio forwarding + transcript dispatch", () => {
   test("forwards PCM bytes from the bot to the transcriber", async () => {
     const setup = newIngestSetup();
-    const { ready } = await setup.ingest.start("m-forward");
+    const { ready } = await setup.ingest.start("m-forward", TEST_BOT_TOKEN);
     await flushMicrotasks();
 
     const conn = setup.server.connectBot();
@@ -450,7 +484,7 @@ describe("MeetAudioIngest — audio forwarding + transcript dispatch", () => {
       dispatchMock("m-partial", e),
     );
 
-    const { ready } = await setup.ingest.start("m-partial");
+    const { ready } = await setup.ingest.start("m-partial", TEST_BOT_TOKEN);
     await flushMicrotasks();
     setup.server.connectBot();
     await ready;
@@ -481,7 +515,7 @@ describe("MeetAudioIngest — audio forwarding + transcript dispatch", () => {
     const captured: Array<unknown> = [];
     getMeetSessionEventRouter().register("m-final", (e) => captured.push(e));
 
-    const { ready } = await setup.ingest.start("m-final");
+    const { ready } = await setup.ingest.start("m-final", TEST_BOT_TOKEN);
     await flushMicrotasks();
     setup.server.connectBot();
     await ready;
@@ -506,7 +540,7 @@ describe("MeetAudioIngest — audio forwarding + transcript dispatch", () => {
     const captured: Array<unknown> = [];
     getMeetSessionEventRouter().register("m-speaker", (e) => captured.push(e));
 
-    const { ready } = await setup.ingest.start("m-speaker");
+    const { ready } = await setup.ingest.start("m-speaker", TEST_BOT_TOKEN);
     await flushMicrotasks();
     setup.server.connectBot();
     await ready;
@@ -573,7 +607,7 @@ describe("MeetAudioIngest — audio forwarding + transcript dispatch", () => {
     const captured: Array<unknown> = [];
     getMeetSessionEventRouter().register("m-ignore", (e) => captured.push(e));
 
-    const { ready } = await setup.ingest.start("m-ignore");
+    const { ready } = await setup.ingest.start("m-ignore", TEST_BOT_TOKEN);
     await flushMicrotasks();
     setup.server.connectBot();
     await ready;
@@ -602,7 +636,7 @@ describe("MeetAudioIngest — audio forwarding + transcript dispatch", () => {
 describe("MeetAudioIngest PCM tee", () => {
   test("fans each PCM chunk to every subscriber in addition to the transcriber", async () => {
     const setup = newIngestSetup();
-    const { ready } = await setup.ingest.start("m-tee");
+    const { ready } = await setup.ingest.start("m-tee", TEST_BOT_TOKEN);
     await flushMicrotasks();
     const conn = setup.server.connectBot();
     await ready;
@@ -634,7 +668,7 @@ describe("MeetAudioIngest PCM tee", () => {
 
   test("a throwing subscriber is logged + removed and does not break peers", async () => {
     const setup = newIngestSetup();
-    const { ready } = await setup.ingest.start("m-throw");
+    const { ready } = await setup.ingest.start("m-throw", TEST_BOT_TOKEN);
     await flushMicrotasks();
     const conn = setup.server.connectBot();
     await ready;
@@ -664,7 +698,7 @@ describe("MeetAudioIngest PCM tee", () => {
     const received: Uint8Array[] = [];
     const unsub = setup.ingest.subscribePcm((c) => received.push(c));
 
-    const { ready } = await setup.ingest.start("m-early");
+    const { ready } = await setup.ingest.start("m-early", TEST_BOT_TOKEN);
     await flushMicrotasks();
     const conn = setup.server.connectBot();
     await ready;
@@ -678,7 +712,7 @@ describe("MeetAudioIngest PCM tee", () => {
 
   test("stop() drops all subscribers", async () => {
     const setup = newIngestSetup();
-    const { ready } = await setup.ingest.start("m-stop-subs");
+    const { ready } = await setup.ingest.start("m-stop-subs", TEST_BOT_TOKEN);
     await flushMicrotasks();
     const conn = setup.server.connectBot();
     await ready;
@@ -698,7 +732,7 @@ describe("MeetAudioIngest PCM tee", () => {
 describe("MeetAudioIngest.stop", () => {
   test("destroys connection, stops transcriber, closes server", async () => {
     const setup = newIngestSetup();
-    const { ready } = await setup.ingest.start("m-stop");
+    const { ready } = await setup.ingest.start("m-stop", TEST_BOT_TOKEN);
     await flushMicrotasks();
     const conn = setup.server.connectBot();
     await ready;
@@ -712,7 +746,7 @@ describe("MeetAudioIngest.stop", () => {
 
   test("is idempotent", async () => {
     const setup = newIngestSetup();
-    const { ready } = await setup.ingest.start("m-idem");
+    const { ready } = await setup.ingest.start("m-idem", TEST_BOT_TOKEN);
     await flushMicrotasks();
     setup.server.connectBot();
     await ready;
@@ -726,7 +760,7 @@ describe("MeetAudioIngest.stop", () => {
 
   test("drops audio sent after stop", async () => {
     const setup = newIngestSetup();
-    const { ready } = await setup.ingest.start("m-afterstop");
+    const { ready } = await setup.ingest.start("m-afterstop", TEST_BOT_TOKEN);
     const conn = setup.server.connectBot();
     await ready;
 
@@ -735,6 +769,182 @@ describe("MeetAudioIngest.stop", () => {
 
     // Stop was synchronous wrt. the connection — any late data is dropped.
     expect(setup.session.audioChunks).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Auth handshake
+// ---------------------------------------------------------------------------
+
+describe("MeetAudioIngest — auth handshake", () => {
+  test("throws synchronously if start() is called without a token", async () => {
+    const setup = newIngestSetup();
+    await expect(setup.ingest.start("m-no-token", "")).rejects.toThrow(
+      /botApiToken is required/,
+    );
+  });
+
+  test("rejects a connection whose handshake prefix is malformed and keeps the listener open for a later good connection", async () => {
+    const setup = newIngestSetup();
+    const { ready } = await setup.ingest.start("m-bad-prefix", TEST_BOT_TOKEN);
+    await flushMicrotasks();
+
+    // Bogus prefix — no "AUTH " — must be rejected.
+    const bad = setup.server.connectBot({ authLine: "HELLO world\n" });
+
+    // Give the handshake logic a tick to run.
+    await flushMicrotasks();
+    expect(bad.destroyed).toBe(true);
+
+    // A legitimate bot shows up afterwards — must still be accepted.
+    const good = setup.server.connectBot();
+    await ready;
+
+    good.emitData(Buffer.from([0xaa, 0xbb]));
+    expect(setup.session.audioChunks).toHaveLength(1);
+    expect(setup.session.audioChunks[0]).toEqual(Buffer.from([0xaa, 0xbb]));
+
+    await setup.ingest.stop();
+  });
+
+  test("rejects a connection that presents the wrong token", async () => {
+    const setup = newIngestSetup();
+    const { ready } = await setup.ingest.start("m-bad-token", TEST_BOT_TOKEN);
+    await flushMicrotasks();
+
+    const bad = setup.server.connectBot({
+      authLine: `${AUDIO_INGEST_AUTH_PREFIX}not-the-token\n`,
+    });
+    await flushMicrotasks();
+    expect(bad.destroyed).toBe(true);
+
+    // Real bot follows — succeeds.
+    setup.server.connectBot();
+    await ready;
+
+    await setup.ingest.stop();
+  });
+
+  test("rejects a connection that flood-writes without ever sending a newline", async () => {
+    const setup = newIngestSetup();
+    const { ready } = await setup.ingest.start(
+      "m-oversize",
+      TEST_BOT_TOKEN,
+    );
+    await flushMicrotasks();
+
+    const bad = setup.server.connectBot({ authLine: null });
+    // Send MAX_HANDSHAKE_BYTES + 1 bytes with no newline — handshake must
+    // give up and destroy the socket without pinning arbitrary memory.
+    bad.emitData(Buffer.alloc(MAX_HANDSHAKE_BYTES + 1, 0x41));
+    await flushMicrotasks();
+    expect(bad.destroyed).toBe(true);
+
+    setup.server.connectBot();
+    await ready;
+
+    await setup.ingest.stop();
+  });
+
+  test("rejects a connection that opens but never sends any data (handshake timeout)", async () => {
+    // Monkey-patch setTimeout so we can fire the handshake watchdog
+    // without waiting HANDSHAKE_TIMEOUT_MS of wall-clock time.
+    const realSetTimeout = globalThis.setTimeout;
+    const realClearTimeout = globalThis.clearTimeout;
+    type Timer = {
+      handle: symbol;
+      cb: () => void;
+      ms: number;
+      fired: boolean;
+    };
+    const timers: Timer[] = [];
+    let nextId = 0;
+    (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout = ((
+      cb: () => void,
+      ms: number,
+    ) => {
+      const handle = Symbol(`timer-${nextId++}`);
+      timers.push({ handle, cb, ms, fired: false });
+      return handle as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout;
+    (
+      globalThis as unknown as { clearTimeout: typeof clearTimeout }
+    ).clearTimeout = ((handle: unknown) => {
+      const t = timers.find((x) => x.handle === handle);
+      if (t) t.fired = true;
+    }) as typeof clearTimeout;
+
+    try {
+      const setup = newIngestSetup();
+      const { ready } = await setup.ingest.start(
+        "m-hshake-timeout",
+        TEST_BOT_TOKEN,
+      );
+      await flushMicrotasks();
+
+      const bad = setup.server.connectBot({ authLine: null });
+      await flushMicrotasks();
+
+      const handshakeTimer = timers.find(
+        (t) => !t.fired && t.ms === HANDSHAKE_TIMEOUT_MS,
+      );
+      expect(handshakeTimer).toBeDefined();
+      handshakeTimer!.cb();
+      handshakeTimer!.fired = true;
+
+      await flushMicrotasks();
+      expect(bad.destroyed).toBe(true);
+
+      // Listener still open — the real bot can still show up after the
+      // bogus peer timed out.
+      setup.server.connectBot();
+      await ready;
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+      globalThis.clearTimeout = realClearTimeout;
+    }
+  });
+
+  test("forwards PCM bytes that arrived in the same TCP segment as the handshake newline", async () => {
+    const setup = newIngestSetup();
+    const { ready } = await setup.ingest.start(
+      "m-residual",
+      TEST_BOT_TOKEN,
+    );
+    await flushMicrotasks();
+
+    // Single segment: AUTH line + newline + 3 PCM bytes. The ingest must
+    // replay the residual PCM into the transcriber so we don't silently
+    // drop the first frame when the bot pipes audio immediately after the
+    // handshake.
+    const combined = Buffer.concat([
+      Buffer.from(`${AUDIO_INGEST_AUTH_PREFIX}${TEST_BOT_TOKEN}\n`, "utf8"),
+      Buffer.from([0xde, 0xad, 0xbe]),
+    ]);
+    setup.server.connectBot({ authLine: null }).emitData(combined);
+    await ready;
+
+    expect(setup.session.audioChunks).toHaveLength(1);
+    expect(setup.session.audioChunks[0]).toEqual(Buffer.from([0xde, 0xad, 0xbe]));
+
+    await setup.ingest.stop();
+  });
+
+  test("drops any connection that opens after a successful auth", async () => {
+    const setup = newIngestSetup();
+    const { ready } = await setup.ingest.start("m-second", TEST_BOT_TOKEN);
+    await flushMicrotasks();
+
+    setup.server.connectBot();
+    await ready;
+
+    // A second, fully valid handshake must still be dropped — the ingest
+    // only wires the first accepted peer.
+    const second = setup.server.connectBot();
+    await flushMicrotasks();
+    expect(second.destroyed).toBe(true);
+
+    await setup.ingest.stop();
   });
 });
 
@@ -788,7 +998,7 @@ describe("MeetAudioIngest — default transcriber factory", () => {
     // Kick off start(); we don't need it to resolve, just to call the
     // resolver. Attach a noop rejection handler so the bot-connect timeout
     // doesn't surface as an unhandled rejection when the test finishes.
-    const { ready } = await ingest.start("m-diarize");
+    const { ready } = await ingest.start("m-diarize", TEST_BOT_TOKEN);
     // Attach a noop rejection handler so the bot-connect timeout (which we
     // never satisfy in this test) doesn't surface as an unhandled rejection.
     ready.catch(() => {});
@@ -812,10 +1022,10 @@ describe("MeetAudioIngest — default transcriber factory", () => {
       listen: async () => new FakeAudioIngestServer(),
     });
 
-    await expect(ingest.start("m-null")).rejects.toThrow(
+    await expect(ingest.start("m-null", TEST_BOT_TOKEN)).rejects.toThrow(
       MeetAudioIngestError,
     );
-    await expect(ingest.start("m-null2")).rejects.toThrow(
+    await expect(ingest.start("m-null2", TEST_BOT_TOKEN)).rejects.toThrow(
       /configured STT provider is unusable/i,
     );
   });

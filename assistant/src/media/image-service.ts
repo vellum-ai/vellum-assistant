@@ -18,8 +18,16 @@ export function generateImage(
   credentials: ImageGenCredentials,
   request: ImageGenerationRequest,
 ): Promise<ImageGenerationResult> {
-  if (provider === "openai") return generateImageOpenAI(credentials, request);
-  return generateImageGemini(credentials, request);
+  switch (provider) {
+    case "openai":
+      return generateImageOpenAI(credentials, request);
+    case "gemini":
+      return generateImageGemini(credentials, request);
+    default: {
+      const _exhaustive: never = provider;
+      throw new Error(`Unknown image generation provider: ${_exhaustive}`);
+    }
+  }
 }
 
 /**
@@ -29,8 +37,16 @@ export function mapImageGenError(
   provider: ImageGenProvider,
   error: unknown,
 ): string {
-  if (provider === "openai") return mapOpenAIError(error);
-  return mapGeminiError(error);
+  switch (provider) {
+    case "openai":
+      return mapOpenAIError(error);
+    case "gemini":
+      return mapGeminiError(error);
+    default: {
+      const _exhaustive: never = provider;
+      throw new Error(`Unknown image generation provider: ${_exhaustive}`);
+    }
+  }
 }
 
 /**

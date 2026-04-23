@@ -34,6 +34,7 @@
  *     without touching real sockets or a real STT provider account.
  */
 
+import { timingSafeEqual } from "node:crypto";
 import {
   createServer as netCreateServer,
   type AddressInfo,
@@ -86,6 +87,44 @@ export const AUDIO_INGEST_BIND_HOST = "0.0.0.0";
  * rollback a bot that was still legitimately mid-join.
  */
 export const BOT_CONNECT_TIMEOUT_MS = 120_000;
+
+/**
+ * Wire-format prefix for the handshake line the bot sends as the first
+ * bytes of every audio-ingest TCP connection. The full line is
+ * `AUTH <botApiToken>\n`. Anything else — or a connection that opens
+ * more than {@link MAX_HANDSHAKE_BYTES} without a newline, or that does
+ * not finish its handshake within {@link HANDSHAKE_TIMEOUT_MS} — is
+ * dropped.
+ *
+ * The handshake exists because `AUDIO_INGEST_BIND_HOST` binds the TCP
+ * server to all interfaces (required so Linux Docker bots reach the
+ * daemon via `host.docker.internal:host-gateway`), which also means any
+ * other process on the host's LAN could race-connect and either inject
+ * raw PCM or hold the port open until the bot's connect watchdog trips.
+ * Reusing `BOT_API_TOKEN` (already generated per-meeting and shared with
+ * the bot through its env) keeps the secret surface area the same as
+ * the bot's HTTP API.
+ */
+export const AUDIO_INGEST_AUTH_PREFIX = "AUTH ";
+
+/**
+ * Wall-clock budget the bot has after TCP connect to deliver the
+ * handshake line. Intentionally short — a legitimate bot writes the
+ * line synchronously as the first bytes after `connect()` returns, so
+ * any delay past a few seconds is either a stuck attacker or a failed
+ * bot. We still keep the overall bot-connect budget at
+ * {@link BOT_CONNECT_TIMEOUT_MS} because the handshake fires against
+ * each individual connection, not against the listener as a whole.
+ */
+export const HANDSHAKE_TIMEOUT_MS = 10_000;
+
+/**
+ * Maximum bytes we buffer while waiting for the handshake's newline.
+ * Well above the handshake's true length (`"AUTH " + 64-char hex + "\n"`
+ * = 70 bytes) so benign TCP re-segmentation doesn't trip it, but small
+ * enough that a peer who never sends `\n` cannot pin arbitrary memory.
+ */
+export const MAX_HANDSHAKE_BYTES = 256;
 
 /**
  * Sample rate (Hz) of the PCM frames the meet-bot captures and forwards over
@@ -275,10 +314,16 @@ export class MeetAudioIngest {
    */
   async start(
     meetingId: string,
+    botApiToken: string,
   ): Promise<{ port: number; ready: Promise<void> }> {
     if (this.meetingId) {
       throw new Error(
         `MeetAudioIngest: start() called twice (meetingId=${this.meetingId})`,
+      );
+    }
+    if (!botApiToken) {
+      throw new Error(
+        "MeetAudioIngest: botApiToken is required — refusing to start without an auth token",
       );
     }
     this.meetingId = meetingId;
@@ -343,9 +388,12 @@ export class MeetAudioIngest {
       log.error({ err, meetingId }, "MeetAudioIngest: socket server error");
     });
 
-    // Wait for the bot to connect, bounded by BOT_CONNECT_TIMEOUT_MS.
-    // Returned to the caller as `ready` so container spawn can run
-    // concurrently with the connect wait.
+    // Wait for the bot to connect AND successfully complete the
+    // auth-token handshake, bounded by BOT_CONNECT_TIMEOUT_MS. Connections
+    // that fail the handshake are destroyed but do NOT reject `ready` —
+    // we keep the listener open so the real bot can still connect. The
+    // overall timeout is the backstop for the case where no legitimate
+    // bot ever shows up.
     const ready = new Promise<void>((resolve, reject) => {
       let settled = false;
 
@@ -365,8 +413,9 @@ export class MeetAudioIngest {
 
       server.onConnection((conn) => {
         if (settled) {
-          // Late connection after we already rejected — drop it so the
-          // caller's teardown path can proceed cleanly.
+          // Late connection after we already accepted a bot (or rejected
+          // on timeout) — drop it so the caller's teardown path can
+          // proceed cleanly.
           try {
             conn.destroy();
           } catch {
@@ -374,20 +423,128 @@ export class MeetAudioIngest {
           }
           return;
         }
-        settled = true;
-        clearTimeout(timer);
+        this.authenticateConnection(conn, botApiToken, {
+          onAccept: (residual) => {
+            if (settled) {
+              // Raced another connection; drop this one.
+              try {
+                conn.destroy();
+              } catch {
+                // Best effort.
+              }
+              return;
+            }
+            settled = true;
+            clearTimeout(timer);
 
-        this.connection = conn;
-        this.wireConnection(conn, meetingId);
-        log.info(
-          { meetingId, port: boundPort },
-          "MeetAudioIngest: bot connected",
-        );
-        resolve();
+            this.connection = conn;
+            this.wireConnection(conn, meetingId);
+            if (residual && residual.length > 0) {
+              // Any bytes the bot sent after the handshake newline in the
+              // same TCP segment are real PCM — forward them before
+              // handing the socket to the data listener so we don't
+              // silently drop them.
+              this.handlePcmChunk(residual, meetingId);
+            }
+            log.info(
+              { meetingId, port: boundPort },
+              "MeetAudioIngest: bot connected and authenticated",
+            );
+            resolve();
+          },
+          onReject: (reason) => {
+            // Drop the peer, keep listening for the real bot. We only
+            // log a counter-style field so repeated bad handshakes
+            // don't flood logs with duplicate messages.
+            log.warn(
+              { meetingId, port: boundPort, reason },
+              "MeetAudioIngest: rejected unauthenticated audio-ingest peer",
+            );
+            try {
+              conn.destroy();
+            } catch {
+              // Best effort.
+            }
+          },
+        });
       });
     });
 
     return { port: boundPort, ready };
+  }
+
+  /**
+   * Validate the handshake line the bot sends as the first bytes after
+   * TCP connect. Calls `onAccept` with any trailing PCM bytes that
+   * arrived in the same segment as the handshake (the bot pipes audio
+   * immediately after writing the auth line, so the first chunk will
+   * usually contain both). Calls `onReject` with a human-readable reason
+   * if the handshake is malformed, mismatched, oversized, or times out.
+   *
+   * The caller owns the connection lifetime — `onReject` does NOT
+   * destroy the socket so the caller can log/track the rejection before
+   * tearing it down.
+   */
+  private authenticateConnection(
+    conn: AudioIngestConnection,
+    expectedToken: string,
+    callbacks: {
+      onAccept: (residual: Buffer | null) => void;
+      onReject: (reason: string) => void;
+    },
+  ): void {
+    let settled = false;
+    let buffer = Buffer.alloc(0);
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      callbacks.onReject("handshake-timeout");
+    }, HANDSHAKE_TIMEOUT_MS);
+
+    const finish = (outcome: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      outcome();
+    };
+
+    conn.onData((chunk) => {
+      if (settled) return;
+      buffer = Buffer.concat([buffer, chunk]);
+      const newline = buffer.indexOf(0x0a);
+      if (newline === -1) {
+        if (buffer.length > MAX_HANDSHAKE_BYTES) {
+          finish(() => callbacks.onReject("handshake-too-long"));
+        }
+        return;
+      }
+      const line = buffer.subarray(0, newline).toString("utf8");
+      const residual =
+        newline + 1 < buffer.length ? buffer.subarray(newline + 1) : null;
+
+      if (!line.startsWith(AUDIO_INGEST_AUTH_PREFIX)) {
+        finish(() => callbacks.onReject("handshake-bad-prefix"));
+        return;
+      }
+      const presentedToken = line.slice(AUDIO_INGEST_AUTH_PREFIX.length);
+      if (!constantTimeTokenEqual(presentedToken, expectedToken)) {
+        finish(() => callbacks.onReject("handshake-bad-token"));
+        return;
+      }
+
+      finish(() => callbacks.onAccept(residual));
+    });
+
+    conn.onClose(() => {
+      if (settled) return;
+      finish(() => callbacks.onReject("handshake-closed"));
+    });
+
+    conn.onError((err) => {
+      if (settled) return;
+      finish(() => callbacks.onReject(`handshake-error:${err.message}`));
+    });
   }
 
   /**
@@ -453,38 +610,7 @@ export class MeetAudioIngest {
    * misbehaving consumer cannot break peers.
    */
   private wireConnection(conn: AudioIngestConnection, meetingId: string): void {
-    conn.onData((chunk) => {
-      if (this.stopped) return;
-      const transcriber = this.transcriber;
-      if (transcriber) {
-        try {
-          // The streaming endpoint accepts raw PCM bytes. The mimeType is
-          // informational for provider adapters; pass a sensible default.
-          transcriber.sendAudio(chunk, "audio/pcm");
-        } catch (err) {
-          log.warn(
-            { err, meetingId },
-            "MeetAudioIngest: transcriber.sendAudio threw",
-          );
-        }
-      }
-      // Fan the raw bytes out to every PCM subscriber. Snapshot the set so
-      // a callback removing itself mid-iteration doesn't skip a neighbor.
-      // Subscribers that throw are logged and removed on the spot.
-      if (this.pcmSubscribers.size > 0) {
-        for (const subscriber of Array.from(this.pcmSubscribers)) {
-          try {
-            subscriber(chunk);
-          } catch (err) {
-            log.warn(
-              { err, meetingId },
-              "MeetAudioIngest: PCM subscriber threw — removing",
-            );
-            this.pcmSubscribers.delete(subscriber);
-          }
-        }
-      }
-    });
+    conn.onData((chunk) => this.handlePcmChunk(chunk, meetingId));
 
     conn.onClose(() => {
       log.info({ meetingId }, "MeetAudioIngest: bot connection closed");
@@ -493,6 +619,45 @@ export class MeetAudioIngest {
     conn.onError((err) => {
       log.warn({ err, meetingId }, "MeetAudioIngest: bot connection error");
     });
+  }
+
+  /**
+   * Forward a single PCM chunk to the streaming transcriber and fan it
+   * out to every subscriber. Extracted from the `onData` handler so the
+   * handshake path can replay trailing bytes that arrived in the same
+   * segment as the auth line without duplicating the forwarding logic.
+   */
+  private handlePcmChunk(chunk: Buffer, meetingId: string): void {
+    if (this.stopped) return;
+    const transcriber = this.transcriber;
+    if (transcriber) {
+      try {
+        // The streaming endpoint accepts raw PCM bytes. The mimeType is
+        // informational for provider adapters; pass a sensible default.
+        transcriber.sendAudio(chunk, "audio/pcm");
+      } catch (err) {
+        log.warn(
+          { err, meetingId },
+          "MeetAudioIngest: transcriber.sendAudio threw",
+        );
+      }
+    }
+    // Fan the raw bytes out to every PCM subscriber. Snapshot the set so
+    // a callback removing itself mid-iteration doesn't skip a neighbor.
+    // Subscribers that throw are logged and removed on the spot.
+    if (this.pcmSubscribers.size > 0) {
+      for (const subscriber of Array.from(this.pcmSubscribers)) {
+        try {
+          subscriber(chunk);
+        } catch (err) {
+          log.warn(
+            { err, meetingId },
+            "MeetAudioIngest: PCM subscriber threw — removing",
+          );
+          this.pcmSubscribers.delete(subscriber);
+        }
+      }
+    }
   }
 
   /**
@@ -534,6 +699,30 @@ export class MeetAudioIngest {
 
     getMeetSessionEventRouter().dispatch(meetingId, transcript);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Handshake helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Constant-time comparison of the presented token against the expected
+ * token. Returns `false` whenever the lengths differ so a mismatched
+ * length does not fall through to `timingSafeEqual` (which throws on
+ * unequal buffer sizes).
+ *
+ * Both inputs are treated as UTF-8 — the token is hex-encoded in
+ * practice, so UTF-8 and ASCII are identical.
+ */
+function constantTimeTokenEqual(
+  presented: string,
+  expected: string,
+): boolean {
+  if (presented.length !== expected.length) return false;
+  const a = Buffer.from(presented, "utf8");
+  const b = Buffer.from(expected, "utf8");
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
 }
 
 // ---------------------------------------------------------------------------

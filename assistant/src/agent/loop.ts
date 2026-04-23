@@ -7,6 +7,8 @@ import {
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import { calculateMaxToolResultChars } from "../context/tool-result-truncation.js";
+import { defaultEmptyResponseTerminal } from "../plugins/defaults/empty-response.js";
+import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error.js";
 import { defaultToolResultTruncateTerminal } from "../plugins/defaults/tool-result-truncate.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
@@ -491,11 +493,15 @@ export class AgentLoop {
 
         // Wrap the provider call in the `llmCall` pipeline so middleware
         // contributed by plugins may observe, rewrite, short-circuit, or
-        // post-process every LLM request. The default plugin registered at
-        // bootstrap (`defaultLlmCallPlugin`) acts as the passthrough terminal
-        // and simply delegates back to `provider.sendMessage(...)`. Timeout
-        // is `null` (`DEFAULT_TIMEOUTS.llmCall`) — the provider layer already
-        // enforces its own HTTP-level budgets.
+        // post-process every LLM request. The terminal below is the real
+        // `provider.sendMessage(...)` call; middleware that call `next(args)`
+        // eventually reach it. The default `defaultLlmCallPlugin` contributes
+        // only a passthrough middleware that forwards to `next(args)` —
+        // registered at module load, it sits at the outermost layer in the
+        // onion, so short-circuiting there would silently disable every
+        // user-registered `llmCall` middleware. Timeout is `null`
+        // (`DEFAULT_TIMEOUTS.llmCall`) — the provider layer already enforces
+        // its own HTTP-level budgets.
         //
         // The `onEvent` wrapping is kept inside `args.options` so substitution
         // and streaming behavior exactly match the pre-pipeline call site.
@@ -705,7 +711,7 @@ export class AgentLoop {
         const emptyResponseDecision: EmptyResponseDecision = await runPipeline(
           "emptyResponse",
           getMiddlewaresFor("emptyResponse"),
-          async () => ({ action: "accept" }),
+          async (args) => defaultEmptyResponseTerminal(args),
           emptyResponseArgs,
           emptyResponseCtx,
           DEFAULT_TIMEOUTS.emptyResponse,
@@ -742,7 +748,7 @@ export class AgentLoop {
           );
         }
 
-        // action === "accept" — fall through. Preserve the historic log for
+        // action === "accept" — fall through. Emit a dedicated log line for
         // the specific "empty turn after tool results, retries exhausted"
         // case so ops dashboards that grep on this line keep working.
         if (
@@ -1006,11 +1012,15 @@ export class AgentLoop {
         >(
           "toolError",
           getMiddlewaresFor("toolError"),
-          // Terminal fallback: fires only when no plugin contributes a
-          // `toolError` middleware. The default plugin's middleware shadows
-          // this with the full decision logic, so production runs never hit
-          // the fallback.
-          async () => ({ action: "skip" }),
+          // Terminal: the canonical nudge decision. The default plugin's
+          // middleware is a passthrough (so later-registered user plugins
+          // aren't shadowed), so this terminal is what actually produces
+          // the decision when no user plugin overrides it. Wiring the
+          // decision here — rather than inside the default plugin's
+          // middleware — also preserves the legacy nudge for direct
+          // AgentLoop callers (tests, benchmarks) that skip
+          // `bootstrapPlugins()` and therefore never register the default.
+          async (args) => defaultToolErrorTerminal(args),
           toolErrorArgs,
           toolErrorCtx,
           DEFAULT_TIMEOUTS.toolError,

@@ -74,6 +74,7 @@ import {
   type GraphMemoryPayload,
   runDefaultMemoryRetrieval,
 } from "../plugins/defaults/memory-retrieval.js";
+import { defaultPersistenceTerminal } from "../plugins/defaults/persistence.js";
 import { defaultTitleGenerateTerminal } from "../plugins/defaults/title-generate.js";
 import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
@@ -96,7 +97,11 @@ import type {
   TurnContext as PluginTurnContext,
 } from "../plugins/types.js";
 import { PluginExecutionError, PluginTimeoutError } from "../plugins/types.js";
-import type { ContentBlock, Message } from "../providers/types.js";
+import type {
+  ContentBlock,
+  Message,
+  ToolDefinition,
+} from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
@@ -173,17 +178,6 @@ import type { TraceEmitter } from "./trace-emitter.js";
 import { stripHistoricalWebSearchResults } from "./web-search-history.js";
 
 const log = getLogger("conversation-agent-loop");
-
-/**
- * Terminal fed into the `persistence` pipeline. The default plugin (registered
- * at daemon bootstrap) always handles each op, so reaching the terminal
- * signals a configuration bug.
- */
-function persistenceTerminal(_args: PersistArgs): Promise<PersistResult> {
-  throw new Error(
-    "persistence terminal reached: the default plugin should handle every op",
-  );
-}
 
 /** Title-cased friendly labels for tool names, used in confirmation chips. */
 const TOOL_FRIENDLY_LABEL: Record<string, string> = {
@@ -872,12 +866,18 @@ export async function runAgentLoopImpl(
       conversationId: ctx.conversationId,
       trustContext: ctx.trustContext,
       turnIndex: ctx.turnCount,
+      // Pass the abort signal via `args` (not `deps`) so the pipeline
+      // runner's `linkAbortSignal` can swap it for a signal linked to the
+      // pipeline's internal controller — on a plugin-set timeout or
+      // external cancel, the linked signal aborts and `prepareMemory`
+      // stops mutating graph state / emitting events after the pipeline
+      // has already errored.
+      signal: abortController.signal,
     };
     const memoryDeps: DefaultMemoryRetrievalDeps = {
       messages: ctx.messages,
       graphMemory: ctx.graphMemory,
       config: getConfig(),
-      abortSignal: abortController.signal,
       onEvent,
       isTrustedActor,
     };
@@ -930,7 +930,7 @@ export async function runAgentLoopImpl(
           await runPipeline<PersistArgs, PersistResult>(
             "persistence",
             getMiddlewaresFor("persistence"),
-            persistenceTerminal,
+            defaultPersistenceTerminal,
             {
               op: "update",
               messageId: userMessageId,
@@ -1273,7 +1273,7 @@ export async function runAgentLoopImpl(
         await runPipeline<PersistArgs, PersistResult>(
           "persistence",
           getMiddlewaresFor("persistence"),
-          persistenceTerminal,
+          defaultPersistenceTerminal,
           {
             op: "update",
             messageId: userMessageId,
@@ -1330,9 +1330,18 @@ export async function runAgentLoopImpl(
         getMiddlewaresFor("tokenEstimate"),
         defaultTokenEstimateTerminal,
         {
-          history,
+          // Shallow-frozen copies so a misbehaving middleware that mutates
+          // `args.history` or `args.tools` in place (e.g. trims the array
+          // before calling next) can't silently strip prompt context from
+          // the orchestrator's live `runMessages` / resolved-tools arrays.
+          // TypeScript `readonly` on `EstimateArgs` does not prevent
+          // `push`/`splice` at runtime; the frozen wrapper throws in strict
+          // mode and isolates any mutation attempts from the call-site state.
+          history: Object.freeze([...history]) as Message[],
           systemPrompt: ctx.systemPrompt,
-          tools: ctx.agentLoop.getResolvedTools(history),
+          tools: Object.freeze([
+            ...ctx.agentLoop.getResolvedTools(history),
+          ]) as ToolDefinition[],
           providerName: estimationProviderName,
         },
         pipelineTurnCtx,
@@ -1371,12 +1380,30 @@ export async function runAgentLoopImpl(
         toolTokenBudget,
         maxAttempts: overflowRecovery.maxAttempts,
         abortSignal: abortController.signal,
-        compactFn: (msgs, signal, opts) =>
-          ctx.contextWindowManager.maybeCompact(
-            msgs,
-            signal!,
-            opts as Parameters<ContextWindowManager["maybeCompact"]>[2],
-          ),
+        compactFn: async (msgs, signal, opts) =>
+          // Route the reducer's forced-compaction tier through the
+          // `compaction` pipeline so registered plugins observe these
+          // invocations. Without this, custom compaction middleware only
+          // sees the three orchestrator-owned call sites and misses the
+          // reducer-initiated forced compactions entirely.
+          (await runPipeline<CompactionArgs, CompactionResult>(
+            "compaction",
+            getMiddlewaresFor("compaction"),
+            (args) =>
+              defaultCompactionTerminal(
+                args,
+                buildPluginTurnContext(ctx, reqId),
+              ),
+            {
+              messages: msgs,
+              signal,
+              options: opts,
+            },
+            buildPluginTurnContext(ctx, reqId),
+            DEFAULT_TIMEOUTS.compaction,
+          )) as Awaited<
+            ReturnType<typeof ctx.contextWindowManager.maybeCompact>
+          >,
         emitActivityState: () => {
           ctx.emitActivityState(
             "thinking",
@@ -1403,7 +1430,12 @@ export async function runAgentLoopImpl(
             shouldInjectWorkspace = true;
           }
         },
-        reinjectForMode: async (reducedMessages, mode, didCompact) => {
+        reinjectForMode: async (
+          reducedMessages,
+          mode,
+          stepCompacted,
+          accumulatedCompacted,
+        ) => {
           // Mirror the pre-PR-23 behavior: `ctx.messages` must track the
           // reducer's latest output before re-injection runs, because other
           // sites consulted through `injectionOpts` (`workspaceTopLevelContext`,
@@ -1414,22 +1446,24 @@ export async function runAgentLoopImpl(
           // injection assembly on the same turn.
           ctx.messages = reducedMessages;
 
-          // When compaction ran it strips existing NOW.md / PKB blocks,
-          // so we must re-inject the current content. Otherwise rely on
-          // the deduplicated value from injectionOpts to avoid duplicate
-          // injection.
+          // When THIS iteration compacted, it stripped existing NOW.md /
+          // PKB blocks — so we re-inject current content. A later iteration
+          // that only truncates or downgrades must NOT re-force PKB/NOW,
+          // or each round would grow the token count. Matches the
+          // pre-PR-23 per-iteration `step.compactionResult?.compacted` gate.
           const injection = await applyRuntimeInjections(reducedMessages, {
             ...injectionOpts,
-            ...(didCompact && { pkbContext: currentPkbContent }),
-            ...(didCompact && { nowScratchpad: currentNowContent }),
+            ...(stepCompacted && { pkbContext: currentPkbContent }),
+            ...(stepCompacted && { nowScratchpad: currentNowContent }),
             workspaceTopLevelContext: shouldInjectWorkspace
               ? ctx.workspaceTopLevelContext
               : null,
-            // Once the reducer has compacted `ctx.messages`, the captured
+            // Once ANY iteration has compacted `ctx.messages`, the captured
             // `slackChronologicalMessages` snapshot (built from the full
             // persisted transcript) would overwrite the compacted history
-            // and undo compaction. Suppress the override from here on.
-            slackChronologicalMessages: didCompact
+            // and undo compaction. Suppress the override from here on —
+            // sticky across subsequent non-compacting iterations.
+            slackChronologicalMessages: accumulatedCompacted
               ? null
               : injectionOpts.slackChronologicalMessages,
             mode,
@@ -2224,7 +2258,7 @@ export async function runAgentLoopImpl(
       await runPipeline<PersistArgs, PersistResult>(
         "persistence",
         getMiddlewaresFor("persistence"),
-        persistenceTerminal,
+        defaultPersistenceTerminal,
         {
           op: "add",
           conversationId: ctx.conversationId,
@@ -2270,7 +2304,7 @@ export async function runAgentLoopImpl(
       await runPipeline<PersistArgs, PersistResult>(
         "persistence",
         getMiddlewaresFor("persistence"),
-        persistenceTerminal,
+        defaultPersistenceTerminal,
         {
           op: "add",
           conversationId: ctx.conversationId,

@@ -1,18 +1,15 @@
 /**
- * Shared credential resolver for image-generation call sites.
+ * Shared credential resolver for image-generation call sites (image-studio
+ * tool, CLI `image-generation` command, app-icon generator).
  *
- * Consolidates the logic that was previously duplicated across the
- * image-studio tool, the CLI `image-generation` command, and the
- * app-icon generator. Each site picks between the managed-proxy path
- * (routes through the platform) and the "your own" path (direct
- * provider API key), and both paths need consistent, provider-aware
- * error hints when credentials are unavailable.
+ * Each call site picks between the managed-proxy path (routes through the
+ * platform) and the "your own" path (direct provider API key). This module
+ * resolves either path and returns a provider-aware error hint when
+ * credentials are unavailable.
  */
 
-import {
-  buildManagedBaseUrl,
-  resolveManagedProxyContext,
-} from "../providers/managed-proxy/context.js";
+import { MANAGED_PROVIDER_META } from "../providers/managed-proxy/constants.js";
+import { resolveManagedProxyContext } from "../providers/managed-proxy/context.js";
 import { getProviderKeyAsync } from "../security/secure-keys.js";
 import type { ImageGenCredentials, ImageGenProvider } from "./types.js";
 
@@ -33,19 +30,27 @@ export async function resolveImageGenCredentials(opts: {
   const { provider, mode } = opts;
 
   if (mode === "managed") {
-    const baseUrl = await buildManagedBaseUrl(provider);
-    if (!baseUrl) {
+    // Resolve platform URL + assistant API key from a single snapshot so
+    // baseUrl and assistantApiKey can't diverge if the credential is cleared
+    // between lookups.
+    const meta = MANAGED_PROVIDER_META[provider];
+    const ctx = await resolveManagedProxyContext();
+    if (
+      !meta?.managed ||
+      !meta.proxyPath ||
+      !ctx.enabled ||
+      !ctx.assistantApiKey
+    ) {
       return {
         errorHint:
           "Managed proxy is not available. Please log in to Vellum or switch to Your Own mode.",
       };
     }
-    const ctx = await resolveManagedProxyContext();
     return {
       credentials: {
         type: "managed-proxy",
         assistantApiKey: ctx.assistantApiKey,
-        baseUrl,
+        baseUrl: `${ctx.platformBaseUrl}${meta.proxyPath}`,
       },
     };
   }

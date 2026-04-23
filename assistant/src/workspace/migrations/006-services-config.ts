@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { providerForImageModelPrefix } from "../../media/types.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   getProviderKeyAsync,
@@ -110,10 +111,7 @@ export const servicesConfigMigration: WorkspaceMigration = {
     services["image-generation"] = {
       ...(existingServices["image-generation"] ?? {}),
       mode: "your-own",
-      provider:
-        imageGenModel.startsWith("dall-e") || imageGenModel.startsWith("gpt")
-          ? "openai"
-          : "gemini",
+      provider: providerForImageModelPrefix(imageGenModel),
       model: imageGenModel,
     };
 

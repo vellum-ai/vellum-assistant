@@ -31,6 +31,7 @@ import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
+import { defaultPersistenceTerminal } from "../plugins/defaults/persistence.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
@@ -85,18 +86,6 @@ function buildHandlerTurnContext(deps: EventHandlerDeps): TurnContext {
         trustClass: "unknown",
       },
   };
-}
-
-/**
- * Terminal fed into the `persistence` pipeline. The default plugin
- * (registered at daemon bootstrap) always handles each op, so reaching the
- * terminal signals a configuration bug. Shared with `conversation-agent-loop.ts`
- * via the same message text for ops-grepability.
- */
-function persistenceTerminal(_args: PersistArgs): Promise<PersistResult> {
-  throw new Error(
-    "persistence terminal reached: the default plugin should handle every op",
-  );
 }
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -767,21 +756,23 @@ export async function handleMessageComplete(
     };
     // Route the add + disk-view sync through the `persistence` pipeline so
     // plugins can observe or override both operations together. The default
-    // plugin performs the add and, because `syncToDisk` is true, immediately
-    // calls `syncMessageToDisk` against the just-persisted row — preserving
-    // the pre-pipeline behavior.
+    // plugin's terminal performs the add and, when `syncToDisk` is true,
+    // immediately calls `syncMessageToDisk` against the just-persisted row.
+    // `getConversation` returns `ConversationRow | null`, so `!= null`
+    // gates on a real row (skipping the sync when the conversation was
+    // not found rather than asking the disk-view to resolve a missing id).
     const convForToolResult = getConversation(deps.ctx.conversationId);
     await runPipeline<PersistArgs, PersistResult>(
       "persistence",
       getMiddlewaresFor("persistence"),
-      persistenceTerminal,
+      defaultPersistenceTerminal,
       {
         op: "add",
         conversationId: deps.ctx.conversationId,
         role: "user",
         content: JSON.stringify(toolResultBlocks),
         metadata: toolResultMetadata,
-        syncToDisk: convForToolResult !== undefined,
+        syncToDisk: convForToolResult != null,
         createdAtMs: convForToolResult?.createdAt,
       },
       buildHandlerTurnContext(deps),
@@ -876,12 +867,11 @@ export async function handleMessageComplete(
   // Route the assistant-message persistence through the `persistence`
   // pipeline. No `syncToDisk` here — the orchestrator separately invokes
   // `syncMessageToDisk` on `state.lastAssistantMessageId` after the loop
-  // completes (see `conversation-agent-loop.ts::syncLastAssistantMessageToDisk`),
-  // matching the pre-pipeline behavior exactly.
+  // completes (see `conversation-agent-loop.ts::syncLastAssistantMessageToDisk`).
   const assistantPersistResult = (await runPipeline<PersistArgs, PersistResult>(
     "persistence",
     getMiddlewaresFor("persistence"),
-    persistenceTerminal,
+    defaultPersistenceTerminal,
     {
       op: "add",
       conversationId: deps.ctx.conversationId,

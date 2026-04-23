@@ -440,8 +440,6 @@ build_binaries() {
         "$SKILLS_SRC_DIR/" "$SCRIPT_DIR/daemon-bin/first-party-skills/"
     rm -rf "$SCRIPT_DIR/daemon-bin/templates"
     cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" "$SCRIPT_DIR/daemon-bin/templates"
-    rm -rf "$SCRIPT_DIR/daemon-bin/hook-templates"
-    cp -R "$ASSISTANT_SRC_DIR/hook-templates" "$SCRIPT_DIR/daemon-bin/hook-templates"
     rm -rf "$SCRIPT_DIR/daemon-bin/compact-prompts"
     cp -R "$ASSISTANT_SRC_DIR/src/context/prompts" "$SCRIPT_DIR/daemon-bin/compact-prompts"
     rm -rf "$SCRIPT_DIR/daemon-bin/brain-graph"
@@ -774,10 +772,6 @@ if [ -d "$ASSISTANT_SRC_DIR/src/prompts/templates" ]; then
     rm -rf "$SCRIPT_DIR/daemon-bin/templates"
     cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" "$SCRIPT_DIR/daemon-bin/templates"
 fi
-if [ -d "$ASSISTANT_SRC_DIR/hook-templates" ]; then
-    rm -rf "$SCRIPT_DIR/daemon-bin/hook-templates"
-    cp -R "$ASSISTANT_SRC_DIR/hook-templates" "$SCRIPT_DIR/daemon-bin/hook-templates"
-fi
 if [ -d "$ASSISTANT_SRC_DIR/src/context/prompts" ]; then
     rm -rf "$SCRIPT_DIR/daemon-bin/compact-prompts"
     cp -R "$ASSISTANT_SRC_DIR/src/context/prompts" "$SCRIPT_DIR/daemon-bin/compact-prompts"
@@ -1050,10 +1044,6 @@ fi
 if [ -d "$SCRIPT_DIR/daemon-bin/templates" ]; then
     rm -rf "$RESOURCES_DIR/templates"
     cp -R "$SCRIPT_DIR/daemon-bin/templates" "$RESOURCES_DIR/templates"
-fi
-if [ -d "$SCRIPT_DIR/daemon-bin/hook-templates" ]; then
-    rm -rf "$RESOURCES_DIR/hook-templates"
-    cp -R "$SCRIPT_DIR/daemon-bin/hook-templates" "$RESOURCES_DIR/hook-templates"
 fi
 if [ -d "$SCRIPT_DIR/daemon-bin/compact-prompts" ]; then
     rm -rf "$RESOURCES_DIR/compact-prompts"
