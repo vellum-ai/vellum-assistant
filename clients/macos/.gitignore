@@ -14,6 +14,8 @@ daemon-bin/
 cli-bin/
 gateway-bin/
 ces-bin/
+# Cached standalone bun binaries staged into Contents/Resources/bun by build.sh
+.bun-bundle-cache/
 *.o
 *.d
 *.swiftdeps

@@ -242,6 +242,18 @@ CES_SRC_DIR="$SCRIPT_DIR/../../credential-executor"
 # running platform. node_modules and build artifacts are excluded.
 SKILLS_SRC_DIR="$SCRIPT_DIR/../../skills"
 
+# Pinned Bun version (source of truth: repo-root `.tool-versions`). A
+# standalone copy of this exact Bun binary ships inside the .app at
+# Contents/Resources/bun so the daemon can spawn first-party skills
+# (e.g. meet-join via MeetHostSupervisor) via `bun run <skill>/register.ts`
+# without relying on a user-installed Bun.
+BUN_VERSION=$(awk '$1 == "bun" { print $2 }' "$SCRIPT_DIR/../../.tool-versions" 2>/dev/null)
+BUN_VERSION="${BUN_VERSION:-1.3.11}"
+# Cache directory for the downloaded standalone bun binary so repeated
+# builds do not re-download. Keyed by version so a bumped .tool-versions
+# naturally invalidates stale binaries.
+BUN_BUNDLE_CACHE_DIR="$SCRIPT_DIR/.bun-bundle-cache/${BUN_VERSION}"
+
 # Chrome extension allowlist IDs injected into compiled binaries as a fallback
 # for packaged runs where repo-relative `meta/browser-extension/...` paths are
 # unavailable (Bun compiled binaries often resolve import.meta.dir to /$bunfs/root).
@@ -332,6 +344,90 @@ install_shared_packages() {
         [ -f "${pkg_dir}package.json" ] || continue
         (cd "$pkg_dir" && bun install --frozen-lockfile 2>/dev/null || bun install)
     done
+}
+
+# ---------------------------------------------------------------------------
+# fetch_bundled_bun — download a standalone `bun` binary at the version
+# pinned in `.tool-versions` and cache it under `.bun-bundle-cache/` for
+# reuse across builds. Echoes the absolute path to the cached binary on
+# success; returns non-zero and logs to stderr on failure.
+#
+# The copy staged here is the one that gets signed and shipped inside
+# `<App>.app/Contents/Resources/bun` so that the daemon (running from the
+# compiled binary, where `process.execPath` is the daemon itself rather
+# than bun) can spawn external skill processes.
+# ---------------------------------------------------------------------------
+fetch_bundled_bun() {
+    local bun_binary="$BUN_BUNDLE_CACHE_DIR/bun"
+    if [ -x "$bun_binary" ]; then
+        echo "$bun_binary"
+        return 0
+    fi
+
+    local host_arch
+    host_arch=$(uname -m)
+    local target
+    case "$host_arch" in
+        arm64|aarch64) target="darwin-aarch64" ;;
+        x86_64)        target="darwin-x64" ;;
+        *)
+            echo "ERROR: unsupported host arch for bundled bun: $host_arch" >&2
+            return 1
+            ;;
+    esac
+
+    mkdir -p "$BUN_BUNDLE_CACHE_DIR"
+    local zip_path="$BUN_BUNDLE_CACHE_DIR/bun-${target}.zip"
+    local url="https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-${target}.zip"
+
+    echo "Downloading bun ${BUN_VERSION} (${target}) for app bundle..." >&2
+    if ! curl --fail --location --retry 3 --retry-delay 2 --connect-timeout 30 \
+            --output "$zip_path" "$url"; then
+        echo "ERROR: failed to download bun binary from $url" >&2
+        return 1
+    fi
+
+    local extract_dir
+    extract_dir=$(mktemp -d "$BUN_BUNDLE_CACHE_DIR/extract.XXXXXX")
+    if ! unzip -o -q "$zip_path" -d "$extract_dir"; then
+        echo "ERROR: failed to extract bun zip" >&2
+        rm -rf "$extract_dir"
+        return 1
+    fi
+
+    local extracted="$extract_dir/bun-${target}/bun"
+    if [ ! -f "$extracted" ]; then
+        echo "ERROR: bun binary missing after extraction at $extracted" >&2
+        rm -rf "$extract_dir"
+        return 1
+    fi
+    mv "$extracted" "$bun_binary"
+    chmod +x "$bun_binary"
+    rm -rf "$extract_dir" "$zip_path"
+
+    echo "$bun_binary"
+}
+
+# ---------------------------------------------------------------------------
+# emit_meet_join_manifest — run the skill's `emit-manifest` script to
+# produce `<output>/manifest.json` describing the tools/routes/shutdown
+# hooks the skill will register at runtime. Consumed by the daemon's
+# manifest loader (PR 28) to proxy-register a shipped skill without
+# loading its full code into the daemon process.
+# ---------------------------------------------------------------------------
+emit_meet_join_manifest() {
+    local output_path="$1"
+    local skill_dir="$SKILLS_SRC_DIR/meet-join"
+    if [ ! -f "$skill_dir/scripts/emit-manifest.ts" ]; then
+        echo "WARNING: emit-manifest.ts not found at $skill_dir/scripts/ — skipping manifest" >&2
+        return 0
+    fi
+    if ! command -v bun &>/dev/null; then
+        echo "WARNING: bun not on PATH — skipping meet-join manifest emission" >&2
+        return 0
+    fi
+    mkdir -p "$(dirname "$output_path")"
+    (cd "$skill_dir" && bun run scripts/emit-manifest.ts --output "$output_path")
 }
 
 # ---------------------------------------------------------------------------
@@ -438,6 +534,11 @@ build_binaries() {
         --exclude='build/' \
         --exclude='.git/' \
         "$SKILLS_SRC_DIR/" "$SCRIPT_DIR/daemon-bin/first-party-skills/"
+    # Emit meet-join manifest next to its shipped sources so the daemon's
+    # manifest loader (PR 28) can proxy-register the skill without loading
+    # its code into the daemon process.
+    emit_meet_join_manifest \
+        "$SCRIPT_DIR/daemon-bin/first-party-skills/meet-join/manifest.json"
     rm -rf "$SCRIPT_DIR/daemon-bin/templates"
     cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" "$SCRIPT_DIR/daemon-bin/templates"
     rm -rf "$SCRIPT_DIR/daemon-bin/compact-prompts"
@@ -764,6 +865,11 @@ if [ -d "$SKILLS_SRC_DIR" ] && [ -f "$SKILLS_SRC_DIR/catalog.json" ]; then
         --exclude='build/' \
         --exclude='.git/' \
         "$SKILLS_SRC_DIR/" "$SCRIPT_DIR/daemon-bin/first-party-skills/"
+    # Emit meet-join manifest next to its shipped sources so the daemon's
+    # manifest loader (PR 28) can proxy-register the skill without loading
+    # its code into the daemon process.
+    emit_meet_join_manifest \
+        "$SCRIPT_DIR/daemon-bin/first-party-skills/meet-join/manifest.json"
 fi
 
 # Always refresh non-JS assets from source (not embedded by bun --compile)
@@ -1038,6 +1144,21 @@ fi
 if [ -d "$SCRIPT_DIR/daemon-bin/first-party-skills" ]; then
     rm -rf "$RESOURCES_DIR/first-party-skills"
     cp -R "$SCRIPT_DIR/daemon-bin/first-party-skills" "$RESOURCES_DIR/first-party-skills"
+fi
+
+# Stage a standalone `bun` binary inside the .app so the daemon can spawn
+# external first-party skill processes (e.g. meet-host via
+# MeetHostSupervisor in PR 27) via `bun run <skill>/register.ts`. The
+# version is pinned to `.tool-versions` via BUN_VERSION above. The binary
+# is signed explicitly below (the MacOS-sweep only covers Contents/MacOS).
+if bundled_bun_path=$(fetch_bundled_bun); then
+    if [ ! -f "$RESOURCES_DIR/bun" ] || [ "$bundled_bun_path" -nt "$RESOURCES_DIR/bun" ]; then
+        echo "Bundling standalone bun ${BUN_VERSION}..."
+        cp "$bundled_bun_path" "$RESOURCES_DIR/bun"
+        chmod +x "$RESOURCES_DIR/bun"
+    fi
+else
+    echo "WARNING: failed to stage bundled bun binary; external skill spawn will fall back to PATH/bun-runtime" >&2
 fi
 
 # Always refresh non-JS assets in app bundle (not embedded by bun --compile)
@@ -1857,6 +1978,16 @@ if [ -f "$MACOS_DIR/vellum-daemon" ]; then
     DAEMON_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/daemon-entitlements.plist" "${CODESIGN_TS_FLAGS[@]}")
     codesign "${DAEMON_SIGN_FLAGS[@]}" "$MACOS_DIR/vellum-daemon"
     echo "Daemon binary signed with entitlements"
+fi
+
+# Sign the bundled bun runtime with the same entitlements as the daemon.
+# Bun is a JS runtime that JITs code and opens network sockets, so it
+# needs allow-jit, allow-unsigned-executable-memory, and network.client
+# to pass hardened runtime checks when the daemon spawns it as a child.
+if [ -f "$RESOURCES_DIR/bun" ]; then
+    BUN_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/daemon-entitlements.plist" "${CODESIGN_TS_FLAGS[@]}")
+    codesign "${BUN_SIGN_FLAGS[@]}" "$RESOURCES_DIR/bun"
+    echo "Bundled bun runtime signed with entitlements"
 fi
 
 # Pre-flight: detect stray files in the .app bundle root that would cause
