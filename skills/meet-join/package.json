@@ -5,6 +5,7 @@
   "license": "MIT",
   "type": "module",
   "dependencies": {
+    "@vellumai/skill-host-contracts": "file:../../packages/skill-host-contracts",
     "zod": "4.3.6"
   },
   "devDependencies": {
