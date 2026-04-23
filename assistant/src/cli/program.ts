@@ -71,48 +71,46 @@ Examples:
   );
 
   registerDefaultAction(program);
+
+  registerAttachmentCommand(program);
+  registerAuditCommand(program);
+  registerAuthCommand(program);
+  registerAutonomyCommand(program);
+  registerAvatarCommand(program);
   registerBackupCommand(program);
   registerBashCommand(program);
   registerBrowserCommand(program);
   registerCacheCommand(program);
-  registerTaskCommand(program);
-  registerConversationsCommand(program);
+  registerChannelVerificationSessionsCommand(program);
+  registerClientsCommand(program);
+  registerCompletionsCommand(program);
   registerConfigCommand(program);
-  registerKeysCommand(program);
-  registerCredentialsCommand(program);
+  registerContactsCommand(program);
+  registerConversationsCommand(program);
   registerCredentialExecutionCommand(program);
-  registerTrustCommand(program);
-  registerMemoryCommand(program);
-  registerAuditCommand(program);
-  registerAuthCommand(program);
-  registerAttachmentCommand(program);
-  registerAvatarCommand(program);
-  registerMcpCommand(program);
+  registerCredentialsCommand(program);
   if (isEmailEnabled(getConfigReadOnly())) {
     registerDomainCommand(program);
     registerEmailCommand(program);
   }
-  registerContactsCommand(program);
-  registerChannelVerificationSessionsCommand(program);
-  registerClientsCommand(program);
-  registerAutonomyCommand(program);
-  registerCompletionsCommand(program);
+  registerImageGenerationCommand(program);
+  registerInferenceCommand(program);
+  registerKeysCommand(program);
+  registerMcpCommand(program);
+  registerMemoryCommand(program);
   registerNotificationsCommand(program);
-  registerPlatformCommand(program);
   registerOAuthCommand(program);
+  registerPlatformCommand(program);
   registerRoutesCommand(program);
+  registerSequenceCommand(program);
   registerSkillsCommand(program);
+  registerSttCommand(program);
+  registerTaskCommand(program);
+  registerTrustCommand(program);
+  registerTtsCommand(program);
+  registerUiCommand(program);
   registerUsageCommand(program);
   registerWatchersCommand(program);
-
-  registerImageGenerationCommand(program);
-  registerUiCommand(program);
-
-  registerSequenceCommand(program);
-  registerSttCommand(program);
-  registerTtsCommand(program);
-
-  registerInferenceCommand(program);
 
   // Fail fast when no assistant workspace exists on disk. The workspace is
   // created by `vellum hatch` and must be present for any command to work.
