@@ -445,6 +445,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "migrations/export", scopes: ["settings.write"] },
   { endpoint: "migrations/import-preflight", scopes: ["settings.write"] },
   { endpoint: "migrations/import", scopes: ["settings.write"] },
+  { endpoint: "migrations/jobs", scopes: ["settings.read"] },
 
   // Backups
   { endpoint: "backups", scopes: ["settings.read"] },
