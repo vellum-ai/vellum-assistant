@@ -84,12 +84,11 @@ extension AppDelegate {
             }
         }
 
-        // Link open: JS -> Swift -> gateway
-        surfaceManager.onLinkOpen = { url, metadata in
-            let codableMetadata = metadata?.mapValues { AnyCodable($0) }
-            Task {
-                _ = try? await PublishClient().openLink(url: url, metadata: codableMetadata)
-            }
+        // Link open: open directly in default browser.
+        // The coordinator already validates http/https scheme and sandbox restrictions.
+        surfaceManager.onLinkOpen = { url, _ in
+            guard let parsed = URL(string: url) else { return }
+            NSWorkspace.shared.open(parsed)
         }
 
         // Route dynamic pages to workspace
