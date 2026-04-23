@@ -143,26 +143,41 @@ public final class HostBrowserExecutor {
         }
 
         // Step 2: Select a page target.
-        // When cdpSessionId is provided, use it to find the target whose `id`
-        // matches — this mirrors the Chrome extension's resolveTarget() which
-        // uses cdpSessionId for target resolution (NOT as a CDP protocol
-        // sessionId). Fall back to the first page target when no cdpSessionId
-        // is provided or when no target matches.
+        // When cdpSessionId is provided, it is authoritative — only the target
+        // whose `id` matches is used. If no target matches, the request fails
+        // closed with a structured error (cdp_session_not_found) instead of
+        // silently running on an unrelated tab. This mirrors the Chrome
+        // extension's resolveTarget() which uses cdpSessionId for target
+        // resolution (NOT as a CDP protocol sessionId).
+        // When no cdpSessionId is provided, fall back to the first page target.
         let pageTargets = targets.filter { ($0["type"] as? String) == "page" }
         let selectedTarget: [String: Any]? = {
             if let sessionId = request.cdpSessionId {
-                // Match by target id (the Chrome DevTools target identifier)
                 if let matched = pageTargets.first(where: { ($0["id"] as? String) == sessionId }) {
                     return matched
                 }
-                // Fall back to first page target if cdpSessionId doesn't match
-                log.warning("cdpSessionId '\(sessionId, privacy: .public)' did not match any target id; falling back to first page target")
+                // Fail closed: cdpSessionId was authoritative but no target matched.
+                // Do NOT fall back to first page target — that would run the command
+                // on the wrong tab.
+                log.warning("cdpSessionId '\(sessionId, privacy: .public)' did not match any target id; failing closed")
+                return nil
             }
+            // No cdpSessionId provided — fall back to first page target (existing behavior).
             return pageTargets.first
         }()
 
         guard let target = selectedTarget,
               let wsURL = target["webSocketDebuggerUrl"] as? String else {
+            if let sessionId = request.cdpSessionId {
+                // cdpSessionId was provided but did not match any target — fail closed
+                // with a specific error code so the backend can distinguish this from
+                // "Chrome is not running".
+                return Self.transportError(
+                    requestId: request.requestId,
+                    code: "cdp_session_not_found",
+                    message: "cdpSessionId '\(sessionId)' did not match any page target in /json/list. The target may have been closed or navigated."
+                )
+            }
             return Self.transportError(
                 requestId: request.requestId,
                 code: "unreachable",
@@ -399,7 +414,7 @@ public final class HostBrowserExecutor {
     /// the backend error classifier can detect transport failures and trigger
     /// failover. Error codes use the lowercase set recognized by
     /// `classifyHostBrowserError`: `transport_error`, `unreachable`,
-    /// `timeout`, `non_loopback`.
+    /// `timeout`, `non_loopback`, `cdp_session_not_found`.
     static func transportError(
         requestId: String,
         code: String,
