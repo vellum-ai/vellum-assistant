@@ -43,10 +43,6 @@ To actually initiate a connection with the OAuth provider, run:
 assistant oauth connect <provider-key> --scopes <scope1> <scope2> ...
 ```
 
-When `--scopes` is provided, the specified scopes replace the provider's defaults entirely. When omitted, the provider's default scopes are used.
-
-If the provider-specific setup skill gives its own browser handoff instructions, follow those instead of the default browser behavior. Google bring-your-own setup on the macOS desktop app is one example: request the auth URL with `--no-browser`, then open it using the provider skill's AppleScript/browser handoff rules.
-
 This will open a new web browser tab where the user can log in to the third-party provider. Upon success, they should be redirected to a confirmation page and told that it's safe to close the browser tab and come back here.
 
 ## Verification
