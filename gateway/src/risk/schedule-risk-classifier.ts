@@ -18,6 +18,7 @@
  */
 
 import type { RiskAssessment, RiskClassifier } from "./risk-types.js";
+import { getTrustRuleV3Cache } from "./trust-rule-v3-cache.js";
 
 // -- Input type ---------------------------------------------------------------
 
@@ -47,6 +48,28 @@ const SCRIPT_MODE_REASON =
 export class ScheduleRiskClassifier implements RiskClassifier<ScheduleClassifierInput> {
   async classify(input: ScheduleClassifierInput): Promise<RiskAssessment> {
     const { toolName, mode, script } = input;
+
+    // Check risk rule cache for user overrides
+    try {
+      const ruleCache = getTrustRuleV3Cache();
+      const override = ruleCache.findToolOverride(
+        toolName,
+        mode ?? script ?? "",
+      );
+      if (
+        override &&
+        (override.userModified || override.origin === "user_defined")
+      ) {
+        return {
+          riskLevel: override.risk,
+          reason: override.description,
+          scopeOptions: [],
+          matchType: "user_rule",
+        };
+      }
+    } catch {
+      // Cache not initialized — no override
+    }
 
     const hasScriptContent =
       typeof script === "string" && script.trim().length > 0;

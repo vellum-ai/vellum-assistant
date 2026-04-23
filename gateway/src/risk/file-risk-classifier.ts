@@ -32,6 +32,7 @@ import type {
   RiskAssessment,
   RiskClassifier,
 } from "./risk-types.js";
+import { getTrustRuleV3Cache } from "./trust-rule-v3-cache.js";
 
 // -- Context interface --------------------------------------------------------
 
@@ -221,6 +222,26 @@ export class FileRiskClassifier implements RiskClassifier<
     const allowlistOptions = filePath
       ? buildFileAllowlistOptions(toolName, filePath)
       : [];
+
+    // Check risk rule cache for user overrides
+    try {
+      const ruleCache = getTrustRuleV3Cache();
+      const override = ruleCache.findToolOverride(toolName, filePath);
+      if (
+        override &&
+        (override.userModified || override.origin === "user_defined")
+      ) {
+        return {
+          riskLevel: override.risk,
+          reason: override.description,
+          scopeOptions: [],
+          matchType: "user_rule",
+          allowlistOptions,
+        };
+      }
+    } catch {
+      // Cache not initialized — no override
+    }
 
     switch (toolName) {
       case "file_read": {

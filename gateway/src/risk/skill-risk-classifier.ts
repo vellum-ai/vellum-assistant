@@ -18,6 +18,7 @@ import type {
   RiskAssessment,
   RiskClassifier,
 } from "./risk-types.js";
+import { getTrustRuleV3Cache } from "./trust-rule-v3-cache.js";
 
 // -- Input type ---------------------------------------------------------------
 
@@ -166,6 +167,28 @@ function buildManagedSkillAllowlistOptions(
 export class SkillLoadRiskClassifier implements RiskClassifier<SkillClassifierInput> {
   async classify(input: SkillClassifierInput): Promise<RiskAssessment> {
     const { toolName, skillSelector, resolvedMetadata } = input;
+
+    // Check risk rule cache for user overrides
+    try {
+      const ruleCache = getTrustRuleV3Cache();
+      const override = ruleCache.findToolOverride(
+        toolName,
+        skillSelector ?? "",
+      );
+      if (
+        override &&
+        (override.userModified || override.origin === "user_defined")
+      ) {
+        return {
+          riskLevel: override.risk,
+          reason: override.description,
+          scopeOptions: [],
+          matchType: "user_rule",
+        };
+      }
+    } catch {
+      // Cache not initialized — no override
+    }
 
     switch (toolName) {
       case "skill_load":
