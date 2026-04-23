@@ -13,7 +13,10 @@ export class MigrationInProgressError extends Error {
   readonly existingJobId: string;
   readonly kind: "export_in_progress" | "import_in_progress";
 
-  constructor(kind: "export_in_progress" | "import_in_progress", jobId: string) {
+  constructor(
+    kind: "export_in_progress" | "import_in_progress",
+    jobId: string,
+  ) {
     super(
       `A migration is already in progress (${kind}); existing job_id=${jobId}`,
     );
@@ -33,7 +36,10 @@ function bearerHeaders(token: string): Record<string, string> {
 
 interface Raw409Body {
   detail?: string;
-  error?: string;
+  // The runtime's current 409 contract nests the payload under `error`:
+  //   { error: { code: "export_in_progress" | "import_in_progress", job_id } }
+  // We also tolerate a legacy flat shape ({ code, job_id }) for resilience.
+  error?: string | { code?: string; job_id?: string };
   code?: string;
   job_id?: string;
 }
@@ -45,8 +51,16 @@ async function throwIfInProgress(
 ): Promise<void> {
   if (response.status !== 409) return;
   const body = (await response.json().catch(() => ({}))) as Raw409Body;
-  const jobId = body.job_id ?? "";
-  const rawKind = body.code ?? body.error ?? defaultKind;
+  const nested =
+    typeof body.error === "object" && body.error !== null
+      ? body.error
+      : undefined;
+  const jobId = nested?.job_id ?? body.job_id ?? "";
+  const rawKind =
+    nested?.code ??
+    body.code ??
+    (typeof body.error === "string" ? body.error : undefined) ??
+    defaultKind;
   const kind: "export_in_progress" | "import_in_progress" =
     rawKind === "export_in_progress" || rawKind === "import_in_progress"
       ? rawKind
@@ -140,15 +154,12 @@ export async function localRuntimePollJobStatus(
   token: string,
   jobId: string,
 ): Promise<UnifiedJobStatus> {
-  const response = await fetch(
-    `${runtimeUrl}/v1/migrations/jobs/${jobId}`,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-      },
+  const response = await fetch(`${runtimeUrl}/v1/migrations/jobs/${jobId}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
     },
-  );
+  });
 
   if (response.status === 404) {
     throw new Error("Migration job not found");

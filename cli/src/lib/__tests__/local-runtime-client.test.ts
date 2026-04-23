@@ -117,12 +117,14 @@ describe("localRuntimeExportToGcs", () => {
     });
   });
 
-  test("409 export_in_progress throws MigrationInProgressError carrying existing job_id", async () => {
+  test("409 export_in_progress (nested {error:{code,job_id}}) throws MigrationInProgressError carrying existing job_id", async () => {
     const { fetchMock } = captureFetch(() => {
       return new Response(
         JSON.stringify({
-          code: "export_in_progress",
-          job_id: "existing-export-42",
+          error: {
+            code: "export_in_progress",
+            job_id: "existing-export-42",
+          },
         }),
         { status: 409 },
       );
@@ -139,6 +141,56 @@ describe("localRuntimeExportToGcs", () => {
       const mip = err as MigrationInProgressError;
       expect(mip.kind).toBe("export_in_progress");
       expect(mip.existingJobId).toBe("existing-export-42");
+    }
+  });
+
+  test("409 export_in_progress regression: nested job_id 'abc-123' is surfaced (not empty)", async () => {
+    const { fetchMock } = captureFetch(() => {
+      return new Response(
+        JSON.stringify({
+          error: { code: "export_in_progress", job_id: "abc-123" },
+        }),
+        { status: 409 },
+      );
+    });
+    globalThis.fetch = fetchMock;
+
+    try {
+      await localRuntimeExportToGcs(RUNTIME_URL, TOKEN, {
+        uploadUrl: "https://storage.example/signed/abc",
+      });
+      throw new Error("expected to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(MigrationInProgressError);
+      const mip = err as MigrationInProgressError;
+      expect(mip.existingJobId).toBe("abc-123");
+      expect(mip.existingJobId).not.toBe("");
+      expect(mip.kind).toBe("export_in_progress");
+    }
+  });
+
+  test("409 export_in_progress with legacy flat shape is still parsed", async () => {
+    const { fetchMock } = captureFetch(() => {
+      return new Response(
+        JSON.stringify({
+          code: "export_in_progress",
+          job_id: "legacy-export-9",
+        }),
+        { status: 409 },
+      );
+    });
+    globalThis.fetch = fetchMock;
+
+    try {
+      await localRuntimeExportToGcs(RUNTIME_URL, TOKEN, {
+        uploadUrl: "https://storage.example/signed/abc",
+      });
+      throw new Error("expected to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(MigrationInProgressError);
+      const mip = err as MigrationInProgressError;
+      expect(mip.kind).toBe("export_in_progress");
+      expect(mip.existingJobId).toBe("legacy-export-9");
     }
   });
 
@@ -183,12 +235,14 @@ describe("localRuntimeImportFromGcs", () => {
     });
   });
 
-  test("409 import_in_progress throws MigrationInProgressError carrying existing job_id", async () => {
+  test("409 import_in_progress (nested {error:{code,job_id}}) throws MigrationInProgressError carrying existing job_id", async () => {
     const { fetchMock } = captureFetch(() => {
       return new Response(
         JSON.stringify({
-          code: "import_in_progress",
-          job_id: "existing-import-7",
+          error: {
+            code: "import_in_progress",
+            job_id: "existing-import-7",
+          },
         }),
         { status: 409 },
       );
@@ -207,6 +261,31 @@ describe("localRuntimeImportFromGcs", () => {
       expect(mip.existingJobId).toBe("existing-import-7");
     }
   });
+
+  test("409 import_in_progress with legacy flat shape is still parsed", async () => {
+    const { fetchMock } = captureFetch(() => {
+      return new Response(
+        JSON.stringify({
+          code: "import_in_progress",
+          job_id: "legacy-import-2",
+        }),
+        { status: 409 },
+      );
+    });
+    globalThis.fetch = fetchMock;
+
+    try {
+      await localRuntimeImportFromGcs(RUNTIME_URL, TOKEN, {
+        bundleUrl: "https://storage.example/signed/dl-xyz",
+      });
+      throw new Error("expected to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(MigrationInProgressError);
+      const mip = err as MigrationInProgressError;
+      expect(mip.kind).toBe("import_in_progress");
+      expect(mip.existingJobId).toBe("legacy-import-2");
+    }
+  });
 });
 
 describe("localRuntimePollJobStatus", () => {
@@ -223,7 +302,11 @@ describe("localRuntimePollJobStatus", () => {
     });
     globalThis.fetch = fetchMock;
 
-    const status = await localRuntimePollJobStatus(RUNTIME_URL, TOKEN, "poll-1");
+    const status = await localRuntimePollJobStatus(
+      RUNTIME_URL,
+      TOKEN,
+      "poll-1",
+    );
 
     expect(status).toEqual({
       jobId: "poll-1",
@@ -249,7 +332,11 @@ describe("localRuntimePollJobStatus", () => {
     });
     globalThis.fetch = fetchMock;
 
-    const status = await localRuntimePollJobStatus(RUNTIME_URL, TOKEN, "poll-2");
+    const status = await localRuntimePollJobStatus(
+      RUNTIME_URL,
+      TOKEN,
+      "poll-2",
+    );
 
     expect(status.status).toBe("complete");
     if (status.status === "complete") {
@@ -271,7 +358,11 @@ describe("localRuntimePollJobStatus", () => {
     });
     globalThis.fetch = fetchMock;
 
-    const status = await localRuntimePollJobStatus(RUNTIME_URL, TOKEN, "poll-3");
+    const status = await localRuntimePollJobStatus(
+      RUNTIME_URL,
+      TOKEN,
+      "poll-3",
+    );
 
     expect(status.status).toBe("failed");
     if (status.status === "failed") {
