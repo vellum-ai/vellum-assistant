@@ -521,3 +521,14 @@ export function __clearRegistryForTesting(): void {
   skillRefCount.clear();
   pluginRefCount.clear();
 }
+
+/**
+ * Drop every registered external-tool provider. Exposed exclusively for
+ * tests that want to verify a single `registerExternalTools()` call in
+ * isolation — the provider array otherwise accumulates across cases
+ * because ESM import caching prevents re-running the tool-manifest
+ * bootstrap.
+ */
+export function __clearExternalToolProvidersForTesting(): void {
+  externalToolProviders.length = 0;
+}

@@ -29,6 +29,7 @@ export const cronJobs = sqliteTable("cron_jobs", {
     .notNull()
     .default(false), // reuse the same conversation across runs
   script: text("script"), // shell command for script mode (nullable, only used when mode = 'script')
+  wakeConversationId: text("wake_conversation_id"), // target conversation for wake mode (nullable)
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });

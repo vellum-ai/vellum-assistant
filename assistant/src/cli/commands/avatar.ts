@@ -1,10 +1,17 @@
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 
 import type { Command } from "commander";
 
 import { renderCharacterAscii } from "../../avatar/ascii-renderer.js";
 import { getCharacterComponents } from "../../avatar/character-components.js";
+import { updateIdentityAvatarSection } from "../../avatar/identity-avatar.js";
 import {
   type CharacterTraits,
   writeTraitsAndRenderAvatar,
@@ -12,7 +19,12 @@ import {
 import { setPlatformBaseUrl } from "../../config/env.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { generateAndSaveAvatar } from "../../tools/system/avatar-generator.js";
-import { getWorkspaceDir } from "../../util/platform.js";
+import {
+  getAvatarDir,
+  getAvatarImagePath,
+  getWorkspaceDir,
+} from "../../util/platform.js";
+import { notifyAvatarUpdated } from "../lib/daemon-avatar-client.js";
 import { getSecureKeyViaDaemon } from "../lib/daemon-credential-client.js";
 import { log } from "../logger.js";
 import { writeOutput } from "../output.js";
@@ -32,8 +44,8 @@ The avatar system supports two modes:
      PNG image and ASCII art. Use the "character" subcommand group to manage
      native character avatars.
 
-  2. Custom image — an externally provided image file placed directly in the
-     avatar directory. Custom images are not managed through this CLI.
+  2. Custom image — an externally provided image file set via the "set"
+     subcommand, or generated via "generate".
 
 Files are stored in $VELLUM_WORKSPACE_DIR/data/avatar/:
   character-traits.json   Current trait selection (bodyShape, eyeStyle, color)
@@ -41,9 +53,10 @@ Files are stored in $VELLUM_WORKSPACE_DIR/data/avatar/:
   character-ascii.txt     ASCII art representation (best-effort; may not be written)
 
 Examples:
+  $ assistant avatar set --image /path/to/photo.png
+  $ assistant avatar remove
+  $ assistant avatar get --format base64
   $ assistant avatar character update --body-shape blob --eye-style curious --color green
-  $ assistant avatar character components
-  $ assistant avatar character ascii
   $ assistant avatar generate --description "a cute blue cat"`,
   );
 
@@ -101,7 +114,173 @@ Examples:
         // Best-effort cleanup
       }
 
+      // Clear IDENTITY.md avatar description so the assistant re-describes the new image
+      updateIdentityAvatarSection(null, log);
+      await notifyAvatarUpdated();
+
       log.info(result.content);
+    });
+
+  avatar
+    .command("set")
+    .description("Set the assistant's avatar from an image file")
+    .requiredOption(
+      "--image <path>",
+      "Path to image file (absolute or relative to workspace)",
+    )
+    .addHelpText(
+      "after",
+      `
+Sets the assistant's avatar by copying the provided image file to the
+canonical avatar location. This replaces any existing avatar image but
+preserves character-traits.json so the native character can be restored
+later with "assistant avatar remove".
+
+The --image path can be absolute or relative to the workspace directory.
+
+Examples:
+  $ assistant avatar set --image /path/to/photo.png
+  $ assistant avatar set --image conversations/abc123/attachments/Dropped\\ Image.png`,
+    )
+    .action(async (opts: { image: string }) => {
+      const resolvedSource = opts.image.startsWith("/")
+        ? opts.image
+        : join(getWorkspaceDir(), opts.image);
+
+      if (!existsSync(resolvedSource)) {
+        log.error(`Image file not found: ${resolvedSource}`);
+        process.exitCode = 1;
+        return;
+      }
+
+      try {
+        const avatarPath = getAvatarImagePath();
+        mkdirSync(dirname(avatarPath), { recursive: true });
+        copyFileSync(resolvedSource, avatarPath);
+
+        // Clear IDENTITY.md avatar description so the assistant re-describes the new image
+        updateIdentityAvatarSection(null, log);
+        await notifyAvatarUpdated();
+
+        log.info(`Avatar set from: ${resolvedSource}`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error(`Failed to set avatar: ${message}`);
+        process.exitCode = 1;
+      }
+    });
+
+  avatar
+    .command("remove")
+    .description("Remove custom avatar and restore character default")
+    .addHelpText(
+      "after",
+      `
+Removes the custom avatar image. If a native character was previously
+configured (character-traits.json still exists), it will be automatically
+restored the next time the avatar is regenerated.
+
+Does not delete character-traits.json — the native character is preserved
+so it can be restored without reconfiguration.
+
+Examples:
+  $ assistant avatar remove`,
+    )
+    .action(async () => {
+      const avatarPath = getAvatarImagePath();
+
+      if (!existsSync(avatarPath)) {
+        log.info("No custom avatar to remove — already using the default.");
+        return;
+      }
+
+      try {
+        unlinkSync(avatarPath);
+
+        // If native character traits exist, regenerate the PNG so consumers
+        // that read the file from disk see the restored character immediately.
+        const traitsPath = join(getAvatarDir(), "character-traits.json");
+        if (existsSync(traitsPath)) {
+          try {
+            const traits = JSON.parse(
+              readFileSync(traitsPath, "utf-8"),
+            ) as CharacterTraits;
+            writeTraitsAndRenderAvatar(traits);
+          } catch {
+            // Best-effort — the character will regenerate on next access
+          }
+        }
+
+        // Update IDENTITY.md to reflect that no custom image is set
+        updateIdentityAvatarSection(
+          "Default character avatar (no custom image set)",
+          log,
+        );
+        await notifyAvatarUpdated();
+
+        log.info("Custom avatar removed.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error(`Failed to remove avatar: ${message}`);
+        process.exitCode = 1;
+      }
+    });
+
+  avatar
+    .command("get")
+    .description("Retrieve the current avatar")
+    .option("--format <format>", "Output format: path or base64", "path")
+    .addHelpText(
+      "after",
+      `
+Retrieves the current avatar. By default prints the absolute file path;
+with --format base64, prints the base64-encoded image content.
+
+If no avatar image exists but character-traits.json is present, the PNG
+is regenerated from the saved traits before output.
+
+Examples:
+  $ assistant avatar get
+  $ assistant avatar get --format path
+  $ assistant avatar get --format base64`,
+    )
+    .action(async (opts: { format: string }) => {
+      if (opts.format !== "path" && opts.format !== "base64") {
+        log.error(
+          `Invalid format: "${opts.format}". Must be "path" or "base64".`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+
+      const avatarPath = getAvatarImagePath();
+
+      // If no image exists, try regenerating from character traits
+      if (!existsSync(avatarPath)) {
+        const traitsPath = join(getAvatarDir(), "character-traits.json");
+        if (existsSync(traitsPath)) {
+          try {
+            const raw = readFileSync(traitsPath, "utf-8");
+            writeTraitsAndRenderAvatar(JSON.parse(raw) as CharacterTraits);
+          } catch {
+            // Best-effort regeneration
+          }
+        }
+      }
+
+      if (!existsSync(avatarPath)) {
+        log.info(
+          "No avatar is currently set — no custom image and no character traits found.",
+        );
+        return;
+      }
+
+      if (opts.format === "path") {
+        process.stdout.write(avatarPath + "\n");
+      } else {
+        const base64 = readFileSync(avatarPath).toString("base64");
+        process.stdout.write(base64 + "\n");
+      }
     });
 
   const character = avatar
@@ -207,6 +386,10 @@ Examples:
           process.exitCode = 1;
           return;
         }
+
+        // Clear IDENTITY.md avatar description so the assistant re-describes the new character
+        updateIdentityAvatarSection(null, log);
+        await notifyAvatarUpdated();
 
         const avatarDir = join(getWorkspaceDir(), "data", "avatar");
         log.info(

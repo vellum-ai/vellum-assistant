@@ -81,8 +81,11 @@ import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-pr
 import { createUpgradeBroadcastProxyHandler } from "./http/routes/upgrade-broadcast-proxy.js";
 import {
   createMigrationExportProxyHandler,
+  createMigrationExportToGcsProxyHandler,
+  createMigrationImportFromGcsProxyHandler,
   createMigrationImportProxyHandler,
   createMigrationImportStatusProxyHandler,
+  createMigrationJobStatusProxyHandler,
 } from "./http/routes/migration-proxy.js";
 import { createMigrationRollbackProxyHandler } from "./http/routes/migration-rollback-proxy.js";
 import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
@@ -135,6 +138,7 @@ import {
   getMergedFeatureFlags,
 } from "./ipc/feature-flag-handlers.js";
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
+import { riskClassificationRoutes } from "./ipc/risk-classification-handlers.js";
 import { trustRuleRoutes } from "./ipc/trust-rule-handlers.js";
 import { AvatarChannelSyncer } from "./avatar-sync/avatar-channel-syncer.js";
 import { AvatarSyncWatcher } from "./avatar-sync/avatar-sync-watcher.js";
@@ -367,6 +371,11 @@ async function main() {
   const migrationImportProxy = createMigrationImportProxyHandler(config);
   const migrationImportStatusProxy =
     createMigrationImportStatusProxyHandler(config);
+  const migrationExportToGcsProxy =
+    createMigrationExportToGcsProxyHandler(config);
+  const migrationImportFromGcsProxy =
+    createMigrationImportFromGcsProxyHandler(config);
+  const migrationJobStatusProxy = createMigrationJobStatusProxyHandler(config);
   const migrationRollbackProxy = createMigrationRollbackProxyHandler(config);
   const workspaceCommitProxy = createWorkspaceCommitProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
@@ -945,6 +954,33 @@ async function main() {
       scope: "settings.read",
       handler: (req, params) =>
         migrationImportStatusProxy(req, params[0] ?? ""),
+    },
+
+    // ── Teleport-GCS migration (unified daemon-async flow) ──
+    // These are registered explicitly (not via the runtime-proxy catch-all)
+    // so local/docker teleport works whether or not `runtimeProxyEnabled`
+    // is set. The daemon returns 202 { job_id } on POST and cheap JSON on
+    // GET, so the gateway just transparently forwards without wrapping.
+    {
+      path: "/v1/migrations/export-to-gcs",
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => migrationExportToGcsProxy(req),
+    },
+    {
+      path: "/v1/migrations/import-from-gcs",
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => migrationImportFromGcsProxy(req),
+    },
+    {
+      path: /^\/v1\/migrations\/jobs\/([^/]+)\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req, params) => migrationJobStatusProxy(req, params[0] ?? ""),
     },
 
     // ── Workspace commit ──
@@ -1904,6 +1940,7 @@ async function main() {
     ...contactRoutes,
     ...thresholdRoutes,
     ...trustRuleRoutes,
+    ...riskClassificationRoutes,
   ]);
   ipcServer.start();
 

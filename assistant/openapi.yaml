@@ -5633,6 +5633,54 @@ paths:
               required:
                 - description
               additionalProperties: false
+  /v1/migrations/export-to-gcs:
+    post:
+      operationId: migrations_exporttogcs_post
+      summary: Start an async export streamed to a GCS signed URL
+      description:
+        Kick off a background export job that PUTs a freshly-built .vbundle archive to the supplied GCS signed URL.
+        Returns 202 with a job_id the caller can poll via the job-status endpoint. Fails fast with 409 if another export
+        job is already pending or running.
+      tags:
+        - migrations
+      responses:
+        "202":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+                  status:
+                    type: string
+                    const: pending
+                  type:
+                    type: string
+                    const: export
+                required:
+                  - job_id
+                  - status
+                  - type
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                upload_url:
+                  type: string
+                  format: uri
+                  description: Signed GCS PUT URL that receives the exported bundle.
+                description:
+                  description: Human-readable export description.
+                  type: string
+              required:
+                - upload_url
+              additionalProperties: false
   /v1/migrations/import:
     post:
       operationId: migrations_import_post
@@ -5724,6 +5772,73 @@ paths:
                     the importer.
               required:
                 - url
+  /v1/migrations/import-from-gcs:
+    post:
+      operationId: migrations_importfromgcs_post
+      summary: Start an async .vbundle import from a signed GCS URL
+      description:
+        Schedule a background import job that fetches the bundle at `bundle_url` and streams it through the
+        importer. Returns 202 with a `job_id`; poll `GET /v1/migrations/jobs/{job_id}` for status. 409 if another import
+        is already in flight.
+      tags:
+        - migrations
+      responses:
+        "202":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+                  status:
+                    type: string
+                    const: pending
+                  type:
+                    type: string
+                    const: import
+                required:
+                  - job_id
+                  - status
+                  - type
+                additionalProperties: false
+        "409":
+          description:
+            "Another import job is already pending or running. Body shape: { error: { code: 'import_in_progress',
+            job_id: string } }."
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        enum:
+                          - import_in_progress
+                      job_id:
+                        type: string
+                    required:
+                      - code
+                      - job_id
+                required:
+                  - error
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bundle_url:
+                  type: string
+                  format: uri
+              required:
+                - bundle_url
+              additionalProperties: false
   /v1/migrations/import-preflight:
     post:
       operationId: migrations_importpreflight_post
@@ -5762,6 +5877,111 @@ paths:
                   - conflicts
                   - manifest
                 additionalProperties: false
+  /v1/migrations/jobs/{job_id}:
+    get:
+      operationId: migrations_jobs_by_job_id_get
+      summary: Get migration job status
+      description:
+        "Return the current status of an async migration job (export or import). The response discriminates on
+        `status`: `processing` (pending or running), `complete` (with `result`), or `failed` (with `error`,
+        `error_code`, optional `upstream_status`). The `processing` value mirrors the platform's transport shape so CLI
+        clients can share a single parser across the platform and the daemon."
+      tags:
+        - migrations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    properties:
+                      job_id:
+                        type: string
+                      type:
+                        type: string
+                        enum:
+                          - export
+                          - import
+                      status:
+                        type: string
+                        const: processing
+                    required:
+                      - job_id
+                      - type
+                      - status
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      job_id:
+                        type: string
+                      type:
+                        type: string
+                        enum:
+                          - export
+                          - import
+                      status:
+                        type: string
+                        const: complete
+                      result: {}
+                    required:
+                      - job_id
+                      - type
+                      - status
+                      - result
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      job_id:
+                        type: string
+                      type:
+                        type: string
+                        enum:
+                          - export
+                          - import
+                      status:
+                        type: string
+                        const: failed
+                      error:
+                        type: string
+                      error_code:
+                        type: string
+                      upstream_status:
+                        type: integer
+                        minimum: -9007199254740991
+                        maximum: 9007199254740991
+                    required:
+                      - job_id
+                      - type
+                      - status
+                      - error
+                      - error_code
+                    additionalProperties: false
+        "404":
+          description: "No job matches the given id. Body shape: { error: { code: 'job_not_found' } }."
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        enum:
+                          - job_not_found
+                    required:
+                      - code
+                required:
+                  - error
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/migrations/validate:
     post:
       operationId: migrations_validate_post

@@ -11,6 +11,10 @@
 
 import { connect, type Socket } from "node:net";
 
+import type {
+  ClassificationResult,
+  ClassifyRiskParams,
+} from "../permissions/ipc-risk-types.js";
 import { getLogger } from "../util/logger.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
 
@@ -400,6 +404,52 @@ export async function ipcGetFeatureFlags(): Promise<Record<string, boolean>> {
     return filtered;
   }
   return {};
+}
+
+/**
+ * Classify risk for a tool invocation via the gateway's persistent IPC
+ * connection.
+ *
+ * Uses `ipcCallPersistent` (not the one-shot `ipcCall`) because risk
+ * classification is on the hot path for every tool invocation and the
+ * persistent connection avoids per-call connect overhead.
+ *
+ * Returns `undefined` when the gateway is unreachable, the response is
+ * malformed, or the call fails for any reason — callers should throw
+ * since there is no local fallback (gateway is a hard dependency).
+ */
+export async function ipcClassifyRisk(
+  params: ClassifyRiskParams,
+): Promise<ClassificationResult | undefined> {
+  try {
+    const result = await ipcCallPersistent(
+      "classify_risk",
+      params as unknown as Record<string, unknown>,
+    );
+
+    // Validate the response has at minimum a `risk` field
+    if (!result || typeof result !== "object" || Array.isArray(result)) {
+      log.warn(
+        { result },
+        "ipcClassifyRisk: gateway returned non-object response",
+      );
+      return undefined;
+    }
+
+    const obj = result as Record<string, unknown>;
+    if (typeof obj.risk !== "string") {
+      log.warn(
+        { result },
+        "ipcClassifyRisk: gateway response missing 'risk' field",
+      );
+      return undefined;
+    }
+
+    return result as ClassificationResult;
+  } catch (err) {
+    log.warn({ err }, "ipcClassifyRisk: persistent IPC call failed");
+    return undefined;
+  }
 }
 
 // ---------------------------------------------------------------------------

