@@ -25,11 +25,16 @@ import type {
   ChatOpportunityDecision,
   ChatOpportunityDetectorStats,
 } from "../chat-opportunity-detector.js";
-import { meetEventDispatcher } from "../event-publisher.js";
+import {
+  _resetEventPublisherForTests,
+  createEventPublisher,
+  meetEventDispatcher,
+} from "../event-publisher.js";
 import {
   __resetMeetSessionEventRouterForTests,
   getMeetSessionEventRouter,
 } from "../session-event-router.js";
+import { installSessionManagerTestHost } from "./test-host.js";
 import {
   _createMeetSessionManagerForTests,
   BOT_LEAVE_HTTP_TIMEOUT_MS,
@@ -186,6 +191,12 @@ let workspaceDir: string;
 beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "session-manager-test-"));
   __resetMeetSessionEventRouterForTests();
+  _resetEventPublisherForTests();
+  // Wire the module-level event publisher to the real `assistantEventHub`
+  // so the existing `captureHub` subscriptions in these tests still receive
+  // events. A follow-up PR introduces a shared `buildTestHost()` helper —
+  // for now the per-test-suite shim lives next to the test file.
+  createEventPublisher(installSessionManagerTestHost());
   meetEventDispatcher._resetForTests();
 });
 

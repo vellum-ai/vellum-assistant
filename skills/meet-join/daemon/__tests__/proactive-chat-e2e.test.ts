@@ -84,8 +84,13 @@ import type {
   MeetEventSubscriber,
   MeetEventUnsubscribe,
 } from "../event-publisher.js";
-import { meetEventDispatcher } from "../event-publisher.js";
+import {
+  _resetEventPublisherForTests,
+  createEventPublisher,
+  meetEventDispatcher,
+} from "../event-publisher.js";
 import { __resetMeetSessionEventRouterForTests } from "../session-event-router.js";
+import { installSessionManagerTestHost } from "./test-host.js";
 import {
   _createMeetSessionManagerForTests,
   MEET_BOT_INTERNAL_PORT,
@@ -298,6 +303,8 @@ beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "proactive-chat-e2e-"));
   __resetMeetSessionEventRouterForTests();
   __resetWakeChainForTests();
+  _resetEventPublisherForTests();
+  createEventPublisher(installSessionManagerTestHost());
   meetEventDispatcher._resetForTests();
   persistedMessages.length = 0;
   fakeBot = startFakeBot();

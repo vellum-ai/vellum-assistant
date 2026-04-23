@@ -5,23 +5,35 @@
  *
  * Two concerns live here:
  *
- *  1. {@link publishMeetEvent} — builds a proper {@link AssistantEvent} via
- *     {@link buildAssistantEvent} and hands it to `assistantEventHub.publish`.
+ *  1. {@link publishMeetEvent} — builds a proper `AssistantEvent` via the
+ *     host's `events.buildEvent` and hands it to `host.events.publish`.
  *     Failures are swallowed and logged: a slow/broken SSE subscriber must
  *     never break the meeting.
  *
  *  2. {@link MeetEventDispatcher} — a thin fan-out for per-meeting bot
  *     events. The router upstream (`MeetSessionEventRouter`, PR 9) only
- *     allows *one* handler per meeting, which means the session manager
+ *     allows one handler per meeting, which means the session manager
  *     must own the single registration and multiplex from there. Several
- *     PRs in the plan want to observe the same live event stream (this
- *     publisher for SSE, PR 17 for the conversation bridge, PR 18 for
- *     storage, PR 22 for consent). They all subscribe through this
- *     dispatcher rather than racing to replace each other at the router.
+ *     consumers want to observe the same live event stream (this
+ *     publisher for SSE, conversation bridge, storage, consent). They
+ *     all subscribe through this dispatcher rather than racing to
+ *     replace each other at the router.
  *
- *     The dispatcher is intentionally cheap: a Map<meetingId, Set<cb>>,
+ *     The dispatcher is intentionally cheap: a `Map<meetingId, Set<cb>>`,
  *     synchronous fan-out, handler errors are caught and logged. No
  *     buffering, no async queues — matches the router's ergonomics.
+ *
+ * ## Host-based factory
+ *
+ * The module previously imported `assistantEventHub`, `buildAssistantEvent`,
+ * and `getLogger` directly from `assistant/`. The skill-isolation plan
+ * replaces those with the runtime-injected `SkillHost` supplied by the
+ * assistant's bootstrap. {@link createEventPublisher} captures the host
+ * and wires the module-level singletons that existing consumers (e.g.
+ * the session manager, until PR 17) keep importing. Calling the factory
+ * before those consumers run is a startup ordering requirement — the
+ * module-level thunks throw a clear error if invoked before the host is
+ * installed.
  *
  * Future PRs that want to read the stream should call
  * `subscribeToMeetingEvents(meetingId, cb)` rather than calling
@@ -29,15 +41,12 @@
  * consumer never steps on an existing one.
  */
 
+import type { Logger, SkillHost } from "@vellumai/skill-host-contracts";
+
 import type { MeetBotEvent } from "../contracts/index.js";
 
-import type { ServerMessage } from "../../../assistant/src/daemon/message-protocol.js";
-import { buildAssistantEvent } from "../../../assistant/src/runtime/assistant-event.js";
-import { assistantEventHub } from "../../../assistant/src/runtime/assistant-event-hub.js";
-import { getLogger } from "../../../assistant/src/util/logger.js";
+import { registerSubModule } from "./modules-registry.js";
 import { getMeetSessionEventRouter } from "./session-event-router.js";
-
-const log = getLogger("meet-event-publisher");
 
 // ---------------------------------------------------------------------------
 // Event-kind discriminator
@@ -60,40 +69,6 @@ export type MeetEventKind =
   | "meet.speaking_ended";
 
 // ---------------------------------------------------------------------------
-// publishMeetEvent
-// ---------------------------------------------------------------------------
-
-/**
- * Publish a Meet lifecycle/transcript/participant/speaker event to the
- * in-process `assistantEventHub`. Clients subscribed via SSE receive the
- * event in delivery order.
- *
- * `payload` is merged with `{ type: kind, meetingId }` to form the
- * `ServerMessage` body — callers must not include `type` or `meetingId`
- * in `payload` or they will conflict with the discriminator.
- *
- * Errors from subscribers are logged but never rethrown: a slow or broken
- * consumer on the SSE side must not break the active meeting. Returns a
- * promise that resolves when the publish call settles, for tests that
- * want to await delivery. Production callers can fire-and-forget.
- */
-export function publishMeetEvent(
-  assistantId: string,
-  meetingId: string,
-  kind: MeetEventKind,
-  payload: Record<string, unknown>,
-): Promise<void> {
-  // Narrow the composed literal to `ServerMessage` — every `meet.*` kind
-  // has a matching variant in the `ServerMessage` discriminated union, but
-  // TypeScript can't infer the runtime match from a string-keyed payload.
-  const message = { type: kind, meetingId, ...payload } as ServerMessage;
-  const event = buildAssistantEvent(assistantId, message);
-  return assistantEventHub.publish(event).catch((err) => {
-    log.warn({ err, meetingId, kind }, "Failed to publish meet event");
-  });
-}
-
-// ---------------------------------------------------------------------------
 // MeetEventDispatcher — per-meeting fan-out shim
 // ---------------------------------------------------------------------------
 
@@ -107,9 +82,15 @@ export type MeetEventUnsubscribe = () => void;
  * Process-wide fan-out map for per-meeting bot events. One instance, many
  * subscribers per meeting id. Singleton so cross-cutting subscribers
  * (publisher, bridge, storage, consent) agree on the same dispatch target.
+ *
+ * The dispatcher holds no references to `assistant/` — it uses the
+ * factory-supplied logger for its internal diagnostics, so constructing
+ * it requires a {@link Logger} rather than reaching for a global.
  */
 class MeetEventDispatcher {
   private readonly subs = new Map<string, Set<MeetEventSubscriber>>();
+
+  constructor(private readonly log: Logger) {}
 
   subscribe(meetingId: string, cb: MeetEventSubscriber): MeetEventUnsubscribe {
     let set = this.subs.get(meetingId);
@@ -135,10 +116,11 @@ class MeetEventDispatcher {
       try {
         cb(event);
       } catch (err) {
-        log.error(
-          { err, meetingId, eventType: event.type },
-          "Meet event subscriber threw",
-        );
+        this.log.error("Meet event subscriber threw", {
+          err,
+          meetingId,
+          eventType: event.type,
+        });
       }
     }
   }
@@ -159,41 +141,239 @@ class MeetEventDispatcher {
   }
 }
 
-/** Process-level singleton dispatcher, shared across the meet subsystem. */
-export const meetEventDispatcher = new MeetEventDispatcher();
+// ---------------------------------------------------------------------------
+// EventPublisher facade
+// ---------------------------------------------------------------------------
+
+/**
+ * Bundle returned by {@link createEventPublisher}. Holds the per-meeting
+ * dispatcher and the host-backed publish helpers that previously reached
+ * into `assistant/` via top-level imports.
+ */
+export interface EventPublisher {
+  readonly dispatcher: MeetEventDispatcher;
+  publishMeetEvent(
+    assistantId: string,
+    meetingId: string,
+    kind: MeetEventKind,
+    payload: Record<string, unknown>,
+  ): Promise<void>;
+  subscribeToMeetingEvents(
+    meetingId: string,
+    cb: MeetEventSubscriber,
+  ): MeetEventUnsubscribe;
+  registerMeetingDispatcher(meetingId: string): void;
+  unregisterMeetingDispatcher(meetingId: string): void;
+  subscribeEventHubPublisher(
+    assistantId: string,
+    meetingId: string,
+  ): MeetEventUnsubscribe;
+}
+
+/**
+ * Build the Meet event publisher against a {@link SkillHost}. Called
+ * once by `register(host)` at daemon startup; also stashes the resulting
+ * bundle on a module-level singleton so the legacy module-scoped exports
+ * (imported by `session-manager.ts` pending PR 17) keep working.
+ */
+export function createEventPublisher(host: SkillHost): EventPublisher {
+  const log = host.logger.get("meet-event-publisher");
+  const dispatcher = new MeetEventDispatcher(log);
+
+  const publisher: EventPublisher = {
+    dispatcher,
+
+    publishMeetEvent(
+      // The assistantId is retained in the signature to preserve the API
+      // callers (session-manager) use today, but the host's `buildEvent`
+      // curries `DAEMON_INTERNAL_ASSISTANT_ID` so the argument no longer
+      // influences the emitted event. Callers always pass the internal id.
+      _assistantId: string,
+      meetingId: string,
+      kind: MeetEventKind,
+      payload: Record<string, unknown>,
+    ): Promise<void> {
+      // Narrow the composed literal to the host's wire-level `ServerMessage`
+      // — every `meet.*` kind has a matching variant in the daemon-side
+      // discriminated union, but TypeScript can't infer that from a
+      // string-keyed payload at this boundary.
+      const message = { type: kind, meetingId, ...payload };
+      const event = host.events.buildEvent(message);
+      return host.events.publish(event).catch((err) => {
+        log.warn("Failed to publish meet event", { err, meetingId, kind });
+      });
+    },
+
+    subscribeToMeetingEvents(
+      meetingId: string,
+      cb: MeetEventSubscriber,
+    ): MeetEventUnsubscribe {
+      return dispatcher.subscribe(meetingId, cb);
+    },
+
+    registerMeetingDispatcher(meetingId: string): void {
+      getMeetSessionEventRouter().register(meetingId, (event) => {
+        dispatcher.dispatch(meetingId, event);
+      });
+    },
+
+    unregisterMeetingDispatcher(meetingId: string): void {
+      getMeetSessionEventRouter().unregister(meetingId);
+      dispatcher.clear(meetingId);
+    },
+
+    subscribeEventHubPublisher(
+      assistantId: string,
+      meetingId: string,
+    ): MeetEventUnsubscribe {
+      return publisher.subscribeToMeetingEvents(meetingId, (event) => {
+        switch (event.type) {
+          case "participant.change":
+            void publisher.publishMeetEvent(
+              assistantId,
+              meetingId,
+              "meet.participant_changed",
+              {
+                joined: event.joined,
+                left: event.left,
+              },
+            );
+            return;
+          case "speaker.change":
+            void publisher.publishMeetEvent(
+              assistantId,
+              meetingId,
+              "meet.speaker_changed",
+              {
+                speakerId: event.speakerId,
+                speakerName: event.speakerName,
+              },
+            );
+            return;
+          case "transcript.chunk": {
+            // Interim chunks are noisy and may be superseded by a later
+            // final chunk covering the same time range. Clients only want
+            // stable text.
+            if (!event.isFinal) return;
+            const payload: Record<string, unknown> = { text: event.text };
+            if (event.speakerLabel !== undefined)
+              payload.speakerLabel = event.speakerLabel;
+            if (event.speakerId !== undefined)
+              payload.speakerId = event.speakerId;
+            if (event.confidence !== undefined)
+              payload.confidence = event.confidence;
+            void publisher.publishMeetEvent(
+              assistantId,
+              meetingId,
+              "meet.transcript_chunk",
+              payload,
+            );
+            return;
+          }
+          default:
+            // Ignore event kinds we don't fan out from the router path.
+            // Lifecycle transitions are published by the session manager.
+            // Inbound chat + interim transcripts are intentionally dropped.
+            return;
+        }
+      });
+    },
+  };
+
+  installedPublisher = publisher;
+  return publisher;
+}
+
+// ---------------------------------------------------------------------------
+// Module-scoped thunks for legacy consumers
+// ---------------------------------------------------------------------------
+//
+// Session-manager (pending PR 17) still imports these names directly. They
+// delegate to the singleton that `createEventPublisher(host)` installed at
+// startup. Calling before installation throws a loud error so wiring bugs
+// surface early rather than silently dispatching into the void.
+
+let installedPublisher: EventPublisher | null = null;
+
+function requirePublisher(): EventPublisher {
+  if (!installedPublisher) {
+    throw new Error(
+      "meet-join event-publisher: createEventPublisher(host) was not invoked " +
+        "before a legacy export was accessed. Ensure the skill's register(host) " +
+        "entry point ran during daemon bootstrap.",
+    );
+  }
+  return installedPublisher;
+}
+
+/**
+ * Publish a Meet lifecycle/transcript/participant/speaker event via the
+ * installed host. See {@link EventPublisher.publishMeetEvent}.
+ *
+ * `payload` is merged with `{ type: kind, meetingId }` to form the message
+ * body — callers must not include `type` or `meetingId` in `payload` or
+ * they will conflict with the discriminator.
+ *
+ * Errors from subscribers are logged but never rethrown: a slow or broken
+ * consumer on the SSE side must not break the active meeting.
+ */
+export function publishMeetEvent(
+  assistantId: string,
+  meetingId: string,
+  kind: MeetEventKind,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  return requirePublisher().publishMeetEvent(
+    assistantId,
+    meetingId,
+    kind,
+    payload,
+  );
+}
+
+/**
+ * Process-level singleton dispatcher facade. Delegates to the dispatcher
+ * constructed by {@link createEventPublisher}. Retained so test harnesses
+ * and the session manager can use the same API they used pre-migration.
+ */
+export const meetEventDispatcher = {
+  subscribe(meetingId: string, cb: MeetEventSubscriber): MeetEventUnsubscribe {
+    return requirePublisher().dispatcher.subscribe(meetingId, cb);
+  },
+  dispatch(meetingId: string, event: MeetBotEvent): void {
+    requirePublisher().dispatcher.dispatch(meetingId, event);
+  },
+  clear(meetingId: string): void {
+    requirePublisher().dispatcher.clear(meetingId);
+  },
+  subscriberCount(meetingId: string): number {
+    return requirePublisher().dispatcher.subscriberCount(meetingId);
+  },
+  _resetForTests(): void {
+    // Tolerate tests that reset before any factory has been wired — the
+    // dispatcher is state-free in that case, so there is nothing to clear.
+    installedPublisher?.dispatcher._resetForTests();
+  },
+};
 
 /**
  * Subscribe to raw bot events for a meeting. Safe for multiple callers.
  * Returns an unsubscribe function.
- *
- * Use this from downstream consumers (conversation bridge, storage writer,
- * consent monitor) instead of calling `MeetSessionEventRouter.register`
- * directly — the router allows only one handler per meeting, and the
- * session manager owns that registration.
  */
 export function subscribeToMeetingEvents(
   meetingId: string,
   cb: MeetEventSubscriber,
 ): MeetEventUnsubscribe {
-  return meetEventDispatcher.subscribe(meetingId, cb);
+  return requirePublisher().subscribeToMeetingEvents(meetingId, cb);
 }
-
-// ---------------------------------------------------------------------------
-// Router integration
-// ---------------------------------------------------------------------------
 
 /**
  * Install the single `MeetSessionEventRouter` handler for a meeting. The
- * handler forwards every incoming event into {@link meetEventDispatcher}
- * so multiple subscribers can observe the stream.
- *
- * The session manager calls this once per `join()` and pairs it with
- * {@link unregisterMeetingDispatcher} on `leave()`.
+ * handler forwards every incoming event into the dispatcher so multiple
+ * subscribers can observe the stream.
  */
 export function registerMeetingDispatcher(meetingId: string): void {
-  getMeetSessionEventRouter().register(meetingId, (event) => {
-    meetEventDispatcher.dispatch(meetingId, event);
-  });
+  requirePublisher().registerMeetingDispatcher(meetingId);
 }
 
 /**
@@ -201,74 +381,42 @@ export function registerMeetingDispatcher(meetingId: string): void {
  * meeting. Symmetric with {@link registerMeetingDispatcher}.
  */
 export function unregisterMeetingDispatcher(meetingId: string): void {
-  getMeetSessionEventRouter().unregister(meetingId);
-  meetEventDispatcher.clear(meetingId);
+  requirePublisher().unregisterMeetingDispatcher(meetingId);
 }
-
-// ---------------------------------------------------------------------------
-// Router → event-hub bridge
-// ---------------------------------------------------------------------------
 
 /**
  * Subscribe the event-hub publisher to a meeting's bot-event stream so
  * `participant.change`, `speaker.change`, and final transcript chunks
- * fan out as `meet.participant_changed` / `meet.speaker_changed` /
- * `meet.transcript_chunk` events on `assistantEventHub`.
+ * fan out as the matching `meet.*` events on the host's event hub.
  *
  * Lifecycle transitions are NOT handled here — the session manager
  * publishes `meet.joining`, `meet.joined`, `meet.left`, and `meet.error`
- * directly at the points it controls (join start, first joined lifecycle
- * event, leave, error) since those fire outside the bot-event stream
- * or carry richer context than the wire event provides.
- *
- * Returns an unsubscribe function the caller can invoke on leave.
+ * directly at the points it controls.
  */
 export function subscribeEventHubPublisher(
   assistantId: string,
   meetingId: string,
 ): MeetEventUnsubscribe {
-  return subscribeToMeetingEvents(meetingId, (event) => {
-    switch (event.type) {
-      case "participant.change":
-        void publishMeetEvent(
-          assistantId,
-          meetingId,
-          "meet.participant_changed",
-          {
-            joined: event.joined,
-            left: event.left,
-          },
-        );
-        return;
-      case "speaker.change":
-        void publishMeetEvent(assistantId, meetingId, "meet.speaker_changed", {
-          speakerId: event.speakerId,
-          speakerName: event.speakerName,
-        });
-        return;
-      case "transcript.chunk": {
-        // Interim chunks are noisy and may be superseded by a later final
-        // chunk covering the same time range. Clients only want stable text.
-        if (!event.isFinal) return;
-        const payload: Record<string, unknown> = { text: event.text };
-        if (event.speakerLabel !== undefined)
-          payload.speakerLabel = event.speakerLabel;
-        if (event.speakerId !== undefined) payload.speakerId = event.speakerId;
-        if (event.confidence !== undefined)
-          payload.confidence = event.confidence;
-        void publishMeetEvent(
-          assistantId,
-          meetingId,
-          "meet.transcript_chunk",
-          payload,
-        );
-        return;
-      }
-      default:
-        // Ignore event kinds we don't fan out from the router path.
-        // Lifecycle transitions are published by the session manager.
-        // Inbound chat + interim transcripts are intentionally dropped.
-        return;
-    }
-  });
+  return requirePublisher().subscribeEventHubPublisher(assistantId, meetingId);
 }
+
+/**
+ * Test-only helper. Clears the installed publisher so a fresh host can be
+ * wired in from the next test case. Production code must never call this.
+ */
+export function _resetEventPublisherForTests(): void {
+  installedPublisher = null;
+}
+
+// ---------------------------------------------------------------------------
+// Sub-module registration
+// ---------------------------------------------------------------------------
+//
+// Wave 6+ of the skill-isolation plan wires sub-module factories into a
+// per-skill registry so the session manager can pull them by name without
+// taking a static import on each file (see `modules-registry.ts`). The
+// factory is registered as a side effect of importing this module so any
+// static import from `register.ts` / the session manager is enough to
+// populate the slot.
+
+registerSubModule("event-publisher", createEventPublisher);

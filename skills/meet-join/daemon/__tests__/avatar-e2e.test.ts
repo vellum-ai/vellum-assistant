@@ -56,13 +56,18 @@ import type { VideoDeviceHandle } from "../../bot/src/media/video-device.js";
 import { BotState } from "../../bot/src/control/state.js";
 import { FakeAvatarRenderer } from "../../bot/__tests__/avatar-interface.test.js";
 
-import { meetEventDispatcher } from "../event-publisher.js";
+import {
+  _resetEventPublisherForTests,
+  createEventPublisher,
+  meetEventDispatcher,
+} from "../event-publisher.js";
 import { __resetMeetSessionEventRouterForTests } from "../session-event-router.js";
 import {
   _createMeetSessionManagerForTests,
   MEET_BOT_INTERNAL_PORT,
   type MeetAudioIngestLike,
 } from "../session-manager.js";
+import { installSessionManagerTestHost } from "./test-host.js";
 
 // ---------------------------------------------------------------------------
 // Shared fixtures — the "fake bot" stands up a real `createHttpServer`
@@ -357,6 +362,8 @@ const fakeBotRef: { current: FakeBotServer | null } = { current: null };
 beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "avatar-e2e-"));
   __resetMeetSessionEventRouterForTests();
+  _resetEventPublisherForTests();
+  createEventPublisher(installSessionManagerTestHost());
   meetEventDispatcher._resetForTests();
   // Wipe the registry so tests can't leak factories across each other.
   // The `"fake"` id is re-registered inside the lazy runner below, once

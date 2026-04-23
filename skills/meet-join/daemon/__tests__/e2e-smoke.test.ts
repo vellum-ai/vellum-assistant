@@ -67,6 +67,8 @@ import {
   MeetConversationBridge,
 } from "../conversation-bridge.js";
 import {
+  _resetEventPublisherForTests,
+  createEventPublisher,
   meetEventDispatcher,
   subscribeToMeetingEvents,
 } from "../event-publisher.js";
@@ -81,6 +83,7 @@ import {
   type MeetAudioIngestLike,
 } from "../session-manager.js";
 import { MeetStorageWriter } from "../storage-writer.js";
+import { installSessionManagerTestHost } from "./test-host.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -339,6 +342,8 @@ let workspaceDir: string;
 beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "meet-e2e-"));
   __resetMeetSessionEventRouterForTests();
+  _resetEventPublisherForTests();
+  createEventPublisher(installSessionManagerTestHost());
   meetEventDispatcher._resetForTests();
 });
 
