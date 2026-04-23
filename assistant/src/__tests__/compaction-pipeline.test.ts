@@ -126,10 +126,14 @@ describe("compaction pipeline", () => {
       30000,
     )) as ContextWindowResultShape;
 
-    // Terminal forwarded args verbatim to the manager.
+    // Terminal forwarded args verbatim to the manager — except for
+    // `signal`, which the pipeline runner replaces with a signal linked
+    // to its internal timeout controller. The linked signal must forward
+    // caller-originated aborts, which is verified in the dedicated
+    // pipeline-runner abort-propagation tests.
     expect(observed).toHaveLength(1);
     expect(observed[0]!.messages).toBe(args.messages);
-    expect(observed[0]!.signal).toBe(args.signal);
+    expect(observed[0]!.signal).toBeInstanceOf(AbortSignal);
     expect(observed[0]!.options).toBe(args.options);
 
     // Returned result is the manager's object, unmodified — no wrapping

@@ -266,6 +266,116 @@ describe("runPipeline — timeout", () => {
   });
 });
 
+describe("runPipeline — timeout aborts linked signal", () => {
+  test("abort signal on args is fired when the timeout trips", async () => {
+    const callerController = new AbortController();
+    type SignalArgs = { value: number; signal: AbortSignal };
+
+    let observedAbortedAtCallStart = false;
+    let observedAbortedAtCallEnd = false;
+
+    const sleeper: Middleware<SignalArgs, Result> = async (
+      innerArgs,
+      _next,
+    ) => {
+      observedAbortedAtCallStart = innerArgs.signal.aborted;
+      return new Promise<Result>((resolve, reject) => {
+        innerArgs.signal.addEventListener("abort", () => {
+          observedAbortedAtCallEnd = innerArgs.signal.aborted;
+          reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+        });
+        // Keep running past the timeout if the signal doesn't fire.
+        setTimeout(() => resolve({ value: 0 }), 500);
+      });
+    };
+
+    const terminal = async (_args: SignalArgs): Promise<Result> => ({
+      value: 0,
+    });
+
+    await expect(
+      runPipeline<SignalArgs, Result>(
+        "compaction",
+        [sleeper],
+        terminal,
+        { value: 1, signal: callerController.signal },
+        makeCtx(),
+        15,
+      ),
+    ).rejects.toBeInstanceOf(PluginTimeoutError);
+
+    expect(observedAbortedAtCallStart).toBe(false);
+    expect(observedAbortedAtCallEnd).toBe(true);
+    // Caller's own signal must not be touched — the runner only aborts
+    // its internal linked signal, not the caller-owned controller.
+    expect(callerController.signal.aborted).toBe(false);
+
+    // Log record still reports timeout outcome + correct fields even though
+    // the inner middleware rejected with AbortError; the outer race still
+    // wins with the PluginTimeoutError.
+    const [record] = fakeLogger.calls[0]!;
+    expect(record.outcome).toBe("timeout");
+    expect(record.errorName).toBe("PluginTimeoutError");
+  });
+
+  test("caller-side abort still propagates to the inner call", async () => {
+    const callerController = new AbortController();
+    type SignalArgs = { signal: AbortSignal };
+
+    let innerSignalAborted = false;
+
+    const sleeper: Middleware<SignalArgs, Result> = async (innerArgs) => {
+      return new Promise<Result>((_resolve, reject) => {
+        innerArgs.signal.addEventListener("abort", () => {
+          innerSignalAborted = innerArgs.signal.aborted;
+          reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+        });
+      });
+    };
+
+    const terminal = async (_args: SignalArgs): Promise<Result> => ({
+      value: 0,
+    });
+
+    // Fire a caller-side abort after a short delay.
+    setTimeout(() => callerController.abort(), 10);
+
+    await expect(
+      runPipeline<SignalArgs, Result>(
+        "compaction",
+        [sleeper],
+        terminal,
+        { signal: callerController.signal },
+        makeCtx(),
+        10000,
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(innerSignalAborted).toBe(true);
+    expect(callerController.signal.aborted).toBe(true);
+  });
+
+  test("args without an AbortSignal property is passed through unchanged", async () => {
+    // Sanity — pipelines that don't carry a signal (persistence, tokenEstimate)
+    // see identical args identity as before the abort-linking change.
+    const args: Args = { value: 42 };
+    let seen: Args | undefined;
+    const terminal = async (innerArgs: Args): Promise<Result> => {
+      seen = innerArgs;
+      return { value: innerArgs.value };
+    };
+    await runPipeline(
+      "persistence",
+      [],
+      terminal,
+      args,
+      makeCtx(),
+      DEFAULT_TIMEOUTS.persistence,
+    );
+    expect(seen).toBe(args);
+  });
+});
+
 describe("runPipeline — structured log record", () => {
   test("success emits one record with every documented field present", async () => {
     const namedOuter: Middleware<Args, Result> = async function outerMw(
