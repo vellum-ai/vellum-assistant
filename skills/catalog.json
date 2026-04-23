@@ -350,6 +350,18 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "notifications",
+      "name": "notifications",
+      "description": "Send notifications through the unified notification router",
+      "metadata": {
+        "emoji": "🔔",
+        "vellum": {
+          "display-name": "Notifications"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "oura",
       "name": "oura",
       "description": "Pull sleep, activity, readiness, heart rate, and other health data from a connected Oura Ring via the Oura Cloud API V2",
