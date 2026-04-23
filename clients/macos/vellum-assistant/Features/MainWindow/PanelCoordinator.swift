@@ -234,10 +234,6 @@ extension MainWindowView {
             detailPanel: {
                 switch activeHomeDetailPanel {
                 case .scheduled(let item):
-                    // Parse real schedule metadata from the daemon's
-                    // detailPanel.data when available; fall back to
-                    // placeholder values when the data is nil or
-                    // malformed so the panel always renders.
                     let details: HomeScheduledDetails = {
                         guard let panelData = ScheduledPanelData.from(item.detailPanel?.data) else {
                             return HomeScheduledDetails.placeholder
