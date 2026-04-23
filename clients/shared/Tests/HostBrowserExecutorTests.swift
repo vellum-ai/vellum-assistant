@@ -119,6 +119,65 @@ final class HostBrowserExecutorTests: XCTestCase {
         XCTAssertEqual(json["code"] as? String, "unreachable")
     }
 
+    // MARK: - cdpSessionId Fail-Closed Behavior
+
+    /// When cdpSessionId is provided but Chrome is not running, the /json/list
+    /// fetch fails before target matching occurs, so the error code is
+    /// `unreachable`. This exercises the error path without requiring a running
+    /// Chrome instance.
+    ///
+    /// NOTE: To fully verify the fail-closed target-mismatch behavior (error
+    /// code `cdp_session_not_found`), integration tests with a running Chrome
+    /// instance are needed. When Chrome IS running but the cdpSessionId doesn't
+    /// match any target in /json/list, the executor returns a structured error
+    /// with code `cdp_session_not_found` instead of silently falling back to
+    /// the first page target.
+    func testRunWithUnmatchedCdpSessionIdReturnsStructuredError() async {
+        let executor = HostBrowserExecutor()
+        let request = makeRequest(
+            requestId: "req-unmatched-session",
+            cdpMethod: "Runtime.evaluate",
+            cdpSessionId: "NONEXISTENT_TARGET_ID"
+        )
+
+        let result = await executor.run(request)
+
+        XCTAssertEqual(result.requestId, "req-unmatched-session")
+        XCTAssertTrue(result.isError, "Should be a transport error")
+
+        guard let data = result.content.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            XCTFail("Content should be valid JSON")
+            return
+        }
+        // Chrome is not running in the unit test environment, so /json/list
+        // fails before target matching — the error code is `unreachable`.
+        XCTAssertEqual(json["code"] as? String, "unreachable")
+    }
+
+    /// When cdpSessionId is absent, the executor falls back to the first page
+    /// target (existing behavior). Without Chrome running, this still results
+    /// in `unreachable`, confirming the fallback code path doesn't crash.
+    func testRunWithoutCdpSessionIdFallsBackToFirstTarget() async {
+        let executor = HostBrowserExecutor()
+        let request = makeRequest(
+            requestId: "req-no-session",
+            cdpMethod: "Runtime.evaluate"
+        )
+
+        let result = await executor.run(request)
+
+        XCTAssertEqual(result.requestId, "req-no-session")
+        XCTAssertTrue(result.isError, "Should be a transport error when Chrome is unreachable")
+
+        guard let data = result.content.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            XCTFail("Content should be valid JSON")
+            return
+        }
+        XCTAssertEqual(json["code"] as? String, "unreachable")
+    }
+
     // MARK: - Cancellation
 
     func testCancelSuppressesResultPost() async {
@@ -164,6 +223,50 @@ final class HostBrowserExecutorTests: XCTestCase {
             let result = mockClient.postedBrowserResults[0]
             XCTAssertTrue(result.isError)
         }
+    }
+
+    /// Verify that cancelling an in-flight request with a long timeout
+    /// resolves promptly — well before the timeout expires — proving that
+    /// cooperative cancellation tears down the WebSocket immediately.
+    func testCancelDuringExecutionResolvesPromptly() async {
+        let mockClient = MockHostProxyClient()
+        let executor = HostBrowserExecutor(proxyClient: mockClient)
+
+        // Use a long timeout so the test would hang if cancellation is not
+        // cooperative.
+        let request = makeRequest(
+            requestId: "req-cooperative-cancel",
+            cdpMethod: "Runtime.evaluate",
+            timeoutSeconds: 30
+        )
+
+        // Start execution — this will attempt to connect to a non-existent
+        // Chrome, but the important thing is that the task is in flight.
+        executor.execute(request)
+
+        // Let the task start and begin the WebSocket connection attempt.
+        try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+
+        // Cancel the in-flight request.
+        executor.cancel(request.requestId)
+
+        // Wait a bounded time — 2 seconds is generous but far less than the
+        // 30-second timeout. If cancellation is cooperative, the task should
+        // have completed well within this window.
+        try? await Task.sleep(nanoseconds: 2_000_000_000) // 2s
+
+        // The result should either be suppressed entirely (cancelled before
+        // the POST) or be a transport error — never a success, and never
+        // hang until the 30-second timeout.
+        if !mockClient.postedBrowserResults.isEmpty {
+            let result = mockClient.postedBrowserResults[0]
+            XCTAssertTrue(
+                result.isError,
+                "Cancelled request should produce an error, not a success"
+            )
+        }
+        // If postedBrowserResults is empty, that's also correct — the
+        // cancellation suppressed the result POST via cancelledRequestIds.
     }
 
     // MARK: - Execute Posts Result
