@@ -172,7 +172,7 @@ Examples:
       const hint =
         svc.mode === "managed"
           ? `${baseHint}\n  Run 'assistant auth login' to authenticate, or set services.image-generation.mode to 'your-own' in config.`
-          : `Run: assistant keys set ${provider} <key>.\n${baseHint}`;
+          : `Run: assistant keys set ${provider} <key>\n${baseHint}`;
       if (jsonOutput) {
         process.stdout.write(JSON.stringify({ ok: false, error: hint }) + "\n");
       } else {
