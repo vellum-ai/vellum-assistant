@@ -5810,6 +5810,111 @@ paths:
                   - conflicts
                   - manifest
                 additionalProperties: false
+  /v1/migrations/jobs/{job_id}:
+    get:
+      operationId: migrations_jobs_by_job_id_get
+      summary: Get migration job status
+      description:
+        "Return the current status of an async migration job (export or import). The response discriminates on
+        `status`: `processing` (pending or running), `complete` (with `result`), or `failed` (with `error`,
+        `error_code`, optional `upstream_status`). The `processing` value mirrors the platform's transport shape so CLI
+        clients can share a single parser across the platform and the daemon."
+      tags:
+        - migrations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    properties:
+                      job_id:
+                        type: string
+                      type:
+                        type: string
+                        enum:
+                          - export
+                          - import
+                      status:
+                        type: string
+                        const: processing
+                    required:
+                      - job_id
+                      - type
+                      - status
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      job_id:
+                        type: string
+                      type:
+                        type: string
+                        enum:
+                          - export
+                          - import
+                      status:
+                        type: string
+                        const: complete
+                      result: {}
+                    required:
+                      - job_id
+                      - type
+                      - status
+                      - result
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      job_id:
+                        type: string
+                      type:
+                        type: string
+                        enum:
+                          - export
+                          - import
+                      status:
+                        type: string
+                        const: failed
+                      error:
+                        type: string
+                      error_code:
+                        type: string
+                      upstream_status:
+                        type: integer
+                        minimum: -9007199254740991
+                        maximum: 9007199254740991
+                    required:
+                      - job_id
+                      - type
+                      - status
+                      - error
+                      - error_code
+                    additionalProperties: false
+        "404":
+          description: "No job matches the given id. Body shape: { error: { code: 'job_not_found' } }."
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        enum:
+                          - job_not_found
+                    required:
+                      - code
+                required:
+                  - error
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/migrations/validate:
     post:
       operationId: migrations_validate_post

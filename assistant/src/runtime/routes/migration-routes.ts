@@ -1423,6 +1423,70 @@ function importCommitFailureResponse(
 }
 
 // ---------------------------------------------------------------------------
+// GET /v1/migrations/jobs/:job_id
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /v1/migrations/jobs/:job_id
+ *
+ * Returns the current status of a migration job tracked by
+ * `MigrationJobRegistry`. The response shape is a discriminated union on
+ * `status`:
+ *
+ *   - `{ job_id, type, status: "processing" }`
+ *     Covers both the internal `pending` and `running` states — collapsed
+ *     into a single wire value to match the platform's transport shape used
+ *     by `ExportStatusProcessingSerializer` / `ImportStatusProcessingSerializer`.
+ *   - `{ job_id, type, status: "complete", result }`
+ *   - `{ job_id, type, status: "failed", error, error_code, upstream_status? }`
+ *
+ * 404 `{ error: { code: "job_not_found" } }` when no job matches the id.
+ */
+export async function handleMigrationJobStatus(
+  _req: Request,
+  params: { job_id: string },
+): Promise<Response> {
+  const job = migrationJobs.getJob(params.job_id);
+  if (job === null) {
+    return Response.json(
+      { error: { code: "job_not_found" } },
+      { status: 404 },
+    );
+  }
+
+  if (job.status === "complete") {
+    return Response.json({
+      job_id: job.id,
+      type: job.type,
+      status: "complete",
+      result: job.result,
+    });
+  }
+
+  if (job.status === "failed") {
+    const error = job.error;
+    const body: Record<string, unknown> = {
+      job_id: job.id,
+      type: job.type,
+      status: "failed",
+      error: error?.message ?? "unknown",
+      error_code: error?.code ?? "unknown",
+    };
+    if (error?.upstreamStatus !== undefined) {
+      body.upstream_status = error.upstreamStatus;
+    }
+    return Response.json(body);
+  }
+
+  // pending or running — collapse to the platform's "processing" wire value.
+  return Response.json({
+    job_id: job.id,
+    type: job.type,
+    status: "processing",
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
@@ -1564,6 +1628,56 @@ export function migrationRouteDefinitions(): RouteDefinition[] {
         type: z.literal("export"),
       }),
       handler: async ({ req }) => handleMigrationExportToGcs(req),
+    },
+    {
+      endpoint: "migrations/jobs/:job_id",
+      method: "GET",
+      summary: "Get migration job status",
+      description:
+        "Return the current status of an async migration job (export or import). The response discriminates on `status`: `processing` (pending or running), `complete` (with `result`), or `failed` (with `error`, `error_code`, optional `upstream_status`). The `processing` value mirrors the platform's transport shape so CLI clients can share a single parser across the platform and the daemon.",
+      tags: ["migrations"],
+      responseBody: z.discriminatedUnion("status", [
+        z.object({
+          job_id: z.string(),
+          type: z.enum(["export", "import"]),
+          status: z.literal("processing"),
+        }),
+        z.object({
+          job_id: z.string(),
+          type: z.enum(["export", "import"]),
+          status: z.literal("complete"),
+          result: z.unknown(),
+        }),
+        z.object({
+          job_id: z.string(),
+          type: z.enum(["export", "import"]),
+          status: z.literal("failed"),
+          error: z.string(),
+          error_code: z.string(),
+          upstream_status: z.number().int().optional(),
+        }),
+      ]),
+      additionalResponses: {
+        "404": {
+          description:
+            "No job matches the given id. Body shape: { error: { code: 'job_not_found' } }.",
+          schema: {
+            type: "object",
+            properties: {
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string", enum: ["job_not_found"] },
+                },
+                required: ["code"],
+              },
+            },
+            required: ["error"],
+          },
+        },
+      },
+      handler: ({ req, params }) =>
+        handleMigrationJobStatus(req, { job_id: params.job_id }),
     },
   ];
 }
