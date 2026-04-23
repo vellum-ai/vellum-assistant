@@ -2,15 +2,18 @@
  * Tests for the `toolResultTruncate` plugin pipeline (PR 17).
  *
  * Covers:
- * - The default middleware delegates to `truncateToolResultText`, producing
+ * - The default terminal delegates to `truncateToolResultText`, producing
  *   byte-for-byte identical output to calling the helper directly across
  *   short, long, and newline-bounded inputs (property-style).
  * - The pipeline routes through `runPipeline` with the
  *   `DEFAULT_TIMEOUTS.toolResultTruncate` budget and returns a
  *   `{ content, truncated }` pair whose `truncated` flag matches whether
  *   the content actually changed.
- * - Plugins registered ahead of the default can short-circuit with their
- *   own truncation strategy.
+ * - Plugins registered alongside the default can short-circuit or decorate
+ *   the terminal's output.
+ * - A user plugin registered AFTER the default still runs — the default
+ *   plugin's middleware is a passthrough, so the onion composition cannot
+ *   shadow late-registered middleware.
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
@@ -21,7 +24,10 @@ import {
   TRUNCATION_SUFFIX,
 } from "../context/tool-result-truncation.js";
 import type { TrustContext } from "../daemon/conversation-runtime-assembly.js";
-import { defaultToolResultTruncateMiddleware } from "../plugins/defaults/tool-result-truncate.js";
+import {
+  defaultToolResultTruncatePlugin,
+  defaultToolResultTruncateTerminal,
+} from "../plugins/defaults/tool-result-truncate.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,
@@ -30,7 +36,6 @@ import {
 } from "../plugins/registry.js";
 import {
   type Middleware,
-  type Plugin,
   type ToolResultTruncateArgs,
   type ToolResultTruncateResult,
   type TurnContext,
@@ -55,104 +60,57 @@ function makeCtx(overrides: Partial<TurnContext> = {}): TurnContext {
   };
 }
 
-/** The default plugin descriptor, inlined so the tests can register it. */
-const defaultPlugin: Plugin = {
-  manifest: {
-    name: "default-tool-result-truncate",
-    version: "1.0.0",
-    requires: {
-      pluginRuntime: "v1",
-      toolResultTruncateApi: "v1",
-    },
-  },
-  middleware: { toolResultTruncate: defaultToolResultTruncateMiddleware },
-};
-
-/**
- * Terminal fallback used by `runPipeline` when the outermost middleware
- * calls `next()` past every registered middleware. Mirrors the inline
- * terminal in `agent/loop.ts` so the unit test faithfully exercises the
- * production code path.
- */
-const terminalFallback = async (
-  args: ToolResultTruncateArgs,
-): Promise<ToolResultTruncateResult> => {
-  const truncated = truncateToolResultText(args.content, args.maxChars);
-  return {
-    content: truncated,
-    truncated: truncated !== args.content,
-  };
-};
-
 describe("toolResultTruncate pipeline", () => {
   beforeEach(() => {
     resetPluginRegistryForTests();
   });
 
   // -------------------------------------------------------------------------
-  // Default middleware — isolated (no pipeline runner)
+  // Default terminal — isolated (no pipeline runner)
   // -------------------------------------------------------------------------
 
-  describe("default middleware", () => {
-    test("passes short content through unchanged with truncated=false", async () => {
+  describe("default terminal", () => {
+    test("passes short content through unchanged with truncated=false", () => {
       const content = "hello world";
-      const result = await defaultToolResultTruncateMiddleware(
-        { content, maxChars: 100 },
-        async () => {
-          throw new Error("next should not be called by the default terminal");
-        },
-        makeCtx(),
-      );
+      const result = defaultToolResultTruncateTerminal({
+        content,
+        maxChars: 100,
+      });
       expect(result.content).toBe(content);
       expect(result.truncated).toBe(false);
     });
 
-    test("truncates oversize content and reports truncated=true", async () => {
+    test("truncates oversize content and reports truncated=true", () => {
       const content = "a".repeat(10_000);
       const maxChars = 5_000;
       const expected = truncateToolResultText(content, maxChars);
-      const result = await defaultToolResultTruncateMiddleware(
-        { content, maxChars },
-        async () => {
-          throw new Error("next should not be called by the default terminal");
-        },
-        makeCtx(),
-      );
+      const result = defaultToolResultTruncateTerminal({ content, maxChars });
       expect(result.content).toBe(expected);
       expect(result.truncated).toBe(true);
       expect(result.content).toContain(TRUNCATION_SUFFIX);
     });
 
-    test("snaps to newline boundary identically to truncateToolResultText", async () => {
+    test("snaps to newline boundary identically to truncateToolResultText", () => {
       const lines = Array.from(
         { length: 1_000 },
         (_, i) => `line ${i}: ${"x".repeat(20)}`,
       ).join("\n");
       const maxChars = 5_000;
       const expected = truncateToolResultText(lines, maxChars);
-      const result = await defaultToolResultTruncateMiddleware(
-        { content: lines, maxChars },
-        async () => {
-          throw new Error("next should not be called by the default terminal");
-        },
-        makeCtx(),
-      );
+      const result = defaultToolResultTruncateTerminal({
+        content: lines,
+        maxChars,
+      });
       expect(result.content).toBe(expected);
       expect(result.truncated).toBe(true);
     });
 
-    test("returns truncated=false when effectiveMax keeps the full text (maxChars < MIN_KEEP_CHARS case)", async () => {
+    test("returns truncated=false when effectiveMax keeps the full text (maxChars < MIN_KEEP_CHARS case)", () => {
       const textLength = MIN_KEEP_CHARS - TRUNCATION_SUFFIX.length - 10;
       const content = "a".repeat(textLength);
       const maxChars = 100;
       const expected = truncateToolResultText(content, maxChars);
-      const result = await defaultToolResultTruncateMiddleware(
-        { content, maxChars },
-        async () => {
-          throw new Error("next should not be called by the default terminal");
-        },
-        makeCtx(),
-      );
+      const result = defaultToolResultTruncateTerminal({ content, maxChars });
       // Helper returns the original text unchanged in this case.
       expect(expected).toBe(content);
       expect(result.content).toBe(content);
@@ -169,12 +127,12 @@ describe("toolResultTruncate pipeline", () => {
       content: string,
       maxChars: number,
     ): Promise<ToolResultTruncateResult> {
-      registerPlugin(defaultPlugin);
+      registerPlugin(defaultToolResultTruncatePlugin);
       const middlewares = getMiddlewaresFor("toolResultTruncate");
       return runPipeline<ToolResultTruncateArgs, ToolResultTruncateResult>(
         "toolResultTruncate",
         middlewares,
-        terminalFallback,
+        async (args) => defaultToolResultTruncateTerminal(args),
         { content, maxChars },
         makeCtx(),
         DEFAULT_TIMEOUTS.toolResultTruncate,
@@ -242,7 +200,7 @@ describe("toolResultTruncate pipeline", () => {
       // so the per-case reset lives in the loop instead.
       for (const { content, maxChars } of cases) {
         resetPluginRegistryForTests();
-        registerPlugin(defaultPlugin);
+        registerPlugin(defaultToolResultTruncatePlugin);
         const middlewares = getMiddlewaresFor("toolResultTruncate");
         const result = await runPipeline<
           ToolResultTruncateArgs,
@@ -250,9 +208,7 @@ describe("toolResultTruncate pipeline", () => {
         >(
           "toolResultTruncate",
           middlewares,
-          async () => {
-            throw new Error("terminal should not be reached");
-          },
+          async (args) => defaultToolResultTruncateTerminal(args),
           { content, maxChars },
           makeCtx(),
           DEFAULT_TIMEOUTS.toolResultTruncate,
@@ -287,7 +243,7 @@ describe("toolResultTruncate pipeline", () => {
         },
         middleware: { toolResultTruncate: shortCircuit },
       });
-      registerPlugin(defaultPlugin);
+      registerPlugin(defaultToolResultTruncatePlugin);
 
       const middlewares = getMiddlewaresFor("toolResultTruncate");
       const result = await runPipeline<
@@ -296,9 +252,7 @@ describe("toolResultTruncate pipeline", () => {
       >(
         "toolResultTruncate",
         middlewares,
-        async () => {
-          throw new Error("terminal should not be reached");
-        },
+        async (args) => defaultToolResultTruncateTerminal(args),
         { content: "a".repeat(10_000), maxChars: 5_000 },
         makeCtx(),
         DEFAULT_TIMEOUTS.toolResultTruncate,
@@ -327,7 +281,7 @@ describe("toolResultTruncate pipeline", () => {
         },
         middleware: { toolResultTruncate: prefixer },
       });
-      registerPlugin(defaultPlugin);
+      registerPlugin(defaultToolResultTruncatePlugin);
 
       const middlewares = getMiddlewaresFor("toolResultTruncate");
       const content = "hello";
@@ -337,9 +291,7 @@ describe("toolResultTruncate pipeline", () => {
       >(
         "toolResultTruncate",
         middlewares,
-        async () => {
-          throw new Error("terminal should not be reached");
-        },
+        async (args) => defaultToolResultTruncateTerminal(args),
         { content, maxChars: 100 },
         makeCtx(),
         DEFAULT_TIMEOUTS.toolResultTruncate,
@@ -347,6 +299,58 @@ describe("toolResultTruncate pipeline", () => {
 
       expect(result.content).toBe(`[wrapped] ${content}`);
       expect(result.truncated).toBe(false);
+    });
+
+    test("user plugin registered AFTER the default still runs (no shadowing)", async () => {
+      // Production registration order: defaults load first via the
+      // side-effect imports in `defaults/index.ts`, then user plugins
+      // register on top (via `bootstrapPlugins()` or hot-reload). The
+      // user's middleware ends up at a deeper onion layer than the
+      // default. If the default's middleware were to bypass `next` and
+      // call the terminal directly, the user middleware would never run
+      // — this test guards against that regression.
+      registerPlugin(defaultToolResultTruncatePlugin);
+
+      let userMiddlewareRan = false;
+      const userMiddleware: Middleware<
+        ToolResultTruncateArgs,
+        ToolResultTruncateResult
+      > = async (args, next) => {
+        userMiddlewareRan = true;
+        return next(args);
+      };
+      registerPlugin({
+        manifest: {
+          name: "late-user-plugin",
+          version: "0.0.1",
+          requires: {
+            pluginRuntime: "v1",
+            toolResultTruncateApi: "v1",
+          },
+        },
+        middleware: { toolResultTruncate: userMiddleware },
+      });
+
+      const middlewares = getMiddlewaresFor("toolResultTruncate");
+      const content = "a".repeat(10_000);
+      const maxChars = 5_000;
+      const result = await runPipeline<
+        ToolResultTruncateArgs,
+        ToolResultTruncateResult
+      >(
+        "toolResultTruncate",
+        middlewares,
+        async (args) => defaultToolResultTruncateTerminal(args),
+        { content, maxChars },
+        makeCtx(),
+        DEFAULT_TIMEOUTS.toolResultTruncate,
+      );
+
+      expect(userMiddlewareRan).toBe(true);
+      // Terminal still runs after the user passthrough, so output matches
+      // the direct helper.
+      expect(result.content).toBe(truncateToolResultText(content, maxChars));
+      expect(result.truncated).toBe(true);
     });
   });
 });

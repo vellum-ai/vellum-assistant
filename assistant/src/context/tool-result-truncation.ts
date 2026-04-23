@@ -71,71 +71,11 @@ export function calculateMaxToolResultChars(
 }
 
 /**
- * Check whether a tool-result content block exceeds the computed character
- * budget for the given context window.
- */
-export function isOversizedToolResult(
-  block: ToolResultContent,
-  contextWindowTokens: number,
-): boolean {
-  if (typeof block.content !== "string") {
-    return false;
-  }
-  const maxChars = calculateMaxToolResultChars(contextWindowTokens);
-  return block.content.length > maxChars;
-}
-
-/**
- * If the tool-result block is oversized, return a shallow copy with its
- * `.content` truncated. Otherwise return the block unchanged.
- */
-export function truncateToolResultBlock(
-  block: ToolResultContent,
-  contextWindowTokens: number,
-): ToolResultContent {
-  const maxChars = calculateMaxToolResultChars(contextWindowTokens);
-  if (block.content.length <= maxChars) {
-    return block;
-  }
-  return {
-    ...block,
-    content: truncateToolResultText(block.content, maxChars),
-  };
-}
-
-/**
- * Map over an array of content blocks, truncating any oversized tool results.
- * Returns a new array and the number of blocks that were truncated.
- */
-export function truncateOversizedToolResults(
-  blocks: ContentBlock[],
-  contextWindowTokens: number,
-): { blocks: ContentBlock[]; truncatedCount: number } {
-  let truncatedCount = 0;
-
-  const mapped = blocks.map((block) => {
-    if (block.type !== "tool_result") {
-      return block;
-    }
-    const toolBlock = block as ToolResultContent;
-    if (isOversizedToolResult(toolBlock, contextWindowTokens)) {
-      truncatedCount++;
-      return truncateToolResultBlock(toolBlock, contextWindowTokens);
-    }
-    return block;
-  });
-
-  return { blocks: mapped, truncatedCount };
-}
-
-/**
  * Aggressively truncate all tool-result text across an entire message history.
  *
- * Unlike `truncateOversizedToolResults` (which operates on a flat block array
- * for a single turn), this walks every message and truncates tool_result
- * `.content` strings that exceed `maxChars`. This is used during overflow
- * recovery where we need to shrink the overall payload, not just individual
- * oversized results.
+ * Walks every message and truncates tool_result `.content` strings that
+ * exceed `maxChars`. Used during overflow recovery where we need to shrink
+ * the overall payload, not just individual oversized results.
  */
 export function truncateToolResultsAcrossHistory(
   messages: Message[],

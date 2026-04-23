@@ -3,13 +3,10 @@ import { describe, expect, test } from "bun:test";
 import {
   calculateMaxToolResultChars,
   HARD_MAX_TOOL_RESULT_CHARS,
-  isOversizedToolResult,
   MIN_KEEP_CHARS,
-  truncateOversizedToolResults,
   truncateToolResultText,
   TRUNCATION_SUFFIX,
 } from "../context/tool-result-truncation.js";
-import type { ContentBlock, ToolResultContent } from "../providers/types.js";
 
 function hasOrphanedSurrogate(str: string): boolean {
   for (let i = 0; i < str.length; i++) {
@@ -23,22 +20,6 @@ function hasOrphanedSurrogate(str: string): boolean {
     }
   }
   return false;
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function makeToolResult(content: string): ToolResultContent {
-  return {
-    type: "tool_result",
-    tool_use_id: "test-id",
-    content,
-  };
-}
-
-function makeTextBlock(text: string): ContentBlock {
-  return { type: "text", text };
 }
 
 // ---------------------------------------------------------------------------
@@ -159,96 +140,5 @@ describe("calculateMaxToolResultChars", () => {
     const result = calculateMaxToolResultChars(180_000);
     // 180_000 * 0.3 * 4 = 216_000
     expect(result).toBe(216_000);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// isOversizedToolResult
-// ---------------------------------------------------------------------------
-
-describe("isOversizedToolResult", () => {
-  test("returns false for small tool results", () => {
-    const block = makeToolResult("small content");
-    expect(isOversizedToolResult(block, 180_000)).toBe(false);
-  });
-
-  test("returns true for oversized tool results", () => {
-    const block = makeToolResult("x".repeat(500_000));
-    expect(isOversizedToolResult(block, 180_000)).toBe(true);
-  });
-
-  test("returns false for non-tool-result blocks (cast safely)", () => {
-    const textBlock = makeTextBlock("hello") as unknown as ToolResultContent;
-    // A text block has no `.content` string of meaningful length, so it
-    // should not be considered oversized. We cast to exercise the function
-    // safely even with unexpected input.
-    expect(isOversizedToolResult(textBlock, 180_000)).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// truncateOversizedToolResults
-// ---------------------------------------------------------------------------
-
-describe("truncateOversizedToolResults", () => {
-  const contextWindow = 180_000; // maxChars = 216_000
-
-  test("returns unchanged blocks when nothing is oversized", () => {
-    const blocks: ContentBlock[] = [
-      makeTextBlock("hello"),
-      makeToolResult("short"),
-    ];
-    const { blocks: result, truncatedCount } = truncateOversizedToolResults(
-      blocks,
-      contextWindow,
-    );
-    expect(truncatedCount).toBe(0);
-    expect(result).toEqual(blocks);
-  });
-
-  test("truncates oversized tool results", () => {
-    const big = makeToolResult("y".repeat(500_000));
-    const { blocks: result, truncatedCount } = truncateOversizedToolResults(
-      [big],
-      contextWindow,
-    );
-    expect(truncatedCount).toBe(1);
-    const truncated = result[0] as ToolResultContent;
-    expect(truncated.content.length).toBeLessThan(500_000);
-    expect(truncated.content).toContain(TRUNCATION_SUFFIX);
-  });
-
-  test("preserves non-tool-result blocks unchanged", () => {
-    const text = makeTextBlock("keep me");
-    const big = makeToolResult("z".repeat(500_000));
-    const { blocks: result } = truncateOversizedToolResults(
-      [text, big],
-      contextWindow,
-    );
-    expect(result[0]).toBe(text); // same reference
-  });
-
-  test("reports correct truncatedCount", () => {
-    const small = makeToolResult("ok");
-    const big = makeToolResult("a".repeat(500_000));
-    const { truncatedCount } = truncateOversizedToolResults(
-      [small, big],
-      contextWindow,
-    );
-    expect(truncatedCount).toBe(1);
-  });
-
-  test("handles multiple oversized results", () => {
-    const big1 = makeToolResult("a".repeat(500_000));
-    const big2 = makeToolResult("b".repeat(500_000));
-    const { blocks: result, truncatedCount } = truncateOversizedToolResults(
-      [big1, big2],
-      contextWindow,
-    );
-    expect(truncatedCount).toBe(2);
-    for (const b of result) {
-      const tr = b as ToolResultContent;
-      expect(tr.content).toContain(TRUNCATION_SUFFIX);
-    }
   });
 });
