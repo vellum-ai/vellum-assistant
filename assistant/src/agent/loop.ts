@@ -6,12 +6,10 @@ import {
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
-import {
-  calculateMaxToolResultChars,
-  truncateToolResultText,
-} from "../context/tool-result-truncation.js";
+import { calculateMaxToolResultChars } from "../context/tool-result-truncation.js";
 import { defaultEmptyResponseTerminal } from "../plugins/defaults/empty-response.js";
 import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error.js";
+import { defaultToolResultTruncateTerminal } from "../plugins/defaults/tool-result-truncate.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
@@ -923,22 +921,7 @@ export class AgentLoop {
           >(
             "toolResultTruncate",
             truncateMiddlewares,
-            async (args) => {
-              // Terminal fallback — applies the same tail-drop truncation
-              // the loop used before plugins existed. We run it here
-              // (instead of relying purely on the default plugin) so code
-              // paths that exercise `AgentLoop.run` without first calling
-              // `bootstrapPlugins` — e.g. unit tests that construct a
-              // loop directly — retain the pre-plugin behaviour.
-              const truncated = truncateToolResultText(
-                args.content,
-                args.maxChars,
-              );
-              return {
-                content: truncated,
-                truncated: truncated !== args.content,
-              };
-            },
+            async (args) => defaultToolResultTruncateTerminal(args),
             { content: toolBlock.content, maxChars },
             turnCtx,
             DEFAULT_TIMEOUTS.toolResultTruncate,

@@ -1,13 +1,16 @@
 /**
  * Default `toolResultTruncate` plugin.
  *
- * Wraps the pre-existing `truncateToolResultText` helper from
- * `context/tool-result-truncation.ts` in a plugin middleware so every
- * tool-result truncation goes through the shared pipeline runner. The
- * default behavior is byte-for-byte identical to calling
- * `truncateToolResultText` directly; plugins registered ahead of this one
- * can short-circuit with their own truncation strategy (e.g. a summariser
- * that preserves semantics better than a tail-drop).
+ * The plugin's middleware is a passthrough — it calls `next(args)` and returns
+ * the result unchanged. The actual truncation lives in
+ * {@link defaultToolResultTruncateTerminal}, which is wired in as the
+ * pipeline's `terminal` argument by the `runPipeline` call site in
+ * `agent/loop.ts`. This separation matters: the default plugin is registered
+ * before any user plugin (defaults load first in `bootstrapPlugins()`), which
+ * puts it at the OUTERMOST position of the onion chain. If the default
+ * middleware were to invoke the terminal directly without calling `next`, it
+ * would shadow every later-registered plugin (including hot-reloaded ones).
+ * Routing through `next(args)` lets user middleware participate normally.
  *
  * Design doc: `.private/plans/agent-plugin-system.md` (PR 17).
  */
@@ -23,28 +26,30 @@ import {
 } from "../types.js";
 
 /**
- * Default terminal middleware — delegates to `truncateToolResultText` and
- * reports whether the call actually shortened the input. The `truncated`
- * flag lets callers warn/telemeter without re-measuring the output.
- *
- * Exported so tests can assert identity / default behavior without standing
- * up the full plugin registry.
+ * Terminal handler for the `toolResultTruncate` pipeline. Exported so tests
+ * can verify default behavior directly without going through `runPipeline`,
+ * and so `agent/loop.ts` can pass it as the `terminal` argument to
+ * `runPipeline`.
  */
-export const defaultToolResultTruncateMiddleware: Middleware<
-  ToolResultTruncateArgs,
-  ToolResultTruncateResult
-> = async (args, _next, _ctx) => {
+export function defaultToolResultTruncateTerminal(
+  args: ToolResultTruncateArgs,
+): ToolResultTruncateResult {
   const truncated = truncateToolResultText(args.content, args.maxChars);
   return {
     content: truncated,
     truncated: truncated !== args.content,
   };
-};
+}
+
+const passthrough: Middleware<
+  ToolResultTruncateArgs,
+  ToolResultTruncateResult
+> = async (args, next) => next(args);
 
 /**
  * Plugin descriptor for the default tool-result truncation middleware.
- * Registered by `daemon/external-plugins-bootstrap.ts` so the registry
- * always has at least one middleware for the `toolResultTruncate` pipeline.
+ * Registered by `plugins/defaults/index.ts` so the registry always has at
+ * least one middleware for the `toolResultTruncate` pipeline.
  */
 export const defaultToolResultTruncatePlugin: Plugin = {
   manifest: {
@@ -56,7 +61,7 @@ export const defaultToolResultTruncatePlugin: Plugin = {
     },
   },
   middleware: {
-    toolResultTruncate: defaultToolResultTruncateMiddleware,
+    toolResultTruncate: passthrough,
   },
 };
 
