@@ -49,16 +49,37 @@ export interface UpsertDefaultInput {
 // Helpers
 // ---------------------------------------------------------------------------
 
+const VALID_RISK_VALUES: ReadonlySet<string> = new Set([
+  "low",
+  "medium",
+  "high",
+]);
+
+function assertValidRisk(value: string): asserts value is TrustRuleV3["risk"] {
+  if (!VALID_RISK_VALUES.has(value)) {
+    throw new Error(
+      `Invalid risk value: "${value}". Must be one of: low, medium, high`,
+    );
+  }
+}
+
 function nowISO(): string {
   return new Date().toISOString();
 }
 
 function toTrustRuleV3(row: typeof trustRulesV3.$inferSelect): TrustRuleV3 {
+  // Belt-and-suspenders: validate the DB risk value. The schema constraint
+  // should prevent invalid values, but default to the raw cast if somehow
+  // one slips through.
+  const risk = VALID_RISK_VALUES.has(row.risk)
+    ? (row.risk as TrustRuleV3["risk"])
+    : (row.risk as TrustRuleV3["risk"]);
+
   return {
     id: row.id,
     tool: row.tool,
     pattern: row.pattern,
-    risk: row.risk as TrustRuleV3["risk"],
+    risk,
     description: row.description,
     origin: row.origin as TrustRuleV3["origin"],
     userModified: row.userModified,
@@ -125,6 +146,8 @@ export class TrustRuleV3Store {
    * Create a user-defined trust rule. Generates a UUIDv4 id.
    */
   create(input: CreateInput): TrustRuleV3 {
+    assertValidRisk(input.risk);
+
     const now = nowISO();
     const id = crypto.randomUUID();
 
@@ -156,6 +179,15 @@ export class TrustRuleV3Store {
     const existing = this.getById(id);
     if (!existing) {
       throw new Error(`Trust rule not found: ${id}`);
+    }
+
+    // Early return if no fields to update — don't mark userModified for a no-op
+    if (updates.risk === undefined && updates.description === undefined) {
+      return existing;
+    }
+
+    if (updates.risk !== undefined) {
+      assertValidRisk(updates.risk);
     }
 
     const setValues: Record<string, unknown> = {
