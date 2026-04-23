@@ -207,6 +207,12 @@ public enum LLMProviderRegistry {
     public static var shared: LLMProviderCatalog {
         _cachedLLMProviderCatalog
     }
+
+    #if DEBUG
+    static var fallbackCatalogForTests: LLMProviderCatalog {
+        fallbackCatalog
+    }
+    #endif
 }
 
 // MARK: - Fallback
@@ -354,6 +360,7 @@ private let fallbackCatalog = LLMProviderCatalog(
                 LLMModelEntry(id: "qwen/qwen3.5-flash-02-23", displayName: "Qwen 3.5 Flash"),
                 LLMModelEntry(id: "qwen/qwen3-coder-next", displayName: "Qwen 3 Coder"),
                 // Moonshot
+                LLMModelEntry(id: "moonshotai/kimi-k2.6", displayName: "Kimi K2.6"),
                 LLMModelEntry(id: "moonshotai/kimi-k2.5", displayName: "Kimi K2.5"),
                 // Mistral
                 LLMModelEntry(id: "mistralai/mistral-medium-3", displayName: "Mistral Medium 3"),
