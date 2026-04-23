@@ -495,7 +495,10 @@ function emitScheduleFeedEvent(params: {
             mode: params.job.mode,
             schedule: params.job.expression ?? undefined,
             enabled: params.job.enabled,
-            nextRun: new Date(params.job.nextRunAt).toISOString(),
+            nextRun:
+              params.job.nextRunAt > 0
+                ? new Date(params.job.nextRunAt).toISOString()
+                : undefined,
             description: params.job.message.slice(0, 200),
           },
         }
