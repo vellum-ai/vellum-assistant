@@ -342,13 +342,16 @@ async function exportFromAssistant(
       jobId = result.jobId;
     } catch (err) {
       if (err instanceof MigrationInProgressError) {
-        console.log(
-          `An export is already in progress on '${entry.assistantId}' (job ${err.existingJobId}); polling it instead.`,
+        // Fail fast — the existing job is writing to a different GCS object
+        // (its caller's signed URL, not ours), so polling it would leave us
+        // pointing at an empty/unrelated bundle. Surface the existing job id
+        // so the user can decide whether to wait or investigate.
+        console.error(
+          `Error: Another teleport export is already in progress on '${entry.assistantId}' (job ${err.existingJobId}). Wait for it to finish or check its status, then re-run.`,
         );
-        jobId = err.existingJobId;
-      } else {
-        throw err;
+        process.exit(1);
       }
+      throw err;
     }
 
     console.log(`Export started (job ${jobId})...`);
@@ -565,13 +568,15 @@ async function importToAssistant(
       jobId = result.jobId;
     } catch (err) {
       if (err instanceof MigrationInProgressError) {
-        console.log(
-          `An import is already in progress on '${entry.assistantId}' (job ${err.existingJobId}); polling it instead.`,
+        // Fail fast — the existing job is importing someone else's bundle
+        // (the original caller's), not ours. Polling it would report success
+        // on an import that wasn't the one we just kicked off.
+        console.error(
+          `Error: Another teleport import is already in progress on '${entry.assistantId}' (job ${err.existingJobId}). Wait for it to finish or check its status, then re-run.`,
         );
-        jobId = err.existingJobId;
-      } else {
-        throw err;
+        process.exit(1);
       }
+      throw err;
     }
 
     const terminal = await pollJobUntilDone({
@@ -585,9 +590,8 @@ async function importToAssistant(
       process.exit(1);
     }
 
-    const result =
-      ((terminal.result as Record<string, unknown>) ??
-        {}) as unknown as ImportResponse;
+    const result = ((terminal.result as Record<string, unknown>) ??
+      {}) as unknown as ImportResponse;
     printImportSummary(result);
     return;
   }
@@ -976,6 +980,19 @@ export async function teleport(): Promise<void> {
       if (normalizedSourceEnv === normalizedTargetEnv) {
         console.error(
           `Cannot teleport between two ${normalizedTargetEnv} assistants. Teleport transfers data across different environments.`,
+        );
+        process.exit(1);
+      }
+
+      // Dry-run feasibility check — reject local/docker targets BEFORE any
+      // export work. The local runtime has no preflight-from-gcs endpoint yet,
+      // so we can't actually run a dry-run against it; burning a GCS upload
+      // just to fail afterwards would be wasteful.
+      // TODO(cli): support dry-run against local targets (needs a
+      // preflight-from-gcs endpoint on the runtime).
+      if (toCloud === "local" || toCloud === "docker") {
+        console.error(
+          "Error: --dry-run is not yet supported for local or docker targets (no preflight-from-gcs endpoint on the runtime).",
         );
         process.exit(1);
       }

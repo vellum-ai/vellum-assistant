@@ -453,9 +453,13 @@ beforeEach(() => {
   computeDeviceIdMock.mockReturnValue("device-id-123");
 
   localRuntimeExportToGcsMock.mockReset();
-  localRuntimeExportToGcsMock.mockResolvedValue({ jobId: "local-export-job-1" });
+  localRuntimeExportToGcsMock.mockResolvedValue({
+    jobId: "local-export-job-1",
+  });
   localRuntimeImportFromGcsMock.mockReset();
-  localRuntimeImportFromGcsMock.mockResolvedValue({ jobId: "local-import-job-1" });
+  localRuntimeImportFromGcsMock.mockResolvedValue({
+    jobId: "local-import-job-1",
+  });
   localRuntimePollJobStatusMock.mockReset();
   localRuntimePollJobStatusMock.mockImplementation(defaultLocalRuntimePollImpl);
 
@@ -516,11 +520,13 @@ function makeEntry(
  */
 function installTrackingFetch(): () => void {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = mock(async (url: string | URL | Request, init?: RequestInit) => {
-    const urlStr = typeof url === "string" ? url : url.toString();
-    fetchCalls.push({ url: urlStr, body: init?.body });
-    return new Response("not found", { status: 404 });
-  }) as unknown as typeof globalThis.fetch;
+  globalThis.fetch = mock(
+    async (url: string | URL | Request, init?: RequestInit) => {
+      const urlStr = typeof url === "string" ? url : url.toString();
+      fetchCalls.push({ url: urlStr, body: init?.body });
+      return new Response("not found", { status: 404 });
+    },
+  ) as unknown as typeof globalThis.fetch;
   return () => {
     globalThis.fetch = originalFetch;
   };
@@ -1266,7 +1272,7 @@ describe("polling", () => {
 // ---------------------------------------------------------------------------
 
 describe("MigrationInProgressError handling", () => {
-  test("local-runtime export already in flight → poll the existing job", async () => {
+  test("local-runtime export already in flight → fail fast with existing job id", async () => {
     setArgv("--from", "my-local", "--platform");
 
     const localEntry = makeEntry("my-local", { cloud: "local" });
@@ -1283,12 +1289,74 @@ describe("MigrationInProgressError handling", () => {
 
     const restoreFetch = installTrackingFetch();
     try {
-      await teleport();
-      // Should have polled the existing job id.
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+
+      // Must not have polled the existing job — the existing job's bundle
+      // lives at a different GCS key (its caller's signed URL), so polling
+      // it would leave the teleport pointing at an empty/unrelated bundle.
       const polledIds = localRuntimePollJobStatusMock.mock.calls.map(
         (call: unknown[]) => call[2],
       );
-      expect(polledIds).toContain("existing-job-42");
+      expect(polledIds).not.toContain("existing-job-42");
+
+      // Error must mention the existing job id so the user can act on it.
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("existing-job-42"),
+      );
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("already in progress"),
+      );
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("local-runtime import already in flight → fail fast with existing job id", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
+
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    platformPollJobStatusMock.mockResolvedValue({
+      jobId: "platform-export-job-1",
+      type: "export",
+      status: "complete",
+      bundleKey: "bundle-key-from-platform",
+    });
+
+    localRuntimeImportFromGcsMock.mockRejectedValue(
+      new localRuntimeClient.MigrationInProgressError(
+        "import_in_progress",
+        "existing-import-99",
+      ),
+    );
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+
+      // Must not poll the existing import — it's importing somebody else's
+      // bundle, not ours, so reporting on it would be misleading.
+      const polledIds = localRuntimePollJobStatusMock.mock.calls.map(
+        (call: unknown[]) => call[2],
+      );
+      expect(polledIds).not.toContain("existing-import-99");
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("existing-import-99"),
+      );
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("already in progress"),
+      );
     } finally {
       restoreFetch();
     }
@@ -1320,7 +1388,13 @@ describe("dry-run", () => {
   });
 
   test("dry-run with existing platform target runs preflight-from-gcs", async () => {
-    setArgv("--from", "my-local", "--platform", "existing-platform", "--dry-run");
+    setArgv(
+      "--from",
+      "my-local",
+      "--platform",
+      "existing-platform",
+      "--dry-run",
+    );
 
     const localEntry = makeEntry("my-local", { cloud: "local" });
     const platformEntry = makeEntry("existing-platform", {
@@ -1378,6 +1452,12 @@ describe("dry-run", () => {
           "--dry-run is not yet supported for local or docker targets",
         ),
       );
+
+      // Must fail BEFORE any export work — no signed URL request, no platform
+      // export initiation, nothing that costs time or bandwidth.
+      expect(platformRequestSignedUrlMock).not.toHaveBeenCalled();
+      expect(platformInitiateExportMock).not.toHaveBeenCalled();
+      expect(localRuntimeExportToGcsMock).not.toHaveBeenCalled();
     } finally {
       restoreFetch();
     }
