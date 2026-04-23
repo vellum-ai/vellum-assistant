@@ -8,6 +8,7 @@ import {
   setServiceField,
 } from "../../config/raw-config-utils.js";
 import { VALID_INFERENCE_PROVIDERS } from "../../config/schemas/services.js";
+import { providerForImageModelPrefix } from "../../media/types.js";
 import type { ProviderCatalogEntry } from "../../providers/model-catalog.js";
 import {
   isModelInCatalog,
@@ -219,16 +220,16 @@ export async function setModel(
 export function setImageGenModel(modelId: string, ctx: ModelSetContext): void {
   const raw = loadRawConfig();
   setServiceField(raw, "image-generation", "model", modelId);
-  // Mirror the prefix logic used by workspace migration
-  // 006-services-config.ts: OpenAI-prefixed models map to the "openai"
-  // provider, everything else defaults to "gemini". Keeping the derived
-  // provider in sync with the selected model prevents downstream routing
-  // from sending a Gemini request to an OpenAI model (or vice versa).
-  const derivedProvider =
-    modelId.startsWith("gpt-") || modelId.startsWith("dall-e-")
-      ? "openai"
-      : "gemini";
-  setServiceField(raw, "image-generation", "provider", derivedProvider);
+  // Keep the derived provider in sync with the selected model so downstream
+  // routing never sends a Gemini request to an OpenAI model (or vice versa).
+  // The prefix logic is shared with workspace migration 006-services-config
+  // via providerForImageModelPrefix().
+  setServiceField(
+    raw,
+    "image-generation",
+    "provider",
+    providerForImageModelPrefix(modelId),
+  );
 
   const wasSuppressed = ctx.suppressConfigReload;
   ctx.setSuppressConfigReload(true);

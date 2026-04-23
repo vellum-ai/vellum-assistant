@@ -31,3 +31,16 @@ export interface ImageGenerationResult {
 }
 
 export const MAX_VARIANTS = 4;
+
+/**
+ * Derive the image-generation provider from a model identifier by prefix.
+ * Canonical mapping shared between the runtime model setter
+ * (`setImageGenModel`) and workspace migration 006-services-config so the
+ * two cannot drift. Unknown models fall through to "gemini".
+ */
+export function providerForImageModelPrefix(model: string): ImageGenProvider {
+  if (model.startsWith("gpt") || model.startsWith("dall-e")) {
+    return "openai";
+  }
+  return "gemini";
+}
