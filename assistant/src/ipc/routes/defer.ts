@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   cancelSchedule,
   createSchedule,
+  getSchedule,
   listSchedules,
 } from "../../schedule/schedule-store.js";
 import type { IpcRoute } from "../cli-server.js";
@@ -102,6 +103,10 @@ const deferCancelRoute: IpcRoute = {
     const { id, all, conversationId } = DeferCancelParams.parse(params);
 
     if (id) {
+      const job = getSchedule(id);
+      if (!job || job.mode !== "wake" || job.createdBy !== "defer") {
+        return { cancelled: 0, error: "Not a deferred wake" };
+      }
       const ok = cancelSchedule(id);
       return { cancelled: ok ? 1 : 0 };
     }

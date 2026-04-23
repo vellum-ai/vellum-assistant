@@ -12,6 +12,7 @@ import { scheduleRouteDefinitions } from "../runtime/routes/schedule-routes.js";
 import {
   createSchedule,
   createScheduleRun,
+  listSchedules,
 } from "../schedule/schedule-store.js";
 import { scheduleTask } from "../tasks/task-scheduler.js";
 import { createTask } from "../tasks/task-store.js";
@@ -164,7 +165,7 @@ describe("schedule run-now trust propagation", () => {
   });
 });
 
-// ── GET /schedules — exclude_created_by filtering ─────────────────────────
+// ── GET /schedules — default defer exclusion ──────────────────────────────
 
 function getListHandler() {
   const route = scheduleRouteDefinitions({
@@ -178,12 +179,10 @@ function getListHandler() {
 }
 
 async function callListHandler(
-  excludeCreatedBy?: string,
+  includeAll?: boolean,
 ): Promise<{ status: number; body: { schedules: Array<{ id: string }> } }> {
   const handler = getListHandler();
-  const suffix = excludeCreatedBy
-    ? `?exclude_created_by=${excludeCreatedBy}`
-    : "";
+  const suffix = includeAll ? "?include_all=true" : "";
   const urlStr = `http://localhost/v1/schedules${suffix}`;
   const response = await handler({
     req: new Request(urlStr),
@@ -198,32 +197,12 @@ async function callListHandler(
   };
 }
 
-describe("GET /schedules — exclude_created_by filtering", () => {
+describe("GET /schedules — default defer exclusion", () => {
   beforeEach(() => {
     clearTables();
   });
 
-  test("returns all schedules when no exclude_created_by param", async () => {
-    createSchedule({
-      name: "Agent schedule",
-      cronExpression: "* * * * *",
-      message: "hello",
-      syntax: "cron",
-    });
-    createSchedule({
-      name: "Deferred wake",
-      cronExpression: "0 9 * * *",
-      message: "wake up",
-      syntax: "cron",
-      createdBy: "defer",
-    });
-
-    const { status, body } = await callListHandler();
-    expect(status).toBe(200);
-    expect(body.schedules).toHaveLength(2);
-  });
-
-  test("filters out deferred wakes when exclude_created_by=defer", async () => {
+  test("excludes deferred wakes by default", async () => {
     createSchedule({
       name: "Agent schedule",
       cronExpression: "* * * * *",
@@ -238,31 +217,71 @@ describe("GET /schedules — exclude_created_by filtering", () => {
       createdBy: "defer",
     });
 
-    const { status, body } = await callListHandler("defer");
+    const { status, body } = await callListHandler();
     expect(status).toBe(200);
     expect(body.schedules).toHaveLength(1);
     expect(body.schedules.every((s) => s.id !== deferred.id)).toBe(true);
   });
 
-  test("returns empty list when all schedules match exclusion", async () => {
+  test("returns all schedules when include_all=true", async () => {
     createSchedule({
-      name: "Deferred 1",
+      name: "Agent schedule",
       cronExpression: "* * * * *",
-      message: "a",
+      message: "hello",
       syntax: "cron",
-      createdBy: "defer",
     });
     createSchedule({
-      name: "Deferred 2",
+      name: "Deferred wake",
       cronExpression: "0 9 * * *",
-      message: "b",
+      message: "wake up",
       syntax: "cron",
       createdBy: "defer",
     });
 
-    const { status, body } = await callListHandler("defer");
+    const { status, body } = await callListHandler(true);
     expect(status).toBe(200);
-    expect(body.schedules).toHaveLength(0);
+    expect(body.schedules).toHaveLength(2);
+  });
+
+  test("mutation responses also exclude deferred wakes", async () => {
+    createSchedule({
+      name: "Agent schedule",
+      cronExpression: "* * * * *",
+      message: "hello",
+      syntax: "cron",
+    });
+    createSchedule({
+      name: "Deferred wake",
+      cronExpression: "0 9 * * *",
+      message: "wake up",
+      syntax: "cron",
+      createdBy: "defer",
+    });
+
+    const toggleHandler = scheduleRouteDefinitions({
+      sendMessageDeps: {} as never,
+    }).find(
+      (r) => r.endpoint === "schedules/:id/toggle" && r.method === "POST",
+    )!.handler;
+
+    const agent = listSchedules().find((j) => j.createdBy === "agent")!;
+    const urlStr = `http://localhost/v1/schedules/${agent.id}/toggle`;
+    const response = await toggleHandler({
+      req: new Request(urlStr, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: false }),
+      }),
+      url: new URL(urlStr),
+      server: {} as never,
+      authContext: {} as never,
+      params: { id: agent.id },
+    });
+    const body = (await response.json()) as {
+      schedules: Array<{ id: string }>;
+    };
+    expect(body.schedules).toHaveLength(1);
+    expect(body.schedules[0].id).toBe(agent.id);
   });
 });
 
