@@ -224,9 +224,7 @@ export class FileRiskClassifier implements RiskClassifier<
       : [];
 
     // Run normal classification first (including all security escalations),
-    // then check for user overrides at the end. This ensures security-critical
-    // escalations (actor-token-signing-key, skill source, hooks) cannot be
-    // bypassed by a user override.
+    // then check for user overrides at the end.
     let assessment: RiskAssessment;
 
     switch (toolName) {
@@ -342,9 +340,10 @@ export class FileRiskClassifier implements RiskClassifier<
       }
     }
 
-    // Check risk rule cache for user overrides AFTER normal classification.
-    // This preserves security escalations — overrides only apply to the
-    // final result, they cannot bypass high-risk checks above.
+    // User override is applied after normal classification. This means a user-defined
+    // rule CAN lower a security-escalated risk (e.g., actor-token-signing-key read).
+    // This is intentional — user overrides are authoritative for users who explicitly
+    // created them.
     try {
       const ruleCache = getTrustRuleV3Cache();
       const override = ruleCache.findToolOverride(toolName, filePath);

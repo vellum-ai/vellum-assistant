@@ -50,8 +50,10 @@ export class ScheduleRiskClassifier implements RiskClassifier<ScheduleClassifier
     const { toolName, mode, script } = input;
 
     // Run normal classification first (including script-mode escalation),
-    // then check for user overrides at the end. This ensures the high-risk
-    // script-mode escalation cannot be bypassed by a user override.
+    // then check for user overrides at the end. Note that user overrides
+    // are applied unconditionally, so a user-defined rule CAN lower a
+    // security-escalated risk. This is intentional — user overrides are
+    // authoritative for users who explicitly created them.
     const hasScriptContent =
       typeof script === "string" && script.trim().length > 0;
     const involvesScriptMode = mode === "script" || hasScriptContent;
@@ -80,9 +82,10 @@ export class ScheduleRiskClassifier implements RiskClassifier<ScheduleClassifier
       };
     }
 
-    // Check risk rule cache for user overrides AFTER normal classification.
-    // This preserves security escalations — overrides only apply to the
-    // final result, they cannot bypass high-risk checks like script mode.
+    // User override is applied after normal classification. This means a user-defined
+    // rule CAN lower a security-escalated risk (e.g., script-mode schedule).
+    // This is intentional — user overrides are authoritative for users who explicitly
+    // created them.
     try {
       const ruleCache = getTrustRuleV3Cache();
       const override = ruleCache.findToolOverride(
