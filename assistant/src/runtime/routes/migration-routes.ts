@@ -44,6 +44,10 @@ import {
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import {
+  JobAlreadyInProgressError,
+  migrationJobs,
+} from "../migrations/job-registry.js";
+import {
   validateGcsSignedUrl,
   type ValidateGcsSignedUrlOptions,
 } from "../migrations/gcs-signed-url.js";
@@ -580,13 +584,16 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
 }
 
 // ---------------------------------------------------------------------------
-// URL-body variant of POST /v1/migrations/import
+// GCS URL import pipeline — shared by the URL-body branch of
+// POST /v1/migrations/import and POST /v1/migrations/import-from-gcs.
 // ---------------------------------------------------------------------------
 
 /** 60 minutes — matches the gateway's upstream fetch deadline. */
 const URL_FETCH_TIMEOUT_MS = 60 * 60 * 1000;
 
 const MigrationImportUrlBody = z.object({ url: z.string().min(1) });
+
+const MigrationImportFromGcsBody = z.object({ bundle_url: z.string().url() });
 
 /**
  * Marker attached to errors that originate from the upstream HTTP body
@@ -643,43 +650,96 @@ export function _setUrlImportValidatorOptionsForTests(
 }
 
 /**
- * Handle a JSON `{ "url": "..." }` body on POST /v1/migrations/import.
- *
- * Fetches the signed URL, pipes the response body through the streaming
- * importer, and returns the same response shapes as the raw-bytes path.
- * The signed URL is never logged or included in error responses — only the
- * extracted host and path make it into logs.
+ * Successful outcome of `runGcsImport`. Mirrors the inputs that
+ * `importCommitSuccessResponse` expects so callers can feed it straight
+ * into a Response builder OR return it as an async-job `result`.
  */
-async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
-  // ── 1. Parse JSON body ────────────────────────────────────────────────
-  let rawBody: unknown;
-  try {
-    rawBody = await req.json();
-  } catch (err) {
-    log.warn(
-      { err: err instanceof Error ? err.message : String(err) },
-      "Failed to parse JSON body on migration import URL request",
-    );
-    return httpError("BAD_REQUEST", "Invalid JSON body", 400);
-  }
+export interface ImportSummary {
+  report: ImportCommitReport;
+  credentialsImported?: CredentialImportSummary;
+}
 
-  const parsed = MigrationImportUrlBody.safeParse(rawBody);
-  if (!parsed.success) {
-    return httpError(
-      "BAD_REQUEST",
-      "Request body must be { url: string } with a non-empty url",
-      400,
-    );
-  }
+/**
+ * Structured error thrown by `runGcsImport`. Carries the information needed
+ * to reconstruct the URL-body handler's legacy Response shapes and for the
+ * async-job registry to map to `error.code`/`upstreamStatus`.
+ */
+interface GcsImportErrorInit {
+  code:
+    | "invalid_url"
+    | "fetch_failed"
+    | "validation_failed"
+    | "extraction_failed"
+    | "write_failed";
+  message: string;
+  upstreamStatus?: number;
+  reason?: string;
+  errors?: Array<{ code: string; message: string; path?: string }>;
+  partial_report?: ImportCommitReport;
+}
 
-  // ── 2. Validate the URL (defense-in-depth; never log `parsed.data.url`).
-  const validated = validateGcsSignedUrl(parsed.data.url, urlValidatorOptions);
+class GcsImportError extends Error {
+  public readonly code: GcsImportErrorInit["code"];
+  public readonly upstreamStatus?: number;
+  public readonly reason?: string;
+  public readonly errors?: GcsImportErrorInit["errors"];
+  public readonly partial_report?: ImportCommitReport;
+
+  constructor(init: GcsImportErrorInit) {
+    super(init.message);
+    this.name = "GcsImportError";
+    this.code = init.code;
+    if (init.upstreamStatus !== undefined) {
+      this.upstreamStatus = init.upstreamStatus;
+    }
+    if (init.reason !== undefined) {
+      this.reason = init.reason;
+    }
+    if (init.errors !== undefined) {
+      this.errors = init.errors;
+    }
+    if (init.partial_report !== undefined) {
+      this.partial_report = init.partial_report;
+    }
+  }
+}
+
+/**
+ * Fetch a .vbundle from a signed GCS URL and commit it via the streaming
+ * importer. On success, returns an `ImportSummary` the caller can serialize
+ * into a Response or stash as an async-job `result`. On failure, throws a
+ * `GcsImportError`:
+ *
+ *   - `invalid_url`        → URL failed `validateGcsSignedUrl` (pre-fetch).
+ *   - `fetch_failed`       → upstream fetch error, non-2xx response, missing
+ *                            body, OR a mid-stream body teardown tagged via
+ *                            `kFetchBodyError`. `upstreamStatus` is populated
+ *                            for non-2xx responses.
+ *   - `validation_failed`  → the bundle failed schema/structural validation
+ *                            inside `streamCommitImport`; `errors` carries
+ *                            the per-issue list.
+ *   - `extraction_failed`  → bundle extraction threw (malformed archive, hash
+ *                            mismatch, etc.) that was NOT an upstream tear-
+ *                            down. `reason` carries the importer's string.
+ *   - `write_failed`       → post-extraction disk write error; `partial_report`
+ *                            is attached when the importer produced one.
+ *
+ * The signed URL is never echoed into errors or logs — only the extracted
+ * `host`/`path` are.
+ */
+export async function runGcsImport(
+  url: string,
+  _correlationId?: string,
+): Promise<ImportSummary> {
+  // ── 1. Validate the URL (defense-in-depth; never log the raw URL).
+  const validated = validateGcsSignedUrl(url, urlValidatorOptions);
   if (!validated.ok) {
-    // `reason` is a stable enum string and safe to include. The raw URL is
-    // not — it may contain a live signature. Callers get the reason so they
-    // can correct the URL without leaking anything into observability.
     log.warn({ reason: validated.reason }, "Rejected migration import URL");
-    return httpError("BAD_REQUEST", `Invalid URL: ${validated.reason}`, 400);
+    throw new GcsImportError({
+      code: "invalid_url",
+      message: `Invalid URL: ${validated.reason}`,
+      reason: validated.reason,
+    });
   }
 
   log.info(
@@ -689,10 +749,10 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
 
   const startedAt = Date.now();
 
-  // ── 3. Fetch the URL ──────────────────────────────────────────────────
+  // ── 2. Fetch the URL ──────────────────────────────────────────────────
   let upstream: Response;
   try {
-    upstream = await fetch(parsed.data.url, {
+    upstream = await fetch(url, {
       signal: AbortSignal.timeout(URL_FETCH_TIMEOUT_MS),
       // SSRF guard: `validateGcsSignedUrl` only vetted the initial URL.
       // Default fetch behavior follows 3xx responses, which would let a
@@ -710,10 +770,10 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
       },
       "Failed to fetch migration import URL",
     );
-    return Response.json(
-      { success: false, reason: "fetch_failed" },
-      { status: 502 },
-    );
+    throw new GcsImportError({
+      code: "fetch_failed",
+      message: err instanceof Error ? err.message : String(err),
+    });
   }
 
   if (!upstream.ok) {
@@ -731,14 +791,11 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
     } catch {
       /* best effort */
     }
-    return Response.json(
-      {
-        success: false,
-        reason: "fetch_failed",
-        upstream_status: upstream.status,
-      },
-      { status: 502 },
-    );
+    throw new GcsImportError({
+      code: "fetch_failed",
+      message: `Upstream fetch returned ${upstream.status}`,
+      upstreamStatus: upstream.status,
+    });
   }
 
   if (!upstream.body) {
@@ -746,13 +803,13 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
       { host: validated.host, path: validated.path },
       "Migration import URL fetch returned no body",
     );
-    return Response.json(
-      { success: false, reason: "fetch_failed" },
-      { status: 502 },
-    );
+    throw new GcsImportError({
+      code: "fetch_failed",
+      message: "Upstream fetch returned no body",
+    });
   }
 
-  // ── 4. Stream the response through the importer ──────────────────────
+  // ── 3. Stream the response through the importer ──────────────────────
   // Convert the WHATWG ReadableStream from fetch() into a Node Readable so
   // the tar-stream / gunzip / hash-verifier pipeline inside
   // streamCommitImport can consume it via `.pipe()`.
@@ -764,8 +821,8 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
   // from the upstream HTTP body (peer reset, abort mid-stream, etc.) with a
   // known symbol. When that tagged error surfaces out of
   // streamCommitImport's gunzip/tar pipeline, we can distinguish it from a
-  // legitimate bundle-format failure and map it to 502 fetch_failed instead
-  // of 500 extraction_failed — matching the OpenAPI contract for the URL
+  // legitimate bundle-format failure and map it to `fetch_failed` instead
+  // of `extraction_failed` — matching the OpenAPI contract for the URL
   // body shape. We also propagate errors from the wrapper back to the
   // upstream stream so its underlying connection is torn down cleanly.
   //
@@ -781,7 +838,7 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
   // `taggedSource`. The subsequent `close` on `upstreamNodeStream` is then a
   // cascaded effect of our own teardown, NOT a real upstream failure — so
   // we must NOT tag it as a fetch-body error, or local validation /
-  // extraction errors would be masked as 502 fetch_failed.
+  // extraction errors would be masked as fetch_failed.
   let localTeardownInitiated = false;
   upstreamNodeStream.on("end", () => {
     upstreamEnded = true;
@@ -817,8 +874,8 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
   // (malformed bundle, hash mismatch, size cap, etc.). We set
   // `localTeardownInitiated` BEFORE destroying upstream so the resulting
   // cascaded `close` on `upstreamNodeStream` isn't misclassified as a real
-  // upstream failure (which would return 502 fetch_failed and mask the
-  // actual validation error).
+  // upstream failure (which would return fetch_failed and mask the actual
+  // validation error).
   taggedSource.on("close", () => {
     if (!upstreamNodeStream.destroyed) {
       localTeardownInitiated = true;
@@ -867,10 +924,10 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
         },
         "Upstream body stream failed mid-import",
       );
-      return Response.json(
-        { success: false, reason: "fetch_failed" },
-        { status: 502 },
-      );
+      throw new GcsImportError({
+        code: "fetch_failed",
+        message: err instanceof Error ? err.message : String(err),
+      });
     }
     log.error(
       {
@@ -880,11 +937,10 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
       },
       "streamCommitImport threw during URL-body import",
     );
-    return httpError(
-      "INTERNAL_ERROR",
-      err instanceof Error ? err.message : "Unexpected import error",
-      500,
-    );
+    throw new GcsImportError({
+      code: "extraction_failed",
+      message: err instanceof Error ? err.message : "Unexpected import error",
+    });
   }
 
   if (!result.ok) {
@@ -902,10 +958,10 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
         },
         "Upstream body stream failed mid-import (detected via result)",
       );
-      return Response.json(
-        { success: false, reason: "fetch_failed" },
-        { status: 502 },
-      );
+      throw new GcsImportError({
+        code: "fetch_failed",
+        message: "Upstream body stream failed mid-import",
+      });
     }
     log.warn(
       {
@@ -915,7 +971,28 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
       },
       "streamCommitImport returned failure during URL-body import",
     );
-    return importCommitFailureResponse(result);
+    if (result.reason === "validation_failed") {
+      throw new GcsImportError({
+        code: "validation_failed",
+        message: "Bundle validation failed",
+        reason: result.reason,
+        errors: result.errors,
+      });
+    }
+    if (result.reason === "extraction_failed") {
+      throw new GcsImportError({
+        code: "extraction_failed",
+        message: result.message,
+        reason: result.reason,
+      });
+    }
+    // write_failed
+    throw new GcsImportError({
+      code: "write_failed",
+      message: result.message,
+      reason: result.reason,
+      partial_report: result.partial_report,
+    });
   }
 
   // Merge any warnings accumulated by the credential-import callback into
@@ -949,7 +1026,170 @@ async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
     "Migration import from URL complete",
   );
 
-  return importCommitSuccessResponse(result.report, credentialsImported);
+  return credentialsImported
+    ? { report: result.report, credentialsImported }
+    : { report: result.report };
+}
+
+/**
+ * Handle a JSON `{ "url": "..." }` body on POST /v1/migrations/import.
+ *
+ * Thin wrapper around `runGcsImport` that preserves the legacy synchronous
+ * Response shapes. `handleMigrationImportFromGcs` below uses the same helper
+ * asynchronously via the migration-job registry.
+ */
+async function handleMigrationImportFromUrl(req: Request): Promise<Response> {
+  // ── 1. Parse JSON body ────────────────────────────────────────────────
+  let rawBody: unknown;
+  try {
+    rawBody = await req.json();
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "Failed to parse JSON body on migration import URL request",
+    );
+    return httpError("BAD_REQUEST", "Invalid JSON body", 400);
+  }
+
+  const parsed = MigrationImportUrlBody.safeParse(rawBody);
+  if (!parsed.success) {
+    return httpError(
+      "BAD_REQUEST",
+      "Request body must be { url: string } with a non-empty url",
+      400,
+    );
+  }
+
+  try {
+    const summary = await runGcsImport(parsed.data.url);
+    return importCommitSuccessResponse(
+      summary.report,
+      summary.credentialsImported,
+    );
+  } catch (err) {
+    return gcsImportErrorToUrlBodyResponse(err);
+  }
+}
+
+/**
+ * Map a `runGcsImport` error (or any other thrown value) back to the
+ * legacy URL-body Response shapes. Kept here so both the URL-body handler
+ * and any future callers of `runGcsImport` that want the same wire shape
+ * can reuse the mapping.
+ */
+function gcsImportErrorToUrlBodyResponse(err: unknown): Response {
+  if (err instanceof GcsImportError) {
+    if (err.code === "invalid_url") {
+      return httpError("BAD_REQUEST", err.message, 400);
+    }
+    if (err.code === "fetch_failed") {
+      const body: { success: false; reason: "fetch_failed"; upstream_status?: number } = {
+        success: false,
+        reason: "fetch_failed",
+      };
+      if (err.upstreamStatus !== undefined) {
+        body.upstream_status = err.upstreamStatus;
+      }
+      return Response.json(body, { status: 502 });
+    }
+    if (err.code === "validation_failed") {
+      return Response.json({
+        success: false,
+        reason: "validation_failed",
+        errors: err.errors ?? [],
+      });
+    }
+    if (err.code === "extraction_failed") {
+      return Response.json(
+        {
+          success: false,
+          reason: "extraction_failed",
+          message: err.message,
+        },
+        { status: 500 },
+      );
+    }
+    // write_failed
+    return Response.json(
+      {
+        success: false,
+        reason: "write_failed",
+        message: err.message,
+        ...(err.partial_report ? { partial_report: err.partial_report } : {}),
+      },
+      { status: 500 },
+    );
+  }
+
+  log.error({ err }, "Unexpected error from runGcsImport");
+  return httpError(
+    "INTERNAL_ERROR",
+    err instanceof Error ? err.message : "Unexpected import error",
+    500,
+  );
+}
+
+/**
+ * POST /v1/migrations/import-from-gcs
+ *
+ * Kick off an async bundle import from a signed GCS URL. Returns 202 with a
+ * `job_id` the caller can poll via `GET /v1/migrations/jobs/:job_id`
+ * (PR 4). 409 if another import is already pending or running.
+ *
+ * Auth: Requires settings.write scope. Allowed for actor, svc_gateway, svc_daemon, local.
+ */
+export async function handleMigrationImportFromGcs(
+  req: Request,
+): Promise<Response> {
+  let rawBody: unknown;
+  try {
+    rawBody = await req.json();
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "Failed to parse JSON body on migration import-from-gcs request",
+    );
+    return httpError("BAD_REQUEST", "Invalid JSON body", 400);
+  }
+
+  const parsed = MigrationImportFromGcsBody.safeParse(rawBody);
+  if (!parsed.success) {
+    return httpError(
+      "BAD_REQUEST",
+      "Request body must be { bundle_url: string } with a valid URL",
+      400,
+    );
+  }
+
+  const { bundle_url } = parsed.data;
+
+  try {
+    const job = migrationJobs.startJob("import", async (jobRecord) =>
+      runGcsImport(bundle_url, jobRecord.id),
+    );
+    return Response.json(
+      { job_id: job.id, status: "pending", type: "import" },
+      { status: 202 },
+    );
+  } catch (err) {
+    if (err instanceof JobAlreadyInProgressError) {
+      return Response.json(
+        {
+          error: {
+            code: "import_in_progress",
+            job_id: err.existingJobId,
+          },
+        },
+        { status: 409 },
+      );
+    }
+    log.error({ err }, "Unexpected error scheduling import-from-gcs job");
+    return httpError(
+      "INTERNAL_ERROR",
+      err instanceof Error ? err.message : "Unexpected import error",
+      500,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1250,6 +1490,43 @@ export function migrationRouteDefinitions(): RouteDefinition[] {
         warnings: z.array(z.unknown()),
       }),
       handler: async ({ req }) => handleMigrationImport(req),
+    },
+    {
+      endpoint: "migrations/import-from-gcs",
+      method: "POST",
+      summary: "Start an async .vbundle import from a signed GCS URL",
+      description:
+        "Schedule a background import job that fetches the bundle at `bundle_url` and streams it through the importer. Returns 202 with a `job_id`; poll `GET /v1/migrations/jobs/{job_id}` for status. 409 if another import is already in flight.",
+      tags: ["migrations"],
+      requestBody: z.object({
+        bundle_url: z.string().url(),
+      }),
+      responseBody: z.object({
+        job_id: z.string(),
+        status: z.literal("pending"),
+        type: z.literal("import"),
+      }),
+      additionalResponses: {
+        "409": {
+          description:
+            "Another import job is already pending or running. Body shape: { error: { code: 'import_in_progress', job_id: string } }.",
+          schema: {
+            type: "object",
+            properties: {
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string", enum: ["import_in_progress"] },
+                  job_id: { type: "string" },
+                },
+                required: ["code", "job_id"],
+              },
+            },
+            required: ["error"],
+          },
+        },
+      },
+      handler: async ({ req }) => handleMigrationImportFromGcs(req),
     },
   ];
 }
