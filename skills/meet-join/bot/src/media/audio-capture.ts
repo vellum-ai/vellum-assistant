@@ -74,10 +74,20 @@ export interface AudioCaptureOptions {
   /**
    * Host to dial for the daemon's audio server. In production the bot reaches
    * the daemon via `host.docker.internal`; tests pass `127.0.0.1`.
+   * Ignored when `daemonSocketPath` is set.
    */
   daemonHost: string;
-  /** TCP port the daemon's audio server is listening on. */
+  /**
+   * TCP port the daemon's audio server is listening on.
+   * Ignored when `daemonSocketPath` is set.
+   */
   daemonPort: number;
+  /**
+   * When set, connect to this Unix domain socket path instead of the TCP
+   * host:port. Used in Docker mode where the audio socket is bind-mounted
+   * into the bot container from the daemon's workspace volume.
+   */
+  daemonSocketPath?: string;
   /**
    * Pulse source to capture from. Defaults to the monitor of the
    * `meet_capture` null-sink created by `pulse-setup.sh`.
@@ -163,7 +173,9 @@ export interface CapturedSocket {
   ): void;
 }
 
-export type ConnectFactory = (host: string, port: number) => CapturedSocket;
+export type ConnectFactory = (
+  target: { host: string; port: number } | { path: string },
+) => CapturedSocket;
 
 /** Default spawn factory — delegates to `Bun.spawn` with the parec flags. */
 function defaultSpawn(argv: readonly string[]): SpawnedParec {
@@ -179,9 +191,11 @@ function defaultSpawn(argv: readonly string[]): SpawnedParec {
   };
 }
 
-/** Default connect factory — a Node `net.createConnection` over loopback TCP. */
-function defaultConnect(host: string, port: number): CapturedSocket {
-  const sock: NetSocket = netCreateConnection({ host, port });
+/** Default connect factory — Node `net.createConnection` over TCP or Unix socket. */
+function defaultConnect(
+  target: { host: string; port: number } | { path: string },
+): CapturedSocket {
+  const sock: NetSocket = netCreateConnection(target);
   return {
     write: (chunk) => sock.write(chunk),
     end: () => sock.end(),
@@ -298,10 +312,13 @@ export async function startAudioCapture(
     }
     currentProc = proc;
 
-    // 2. Connect to the daemon socket.
+    // 2. Connect to the daemon socket (Unix socket or TCP depending on config).
     let sock: CapturedSocket;
     try {
-      sock = connect(opts.daemonHost, opts.daemonPort);
+      const target = opts.daemonSocketPath
+        ? { path: opts.daemonSocketPath }
+        : { host: opts.daemonHost, port: opts.daemonPort };
+      sock = connect(target);
     } catch (err) {
       // Socket open failed synchronously — kill parec and report.
       try {

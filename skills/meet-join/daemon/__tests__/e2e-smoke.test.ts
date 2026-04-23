@@ -123,12 +123,12 @@ interface FakeAudioIngest extends MeetAudioIngestLike {
 }
 
 function makeFakeAudioIngestFactory(): {
-  factory: () => FakeAudioIngest;
+  factory: (opts?: { audioSocketPath?: string }) => FakeAudioIngest;
   getLastIngest: () => FakeAudioIngest | null;
 } {
   let last: FakeAudioIngest | null = null;
   return {
-    factory: () => {
+    factory: (_opts?) => {
       const subscribers = new Set<(bytes: Uint8Array) => void>();
       const ingest: FakeAudioIngest = {
         start: mock(async () => ({ port: 42173, ready: Promise.resolve() })),

@@ -34,6 +34,7 @@
  *     without touching real sockets or a real STT provider account.
  */
 
+import { unlinkSync } from "node:fs";
 import {
   createServer as netCreateServer,
   type AddressInfo,
@@ -198,6 +199,16 @@ export interface MeetAudioIngestDeps {
    * attribution when diarization was not requested. Defaults to `true`.
    */
   diarize?: boolean;
+  /**
+   * When set, the audio ingest listens on a Unix domain socket at this path
+   * instead of binding a TCP port. Used in Docker mode to eliminate the
+   * bot's dependency on `host.docker.internal` — the socket file is
+   * bind-mounted into the bot container. The bot connects to the socket
+   * path instead of dialing a TCP port.
+   *
+   * When unset, falls back to the default TCP listener (bare-metal mode).
+   */
+  audioSocketPath?: string;
 }
 
 /** Callback invoked for each PCM chunk received from the bot. */
@@ -213,6 +224,7 @@ export class MeetAudioIngest {
   private readonly listen: AudioIngestListenFn;
   private readonly botConnectTimeoutMs: number;
   private readonly diarize: boolean;
+  private readonly audioSocketPath: string | undefined;
 
   private server: AudioIngestServer | null = null;
   private connection: AudioIngestConnection | null = null;
@@ -230,10 +242,15 @@ export class MeetAudioIngest {
 
   constructor(deps: MeetAudioIngestDeps = {}) {
     this.createTranscriber = deps.createTranscriber ?? defaultCreateTranscriber;
-    this.listen = deps.listen ?? defaultListen;
+    this.listen =
+      deps.listen ??
+      (deps.audioSocketPath
+        ? () => listenUnix(deps.audioSocketPath!)
+        : defaultListen);
     this.botConnectTimeoutMs =
       deps.botConnectTimeoutMs ?? BOT_CONNECT_TIMEOUT_MS;
     this.diarize = deps.diarize ?? true;
+    this.audioSocketPath = deps.audioSocketPath;
   }
 
   /**
@@ -689,4 +706,88 @@ function adaptNetSocket(socket: NetSocket): AudioIngestConnection {
     onError: (listener) => socket.on("error", listener),
     destroy: () => socket.destroy(),
   };
+}
+
+/**
+ * Unix domain socket variant of the audio-ingest listener. Used in Docker
+ * mode to eliminate the bot's dependency on `host.docker.internal` — the
+ * socket file is bind-mounted into the bot container via the workspace
+ * volume. The bot connects to the socket path instead of dialing a TCP port.
+ *
+ * The returned {@link AudioIngestServer} has `port: 0` since Unix sockets
+ * don't bind to a port.
+ */
+function listenUnix(socketPath: string): Promise<AudioIngestServer> {
+  return new Promise<AudioIngestServer>((resolve, reject) => {
+    let settled = false;
+    const connectionListeners: Array<(conn: AudioIngestConnection) => void> =
+      [];
+    const errorListeners: Array<(err: Error) => void> = [];
+
+    // Clean up stale socket file from a previous session.
+    try {
+      unlinkSync(socketPath);
+    } catch {
+      // ENOENT is expected on first run.
+    }
+
+    const netServer: NetServer = netCreateServer((socket) => {
+      const conn = adaptNetSocket(socket);
+      for (const listener of connectionListeners) {
+        try {
+          listener(conn);
+        } catch (err) {
+          log.warn({ err }, "MeetAudioIngest: connection listener threw");
+        }
+      }
+    });
+
+    netServer.on("error", (err) => {
+      if (!settled) {
+        settled = true;
+        reject(err);
+        return;
+      }
+      for (const listener of errorListeners) {
+        try {
+          listener(err);
+        } catch (cbErr) {
+          log.warn({ cbErr }, "MeetAudioIngest: error listener threw");
+        }
+      }
+    });
+
+    netServer.listen(socketPath, () => {
+      if (settled) return;
+      settled = true;
+
+      log.info(
+        { socketPath },
+        "MeetAudioIngest: Unix socket server listening",
+      );
+
+      const wrapped: AudioIngestServer = {
+        port: 0,
+        onConnection: (listener) => {
+          connectionListeners.push(listener);
+        },
+        onError: (listener) => {
+          errorListeners.push(listener);
+        },
+        close: () =>
+          new Promise<void>((resolveClose) => {
+            netServer.close(() => {
+              // Clean up the socket file after close.
+              try {
+                unlinkSync(socketPath);
+              } catch {
+                // Best effort.
+              }
+              resolveClose();
+            });
+          }),
+      };
+      resolve(wrapped);
+    });
+  });
 }

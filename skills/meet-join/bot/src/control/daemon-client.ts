@@ -25,6 +25,8 @@
  * that shape here so the two sides stay interoperable.
  */
 
+import { connect as netConnect, type Socket as NetSocket } from "node:net";
+
 import type { MeetBotEvent } from "../../../contracts/index.js";
 
 /** Default flush cadence and batch size — tuned in the PR description. */
@@ -53,6 +55,8 @@ export interface DaemonClientOptions {
    * Base URL of the daemon's HTTP server (no trailing slash). The final
    * URL the client POSTs to is
    * `${daemonUrl}/v1/internal/meet/${meetingId}/events`.
+   *
+   * Ignored when `ipcSocketPath` is set.
    */
   daemonUrl: string;
   /** Meeting identifier — segmented into the path. */
@@ -62,6 +66,7 @@ export interface DaemonClientOptions {
   /**
    * Injectable fetch. Defaults to `globalThis.fetch` bound to globalThis
    * so Node's fetch doesn't lose its receiver when called indirectly.
+   * Ignored when `ipcSocketPath` is set.
    */
   fetch?: FetchFn;
   /**
@@ -75,6 +80,13 @@ export interface DaemonClientOptions {
   maxBatchSize?: number;
   /** Override flush cadence. */
   flushIntervalMs?: number;
+  /**
+   * When set, events are shipped via the daemon's CLI IPC socket instead
+   * of HTTP POST. The socket speaks newline-delimited JSON with the
+   * `meet_events` method. Used in Docker mode where the socket file is
+   * bind-mounted from the daemon's workspace volume (ATL-162).
+   */
+  ipcSocketPath?: string;
 }
 
 /**
@@ -91,6 +103,9 @@ export class DaemonClient {
   private readonly onError?: (err: Error, batch: MeetBotEvent[]) => void;
   private readonly maxBatchSize: number;
   private readonly flushIntervalMs: number;
+  private readonly ipcSocketPath: string | undefined;
+  private readonly meetingId: string;
+  private readonly botApiToken: string;
 
   /**
    * Pending events waiting for the next flush. We never slice this in
@@ -120,6 +135,9 @@ export class DaemonClient {
     this.onError = opts.onError;
     this.maxBatchSize = opts.maxBatchSize ?? MAX_BATCH_SIZE;
     this.flushIntervalMs = opts.flushIntervalMs ?? FLUSH_INTERVAL_MS;
+    this.ipcSocketPath = opts.ipcSocketPath;
+    this.meetingId = opts.meetingId;
+    this.botApiToken = opts.botApiToken;
   }
 
   /**
@@ -228,6 +246,120 @@ export class DaemonClient {
 
   /** POST with exponential backoff on retriable failures. */
   private async postWithRetry(batch: MeetBotEvent[]): Promise<void> {
+    if (this.ipcSocketPath) {
+      return this.postViaIpc(batch);
+    }
+    return this.postViaHttp(batch);
+  }
+
+  /** Ship a batch via the daemon's CLI IPC Unix socket. */
+  private async postViaIpc(batch: MeetBotEvent[]): Promise<void> {
+    let lastErr: Error | null = null;
+
+    for (let attempt = 0; attempt <= RETRY_BACKOFF_MS.length; attempt += 1) {
+      try {
+        await this.ipcCall(batch);
+        return;
+      } catch (err) {
+        lastErr = err instanceof Error ? err : new Error(String(err));
+        // IPC errors with "unauthorized" are terminal — same as HTTP 4xx.
+        if (lastErr.message.includes("unauthorized")) {
+          throw lastErr;
+        }
+        const backoff = RETRY_BACKOFF_MS[attempt];
+        if (backoff === undefined) break;
+        await sleep(backoff);
+      }
+    }
+
+    throw (
+      lastErr ??
+      new Error("daemon-client: exhausted retries with no recorded error")
+    );
+  }
+
+  /**
+   * Single IPC call: connect to the daemon socket, send a `meet_events`
+   * request, wait for the response, disconnect.
+   */
+  private ipcCall(batch: MeetBotEvent[]): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const socketPath = this.ipcSocketPath!;
+      const reqId = `meet-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const req = {
+        id: reqId,
+        method: "meet_events",
+        params: {
+          meetingId: this.meetingId,
+          botApiToken: this.botApiToken,
+          events: batch,
+        },
+      };
+
+      let settled = false;
+      const finish = (err?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        socket.destroy();
+        if (err) reject(err);
+        else resolve();
+      };
+
+      const timer = setTimeout(() => {
+        finish(new Error("daemon-client: IPC call timed out"));
+      }, 10_000);
+
+      const socket: NetSocket = netConnect(socketPath);
+
+      let buffer = "";
+      socket.on("connect", () => {
+        socket.write(JSON.stringify(req) + "\n");
+      });
+
+      socket.on("data", (chunk) => {
+        buffer += chunk.toString();
+        let newlineIdx: number;
+        while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
+          const line = buffer.slice(0, newlineIdx).trim();
+          buffer = buffer.slice(newlineIdx + 1);
+          if (!line) continue;
+          try {
+            const msg = JSON.parse(line) as {
+              id: string;
+              result?: unknown;
+              error?: string;
+            };
+            if (msg.id === reqId) {
+              if (msg.error) {
+                finish(new Error(`daemon-client IPC: ${msg.error}`));
+              } else {
+                finish();
+              }
+              return;
+            }
+          } catch {
+            // Ignore malformed lines.
+          }
+        }
+      });
+
+      socket.on("error", (err) => {
+        finish(
+          err instanceof Error
+            ? err
+            : new Error(`daemon-client IPC socket error: ${String(err)}`),
+        );
+      });
+
+      socket.on("close", () => {
+        finish(new Error("daemon-client: IPC socket closed before response"));
+      });
+    });
+  }
+
+  /** Ship a batch via HTTP POST (original path). */
+  private async postViaHttp(batch: MeetBotEvent[]): Promise<void> {
     const body = JSON.stringify(batch);
     let lastErr: Error | null = null;
 

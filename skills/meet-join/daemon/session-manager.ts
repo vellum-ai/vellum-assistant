@@ -51,7 +51,7 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getConfig } from "../../../assistant/src/config/loader.js";
@@ -628,7 +628,7 @@ export interface MeetSessionManagerDeps {
    * Override the audio-ingest factory. Default constructs a
    * {@link MeetAudioIngest} with its own defaults.
    */
-  audioIngestFactory?: () => MeetAudioIngestLike;
+  audioIngestFactory?: (opts?: { audioSocketPath?: string }) => MeetAudioIngestLike;
   /**
    * Override the consent-monitor factory. Default constructs a
    * {@link MeetConsentMonitor} with its own defaults. Tests can inject
@@ -786,7 +786,8 @@ class MeetSessionManagerImpl {
       resolveDaemonUrl: deps.resolveDaemonUrl ?? defaultResolveDaemonUrl,
       getWorkspaceDir: deps.getWorkspaceDir ?? getWorkspaceDir,
       audioIngestFactory:
-        deps.audioIngestFactory ?? (() => new MeetAudioIngest()),
+        deps.audioIngestFactory ??
+        ((opts) => new MeetAudioIngest({ audioSocketPath: opts?.audioSocketPath })),
       consentMonitorFactory:
         deps.consentMonitorFactory ?? defaultConsentMonitorFactory,
       conversationBridgeFactory:
@@ -1003,6 +1004,13 @@ class MeetSessionManagerImpl {
       outDir = join(meetingDir, "out");
       mkdirSync(outDir, { recursive: true });
 
+      // Stage the sockets directory for the audio-ingest Unix socket.
+      // In Docker mode, this directory is bind-mounted into the bot
+      // container so the bot can connect to the audio socket without
+      // going through host.docker.internal.
+      const socketsDir = join(meetingDir, "sockets");
+      mkdirSync(socketsDir, { recursive: true });
+
       botApiToken = generateBotApiToken();
       // Pre-register the token so `/v1/internal/meet/:id/events` can
       // authenticate the bot's earliest `lifecycle:joining` POST — which
@@ -1102,7 +1110,16 @@ class MeetSessionManagerImpl {
     // (e.g. {@link MeetAudioIngestError} when no streaming-capable STT
     // provider is configured) fails fast before we spend time spinning up
     // a container.
-    const audioIngest = this.deps.audioIngestFactory();
+    // In Docker mode, use Unix sockets for bot→daemon communication to
+    // avoid exposing the daemon's HTTP port (ATL-162). The audio-ingest
+    // listens on a Unix socket inside the per-meeting sockets directory
+    // which is bind-mounted into the bot container.
+    const isDockerMode = this.deps.resolveRuntimeMode() === "docker";
+    const audioSocketPath = isDockerMode
+      ? join(workspaceDir!, "meets", meetingId, "sockets", "audio.sock")
+      : undefined;
+
+    const audioIngest = this.deps.audioIngestFactory({ audioSocketPath });
     let audioIngestReady: Promise<void>;
     let audioPort: number;
     try {
@@ -1138,13 +1155,7 @@ class MeetSessionManagerImpl {
       // Consent message with `{assistantName}` substituted using the same
       // effective display name the bot announces itself as.
       CONSENT_MESSAGE: resolvedConsentMessage,
-      DAEMON_URL: daemonUrl,
       BOT_API_TOKEN: botApiToken,
-      // Loopback TCP port the daemon's audio-ingest server bound. The bot
-      // dials `host.docker.internal:<port>` to stream PCM. Unix sockets
-      // over a bind mount are not usable here — Docker Desktop on macOS
-      // rejects connect() across the host↔VM VirtioFS boundary.
-      DAEMON_AUDIO_PORT: String(audioPort),
       // STT credentials live on the daemon, not the bot — the bot just
       // streams raw PCM and the daemon forwards it to the configured
       // streaming STT provider.
@@ -1153,6 +1164,20 @@ class MeetSessionManagerImpl {
       // disable in dev). Match the meet-bot image expectation.
       SKIP_PULSE: "0",
     };
+
+    if (isDockerMode) {
+      // In Docker mode, the bot communicates with the daemon via Unix
+      // sockets (IPC for events, Unix socket for audio) instead of
+      // host.docker.internal HTTP. The socket files are bind-mounted
+      // from the workspace volume into the bot container.
+      env.IPC_SOCKET_PATH = "/ipc/assistant-cli.sock";
+      env.DAEMON_AUDIO_SOCKET = "/sockets/audio.sock";
+    } else {
+      // Bare-metal: bot reaches the daemon via host.docker.internal over
+      // HTTP for events and TCP for audio.
+      env.DAEMON_URL = daemonUrl;
+      env.DAEMON_AUDIO_PORT = String(audioPort);
+    }
 
     // Avatar config → bot env.
     //
@@ -1200,6 +1225,21 @@ class MeetSessionManagerImpl {
         // Session-manager stays mode-agnostic.
         workspaceMounts: [
           { target: "/out", subpath: `meets/${meetingId}/out` },
+          // In Docker mode, mount the IPC socket and per-meeting sockets
+          // directory so the bot can communicate via Unix sockets instead
+          // of host.docker.internal HTTP/TCP (ATL-162).
+          ...(isDockerMode
+            ? [
+                {
+                  target: "/ipc/assistant-cli.sock",
+                  subpath: "assistant-cli.sock",
+                },
+                {
+                  target: "/sockets",
+                  subpath: `meets/${meetingId}/sockets`,
+                },
+              ]
+            : []),
         ],
         ports: [
           {

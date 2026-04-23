@@ -153,12 +153,12 @@ interface FakeAudioIngest extends MeetAudioIngestLike {
 }
 
 function makeFakeAudioIngestFactory(): {
-  factory: () => FakeAudioIngest;
+  factory: (opts?: { audioSocketPath?: string }) => FakeAudioIngest;
   getLastIngest: () => FakeAudioIngest | null;
 } {
   let lastIngest: FakeAudioIngest | null = null;
   return {
-    factory: () => {
+    factory: (_opts?) => {
       const subscribers = new Set<(bytes: Uint8Array) => void>();
       const ingest: FakeAudioIngest = {
         start: mock(async () => ({
@@ -362,7 +362,7 @@ describe("MeetSessionManager.join", () => {
     const ingestStartPromise = new Promise<void>((r) => {
       resolveIngestStart = r;
     });
-    const factory = (): MeetAudioIngestLike => ({
+    const factory = (_opts?: { audioSocketPath?: string }): MeetAudioIngestLike => ({
       start: mock(async () => {
         await ingestStartPromise;
         return { port: 42173, ready: Promise.resolve() };

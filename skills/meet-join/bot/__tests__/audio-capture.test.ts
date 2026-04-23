@@ -264,8 +264,8 @@ describe("startAudioCapture — argv + defaults", () => {
       daemonHost: "host.docker.internal",
       daemonPort: 42173,
       spawn: () => proc,
-      connect: (host, port) => {
-        seenTargets.push({ host, port });
+      connect: (target) => {
+        seenTargets.push(target as { host: string; port: number });
         return sock;
       },
     });

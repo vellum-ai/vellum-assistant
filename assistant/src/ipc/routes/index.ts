@@ -4,6 +4,7 @@ import { browserExecuteRoute } from "./browser.js";
 import { cacheRoutes } from "./cache.js";
 import { getContactRoute } from "./get-contact.js";
 import { listClientsRoute } from "./list-clients.js";
+import { meetEventsRoute } from "./meet-events.js";
 import { mergeContactsRoute } from "./merge-contacts.js";
 import { renameConversationRoute } from "./rename-conversation.js";
 import { searchContactsRoute } from "./search-contacts.js";
@@ -20,6 +21,7 @@ export const cliIpcRoutes: IpcRoute[] = [
   browserExecuteRoute,
   getContactRoute,
   listClientsRoute,
+  meetEventsRoute,
   mergeContactsRoute,
   renameConversationRoute,
   searchContactsRoute,

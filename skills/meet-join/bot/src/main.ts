@@ -127,11 +127,26 @@ interface BotEnv {
    */
   daemonAudioHost: string;
   /**
-   * TCP port the daemon's audio-ingest server is listening on. Required —
-   * the session manager picks an ephemeral port and threads it through so
-   * multiple bots can coexist without colliding on a fixed port.
+   * TCP port the daemon's audio-ingest server is listening on. Required
+   * when `daemonAudioSocket` is not set — the session manager picks an
+   * ephemeral port and threads it through so multiple bots can coexist
+   * without colliding on a fixed port.
    */
   daemonAudioPort: number | undefined;
+  /**
+   * Unix domain socket path for the audio-ingest connection. When set,
+   * the bot connects to this socket instead of TCP `daemonAudioHost:daemonAudioPort`.
+   * Used in Docker mode where the socket file is bind-mounted from the
+   * daemon's workspace volume.
+   */
+  daemonAudioSocket: string | undefined;
+  /**
+   * Unix domain socket path for the daemon's CLI IPC server. When set,
+   * the bot ships events via IPC instead of HTTP POST to `daemonUrl`.
+   * Used in Docker mode where the socket file is bind-mounted from the
+   * daemon's workspace volume (ATL-162).
+   */
+  ipcSocketPath: string | undefined;
   /** When "1", skip PulseAudio setup — used by the boot smoke test. */
   skipPulse: boolean;
   /** Bind port for the HTTP control surface. Defaults to 3000. */
@@ -208,6 +223,8 @@ function readEnv(env: NodeJS.ProcessEnv = process.env): BotEnv {
     daemonAudioPort: env.DAEMON_AUDIO_PORT
       ? Number(env.DAEMON_AUDIO_PORT)
       : undefined,
+    daemonAudioSocket: env.DAEMON_AUDIO_SOCKET,
+    ipcSocketPath: env.IPC_SOCKET_PATH,
     skipPulse: env.SKIP_PULSE === "1",
     httpPort: env.HTTP_PORT ? Number(env.HTTP_PORT) : 3000,
     extensionPath: env.EXTENSION_PATH ?? "/app/ext",
@@ -278,6 +295,7 @@ export interface BotDeps {
     meetingId: string;
     botApiToken: string;
     onError: (err: Error) => void;
+    ipcSocketPath?: string;
   }) => DaemonClientLike;
   createHttpServer: (
     opts: HttpServerCallbacks & {
@@ -355,6 +373,7 @@ export function defaultDeps(): BotDeps {
         meetingId: opts.meetingId,
         botApiToken: opts.botApiToken,
         onError: (err) => opts.onError(err),
+        ipcSocketPath: opts.ipcSocketPath,
       }),
     createHttpServer,
     ensureDir: (path) => mkdirSync(path, { recursive: true }),
@@ -452,7 +471,8 @@ export async function runBot(deps: BotDeps): Promise<void> {
     env.meetingId &&
     env.joinName &&
     env.consentMessage &&
-    env.daemonUrl &&
+    // In IPC mode, daemonUrl is not set — the bot communicates via Unix socket.
+    (env.daemonUrl || env.ipcSocketPath) &&
     env.botApiToken;
 
   if (!hasFullEnv) {
@@ -463,7 +483,7 @@ export async function runBot(deps: BotDeps): Promise<void> {
   const meetingId = env.meetingId!;
   const joinName = env.joinName!;
   const consentMessage = env.consentMessage!;
-  const daemonUrl = env.daemonUrl!;
+  const daemonUrl = env.daemonUrl ?? "";
   const botApiToken = env.botApiToken!;
   const meetUrl = env.meetUrl!;
 
@@ -790,6 +810,7 @@ export async function runBot(deps: BotDeps): Promise<void> {
       meetingId,
       botApiToken,
       onError: onDaemonTerminalError,
+      ipcSocketPath: env.ipcSocketPath,
     });
 
     // ---------------------------------------------------------------------
@@ -911,10 +932,15 @@ export async function runBot(deps: BotDeps): Promise<void> {
     // work without streaming audio, and a silent no-op would manifest
     // downstream as the daemon's 120s "bot did not connect" timeout.
     // ---------------------------------------------------------------------
-    if (env.daemonAudioPort === undefined || Number.isNaN(env.daemonAudioPort)) {
+    // In IPC mode, audio goes over a Unix socket; in HTTP mode, over TCP.
+    const hasAudioSocket = !!env.daemonAudioSocket;
+    if (
+      !hasAudioSocket &&
+      (env.daemonAudioPort === undefined || Number.isNaN(env.daemonAudioPort))
+    ) {
       await shutdown(
         "error",
-        "DAEMON_AUDIO_PORT env var is missing or not a number",
+        "DAEMON_AUDIO_PORT or DAEMON_AUDIO_SOCKET env var must be set",
       );
       detachSigterm();
       detachSigint();
@@ -923,7 +949,8 @@ export async function runBot(deps: BotDeps): Promise<void> {
     }
     subsystems.audioCapture = await deps.startAudioCapture({
       daemonHost: env.daemonAudioHost,
-      daemonPort: env.daemonAudioPort,
+      daemonPort: env.daemonAudioPort ?? 0,
+      daemonSocketPath: env.daemonAudioSocket,
       onError: (err) => {
         // Exhausted reconnect budget — the daemon is unreachable or the
         // pipeline is flapping. Shut the bot down so the daemon rolls the
