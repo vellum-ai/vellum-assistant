@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, jest, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 
 const { HostTransferProxy } = await import("../daemon/host-transfer-proxy.js");
 
@@ -304,66 +304,57 @@ describe("HostTransferProxy", () => {
   });
 
   describe("timeout behavior", () => {
-    test("uses size-adaptive timeout for to_host: max(120s, sizeBytes/1MB + 30s)", async () => {
-      jest.useFakeTimers();
-      try {
-        setup();
-        tempDir = await mkdtemp(join(tmpdir(), "htp-test-"));
-        const srcPath = join(tempDir, "source.txt");
-        // Create a small file - timeout should be 120s (minimum)
-        await globalThis.Bun.write(srcPath, "small");
+    /** Use a very short real timeout instead of fake timers to avoid deadlocks in Bun. */
+    const SHORT_TIMEOUT_MS = 150;
 
-        const resultPromise = proxy.requestToHost({
-          sourcePath: srcPath,
-          destPath: "/host/dest.txt",
-          overwrite: false,
-          conversationId: "conv-123",
-        });
-
-        // Wait for the async file read to complete
-        await new Promise((r) => setTimeout(r, 50));
-        jest.advanceTimersByTime(50);
-
-        const sent = sentMessages[0] as Record<string, unknown>;
-        expect(proxy.hasPendingTransfer(sent.transferId as string)).toBe(true);
-
-        // Advance to just before 120s - should still be pending
-        jest.advanceTimersByTime(119_000);
-
-        // Advance past 120s - should timeout
-        jest.advanceTimersByTime(2_000);
-
-        const result = await resultPromise;
-        expect(result.isError).toBe(true);
-        expect(result.content).toContain("timed out");
-      } finally {
-        jest.useRealTimers();
-      }
+    afterAll(() => {
+      HostTransferProxy._testTimeoutOverrideMs = undefined;
     });
 
-    test("uses 120s base timeout for to_sandbox direction", async () => {
-      jest.useFakeTimers();
-      try {
-        setup();
+    test("resolves with timeout error for to_host when client never responds", async () => {
+      HostTransferProxy._testTimeoutOverrideMs = SHORT_TIMEOUT_MS;
+      setup();
+      tempDir = await mkdtemp(join(tmpdir(), "htp-test-"));
+      const srcPath = join(tempDir, "source.txt");
+      // Create a small file
+      await globalThis.Bun.write(srcPath, "small");
 
-        const resultPromise = proxy.requestToSandbox({
-          sourcePath: "/host/source.txt",
-          destPath: "/sandbox/dest.txt",
-          conversationId: "conv-123",
-        });
+      const resultPromise = proxy.requestToHost({
+        sourcePath: srcPath,
+        destPath: "/host/dest.txt",
+        overwrite: false,
+        conversationId: "conv-123",
+      });
 
-        const sent = sentMessages[0] as Record<string, unknown>;
-        expect(proxy.hasPendingTransfer(sent.transferId as string)).toBe(true);
+      // Wait for the async file read to complete and the message to be sent
+      await new Promise((r) => setTimeout(r, 50));
 
-        // Advance past 120s
-        jest.advanceTimersByTime(121_000);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(proxy.hasPendingTransfer(sent.transferId as string)).toBe(true);
 
-        const result = await resultPromise;
-        expect(result.isError).toBe(true);
-        expect(result.content).toContain("timed out");
-      } finally {
-        jest.useRealTimers();
-      }
+      // Wait for the short timeout to fire
+      const result = await resultPromise;
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("timed out");
+    });
+
+    test("resolves with timeout error for to_sandbox when client never responds", async () => {
+      HostTransferProxy._testTimeoutOverrideMs = SHORT_TIMEOUT_MS;
+      setup();
+
+      const resultPromise = proxy.requestToSandbox({
+        sourcePath: "/host/source.txt",
+        destPath: "/sandbox/dest.txt",
+        conversationId: "conv-123",
+      });
+
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(proxy.hasPendingTransfer(sent.transferId as string)).toBe(true);
+
+      // Wait for the short timeout to fire
+      const result = await resultPromise;
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("timed out");
     });
   });
 

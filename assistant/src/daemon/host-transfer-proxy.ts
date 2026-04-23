@@ -41,6 +41,13 @@ function computeTimeoutMs(sizeBytes?: number): number {
 }
 
 export class HostTransferProxy {
+  /**
+   * Override for tests: when set, all timeout durations use this value instead
+   * of the size-adaptive computation.  Reset to `undefined` after tests.
+   * @internal
+   */
+  static _testTimeoutOverrideMs: number | undefined;
+
   /** Pending transfers keyed by requestId (for resolution from client results). */
   private pending = new Map<string, PendingTransfer>();
   /** Pending transfers keyed by transferId (for content endpoint lookups). */
@@ -99,7 +106,8 @@ export class HostTransferProxy {
 
           const sizeBytes = fileBuffer.length;
           const sha256 = createHash("sha256").update(fileBuffer).digest("hex");
-          const timeoutMs = computeTimeoutMs(sizeBytes);
+          const timeoutMs =
+            HostTransferProxy._testTimeoutOverrideMs ?? computeTimeoutMs(sizeBytes);
 
           let detachAbort: () => void = () => {};
 
@@ -220,7 +228,7 @@ export class HostTransferProxy {
     const transferId = uuid();
 
     return new Promise<ToolExecutionResult>((resolve, reject) => {
-      const timeoutMs = 120_000;
+      const timeoutMs = HostTransferProxy._testTimeoutOverrideMs ?? 120_000;
 
       let detachAbort: () => void = () => {};
 
