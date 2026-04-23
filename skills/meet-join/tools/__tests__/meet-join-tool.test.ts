@@ -3,24 +3,23 @@
  *
  * Exercises URL validation, feature-flag gating, `{assistantName}`
  * substitution, and the happy-path call into `MeetSessionManager.join`.
- * The session manager is swapped via `mock.module` rather than
- * constructor injection so the tool under test continues to import the
- * real singleton path — the same one production code uses — without
- * having to thread a parameter through just for tests.
+ * The session manager is swapped via `mock.module` so the tool under
+ * test continues to import the real singleton path — the same one
+ * production code uses — without having to thread a parameter through
+ * just for tests.
+ *
+ * The tool itself now takes a `SkillHost` at construction time, so the
+ * test builds a minimal fake host (feature-flag reads, logger, assistant
+ * name) rather than mocking into `assistant/src/...` directly.
  */
 
+import type { SkillHost, Tool } from "@vellumai/skill-host-contracts";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ----- Mocks wired BEFORE importing the tool ---------------------------------
-//
-// The tool pulls `MeetSessionManager` at module-eval time, so these mock
-// installations must precede the `await import(...)` of the tool module.
-// That ordering is why we keep mutable state (`flagEnabled`,
-// `assistantNameValue`, etc.) in module-scope closures: each test can
-// adjust them without having to re-invoke `mock.module`.
 
 let flagEnabled = true;
-let assistantNameValue: string | null = "Nova";
+let assistantNameValue: string | undefined = "Nova";
 let consentTemplate =
   "Hi, I'm {assistantName}, an AI assistant joining to take notes. Let me know if you'd prefer I leave.";
 
@@ -61,50 +60,71 @@ mock.module("../../daemon/session-manager.js", () => ({
   },
 }));
 
-mock.module(
-  "../../../../assistant/src/config/assistant-feature-flags.js",
-  () => ({
-    isAssistantFeatureFlagEnabled: (key: string) => {
-      if (key === "meet") return flagEnabled;
-      return true;
-    },
-  }),
-);
-
 mock.module("../../meet-config.js", () => ({
   getMeetConfig: () => ({
     consentMessage: consentTemplate,
   }),
 }));
 
-mock.module("../../../../assistant/src/daemon/identity-helpers.js", () => ({
-  getAssistantName: () => assistantNameValue,
-}));
-
-mock.module("../../../../assistant/src/util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
 // Import AFTER the module mocks are installed.
 const {
-  meetJoinTool,
+  createMeetJoinTool,
   MEET_URL_REGEX,
   substituteAssistantName,
   DEFAULT_ASSISTANT_NAME,
 } = await import("../meet-join-tool.js");
 
-import type { ToolContext } from "../../../../assistant/src/tools/types.js";
+/**
+ * Minimal fake `SkillHost` exposing only the facets `createMeetJoinTool`
+ * reads: logger, config.isFeatureFlagEnabled, identity.getAssistantName.
+ * Every other facet is a throwing proxy so drift into un-plumbed host
+ * surfaces fails loudly instead of silently no-opping.
+ */
+function makeHost(): SkillHost {
+  const unreachable = (path: string): never => {
+    throw new Error(
+      `meet-join-tool.test: fake SkillHost facet ${path} was unexpectedly accessed`,
+    );
+  };
+  const throwingProxy = (path: string) =>
+    new Proxy({}, { get: (_t, p) => unreachable(`${path}.${String(p)}`) });
 
-function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
+  return {
+    logger: {
+      get: () =>
+        new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
+    } as SkillHost["logger"],
+    config: {
+      isFeatureFlagEnabled: (key: string) =>
+        key === "meet" ? flagEnabled : true,
+      getSection: () => undefined,
+    },
+    identity: {
+      getAssistantName: () => assistantNameValue,
+      internalAssistantId: "self",
+    },
+    platform: throwingProxy("platform") as SkillHost["platform"],
+    providers: throwingProxy("providers") as SkillHost["providers"],
+    memory: throwingProxy("memory") as SkillHost["memory"],
+    events: throwingProxy("events") as SkillHost["events"],
+    registries: throwingProxy("registries") as SkillHost["registries"],
+    speakers: throwingProxy("speakers") as SkillHost["speakers"],
+  };
+}
+
+let meetJoinTool: Tool;
+
+/** Minimal `ToolContext` covering the fields the tool actually reads. */
+function makeContext(overrides: { conversationId?: string } = {}): {
+  workingDir: string;
+  conversationId: string;
+  trustClass: string;
+} {
   return {
     workingDir: "/tmp",
-    conversationId: "conv-test",
+    conversationId: overrides.conversationId ?? "conv-test",
     trustClass: "guardian",
-    ...overrides,
-  } as ToolContext;
+  };
 }
 
 beforeEach(() => {
@@ -113,6 +133,7 @@ beforeEach(() => {
   consentTemplate =
     "Hi, I'm {assistantName}, an AI assistant joining to take notes. Let me know if you'd prefer I leave.";
   joinMock.mockClear();
+  meetJoinTool = createMeetJoinTool(makeHost());
 });
 
 afterAll(() => {
@@ -176,9 +197,10 @@ describe("substituteAssistantName", () => {
 describe("meet_join feature-flag gating", () => {
   test("returns an error when the meet flag is off", async () => {
     flagEnabled = false;
+    meetJoinTool = createMeetJoinTool(makeHost());
     const result = await meetJoinTool.execute(
       { url: "https://meet.google.com/abc-defg-hij" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("meet feature is disabled");
@@ -187,9 +209,10 @@ describe("meet_join feature-flag gating", () => {
 
   test("proceeds to the session manager when the meet flag is on", async () => {
     flagEnabled = true;
+    meetJoinTool = createMeetJoinTool(makeHost());
     const result = await meetJoinTool.execute(
       { url: "https://meet.google.com/abc-defg-hij" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(false);
     expect(joinMock).toHaveBeenCalledTimes(1);
@@ -202,7 +225,7 @@ describe("meet_join feature-flag gating", () => {
 
 describe("meet_join input validation", () => {
   test("rejects a missing url", async () => {
-    const result = await meetJoinTool.execute({}, makeContext());
+    const result = await meetJoinTool.execute({}, makeContext() as never);
     expect(result.isError).toBe(true);
     // Zod reports "expected string, received undefined" for a missing url;
     // assert the error surfaces as an Error: … payload rather than leaking
@@ -214,7 +237,7 @@ describe("meet_join input validation", () => {
   test("rejects a non-Meet url", async () => {
     const result = await meetJoinTool.execute(
       { url: "https://zoom.us/j/12345" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Google Meet");
@@ -224,7 +247,7 @@ describe("meet_join input validation", () => {
   test("accepts a valid Meet url", async () => {
     const result = await meetJoinTool.execute(
       { url: "https://meet.google.com/abc-defg-hij" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(false);
   });
@@ -237,9 +260,10 @@ describe("meet_join input validation", () => {
 describe("meet_join session-manager delegation", () => {
   test("substitutes {assistantName} into the consent message before joining", async () => {
     assistantNameValue = "Aria";
+    meetJoinTool = createMeetJoinTool(makeHost());
     const result = await meetJoinTool.execute(
       { url: "https://meet.google.com/abc-defg-hij" },
-      makeContext({ conversationId: "conv-123" }),
+      makeContext({ conversationId: "conv-123" }) as never,
     );
 
     expect(result.isError).toBe(false);
@@ -256,10 +280,11 @@ describe("meet_join session-manager delegation", () => {
   });
 
   test("falls back to the default assistant name when IDENTITY.md is missing", async () => {
-    assistantNameValue = null;
+    assistantNameValue = undefined;
+    meetJoinTool = createMeetJoinTool(makeHost());
     await meetJoinTool.execute(
       { url: "https://meet.google.com/abc-defg-hij" },
-      makeContext(),
+      makeContext() as never,
     );
     const call = joinMock.mock.calls[0][0];
     expect(call.consentMessage).toContain(DEFAULT_ASSISTANT_NAME);
@@ -269,7 +294,7 @@ describe("meet_join session-manager delegation", () => {
   test("returns the generated meetingId and joining status", async () => {
     const result = await meetJoinTool.execute(
       { url: "https://meet.google.com/abc-defg-hij" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(false);
     const payload = JSON.parse(result.content) as {
@@ -286,7 +311,7 @@ describe("meet_join session-manager delegation", () => {
     });
     const result = await meetJoinTool.execute(
       { url: "https://meet.google.com/abc-defg-hij" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("docker is not running");

@@ -6,8 +6,13 @@
  * sessions), explicit-id pass-through, and error propagation from the
  * session manager. Mirrors the mocking style used in the sibling
  * `meet-send-chat-tool.test.ts` / `meet-speak-tool.test.ts`.
+ *
+ * The tools are now constructed via factories (`createMeetEnableAvatarTool`,
+ * `createMeetDisableAvatarTool`) taking a `SkillHost`; the test builds a
+ * minimal fake host (feature-flag reads, no-op logger) to drive them.
  */
 
+import type { SkillHost, Tool } from "@vellumai/skill-host-contracts";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 let flagEnabled = true;
@@ -79,41 +84,51 @@ mock.module("../../daemon/session-manager.js", () => ({
   MeetBotChatError: FakeMeetBotChatError,
 }));
 
-mock.module(
-  "../../../../assistant/src/config/assistant-feature-flags.js",
-  () => ({
-    isAssistantFeatureFlagEnabled: (key: string) => {
-      if (key === "meet") return flagEnabled;
-      return true;
-    },
-  }),
-);
-
-mock.module("../../../../assistant/src/config/loader.js", () => ({
-  getConfig: () => ({
-    services: { meet: { consentMessage: "unused-in-avatar-tests" } },
-  }),
-}));
-
-mock.module("../../../../assistant/src/util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: () => () => {},
-    }),
-}));
-
-const { meetEnableAvatarTool, meetDisableAvatarTool } =
+const { createMeetEnableAvatarTool, createMeetDisableAvatarTool } =
   await import("../meet-avatar-tool.js");
 
-import type { ToolContext } from "../../../../assistant/src/tools/types.js";
+function makeHost(): SkillHost {
+  const unreachable = (path: string): never => {
+    throw new Error(
+      `meet-avatar-tool.test: fake SkillHost facet ${path} was unexpectedly accessed`,
+    );
+  };
+  const throwingProxy = (path: string) =>
+    new Proxy({}, { get: (_t, p) => unreachable(`${path}.${String(p)}`) });
 
-function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
+  return {
+    logger: {
+      get: () =>
+        new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
+    } as SkillHost["logger"],
+    config: {
+      isFeatureFlagEnabled: (key: string) =>
+        key === "meet" ? flagEnabled : true,
+      getSection: () => undefined,
+    },
+    identity: throwingProxy("identity") as SkillHost["identity"],
+    platform: throwingProxy("platform") as SkillHost["platform"],
+    providers: throwingProxy("providers") as SkillHost["providers"],
+    memory: throwingProxy("memory") as SkillHost["memory"],
+    events: throwingProxy("events") as SkillHost["events"],
+    registries: throwingProxy("registries") as SkillHost["registries"],
+    speakers: throwingProxy("speakers") as SkillHost["speakers"],
+  };
+}
+
+let meetEnableAvatarTool: Tool;
+let meetDisableAvatarTool: Tool;
+
+function makeContext(): {
+  workingDir: string;
+  conversationId: string;
+  trustClass: string;
+} {
   return {
     workingDir: "/tmp",
     conversationId: "conv-test",
     trustClass: "guardian",
-    ...overrides,
-  } as ToolContext;
+  };
 }
 
 function fakeSession(meetingId: string) {
@@ -142,6 +157,9 @@ beforeEach(() => {
     disabled: true,
     wasActive: false,
   }));
+  const host = makeHost();
+  meetEnableAvatarTool = createMeetEnableAvatarTool(host);
+  meetDisableAvatarTool = createMeetDisableAvatarTool(host);
 });
 
 afterAll(() => {
@@ -155,8 +173,12 @@ afterAll(() => {
 describe("meet_enable_avatar feature-flag gating", () => {
   test("returns an error when the meet flag is off", async () => {
     flagEnabled = false;
+    meetEnableAvatarTool = createMeetEnableAvatarTool(makeHost());
     activeSessionsValue = [fakeSession("m1")];
-    const result = await meetEnableAvatarTool.execute({}, makeContext());
+    const result = await meetEnableAvatarTool.execute(
+      {},
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("meet feature is disabled");
     expect(enableAvatarMock).not.toHaveBeenCalled();
@@ -172,7 +194,7 @@ describe("meet_enable_avatar input validation", () => {
     activeSessionsValue = [fakeSession("solo")];
     const result = await meetEnableAvatarTool.execute(
       { meetingId: 123 },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(true);
     expect(enableAvatarMock).not.toHaveBeenCalled();
@@ -182,7 +204,7 @@ describe("meet_enable_avatar input validation", () => {
     activeSessionsValue = [fakeSession("solo")];
     const result = await meetEnableAvatarTool.execute(
       { meetingId: "  " },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(true);
     expect(enableAvatarMock).not.toHaveBeenCalled();
@@ -196,7 +218,10 @@ describe("meet_enable_avatar input validation", () => {
 describe("meet_enable_avatar disambiguation", () => {
   test("errors when no active sessions exist", async () => {
     activeSessionsValue = [];
-    const result = await meetEnableAvatarTool.execute({}, makeContext());
+    const result = await meetEnableAvatarTool.execute(
+      {},
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content.toLowerCase()).toContain("no active meet session");
     expect(enableAvatarMock).not.toHaveBeenCalled();
@@ -210,7 +235,10 @@ describe("meet_enable_avatar disambiguation", () => {
       active: true,
       devicePath: "/dev/video10",
     }));
-    const result = await meetEnableAvatarTool.execute({}, makeContext());
+    const result = await meetEnableAvatarTool.execute(
+      {},
+      makeContext() as never,
+    );
     expect(result.isError).toBe(false);
     expect(enableAvatarMock).toHaveBeenCalledTimes(1);
     expect(enableAvatarMock.mock.calls[0][0]).toBe("solo");
@@ -232,7 +260,10 @@ describe("meet_enable_avatar disambiguation", () => {
 
   test("errors when multiple active sessions and meetingId is omitted", async () => {
     activeSessionsValue = [fakeSession("m1"), fakeSession("m2")];
-    const result = await meetEnableAvatarTool.execute({}, makeContext());
+    const result = await meetEnableAvatarTool.execute(
+      {},
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("multiple active");
     expect(result.content).toContain("m1");
@@ -244,7 +275,7 @@ describe("meet_enable_avatar disambiguation", () => {
     activeSessionsValue = [fakeSession("m1"), fakeSession("m2")];
     const result = await meetEnableAvatarTool.execute(
       { meetingId: "m2" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(false);
     expect(enableAvatarMock).toHaveBeenCalledTimes(1);
@@ -262,7 +293,10 @@ describe("meet_enable_avatar error propagation", () => {
     enableAvatarMock.mockImplementationOnce(async () => {
       throw new FakeMeetSessionNotFoundError("no session");
     });
-    const result = await meetEnableAvatarTool.execute({}, makeContext());
+    const result = await meetEnableAvatarTool.execute(
+      {},
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("no active Meet session");
     expect(result.content).toContain("solo");
@@ -273,7 +307,10 @@ describe("meet_enable_avatar error propagation", () => {
     enableAvatarMock.mockImplementationOnce(async () => {
       throw new FakeMeetSessionUnreachableError("connect ECONNREFUSED");
     });
-    const result = await meetEnableAvatarTool.execute({}, makeContext());
+    const result = await meetEnableAvatarTool.execute(
+      {},
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("meet bot unreachable");
     expect(result.content).toContain("ECONNREFUSED");
@@ -284,7 +321,10 @@ describe("meet_enable_avatar error propagation", () => {
     enableAvatarMock.mockImplementationOnce(async () => {
       throw new FakeMeetBotAvatarError("renderer unavailable", 503);
     });
-    const result = await meetEnableAvatarTool.execute({}, makeContext());
+    const result = await meetEnableAvatarTool.execute(
+      {},
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("status 503");
     expect(result.content).toContain("renderer unavailable");
@@ -295,7 +335,10 @@ describe("meet_enable_avatar error propagation", () => {
     enableAvatarMock.mockImplementationOnce(async () => {
       throw new Error("something exploded");
     });
-    const result = await meetEnableAvatarTool.execute({}, makeContext());
+    const result = await meetEnableAvatarTool.execute(
+      {},
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("failed to enable Meet avatar");
     expect(result.content).toContain("something exploded");
@@ -309,8 +352,12 @@ describe("meet_enable_avatar error propagation", () => {
 describe("meet_disable_avatar feature-flag gating", () => {
   test("returns an error when the meet flag is off", async () => {
     flagEnabled = false;
+    meetDisableAvatarTool = createMeetDisableAvatarTool(makeHost());
     activeSessionsValue = [fakeSession("m1")];
-    const result = await meetDisableAvatarTool.execute({}, makeContext());
+    const result = await meetDisableAvatarTool.execute(
+      {},
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("meet feature is disabled");
     expect(disableAvatarMock).not.toHaveBeenCalled();
@@ -324,7 +371,10 @@ describe("meet_disable_avatar feature-flag gating", () => {
 describe("meet_disable_avatar disambiguation", () => {
   test("errors when no active sessions exist", async () => {
     activeSessionsValue = [];
-    const result = await meetDisableAvatarTool.execute({}, makeContext());
+    const result = await meetDisableAvatarTool.execute(
+      {},
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content.toLowerCase()).toContain("no active meet session");
     expect(disableAvatarMock).not.toHaveBeenCalled();
@@ -337,7 +387,10 @@ describe("meet_disable_avatar disambiguation", () => {
       wasActive: true,
       cameraChanged: true,
     }));
-    const result = await meetDisableAvatarTool.execute({}, makeContext());
+    const result = await meetDisableAvatarTool.execute(
+      {},
+      makeContext() as never,
+    );
     expect(result.isError).toBe(false);
     expect(disableAvatarMock).toHaveBeenCalledTimes(1);
     expect(disableAvatarMock.mock.calls[0][0]).toBe("solo");
@@ -357,7 +410,10 @@ describe("meet_disable_avatar disambiguation", () => {
 
   test("errors when multiple active sessions and meetingId is omitted", async () => {
     activeSessionsValue = [fakeSession("m1"), fakeSession("m2")];
-    const result = await meetDisableAvatarTool.execute({}, makeContext());
+    const result = await meetDisableAvatarTool.execute(
+      {},
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("multiple active");
     expect(disableAvatarMock).not.toHaveBeenCalled();
@@ -367,7 +423,7 @@ describe("meet_disable_avatar disambiguation", () => {
     activeSessionsValue = [fakeSession("m1"), fakeSession("m2")];
     const result = await meetDisableAvatarTool.execute(
       { meetingId: "m1" },
-      makeContext(),
+      makeContext() as never,
     );
     expect(result.isError).toBe(false);
     expect(disableAvatarMock).toHaveBeenCalledTimes(1);
@@ -385,7 +441,10 @@ describe("meet_disable_avatar error propagation", () => {
     disableAvatarMock.mockImplementationOnce(async () => {
       throw new FakeMeetSessionNotFoundError("no session");
     });
-    const result = await meetDisableAvatarTool.execute({}, makeContext());
+    const result = await meetDisableAvatarTool.execute(
+      {},
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("no active Meet session");
     expect(result.content).toContain("solo");
@@ -396,7 +455,10 @@ describe("meet_disable_avatar error propagation", () => {
     disableAvatarMock.mockImplementationOnce(async () => {
       throw new FakeMeetSessionUnreachableError("connect ECONNREFUSED");
     });
-    const result = await meetDisableAvatarTool.execute({}, makeContext());
+    const result = await meetDisableAvatarTool.execute(
+      {},
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("meet bot unreachable");
     expect(result.content).toContain("ECONNREFUSED");
@@ -407,7 +469,10 @@ describe("meet_disable_avatar error propagation", () => {
     disableAvatarMock.mockImplementationOnce(async () => {
       throw new FakeMeetBotAvatarError("teardown failed", 500);
     });
-    const result = await meetDisableAvatarTool.execute({}, makeContext());
+    const result = await meetDisableAvatarTool.execute(
+      {},
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("status 500");
     expect(result.content).toContain("teardown failed");
@@ -418,7 +483,10 @@ describe("meet_disable_avatar error propagation", () => {
     disableAvatarMock.mockImplementationOnce(async () => {
       throw new Error("kernel panic");
     });
-    const result = await meetDisableAvatarTool.execute({}, makeContext());
+    const result = await meetDisableAvatarTool.execute(
+      {},
+      makeContext() as never,
+    );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("failed to disable Meet avatar");
     expect(result.content).toContain("kernel panic");

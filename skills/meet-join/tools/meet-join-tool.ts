@@ -21,23 +21,18 @@
 
 import { randomUUID } from "node:crypto";
 
-import { z } from "zod";
-
-import { isAssistantFeatureFlagEnabled } from "../../../assistant/src/config/assistant-feature-flags.js";
-import { getConfig } from "../../../assistant/src/config/loader.js";
-import { getAssistantName } from "../../../assistant/src/daemon/identity-helpers.js";
-import { RiskLevel } from "../../../assistant/src/permissions/types.js";
-import type { ToolDefinition } from "../../../assistant/src/providers/types.js";
 import type {
+  SkillHost,
   Tool,
   ToolContext,
+  ToolDefinition,
   ToolExecutionResult,
-} from "../../../assistant/src/tools/types.js";
-import { getLogger } from "../../../assistant/src/util/logger.js";
+} from "@vellumai/skill-host-contracts";
+import { RiskLevel } from "@vellumai/skill-host-contracts";
+import { z } from "zod";
+
 import { getMeetConfig } from "../meet-config.js";
 import { MeetSessionManager } from "../daemon/session-manager.js";
-
-const log = getLogger("meet-join-tool");
 
 /** Feature-flag key that gates the Meet joining bot end-to-end. */
 export const MEET_FLAG_KEY = "meet" as const;
@@ -77,117 +72,120 @@ export function substituteAssistantName(
   return template.split("{assistantName}").join(assistantName);
 }
 
-class MeetJoinTool implements Tool {
-  name = "meet_join";
-  description =
-    "Join a Google Meet call as an AI note-taker. The bot announces itself in the meeting chat, captures a live transcript, and can be asked to leave at any time. Only call this when the user explicitly asks the assistant to join a specific Meet URL.";
-  category = "meet";
-  defaultRiskLevel = RiskLevel.High;
+/**
+ * Build the `meet_join` tool, wired to the supplied `SkillHost` for
+ * feature-flag reads, assistant identity, and logging.
+ */
+export function createMeetJoinTool(host: SkillHost): Tool {
+  const log = host.logger.get("meet-join-tool");
 
-  getDefinition(): ToolDefinition {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: {
-        type: "object",
-        properties: {
-          url: {
-            type: "string",
-            description:
-              "The Google Meet URL to join, e.g. https://meet.google.com/xxx-yyyy-zzz.",
-          },
-          note: {
-            type: "string",
-            description:
-              "Optional free-form note about why the assistant is joining (recorded alongside the session for later reference).",
-          },
-        },
-        required: ["url"],
-      },
-    };
-  }
+  return {
+    name: "meet_join",
+    description:
+      "Join a Google Meet call as an AI note-taker. The bot announces itself in the meeting chat, captures a live transcript, and can be asked to leave at any time. Only call this when the user explicitly asks the assistant to join a specific Meet URL.",
+    category: "meet",
+    defaultRiskLevel: RiskLevel.High,
 
-  async execute(
-    input: Record<string, unknown>,
-    context: ToolContext,
-  ): Promise<ToolExecutionResult> {
-    // 1. Feature-flag gate. Keep the error wording stable so the skill can
-    //    relay it verbatim to the user without surprises.
-    const config = getConfig();
-    if (!isAssistantFeatureFlagEnabled(MEET_FLAG_KEY, config)) {
+    getDefinition(): ToolDefinition {
       return {
-        content:
-          "Error: the meet feature is disabled. Enable the `meet` feature flag to join Google Meet calls.",
-        isError: true,
+        name: this.name,
+        description: this.description,
+        input_schema: {
+          type: "object",
+          properties: {
+            url: {
+              type: "string",
+              description:
+                "The Google Meet URL to join, e.g. https://meet.google.com/xxx-yyyy-zzz.",
+            },
+            note: {
+              type: "string",
+              description:
+                "Optional free-form note about why the assistant is joining (recorded alongside the session for later reference).",
+            },
+          },
+          required: ["url"],
+        },
       };
-    }
+    },
 
-    // 2. Input validation.
-    const parsed = MeetJoinInputSchema.safeParse(input);
-    if (!parsed.success) {
-      const message =
-        parsed.error.issues[0]?.message ?? "invalid meet_join input";
-      return { content: `Error: ${message}`, isError: true };
-    }
-    const { url, note } = parsed.data;
+    async execute(
+      input: Record<string, unknown>,
+      context: ToolContext,
+    ): Promise<ToolExecutionResult> {
+      // 1. Feature-flag gate. Keep the error wording stable so the skill can
+      //    relay it verbatim to the user without surprises.
+      if (!host.config.isFeatureFlagEnabled(MEET_FLAG_KEY)) {
+        return {
+          content:
+            "Error: the meet feature is disabled. Enable the `meet` feature flag to join Google Meet calls.",
+          isError: true,
+        };
+      }
 
-    // 3. Consent-message substitution. We resolve `{assistantName}` here so
-    //    the substituted string reaches the bot container via the session
-    //    manager — keeping the substitution in the tool lets the config
-    //    value remain a template (stable across renames) while the bot
-    //    sees a human-readable greeting.
-    const meetConfig = getMeetConfig();
-    const rawTemplate = meetConfig.consentMessage;
-    const assistantName = getAssistantName() ?? DEFAULT_ASSISTANT_NAME;
-    const consentMessage = substituteAssistantName(rawTemplate, assistantName);
+      // 2. Input validation.
+      const parsed = MeetJoinInputSchema.safeParse(input);
+      if (!parsed.success) {
+        const message =
+          parsed.error.issues[0]?.message ?? "invalid meet_join input";
+        return { content: `Error: ${message}`, isError: true };
+      }
+      const { url, note } = parsed.data;
 
-    // 4. Generate a fresh meeting id. UUIDs give us the cryptographic
-    //    uniqueness the session manager's per-meeting token resolver
-    //    expects without having to coordinate ids across subsystems.
-    const meetingId = randomUUID();
+      // 3. Consent-message substitution. We resolve `{assistantName}` here so
+      //    the substituted string reaches the bot container via the session
+      //    manager — keeping the substitution in the tool lets the config
+      //    value remain a template (stable across renames) while the bot
+      //    sees a human-readable greeting.
+      const meetConfig = getMeetConfig();
+      const rawTemplate = meetConfig.consentMessage;
+      const assistantName =
+        host.identity.getAssistantName() ?? DEFAULT_ASSISTANT_NAME;
+      const consentMessage = substituteAssistantName(rawTemplate, assistantName);
 
-    // 5. Delegate to the session manager. Failures surface as tool errors
-    //    rather than throwing, so the agent loop can re-prompt the user
-    //    with a clear message instead of marking the whole turn as an
-    //    unexpected failure.
-    try {
-      const session = await MeetSessionManager.join({
-        url,
-        meetingId,
-        conversationId: context.conversationId,
-        consentMessage,
-      });
+      // 4. Generate a fresh meeting id. UUIDs give us the cryptographic
+      //    uniqueness the session manager's per-meeting token resolver
+      //    expects without having to coordinate ids across subsystems.
+      const meetingId = randomUUID();
 
-      log.info(
-        {
+      // 5. Delegate to the session manager. Failures surface as tool errors
+      //    rather than throwing, so the agent loop can re-prompt the user
+      //    with a clear message instead of marking the whole turn as an
+      //    unexpected failure.
+      try {
+        const session = await MeetSessionManager.join({
+          url,
+          meetingId,
+          conversationId: context.conversationId,
+          consentMessage,
+        });
+
+        log.info("meet_join tool spawned a Meet session", {
           meetingId: session.meetingId,
           conversationId: session.conversationId,
           containerId: session.containerId,
           note: note ? "[present]" : undefined,
-        },
-        "meet_join tool spawned a Meet session",
-      );
+        });
 
-      return {
-        content: JSON.stringify({
-          meetingId: session.meetingId,
-          status: "joining",
-        }),
-        isError: false,
-      };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      log.warn(
-        { err, meetingId, url },
-        "meet_join tool failed to start a Meet session",
-      );
-      return {
-        content: `Error: failed to join Meet — ${message}`,
-        isError: true,
-      };
-    }
-  }
+        return {
+          content: JSON.stringify({
+            meetingId: session.meetingId,
+            status: "joining",
+          }),
+          isError: false,
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("meet_join tool failed to start a Meet session", {
+          err,
+          meetingId,
+          url,
+        });
+        return {
+          content: `Error: failed to join Meet — ${message}`,
+          isError: true,
+        };
+      }
+    },
+  };
 }
-
-/** Exported singleton so the tool registry can re-register it after test resets. */
-export const meetJoinTool = new MeetJoinTool();
