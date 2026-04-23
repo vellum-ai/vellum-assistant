@@ -148,13 +148,17 @@ async function readConfigValue(key: string): Promise<CommandResult> {
     if (exitCode !== 0) {
       return {
         ok: false,
-        error: stderr.trim() || `assistant config get ${key} exited ${exitCode}`,
+        error:
+          stderr.trim() || `assistant config get ${key} exited ${exitCode}`,
       };
     }
 
     return { ok: true, stdout: stdout.trim() };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
@@ -175,7 +179,7 @@ function parseConfigObject(raw: string | undefined): Record<string, unknown> {
 
 function stringField(
   value: unknown,
-  fallback: string | undefined = undefined,
+  fallback: string | undefined = undefined
 ): string | undefined {
   return typeof value === "string" && value.trim() ? value : fallback;
 }
@@ -199,14 +203,16 @@ async function readInferenceConfig(): Promise<{
   }
 
   const llmConfig = llmDefault.ok ? parseConfigObject(llmDefault.stdout) : {};
-  const inferenceConfig = inference.ok ? parseConfigObject(inference.stdout) : {};
+  const inferenceConfig = inference.ok
+    ? parseConfigObject(inference.stdout)
+    : {};
 
   return {
     config: {
       model: stringField(llmConfig.model, stringField(inferenceConfig.model)),
       provider: stringField(
         llmConfig.provider,
-        stringField(inferenceConfig.provider),
+        stringField(inferenceConfig.provider)
       ),
       mode: stringField(inferenceConfig.mode),
     },
@@ -214,15 +220,15 @@ async function readInferenceConfig(): Promise<{
     error: !llmDefault.ok
       ? llmDefault.error
       : !inference.ok
-        ? inference.error
-        : undefined,
+      ? inference.error
+      : undefined,
   };
 }
 
 function getModelDisplayName(
   lookup: CatalogLookup | null,
   providerId: string,
-  modelId: string,
+  modelId: string
 ): string {
   return (
     lookup?.modelsByProvider.get(providerId)?.get(modelId) ??
@@ -233,7 +239,7 @@ function getModelDisplayName(
 
 function getProviderDisplayName(
   lookup: CatalogLookup | null,
-  providerId: string,
+  providerId: string
 ): string {
   return lookup?.providers.get(providerId) ?? providerId;
 }
@@ -260,12 +266,14 @@ async function main(): Promise<void> {
       mode === "your-own"
         ? "your-own API key"
         : mode === "managed"
-          ? "managed platform proxy"
-          : mode;
+        ? "managed platform proxy"
+        : mode;
 
     const summary = available
       ? `You are running as ${modelDisplayName} via ${providerDisplayName} (${modeLabel}).`
-      : `Current assistant inference configuration is unavailable${error ? `: ${error}` : "."}`;
+      : `Current assistant inference configuration is unavailable${
+          error ? `: ${error}` : "."
+        }`;
 
     if (jsonMode) {
       outputJson({
