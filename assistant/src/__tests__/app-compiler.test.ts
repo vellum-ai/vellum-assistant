@@ -355,6 +355,63 @@ console.log("styled");`,
     const r2 = await compileApp(appDir2);
     expect(r2.ok).toBe(true);
   }, 30_000);
+
+  test("concurrent callers during an in-flight compile coalesce to at most one follow-up", async () => {
+    const appDir = await scaffold("concurrent-dedup", {
+      "main.tsx": `console.log("hello");`,
+      "index.html": MINIMAL_HTML,
+    });
+
+    // Kick off three concurrent compiles. Serialisation guarantees the
+    // first runs to completion alone; callers 2 and 3 coalesce into a
+    // single follow-up compile that begins after the first settles.
+    const [r1, r2, r3] = await Promise.all([
+      compileApp(appDir),
+      compileApp(appDir),
+      compileApp(appDir),
+    ]);
+
+    expect(r1.ok).toBe(true);
+    expect(r2.ok).toBe(true);
+    expect(r3.ok).toBe(true);
+
+    // Callers 2 and 3 share the coalesced follow-up promise.
+    expect(r2).toBe(r3);
+    // Caller 1 ran a distinct compile from the coalesced follow-up.
+    expect(r1).not.toBe(r2);
+
+    // Final dist/ output must be intact regardless of how many compiles
+    // ran: main.js non-empty and index.html has the injected script tag.
+    const js = await readFile(join(appDir, "dist", "main.js"), "utf-8");
+    expect(js.length).toBeGreaterThan(0);
+    const html = await readFile(join(appDir, "dist", "index.html"), "utf-8");
+    expect(html).toContain('src="main.js"');
+  });
+
+  test("source edit during an in-flight compile is picked up by the follow-up", async () => {
+    const appDir = await scaffold("mid-build-edit", {
+      "main.tsx": `console.log("original");`,
+      "index.html": MINIMAL_HTML,
+    });
+
+    // Start the first compile but do not await it yet.
+    const first = compileApp(appDir);
+
+    // Mutate the source while the first compile is still running, then
+    // request another compile. The follow-up must read the updated source
+    // rather than silently reusing the first compile's (now stale) output.
+    await writeFile(join(appDir, "src", "main.tsx"), `console.log("updated");`);
+    const second = compileApp(appDir);
+
+    const [r1, r2] = await Promise.all([first, second]);
+    expect(r1.ok).toBe(true);
+    expect(r2.ok).toBe(true);
+    expect(r1).not.toBe(r2);
+
+    const js = await readFile(join(appDir, "dist", "main.js"), "utf-8");
+    expect(js).toContain("updated");
+    expect(js).not.toContain("original");
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -108,6 +108,7 @@ registerHook(
         id?: string;
         name?: string;
         description?: string;
+        compile_errors?: unknown;
       };
       if (parsed.id) {
         // The apps directory may have just been created — ensure the
@@ -115,7 +116,27 @@ registerHook(
         // trigger live reload.
         ensureAppSourceWatcher();
 
-        handleAppChange(ctx, parsed.id, broadcastToAllClients);
+        // executeAppCreate compiles multifile apps inline and populates
+        // dist/ before returning. handleAppChange would otherwise start
+        // a second compile that begins with `rm -rf dist/`, so we only
+        // invoke it when the executor left compile_errors — i.e. the
+        // authoritative compile did not succeed and a retry is wanted.
+        const app = getApp(parsed.id);
+        const executorCompiled =
+          app != null &&
+          isMultifileApp(app) &&
+          parsed.compile_errors === undefined;
+
+        if (executorCompiled) {
+          refreshSurfacesForApp(ctx, parsed.id);
+          broadcastToAllClients?.({
+            type: "app_files_changed",
+            appId: parsed.id,
+          });
+          void updatePublishedAppDeployment(parsed.id);
+        } else {
+          handleAppChange(ctx, parsed.id, broadcastToAllClients);
+        }
 
         // Fire-and-forget: generate an app icon in the background.
         // When complete, broadcast again so clients pick up the new icon.

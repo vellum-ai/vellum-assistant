@@ -269,13 +269,96 @@ async function resolveAppImports(srcDir: string): Promise<void> {
 }
 
 /**
+ * Per-appDir compile serialisation.
+ *
+ * compileApp() begins by `rm -rf dist/`, so two concurrent compiles on the
+ * same appDir can wipe each other's intermediate output. To prevent that
+ * while still picking up source edits that arrive mid-build, we track a
+ * two-slot queue per appDir:
+ *
+ * - `current`: the compile that is currently writing to dist/.
+ * - `pending`: at most one coalesced follow-up compile queued because a new
+ *   caller arrived while `current` was running. Additional callers arriving
+ *   during that window share `pending` — they do not spawn yet another run.
+ *   Once `current` settles, `pending` is promoted to `current` and begins
+ *   executing; new callers arriving after promotion queue a fresh `pending`.
+ *
+ * This keeps dist/ consistent under concurrency while guaranteeing that any
+ * source mutation observed after a compile starts will be reflected in a
+ * subsequent compile pass rather than silently dropped.
+ */
+interface CompileSlot {
+  current: Promise<CompileResult>;
+  pending?: Promise<CompileResult>;
+}
+
+const compileSlots = new Map<string, CompileSlot>();
+
+/**
  * Compile a TSX app from appDir/src/ into appDir/dist/.
  *
  * Expects appDir/src/main.tsx as the entry point and appDir/src/index.html
  * as the HTML shell. Produces appDir/dist/main.js and appDir/dist/index.html
  * (with script and optional stylesheet tags injected).
+ *
+ * Concurrent calls for the same appDir are serialised (see `compileSlots`
+ * above). Callers never see a partial or racing dist/ write; callers that
+ * represent work requested after a compile started always get a subsequent
+ * fresh compile.
  */
-export async function compileApp(appDir: string): Promise<CompileResult> {
+export function compileApp(appDir: string): Promise<CompileResult> {
+  const slot = compileSlots.get(appDir);
+
+  if (!slot) {
+    const current = runCompile(appDir);
+    const onSettled = () => slotCompileSettled(appDir, current);
+    current.then(onSettled, onSettled);
+    compileSlots.set(appDir, { current });
+    return current;
+  }
+
+  if (slot.pending) return slot.pending;
+
+  // A second distinct caller arrived while `current` is running. Queue a
+  // follow-up that starts once `current` settles (success or failure) so
+  // any source edits that happened mid-build still get compiled.
+  const rerun = async (): Promise<CompileResult> => {
+    try {
+      await slot.current;
+    } catch {
+      // Ignore: we want to rerun regardless of the prior compile's outcome.
+    }
+    return runCompile(appDir);
+  };
+  const pending = rerun();
+  const onSettled = () => slotCompileSettled(appDir, pending);
+  pending.then(onSettled, onSettled);
+  slot.pending = pending;
+  return pending;
+}
+
+function slotCompileSettled(
+  appDir: string,
+  finished: Promise<CompileResult>,
+): void {
+  const slot = compileSlots.get(appDir);
+  if (!slot) return;
+
+  if (slot.current !== finished) {
+    // finished is a rerun that hasn't been promoted yet, or a stale entry.
+    // Promotion happens below when `current` settles; there is nothing to do
+    // here because a subsequent slotCompileSettled(current) will run first.
+    return;
+  }
+
+  if (slot.pending) {
+    compileSlots.set(appDir, { current: slot.pending });
+  } else {
+    compileSlots.delete(appDir);
+  }
+}
+
+async function runCompile(appDir: string): Promise<CompileResult> {
   const start = performance.now();
   const srcDir = join(appDir, "src");
   const distDir = join(appDir, "dist");
