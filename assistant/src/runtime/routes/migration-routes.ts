@@ -320,6 +320,291 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// POST /v1/migrations/export-to-gcs — async export streamed to a signed URL
+// ---------------------------------------------------------------------------
+
+/** 60 minutes — matches the URL-body import fetch deadline. */
+const EXPORT_TO_GCS_PUT_TIMEOUT_MS = 60 * 60 * 1000;
+
+const MigrationExportToGcsBody = z.object({
+  upload_url: z.string().url(),
+  description: z.string().optional(),
+});
+
+/**
+ * Collected credentials plus a warning marker if the credential store was
+ * unreachable. The caller surfaces the warning in logs; production callers
+ * fail closed on errors (a thrown exception → 500) to avoid shipping a
+ * bundle with partial credentials. An unreachable store is NOT an error —
+ * `handleMigrationExport` treats that case as "export without credentials".
+ */
+interface CollectedCredentials {
+  credentials: Array<{ account: string; value: string }>;
+  unreachable: boolean;
+}
+
+/**
+ * Mirror of the credential-collection block inside `handleMigrationExport`.
+ * Factored out so the new async export-to-gcs handler can share the exact
+ * same behavior. Throws if the credential store raises an unexpected error —
+ * the caller translates that into a 500 (fail closed on credential errors).
+ */
+async function collectExportCredentials(): Promise<CollectedCredentials> {
+  const credentialList = await listSecureKeysAsync();
+  if (credentialList.unreachable) {
+    log.warn(
+      "Credential store is unreachable — export will not include credentials",
+    );
+    return { credentials: [], unreachable: true };
+  }
+  const credentials: Array<{ account: string; value: string }> = [];
+  for (const account of credentialList.accounts) {
+    const result = await getSecureKeyResultAsync(account);
+    if (result.unreachable) {
+      log.warn(
+        { account },
+        "Credential store unreachable when reading credential — skipping",
+      );
+    } else if (result.value != null) {
+      credentials.push({ account, value: result.value });
+    }
+  }
+  return { credentials, unreachable: false };
+}
+
+/**
+ * POST /v1/migrations/export-to-gcs
+ *
+ * Starts an async export job that streams a freshly-built .vbundle archive
+ * to a GCS signed PUT URL. Returns `202 Accepted` with a `job_id` the caller
+ * can poll via the job-status endpoint; the bundle upload runs in the
+ * background via `migrationJobs`.
+ *
+ * Request body (JSON):
+ *   { upload_url: string, description?: string }
+ *
+ * Responses:
+ *   202: { job_id, status: "pending", type: "export" }
+ *   400: { error: { code: "invalid_upload_url", reason } } — URL failed
+ *        `validateGcsSignedUrl` (scheme/host/signature/traversal).
+ *   409: { error: { code: "export_in_progress", job_id } } — another export
+ *        job is already pending or running.
+ *   500: Standard error envelope for credential-collection failures or
+ *        other unexpected errors before the job is enqueued.
+ *
+ * Terminal job state (surfaced via the job-status endpoint once poll lands):
+ *   result: { size, sha256, schemaVersion, credentialsIncluded }
+ *   error.code = "upload_failed" with `upstreamStatus` on non-2xx PUT
+ *   error.code = "fetch_failed" on transport errors from the PUT itself.
+ *
+ * Auth: settings.write scope (matches `migrations/export`).
+ */
+export async function handleMigrationExportToGcs(
+  req: Request,
+): Promise<Response> {
+  // ── 1. Parse JSON body ────────────────────────────────────────────────
+  let rawBody: unknown;
+  try {
+    rawBody = await req.json();
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "Failed to parse JSON body on migration export-to-gcs request",
+    );
+    return httpError("BAD_REQUEST", "Invalid JSON body", 400);
+  }
+
+  const parsed = MigrationExportToGcsBody.safeParse(rawBody);
+  if (!parsed.success) {
+    return httpError(
+      "BAD_REQUEST",
+      "Request body must be { upload_url: string, description?: string } with a valid URL",
+      400,
+    );
+  }
+
+  // ── 2. Validate the upload URL. Never log `parsed.data.upload_url`.
+  const validated = validateGcsSignedUrl(
+    parsed.data.upload_url,
+    urlValidatorOptions,
+  );
+  if (!validated.ok) {
+    log.warn(
+      { reason: validated.reason },
+      "Rejected migration export-to-gcs upload URL",
+    );
+    return Response.json(
+      {
+        error: {
+          code: "invalid_upload_url",
+          reason: validated.reason,
+        },
+      },
+      { status: 400 },
+    );
+  }
+
+  log.info(
+    { host: validated.host, path: validated.path },
+    "migration export to GCS starting",
+  );
+
+  // ── 3. Collect credentials up front. Fail closed → 500.
+  let collected: CollectedCredentials;
+  try {
+    collected = await collectExportCredentials();
+  } catch (err) {
+    log.error({ err }, "Failed to collect credentials for export-to-gcs");
+    return httpError(
+      "INTERNAL_ERROR",
+      err instanceof Error ? err.message : "Failed to collect credentials",
+      500,
+    );
+  }
+
+  const description = parsed.data.description;
+  const uploadUrl = parsed.data.upload_url;
+
+  // ── 4. Enqueue the job. The runner captures the collected credentials.
+  let job;
+  try {
+    job = migrationJobs.startJob("export", async () => {
+      let cleanup: (() => Promise<void>) | undefined;
+      try {
+        const result = await streamExportVBundle({
+          workspaceDir: getWorkspaceDir(),
+          source: "runtime-export",
+          description,
+          credentials: collected.credentials,
+          checkpoint: () => {
+            const dbPath = getDbPath();
+            try {
+              const db = new Database(dbPath);
+              try {
+                db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+              } finally {
+                db.close();
+              }
+            } catch (err) {
+              log.warn(
+                { err },
+                "WAL checkpoint failed — exporting without checkpoint",
+              );
+            }
+          },
+        });
+
+        cleanup = result.cleanup;
+        const { tempPath, size, manifest } = result;
+
+        // Stream the temp file to GCS via PUT. Using Node's ReadableStream
+        // bridge keeps peak memory bounded — we do NOT load the archive
+        // into memory.
+        const fileStream = createReadStream(tempPath);
+        const webBody = Readable.toWeb(
+          fileStream,
+        ) as unknown as ReadableStream<Uint8Array>;
+
+        let response: Response;
+        try {
+          response = await fetch(uploadUrl, {
+            method: "PUT",
+            body: webBody,
+            // `duplex: "half"` is required when sending a streaming body
+            // via fetch in Node/Bun — without it the platform rejects the
+            // request as "duplex option is required when body is a
+            // ReadableStream".
+            duplex: "half",
+            // `validateGcsSignedUrl` only vets the initial URL. If the
+            // upstream responds with a 3xx, default fetch would follow
+            // the redirect and PUT bytes to an attacker-controlled host.
+            // Refuse redirects so the signed URL's origin is the only
+            // destination for the export archive.
+            redirect: "error",
+            headers: {
+              "Content-Type": "application/octet-stream",
+              "Content-Length": String(size),
+            },
+            signal: AbortSignal.timeout(EXPORT_TO_GCS_PUT_TIMEOUT_MS),
+          } as RequestInit & { duplex: "half" });
+        } catch (err) {
+          // Transport-level fetch failures (DNS, reset, abort) — tag them
+          // with the fetch-body marker so the registry maps them to
+          // `error.code = "fetch_failed"` and logs stay consistent with
+          // the import URL path.
+          const wrapped = err instanceof Error ? err : new Error(String(err));
+          tagFetchBodyError(wrapped as NodeJS.ErrnoException);
+          (wrapped as { code?: string }).code = "fetch_failed";
+          throw wrapped;
+        }
+
+        if (!response.ok) {
+          // Drain so the socket is released promptly. Ignore drain errors.
+          try {
+            await response.body?.cancel();
+          } catch {
+            /* best-effort */
+          }
+          const uploadErr = new Error(
+            `Upload to GCS failed with status ${response.status}`,
+          );
+          (uploadErr as { code?: string }).code = "upload_failed";
+          (uploadErr as { upstreamStatus?: number }).upstreamStatus =
+            response.status;
+          throw uploadErr;
+        }
+
+        return {
+          size,
+          sha256: manifest.manifest_sha256,
+          schemaVersion: manifest.schema_version,
+          credentialsIncluded: collected.credentials.length,
+        };
+      } finally {
+        // Mirror the raw-bytes export cleanup pattern: the stream's
+        // `close` listener is the happy-path cleanup in that handler, but
+        // here we keep everything in the async block, so a finally is the
+        // right place to evict the temp file regardless of outcome.
+        if (cleanup) {
+          try {
+            await cleanup();
+          } catch (err) {
+            log.warn({ err }, "Failed to clean up export-to-gcs temp file");
+          }
+        }
+      }
+    });
+  } catch (err) {
+    if (err instanceof JobAlreadyInProgressError) {
+      return Response.json(
+        {
+          error: {
+            code: "export_in_progress",
+            job_id: err.existingJobId,
+          },
+        },
+        { status: 409 },
+      );
+    }
+    log.error({ err }, "Unexpected error while enqueueing export-to-gcs job");
+    return httpError(
+      "INTERNAL_ERROR",
+      err instanceof Error ? err.message : "Unexpected export-to-gcs error",
+      500,
+    );
+  }
+
+  return Response.json(
+    {
+      job_id: job.id,
+      status: "pending" as const,
+      type: "export" as const,
+    },
+    { status: 202 },
+  );
+}
+
 /**
  * Extract file data from a request body, supporting both raw binary
  * and multipart form data uploads.
@@ -1378,6 +1663,67 @@ function importCommitFailureResponse(
 }
 
 // ---------------------------------------------------------------------------
+// GET /v1/migrations/jobs/:job_id
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /v1/migrations/jobs/:job_id
+ *
+ * Returns the current status of a migration job tracked by
+ * `MigrationJobRegistry`. The response shape is a discriminated union on
+ * `status`:
+ *
+ *   - `{ job_id, type, status: "processing" }`
+ *     Covers both the internal `pending` and `running` states — collapsed
+ *     into a single wire value to match the platform's transport shape used
+ *     by `ExportStatusProcessingSerializer` / `ImportStatusProcessingSerializer`.
+ *   - `{ job_id, type, status: "complete", result }`
+ *   - `{ job_id, type, status: "failed", error, error_code, upstream_status? }`
+ *
+ * 404 `{ error: { code: "job_not_found" } }` when no job matches the id.
+ */
+export async function handleMigrationJobStatus(
+  _req: Request,
+  params: { job_id: string },
+): Promise<Response> {
+  const job = migrationJobs.getJob(params.job_id);
+  if (job === null) {
+    return Response.json({ error: { code: "job_not_found" } }, { status: 404 });
+  }
+
+  if (job.status === "complete") {
+    return Response.json({
+      job_id: job.id,
+      type: job.type,
+      status: "complete",
+      result: job.result,
+    });
+  }
+
+  if (job.status === "failed") {
+    const error = job.error;
+    const body: Record<string, unknown> = {
+      job_id: job.id,
+      type: job.type,
+      status: "failed",
+      error: error?.message ?? "unknown",
+      error_code: error?.code ?? "unknown",
+    };
+    if (error?.upstreamStatus !== undefined) {
+      body.upstream_status = error.upstreamStatus;
+    }
+    return Response.json(body);
+  }
+
+  // pending or running — collapse to the platform's "processing" wire value.
+  return Response.json({
+    job_id: job.id,
+    type: job.type,
+    status: "processing",
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
@@ -1496,6 +1842,31 @@ export function migrationRouteDefinitions(): RouteDefinition[] {
       handler: async ({ req }) => handleMigrationImport(req),
     },
     {
+      endpoint: "migrations/export-to-gcs",
+      method: "POST",
+      summary: "Start an async export streamed to a GCS signed URL",
+      description:
+        "Kick off a background export job that PUTs a freshly-built .vbundle archive to the supplied GCS signed URL. Returns 202 with a job_id the caller can poll via the job-status endpoint. Fails fast with 409 if another export job is already pending or running.",
+      tags: ["migrations"],
+      requestBody: z.object({
+        upload_url: z
+          .string()
+          .url()
+          .describe("Signed GCS PUT URL that receives the exported bundle."),
+        description: z
+          .string()
+          .optional()
+          .describe("Human-readable export description."),
+      }),
+      responseStatus: "202",
+      responseBody: z.object({
+        job_id: z.string(),
+        status: z.literal("pending"),
+        type: z.literal("export"),
+      }),
+      handler: async ({ req }) => handleMigrationExportToGcs(req),
+    },
+    {
       endpoint: "migrations/import-from-gcs",
       method: "POST",
       summary: "Start an async .vbundle import from a signed GCS URL",
@@ -1505,6 +1876,7 @@ export function migrationRouteDefinitions(): RouteDefinition[] {
       requestBody: z.object({
         bundle_url: z.string().url(),
       }),
+      responseStatus: "202",
       responseBody: z.object({
         job_id: z.string(),
         status: z.literal("pending"),
@@ -1531,6 +1903,56 @@ export function migrationRouteDefinitions(): RouteDefinition[] {
         },
       },
       handler: async ({ req }) => handleMigrationImportFromGcs(req),
+    },
+    {
+      endpoint: "migrations/jobs/:job_id",
+      method: "GET",
+      summary: "Get migration job status",
+      description:
+        "Return the current status of an async migration job (export or import). The response discriminates on `status`: `processing` (pending or running), `complete` (with `result`), or `failed` (with `error`, `error_code`, optional `upstream_status`). The `processing` value mirrors the platform's transport shape so CLI clients can share a single parser across the platform and the daemon.",
+      tags: ["migrations"],
+      responseBody: z.discriminatedUnion("status", [
+        z.object({
+          job_id: z.string(),
+          type: z.enum(["export", "import"]),
+          status: z.literal("processing"),
+        }),
+        z.object({
+          job_id: z.string(),
+          type: z.enum(["export", "import"]),
+          status: z.literal("complete"),
+          result: z.unknown(),
+        }),
+        z.object({
+          job_id: z.string(),
+          type: z.enum(["export", "import"]),
+          status: z.literal("failed"),
+          error: z.string(),
+          error_code: z.string(),
+          upstream_status: z.number().int().optional(),
+        }),
+      ]),
+      additionalResponses: {
+        "404": {
+          description:
+            "No job matches the given id. Body shape: { error: { code: 'job_not_found' } }.",
+          schema: {
+            type: "object",
+            properties: {
+              error: {
+                type: "object",
+                properties: {
+                  code: { type: "string", enum: ["job_not_found"] },
+                },
+                required: ["code"],
+              },
+            },
+            required: ["error"],
+          },
+        },
+      },
+      handler: ({ req, params }) =>
+        handleMigrationJobStatus(req, { job_id: params.job_id }),
     },
   ];
 }

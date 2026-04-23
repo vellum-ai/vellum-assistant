@@ -106,9 +106,16 @@ export interface RouteDefinition {
    * raw bytes OR JSON URL).
    */
   requestBodies?: RouteRequestBodyVariant[];
-  /** Zod schema for the 200 response body. */
+  /** Zod schema for the success response body. */
   responseBody?: RouteBodySchema;
-  /** Additional non-200 responses documented in the generated OpenAPI spec. */
+  /**
+   * HTTP status code for the documented success response. Defaults to 200.
+   * Set to "202" for async endpoints that enqueue a job and return
+   * immediately — this keeps the generated OpenAPI spec aligned with the
+   * handler's actual `status:` value.
+   */
+  responseStatus?: string;
+  /** Additional response codes documented in the generated OpenAPI spec. */
   additionalResponses?: Record<string, RouteAdditionalResponse>;
 }
 
