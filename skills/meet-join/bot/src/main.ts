@@ -542,6 +542,16 @@ export async function runBot(deps: BotDeps): Promise<void> {
   let shutdownInProgress = false;
   let shutdownDonePromise: Promise<void> | null = null;
 
+  // Serialization lane for xdotool invocations. Declared up here (rather
+  // than alongside `enqueueXdotool` below) so it is initialized before the
+  // boot `try` block registers the extension-message handler: a
+  // `trusted_click` / `trusted_type` arriving during a boot await (e.g. the
+  // prejoin admission click that fires ~200-500ms after `join`) calls
+  // `enqueueXdotool`, which reads this binding. Leaving the `let` past the
+  // handler registration put it in the TDZ during that window. See the
+  // block comment on `enqueueXdotool` for why the queue exists.
+  let xdotoolQueue: Promise<unknown> = Promise.resolve();
+
   // Timer armed after `join` is dispatched that trips shutdown if the
   // extension never reaches `lifecycle:joined` / `lifecycle:error`. Cleared
   // from the lifecycle-message handler and on shutdown. See the timer
@@ -1008,8 +1018,12 @@ export async function runBot(deps: BotDeps): Promise<void> {
    * ordering. The queue makes serial execution a property of the bot
    * process itself, so overlap is impossible regardless of caller-side
    * timing assumptions.
+   *
+   * The `xdotoolQueue` binding is declared earlier alongside the other
+   * per-boot mutable state so `enqueueXdotool` can be called from the
+   * extension-message handler during the boot `try` block without hitting
+   * the TDZ.
    */
-  let xdotoolQueue: Promise<unknown> = Promise.resolve();
   function enqueueXdotool<T>(op: () => Promise<T>): Promise<T> {
     // `.catch(() => undefined)` so one failed xdotool invocation doesn't
     // poison the chain — later type/click ops must still run.
