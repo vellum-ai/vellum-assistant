@@ -1371,12 +1371,30 @@ export async function runAgentLoopImpl(
         toolTokenBudget,
         maxAttempts: overflowRecovery.maxAttempts,
         abortSignal: abortController.signal,
-        compactFn: (msgs, signal, opts) =>
-          ctx.contextWindowManager.maybeCompact(
-            msgs,
-            signal!,
-            opts as Parameters<ContextWindowManager["maybeCompact"]>[2],
-          ),
+        compactFn: async (msgs, signal, opts) =>
+          // Route the reducer's forced-compaction tier through the
+          // `compaction` pipeline so registered plugins observe these
+          // invocations. Without this, custom compaction middleware only
+          // sees the three orchestrator-owned call sites and misses the
+          // reducer-initiated forced compactions entirely.
+          (await runPipeline<CompactionArgs, CompactionResult>(
+            "compaction",
+            getMiddlewaresFor("compaction"),
+            (args) =>
+              defaultCompactionTerminal(
+                args,
+                buildPluginTurnContext(ctx, reqId),
+              ),
+            {
+              messages: msgs,
+              signal,
+              options: opts,
+            },
+            buildPluginTurnContext(ctx, reqId),
+            DEFAULT_TIMEOUTS.compaction,
+          )) as Awaited<
+            ReturnType<typeof ctx.contextWindowManager.maybeCompact>
+          >,
         emitActivityState: () => {
           ctx.emitActivityState(
             "thinking",
