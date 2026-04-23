@@ -125,7 +125,10 @@ export interface ErrorContext {
  * which erases the `AbortError` name. To compensate, the daemon tags every
  * `controller.abort(reason)` call with an `AbortReason` object — when the
  * wrapped `ProviderError` carries that tagged reason, we treat it as a user
- * cancellation regardless of error class.
+ * cancellation regardless of error class. The same tagged object can also
+ * surface directly (e.g. when code calls `AbortSignal.throwIfAborted()`,
+ * which throws `signal.reason` verbatim), so a bare `AbortReason` is
+ * recognized as cancellation too.
  */
 export function isUserCancellation(error: unknown, ctx: ErrorContext): boolean {
   if (!ctx.aborted) return false;
@@ -134,6 +137,7 @@ export function isUserCancellation(error: unknown, ctx: ErrorContext): boolean {
   if (error instanceof ProviderError && isAbortReason(error.abortReason)) {
     return true;
   }
+  if (isAbortReason(error)) return true;
   return false;
 }
 

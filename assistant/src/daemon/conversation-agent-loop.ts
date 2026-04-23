@@ -1450,8 +1450,8 @@ export async function runAgentLoopImpl(
           // When THIS iteration compacted, it stripped existing NOW.md /
           // PKB blocks — so we re-inject current content. A later iteration
           // that only truncates or downgrades must NOT re-force PKB/NOW,
-          // or each round would grow the token count. Matches the
-          // pre-PR-23 per-iteration `step.compactionResult?.compacted` gate.
+          // or each round would grow the token count.
+          // Gate: only the iteration that actually compacted re-injects.
           const injection = await applyRuntimeInjections(reducedMessages, {
             ...injectionOpts,
             ...(stepCompacted && { pkbContext: currentPkbContent }),

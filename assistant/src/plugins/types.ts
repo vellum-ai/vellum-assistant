@@ -411,7 +411,7 @@ export interface OverflowReduceArgs {
    * mutable shared state. Returns the new `runMessages`.
    *
    * Two distinct "did compact" signals are passed so the orchestrator can
-   * match the pre-PR-23 semantics:
+   * apply the correct per-iteration vs sticky gating:
    * - `stepCompacted` — whether THIS iteration's reducer step produced a
    *   fresh compaction. Gates PKB / NOW re-injection: compaction strips the
    *   existing blocks, so only iterations that just compacted need the

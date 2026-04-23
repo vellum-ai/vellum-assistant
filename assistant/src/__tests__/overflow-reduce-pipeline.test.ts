@@ -591,7 +591,7 @@ describe("overflow-reduce pipeline", () => {
         },
       };
 
-      expect(
+      await expect(
         defaultOverflowReduceMiddleware(
           aborting,
           async () => {
@@ -600,8 +600,6 @@ describe("overflow-reduce pipeline", () => {
           makeTurnContext(),
         ),
       ).rejects.toThrow();
-      // Give the event loop a tick to resolve the rejected promise.
-      await Promise.resolve();
       // Exactly one iteration ran; the abort gate stopped the next round.
       expect(estimateCalls).toBe(1);
     });
@@ -616,7 +614,7 @@ describe("overflow-reduce pipeline", () => {
         abortSignal: controller.signal,
       };
 
-      expect(
+      await expect(
         defaultOverflowReduceMiddleware(
           args,
           async () => {
@@ -625,7 +623,6 @@ describe("overflow-reduce pipeline", () => {
           makeTurnContext(),
         ),
       ).rejects.toThrow();
-      await Promise.resolve();
       // Reducer never ran — zero compaction and reinject callbacks observed.
       expect(build.compactionResults).toHaveLength(0);
       expect(build.reinjectCalls).toHaveLength(0);
