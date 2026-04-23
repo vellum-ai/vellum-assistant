@@ -24,7 +24,7 @@ export function createGatewayClientMock(): GatewayClientMock {
     ipcClassifyRisk: async (params: Record<string, unknown>) => {
       return handleClassifyRisk(
         params as Parameters<typeof handleClassifyRisk>[0],
-      ) as Promise<Record<string, unknown>>;
+      ) as unknown as Promise<Record<string, unknown>>;
     },
     ipcCall: async () => undefined,
     ipcCallPersistent: async () => undefined,
