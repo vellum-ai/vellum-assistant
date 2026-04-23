@@ -344,6 +344,39 @@ describe("startChatReader", () => {
     expect(ev.text).toBe("ping");
   });
 
+  test("emits both messages when content hash collides but data-message-ids differ", async () => {
+    // Regression: the content-hash fallback (sender+timestamp+text) collapses
+    // two genuinely distinct messages that happen to share a second-granular
+    // timestamp and identical text — common when a user double-sends the same
+    // quick reply. When Meet exposes `data-message-id` on listitems, the
+    // reader must key dedup off it instead of the content hash so both
+    // messages emit.
+    const events: ExtensionToBotMessage[] = [];
+    reader = startChatReader({
+      meetingId: "m1",
+      selfName: "Bot",
+      onEvent: (ev) => events.push(ev),
+    });
+    events.length = 0;
+
+    installed!.appendMessage({
+      id: "msg-a",
+      sender: "Bob",
+      text: "same",
+      datetime: "2026-04-15T12:36:00Z",
+    });
+    installed!.appendMessage({
+      id: "msg-b",
+      sender: "Bob",
+      text: "same",
+      datetime: "2026-04-15T12:36:00Z",
+    });
+    await flushMicrotasks();
+
+    const chatEvents = events.filter((e) => e.type === "chat.inbound");
+    expect(chatEvents.length).toBe(2);
+  });
+
   test("clicks the panel toggle when the chat panel is closed", async () => {
     installed!.closePanel();
     expect(installed!.panelToggleClicks()).toBe(0);
